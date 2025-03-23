@@ -1,0 +1,41 @@
+{
+  "name": "brainstrike",
+  "version": "1.0.0",
+  "description": "Brainstrike Desktop App",
+  "main": "main/main.js",
+  "scripts": {
+    "dev": "electron .",
+    "start": "electron .",
+    "build": "electron-builder",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "electron": "^35.0.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.example.brainstrike",
+    "productName": "Brainstrike",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

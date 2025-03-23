@@ -1,0 +1,109 @@
+# Dependency directories
+node_modules/
+.pnp/
+.pnp.js
+
+# Next.js build outputs
+.next/
+out/
+dist/
+build/
+
+# Electron build outputs
+dist/
+release/
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE - VSCode
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# IDE - JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Testing
+/coverage
+.nyc_output
+
+# Cache directories
+.npm/
+.eslintcache
+.stylelintcache
+.cache/
+
+# Bundle analyzer outputs
+analyzer-stats.json
+
+# Storybook
+storybook-static/
+
+# Turbo
+.turbo
+
+# vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# Logs
+logs
+*.log
+
+# Optional npm/yarn cache directory
+.npm
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnpm-store/
+
+# Service worker
+/public/sw.js
+/public/workbox-*.js
+
+# Sentry
+.sentry/
+
+# Local Netlify folder
+.netlify 
