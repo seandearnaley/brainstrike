@@ -1,6 +1,5 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, protocol } = require("electron");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
@@ -9,64 +8,142 @@ if (require("electron-squirrel-startup")) {
 }
 
 let mainWindow;
-let serverProcess;
 
-// Start a static file server for the Next.js output
-function startStaticServer() {
+/**
+ * Simple static file server using built-in HTTP server
+ */
+function startServer() {
   return new Promise((resolve, reject) => {
-    const nextAppDir = path.join(__dirname, "../next-app");
-    const outDir = path.join(nextAppDir, "out");
-
-    // If the output directory doesn't exist, reject
-    if (!fs.existsSync(outDir)) {
-      return reject(new Error(`Next.js build directory not found: ${outDir}`));
+    try {
+      const http = require("http");
+      const outDir = path.join(__dirname, "../next-app/out");
+      
+      if (!fs.existsSync(outDir)) {
+        return reject(new Error(`Next.js output directory not found: ${outDir}`));
+      }
+      
+      // Create a simple HTTP server
+      const server = http.createServer((req, res) => {
+        let reqPath = req.url;
+        
+        console.log(`[Server] Request: ${req.method} ${reqPath}`);
+        
+        // Handle root path
+        if (reqPath === "/") {
+          reqPath = "/index.html";
+        }
+        
+        // For routes like /settings, serve the HTML file
+        if (reqPath.startsWith("/settings") && !reqPath.includes(".")) {
+          reqPath = "/settings.html";
+        }
+        
+        // Remove query parameters
+        reqPath = reqPath.split("?")[0];
+        
+        // Resolve the file path
+        const filePath = path.join(outDir, reqPath);
+        
+        // Special case for 404 page
+        if (!fs.existsSync(filePath) && reqPath !== "/404.html") {
+          // Try to serve the 404 page for client-side routing
+          if (fs.existsSync(path.join(outDir, "/404.html"))) {
+            const content = fs.readFileSync(path.join(outDir, "/404.html"));
+            res.writeHead(200, { "Content-Type": "text/html" });
+            res.end(content);
+            return;
+          }
+        }
+        
+        // Check if the file exists
+        if (fs.existsSync(filePath)) {
+          // Determine content type
+          const ext = path.extname(filePath).toLowerCase();
+          const contentTypeMap = {
+            ".html": "text/html",
+            ".js": "application/javascript",
+            ".css": "text/css",
+            ".json": "application/json",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".svg": "image/svg+xml",
+            ".ico": "image/x-icon",
+            ".woff": "font/woff",
+            ".woff2": "font/woff2",
+            ".ttf": "font/ttf",
+            ".eot": "application/vnd.ms-fontobject",
+            ".otf": "font/otf",
+            ".txt": "text/plain"
+          };
+          
+          const contentType = contentTypeMap[ext] || "application/octet-stream";
+          
+          // Set appropriate CORS headers
+          const headers = {
+            "Content-Type": contentType,
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+            "Cache-Control": "public, max-age=31536000" // 1 year for assets
+          };
+          
+          // Read and send the file
+          try {
+            const content = fs.readFileSync(filePath);
+            res.writeHead(200, headers);
+            console.log(`[Server] Serving: ${filePath} (${contentType})`);
+            res.end(content);
+          } catch (error) {
+            console.error(`[Server] Error reading file: ${filePath}`, error);
+            res.writeHead(500);
+            res.end("Server Error");
+          }
+        } else {
+          // For client-side routing, send index.html instead of 404
+          if (reqPath.indexOf('.') === -1) {
+            console.log(`[Server] Client-side route: ${reqPath} - serving index.html`);
+            const indexPath = path.join(outDir, "index.html");
+            if (fs.existsSync(indexPath)) {
+              const content = fs.readFileSync(indexPath);
+              res.writeHead(200, { "Content-Type": "text/html" });
+              res.end(content);
+              return;
+            }
+          }
+          
+          console.error(`[Server] File not found: ${filePath}`);
+          res.writeHead(404);
+          res.end("Not Found");
+        }
+      });
+      
+      // Use a random free port or fallback to 0 which assigns a random port
+      server.listen(0, "127.0.0.1", () => {
+        const serverAddress = server.address();
+        const port = serverAddress.port;
+        
+        console.log(`Server started on port ${port}`);
+        
+        resolve({
+          url: `http://localhost:${port}`,
+          close: () => {
+            server.close();
+            console.log("Server closed");
+          }
+        });
+      });
+    } catch (error) {
+      reject(error);
     }
-
-    console.log("Starting static file server...");
-
-    // Use the serve package that's already installed in the next-app folder
-    serverProcess = spawn("npx", ["serve", "-s", outDir, "-p", "3000"], {
-      cwd: nextAppDir,
-      shell: true,
-    });
-
-    let serverStarted = false;
-
-    serverProcess.stdout.on("data", (data) => {
-      console.log(`Server output: ${data}`);
-
-      // When server is ready, resolve
-      if (data.includes("Accepting connections") && !serverStarted) {
-        serverStarted = true;
-        resolve("http://localhost:3000");
-      }
-    });
-
-    serverProcess.stderr.on("data", (data) => {
-      console.error(`Server error: ${data}`);
-    });
-
-    serverProcess.on("error", (err) => {
-      console.error("Failed to start server:", err);
-      reject(err);
-    });
-
-    // Timeout if server doesn't start in 5 seconds
-    setTimeout(() => {
-      if (!serverStarted) {
-        reject(new Error("Server startup timed out"));
-      }
-    }, 5000);
   });
 }
 
 function createWindow() {
   try {
-    // Start the static file server
-    startStaticServer()
-      .then((serverUrl) => {
-        console.log(`Server started at ${serverUrl}`);
-
+    startServer()
+      .then((server) => {
         // Create the browser window
         mainWindow = new BrowserWindow({
           width: 1200,
@@ -77,11 +154,10 @@ function createWindow() {
             sandbox: false, // Allow Node.js modules in preload
             preload: path.join(__dirname, "preload.js"),
             webSecurity: true,
-            allowRunningInsecureContent: false,
           },
           backgroundColor: "#ffffff",
         });
-
+        
         // Set Content Security Policy
         mainWindow.webContents.session.webRequest.onHeadersReceived(
           (details, callback) => {
@@ -95,15 +171,15 @@ function createWindow() {
             });
           }
         );
-
-        // Wait a moment for the server to initialize
-        setTimeout(() => {
-          // Load the app from the server
-          mainWindow.loadURL(serverUrl);
-
-          // Open DevTools for debugging
-          mainWindow.webContents.openDevTools();
-        }, 500);
+        
+        // Load the app from the server URL
+        mainWindow.loadURL(server.url);
+        
+        // Open DevTools for debugging
+        mainWindow.webContents.openDevTools();
+        
+        // Set up a global reference for cleanup
+        app.server = server;
       })
       .catch((error) => {
         console.error("Error starting server:", error);
@@ -204,9 +280,8 @@ app.whenReady().then(() => {
 // Quit when all windows are closed, except on macOS
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
-    // Kill the server process if it exists
-    if (serverProcess) {
-      serverProcess.kill();
+    if (app.server) {
+      app.server.close();
     }
     app.quit();
   }
@@ -219,11 +294,9 @@ app.on("activate", () => {
   }
 });
 
-// Cleanup when app is quitting
+// Clean up on quit
 app.on("quit", () => {
-  // Make sure to kill the server process when the app is quitting
-  if (serverProcess) {
-    serverProcess.kill();
-    console.log("Server process terminated");
+  if (app.server) {
+    app.server.close();
   }
 });

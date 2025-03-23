@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const mime = require('mime-types');
 
 function createServer() {
   const app = express();
@@ -23,18 +24,39 @@ function createServer() {
   // Serve static files from Next.js output with correct MIME types
   app.use('/_next', express.static(path.join(outDir, '_next'), {
     setHeaders: (res, filePath) => {
-      if (filePath.endsWith('.js')) res.setHeader('Content-Type', 'application/javascript');
-      if (filePath.endsWith('.css')) res.setHeader('Content-Type', 'text/css');
-      if (filePath.endsWith('.woff2')) res.setHeader('Content-Type', 'font/woff2');
+      // Set appropriate content types based on file extension
+      const contentType = mime.lookup(filePath);
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+      // Set caching headers
+      res.setHeader('Cache-Control', 'public, max-age=31536000'); // 1 year
     }
   }));
   
-  // Serve other static files
-  app.use(express.static(outDir));
+  // Serve other static assets (icons, etc.)
+  app.use(express.static(outDir, {
+    setHeaders: (res, filePath) => {
+      const contentType = mime.lookup(filePath);
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+    }
+  }));
   
-  // Handle all routes - direct them to index.html
+  // Special handling for .txt files (RSC payloads)
+  app.get('/*.txt', (req, res) => {
+    const filePath = path.join(outDir, req.path);
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).send('Not found');
+    }
+  });
+
+  // Handle all routes - direct them to index.html for client-side routing
   app.get('*', (req, res) => {
-    console.log(`Fallback for: ${req.url}`);
+    console.log(`Serving index.html for: ${req.url}`);
     res.sendFile(path.join(outDir, 'index.html'));
   });
   
@@ -45,7 +67,10 @@ function createServer() {
   
   return {
     port,
-    close: () => server.close()
+    close: () => {
+      console.log('Closing server...');
+      server.close();
+    }
   };
 }
 

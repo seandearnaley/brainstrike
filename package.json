@@ -10,7 +10,8 @@
     "build": "npm run build:next && electron-builder",
     "dev:next": "cd next-app && npm run dev",
     "test": "cd next-app && npm run test",
-    "lint": "cd next-app && npm run lint"
+    "lint": "cd next-app && npm run lint",
+    "rebuild": "npm run build:next && npm start"
   },
   "keywords": [],
   "author": "",
