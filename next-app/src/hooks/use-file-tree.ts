@@ -188,9 +188,9 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
   );
 
   // Special function to handle Electron path
-  const loadElectronTree = useCallback(async (rootHandle: FileSystemDirectoryHandle) => {
+  const loadElectronTree = useCallback(async (rootHandle: FileSystemDirectoryHandle, dirPath?: string) => {
     // Check if this is an Electron handle
-    if (!('_electronPath' in rootHandle)) {
+    if (!('_electronPath' in rootHandle) && !dirPath) {
       return null; // Not an Electron handle
     }
     
@@ -205,16 +205,16 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
     };
     
     try {
-      // Get the path from our special _electronPath property
-      const dirPath = (rootHandle as any)._electronPath;
-      console.log('Loading Electron directory tree from:', dirPath);
+      // Get the path from our special _electronPath property or use provided dirPath (for subdirectories)
+      const currentDirPath = dirPath || (rootHandle as any)._electronPath;
+      console.log('Loading Electron directory tree from:', currentDirPath);
       
       // Use our Electron API to list the directory
       if (!window.electronAPI) {
         throw new Error('Electron API not available');
       }
       
-      const result = await window.electronAPI.listDirectory(dirPath);
+      const result = await window.electronAPI.listDirectory(currentDirPath);
       if (result.error || !result.files) {
         throw new Error(result.error || 'Failed to list directory');
       }
@@ -249,7 +249,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
         fileNodes.push({
           name: file.name,
           path: file.path,
-          depth: 1, // Direct children of root
+          depth: currentDirPath.split('/').length, // Calculate depth based on path
           type: 'file',
           handle: mockFileHandle as unknown as FileSystemFileHandle,
           selectionState: 'unchecked',
@@ -268,7 +268,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
         });
       }
       
-      // Process directories (not recursive in this simple implementation)
+      // Process directories
       const dirs = result.files.filter(f => f.type === 'directory');
       
       for (const dir of dirs) {
@@ -284,12 +284,12 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
         fileNodes.push({
           name: dir.name,
           path: dir.path,
-          depth: 1, // Direct children of root
+          depth: currentDirPath.split('/').length, // Calculate depth based on path
           type: 'directory',
           handle: mockDirHandle as unknown as FileSystemDirectoryHandle,
           selectionState: 'unchecked',
           rootFolderId,
-          children: [] // Empty for now, we're not recursively loading
+          children: [] // Empty for now, we'll load on expansion
         });
       }
       

@@ -121,13 +121,109 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     /**
      * Handles directory expansion/collapse when clicking the chevron icon.
      * Prevents event propagation to avoid triggering selection.
+     * For Electron directories, ensures directory content is loaded.
      */
     const handleExpansionClick = useCallback(
-      (e: React.MouseEvent<HTMLButtonElement>) => {
+      async (e: React.MouseEvent<HTMLButtonElement>) => {
         e.stopPropagation();
+        
+        // Special case for Electron directories that need to be loaded
+        if (
+          node.type === 'directory' && 
+          node.handle && 
+          '_electronPath' in node.handle && 
+          (!node.children || node.children.length === 0)
+        ) {
+          // Check if window.electronAPI exists
+          if (typeof window !== 'undefined' && window.electronAPI) {
+            console.log('Loading Electron directory content:', node.path);
+            
+            try {
+              // Simulate directory content loading directly here
+              const dirPath = (node.handle as any)._electronPath;
+              const result = await window.electronAPI.listDirectory(dirPath);
+              
+              if (!result.error && result.files) {
+                // Process files
+                const fileNodes: IFileNode[] = [];
+                const rootFolderId = node.rootFolderId;
+                
+                // Create file nodes
+                for (const file of result.files) {
+                  if (file.type === 'file') {
+                    const mockFileHandle = {
+                      kind: 'file' as 'file',
+                      name: file.name,
+                      _electronPath: file.path,
+                      async getFile() {
+                        return {
+                          name: file.name,
+                          size: file.size,
+                          lastModified: file.lastModified
+                        };
+                      }
+                    };
+                    
+                    fileNodes.push({
+                      name: file.name,
+                      path: file.path,
+                      depth: node.depth + 1,
+                      type: 'file',
+                      handle: mockFileHandle as unknown as FileSystemFileHandle,
+                      selectionState: 'unchecked',
+                      rootFolderId,
+                      size: file.size,
+                      lastModified: file.lastModified
+                    });
+                  } else if (file.type === 'directory') {
+                    // Create directory nodes
+                    const mockDirHandle = {
+                      kind: 'directory' as 'directory',
+                      name: file.name,
+                      _electronPath: file.path,
+                      async *entries() {
+                        yield ['_electron_mock_', { kind: 'file', name: '_electron_mock_'}];
+                      }
+                    };
+                    
+                    fileNodes.push({
+                      name: file.name,
+                      path: file.path,
+                      depth: node.depth + 1,
+                      type: 'directory',
+                      handle: mockDirHandle as unknown as FileSystemDirectoryHandle,
+                      selectionState: 'unchecked',
+                      rootFolderId,
+                      children: []
+                    });
+                  }
+                }
+                
+                // Sort nodes by type and name
+                const sortedNodes = [...fileNodes].sort((a, b) => {
+                  if (a.type !== b.type) {
+                    if (a.type === 'directory') return -1;
+                    if (b.type === 'directory') return 1;
+                  }
+                  return a.name.localeCompare(b.name, undefined, {
+                    numeric: true,
+                    sensitivity: 'base',
+                  });
+                });
+                
+                // Update node children
+                node.children = sortedNodes;
+              }
+            } catch (error) {
+              console.error('Error loading Electron directory content:', error);
+            }
+          }
+        }
+        
+        // Continue with normal directory expansion
         onToggleDirectoryExpansion(node.path);
       },
-      [node.path, onToggleDirectoryExpansion]
+      [node, onToggleDirectoryExpansion]
     );
 
     /**
