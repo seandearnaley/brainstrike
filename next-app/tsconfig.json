@@ -1,0 +1,52 @@
+{
+  "compilerOptions": {
+    "forceConsistentCasingInFileNames": true,
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "allowJs": true,
+    "target": "es2020",
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "types": [
+      "node",
+      "jest",
+      "@playwright/test",
+      "@testing-library/jest-dom"
+    ]
+  },
+  "include": [
+    "e2e",
+    "jest.config.ts",
+    "jest.config.unit.ts",
+    "jest.config.integration.ts",
+    "jest.setup.ts",
+    "playwright.config.ts",
+    "src",
+    ".next/types/**/*.ts",
+    "commitlint.config.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

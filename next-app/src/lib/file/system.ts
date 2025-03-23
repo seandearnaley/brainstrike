@@ -1,0 +1,216 @@
+import { stableHash } from '@/lib/utils/hash';
+import type { IFileNode } from './types';
+
+interface ExperimentalFileSystemFeatures {
+  isSameEntry(other: FileSystemHandle): Promise<boolean>;
+  getParent(): Promise<FileSystemHandle | null>;
+}
+
+// Custom error types for file system operations
+class FileSystemOperationError extends Error {
+  constructor(
+    message: string,
+    public readonly operation: string,
+    public readonly cause?: Error
+  ) {
+    super(message);
+    this.name = 'FileSystemOperationError';
+  }
+}
+
+/**
+ * Core file system operations and utilities
+ */
+export const fileSystem = {
+  /**
+   * Checks if two directory handles point to the same folder
+   * Uses multiple strategies to handle various edge cases and API availability
+   */
+  async isSameDirectory(
+    handle1: FileSystemDirectoryHandle,
+    handle2: FileSystemDirectoryHandle
+  ): Promise<boolean> {
+    // First try the native isSameEntry API if available
+    if ('isSameEntry' in handle1) {
+      try {
+        return await (handle1 as unknown as ExperimentalFileSystemFeatures).isSameEntry(handle2);
+      } catch (_error) {
+        console.warn('isSameEntry failed, falling back to path comparison', _error);
+      }
+    }
+
+    // Fall back to comparing paths if getParent is available
+    if ('getParent' in handle1 && 'getParent' in handle2) {
+      try {
+        const path1 = await this.getFullPath(handle1);
+        const path2 = await this.getFullPath(handle2);
+        return path1 === path2;
+      } catch (error) {
+        throw new FileSystemOperationError(
+          'Failed to compare directory paths',
+          'isSameDirectory',
+          error instanceof Error ? error : undefined
+        );
+      }
+    }
+
+    // Last resort: compare handle names (not reliable for all cases)
+    return handle1.name === handle2.name;
+  },
+
+  /**
+   * Gets the full path of a directory handle by traversing parents
+   */
+  async getFullPath(handle: FileSystemDirectoryHandle): Promise<string> {
+    const parts: string[] = [handle.name];
+    let current = handle as unknown as ExperimentalFileSystemFeatures & FileSystemDirectoryHandle;
+
+    while (current && 'getParent' in current) {
+      try {
+        const parent = await current.getParent();
+        if (parent && 'name' in parent) {
+          parts.unshift(parent.name);
+          current = parent as unknown as ExperimentalFileSystemFeatures & FileSystemDirectoryHandle;
+        } else {
+          break;
+        }
+      } catch (_error) {
+        throw new FileSystemOperationError(
+          'Failed to get full path of directory',
+          'getFullPath',
+          _error instanceof Error ? _error : undefined
+        );
+      }
+    }
+
+    return parts.join('/');
+  },
+
+  /**
+   * Generates a unique folder ID that takes into account the full path
+   * to avoid collisions between folders with the same name but different paths.
+   * Falls back to simpler strategies if advanced features are not available.
+   */
+  async generateUniqueFolderId(handle: FileSystemDirectoryHandle): Promise<string> {
+    // Try to get the full path first
+    try {
+      const pathSegments: string[] = [handle.name];
+      let current = handle as unknown as ExperimentalFileSystemFeatures & FileSystemDirectoryHandle;
+      const visitedHandles = new Set<FileSystemHandle>();
+      visitedHandles.add(handle);
+
+      // Build path by traversing parents, handling circular references
+      while (true) {
+        try {
+          const parent = await current.getParent();
+          if (!parent) break; // Root reached
+
+          // Check for circular references
+          if (visitedHandles.has(parent)) {
+            console.warn('Circular reference detected in directory structure');
+            break;
+          }
+          visitedHandles.add(parent);
+
+          pathSegments.unshift(parent.name);
+          current = parent as unknown as ExperimentalFileSystemFeatures & FileSystemDirectoryHandle;
+        } catch (_error) {
+          // If getParent fails, try to use just the handle name with a prefix
+          const fallbackPath = `root/${handle.name}`;
+          return `h${await stableHash(fallbackPath)}`;
+        }
+      }
+
+      // Join path segments and hash
+      const fullPath = pathSegments.join('/');
+      return `h${await stableHash(fullPath)}`;
+    } catch (_error) {
+      // Ultimate fallback: use handle name with a unique prefix
+      console.warn('Using fallback ID generation strategy:', _error);
+      return `h${await stableHash(`fallback/${handle.name}_${Date.now()}`)}`;
+    }
+  },
+
+  /**
+   * Read the content of a file handle as text
+   */
+  async readFileContent(fileHandle: FileSystemFileHandle): Promise<string> {
+    const file = await fileHandle.getFile();
+
+    // Try text() first, fallback to arrayBuffer if not available
+    try {
+      return await file.text();
+    } catch (_error) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const decoder = new TextDecoder();
+        return decoder.decode(arrayBuffer);
+      } catch (error) {
+        throw new FileSystemOperationError(
+          'Failed to read file content',
+          'readFileContent',
+          error instanceof Error ? error : undefined
+        );
+      }
+    }
+  },
+
+  /**
+   * Creates a file node from a file system handle
+   */
+  async createFileNode(
+    handle: FileSystemHandle,
+    parentPath = '',
+    rootHandle?: FileSystemDirectoryHandle
+  ): Promise<IFileNode> {
+    const path = parentPath ? `${parentPath}/${handle.name}` : handle.name;
+    const rootDir =
+      rootHandle ||
+      (handle.kind === 'directory' ? (handle as FileSystemDirectoryHandle) : undefined);
+    const rootFolderId = rootDir ? await this.generateUniqueFolderId(rootDir) : 'root';
+
+    if (handle.kind === 'file') {
+      const fileHandle = handle as FileSystemFileHandle;
+      const file = await fileHandle.getFile();
+      return {
+        name: handle.name,
+        path,
+        type: 'file',
+        handle: fileHandle,
+        depth: parentPath.split('/').length,
+        selectionState: 'unchecked',
+        rootFolderId,
+        size: file.size,
+        lastModified: file.lastModified,
+      };
+    }
+
+    // Handle directory
+    const dirHandle = handle as FileSystemDirectoryHandle;
+    const children: IFileNode[] = [];
+
+    try {
+      for await (const [, childHandle] of dirHandle.entries()) {
+        const child = await this.createFileNode(childHandle, path, rootHandle || dirHandle);
+        children.push(child);
+      }
+    } catch (error) {
+      throw new FileSystemOperationError(
+        'Failed to create file node',
+        'createFileNode',
+        error instanceof Error ? error : undefined
+      );
+    }
+
+    return {
+      name: handle.name,
+      path,
+      type: 'directory',
+      handle: dirHandle,
+      depth: parentPath.split('/').length,
+      selectionState: 'unchecked',
+      rootFolderId,
+      children: children.sort((a, b) => a.name.localeCompare(b.name)),
+    };
+  },
+};
