@@ -15,35 +15,37 @@ let mainWindow;
 function startServer() {
   return new Promise((resolve, reject) => {
     try {
-      const http = require("http");
+      const http = require("node:http");
       const outDir = path.join(__dirname, "../next-app/out");
-      
+
       if (!fs.existsSync(outDir)) {
-        return reject(new Error(`Next.js output directory not found: ${outDir}`));
+        return reject(
+          new Error(`Next.js output directory not found: ${outDir}`)
+        );
       }
-      
+
       // Create a simple HTTP server
       const server = http.createServer((req, res) => {
         let reqPath = req.url;
-        
+
         console.log(`[Server] Request: ${req.method} ${reqPath}`);
-        
+
         // Handle root path
         if (reqPath === "/") {
           reqPath = "/index.html";
         }
-        
+
         // For routes like /settings, serve the HTML file
         if (reqPath.startsWith("/settings") && !reqPath.includes(".")) {
           reqPath = "/settings.html";
         }
-        
+
         // Remove query parameters
         reqPath = reqPath.split("?")[0];
-        
+
         // Resolve the file path
         const filePath = path.join(outDir, reqPath);
-        
+
         // Special case for 404 page
         if (!fs.existsSync(filePath) && reqPath !== "/404.html") {
           // Try to serve the 404 page for client-side routing
@@ -54,7 +56,7 @@ function startServer() {
             return;
           }
         }
-        
+
         // Check if the file exists
         if (fs.existsSync(filePath)) {
           // Determine content type
@@ -75,20 +77,20 @@ function startServer() {
             ".ttf": "font/ttf",
             ".eot": "application/vnd.ms-fontobject",
             ".otf": "font/otf",
-            ".txt": "text/plain"
+            ".txt": "text/plain",
           };
-          
+
           const contentType = contentTypeMap[ext] || "application/octet-stream";
-          
+
           // Set appropriate CORS headers
           const headers = {
             "Content-Type": contentType,
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
-            "Cache-Control": "public, max-age=31536000" // 1 year for assets
+            "Cache-Control": "public, max-age=31536000", // 1 year for assets
           };
-          
+
           // Read and send the file
           try {
             const content = fs.readFileSync(filePath);
@@ -102,8 +104,10 @@ function startServer() {
           }
         } else {
           // For client-side routing, send index.html instead of 404
-          if (reqPath.indexOf('.') === -1) {
-            console.log(`[Server] Client-side route: ${reqPath} - serving index.html`);
+          if (reqPath.indexOf(".") === -1) {
+            console.log(
+              `[Server] Client-side route: ${reqPath} - serving index.html`
+            );
             const indexPath = path.join(outDir, "index.html");
             if (fs.existsSync(indexPath)) {
               const content = fs.readFileSync(indexPath);
@@ -112,26 +116,26 @@ function startServer() {
               return;
             }
           }
-          
+
           console.error(`[Server] File not found: ${filePath}`);
           res.writeHead(404);
           res.end("Not Found");
         }
       });
-      
+
       // Use a random free port or fallback to 0 which assigns a random port
       server.listen(0, "127.0.0.1", () => {
         const serverAddress = server.address();
         const port = serverAddress.port;
-        
+
         console.log(`Server started on port ${port}`);
-        
+
         resolve({
           url: `http://localhost:${port}`,
           close: () => {
             server.close();
             console.log("Server closed");
-          }
+          },
         });
       });
     } catch (error) {
@@ -157,7 +161,7 @@ function createWindow() {
           },
           backgroundColor: "#ffffff",
         });
-        
+
         // Set Content Security Policy
         mainWindow.webContents.session.webRequest.onHeadersReceived(
           (details, callback) => {
@@ -171,13 +175,13 @@ function createWindow() {
             });
           }
         );
-        
+
         // Load the app from the server URL
         mainWindow.loadURL(server.url);
-        
+
         // Open DevTools for debugging
         mainWindow.webContents.openDevTools();
-        
+
         // Set up a global reference for cleanup
         app.server = server;
       })

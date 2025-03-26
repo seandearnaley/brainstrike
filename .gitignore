@@ -107,3 +107,4 @@ logs
 
 # Local Netlify folder
 .netlify 
+.aider*
