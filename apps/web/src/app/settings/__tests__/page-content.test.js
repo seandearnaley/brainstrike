@@ -1,0 +1,45 @@
+import { jsx as _jsx } from "react/jsx-runtime";
+import { render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { ThemeSettings } from '../../../components/custom/settings/theme-settings';
+import SettingsPageContent from '../page-content';
+// Mock the ThemeSettings component
+vi.mock('../../../components/custom/settings/theme-settings', () => ({
+    ThemeSettings: vi.fn(() => _jsx("div", { "data-testid": "theme-settings-mock", children: "Theme Settings Mock" })),
+}));
+describe('SettingsPageContent', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+    test('renders settings page with correct structure', () => {
+        render(_jsx(SettingsPageContent, {}));
+        // Check for main heading
+        expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
+        // Check for appearance section heading
+        expect(screen.getByRole('heading', { name: 'Appearance', level: 2 })).toBeInTheDocument();
+        // Check for more settings section heading
+        expect(screen.getByRole('heading', { name: 'More Settings', level: 2 })).toBeInTheDocument();
+        // Check for future updates text
+        expect(screen.getByText(/Additional settings will be added here in future updates/i)).toBeInTheDocument();
+    });
+    test('renders ThemeSettings component', () => {
+        render(_jsx(SettingsPageContent, {}));
+        // Verify ThemeSettings is rendered
+        expect(ThemeSettings).toHaveBeenCalled();
+        expect(screen.getByTestId('theme-settings-mock')).toBeInTheDocument();
+    });
+    test('has correct container styling', () => {
+        render(_jsx(SettingsPageContent, {}));
+        // Find the main container
+        const container = screen.getByText('Settings').closest('div');
+        expect(container).toHaveClass('container');
+        expect(container).toHaveClass('max-w-2xl');
+        expect(container).toHaveClass('mx-auto');
+        expect(container).toHaveClass('py-8');
+        // Check for proper spacing between sections
+        const sectionsContainer = screen.getByText('Appearance').closest('div');
+        const parentElement = sectionsContainer?.parentElement;
+        expect(parentElement).not.toBeNull();
+        expect(parentElement).toHaveClass('space-y-6');
+    });
+});

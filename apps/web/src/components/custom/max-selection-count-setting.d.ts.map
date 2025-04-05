@@ -1,0 +1,1 @@
+{"version":3,"file":"max-selection-count-setting.d.ts","sourceRoot":"","sources":["max-selection-count-setting.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,KAAK,MAAM,OAAO,CAAC;AAG/B,UAAU,6BAA6B;IACrC,KAAK,EAAE,MAAM,CAAC;IACd,QAAQ,EAAE,CAAC,KAAK,EAAE,MAAM,KAAK,IAAI,CAAC;CACnC;AAED,QAAA,MAAM,wBAAwB,EAAE,KAAK,CAAC,EAAE,CAAC,6BAA6B,CAerE,CAAC;AAEF,eAAe,wBAAwB,CAAC"}

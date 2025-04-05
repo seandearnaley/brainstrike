@@ -1,0 +1,8 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import { Info, X } from 'lucide-react';
+import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/popover';
+export const FileFilterBar = ({ value, onChange, onClear }) => {
+    return (_jsxs("div", { className: "relative flex items-center gap-2 w-full", children: [_jsxs("div", { className: "relative flex-1", children: [_jsx(Input, { type: "text", placeholder: "Type to filter files... (e.g. 'test component -spec')", value: value, onChange: (e) => onChange(e.target.value), className: "w-full pr-8" }), value && (_jsx(Button, { variant: "ghost", size: "icon", onClick: onClear, className: "absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 hover:bg-transparent", "aria-label": "clear", children: _jsx(X, { className: "h-4 w-4" }) }))] }), _jsxs(Popover, { children: [_jsx(PopoverTrigger, { asChild: true, children: _jsx(Button, { variant: "ghost", size: "icon", className: "h-8 w-8", "aria-label": "Filter syntax help", children: _jsx(Info, { className: "h-4 w-4" }) }) }), _jsxs(PopoverContent, { className: "max-w-sm", align: "end", children: [_jsx("p", { className: "font-medium mb-1", children: "Filter Syntax:" }), _jsxs("ul", { className: "text-sm space-y-1", children: [_jsx("li", { children: "\u2022 Use spaces to separate multiple terms (matches all terms)" }), _jsxs("li", { children: ["\u2022 Use ", _jsx("code", { className: "bg-muted px-1 rounded", children: "-term" }), " to exclude files containing \"term\""] }), _jsxs("li", { children: ["\u2022 Example: ", _jsx("code", { className: "bg-muted px-1 rounded", children: "test component -spec" })] })] })] })] })] }));
+};
