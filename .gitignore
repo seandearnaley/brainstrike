@@ -1,1 +1,16 @@
 node_modules
+.turbo
+dist
+build
+.next
+*.log
+.DS_Store
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Electron build output (adjust as needed)
+release/
+out/
