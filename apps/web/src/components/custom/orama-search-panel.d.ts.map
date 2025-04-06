@@ -1,1 +1,0 @@
-{"version":3,"file":"orama-search-panel.d.ts","sourceRoot":"","sources":["orama-search-panel.tsx"],"names":[],"mappings":"AAEA,OAAO,KAAK,KAAK,MAAM,OAAO,CAAC;AAyD/B,UAAU,qBAAqB;IAE7B,aAAa,EAAE,GAAG,CAAC,MAAM,CAAC,CAAC;IAE3B,YAAY,EAAE;QAAE,CAAC,YAAY,EAAE,MAAM,GAAG,MAAM,CAAA;KAAE,CAAC;CAClD;AAkBD,eAAO,MAAM,gBAAgB,EAAE,KAAK,CAAC,EAAE,CAAC,qBAAqB,CAqV5D,CAAC;AAEF,eAAe,gBAAgB,CAAC"}

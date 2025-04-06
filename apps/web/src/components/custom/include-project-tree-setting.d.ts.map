@@ -1,1 +1,0 @@
-{"version":3,"file":"include-project-tree-setting.d.ts","sourceRoot":"","sources":["include-project-tree-setting.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,KAAK,MAAM,OAAO,CAAC;AAI/B,UAAU,8BAA8B;IACtC,OAAO,EAAE,OAAO,CAAC;IACjB,QAAQ,EAAE,CAAC,OAAO,EAAE,OAAO,KAAK,IAAI,CAAC;CACtC;AAED,QAAA,MAAM,yBAAyB,EAAE,KAAK,CAAC,EAAE,CAAC,8BAA8B,CAQvE,CAAC;AAEF,eAAe,yBAAyB,CAAC"}

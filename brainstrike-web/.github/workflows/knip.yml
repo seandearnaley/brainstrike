@@ -1,0 +1,113 @@
+name: Knip Code Analysis
+
+on:
+  # Allow manual triggering when needed
+  workflow_dispatch:
+  
+  # Run on PRs to specific paths that might affect unused code
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'knip.jsonc'
+      - '.github/workflows/knip.yml'
+      - 'src/**/*.{ts,tsx,js,jsx}'
+
+  # Run on pushes to main 
+  push:
+    branches:
+      - main
+
+# Add permissions block to allow writing to pull requests
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  knip:
+    name: Detect Unused Code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      # Run standard analysis
+      - name: Run Knip Analysis
+        id: knip
+        run: |
+          # Create a temporary file for the report
+          REPORT_FILE="knip-report.md"
+          
+          # Run knip and capture output and exit code
+          OUTPUT=$(npm run knip -- --reporter markdown || true)
+          
+          # Check if there are any issues
+          if echo "$OUTPUT" | grep -q "Unused"; then
+            # If issues found, save the output
+            echo "$OUTPUT" > $REPORT_FILE
+          else
+            # If no issues found, create a clear success message
+            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "" >> $REPORT_FILE
+            echo "Great job! Knip didn't find any unused files, exports, or dependencies in the standard analysis." >> $REPORT_FILE
+          fi
+          
+          # Ensure the file exists
+          touch $REPORT_FILE
+        continue-on-error: true
+      
+      # Comment on PR with results if this is a PR
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            // Check if files exist and create them if they don't
+            const ensureFileExists = (path, defaultContent) => {
+              if (!fs.existsSync(path)) {
+                fs.writeFileSync(path, defaultContent);
+              }
+              return fs.readFileSync(path, 'utf8');
+            };
+            
+            // Read the standard report with fallback
+            const standardReport = ensureFileExists('knip-report.md', 
+              '## ⚠️ Knip standard analysis failed to run\\n\\nPlease check the workflow logs for details.');
+            
+            // Create the comment body using only standard report
+            let body = `## Knip Code Analysis Results
+
+            ### Standard Analysis
+            ${standardReport}
+
+            > Knip helps identify unused code in your project to reduce bundle size and improve maintainability.
+            > 
+            > [Learn more about Knip](https://knip.dev)`;
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+      
+      # Upload reports as artifacts
+      - name: Upload Knip Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: knip-reports
+          path: |
+            knip-report.md
+          retention-days: 30 

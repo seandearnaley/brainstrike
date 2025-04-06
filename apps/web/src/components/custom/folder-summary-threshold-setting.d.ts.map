@@ -1,1 +1,0 @@
-{"version":3,"file":"folder-summary-threshold-setting.d.ts","sourceRoot":"","sources":["folder-summary-threshold-setting.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,KAAK,MAAM,OAAO,CAAC;AAG/B,UAAU,kCAAkC;IAC1C,KAAK,EAAE,MAAM,CAAC;IACd,QAAQ,EAAE,CAAC,KAAK,EAAE,MAAM,KAAK,IAAI,CAAC;CACnC;AAED,QAAA,MAAM,6BAA6B,EAAE,KAAK,CAAC,EAAE,CAAC,kCAAkC,CAkB/E,CAAC;AAEF,eAAe,6BAA6B,CAAC"}

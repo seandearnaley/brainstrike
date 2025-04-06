@@ -1,8 +1,0 @@
-{
-  "extends": "@brainstrike/tsconfig/base.json",
-  "compilerOptions": {
-    "composite": true
-  },
-  "include": ["."],
-  "exclude": ["dist", "build", "node_modules"]
-} 

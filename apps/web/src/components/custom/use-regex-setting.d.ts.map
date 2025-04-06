@@ -1,1 +1,0 @@
-{"version":3,"file":"use-regex-setting.d.ts","sourceRoot":"","sources":["use-regex-setting.tsx"],"names":[],"mappings":"AAAA,OAAO,KAAK,KAAK,MAAM,OAAO,CAAC;AAI/B,UAAU,oBAAoB;IAC5B,OAAO,EAAE,OAAO,CAAC;IACjB,QAAQ,EAAE,CAAC,OAAO,EAAE,OAAO,KAAK,IAAI,CAAC;CACtC;AAED,QAAA,MAAM,eAAe,EAAE,KAAK,CAAC,EAAE,CAAC,oBAAoB,CAKnD,CAAC;AAEF,eAAe,eAAe,CAAC"}
