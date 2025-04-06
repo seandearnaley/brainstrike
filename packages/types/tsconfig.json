@@ -1,5 +1,9 @@
 {
   "extends": "@brainstrike/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "incremental": true
+  },
   "include": ["index.ts"],
   "exclude": ["node_modules"]
 } 

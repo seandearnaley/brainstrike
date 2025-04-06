@@ -1,0 +1,51 @@
+{
+  "extends": "@brainstrike/tsconfig/react-library.json",
+  "compilerOptions": {
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
+    "jsx": "react-jsx",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ]
+    },
+    "types": [
+      "node",
+      "vitest",
+      "@playwright/test",
+      "@testing-library/jest-dom",
+      "vite/client"
+    ],
+    "incremental": true
+  },
+  "include": [
+    "src",
+    "vite.config.mts",
+    "vitest.config.ts",
+    "vitest.config.unit.ts",
+    "vitest.config.integration.ts",
+    "vitest.setup.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "coverage"
+  ],
+  "references": [
+    { "path": "../../packages/config/tsconfig" },
+    { "path": "../../packages/types" }
+    // { "path": "../../packages/ui" }, // Comment out non-existent package
+    // { "path": "../../packages/shared-logic" } // Comment out non-existent package
+  ]
+}
