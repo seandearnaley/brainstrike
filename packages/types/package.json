@@ -3,10 +3,15 @@
 	"version": "0.0.0",
 	"private": true,
 	"license": "MIT",
-	"main": "./index.ts",
-	"types": "./index.ts",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"scripts": {
+		"build": "tsc",
+		"clean": "rm -rf dist"
+	},
 	"devDependencies": {
 		"@brainstrike/tsconfig": "workspace:*",
-		"lucide-react": "^0.483.0"
+		"lucide-react": "^0.483.0",
+		"typescript": "^5.3.3"
 	}
 }

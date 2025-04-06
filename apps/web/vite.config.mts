@@ -98,7 +98,7 @@ export default defineConfig({
     },
     mockReset: true,
     deps: {
-      inline: [/@brainstrike\/types/],
+      inline: [],
     },
   },
 });
