@@ -23,5 +23,9 @@
       "@biomejs/biome",
       "esbuild"
     ]
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }
