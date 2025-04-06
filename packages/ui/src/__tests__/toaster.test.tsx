@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Toaster } from '../toaster';
-import * as useToastModule from '../use-toast';
+import { Toaster } from '../../src/toaster';
+import * as useToastModule from '../../src/use-toast';
 
 // Mock the useToast hook
 vi.mock('../use-toast', () => ({

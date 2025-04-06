@@ -1,4 +1,6 @@
 import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
+import { Checkbox } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -9,13 +11,6 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { Checkbox } from '../../components/ui/checkbox';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../../components/ui/tooltip';
 import { fileExplorer } from '../../lib/file/explorer';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';

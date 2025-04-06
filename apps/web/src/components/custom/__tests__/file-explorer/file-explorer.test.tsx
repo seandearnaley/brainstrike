@@ -1,6 +1,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useFileSystem } from '../../../../hooks/use-file-system';
@@ -24,26 +25,28 @@ vi.mock('../../../../hooks/use-file-explorer');
 vi.mock('../../../../hooks/use-quick-filter');
 vi.mock('../../../../hooks/use-file-explorer-settings');
 vi.mock('../../../../hooks/use-report-generation');
-vi.mock('../../../../components/ui/button', () => ({
-  Button: ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-    disabled?: boolean;
-  }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
-      {children}
-    </button>
-  ),
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...originalModule,
+    Button: ({
+      children,
+      onClick,
+      disabled,
+    }: {
+      children: React.ReactNode;
+      onClick?: () => void;
+      disabled?: boolean;
+    }) => (
+      <button type="button" onClick={onClick} disabled={disabled}>
+        {children}
+      </button>
+    ),
+  };
+});
 
-const mockToast = vi.fn();
-vi.mock('../../../../components/ui/use-toast', () => ({
-  useToast: () => ({ toast: mockToast }),
-}));
+// Mock imported from ui-mocks.ts
+// No need to mock useToast here as it's done in ui-mocks.ts
 
 // Reuse a mockStore instance
 const mockStore = { ...defaultMockStore };

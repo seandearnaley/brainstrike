@@ -16,10 +16,10 @@
  * - "Deselect All" when files are currently selected
  */
 
+import { Button } from '@brainstrike/ui';
 import { Download, FileText, RefreshCw } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo } from 'react';
-import { Button } from '../../components/ui/button';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection } from '../../utils/file-selection-utils';
 

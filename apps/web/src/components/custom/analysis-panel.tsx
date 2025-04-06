@@ -1,23 +1,10 @@
+import { Button } from '@brainstrike/ui';
+import { Checkbox } from '@brainstrike/ui';
+import { ScrollArea } from '@brainstrike/ui';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@brainstrike/ui';
 import { ArrowUpDown, Check, Minus } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button } from '../../components/ui/button';
-import { Checkbox } from '../../components/ui/checkbox';
-import { ScrollArea } from '../../components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
 import { useGitAnalysisStore } from '../../stores/git-analysis-store';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';

@@ -1,13 +1,13 @@
 import { PartialRefreshError } from '@brainstrike/types';
+import type { ToastActionElement } from '@brainstrike/ui';
+import { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerStrings } from '../../components/custom/constants/file-explorer-constants';
-import type { ToastActionElement } from '../../components/ui/toast';
-import { useToast } from '../../components/ui/use-toast';
 import { useToastManager } from '../use-toast-manager';
 
 // Mock dependencies
-vi.mock('../../components/ui/use-toast', () => ({
+vi.mock('@brainstrike/ui', () => ({
   useToast: vi.fn().mockReturnValue({
     toast: vi.fn(),
     dismiss: vi.fn(),

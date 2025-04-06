@@ -6,10 +6,10 @@
  */
 
 import { PartialRefreshError } from '@brainstrike/types';
+import type { ToastActionElement } from '@brainstrike/ui';
+import { useToast } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
-import type { ToastActionElement } from '../components/ui/toast';
-import { useToast } from '../components/ui/use-toast';
 
 export const useToastManager = () => {
   const { toast } = useToast();

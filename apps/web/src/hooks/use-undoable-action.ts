@@ -1,6 +1,6 @@
+import { Button } from '@brainstrike/ui';
+import { useToast } from '@brainstrike/ui';
 import * as React from 'react';
-import { Button } from '../components/ui/button';
-import { useToast } from '../components/ui/use-toast';
 
 interface UndoableActionOptions<T, S = unknown> {
   actionName: string;

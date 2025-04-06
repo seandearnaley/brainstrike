@@ -1,8 +1,8 @@
 import type { LoadingProgressState } from '@/hooks/use-file-tree';
+import { Progress } from '@brainstrike/ui';
 import { Loader2, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { memo } from 'react';
-import { Progress } from '../../components/ui/progress';
 import { cn } from '../../lib/utils';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 

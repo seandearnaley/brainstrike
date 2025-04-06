@@ -5,10 +5,10 @@
  * It handles generating reports and exporting them in various formats.
  */
 
+import type { ToastActionElement } from '@brainstrike/ui';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
-import type { ToastActionElement } from '../components/ui/toast';
 
 interface UseReportManagerProps {
   rootDirectoryHandle: FileSystemDirectoryHandle | null;

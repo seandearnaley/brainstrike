@@ -1,5 +1,5 @@
+import { Badge } from '@brainstrike/ui';
 import type React from 'react';
-import { Badge } from '../../components/ui/badge';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 
 interface SelectionCounterProps {

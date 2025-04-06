@@ -1,6 +1,5 @@
+import { Label, Switch } from '@brainstrike/ui';
 import type React from 'react';
-import { Label } from '../ui/label';
-import { Switch } from '../ui/switch';
 
 interface UseRegexSettingProps {
   checked: boolean;

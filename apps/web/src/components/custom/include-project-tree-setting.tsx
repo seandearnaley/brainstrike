@@ -1,6 +1,6 @@
+import { Label } from '@brainstrike/ui';
+import { Switch } from '@brainstrike/ui';
 import type React from 'react';
-import { Label } from '../../components/ui/label';
-import { Switch } from '../../components/ui/switch';
 
 interface IncludeProjectTreeSettingProps {
   checked: boolean;

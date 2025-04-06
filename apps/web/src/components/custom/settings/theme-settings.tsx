@@ -1,7 +1,6 @@
+import { Button, Label } from '@brainstrike/ui';
 import { Monitor, Moon, Sun } from 'lucide-react';
-import { Button } from '../../../components/ui/button';
 import { useTheme } from '../../../providers/theme-provider';
-import { Label } from '../../ui/label';
 
 export function ThemeSettings() {
   const { theme, setTheme } = useTheme();

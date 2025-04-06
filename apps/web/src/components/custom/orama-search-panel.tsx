@@ -1,26 +1,14 @@
+import { Badge } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
+import { Input } from '@brainstrike/ui';
+import { Progress } from '@brainstrike/ui';
+import { ScrollArea } from '@brainstrike/ui';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { type Orama, create, insertMultiple, search } from '@orama/orama';
 import { InfoIcon, RefreshCw } from 'lucide-react';
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Badge } from '../../components/ui/badge';
-import { Button } from '../../components/ui/button';
-import { Input } from '../../components/ui/input';
-import { Progress } from '../../components/ui/progress';
-import { ScrollArea } from '../../components/ui/scroll-area';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '../../components/ui/table';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../../components/ui/tooltip';
 
 type DocumentType = {
   title: string;

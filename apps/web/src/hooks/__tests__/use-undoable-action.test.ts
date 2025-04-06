@@ -1,31 +1,31 @@
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockToast } from '../../__mocks__/ui-mocks';
 import { useUndoableAction } from '../use-undoable-action';
 
 // Mock for toast functions
 const mockDismiss = vi.fn();
 const mockUpdate = vi.fn();
 
-// Create a proper mock toast function that returns an object with id, dismiss, and update
-const mockToastFn = vi.fn().mockImplementation(() => ({
-  id: 'mock-toast-id',
-  dismiss: mockDismiss,
-  update: mockUpdate,
-}));
-
-// Mock dependencies
-vi.mock('@/components/ui/use-toast', () => ({
-  useToast: () => ({
-    toast: mockToastFn,
-  }),
-}));
+// Override the mockToast to include dismiss and update methods
+beforeEach(() => {
+  mockToast.mockImplementation(() => ({
+    id: 'mock-toast-id',
+    dismiss: mockDismiss,
+    update: mockUpdate,
+  }));
+});
 
 // Mock the Button component
-vi.mock('@/components/ui/button', () => ({
-  Button: (props: { children: React.ReactNode; onClick?: () => void }) =>
-    React.createElement('button', { type: 'button', onClick: props.onClick }, props.children),
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...originalModule,
+    Button: (props: { children: React.ReactNode; onClick?: () => void }) =>
+      React.createElement('button', { type: 'button', onClick: props.onClick }, props.children),
+  };
+});
 
 describe('useUndoableAction', () => {
   // Setup mocks for setTimeout and clearTimeout
@@ -34,7 +34,7 @@ describe('useUndoableAction', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockToastFn.mockClear();
+    mockToast.mockClear();
     mockDismiss.mockClear();
     mockUpdate.mockClear();
 
@@ -82,8 +82,8 @@ describe('useUndoableAction', () => {
       });
 
       // Verify toast was called with correct parameters
-      expect(mockToastFn).toHaveBeenCalledTimes(1);
-      const toastCall = mockToastFn.mock.calls[0][0];
+      expect(mockToast).toHaveBeenCalledTimes(1);
+      const toastCall = mockToast.mock.calls[0][0];
       expect(toastCall.title).toBe('Test Action');
       expect(toastCall.duration).toBe(5000); // Default duration
     });
@@ -112,8 +112,8 @@ describe('useUndoableAction', () => {
       const mockOnUndo = vi.fn();
       const mockSnapshot = new Set(['item1', 'item2']);
 
-      // Make sure mockToastFn returns a valid object with dismiss method
-      mockToastFn.mockImplementationOnce(() => ({
+      // Make sure mockToast returns a valid object with dismiss method
+      mockToast.mockImplementationOnce(() => ({
         id: 'mock-toast-id',
         dismiss: mockDismiss,
         update: mockUpdate,
@@ -129,7 +129,7 @@ describe('useUndoableAction', () => {
       });
 
       // Get the onClick handler from the toast call
-      const toastCall = mockToastFn.mock.calls[0][0];
+      const toastCall = mockToast.mock.calls[0][0];
       const undoButton = toastCall.description.props.children[1];
 
       // Simulate clicking the undo button
@@ -155,7 +155,7 @@ describe('useUndoableAction', () => {
       });
 
       // Verify first toast was created
-      expect(mockToastFn).toHaveBeenCalledTimes(1);
+      expect(mockToast).toHaveBeenCalledTimes(1);
 
       // Perform a second action with the same key
       await act(async () => {
@@ -170,7 +170,7 @@ describe('useUndoableAction', () => {
       expect(global.clearTimeout).toHaveBeenCalledWith(123);
 
       // Verify second toast was created
-      expect(mockToastFn).toHaveBeenCalledTimes(2);
+      expect(mockToast).toHaveBeenCalledTimes(2);
     });
 
     it('should auto-dismiss after duration', async () => {
@@ -188,7 +188,7 @@ describe('useUndoableAction', () => {
       });
 
       // Verify toast was called with custom duration
-      const toastCall = mockToastFn.mock.calls[0][0];
+      const toastCall = mockToast.mock.calls[0][0];
       expect(toastCall.duration).toBe(customDuration);
 
       // Since we mocked setTimeout to execute immediately,

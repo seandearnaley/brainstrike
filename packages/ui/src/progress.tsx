@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { jsxDEV } from 'react/jsx-dev-runtime';
-import { cn } from '../../lib/utils';
+import { cn } from './lib/utils';
 
 const Progress = React.forwardRef<
   HTMLDivElement,

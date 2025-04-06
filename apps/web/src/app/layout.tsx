@@ -1,7 +1,7 @@
-import './globals.css';
+import './tailwind.css';
+import { Toaster } from '@brainstrike/ui';
 import type React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
-import { Toaster } from '../components/ui/toaster';
 import RouterProvider from '../providers/router-provider';
 import { ThemeProvider } from '../providers/theme-provider';
 

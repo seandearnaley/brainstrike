@@ -1,15 +1,10 @@
 import type { IFileNode } from '@brainstrike/types';
+import { Badge } from '@brainstrike/ui';
+import { ScrollArea } from '@brainstrike/ui';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import type React from 'react';
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
-import { Badge } from '../../components/ui/badge';
-import { ScrollArea } from '../../components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '../../components/ui/tooltip';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileTree from './file-tree';
 import { FolderBadge } from './folder-badge';

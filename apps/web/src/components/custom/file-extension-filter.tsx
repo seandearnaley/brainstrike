@@ -1,8 +1,8 @@
+import { Input } from '@brainstrike/ui';
 import { debounce } from 'lodash';
 import { AlertCircle } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Input } from '../../components/ui/input';
 
 interface FileExtensionFilterProps {
   includeFilters: string[];

@@ -1,8 +1,8 @@
+import { Button } from '@brainstrike/ui';
 import { FileText, Folder, Settings } from 'lucide-react';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
-import { Button } from '../../../components/ui/button';
 import { cn } from '../../../lib/utils';
 import { useFileExplorerStore } from '../../../stores/use-file-explorer-store';
 import { FileFilterBar } from '../../custom/file-filter-bar';

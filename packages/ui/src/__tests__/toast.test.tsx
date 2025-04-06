@@ -9,7 +9,7 @@ import {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-} from '../toast';
+} from '../../src/toast';
 
 // Mock hasPointerCapture
 beforeAll(() => {

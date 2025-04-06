@@ -1,6 +1,6 @@
-import { fileExplorer } from "../lib/file/explorer";
-import type { IFileNode } from "@brainstrike/types";
-import { generateProjectTreeText } from "./folder-tree-generator";
+import type { IFileNode } from '@brainstrike/types';
+import { fileExplorer } from '../lib/file/explorer';
+import { generateProjectTreeText } from './folder-tree-generator';
 
 // Modify generateReport to accept rootDirectoryHandle and be asynchronous
 export async function generateReport(
@@ -13,13 +13,11 @@ export async function generateReport(
   includeProjectTree: boolean,
   folderSummaryThreshold = 5
 ): Promise<string> {
-  let projectTreeText = "";
+  let projectTreeText = '';
 
   if (includeProjectTree) {
     // Read the full file tree recursively using fileExplorer
-    const fullFileTree = await fileExplorer.readFullFileTree(
-      rootDirectoryHandle
-    );
+    const fullFileTree = await fileExplorer.readFullFileTree(rootDirectoryHandle);
     // Generate project tree text
     projectTreeText = generateProjectTreeText(
       fullFileTree,
@@ -34,17 +32,16 @@ export async function generateReport(
   const reportContent = `<relevant_files>
 ${Array.from(selectedFiles)
   .map((filePath) => {
-    const content =
-      fileContents[filePath] || `Unable to read file content for ${filePath}`;
+    const content = fileContents[filePath] || `Unable to read file content for ${filePath}`;
     return `<file path="${filePath}">
 ${content}
 </file>`;
   })
-  .join("\n")}
+  .join('\n')}
 </relevant_files>`;
 
   // Construct the final report
-  const finalReportParts = ["<report>", reportContent];
+  const finalReportParts = ['<report>', reportContent];
 
   if (includeProjectTree && projectTreeText) {
     finalReportParts.push(`
@@ -53,7 +50,7 @@ ${projectTreeText}
 </project_tree>`);
   }
 
-  finalReportParts.push("</report>");
+  finalReportParts.push('</report>');
 
-  return finalReportParts.join("\n");
+  return finalReportParts.join('\n');
 }

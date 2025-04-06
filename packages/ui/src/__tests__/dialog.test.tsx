@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '../dialog';
+} from '../../src/dialog';
 
 describe('Dialog Component', () => {
   it('renders dialog trigger button correctly', async () => {

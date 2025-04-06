@@ -2,6 +2,7 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss";
+@import "@brainstrike/ui/globals.css";
 
 /* Inter font configuration */
 @font-face {

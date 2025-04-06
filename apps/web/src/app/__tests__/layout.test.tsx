@@ -16,7 +16,7 @@ vi.mock('../../components/custom/sidebar/sidebar', () => ({
   default: () => <div data-testid="sidebar">Sidebar Mock</div>,
 }));
 
-vi.mock('../../components/ui/toaster', () => ({
+vi.mock('@brainstrike/ui', () => ({
   __esModule: true,
   Toaster: () => <div data-testid="toaster">Toaster Mock</div>,
 }));

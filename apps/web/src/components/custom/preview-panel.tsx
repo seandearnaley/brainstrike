@@ -1,3 +1,24 @@
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+  Badge,
+  Button,
+  Checkbox,
+  Progress,
+  ScrollArea,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@brainstrike/ui';
 import { ArrowUpDown, ChevronDown, ChevronRight, Folder, Loader2, Trash2, X } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
@@ -9,14 +30,6 @@ import {
   estimateTokenCost,
   formatTokenCount,
 } from '../../utils/token-utils';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '../ui/accordion';
-import { Badge } from '../ui/badge';
-import { Button } from '../ui/button';
-import { Checkbox } from '../ui/checkbox';
-import { Progress } from '../ui/progress';
-import { ScrollArea } from '../ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface PreviewPanelProps {
   selectedFiles: Set<string>;

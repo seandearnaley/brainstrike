@@ -1,5 +1,5 @@
+import { Badge } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
-import { Badge } from '../../components/ui/badge';
 import { cn } from '../../lib/utils';
 import { getFolderColor } from '../../utils/color-utils';
 

@@ -5,6 +5,7 @@ import {
   GitOperationError,
   PartialRefreshError,
 } from '@brainstrike/types';
+import { Button } from '@brainstrike/ui';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -18,7 +19,6 @@ import {
 } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
-import { Button } from '../ui/button';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 
 interface Props {

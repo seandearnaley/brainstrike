@@ -1,5 +1,5 @@
+import { Button } from '@brainstrike/ui';
 import { ChevronsDown, ChevronsUp, Folder, RefreshCw } from 'lucide-react';
-import { Button } from '../../components/ui/button';
 import { cn } from '../../lib/utils';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileExplorerConfig from './file-explorer-config';

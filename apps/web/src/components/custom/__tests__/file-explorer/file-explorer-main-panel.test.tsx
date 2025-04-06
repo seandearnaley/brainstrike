@@ -18,14 +18,11 @@ vi.mock('react', async () => {
   };
 });
 
-// Mock the UI components
-vi.mock('../../../ui/scroll-area', () => ({
+// Mock the UI components from @brainstrike/ui
+vi.mock('@brainstrike/ui', () => ({
   ScrollArea: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="scroll-area">{children}</div>
   ),
-}));
-
-vi.mock('../../../ui/tabs', () => ({
   Tabs: ({ children, className }: { children: React.ReactNode; className?: string }) => (
     <div data-testid="tabs" className={className}>
       {children}

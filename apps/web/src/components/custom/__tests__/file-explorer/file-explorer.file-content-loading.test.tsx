@@ -7,6 +7,7 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useFileSystem } from '../../../../hooks/use-file-system';
@@ -17,46 +18,33 @@ import FileExplorer from '../../file-explorer';
 // Mock all hooks and components
 vi.mock('@/hooks/use-file-system');
 vi.mock('@/hooks/use-file-explorer');
-vi.mock('@/hooks/use-quick-filter', () => ({
-  useQuickFilter: vi.fn().mockReturnValue({
-    quickFilter: '',
-    setQuickFilter: vi.fn(),
-    filteredTree: [],
-    clearFilter: vi.fn(),
-  }),
-}));
+vi.mock('@/hooks/use-quick-filter');
 vi.mock('@/hooks/use-file-explorer-settings');
+vi.mock('@/hooks/use-report-generation');
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...originalModule,
+    Button: ({
+      children,
+      onClick,
+      disabled,
+    }: {
+      children: React.ReactNode;
+      onClick?: () => void;
+      disabled?: boolean;
+    }) => (
+      <button type="button" onClick={onClick} disabled={disabled} data-testid="mock-button">
+        {children}
+      </button>
+    ),
+  };
+});
 
-// Mock useReportGeneration
+// Mock toast is imported from ui-mocks.ts
+
+// Mock report generation function
 const mockGenerateReportWithContent = vi.fn().mockResolvedValue('Mock Report Content');
-vi.mock('@/hooks/use-report-generation', () => ({
-  useReportGeneration: vi.fn().mockImplementation(() => ({
-    generateReportWithContent: mockGenerateReportWithContent,
-    isGenerating: false,
-  })),
-}));
-
-vi.mock('@/components/ui/button', () => ({
-  Button: ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick?: () => void;
-    disabled?: boolean;
-  }) => (
-    <button type="button" onClick={onClick} disabled={disabled} data-testid="mock-button">
-      {children}
-    </button>
-  ),
-}));
-
-// Mock toast
-const mockToast = vi.fn();
-vi.mock('@/components/ui/use-toast', () => ({
-  useToast: () => ({ toast: mockToast }),
-}));
 
 // Mock implementation for useFileExplorerStore
 interface MockStore {

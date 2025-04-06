@@ -1,6 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback } from 'react';
-import { Button } from '../../components/ui/button';
+import { Button } from '@brainstrike/ui';
 import {
   Dialog,
   DialogContent,
@@ -8,8 +7,9 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../components/ui/dialog';
-import { ScrollArea } from '../../components/ui/scroll-area';
+} from '@brainstrike/ui';
+import { ScrollArea } from '@brainstrike/ui';
+import { useCallback } from 'react';
 import { fileExplorer } from '../../lib/file/explorer';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 

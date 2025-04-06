@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../src/tabs';
 
 describe('Tabs', () => {
   it('renders Tabs with its children', () => {

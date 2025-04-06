@@ -1,9 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import Sidebar from '../../components/custom/sidebar/sidebar';
-import { Toaster } from '../../components/ui/toaster';
 import { ThemeProvider } from '../../providers/theme-provider';
 import RootLayoutContent from '../root-layout-content';
+
+// Import the mocked modules to access their mock functions
+import * as BrainstrikeUI from '@brainstrike/ui';
 
 // Mock the dependencies
 vi.mock('react-router-dom', () => ({
@@ -15,7 +17,8 @@ vi.mock('../../components/custom/sidebar/sidebar', () => ({
   default: vi.fn(() => <div data-testid="sidebar-mock">Sidebar Mock</div>),
 }));
 
-vi.mock('../../components/ui/toaster', () => ({
+// Mock the UI package components
+vi.mock('@brainstrike/ui', () => ({
   Toaster: vi.fn(() => <div data-testid="toaster-mock">Toaster Mock</div>),
 }));
 
@@ -49,7 +52,7 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('outlet-mock')).toBeInTheDocument();
 
     // Check if Toaster is rendered
-    expect(Toaster).toHaveBeenCalled();
+    expect(BrainstrikeUI.Toaster).toHaveBeenCalled();
     expect(screen.getByTestId('toaster-mock')).toBeInTheDocument();
   });
 

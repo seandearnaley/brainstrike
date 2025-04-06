@@ -1,8 +1,8 @@
+import { ScrollArea } from '@brainstrike/ui';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import type React from 'react';
 import { Suspense, lazy } from 'react';
-import { ScrollArea } from '../../components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../../components/ui/tabs';
 
 const LoadingPanel = () => (
   <div className="flex items-center justify-center h-full">

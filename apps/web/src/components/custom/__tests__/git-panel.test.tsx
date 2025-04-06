@@ -76,19 +76,25 @@ vi.mock('../analysis-panel', () => ({
   AnalysisPanel: () => <div data-testid="mock-analysis-panel">Analysis Panel</div>,
 }));
 
-// Mock the Tabs component for easier testing
-vi.mock('@/components/ui/tabs', () => {
+// Mock UI components
+vi.mock('@brainstrike/ui', () => {
   return {
-    Tabs: ({ children, ...props }: React.ComponentProps<'div'>) => <div {...props}>{children}</div>,
+    Tabs: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="tabs" {...props}>
+        {children}
+      </div>
+    ),
     TabsList: ({ children, ...props }: React.ComponentProps<'div'>) => (
-      <div {...props}>{children}</div>
+      <div data-testid="tabs-list" role="tablist" {...props}>
+        {children}
+      </div>
     ),
     TabsContent: ({
       children,
       value,
       ...props
     }: React.ComponentProps<'div'> & { value: string }) => (
-      <div data-value={value} {...props}>
+      <div data-testid={`tabs-content-${value}`} data-value={value} {...props}>
         {value === mockGitState.activeTab ? children : null}
       </div>
     ),
@@ -97,8 +103,12 @@ vi.mock('@/components/ui/tabs', () => {
       value,
       onClick,
       ...props
-    }: React.ComponentProps<'button'> & { value: string }) => (
+    }: React.ComponentProps<'button'> & {
+      value: string;
+      onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    }) => (
       <button
+        data-testid={`tabs-trigger-${value}`}
         role="tab"
         data-state={value === mockGitState.activeTab ? 'active' : 'inactive'}
         onClick={(e) => {
@@ -110,6 +120,73 @@ vi.mock('@/components/ui/tabs', () => {
       >
         {children}
       </button>
+    ),
+    Button: ({
+      children,
+      onClick,
+      ...props
+    }: React.ComponentProps<'button'> & {
+      onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void;
+    }) => (
+      <button data-testid="mock-button" onClick={onClick} {...props}>
+        {children}
+      </button>
+    ),
+    ScrollArea: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-scroll-area" {...props}>
+        {children}
+      </div>
+    ),
+    Accordion: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-accordion" {...props}>
+        {children}
+      </div>
+    ),
+    AccordionItem: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-accordion-item" {...props}>
+        {children}
+      </div>
+    ),
+    AccordionTrigger: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-accordion-trigger" {...props}>
+        {children}
+      </div>
+    ),
+    AccordionContent: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-accordion-content" {...props}>
+        {children}
+      </div>
+    ),
+    Select: ({
+      children,
+      onValueChange,
+      ...props
+    }: React.ComponentProps<'div'> & {
+      onValueChange?: (value: string) => void;
+    }) => (
+      <div data-testid="mock-select" {...props}>
+        {children}
+      </div>
+    ),
+    SelectContent: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-select-content" {...props}>
+        {children}
+      </div>
+    ),
+    SelectItem: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-select-item" {...props}>
+        {children}
+      </div>
+    ),
+    SelectTrigger: ({ children, ...props }: React.ComponentProps<'select'>) => (
+      <select data-testid="mock-select-trigger" {...props}>
+        {children}
+      </select>
+    ),
+    SelectValue: ({ children, ...props }: React.ComponentProps<'div'>) => (
+      <div data-testid="mock-select-value" {...props}>
+        {children}
+      </div>
     ),
   };
 });
@@ -201,19 +278,19 @@ describe('GitPanel', () => {
             author: {
               name: 'Test User',
               email: 'test@example.com',
-              timestamp: Math.floor(Date.now() / 1000),
+              timestamp: 1712322903, // Use a fixed timestamp for stable tests
             },
           },
         },
       ],
-      error: null,
       branches: [],
+      error: null,
     });
 
     render(<GitPanel rootDirectoryHandle={mockDirectoryHandle} />);
 
     // Should see the commit accordion
-    expect(screen.getByText('Test commit')).toBeInTheDocument();
+    expect(screen.getAllByText('Test commit')[0]).toBeInTheDocument();
   });
 
   test("should render compare tab content when activeTab is 'compare'", () => {
@@ -363,12 +440,12 @@ describe('GitPanel', () => {
 
     render(<GitPanel rootDirectoryHandle={mockDirectoryHandle} />);
 
-    // Find the branch selectors - simplified test since we're mocking UI components
-    const branchSelectors = screen.getAllByRole('combobox');
+    // Find the branch selectors by data-testid instead of role
+    const branchSelectors = screen.getAllByTestId('mock-select-trigger');
     expect(branchSelectors.length).toBe(2);
 
     // Verify the selected branch values are shown in the UI
-    expect(screen.getByText('main')).toBeInTheDocument();
-    expect(screen.getByText('develop')).toBeInTheDocument();
+    expect(screen.getAllByText('main')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('develop')[0]).toBeInTheDocument();
   });
 });

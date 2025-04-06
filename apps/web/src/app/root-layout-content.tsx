@@ -1,7 +1,7 @@
+import { Toaster } from '@brainstrike/ui';
 import React from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from '../components/custom/sidebar/sidebar';
-import { Toaster } from '../components/ui/toaster';
 import { ThemeProvider } from '../providers/theme-provider';
 
 export default function RootLayoutContent() {
