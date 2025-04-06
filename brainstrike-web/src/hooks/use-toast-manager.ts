@@ -5,101 +5,101 @@
  * It handles common toast patterns and error handling.
  */
 
-import { useCallback } from 'react';
-import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
-import type { ToastActionElement } from '../components/ui/toast';
-import { useToast } from '../components/ui/use-toast';
-import { PartialRefreshError } from '../types/errors';
+import { useCallback } from "react";
+import { FileExplorerStrings } from "../components/custom/constants/file-explorer-constants";
+import type { ToastActionElement } from "../components/ui/toast";
+import { useToast } from "../components/ui/use-toast";
+import { PartialRefreshError } from "../types/errors";
 
 export const useToastManager = () => {
-  const { toast } = useToast();
+	const { toast } = useToast();
 
-  const showToast = useCallback(
-    ({
-      title,
-      description,
-      variant = 'default',
-      action,
-    }: {
-      title: string;
-      description: string;
-      variant?: 'default' | 'destructive';
-      action?: ToastActionElement;
-    }) => {
-      toast({
-        title,
-        description,
-        variant,
-        action,
-      });
-    },
-    [toast]
-  );
+	const showToast = useCallback(
+		({
+			title,
+			description,
+			variant = "default",
+			action,
+		}: {
+			title: string;
+			description: string;
+			variant?: "default" | "destructive";
+			action?: ToastActionElement;
+		}) => {
+			toast({
+				title,
+				description,
+				variant,
+				action,
+			});
+		},
+		[toast],
+	);
 
-  const handlePartialRefreshError = useCallback(
-    (error: PartialRefreshError) => {
-      showToast({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-    [showToast]
-  );
+	const handlePartialRefreshError = useCallback(
+		(error: PartialRefreshError) => {
+			showToast({
+				title: FileExplorerStrings.ERROR.TITLE,
+				description: error.message,
+				variant: "destructive",
+			});
+		},
+		[showToast],
+	);
 
-  const handleRefreshError = useCallback(
-    (error: unknown) => {
-      if (error instanceof PartialRefreshError) {
-        handlePartialRefreshError(error);
-      } else {
-        showToast({
-          title: FileExplorerStrings.ERROR.TITLE,
-          description: FileExplorerStrings.ERROR.REFRESH_FAILED,
-          variant: 'destructive',
-        });
-      }
-    },
-    [handlePartialRefreshError, showToast]
-  );
+	const handleRefreshError = useCallback(
+		(error: unknown) => {
+			if (error instanceof PartialRefreshError) {
+				handlePartialRefreshError(error);
+			} else {
+				showToast({
+					title: FileExplorerStrings.ERROR.TITLE,
+					description: FileExplorerStrings.ERROR.REFRESH_FAILED,
+					variant: "destructive",
+				});
+			}
+		},
+		[handlePartialRefreshError, showToast],
+	);
 
-  const handleBrowserCompatibilityError = useCallback(
-    (reason: string) => {
-      showToast({
-        title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
-        description: reason,
-        variant: 'destructive',
-      });
-    },
-    [showToast]
-  );
+	const handleBrowserCompatibilityError = useCallback(
+		(reason: string) => {
+			showToast({
+				title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
+				description: reason,
+				variant: "destructive",
+			});
+		},
+		[showToast],
+	);
 
-  const handleDirectorySelectError = useCallback(
-    (error: unknown) => {
-      console.error('Failed to select root directory:', error);
-      showToast({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,
-        variant: 'destructive',
-      });
-    },
-    [showToast]
-  );
+	const handleDirectorySelectError = useCallback(
+		(error: unknown) => {
+			console.error("Failed to select root directory:", error);
+			showToast({
+				title: FileExplorerStrings.ERROR.TITLE,
+				description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,
+				variant: "destructive",
+			});
+		},
+		[showToast],
+	);
 
-  const handleSelectionLimitError = useCallback(() => {
-    toast({
-      title: FileExplorerStrings.ERROR.TITLE,
-      description: FileExplorerStrings.ERROR.SELECTION_LIMIT_EXCEEDED,
-      variant: 'destructive',
-    });
-  }, [toast]);
+	const handleSelectionLimitError = useCallback(() => {
+		toast({
+			title: FileExplorerStrings.ERROR.TITLE,
+			description: FileExplorerStrings.ERROR.SELECTION_LIMIT_EXCEEDED,
+			variant: "destructive",
+		});
+	}, [toast]);
 
-  return {
-    toast,
-    showToast,
-    handlePartialRefreshError,
-    handleRefreshError,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    handleSelectionLimitError,
-  };
+	return {
+		toast,
+		showToast,
+		handlePartialRefreshError,
+		handleRefreshError,
+		handleBrowserCompatibilityError,
+		handleDirectorySelectError,
+		handleSelectionLimitError,
+	};
 };

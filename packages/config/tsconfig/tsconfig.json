@@ -1,6 +1,6 @@
 {
-  "compilerOptions": {
-    "composite": true,
-    "incremental": true
-  }
-} 
+	"compilerOptions": {
+		"composite": true,
+		"incremental": true
+	}
+}

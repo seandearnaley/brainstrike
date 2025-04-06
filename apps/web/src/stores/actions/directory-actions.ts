@@ -5,7 +5,7 @@
  * These actions handle expanding and collapsing directories while maintaining state persistence.
  */
 
-import type { FileExplorerState } from '../types/file-explorer-types';
+import type { FileExplorerState } from '@brainstrike/types';
 
 export const createDirectoryActions = (
   set: (fn: (state: FileExplorerState) => Partial<FileExplorerState>) => void,

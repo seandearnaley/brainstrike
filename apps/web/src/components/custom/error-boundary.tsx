@@ -1,4 +1,11 @@
 import {
+  ConcurrentLoadingError,
+  FSInitializationError,
+  FileContentError,
+  GitOperationError,
+  PartialRefreshError,
+} from '@brainstrike/types';
+import {
   AlertTriangle,
   ArrowLeft,
   Bug,
@@ -11,13 +18,6 @@ import {
 } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { cn } from '../../lib/utils';
-import {
-  ConcurrentLoadingError,
-  FSInitializationError,
-  FileContentError,
-  GitOperationError,
-  PartialRefreshError,
-} from '../../types/errors';
 import { Button } from '../ui/button';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 

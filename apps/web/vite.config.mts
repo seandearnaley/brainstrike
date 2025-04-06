@@ -1,8 +1,8 @@
+import path from "node:path";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
-import path from "node:path";
 
 export default defineConfig({
   plugins: [
@@ -38,7 +38,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "src": path.resolve(__dirname, "./src"),
+      src: path.resolve(__dirname, "./src"),
     },
   },
   test: {
@@ -97,5 +97,8 @@ export default defineConfig({
       },
     },
     mockReset: true,
+    deps: {
+      inline: [/@brainstrike\/types/],
+    },
   },
-}); 
+});

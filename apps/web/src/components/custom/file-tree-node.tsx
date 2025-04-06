@@ -1,3 +1,4 @@
+import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
 import {
   ChevronDown,
   ChevronRight,
@@ -16,7 +17,6 @@ import {
   TooltipTrigger,
 } from '../../components/ui/tooltip';
 import { fileExplorer } from '../../lib/file/explorer';
-import { FileNodeType, type IFileNode, SelectionState } from '../../lib/file/types';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';
 import { FolderSelectionDialog } from './folder-selection-dialog';
@@ -273,8 +273,8 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
         {node.type === 'directory' && isExpanded && node.children && (
           <fieldset className="ml-6" aria-label={`Contents of ${node.name}`}>
             {node.children
-              .filter((childNode) => childNode.isVisible !== false)
-              .map((childNode) => (
+              .filter((childNode: IFileNode) => childNode.isVisible !== false)
+              .map((childNode: IFileNode) => (
                 <FileTreeNode
                   key={childNode.path}
                   node={childNode}

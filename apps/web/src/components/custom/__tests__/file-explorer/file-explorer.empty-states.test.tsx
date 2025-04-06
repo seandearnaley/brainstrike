@@ -76,12 +76,20 @@ vi.mock('@/hooks/use-quick-filter', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-file-explorer-settings', () => ({ useFileExplorerSettings: () => ({}) }));
-vi.mock('@/hooks/use-report-generation', () => ({ useReportGeneration: () => ({}) }));
+vi.mock('@/hooks/use-file-explorer-settings', () => ({
+  useFileExplorerSettings: () => ({}),
+}));
+vi.mock('@/hooks/use-report-generation', () => ({
+  useReportGeneration: () => ({}),
+}));
 vi.mock('@/hooks/use-report-manager', () => ({ useReportManager: () => ({}) }));
 vi.mock('@/hooks/use-toast-manager', () => ({ useToastManager: () => ({}) }));
-vi.mock('@/hooks/use-selection-manager', () => ({ useSelectionManager: () => ({}) }));
-vi.mock('@/hooks/use-file-loading-manager', () => ({ useFileLoadingManager: () => ({}) }));
+vi.mock('@/hooks/use-selection-manager', () => ({
+  useSelectionManager: () => ({}),
+}));
+vi.mock('@/hooks/use-file-loading-manager', () => ({
+  useFileLoadingManager: () => ({}),
+}));
 
 // Mock UI components
 vi.mock('@/components/ui/button', () => ({

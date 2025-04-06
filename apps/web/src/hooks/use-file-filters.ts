@@ -1,6 +1,6 @@
+import type { IFileNode } from '@brainstrike/types';
 import { minimatch } from 'minimatch';
 import { useCallback, useRef, useState } from 'react';
-import type { IFileNode } from '../lib/file/types';
 import { processFilter } from '../utils/filter-utils';
 
 export function useFileFilters() {

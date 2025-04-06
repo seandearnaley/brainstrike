@@ -1,4 +1,4 @@
-import { encode } from 'gpt-tokenizer'; // uses GPT-4's cl100k_base encoding by default
+import { encode } from "gpt-tokenizer"; // uses GPT-4's cl100k_base encoding by default
 
 /**
  * Utility functions for estimating token counts for large language models
@@ -12,8 +12,8 @@ import { encode } from 'gpt-tokenizer'; // uses GPT-4's cl100k_base encoding by 
  * @returns The number of tokens in the text
  */
 export function countTokensAccurate(text: string): number {
-  // Encode text to token IDs and return the length
-  return encode(text).length;
+	// Encode text to token IDs and return the length
+	return encode(text).length;
 }
 
 /**
@@ -24,9 +24,9 @@ export function countTokensAccurate(text: string): number {
  * @returns Estimated number of tokens in the text
  */
 export function countTokensHeuristic(text: string): number {
-  const chars = text.length;
-  // ~4 chars per token on average in English
-  return Math.ceil(chars / 4);
+	const chars = text.length;
+	// ~4 chars per token on average in English
+	return Math.ceil(chars / 4);
 }
 
 /**
@@ -36,15 +36,15 @@ export function countTokensHeuristic(text: string): number {
  * @returns A formatted string (e.g., "1.2K tokens")
  */
 export function formatTokenCount(count: number): string {
-  if (count < 1000) {
-    return `${count} tokens`;
-  }
+	if (count < 1000) {
+		return `${count} tokens`;
+	}
 
-  if (count < 1000000) {
-    return `${(count / 1000).toFixed(1)}K tokens`;
-  }
+	if (count < 1000000) {
+		return `${(count / 1000).toFixed(1)}K tokens`;
+	}
 
-  return `${(count / 1000000).toFixed(1)}M tokens`;
+	return `${(count / 1000000).toFixed(1)}M tokens`;
 }
 
 /**
@@ -54,9 +54,12 @@ export function formatTokenCount(count: number): string {
  * @param useHeuristic - Whether to use the faster heuristic method
  * @returns Total token count for all texts
  */
-export function calculateGroupTokens(texts: string[], useHeuristic = false): number {
-  const countMethod = useHeuristic ? countTokensHeuristic : countTokensAccurate;
-  return texts.reduce((total, text) => total + countMethod(text), 0);
+export function calculateGroupTokens(
+	texts: string[],
+	useHeuristic = false,
+): number {
+	const countMethod = useHeuristic ? countTokensHeuristic : countTokensAccurate;
+	return texts.reduce((total, text) => total + countMethod(text), 0);
 }
 
 /**
@@ -67,9 +70,12 @@ export function calculateGroupTokens(texts: string[], useHeuristic = false): num
  * @param outputTokens - Number of output tokens (optional)
  * @returns Estimated cost in USD
  */
-export function estimateTokenCost(inputTokens: number, outputTokens = 0): number {
-  // Current GPT-4 rates as of March 2025: $10/1M input, $30/1M output tokens
-  const inputCost = inputTokens * 0.00001; // $0.01 per 1K tokens
-  const outputCost = outputTokens * 0.00003; // $0.03 per 1K tokens
-  return inputCost + outputCost;
+export function estimateTokenCost(
+	inputTokens: number,
+	outputTokens = 0,
+): number {
+	// Current GPT-4 rates as of March 2025: $10/1M input, $30/1M output tokens
+	const inputCost = inputTokens * 0.00001; // $0.01 per 1K tokens
+	const outputCost = outputTokens * 0.00003; // $0.03 per 1K tokens
+	return inputCost + outputCost;
 }

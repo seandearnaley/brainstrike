@@ -1,5 +1,5 @@
+import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FileExplorerState } from '../../types/file-explorer-types';
 import { createFilterActions } from '../filter-actions';
 
 describe('filter-actions', () => {

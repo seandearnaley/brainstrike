@@ -59,7 +59,9 @@ describe('PreviewPanel - Accessibility', () => {
 
     // Next tab to Collapse All button
     await user.tab();
-    const collapseAllButton = screen.getByRole('button', { name: /Collapse All/i });
+    const collapseAllButton = screen.getByRole('button', {
+      name: /Collapse All/i,
+    });
     expect(collapseAllButton).toHaveFocus();
 
     // Next tab to folder button (which is now a single button element)
@@ -96,7 +98,9 @@ describe('PreviewPanel - Accessibility', () => {
 
     // Tab to the file checkbox
     await user.tab();
-    const fileCheckbox = screen.getByRole('checkbox', { name: /Select file1\.txt/i });
+    const fileCheckbox = screen.getByRole('checkbox', {
+      name: /Select file1\.txt/i,
+    });
     expect(fileCheckbox).toHaveFocus();
 
     // Continue tabbing to reach the file expand button

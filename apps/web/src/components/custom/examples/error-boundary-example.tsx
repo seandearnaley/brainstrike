@@ -1,11 +1,11 @@
-import { useState } from 'react';
 import {
   ConcurrentLoadingError,
   FSInitializationError,
   FileContentError,
   GitOperationError,
   PartialRefreshError,
-} from '../../../types/errors';
+} from '@brainstrike/types';
+import { useState } from 'react';
 import { Button } from '../../ui/button';
 import ErrorBoundary from '../error-boundary';
 

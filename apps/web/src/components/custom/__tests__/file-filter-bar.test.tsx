@@ -57,7 +57,9 @@ describe('FileFilterBar', () => {
     const user = userEvent.setup();
     render(<FileFilterBar {...defaultProps} />);
 
-    const helpButton = screen.getByRole('button', { name: /filter syntax help/i });
+    const helpButton = screen.getByRole('button', {
+      name: /filter syntax help/i,
+    });
     await user.click(helpButton);
 
     // Check content is visible

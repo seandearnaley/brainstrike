@@ -1,4 +1,4 @@
-import type { FileFilterOptions, IFileNode } from '@/lib/file/types';
+import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import { fileFilter } from '../filter';

@@ -1,8 +1,8 @@
+import type { IFileNode } from '@brainstrike/types';
+import { FileContentError } from '@brainstrike/types';
 import { useCallback, useRef, useState } from 'react';
 import { fileContent } from '../lib/file/content';
 import { fileExplorer } from '../lib/file/explorer';
-import type { IFileNode } from '../lib/file/types';
-import { FileContentError } from '../types/errors';
 import { decodeFileSelection } from '../utils/file-selection-utils';
 
 const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
@@ -16,7 +16,9 @@ interface UseFileContentLoadingReturn {
 }
 
 export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoadingReturn {
-  const [fileContents, setFileContents] = useState<{ [compositeKey: string]: string }>({});
+  const [fileContents, setFileContents] = useState<{
+    [compositeKey: string]: string;
+  }>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const loadingPathsRef = useRef(new Set<string>());

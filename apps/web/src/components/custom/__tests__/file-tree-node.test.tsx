@@ -73,7 +73,9 @@ describe('FileTreeNode', () => {
     expect(screen.getByRole('checkbox', { name: 'Select test.tsx' })).toBeInTheDocument();
     // Should not have expand/collapse button for files
     expect(
-      screen.queryByRole('button', { name: /expand .* directory|collapse .* directory/i })
+      screen.queryByRole('button', {
+        name: /expand .* directory|collapse .* directory/i,
+      })
     ).not.toBeInTheDocument();
   });
 
@@ -103,7 +105,9 @@ describe('FileTreeNode', () => {
     const user = userEvent.setup();
     render(<FileTreeNode {...defaultDirProps} />);
 
-    const expandButton = screen.getByRole('button', { name: /expand components directory/i });
+    const expandButton = screen.getByRole('button', {
+      name: /expand components directory/i,
+    });
     await user.click(expandButton);
 
     expect(defaultDirProps.onToggleDirectoryExpansion).toHaveBeenCalledWith('src/components');
@@ -179,7 +183,9 @@ describe('FileTreeNode', () => {
     });
 
     render(<FileTreeNode {...props} />);
-    const checkbox = screen.getByRole('checkbox', { name: 'Select components' });
+    const checkbox = screen.getByRole('checkbox', {
+      name: 'Select components',
+    });
     expect(checkbox).toHaveAttribute('data-state', 'checked');
   });
 
@@ -279,7 +285,9 @@ describe('FileTreeNode', () => {
       const { props } = setupDirTest(['src/test-dir/file1.tsx']);
       render(<FileTreeNode {...props} />);
 
-      const checkbox = screen.getByRole('checkbox', { name: 'Select test-dir' });
+      const checkbox = screen.getByRole('checkbox', {
+        name: 'Select test-dir',
+      });
       expect(checkbox).toHaveAttribute('data-state', 'indeterminate');
     });
 
@@ -288,7 +296,9 @@ describe('FileTreeNode', () => {
       const user = userEvent.setup();
       render(<FileTreeNode {...props} />);
 
-      const checkbox = screen.getByRole('checkbox', { name: 'Select test-dir' });
+      const checkbox = screen.getByRole('checkbox', {
+        name: 'Select test-dir',
+      });
       await user.click(checkbox);
 
       // Should select the remaining unselected files
@@ -333,7 +343,9 @@ describe('FileTreeNode', () => {
       const user = userEvent.setup();
       render(<FileTreeNode {...props} />);
 
-      const parentCheckbox = screen.getByRole('checkbox', { name: 'Select parent' });
+      const parentCheckbox = screen.getByRole('checkbox', {
+        name: 'Select parent',
+      });
       await user.click(parentCheckbox);
 
       // Should select the nested file

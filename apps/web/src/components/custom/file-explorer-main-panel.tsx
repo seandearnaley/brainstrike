@@ -12,10 +12,14 @@ const LoadingPanel = () => (
 
 // Lazy load heavy components
 const OramaSearchPanel = lazy(() =>
-  import('./orama-search-panel').then((module) => ({ default: module.OramaSearchPanel }))
+  import('./orama-search-panel').then((module) => ({
+    default: module.OramaSearchPanel,
+  }))
 );
 const PreviewPanel = lazy(() =>
-  import('./preview-panel').then((module) => ({ default: module.PreviewPanel }))
+  import('./preview-panel').then((module) => ({
+    default: module.PreviewPanel,
+  }))
 );
 
 interface FileExplorerMainPanelProps {

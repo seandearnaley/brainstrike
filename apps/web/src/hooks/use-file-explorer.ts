@@ -1,13 +1,13 @@
+import type { IFileNode } from '@brainstrike/types';
+import { PartialRefreshError } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DEFAULT_EXCLUDE_FILTERS,
   DEFAULT_INCLUDE_FILTERS,
   IGNORED_PATHS,
 } from '../constants/file-explorer';
-import type { IFileNode } from '../lib/file/types';
 import { fileFilter } from '../lib/utils/filter';
 import { useFileExplorerStore } from '../stores/use-file-explorer-store';
-import { PartialRefreshError } from '../types/errors';
 import { useFileContentLoading } from './use-file-content-loading';
 import { useFileFilters } from './use-file-filters';
 import { useFileSystem } from './use-file-system';

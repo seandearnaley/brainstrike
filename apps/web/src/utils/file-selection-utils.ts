@@ -18,7 +18,10 @@ export function encodeFileSelection(folderId: string, filePath: string): string 
 /**
  * Extracts the folder ID and file path from a composite key
  */
-export function decodeFileSelection(compositeKey: string): { folderId: string; path: string } {
+export function decodeFileSelection(compositeKey: string): {
+  folderId: string;
+  path: string;
+} {
   if (!compositeKey || !compositeKey.includes(SEPARATOR)) {
     throw new Error('Invalid composite key format');
   }

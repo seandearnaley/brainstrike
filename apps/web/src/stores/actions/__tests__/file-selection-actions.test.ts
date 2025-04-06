@@ -1,6 +1,6 @@
+import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeFileSelection } from '../../../utils/file-selection-utils';
-import type { FileExplorerState } from '../../types/file-explorer-types';
 import { createFileSelectionActions } from '../file-selection-actions';
 
 // Mock the file-selection-utils module

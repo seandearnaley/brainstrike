@@ -1,4 +1,4 @@
-import type { FileFilterOptions, IFileNode } from '@/lib/file/types';
+import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { minimatch } from 'minimatch';
 
 /**
@@ -53,7 +53,7 @@ export const fileFilter = {
     // Then check exclude filters
     if (
       excludeFilters.length > 0 &&
-      excludeFilters.some((pattern) => matchFn(node.path, pattern))
+      excludeFilters.some((pattern: string) => matchFn(node.path, pattern))
     ) {
       return null;
     }
@@ -61,7 +61,7 @@ export const fileFilter = {
     // Finally check include filters
     if (
       includeFilters.length > 0 &&
-      !includeFilters.some((pattern) => matchFn(node.path, pattern))
+      !includeFilters.some((pattern: string) => matchFn(node.path, pattern))
     ) {
       return null;
     }
@@ -69,7 +69,9 @@ export const fileFilter = {
     // For directories, recursively filter children
     if (node.type === 'directory' && node.children) {
       const filteredChildren = node.children
-        .map((child) => this.filterNode(child, { includeFilters, excludeFilters, useRegex }))
+        .map((child: IFileNode) =>
+          this.filterNode(child, { includeFilters, excludeFilters, useRegex })
+        )
         .filter((child): child is IFileNode => child !== null);
 
       return {

@@ -1,6 +1,6 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
+import { DEFAULT_STATE } from '@brainstrike/types'; // Import defaults
 import { beforeEach, describe, expect, test } from 'vitest'; // Added imports
-import { DEFAULT_STATE } from '../types/file-explorer-types'; // Import defaults
 import { useFileExplorerStore } from '../use-file-explorer-store';
 
 // A simple file tree for testing

@@ -7,6 +7,8 @@
  * Action logic is delegated to separate action creator functions imported from ./actions/*.
  */
 
+import type { FileExplorerState } from '@brainstrike/types';
+import { DEFAULT_STATE } from '@brainstrike/types';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
@@ -14,8 +16,6 @@ import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
-import type { FileExplorerState } from './types/file-explorer-types';
-import { DEFAULT_STATE } from './types/file-explorer-types';
 
 export const useFileExplorerStore = create<FileExplorerState>()(
   persist(

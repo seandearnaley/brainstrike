@@ -110,7 +110,9 @@ describe('ActionButtons', () => {
         />
       );
 
-      const selectAllButton = screen.getByRole('button', { name: 'Select All' });
+      const selectAllButton = screen.getByRole('button', {
+        name: 'Select All',
+      });
       expect(selectAllButton).not.toBeDisabled();
       await user.click(selectAllButton);
 
@@ -141,7 +143,9 @@ describe('ActionButtons', () => {
         />
       );
 
-      const selectButton = screen.getByRole('button', { name: `Select ${maxSelection}` });
+      const selectButton = screen.getByRole('button', {
+        name: `Select ${maxSelection}`,
+      });
       await user.click(selectButton);
 
       const expectedSelection = new Set(
@@ -174,7 +178,9 @@ describe('ActionButtons', () => {
         />
       );
 
-      const deselectAllButton = screen.getByRole('button', { name: 'Deselect All' });
+      const deselectAllButton = screen.getByRole('button', {
+        name: 'Deselect All',
+      });
       expect(deselectAllButton).not.toBeDisabled();
       await user.click(deselectAllButton);
 
@@ -199,7 +205,9 @@ describe('ActionButtons', () => {
         />
       );
 
-      const selectButton = screen.getByRole('button', { name: `Select ${maxSelection}` });
+      const selectButton = screen.getByRole('button', {
+        name: `Select ${maxSelection}`,
+      });
       expect(selectButton).not.toBeDisabled();
     });
   });

@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IGNORED_PATHS } from '../../../constants/file-explorer';
 import {
@@ -6,7 +7,6 @@ import {
   createNestedDirectoryStructure,
 } from '../../../test/factories/file-node';
 import { fileExplorer } from '../explorer';
-import type { IFileNode } from '../types';
 
 describe('fileExplorer', () => {
   describe('shouldIgnorePath', () => {
@@ -56,10 +56,22 @@ describe('fileExplorer', () => {
 
     it('should return all file paths in a directory recursively', () => {
       // Create a custom nested structure manually to ensure the paths match exactly
-      const file1 = createFileNode({ name: 'file1.txt', path: '/root/file1.txt' });
-      const file2 = createFileNode({ name: 'file2.txt', path: '/root/file2.txt' });
-      const subFile1 = createFileNode({ name: 'subfile1.txt', path: '/root/subdir/subfile1.txt' });
-      const subFile2 = createFileNode({ name: 'subfile2.txt', path: '/root/subdir/subfile2.txt' });
+      const file1 = createFileNode({
+        name: 'file1.txt',
+        path: '/root/file1.txt',
+      });
+      const file2 = createFileNode({
+        name: 'file2.txt',
+        path: '/root/file2.txt',
+      });
+      const subFile1 = createFileNode({
+        name: 'subfile1.txt',
+        path: '/root/subdir/subfile1.txt',
+      });
+      const subFile2 = createFileNode({
+        name: 'subfile2.txt',
+        path: '/root/subdir/subfile2.txt',
+      });
 
       const subdir = createDirectoryNode({
         name: 'subdir',
@@ -242,7 +254,12 @@ describe('fileExplorer', () => {
             createDirectoryNode({
               name: 'dir1',
               path: '/root/dir1',
-              children: [createFileNode({ name: 'fileB.js', path: '/root/dir1/fileB.js' })],
+              children: [
+                createFileNode({
+                  name: 'fileB.js',
+                  path: '/root/dir1/fileB.js',
+                }),
+              ],
             }),
           ],
         }),
@@ -329,8 +346,16 @@ describe('fileExplorer', () => {
           children: [
             createFileNode({ name: 'fileZ.txt', path: '/root/fileZ.txt' }),
             createFileNode({ name: 'fileA.txt', path: '/root/fileA.txt' }),
-            createDirectoryNode({ name: 'dirB', path: '/root/dirB', children: [] }),
-            createDirectoryNode({ name: 'dirA', path: '/root/dirA', children: [] }),
+            createDirectoryNode({
+              name: 'dirB',
+              path: '/root/dirB',
+              children: [],
+            }),
+            createDirectoryNode({
+              name: 'dirA',
+              path: '/root/dirA',
+              children: [],
+            }),
           ],
         }),
       ];

@@ -1,201 +1,146 @@
 {
-  "app/__tests__/layout.test.tsx": [
-    "app/layout.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "app/__tests__/settings.test.tsx": [
-    "app/settings/page.tsx"
-  ],
-  "app/globals.css": [],
-  "app/layout.tsx": [
-    "app/globals.css",
-    "components/custom/Sidebar/Sidebar.tsx",
-    "components/ui/toaster.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "app/page.tsx": [
-    "components/custom/ClientFileExplorer.tsx"
-  ],
-  "app/settings/page.tsx": [
-    "components/custom/Settings/ThemeSettings.tsx"
-  ],
-  "components/custom/ActionButtons.tsx": [
-    "components/ui/button.tsx"
-  ],
-  "components/custom/ClientFileExplorer.tsx": [
-    "components/custom/ErrorBoundary.tsx",
-    "components/custom/FileExplorer.tsx"
-  ],
-  "components/custom/ErrorBoundary.tsx": [
-    "components/ui/button.tsx"
-  ],
-  "components/custom/FileExplorer.tsx": [
-    "components/custom/ActionButtons.tsx",
-    "components/custom/ErrorBoundary.tsx",
-    "components/custom/FileExplorerConfig.tsx",
-    "components/custom/FileTree.tsx",
-    "components/custom/PreviewPanel.tsx",
-    "components/custom/SelectionCounter.tsx",
-    "components/ui/button.tsx",
-    "components/ui/use-toast.ts",
-    "hooks/useFileExplorer.ts",
-    "hooks/useFileExplorerSettings.ts",
-    "lib/fileExplorerUtils.ts",
-    "utils/reportGenerator.ts"
-  ],
-  "components/custom/FileExplorerConfig.tsx": [
-    "components/custom/FileExtensionFilter.tsx",
-    "components/custom/MaxSelectionInput.tsx",
-    "components/ui/button.tsx",
-    "components/ui/label.tsx",
-    "components/ui/popover.tsx",
-    "components/ui/switch.tsx"
-  ],
-  "components/custom/FileExtensionFilter.tsx": [
-    "components/ui/input.tsx"
-  ],
-  "components/custom/FileTree.tsx": [
-    "components/custom/FileTreeNode.tsx",
-    "types/index.ts"
-  ],
-  "components/custom/FileTreeNode.tsx": [
-    "types/index.ts"
-  ],
-  "components/custom/MaxSelectionInput.tsx": [
-    "components/ui/input.tsx"
-  ],
-  "components/custom/PreviewPanel.tsx": [
-    "components/ui/accordion.tsx",
-    "constants/fileExplorer.ts",
-    "lib/fileExplorerUtils.ts"
-  ],
-  "components/custom/SelectionCounter.tsx": [
-    "components/ui/badge.tsx"
-  ],
-  "components/custom/Settings/ThemeSettings.tsx": [
-    "components/ui/button.tsx",
-    "components/ui/label.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "components/custom/Settings/__tests__/ThemeSettings.test.tsx": [
-    "components/custom/Settings/ThemeSettings.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "components/custom/Sidebar/Sidebar.tsx": [
-    "components/custom/ThemeToggle.tsx",
-    "lib/utils.ts"
-  ],
-  "components/custom/Sidebar/__tests__/Sidebar.test.tsx": [
-    "components/custom/Sidebar/Sidebar.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "components/custom/ThemeToggle.test.tsx": [
-    "components/custom/ThemeToggle.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "components/custom/ThemeToggle.tsx": [
-    "components/ui/button.tsx",
-    "providers/theme-provider.tsx"
-  ],
-  "components/custom/__tests__/FileExplorer.test.tsx": [
-    "components/custom/FileExplorer.tsx",
-    "hooks/useFileSystem.ts"
-  ],
-  "components/custom/__tests__/FileExplorerConfig.test.tsx": [
-    "components/custom/FileExplorerConfig.tsx"
-  ],
-  "components/ui/accordion.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/badge.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/button.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/checkbox.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/input.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/label.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/popover.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/switch.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/toast.tsx": [
-    "lib/utils.ts"
-  ],
-  "components/ui/toaster.tsx": [
-    "components/ui/toast.tsx",
-    "components/ui/use-toast.ts"
-  ],
-  "components/ui/use-toast.ts": [
-    "components/ui/toast.tsx"
-  ],
-  "constants/fileExplorer.ts": [],
-  "hooks/__tests__/useFileExplorer.test.ts": [
-    "hooks/useFileExplorer.ts",
-    "hooks/useFileFilters.ts",
-    "hooks/useFileSystem.ts",
-    "hooks/useFileTree.ts",
-    "test/factories/fileNode.ts"
-  ],
-  "hooks/__tests__/useFileSystem.test.ts": [
-    "hooks/useFileSystem.ts"
-  ],
-  "hooks/useErrorHandler.ts": [],
-  "hooks/useFileExplorer.ts": [
-    "constants/fileExplorer.ts",
-    "hooks/useFileFilters.ts",
-    "hooks/useFileSystem.ts",
-    "hooks/useFileTree.ts",
-    "lib/fileExplorerUtils.ts",
-    "types/index.ts"
-  ],
-  "hooks/useFileExplorerSettings.ts": [
-    "constants/fileExplorer.ts"
-  ],
-  "hooks/useFileFilters.ts": [
-    "types/index.ts",
-    "utils/filterUtils.ts"
-  ],
-  "hooks/useFileSystem.ts": [],
-  "hooks/useFileTree.ts": [
-    "constants/fileExplorer.ts",
-    "lib/fileExplorerUtils.ts",
-    "types/index.ts"
-  ],
-  "lib/fileExplorerUtils.ts": [
-    "constants/fileExplorer.ts",
-    "types/index.ts"
-  ],
-  "lib/utils.ts": [],
-  "providers/theme-provider.test.tsx": [
-    "providers/theme-provider.tsx"
-  ],
-  "providers/theme-provider.tsx": [],
-  "test/factories/fileNode.ts": [
-    "types/index.ts"
-  ],
-  "types/index.ts": [],
-  "utils/__tests__/folderTreeGenerator.test.ts": [
-    "types/index.ts",
-    "utils/folderTreeGenerator.ts"
-  ],
-  "utils/filterUtils.ts": [],
-  "utils/folderTreeGenerator.ts": [
-    "types/index.ts",
-    "utils/filterUtils.ts"
-  ],
-  "utils/reportGenerator.ts": [
-    "lib/fileExplorerUtils.ts",
-    "types/index.ts",
-    "utils/folderTreeGenerator.ts"
-  ]
+	"app/__tests__/layout.test.tsx": [
+		"app/layout.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"app/__tests__/settings.test.tsx": ["app/settings/page.tsx"],
+	"app/globals.css": [],
+	"app/layout.tsx": [
+		"app/globals.css",
+		"components/custom/Sidebar/Sidebar.tsx",
+		"components/ui/toaster.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"app/page.tsx": ["components/custom/ClientFileExplorer.tsx"],
+	"app/settings/page.tsx": ["components/custom/Settings/ThemeSettings.tsx"],
+	"components/custom/ActionButtons.tsx": ["components/ui/button.tsx"],
+	"components/custom/ClientFileExplorer.tsx": [
+		"components/custom/ErrorBoundary.tsx",
+		"components/custom/FileExplorer.tsx"
+	],
+	"components/custom/ErrorBoundary.tsx": ["components/ui/button.tsx"],
+	"components/custom/FileExplorer.tsx": [
+		"components/custom/ActionButtons.tsx",
+		"components/custom/ErrorBoundary.tsx",
+		"components/custom/FileExplorerConfig.tsx",
+		"components/custom/FileTree.tsx",
+		"components/custom/PreviewPanel.tsx",
+		"components/custom/SelectionCounter.tsx",
+		"components/ui/button.tsx",
+		"components/ui/use-toast.ts",
+		"hooks/useFileExplorer.ts",
+		"hooks/useFileExplorerSettings.ts",
+		"lib/fileExplorerUtils.ts",
+		"utils/reportGenerator.ts"
+	],
+	"components/custom/FileExplorerConfig.tsx": [
+		"components/custom/FileExtensionFilter.tsx",
+		"components/custom/MaxSelectionInput.tsx",
+		"components/ui/button.tsx",
+		"components/ui/label.tsx",
+		"components/ui/popover.tsx",
+		"components/ui/switch.tsx"
+	],
+	"components/custom/FileExtensionFilter.tsx": ["components/ui/input.tsx"],
+	"components/custom/FileTree.tsx": [
+		"components/custom/FileTreeNode.tsx",
+		"types/index.ts"
+	],
+	"components/custom/FileTreeNode.tsx": ["types/index.ts"],
+	"components/custom/MaxSelectionInput.tsx": ["components/ui/input.tsx"],
+	"components/custom/PreviewPanel.tsx": [
+		"components/ui/accordion.tsx",
+		"constants/fileExplorer.ts",
+		"lib/fileExplorerUtils.ts"
+	],
+	"components/custom/SelectionCounter.tsx": ["components/ui/badge.tsx"],
+	"components/custom/Settings/ThemeSettings.tsx": [
+		"components/ui/button.tsx",
+		"components/ui/label.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"components/custom/Settings/__tests__/ThemeSettings.test.tsx": [
+		"components/custom/Settings/ThemeSettings.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"components/custom/Sidebar/Sidebar.tsx": [
+		"components/custom/ThemeToggle.tsx",
+		"lib/utils.ts"
+	],
+	"components/custom/Sidebar/__tests__/Sidebar.test.tsx": [
+		"components/custom/Sidebar/Sidebar.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"components/custom/ThemeToggle.test.tsx": [
+		"components/custom/ThemeToggle.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"components/custom/ThemeToggle.tsx": [
+		"components/ui/button.tsx",
+		"providers/theme-provider.tsx"
+	],
+	"components/custom/__tests__/FileExplorer.test.tsx": [
+		"components/custom/FileExplorer.tsx",
+		"hooks/useFileSystem.ts"
+	],
+	"components/custom/__tests__/FileExplorerConfig.test.tsx": [
+		"components/custom/FileExplorerConfig.tsx"
+	],
+	"components/ui/accordion.tsx": ["lib/utils.ts"],
+	"components/ui/badge.tsx": ["lib/utils.ts"],
+	"components/ui/button.tsx": ["lib/utils.ts"],
+	"components/ui/checkbox.tsx": ["lib/utils.ts"],
+	"components/ui/input.tsx": ["lib/utils.ts"],
+	"components/ui/label.tsx": ["lib/utils.ts"],
+	"components/ui/popover.tsx": ["lib/utils.ts"],
+	"components/ui/switch.tsx": ["lib/utils.ts"],
+	"components/ui/toast.tsx": ["lib/utils.ts"],
+	"components/ui/toaster.tsx": [
+		"components/ui/toast.tsx",
+		"components/ui/use-toast.ts"
+	],
+	"components/ui/use-toast.ts": ["components/ui/toast.tsx"],
+	"constants/fileExplorer.ts": [],
+	"hooks/__tests__/useFileExplorer.test.ts": [
+		"hooks/useFileExplorer.ts",
+		"hooks/useFileFilters.ts",
+		"hooks/useFileSystem.ts",
+		"hooks/useFileTree.ts",
+		"test/factories/fileNode.ts"
+	],
+	"hooks/__tests__/useFileSystem.test.ts": ["hooks/useFileSystem.ts"],
+	"hooks/useErrorHandler.ts": [],
+	"hooks/useFileExplorer.ts": [
+		"constants/fileExplorer.ts",
+		"hooks/useFileFilters.ts",
+		"hooks/useFileSystem.ts",
+		"hooks/useFileTree.ts",
+		"lib/fileExplorerUtils.ts",
+		"types/index.ts"
+	],
+	"hooks/useFileExplorerSettings.ts": ["constants/fileExplorer.ts"],
+	"hooks/useFileFilters.ts": ["types/index.ts", "utils/filterUtils.ts"],
+	"hooks/useFileSystem.ts": [],
+	"hooks/useFileTree.ts": [
+		"constants/fileExplorer.ts",
+		"lib/fileExplorerUtils.ts",
+		"types/index.ts"
+	],
+	"lib/fileExplorerUtils.ts": ["constants/fileExplorer.ts", "types/index.ts"],
+	"lib/utils.ts": [],
+	"providers/theme-provider.test.tsx": ["providers/theme-provider.tsx"],
+	"providers/theme-provider.tsx": [],
+	"test/factories/fileNode.ts": ["types/index.ts"],
+	"types/index.ts": [],
+	"utils/__tests__/folderTreeGenerator.test.ts": [
+		"types/index.ts",
+		"utils/folderTreeGenerator.ts"
+	],
+	"utils/filterUtils.ts": [],
+	"utils/folderTreeGenerator.ts": ["types/index.ts", "utils/filterUtils.ts"],
+	"utils/reportGenerator.ts": [
+		"lib/fileExplorerUtils.ts",
+		"types/index.ts",
+		"utils/folderTreeGenerator.ts"
+	]
 }

@@ -98,7 +98,10 @@ export const useGitAnalysisStore = create<GitAnalysisState>((set, get) => ({
   analyzeAll: async () => {
     const gitStore = useGitStore.getState();
     const { fs, path } = gitStore;
-    console.log('[GitAnalysis] Starting analyzeAll...', { fsExists: !!fs, path });
+    console.log('[GitAnalysis] Starting analyzeAll...', {
+      fsExists: !!fs,
+      path,
+    });
 
     if (!fs || !path) {
       console.error('[GitAnalysis] Error: Git store not initialized.');
@@ -160,8 +163,16 @@ export const useGitAnalysisStore = create<GitAnalysisState>((set, get) => ({
         let currentCommit: { commit: { tree: string } };
         let parentCommitObj: { commit: { tree: string } };
         try {
-          currentCommit = await git.readCommit({ fs, dir: path, oid: commit.oid });
-          parentCommitObj = await git.readCommit({ fs, dir: path, oid: parentCommit });
+          currentCommit = await git.readCommit({
+            fs,
+            dir: path,
+            oid: commit.oid,
+          });
+          parentCommitObj = await git.readCommit({
+            fs,
+            dir: path,
+            oid: parentCommit,
+          });
         } catch (err) {
           // If we fail reading a commit, log it and skip
           console.error(

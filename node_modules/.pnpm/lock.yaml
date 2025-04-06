@@ -123,6 +123,9 @@ importers:
       '@brainstrike/tsconfig':
         specifier: workspace:*
         version: link:../../packages/config/tsconfig
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       '@commitlint/cli':
         specifier: ^19.8.0
         version: 19.8.0(@types/node@22.14.0)(typescript@5.8.3)
@@ -248,6 +251,9 @@ importers:
       '@brainstrike/tsconfig':
         specifier: workspace:*
         version: link:../config/tsconfig
+      lucide-react:
+        specifier: ^0.483.0
+        version: 0.483.0(react@19.1.0)
 
 packages:
 

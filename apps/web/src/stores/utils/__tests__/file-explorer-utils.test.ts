@@ -1,6 +1,6 @@
+import { MAX_FOLDER_STATES } from '@brainstrike/types';
+import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
-import { MAX_FOLDER_STATES } from '../../types/file-explorer-types';
-import type { FileExplorerData, FolderState } from '../../types/file-explorer-types';
 import {
   cleanupOldFolderStates,
   createNewFolderState,

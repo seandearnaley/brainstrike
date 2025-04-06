@@ -90,7 +90,9 @@ describe('FileExplorerConfig', () => {
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
-    const treeSwitch = screen.getByRole('switch', { name: /Include Project Tree/i });
+    const treeSwitch = screen.getByRole('switch', {
+      name: /Include Project Tree/i,
+    });
     await userEvent.click(treeSwitch);
 
     const applyButton = screen.getByRole('button', { name: /Apply Settings/i });

@@ -1,9 +1,9 @@
+import { PartialRefreshError } from '@brainstrike/types';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerStrings } from '../../components/custom/constants/file-explorer-constants';
 import type { ToastActionElement } from '../../components/ui/toast';
 import { useToast } from '../../components/ui/use-toast';
-import { PartialRefreshError } from '../../types/errors';
 import { useToastManager } from '../use-toast-manager';
 
 // Mock dependencies
@@ -22,7 +22,11 @@ describe('useToastManager', () => {
   // Setup for each test
   const setup = () => {
     const mockToast = vi.fn();
-    vi.mocked(useToast).mockReturnValue({ toast: mockToast, dismiss: vi.fn(), toasts: [] });
+    vi.mocked(useToast).mockReturnValue({
+      toast: mockToast,
+      dismiss: vi.fn(),
+      toasts: [],
+    });
     const { result } = renderHook(() => useToastManager());
     return { result, mockToast };
   };

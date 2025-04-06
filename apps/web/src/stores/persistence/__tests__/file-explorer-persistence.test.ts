@@ -1,10 +1,6 @@
+import { DEFAULT_STATE } from '@brainstrike/types';
+import type { FileExplorerState, SerializedFolderState, SerializedState } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STATE } from '../../types/file-explorer-types';
-import type {
-  FileExplorerState,
-  SerializedFolderState,
-  SerializedState,
-} from '../../types/file-explorer-types';
 import { createPersistOptions } from '../file-explorer-persistence';
 
 // Mock console to reduce test noise

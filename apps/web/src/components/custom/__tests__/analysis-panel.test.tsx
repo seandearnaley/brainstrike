@@ -203,7 +203,9 @@ describe('AnalysisPanel', () => {
     render(<AnalysisPanel />);
 
     // Find and click the Analyze button
-    const analyzeButton = screen.getByRole('button', { name: /analyze time range/i });
+    const analyzeButton = screen.getByRole('button', {
+      name: /analyze time range/i,
+    });
     fireEvent.click(analyzeButton);
 
     // Verify that analyzeAll was called

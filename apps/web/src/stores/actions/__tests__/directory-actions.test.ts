@@ -1,5 +1,5 @@
+import type { FileExplorerState } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
-import type { FileExplorerState } from '../../types/file-explorer-types';
 import { createDirectoryActions } from '../directory-actions';
 
 describe('directory-actions', () => {

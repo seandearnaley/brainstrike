@@ -72,8 +72,12 @@ describe('fileSystem', () => {
         .mockResolvedValueOnce('/path/to/dir1');
 
       // Add getParent method to both handles
-      Object.defineProperty(mockDirectoryHandle1, 'getParent', { value: vi.fn() });
-      Object.defineProperty(mockDirectoryHandle2, 'getParent', { value: vi.fn() });
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: vi.fn(),
+      });
+      Object.defineProperty(mockDirectoryHandle2, 'getParent', {
+        value: vi.fn(),
+      });
 
       const result = await fileSystem.isSameDirectory(mockDirectoryHandle1, mockDirectoryHandle2);
 
@@ -110,7 +114,9 @@ describe('fileSystem', () => {
 
       // Setup nested directories structure
       const getParentMock = vi.fn().mockResolvedValue(parent);
-      Object.defineProperty(mockDirectoryHandle1, 'getParent', { value: getParentMock });
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: getParentMock,
+      });
 
       const path = await fileSystem.getFullPath(mockDirectoryHandle1);
 
@@ -120,7 +126,9 @@ describe('fileSystem', () => {
 
     it('should handle errors during path traversal', async () => {
       const getParentMock = vi.fn().mockRejectedValue(new Error('Parent error'));
-      Object.defineProperty(mockDirectoryHandle1, 'getParent', { value: getParentMock });
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: getParentMock,
+      });
 
       await expect(fileSystem.getFullPath(mockDirectoryHandle1)).rejects.toThrow(
         'Failed to get full path'
@@ -132,7 +140,9 @@ describe('fileSystem', () => {
     it('should generate a unique folder ID using full path when possible', async () => {
       // Setup mock for getParent that returns null (to reach the root)
       const getParentMock = vi.fn().mockResolvedValue(null);
-      Object.defineProperty(mockDirectoryHandle1, 'getParent', { value: getParentMock });
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: getParentMock,
+      });
 
       // Mock the stableHash function to return a specific value for this test
       (stableHash as jest.Mock).mockResolvedValueOnce('test-id');
@@ -150,11 +160,15 @@ describe('fileSystem', () => {
 
       // dir1 parent is dir2
       const getParentMock1 = vi.fn().mockResolvedValue(mockDirHandle2);
-      Object.defineProperty(mockDirHandle1, 'getParent', { value: getParentMock1 });
+      Object.defineProperty(mockDirHandle1, 'getParent', {
+        value: getParentMock1,
+      });
 
       // dir2 parent is dir1 (circular)
       const getParentMock2 = vi.fn().mockResolvedValue(mockDirHandle1);
-      Object.defineProperty(mockDirHandle2, 'getParent', { value: getParentMock2 });
+      Object.defineProperty(mockDirHandle2, 'getParent', {
+        value: getParentMock2,
+      });
 
       const folderId = await fileSystem.generateUniqueFolderId(mockDirHandle1);
 
@@ -166,7 +180,9 @@ describe('fileSystem', () => {
     it('should use fallback strategy if getParent fails', async () => {
       // Setup getParent to throw an error
       const getParentMock = vi.fn().mockRejectedValue(new Error('Parent lookup failed'));
-      Object.defineProperty(mockDirectoryHandle1, 'getParent', { value: getParentMock });
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: getParentMock,
+      });
 
       const folderId = await fileSystem.generateUniqueFolderId(mockDirectoryHandle1);
 

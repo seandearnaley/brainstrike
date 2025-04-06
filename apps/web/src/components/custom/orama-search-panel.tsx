@@ -188,7 +188,12 @@ export const OramaSearchPanel: React.FC<OramaSearchPanelProps> = ({
         const chunk = chunks[i];
         const title = `${titleBase} - Chunk ${i + 1}`;
         const embedding = await generateEmbedding(chunk);
-        allDocuments.push({ title, content: chunk, embedding, file: titleBase });
+        allDocuments.push({
+          title,
+          content: chunk,
+          embedding,
+          file: titleBase,
+        });
       }
 
       processedFiles++;

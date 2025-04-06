@@ -1,8 +1,7 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { DEFAULT_STATE } from '@brainstrike/types';
 import { vi } from 'vitest';
 import { create } from 'zustand';
-import type { FileExplorerState } from '../types/file-explorer-types';
-import { DEFAULT_STATE } from '../types/file-explorer-types';
 
 // Create a simple mock implementation that adheres to the FileExplorerState interface
 // Use vi.fn() for all actions to allow spying and assertion in tests.

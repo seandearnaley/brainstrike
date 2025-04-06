@@ -5,24 +5,24 @@
  * These actions handle expanding and collapsing directories while maintaining state persistence.
  */
 
-import type { FileExplorerState } from '../types/file-explorer-types';
+import type { FileExplorerState } from "../types/file-explorer-types";
 
 export const createDirectoryActions = (
-  set: (fn: (state: FileExplorerState) => Partial<FileExplorerState>) => void,
-  get: () => FileExplorerState
+	set: (fn: (state: FileExplorerState) => Partial<FileExplorerState>) => void,
+	get: () => FileExplorerState,
 ) => ({
-  setExpandedPaths: (paths: ReadonlySet<string>) => {
-    set(() => ({ expandedDirectoryPaths: new Set(paths) }));
-  },
+	setExpandedPaths: (paths: ReadonlySet<string>) => {
+		set(() => ({ expandedDirectoryPaths: new Set(paths) }));
+	},
 
-  toggleDirectoryExpansion: (path: string) => {
-    const state = get();
-    const newExpandedPaths = new Set(state.expandedDirectoryPaths);
-    if (newExpandedPaths.has(path)) {
-      newExpandedPaths.delete(path);
-    } else {
-      newExpandedPaths.add(path);
-    }
-    set(() => ({ expandedDirectoryPaths: newExpandedPaths }));
-  },
+	toggleDirectoryExpansion: (path: string) => {
+		const state = get();
+		const newExpandedPaths = new Set(state.expandedDirectoryPaths);
+		if (newExpandedPaths.has(path)) {
+			newExpandedPaths.delete(path);
+		} else {
+			newExpandedPaths.add(path);
+		}
+		set(() => ({ expandedDirectoryPaths: newExpandedPaths }));
+	},
 });

@@ -231,7 +231,10 @@ export const AnalysisPanel: React.FC = () => {
   // New UI for time-based filtering
   const today = new Date();
   const threeMonthsAgo = new Date(today.getFullYear(), today.getMonth() - 3, today.getDate());
-  const [dateRange, setDateRange] = useState({ startDate: threeMonthsAgo, endDate: today });
+  const [dateRange, setDateRange] = useState({
+    startDate: threeMonthsAgo,
+    endDate: today,
+  });
 
   const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const date = e.target.value ? new Date(e.target.value) : new Date();

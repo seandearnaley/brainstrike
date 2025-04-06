@@ -9,7 +9,10 @@ export function useFileSystem() {
   const [isAccessLoading, setIsAccessLoading] = useState(false);
   const { setCurrentFolderId } = useFileExplorerStore();
 
-  const isFileSystemAccessSupported = (): { supported: boolean; reason: string } => {
+  const isFileSystemAccessSupported = (): {
+    supported: boolean;
+    reason: string;
+  } => {
     if (!window.isSecureContext) {
       return {
         supported: false,

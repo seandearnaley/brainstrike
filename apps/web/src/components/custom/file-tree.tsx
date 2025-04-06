@@ -1,4 +1,4 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
 import React, { memo, useCallback, useEffect, useMemo } from 'react';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection } from '../../utils/file-selection-utils';

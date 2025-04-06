@@ -1,4 +1,4 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
 import { useCallback } from 'react';
 import { Button } from '../../components/ui/button';
 import {

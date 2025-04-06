@@ -54,7 +54,11 @@ describe('FSProvider', () => {
   });
 
   test('initializes fs and updates context', () => {
-    let contextValues: FSContextType = { fs: null, isInitialized: false, error: null };
+    let contextValues: FSContextType = {
+      fs: null,
+      isInitialized: false,
+      error: null,
+    };
 
     // Component to capture context values
     const TestComponent = () => {

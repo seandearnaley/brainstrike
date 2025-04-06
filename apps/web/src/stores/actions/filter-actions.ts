@@ -5,8 +5,8 @@
  * These actions handle include/exclude patterns, regex mode, and project tree settings.
  */
 
+import type { FileExplorerState } from '@brainstrike/types';
 import { MIN_FOLDER_SUMMARY_THRESHOLD } from '../constants/file-explorer-constants';
-import type { FileExplorerState } from '../types/file-explorer-types';
 
 export const createFilterActions = (
   set: (fn: (state: FileExplorerState) => Partial<FileExplorerState>) => void

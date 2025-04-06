@@ -63,7 +63,9 @@ describe('FileTree', () => {
     const user = userEvent.setup();
     render(<FileTree {...defaultProps} />);
 
-    const expandButton = screen.getByRole('button', { name: /expand src directory/i });
+    const expandButton = screen.getByRole('button', {
+      name: /expand src directory/i,
+    });
     await user.click(expandButton);
 
     const store = useFileExplorerStore.getState();
@@ -147,7 +149,9 @@ describe('FileTree', () => {
 
     render(<FileTree {...defaultProps} />);
 
-    const collapseButton = screen.getByRole('button', { name: /collapse src directory/i });
+    const collapseButton = screen.getByRole('button', {
+      name: /collapse src directory/i,
+    });
     await user.click(collapseButton);
 
     expect(mockToggleDirectoryExpansion).toHaveBeenCalledWith('src');
@@ -181,7 +185,9 @@ describe('FileTree', () => {
       rerender(<FileTree {...defaultProps} />);
 
       // Now the UI directory should be visible and can be expanded
-      const expandUiButton = screen.getByRole('button', { name: /expand ui directory/i });
+      const expandUiButton = screen.getByRole('button', {
+        name: /expand ui directory/i,
+      });
       await user.click(expandUiButton);
       expect(mockToggleDirectoryExpansion).toHaveBeenCalledWith('src/components/ui');
     });
@@ -200,7 +206,9 @@ describe('FileTree', () => {
       render(<FileTree {...defaultProps} />);
 
       // Collapse UI directory
-      const collapseUiButton = screen.getByRole('button', { name: /collapse ui directory/i });
+      const collapseUiButton = screen.getByRole('button', {
+        name: /collapse ui directory/i,
+      });
       await user.click(collapseUiButton);
       expect(mockToggleDirectoryExpansion).toHaveBeenCalledWith('src/components/ui');
 

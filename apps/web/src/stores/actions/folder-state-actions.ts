@@ -1,5 +1,5 @@
+import type { FileExplorerState, FolderState } from '@brainstrike/types';
 import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
-import type { FileExplorerState, FolderState } from '../types/file-explorer-types';
 import {
   cleanupOldFolderStates,
   createNewFolderState,

@@ -1,62 +1,55 @@
 {
-  "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": [
-    "index.html",
-    "src/main.tsx",
-    "src/app/**/*.{ts,tsx}",
-    "src/components/**/*.{ts,tsx}",
-    "src/hooks/**/*.{ts,tsx}",
-    "src/lib/**/*.{ts,tsx}",
-    "src/providers/**/*.{ts,tsx}",
-    "src/stores/**/*.{ts,tsx}",
-    "src/utils/**/*.{ts,tsx}",
-    "vitest.config.ts",
-    "vitest.config.unit.ts",
-    "vitest.config.integration.ts",
-    "vitest.setup.ts",
-    "e2e/**/*.ts"
-  ],
-  "project": [
-    "src/**/*.{ts,tsx}",
-    "e2e/**/*.ts"
-  ],
-  "ignore": [
-    "**/__tests__/**",
-    "**/*.test.{ts,tsx}",
-    "**/*.stories.{ts,tsx}",
-    "src/test/**/*.{ts,tsx}",
-    "src/types/git-types.ts",
-    "src/config/server.ts",
-    "vitest.config.ts",
-    "vitest.config.unit.ts",
-    "vitest.config.integration.ts",
-    "vitest.setup.ts"
-  ],
-  "ignoreBinaries": [
-    "act",
-    "fta-cli",
-    "scripts/test-commit.sh"
-  ],
-  "ignoreDependencies": [
-    // These are unused but might be planned for future use
-    "@monaco-editor/react",
-    "monaco-editor",
-    "@types/dompurify",
-    "dompurify",
-    
-    // Dev dependencies marked as unused but needed for the project
-    "@babel/core",
-    "@semantic-release/git",
-    "@types/testing-library__jest-dom",
-    "cursor-tools",
-    "glob",
-    "husky",
-    "identity-obj-proxy",
-    "tailwindcss",
-    "ts-node"
-  ],
-  "ignoreExportsUsedInFile": true,
-  "rules": {
-    "duplicates": "off"
-  }
-} 
+	"$schema": "https://unpkg.com/knip@5/schema.json",
+	"entry": [
+		"index.html",
+		"src/main.tsx",
+		"src/app/**/*.{ts,tsx}",
+		"src/components/**/*.{ts,tsx}",
+		"src/hooks/**/*.{ts,tsx}",
+		"src/lib/**/*.{ts,tsx}",
+		"src/providers/**/*.{ts,tsx}",
+		"src/stores/**/*.{ts,tsx}",
+		"src/utils/**/*.{ts,tsx}",
+		"vitest.config.ts",
+		"vitest.config.unit.ts",
+		"vitest.config.integration.ts",
+		"vitest.setup.ts",
+		"e2e/**/*.ts"
+	],
+	"project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+	"ignore": [
+		"**/__tests__/**",
+		"**/*.test.{ts,tsx}",
+		"**/*.stories.{ts,tsx}",
+		"src/test/**/*.{ts,tsx}",
+		"src/types/git-types.ts",
+		"src/config/server.ts",
+		"vitest.config.ts",
+		"vitest.config.unit.ts",
+		"vitest.config.integration.ts",
+		"vitest.setup.ts"
+	],
+	"ignoreBinaries": ["act", "fta-cli", "scripts/test-commit.sh"],
+	"ignoreDependencies": [
+		// These are unused but might be planned for future use
+		"@monaco-editor/react",
+		"monaco-editor",
+		"@types/dompurify",
+		"dompurify",
+
+		// Dev dependencies marked as unused but needed for the project
+		"@babel/core",
+		"@semantic-release/git",
+		"@types/testing-library__jest-dom",
+		"cursor-tools",
+		"glob",
+		"husky",
+		"identity-obj-proxy",
+		"tailwindcss",
+		"ts-node"
+	],
+	"ignoreExportsUsedInFile": true,
+	"rules": {
+		"duplicates": "off"
+	}
+}

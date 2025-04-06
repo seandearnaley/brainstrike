@@ -12,7 +12,9 @@ export async function copyDirectoryToLightningFS(
   // Only copy the .git directory initially
   try {
     console.log('[GitUtils] Attempting to get .git handle from source dir...');
-    const gitDir = await dirHandle.getDirectoryHandle('.git', { create: false });
+    const gitDir = await dirHandle.getDirectoryHandle('.git', {
+      create: false,
+    });
     console.log(`[GitUtils] Found .git handle. Starting recursive copy to ${path}/.git`); // Reverted to template literal
     await copyGitDirectory(gitDir, fs, `${path}/.git`);
     console.log(`[GitUtils] Finished recursive copy for ${path}/.git`); // Reverted to template literal

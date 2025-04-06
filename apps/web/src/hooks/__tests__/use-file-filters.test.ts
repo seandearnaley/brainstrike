@@ -1,6 +1,6 @@
+import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IFileNode } from '../../lib/file/types';
 import { processFilter } from '../../utils/filter-utils';
 import { useFileFilters } from '../use-file-filters';
 
@@ -129,9 +129,9 @@ describe('useFileFilters', () => {
     const srcNode = filteredTree[0];
     expect(srcNode).toBeDefined();
 
-    const componentsDir = srcNode.children?.find((node) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node) => node.name === 'utils');
-    const appFile = srcNode.children?.find((node) => node.name === 'App.tsx');
+    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
+    const appFile = srcNode.children?.find((node: IFileNode) => node.name === 'App.tsx');
 
     // Verify components directory exists
     expect(componentsDir).toBeDefined();
@@ -180,14 +180,14 @@ describe('useFileFilters', () => {
     expect(srcNode).toBeDefined();
 
     const children = srcNode.children || [];
-    const nodeNames = children.map((node) => node.name);
+    const nodeNames = children.map((node: IFileNode) => node.name);
 
     // In the current implementation, components directory is NOT excluded,
     // but its children don't match the filter
     expect(nodeNames).toContain('components');
 
     // Get components to verify its children
-    const componentsDir = children.find((node) => node.name === 'components');
+    const componentsDir = children.find((node: IFileNode) => node.name === 'components');
     expect(componentsDir).toBeDefined();
     expect(componentsDir?.children?.length).toBe(0); // No children match the filters + excludes
 
@@ -196,7 +196,7 @@ describe('useFileFilters', () => {
 
     // Utils directory should exist but with no .tsx files
     expect(nodeNames).toContain('utils');
-    const utilsDir = children.find((node) => node.name === 'utils');
+    const utilsDir = children.find((node: IFileNode) => node.name === 'utils');
     expect(utilsDir?.children?.length).toBe(0);
   });
 
@@ -225,9 +225,9 @@ describe('useFileFilters', () => {
     });
 
     const srcNode = filteredTree[0];
-    const componentsDir = srcNode.children?.find((node) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node) => node.name === 'utils');
-    const appFile = srcNode.children?.find((node) => node.name === 'App.tsx');
+    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
+    const appFile = srcNode.children?.find((node: IFileNode) => node.name === 'App.tsx');
 
     // Verify component files are present
     expect(componentsDir?.children?.length).toBe(2);
@@ -268,7 +268,8 @@ describe('useFileFilters', () => {
 
     // All directories should still be included even when no files match
     expect(filteredTree[0].children?.length).toBeGreaterThan(0);
-    const childDirs = filteredTree[0].children?.filter((node) => node.type === 'directory') || [];
+    const childDirs =
+      filteredTree[0].children?.filter((node: IFileNode) => node.type === 'directory') || [];
     expect(childDirs.length).toBe(2);
     expect(childDirs[0].type).toBe('directory');
     expect(childDirs[1].type).toBe('directory');
@@ -285,8 +286,8 @@ describe('useFileFilters', () => {
     });
 
     const srcNode = filteredTree[0];
-    const componentsDir = srcNode.children?.find((node) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node) => node.name === 'utils');
+    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
 
     // Based on the actual implementation
     expect(componentsDir?.children?.length).toBe(2);

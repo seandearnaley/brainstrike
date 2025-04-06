@@ -29,7 +29,11 @@ vi.mock('../../../../components/ui/button', () => ({
     children,
     onClick,
     disabled,
-  }: { children: React.ReactNode; onClick?: () => void; disabled?: boolean }) => (
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => (
     <button type="button" onClick={onClick} disabled={disabled}>
       {children}
     </button>
@@ -155,7 +159,10 @@ describe('FileExplorer', () => {
     const mockReason = 'Browser not supported';
     (useFileExplorer as ReturnType<typeof vi.fn>).mockReturnValue({
       ...mockFileExplorer,
-      isFileSystemAccessSupported: () => ({ supported: false, reason: mockReason }),
+      isFileSystemAccessSupported: () => ({
+        supported: false,
+        reason: mockReason,
+      }),
     });
 
     await act(async () => {

@@ -662,7 +662,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             <div className="absolute bottom-0 left-0 right-0 bg-muted/30 dark:bg-muted/30 border-t border-border p-2 flex items-center justify-between transition-all duration-200 ease-in-out animate-in slide-in-from-bottom-2">
               <div className="flex items-center gap-2 ml-2">
                 <span className="text-sm font-medium">
-                  {batchSelectedFiles.size} item{batchSelectedFiles.size !== 1 ? 's' : ''} selected
+                  {batchSelectedFiles.size} item
+                  {batchSelectedFiles.size !== 1 ? 's' : ''} selected
                 </span>
 
                 <TooltipProvider>

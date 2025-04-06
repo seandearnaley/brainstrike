@@ -5,9 +5,9 @@
  * It handles state serialization/deserialization and rehydration.
  */
 
+import type { FileExplorerState, SerializedState } from '@brainstrike/types';
+import { DEFAULT_STATE } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
-import type { FileExplorerState, SerializedState } from '../types/file-explorer-types';
-import { DEFAULT_STATE } from '../types/file-explorer-types';
 
 export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => ({
   name: 'file-explorer-storage',

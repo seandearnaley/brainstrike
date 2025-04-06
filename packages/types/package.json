@@ -1,11 +1,12 @@
 {
-  "name": "@brainstrike/types",
-  "version": "0.0.0",
-  "private": true,
-  "license": "MIT",
-  "main": "./index.ts",
-  "types": "./index.ts",
-  "devDependencies": {
-    "@brainstrike/tsconfig": "workspace:*"
-  }
-} 
+	"name": "@brainstrike/types",
+	"version": "0.0.0",
+	"private": true,
+	"license": "MIT",
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"devDependencies": {
+		"@brainstrike/tsconfig": "workspace:*",
+		"lucide-react": "^0.483.0"
+	}
+}

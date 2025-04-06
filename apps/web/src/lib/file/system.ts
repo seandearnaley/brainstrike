@@ -1,5 +1,5 @@
+import type { IFileNode } from '@brainstrike/types';
 import { stableHash } from '../utils/hash';
-import type { IFileNode } from './types';
 
 interface ExperimentalFileSystemFeatures {
   isSameEntry(other: FileSystemHandle): Promise<boolean>;

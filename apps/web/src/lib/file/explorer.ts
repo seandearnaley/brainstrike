@@ -1,6 +1,6 @@
+import type { FileTreeResult, IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '../../constants/file-explorer';
 import { fileFilter } from '../../lib/utils/filter';
-import type { FileTreeResult, IFileNode } from './types';
 
 /**
  * Utilities for exploring and manipulating file trees
@@ -112,7 +112,11 @@ export const fileExplorer = {
       if (node.type === 'directory' && node.children) {
         const filteredChildren = node.children
           .map((child) =>
-            fileFilter.filterNode(child, { includeFilters, excludeFilters, useRegex })
+            fileFilter.filterNode(child, {
+              includeFilters,
+              excludeFilters,
+              useRegex,
+            })
           )
           .filter((child): child is IFileNode => child !== null)
           .sort((a, b) => {

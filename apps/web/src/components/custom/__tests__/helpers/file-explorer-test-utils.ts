@@ -1,4 +1,4 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
 import { vi } from 'vitest';
 import type { Mock } from 'vitest';
 

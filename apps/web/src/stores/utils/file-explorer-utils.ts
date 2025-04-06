@@ -1,5 +1,5 @@
-import type { FileExplorerData, FolderState } from '../types/file-explorer-types';
-import { MAX_FOLDER_STATES } from '../types/file-explorer-types';
+import type { FileExplorerData, FolderState } from '@brainstrike/types';
+import { MAX_FOLDER_STATES } from '@brainstrike/types';
 
 // Helper function to save current folder state
 export const saveFolderState = (

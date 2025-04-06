@@ -63,21 +63,27 @@ describe('LoadingOverlay', () => {
     render(<LoadingOverlay isLoading={true} progressLoaded={30} progressTotal={100} />);
     const progressBar = screen.getByTestId('progress-bar');
     expect(progressBar).toHaveAttribute('data-progress', '30');
-    expect(progressBar.querySelector('div')).toHaveStyle({ transform: 'translateX(-70%)' });
+    expect(progressBar.querySelector('div')).toHaveStyle({
+      transform: 'translateX(-70%)',
+    });
   });
 
   it('should handle zero progress', () => {
     render(<LoadingOverlay isLoading={true} progressLoaded={0} progressTotal={100} />);
     const progressBar = screen.getByTestId('progress-bar');
     expect(progressBar).toHaveAttribute('data-progress', '0');
-    expect(progressBar.querySelector('div')).toHaveStyle({ transform: 'translateX(-100%)' });
+    expect(progressBar.querySelector('div')).toHaveStyle({
+      transform: 'translateX(-100%)',
+    });
   });
 
   it('should handle undefined progress values', () => {
     render(<LoadingOverlay isLoading={true} />);
     const progressBar = screen.getByTestId('progress-bar');
     expect(progressBar).toHaveAttribute('data-progress', '0');
-    expect(progressBar.querySelector('div')).toHaveStyle({ transform: 'translateX(-100%)' });
+    expect(progressBar.querySelector('div')).toHaveStyle({
+      transform: 'translateX(-100%)',
+    });
   });
 
   describe('className handling', () => {

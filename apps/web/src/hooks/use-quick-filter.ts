@@ -1,5 +1,5 @@
+import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
-import type { IFileNode } from '../lib/file/types';
 import { useDebouncedValue } from './use-debounced-value';
 
 interface FilterPatterns {

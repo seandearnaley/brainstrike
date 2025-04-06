@@ -1,8 +1,8 @@
+import { FSInitializationError, GitOperationError } from '@brainstrike/types';
 import LightningFS from '@isomorphic-git/lightning-fs';
 import * as git from 'isomorphic-git';
 import { create } from 'zustand';
 import { copyDirectoryToLightningFS } from '../lib/git-utils';
-import { FSInitializationError, GitOperationError } from '../types/errors';
 
 // Status enum to replace multiple loading states
 type GitStatus =
@@ -110,9 +110,15 @@ export const useGitStore = create<GitState>((set, get) => ({
         console.log(
           `[GitStore] Attempting to read problematic object ${problematicOID} directly after copy...`
         );
-        const objectData = await git.readObject({ fs, dir: repoPath, oid: problematicOID });
+        const objectData = await git.readObject({
+          fs,
+          dir: repoPath,
+          oid: problematicOID,
+        });
         console.log(
-          `[GitStore] Successfully read object ${problematicOID}. Type: ${objectData.type}, Size: ${objectData.object.toString().length}`
+          `[GitStore] Successfully read object ${problematicOID}. Type: ${
+            objectData.type
+          }, Size: ${objectData.object.toString().length}`
         );
         diagnosticReadOk = true; // Mark as successful
       } catch (readError) {
@@ -128,7 +134,10 @@ export const useGitStore = create<GitState>((set, get) => ({
           status: 'error',
           error: {
             code: 'LFS_CORRUPTION_SUSPECTED',
-            message: `Failed initial consistency check after copying repository data. Object ${problematicOID.substring(0, 7)}... could not be read. The repository view may be incomplete or corrupted.`,
+            message: `Failed initial consistency check after copying repository data. Object ${problematicOID.substring(
+              0,
+              7
+            )}... could not be read. The repository view may be incomplete or corrupted.`,
             // No retry action here as it likely requires user intervention (e.g., trying a different repo)
           },
           lastInitializedRepoPath: repoPath,

@@ -339,7 +339,9 @@ describe('GitPanel', () => {
     render(<GitPanel rootDirectoryHandle={mockDirectoryHandle} />);
 
     // Click the compare branches button
-    const compareButton = screen.getByRole('button', { name: /compare branches/i });
+    const compareButton = screen.getByRole('button', {
+      name: /compare branches/i,
+    });
     fireEvent.click(compareButton);
 
     // Verify that compareBranches was called

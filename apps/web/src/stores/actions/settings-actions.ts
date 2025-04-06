@@ -1,10 +1,11 @@
+import type { FileExplorerState } from '@brainstrike/types';
 import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
+  MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
 } from '../constants/file-explorer-constants';
-import type { FileExplorerState } from '../types/file-explorer-types';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
@@ -35,19 +36,24 @@ export const createSettingsActions = (
   },
 
   setFolderSummaryThreshold: (value: number) => {
-    const clampedValue = Math.max(0, Math.min(value, MAX_FOLDER_SUMMARY_THRESHOLD));
-    set({ folderSummaryThreshold: clampedValue });
+    set({
+      folderSummaryThreshold: Math.max(MIN_FOLDER_SUMMARY_THRESHOLD, value),
+    });
   },
 
   setMaxSelectionCount: (count: number) => {
     const clampedCount = Math.max(MIN_MAX_SELECTION_COUNT, Math.min(count, MAX_SELECTION_COUNT));
-    set((state) => {
+    set((state: FileExplorerState) => {
+      // Added explicit type for state
       let newSelectedFilePaths = state.selectedFilePaths;
       // If reducing the count, trim excess selected files
       if (clampedCount < state.selectedFilePaths.size) {
         newSelectedFilePaths = new Set(Array.from(state.selectedFilePaths).slice(0, clampedCount));
       }
-      return { maxSelectionCount: clampedCount, selectedFilePaths: newSelectedFilePaths };
+      return {
+        maxSelectionCount: clampedCount,
+        selectedFilePaths: newSelectedFilePaths,
+      };
     });
   },
 

@@ -1,4 +1,4 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
 import type React from 'react';
 import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import { Badge } from '../../components/ui/badge';
@@ -38,9 +38,9 @@ interface FileExplorerSidebarProps {
   onTreeRender?: () => void;
 }
 
-const DirectoryStatus: React.FC<{ rootDirectoryHandle: FileSystemDirectoryHandle | null }> = ({
-  rootDirectoryHandle,
-}) => {
+const DirectoryStatus: React.FC<{
+  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+}> = ({ rootDirectoryHandle }) => {
   if (!rootDirectoryHandle) return null;
   return (
     <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 border-b">

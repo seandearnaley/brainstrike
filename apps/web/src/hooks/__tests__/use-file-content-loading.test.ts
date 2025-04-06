@@ -1,9 +1,9 @@
+import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileContent } from '../../lib/file/content';
 import { fileExplorer } from '../../lib/file/explorer';
 import { fileSystem } from '../../lib/file/system';
-import type { IFileNode } from '../../lib/file/types';
 import { createFileNode } from '../../test/factories/file-node';
 import { encodeFileSelection } from '../../utils/file-selection-utils';
 import { useFileContentLoading } from '../use-file-content-loading';

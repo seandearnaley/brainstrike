@@ -151,7 +151,9 @@ describe('useReportManager', () => {
     // Should call saveAs with the right parameters
     expect(saveAs).toHaveBeenCalledTimes(1);
     // First argument should be a Blob with the report content
-    const mockSaveAs = saveAs as unknown as { mock: { calls: Array<unknown[]> } };
+    const mockSaveAs = saveAs as unknown as {
+      mock: { calls: Array<unknown[]> };
+    };
     expect(mockSaveAs.mock.calls[0][0]).toBeInstanceOf(Blob);
     // Second argument should be the filename
     expect(mockSaveAs.mock.calls[0][1]).toBe(FileExplorerStrings.FILE_NAMES.REPORT);

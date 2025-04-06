@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
+const { execSync } = require("node:child_process");
 
 try {
-  execSync(`npx --no -- commitlint --edit ${process.argv[2]}`, { stdio: 'inherit' });
+	execSync(`npx --no -- commitlint --edit ${process.argv[2]}`, {
+		stdio: "inherit",
+	});
 } catch (error) {
-  process.exit(1);
+	process.exit(1);
 }

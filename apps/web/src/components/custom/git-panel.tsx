@@ -69,7 +69,10 @@ const BranchSelector: React.FC<{
 const CommitAccordion: React.FC<{
   commits: Array<{
     oid: string;
-    commit: { message: string; author: { name: string; email: string; timestamp: number } };
+    commit: {
+      message: string;
+      author: { name: string; email: string; timestamp: number };
+    };
   }>;
 }> = ({ commits }) => (
   <Accordion type="single" collapsible className="w-full">
@@ -369,7 +372,10 @@ const ErrorMessage: React.FC<{
 const HistoryTab: React.FC<{
   commits: Array<{
     oid: string;
-    commit: { message: string; author: { name: string; email: string; timestamp: number } };
+    commit: {
+      message: string;
+      author: { name: string; email: string; timestamp: number };
+    };
   }>;
   status: string;
   error: { message: string; retry?: () => Promise<void> } | null;

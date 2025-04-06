@@ -5,53 +5,53 @@
  * It handles loading file content and tracking loading states.
  */
 
-import type { FileContents } from '@/types';
-import { useCallback, useEffect, useState } from 'react';
+import type { FileContents } from "@/types";
+import { useCallback, useEffect, useState } from "react";
 
 interface UseFileLoadingManagerProps {
-  selectedFilePaths: Set<string>;
-  fileContents: FileContents;
-  loadFileContent: (path: string) => Promise<void>;
+	selectedFilePaths: Set<string>;
+	fileContents: FileContents;
+	loadFileContent: (path: string) => Promise<void>;
 }
 
 export const useFileLoadingManager = ({
-  selectedFilePaths,
-  fileContents,
-  loadFileContent,
+	selectedFilePaths,
+	fileContents,
+	loadFileContent,
 }: UseFileLoadingManagerProps) => {
-  const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
+	const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
 
-  const handleFileLoading = useCallback(
-    async (path: string) => {
-      setLoadingFiles((prev) => {
-        const newSet = new Set(prev);
-        newSet.add(path);
-        return newSet;
-      });
+	const handleFileLoading = useCallback(
+		async (path: string) => {
+			setLoadingFiles((prev) => {
+				const newSet = new Set(prev);
+				newSet.add(path);
+				return newSet;
+			});
 
-      try {
-        await loadFileContent(path);
-      } finally {
-        setLoadingFiles((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(path);
-          return newSet;
-        });
-      }
-    },
-    [loadFileContent]
-  );
+			try {
+				await loadFileContent(path);
+			} finally {
+				setLoadingFiles((prev) => {
+					const newSet = new Set(prev);
+					newSet.delete(path);
+					return newSet;
+				});
+			}
+		},
+		[loadFileContent],
+	);
 
-  useEffect(() => {
-    // Load content for all selected files
-    for (const path of selectedFilePaths) {
-      if (!fileContents[path]) {
-        handleFileLoading(path);
-      }
-    }
-  }, [selectedFilePaths, fileContents, handleFileLoading]);
+	useEffect(() => {
+		// Load content for all selected files
+		for (const path of selectedFilePaths) {
+			if (!fileContents[path]) {
+				handleFileLoading(path);
+			}
+		}
+	}, [selectedFilePaths, fileContents, handleFileLoading]);
 
-  return {
-    loadingFiles,
-  };
+	return {
+		loadingFiles,
+	};
 };

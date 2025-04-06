@@ -5,7 +5,7 @@
  * It handles loading file content and tracking loading states.
  */
 
-import type { FileContents } from '@/types';
+import type { FileContents } from '@brainstrike/types';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseFileLoadingManagerProps {

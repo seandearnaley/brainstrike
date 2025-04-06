@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
@@ -7,7 +8,6 @@ import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
-import type { IFileNode } from '../../lib/file/types';
 import { cn } from '../../lib/utils';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import ErrorBoundary from './error-boundary';

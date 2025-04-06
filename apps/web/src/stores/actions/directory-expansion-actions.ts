@@ -1,6 +1,5 @@
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
-import type { IFileNode } from '../../lib/file/types';
-import type { FileExplorerState } from '../types/file-explorer-types';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];

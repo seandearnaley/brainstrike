@@ -92,7 +92,11 @@ describe('File Node Factories', () => {
 
     it('creates a directory node with children', () => {
       const children: IFileNode[] = [
-        createFileNode({ name: 'child.txt', path: '/testDir/child.txt', depth: 1 }),
+        createFileNode({
+          name: 'child.txt',
+          path: '/testDir/child.txt',
+          depth: 1,
+        }),
       ];
 
       const node = createDirectoryNode({
@@ -107,7 +111,9 @@ describe('File Node Factories', () => {
 
   describe('createNestedDirectoryStructure', () => {
     it('creates a nested directory structure with default values', () => {
-      const structure = createNestedDirectoryStructure() as IFileNode & { children: IFileNode[] };
+      const structure = createNestedDirectoryStructure() as IFileNode & {
+        children: IFileNode[];
+      };
 
       expect(structure.type).toBe('directory');
       expect(Array.isArray(structure.children)).toBe(true);

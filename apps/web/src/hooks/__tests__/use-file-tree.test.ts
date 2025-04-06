@@ -1,6 +1,6 @@
+import { PartialRefreshError } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PartialRefreshError } from '../../types/errors';
 import { useFileTree } from '../use-file-tree';
 
 describe('useFileTree', () => {
@@ -36,7 +36,10 @@ describe('useFileTree', () => {
         ['success.txt', mockFileHandle],
         [
           'fail.txt',
-          { ...mockFileHandle, getFile: vi.fn().mockRejectedValue(new Error('Access denied')) },
+          {
+            ...mockFileHandle,
+            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
+          },
         ],
       ];
       mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
@@ -72,11 +75,17 @@ describe('useFileTree', () => {
       const mockEntries = [
         [
           'fail1.txt',
-          { ...mockFileHandle, getFile: vi.fn().mockRejectedValue(new Error('Access denied')) },
+          {
+            ...mockFileHandle,
+            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
+          },
         ],
         [
           'fail2.txt',
-          { ...mockFileHandle, getFile: vi.fn().mockRejectedValue(new Error('Access denied')) },
+          {
+            ...mockFileHandle,
+            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
+          },
         ],
       ];
       mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
@@ -113,7 +122,10 @@ describe('useFileTree', () => {
         ['success.txt', mockFileHandle],
         [
           'fail.txt',
-          { ...mockFileHandle, getFile: vi.fn().mockRejectedValue(new Error('Access denied')) },
+          {
+            ...mockFileHandle,
+            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
+          },
         ],
       ];
       const mockNestedDir = {
@@ -175,7 +187,10 @@ describe('useFileTree', () => {
         ['success.txt', mockFileHandle],
         [
           'fail.txt',
-          { ...mockFileHandle, getFile: vi.fn().mockRejectedValue(new Error('Access denied')) },
+          {
+            ...mockFileHandle,
+            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
+          },
         ],
       ];
       mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
