@@ -1,0 +1,37 @@
+# Ignore everything in node_modules
+node_modules
+
+# Ignore all test files
+*.test.tsx
+*.test.ts
+__tests__
+test-results
+e2e
+playwright-report
+
+# Ignore development configurations
+*.config.mts
+*.config.ts
+vitest.config.ts
+.eslintrc
+.eslintignore
+.npmrc
+.nvmrc
+.env
+.env.local
+.env.development
+
+# Ignore documentation
+docs
+
+# Ignore build artifacts
+dist
+out
+build
+.next
+
+# Other files to ignore
+*.log
+.DS_Store
+.git
+README.md
