@@ -26,6 +26,20 @@
 		},
 		"clean": {
 			"cache": false
+		},
+		"type-check": {
+			"outputs": [],
+			"inputs": ["src/**/*.tsx", "src/**/*.ts"]
+		},
+		"coverage:merge": {
+			"dependsOn": ["test"],
+			"outputs": ["coverage-merged/**"],
+			"cache": false
+		},
+		"coverage:report": {
+			"dependsOn": ["coverage:merge"],
+			"outputs": ["coverage-report/**"],
+			"cache": false
 		}
 	}
 }

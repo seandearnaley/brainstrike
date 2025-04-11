@@ -8,10 +8,14 @@
 		"dev": "turbo run dev",
 		"lint": "turbo run lint",
 		"test": "turbo run test",
-		"test:e2e": "cd apps/web && npm run test:e2e",
-		"test:e2e:ui": "cd apps/web && npm run test:e2e:ui",
-		"test:e2e:debug": "cd apps/web && npm run test:e2e:debug",
-		"clean": "turbo run clean"
+		"test:e2e": "cd apps/web && pnpm run test:e2e",
+		"test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
+		"test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
+		"clean": "turbo run clean",
+		"type-check": "turbo run type-check",
+		"knip": "knip",
+		"coverage:merge": "turbo run coverage:merge",
+		"coverage:report": "turbo run coverage:report"
 	},
 	"keywords": [],
 	"author": "",
@@ -22,7 +26,8 @@
 		"@commitlint/types": "^19.8.0",
 		"turbo": "^2.5.0",
 		"typescript": "^5.8.3",
-		"vitest": "^3.1.1"
+		"vitest": "^3.1.1",
+		"knip": "^5.0.0"
 	},
 	"packageManager": "pnpm@10.8.0",
 	"pnpm": {
