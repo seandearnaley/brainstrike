@@ -1,0 +1,29 @@
+---
+description: OramaSearchPanel Explanation
+globs: *OramaSearchPanel*
+---
+Enhanced OramaSearchPanel Explanation
+
+1. Schema and Type Enhancements:
+   - We updated the schema to include a new "file" property so that each document not only stores its title, content, and embedding but also the originating file's identifier.
+   - To support this, a new type alias, DocumentType, was introduced. This ensures that our documents array is typed correctly, eliminating TypeScript errors related to unknown properties.
+
+2. Index Building:
+   - In the buildIndex function, each selected file is processed by splitting its content into manageable chunks.
+   - For each chunk, an embedding vector is generated using generateEmbedding.
+   - The document now includes the "file" metadata (derived from the composite key) to keep track of its source. This is useful later for grouping search results by file.
+
+3. Hybrid Search Implementation:
+   - The performSearch function now uses a hybrid search mode. It combines full-text search (by matching the query against text fields) and vector search (by comparing the semantic embedding of the query with document embeddings).
+   - The hybridWeights parameter (text: 0.8 and vector: 0.2) determines the relative importance of keyword matching versus semantic similarity.
+   - The search results are grouped by the "file" property, which reduces duplicate results from the same file and returns the top result per file.
+   - The previously included "tolerance" property was removed from the hybrid search parameters since it is not supported in this mode.
+
+4. Further Enhancements:
+   - Adaptive Chunking: Consider using natural language processing to split text at sentence or paragraph boundaries rather than fixed chunk sizes.
+   - Batching and Caching: Use batch insertion strategies and cache the Orama index (e.g., via IndexedDB) to avoid re-indexing on every load.
+   - Web Workers: Offload heavy computations (such as embedding generation) to Web Workers to maintain a responsive UI.
+   - Optimized Embedding Generation: Replace the dummy generateEmbedding function with a lightweight, browser-optimized embedding model (using technologies like TensorFlow.js or WebAssembly).
+   - Fine-Tuning Hybrid Weights: Experiment with different hybridWeights settings to better balance text relevance and semantic similarity based on your specific dataset.
+
+These enhancements collectively aim to improve the relevance of search results and overall performance of the browser-based code retrieval system.

@@ -147,3 +147,6 @@ storybook-static
 # System files
 .DS_Store
 Thumbs.db
+
+.secrets
+.vercel

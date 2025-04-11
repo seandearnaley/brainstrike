@@ -1,0 +1,125 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    // Define workspaces based on the Turborepo setup
+    "apps/web": {
+      "entry": [
+        "index.html", // Entry for the web app
+        "src/main.tsx", // Main entry point
+        "vitest.config.ts", // Vitest config within the app (if app-specific)
+        "vitest.config.unit.ts", // Vitest config within the app (if app-specific)
+        "vitest.config.integration.ts", // Vitest config within the app (if app-specific)
+        "vitest.setup.ts", // Vitest setup within the app (if app-specific)
+        "playwright.config.ts" // Assuming playwright config is here
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}", // Source files
+        "tests/**/*.{ts,tsx}" // App-specific tests (if any separate from src)
+      ],
+      "ignore": [
+        // Keep specific ignores relevant to this app
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}",
+        "src/test/**/*.{ts,tsx}",
+        "src/types/git-types.ts",
+        "src/config/server.ts"
+      ],
+      "typescript": {
+        // Only add if you need to specify a non-default tsconfig location
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/ui": {
+      "entry": ["src/index.ts"], // Main entry for the UI package
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.stories.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/hooks": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/utils": {
+      "entry": ["src/index.ts"],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/types": {
+      "project": ["src/**/*.ts"],
+      "ignore": [],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/config": {
+      "project": ["**/*.{js,json,ts}"],
+      "ignore": [],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    }
+    // Add other packages/apps if they exist following the pattern above
+  },
+  // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
+  "entry": [
+    "e2e/**/*.ts", // Keep root E2E as requested for now
+    "vitest.workspace.ts" // Add the vitest workspace file as an entry point
+  ],
+  "project": [
+    "e2e/**/*.ts" // Keep root E2E project files
+  ],
+  // Global ignores applicable across all workspaces
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.next/**",
+    "**/.turbo/**",
+    "**/*.d.ts"
+    // Removed specific file ignores from here as they are moved to apps/web workspace ignore
+  ],
+  // Keep existing global settings
+  "ignoreBinaries": [
+    "act",
+    "fta-cli"
+  ],
+  "ignoreDependencies": [
+    // These might need re-evaluation after running Knip
+    "@monaco-editor/react",
+    "monaco-editor",
+    "@types/dompurify",
+    "dompurify",
+    "@babel/core",
+    "@semantic-release/git",
+    "@types/testing-library__jest-dom", // Likely used by root or app vitest.setup.ts
+    "glob",
+    "husky",
+    "identity-obj-proxy", // Likely used for test mocking
+    "tailwindcss", // Likely used via PostCSS, might be flagged
+    "ts-node" // Likely used for scripts/configs
+  ],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "duplicates": "off" // Keep user's rule setting
+  }
+} 

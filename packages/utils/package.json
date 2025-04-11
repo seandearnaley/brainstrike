@@ -1,0 +1,33 @@
+{
+  "name": "@brainstrike/utils",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --dts",
+    "lint": "eslint src/",
+    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "gpt-tokenizer": "^2.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+} 

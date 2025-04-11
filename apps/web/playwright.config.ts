@@ -1,0 +1,47 @@
+import { defineConfig, devices } from "@playwright/test";
+import type { PlaywrightTestConfig } from "@playwright/test";
+import { getBaseUrl } from "./src/config/server";
+import path from "node:path";
+
+// Default to Vite's dev server port
+const baseURL = process.env.BASE_URL || "http://localhost:5173";
+
+// Make sure to log important info
+console.log(`Playwright config: Using baseURL=${baseURL}`);
+console.log(`Current working directory: ${process.cwd()}`);
+console.log(`Test directory: ${path.resolve("./e2e")}`);
+
+const config: PlaywrightTestConfig = {
+	testDir: "./e2e",
+	fullyParallel: false, // Run tests sequentially for easier debugging
+	forbidOnly: !!process.env.CI,
+	retries: process.env.CI ? 2 : 0,
+	workers: process.env.CI ? 1 : undefined, // Use single worker in CI, default in local
+	timeout: 30000, // 30 seconds per test
+	reporter: [["html"], ["list"]],
+	use: {
+		baseURL,
+		headless: !!process.env.CI, // Run headless in CI, non-headless in local dev
+		trace: process.env.CI ? "on" : "on-first-retry",
+		screenshot: "only-on-failure",
+		video: "on-first-retry",
+	},
+	projects: [
+		{
+			name: "chromium",
+			use: { ...devices["Desktop Chrome"] },
+		},
+	],
+	globalSetup: "./e2e/global-setup.ts",
+	// Web server configuration - handles both CI and local development
+	webServer: {
+		command: "npm run dev",
+		url: baseURL,
+		reuseExistingServer: !process.env.CI,
+		timeout: 30000,
+		stderr: "pipe",
+		stdout: "pipe",
+	},
+};
+
+export default config;

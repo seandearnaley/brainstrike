@@ -1,23 +1,30 @@
 {
 	"name": "brainstrike",
 	"version": "1.0.0",
-	"description": "",
+	"description": "Brainstrike.ai",
 	"main": "index.js",
 	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev",
 		"lint": "turbo run lint",
 		"test": "turbo run test",
+		"test:e2e": "cd apps/web && npm run test:e2e",
+		"test:e2e:ui": "cd apps/web && npm run test:e2e:ui",
+		"test:e2e:debug": "cd apps/web && npm run test:e2e:debug",
 		"clean": "turbo run clean"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "ISC",
 	"devDependencies": {
+		"@commitlint/cli": "^19.8.0",
+		"@commitlint/config-conventional": "^19.8.0",
+		"@commitlint/types": "^19.8.0",
 		"turbo": "^2.5.0",
-		"typescript": "^5.8.3"
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.1"
 	},
-	"packageManager": "pnpm@10.7.1",
+	"packageManager": "pnpm@10.8.0",
 	"pnpm": {
 		"onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
 	},

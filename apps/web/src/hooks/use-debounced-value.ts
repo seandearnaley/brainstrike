@@ -1,17 +1,7 @@
-import { useEffect, useState } from 'react';
-
-export function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(timer);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
-}
+/**
+ * Re-export useDebouncedValue from the shared hooks package.
+ * This re-export maintains backward compatibility.
+ *
+ * @deprecated Use @brainstrike/hooks directly instead
+ */
+export { useDebouncedValue } from "@brainstrike/hooks";

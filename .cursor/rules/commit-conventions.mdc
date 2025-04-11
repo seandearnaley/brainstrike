@@ -1,0 +1,120 @@
+---
+description: Commit Message Conventions for brainstrike-web
+---
+
+This document outlines the commit message conventions used in the brainstrike-web project.
+
+## Commit Message Format
+
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+### Type
+
+Must be one of the following:
+
+- `build`: Changes that affect the build system or external dependencies
+- `chore`: Maintenance tasks and minor updates
+- `ci`: Changes to CI configuration files and scripts
+- `docs`: Documentation only changes
+- `feat`: A new feature
+- `fix`: A bug fix
+- `perf`: A code change that improves performance
+- `refactor`: A code change that neither fixes a bug nor adds a feature
+- `revert`: Revert a previous commit
+- `style`: Changes that do not affect the meaning of the code
+- `test`: Adding missing tests or correcting existing tests
+- `release`: Release commits managed by semantic-release
+
+### Scope
+
+Must be one of the following when provided:
+
+- `auth`: Authentication related changes
+- `api`: API related changes
+- `ui`: UI components and styling
+- `config`: Configuration changes
+- `deps`: Dependency updates
+- `core`: Core functionality
+- `test`: Test infrastructure changes
+- `types`: TypeScript type changes
+- `security`: Security related changes
+- `dx`: Developer experience improvements
+
+### Length Limits
+
+- Header (first line): maximum 100 characters
+- Body: each line maximum 100 characters
+- Footer: each line maximum 100 characters
+
+### Examples
+
+Good commit messages:
+```
+fix(ui): resolve preview panel scrolling regression
+feat(auth): implement OAuth2 authentication flow
+refactor(core): improve file tree performance
+docs(api): update API documentation with new endpoints
+```
+
+Bad commit messages:
+```
+fixed bug  # Missing type and too vague
+feat: implemented a really really really really really really really really really long feature name that exceeds the character limit  # Too long
+update stuff  # Missing type and too vague
+```
+
+### Tips for Writing Good Commit Messages
+
+1. Use imperative mood in the subject line
+   - Good: "add feature" or "fix bug"
+   - Bad: "added feature" or "fixed bug"
+
+2. Don't end the subject line with a period
+
+3. Separate subject from body with a blank line
+
+4. Use the body to explain what and why vs. how
+   - Explain the problem that this commit is solving
+   - Justify why you chose this solution
+
+5. Break down large changes into smaller commits
+
+6. Each commit should be a single logical change
+
+### Common Issues to Avoid
+
+1. Exceeding line length limits
+   - Header must be ≤ 100 characters
+   - Body lines must be ≤ 100 characters
+   - Use line breaks to split long explanations
+
+2. Using undefined types or scopes
+   - Stick to the predefined types and scopes
+   - If you need a new type or scope, update the commitlint config
+
+3. Mixing multiple unrelated changes
+   - Each commit should have a single purpose
+   - Split different changes into separate commits
+
+4. Vague or uninformative messages
+   - Be specific about what changed
+   - Explain why the change was needed
+
+### Using Multiple Lines in Body
+
+When you need to write a longer commit message with multiple lines in the body:
+
+```bash
+git commit -m "feat(ui): add new dashboard component" -m "- Implement responsive layout
+- Add dark mode support
+- Include accessibility features
+- Add unit tests"
+```
+
+Note: Each bullet point should still respect the 100-character limit. 
