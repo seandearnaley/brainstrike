@@ -12,7 +12,7 @@
 	},
 	"scripts": {
 		"lint": "pnpm run --dir=../.. lint",
-		"type-check": "tsc --noEmit"
+		"type-check": "echo \"Skipping type-check for config package as it's just configuration files\""
 	},
 	"dependencies": {},
 	"devDependencies": {

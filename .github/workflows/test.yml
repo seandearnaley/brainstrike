@@ -64,7 +64,7 @@ jobs:
         continue-on-error: true # Initially allow failures until codebase is cleaned up
 
       - name: Run tests with coverage
-        run: pnpm run test -- --coverage
+        run: pnpm run test:coverage
 
       # Separate Playwright cache to avoid permission issues
       - name: Cache Playwright browsers
