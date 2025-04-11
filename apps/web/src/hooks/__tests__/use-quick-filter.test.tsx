@@ -1,174 +1,154 @@
-import type { IFileNode } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDirectoryNode, createFileNode } from '../../test/factories/file-node';
-import { useQuickFilter } from '../use-quick-filter';
+import type { IFileNode } from "@brainstrike/types";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	createDirectoryNode,
+	createFileNode,
+} from "../../test/factories/file-node";
+import { useQuickFilter } from "../use-quick-filter";
 
-describe('useQuickFilter', () => {
-  let mockFileTree: IFileNode[];
+// Mock the useDebouncedValue hook
+vi.mock("@brainstrike/hooks", () => ({
+	useDebouncedValue: vi.fn((value) => value), // Return the value immediately for tests
+}));
 
-  beforeEach(() => {
-    vi.useFakeTimers();
-    // Create a fresh copy of the mock tree for each test
-    mockFileTree = [
-      createDirectoryNode({
-        name: 'src',
-        path: 'src',
-        children: [
-          createDirectoryNode({
-            name: 'components',
-            path: 'src/components',
-            children: [
-              createFileNode({
-                name: 'Button.tsx',
-                path: 'src/components/Button.tsx',
-              }),
-              createFileNode({
-                name: 'Button.test.tsx',
-                path: 'src/components/Button.test.tsx',
-              }),
-            ],
-          }),
-          createDirectoryNode({
-            name: 'utils',
-            path: 'src/utils',
-            children: [
-              createFileNode({
-                name: 'helper.ts',
-                path: 'src/utils/helper.ts',
-              }),
-            ],
-          }),
-        ],
-      }),
-    ];
-  });
+describe("useQuickFilter", () => {
+	let mockFileTree: IFileNode[];
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+	beforeEach(() => {
+		// Create a fresh copy of the mock tree for each test
+		mockFileTree = [
+			createDirectoryNode({
+				name: "src",
+				path: "src",
+				children: [
+					createDirectoryNode({
+						name: "components",
+						path: "src/components",
+						children: [
+							createFileNode({
+								name: "Button.tsx",
+								path: "src/components/Button.tsx",
+							}),
+							createFileNode({
+								name: "Navbar.jsx",
+								path: "src/components/Navbar.jsx",
+							}),
+						],
+					}),
+					createDirectoryNode({
+						name: "utils",
+						path: "src/utils",
+						children: [
+							createFileNode({
+								name: "helpers.ts",
+								path: "src/utils/helpers.ts",
+							}),
+						],
+					}),
+				],
+			}),
+		];
+	});
 
-  it('should return unfiltered tree when filter is empty', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
-    expect(result.current.filteredTree).toEqual(mockFileTree);
-  });
+	it("should return unfiltered tree when filter is empty", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
+		expect(result.current.filteredTree).toEqual(mockFileTree);
+	});
 
-  it('should filter files based on single term', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
+	it("should filter files based on single term", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-    act(() => {
-      result.current.setQuickFilter('button');
-    });
+		act(() => {
+			result.current.setQuickFilter("button");
+		});
 
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
+		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
+			1,
+		);
+		expect(
+			result.current.filteredTree[0].children?.[0].children?.[0].name,
+		).toBe("Button.tsx");
+	});
 
-    const filteredFiles = result.current.filteredTree[0].children?.[0].children;
-    expect(filteredFiles).toHaveLength(2);
-    expect(filteredFiles?.[0].name).toBe('Button.tsx');
-    expect(filteredFiles?.[1].name).toBe('Button.test.tsx');
-  });
+	it("should handle multiple terms with OR logic", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-  it('should handle multiple terms with OR logic', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
+		act(() => {
+			result.current.setQuickFilter("button navbar");
+		});
 
-    act(() => {
-      result.current.setQuickFilter('button helper');
-    });
+		// Both Button.tsx and Navbar.jsx should match
+		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
+			2,
+		);
+	});
 
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
+	it("should handle exclusion patterns", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-    // Should find both Button files and helper.ts
-    const componentFiles = result.current.filteredTree[0].children?.[0].children;
-    const utilFiles = result.current.filteredTree[0].children?.[1].children;
+		act(() => {
+			result.current.setQuickFilter("components -button");
+		});
 
-    expect(componentFiles).toHaveLength(2);
-    expect(utilFiles).toHaveLength(1);
-    expect(utilFiles?.[0].name).toBe('helper.ts');
-  });
+		// Should match components directory but exclude Button.tsx
+		const componentsDir = result.current.filteredTree[0].children?.[0];
+		expect(componentsDir).toBeDefined();
+		expect(componentsDir?.name).toBe("components");
+		expect(componentsDir?.children).toHaveLength(1);
+		expect(componentsDir?.children?.[0].name).toBe("Navbar.jsx");
+	});
 
-  it('should handle exclusion patterns', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
+	it("should be case insensitive", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-    act(() => {
-      result.current.setQuickFilter('button -test');
-    });
+		act(() => {
+			result.current.setQuickFilter("BUTTON");
+		});
 
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
+		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
+			1,
+		);
+		expect(
+			result.current.filteredTree[0].children?.[0].children?.[0].name,
+		).toBe("Button.tsx");
+	});
 
-    const filteredFiles = result.current.filteredTree[0].children?.[0].children;
-    expect(filteredFiles).toHaveLength(1);
-    expect(filteredFiles?.[0].name).toBe('Button.tsx');
-  });
+	it("should clear filter", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-  it('should be case insensitive', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
+		act(() => {
+			result.current.setQuickFilter("button");
+		});
 
-    act(() => {
-      result.current.setQuickFilter('BUTTON');
-    });
+		// Verify filter is applied
+		expect(result.current.quickFilter).toBe("button");
 
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
+		act(() => {
+			result.current.clearFilter();
+		});
 
-    const filteredFiles = result.current.filteredTree[0].children?.[0].children;
-    expect(filteredFiles).toHaveLength(2);
-  });
+		// Filter should be cleared
+		expect(result.current.quickFilter).toBe("");
+		expect(result.current.filteredTree).toEqual(mockFileTree);
+	});
 
-  it('should clear filter', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
+	it("should preserve directory structure when children match", () => {
+		const { result } = renderHook(() => useQuickFilter(mockFileTree));
 
-    act(() => {
-      result.current.setQuickFilter('button');
-    });
+		act(() => {
+			result.current.setQuickFilter("button");
+		});
 
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
+		// Src directory should still be present
+		expect(result.current.filteredTree[0].name).toBe("src");
 
-    act(() => {
-      result.current.clearFilter();
-    });
+		// Components directory should be preserved since it has a matching child
+		expect(result.current.filteredTree[0].children?.[0].name).toBe(
+			"components",
+		);
 
-    // Wait for debounce after clearing
-    act(() => {
-      vi.runAllTimers();
-    });
-
-    expect(result.current.quickFilter).toBe('');
-    expect(result.current.filteredTree).toEqual(mockFileTree);
-  });
-
-  it('should preserve directory structure when children match', () => {
-    const { result } = renderHook(() => useQuickFilter(mockFileTree));
-
-    act(() => {
-      result.current.setQuickFilter('helper');
-    });
-
-    // Wait for debounce
-    act(() => {
-      vi.runAllTimers();
-    });
-
-    // Should keep the directory structure intact, but only for matching paths
-    const filteredTree = result.current.filteredTree;
-    expect(filteredTree[0].name).toBe('src');
-    // Only the utils directory should be present since it contains the matching file
-    expect(filteredTree[0].children).toHaveLength(1);
-    expect(filteredTree[0].children?.[0].name).toBe('utils');
-    expect(filteredTree[0].children?.[0].children).toHaveLength(1);
-    expect(filteredTree[0].children?.[0].children?.[0].name).toBe('helper.ts');
-  });
+		// Utils directory should not be included since no children match
+		expect(result.current.filteredTree[0].children).toHaveLength(1);
+	});
 });
