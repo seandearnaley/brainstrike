@@ -321,15 +321,12 @@ importers:
 
   packages/types:
     devDependencies:
-      '@brainstrike/tsconfig':
-        specifier: workspace:*
-        version: link:../config/tsconfig
-      lucide-react:
-        specifier: ^0.483.0
-        version: 0.483.0(react@19.1.0)
       typescript:
-        specifier: ^5.3.3
+        specifier: ^5.8.3
         version: 5.8.3
+      vitest:
+        specifier: ^3.1.1
+        version: 3.1.1(@types/node@22.14.0)(@vitest/ui@3.1.1)(happy-dom@17.4.4)(jiti@2.4.2)(jsdom@26.0.0)(lightningcss@1.29.2)(terser@5.39.0)
 
   packages/ui:
     dependencies:
