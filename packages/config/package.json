@@ -1,0 +1,21 @@
+{
+	"name": "@brainstrike/config",
+	"version": "0.1.0",
+	"description": "Shared configuration for Brainstrike monorepo",
+	"private": true,
+	"main": "index.js",
+	"files": ["biome/biome.json", "tsconfig"],
+	"exports": {
+		"./biome": "./biome/biome.json",
+		"./biome/base": "./biome/biome.json",
+		"./tsconfig/*": "./tsconfig/*"
+	},
+	"scripts": {
+		"lint": "pnpm run --dir=../.. lint",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {},
+	"devDependencies": {
+		"typescript": "^5.8.3"
+	}
+}
