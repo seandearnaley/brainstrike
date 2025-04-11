@@ -47,7 +47,7 @@ jobs:
             ${{ runner.os }}-pnpm-turbo-
 
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install
 
       - name: Audit dependencies
         run: pnpm audit --prod

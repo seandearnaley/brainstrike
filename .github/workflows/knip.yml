@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-pnpm-
           
       - name: Install dependencies
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install
         
       # Run standard analysis
       - name: Run Knip Analysis
