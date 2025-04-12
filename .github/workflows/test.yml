@@ -218,17 +218,10 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-browsers-${{ hashFiles('**/pnpm-lock.yaml') }}
 
-      - name: Install Playwright system dependencies
+      # Install Playwright browsers AND dependencies together if cache missed
+      - name: Install Playwright browsers and dependencies
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: |
-          # Update apt cache without caching it (to avoid permission issues)
-          sudo apt-get update
-          # Install Playwright dependencies
-          npx playwright install-deps chromium
-
-      - name: Install Playwright browsers
-        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: npx playwright install chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |
