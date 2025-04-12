@@ -1,8 +1,4 @@
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
   Badge,
   Button,
   Checkbox,
@@ -19,7 +15,16 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { ArrowUpDown, ChevronDown, ChevronRight, Folder, Loader2, Trash2, X } from 'lucide-react';
+import { formatTokenCount } from '@brainstrike/utils';
+import {
+  ArrowDown,
+  ArrowDownUp,
+  ArrowUp,
+  ArrowUpDown,
+  FileX2,
+  Folder,
+  Loader2,
+} from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { getFolderColor } from '../../utils/color-utils';
@@ -28,7 +33,6 @@ import {
   countTokensAccurate,
   countTokensHeuristic,
   estimateTokenCost,
-  formatTokenCount,
 } from '../../utils/token-utils';
 
 interface PreviewPanelProps {
@@ -112,11 +116,13 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         // Skip token calculation for error messages and binary files
         if (!content.startsWith('File not accessible') && !content.startsWith('Binary file')) {
           // Use faster heuristic for larger files (>100KB)
-          const useHeuristic = content.length > 100000;
-          tokenCount = useHeuristic ? countTokensHeuristic(content) : countTokensAccurate(content);
+          // We're using heuristic for all files to avoid Promise handling in a synchronous context
+          tokenCount = countTokensHeuristic(content);
 
           // Add to folder total
-          groups[folderId].totalTokens += tokenCount;
+          if (typeof tokenCount === 'number') {
+            groups[folderId].totalTokens += tokenCount;
+          }
         }
 
         // Calculate file size
@@ -130,8 +136,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
       groups[folderId].files.push({
         compositeKey,
         path,
-        size: fileSize,
-        tokens: tokenCount,
+        ...(fileSize !== undefined ? { size: fileSize } : {}),
+        ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
       });
     }
 
@@ -371,9 +377,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               `}
             </style>
             {isFolderExpanded ? (
-              <ChevronDown className="h-4 w-4" />
+              <ArrowDown className="h-4 w-4" />
             ) : (
-              <ChevronRight className="h-4 w-4" />
+              <ArrowDownUp className="h-4 w-4" />
             )}
             <Folder className="h-4 w-4" />
             <span className="truncate">{group.folderId}</span>
@@ -442,9 +448,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                                 className="h-6 w-6 p-0"
                                 onClick={() => toggleExpand(file.compositeKey)}
                               >
-                                <ChevronRight
+                                <ArrowDown
                                   className={`h-4 w-4 transition-transform duration-200 ${
-                                    isExpanded ? 'rotate-90' : ''
+                                    isExpanded ? 'rotate-180' : ''
                                   }`}
                                 />
                               </Button>
@@ -503,7 +509,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                                     onClick={() => handleRemoveFile(file.compositeKey)}
                                     aria-label={`Remove ${file.path} from selection`}
                                   >
-                                    <X className="size-3.5" />
+                                    <FileX2 className="size-3.5" />
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -634,7 +640,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             onClick={expandAllFolders}
             className="flex items-center gap-1"
           >
-            <ChevronDown className="size-3.5" />
+            <ArrowDown className="size-3.5" />
             <span className="hidden @sm/preview:inline">Expand All</span>
           </Button>
           <Button
@@ -643,7 +649,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             onClick={collapseAllFolders}
             className="flex items-center gap-1"
           >
-            <ChevronRight className="size-3.5" />
+            <ArrowUp className="size-3.5" />
             <span className="hidden @sm/preview:inline">Collapse All</span>
           </Button>
         </div>
@@ -737,7 +743,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                   onClick={handleBatchRemove}
                   className="flex items-center gap-1"
                 >
-                  <Trash2 className="size-3.5" />
+                  <FileX2 className="size-3.5" />
                   <span>Remove Selections</span>
                 </Button>
               </div>

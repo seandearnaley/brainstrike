@@ -1,4 +1,4 @@
-import type { IFileNode } from '@/lib/file/types';
+import type { IFileNode } from '@brainstrike/types';
 import { vi } from 'vitest';
 import {
   createDirectoryNode,
@@ -160,9 +160,27 @@ describe('File Node Factories', () => {
       expect(folder1?.children).toHaveLength(2);
 
       const folder2 = tree.find((node: IFileNode) => node.name === 'folder2');
-      expect(folder2?.type).toBe('directory');
-      expect(folder2?.children?.[0].name).toBe('subfolder');
-      expect(folder2?.children?.[0].children?.[0].name).toBe('file3.txt');
+      expect(folder2).toBeDefined();
+      if (!folder2 || !folder2.children || folder2.children.length === 0) {
+        throw new Error('folder2 or its children is undefined or empty');
+      }
+
+      expect(folder2.type).toBe('directory');
+      const subfolder = folder2.children[0];
+      if (!subfolder) {
+        throw new Error('subfolder is undefined');
+      }
+      expect(subfolder.name).toBe('subfolder');
+
+      if (!subfolder.children || subfolder.children.length === 0) {
+        throw new Error('subfolder children is undefined or empty');
+      }
+
+      const file3 = subfolder.children[0];
+      if (!file3) {
+        throw new Error('file3 is undefined');
+      }
+      expect(file3.name).toBe('file3.txt');
     });
 
     it('maintains correct paths and depths', () => {
@@ -173,13 +191,23 @@ describe('File Node Factories', () => {
       };
 
       const tree = createFileTreeFromStructure(structure);
+      expect(tree).toHaveLength(1);
+      
       const rootFolder = tree[0];
-      const file = rootFolder.children?.[0];
+      expect(rootFolder).toBeDefined();
+      if (!rootFolder || !rootFolder.children || rootFolder.children.length === 0) {
+        throw new Error('rootFolder or its children is undefined or empty');
+      }
+
+      const file = rootFolder.children[0];
+      if (!file) {
+        throw new Error('file is undefined');
+      }
 
       expect(rootFolder.path).toBe('root');
       expect(rootFolder.depth).toBe(0);
-      expect(file?.path).toBe('root/file.txt');
-      expect(file?.depth).toBe(1);
+      expect(file.path).toBe('root/file.txt');
+      expect(file.depth).toBe(1);
     });
   });
 });

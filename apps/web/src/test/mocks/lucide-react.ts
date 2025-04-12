@@ -1,4 +1,4 @@
-import type { LucideProps as OriginalLucideProps } from 'lucide-react';
+import type {} from 'lucide-react';
 import * as React from 'react';
 
 // Extend LucideProps to include data-testid

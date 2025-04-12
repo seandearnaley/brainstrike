@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
@@ -30,11 +30,12 @@ describe('useFileExplorerStore Actions Integration', () => {
 
   const getInitialState = (): FileExplorerState => ({
     ...DEFAULT_STATE, // Start with defaults
+    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files', // Ensure default
     currentFolderId: null,
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     folderStates: {},
-    // Add dummy action placeholders - they will be overwritten in setup
+    // Add mock implementations for all actions
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
     setSelectedFiles: vi.fn(),
@@ -44,14 +45,14 @@ describe('useFileExplorerStore Actions Integration', () => {
     clearSelectedFiles: vi.fn(),
     setExpandedPaths: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),
-    expandAllDirectories: vi.fn(),
-    collapseAllDirectories: vi.fn(),
     setFilters: vi.fn(),
     setUseRegex: vi.fn(),
     setIncludeProjectTree: vi.fn(),
     setFolderSummaryThreshold: vi.fn(),
     setMaxSelectionCount: vi.fn(),
     setLastActiveTab: vi.fn(),
+    expandAllDirectories: vi.fn(),
+    collapseAllDirectories: vi.fn(),
   });
 
   beforeEach(() => {

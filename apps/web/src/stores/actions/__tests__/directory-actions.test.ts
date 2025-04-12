@@ -56,6 +56,7 @@ describe('directory-actions', () => {
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
       // Check that the function passed to set returns the correct state update
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const stateUpdateFn = mockSet.mock.calls[0][0];
       const updatedState = stateUpdateFn({});
       expect(updatedState).toEqual({
@@ -77,6 +78,7 @@ describe('directory-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const stateUpdateFn = mockSet.mock.calls[0][0];
       const updatedState = stateUpdateFn({});
       expect(updatedState).toEqual({
@@ -103,6 +105,7 @@ describe('directory-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Check state update
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const stateUpdateFn = mockSet.mock.calls[0][0];
       const updatedState = stateUpdateFn({});
 
@@ -130,6 +133,7 @@ describe('directory-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Check state update
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const stateUpdateFn = mockSet.mock.calls[0][0];
       const updatedState = stateUpdateFn({});
 
@@ -156,6 +160,7 @@ describe('directory-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Check state update
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const stateUpdateFn = mockSet.mock.calls[0][0];
       const updatedState = stateUpdateFn({});
 

@@ -31,6 +31,8 @@ export default defineConfig({
             // Group vendor dependencies
             return "vendor";
           }
+          // Explicitly return undefined for other modules to keep them in the default chunk
+          return undefined;
         },
       },
     },

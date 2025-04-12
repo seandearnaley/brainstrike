@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDirectoryNode, createFileNode } from '../../test/factories/file-node';
 import { generateReport } from '../report-generator';
 
 describe('reportGenerator', () => {

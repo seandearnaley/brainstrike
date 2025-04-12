@@ -1,5 +1,5 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
+import type { StoreApi, UseBoundStore } from 'zustand';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,

@@ -1,5 +1,5 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
+import type { StoreApi, UseBoundStore } from 'zustand';
 import { encodeFileSelection } from '../../utils/file-selection-utils';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
@@ -7,9 +7,9 @@ type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];
 
 export interface FileSelectionActions {
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => void;
-  addSelectedFile: (folderId: string, path: string) => void;
-  removeSelectedFile: (folderId: string, path: string) => void;
-  toggleSelectedFile: (folderId: string, path: string) => void;
+  addSelectedFile: (folderId: string | null, path: string) => void;
+  removeSelectedFile: (folderId: string | null, path: string) => void;
+  toggleSelectedFile: (folderId: string | null, path: string) => void;
   clearSelectedFiles: () => void;
 }
 
@@ -29,7 +29,8 @@ export const createFileSelectionActions = (
     set({ selectedFilePaths: validatedFiles });
   },
 
-  addSelectedFile: (folderId: string, path: string) => {
+  addSelectedFile: (folderId: string | null, path: string) => {
+    if (folderId === null) return; // Skip if no folder is selected
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       // Check against maxSelectionCount before adding
@@ -40,7 +41,8 @@ export const createFileSelectionActions = (
     });
   },
 
-  removeSelectedFile: (folderId: string, path: string) => {
+  removeSelectedFile: (folderId: string | null, path: string) => {
+    if (folderId === null) return; // Skip if no folder is selected
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       newSelectedFiles.delete(encodeFileSelection(folderId, path));
@@ -48,7 +50,8 @@ export const createFileSelectionActions = (
     });
   },
 
-  toggleSelectedFile: (folderId: string, path: string) => {
+  toggleSelectedFile: (folderId: string | null, path: string) => {
+    if (folderId === null) return; // Skip if no folder is selected
     set((state) => {
       const newSelectedFiles = new Set(state.selectedFilePaths);
       const compositeKey = encodeFileSelection(folderId, path);

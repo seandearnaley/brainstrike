@@ -10,8 +10,9 @@ if (typeof global.TextDecoder === 'undefined') {
 export class MockFileSystemHandle implements FileSystemHandle {
   public readonly kind: 'file' | 'directory';
   public readonly name: string;
-  protected _mockIsSameEntry?: (other: FileSystemHandle) => Promise<boolean>;
-  protected _mockGetParent?: () => Promise<FileSystemHandle | null>;
+  // Ensure these properties can be undefined to match constructor parameters
+  protected _mockIsSameEntry: ((other: FileSystemHandle) => Promise<boolean>) | undefined;
+  protected _mockGetParent: (() => Promise<FileSystemHandle | null>) | undefined;
 
   constructor(
     name: string,

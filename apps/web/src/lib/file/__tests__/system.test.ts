@@ -1,12 +1,11 @@
 import { TextDecoder, TextEncoder } from 'node:util';
-import { describe, expect, it, vi } from 'vitest';
+import { renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileSystem } from '../system';
 import {
   MockFileSystemHandle,
   createCircularHandles,
   createSelfReferencingHandle,
-  mockDirectoryHandle,
-  mockFileHandle,
 } from './utils/mock-file-system';
 
 // Add TextEncoder and TextDecoder to global scope if not already defined

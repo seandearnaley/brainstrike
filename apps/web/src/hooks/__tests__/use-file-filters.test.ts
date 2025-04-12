@@ -128,20 +128,24 @@ describe('useFileFilters', () => {
 
     const srcNode = filteredTree[0];
     expect(srcNode).toBeDefined();
+    expect(srcNode?.children).toBeDefined();
 
-    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
-    const appFile = srcNode.children?.find((node: IFileNode) => node.name === 'App.tsx');
+    // Check children after ensuring srcNode is defined
+    if (!srcNode?.children) throw new Error('srcNode.children is undefined');
 
-    // Verify components directory exists
+    const componentsDir = srcNode.children.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode.children.find((node: IFileNode) => node.name === 'utils');
+    const appFile = srcNode.children.find((node: IFileNode) => node.name === 'App.tsx');
+
+    // Verify components directory exists and has children
     expect(componentsDir).toBeDefined();
+    expect(componentsDir!.children).toBeDefined();
+    expect(componentsDir!.children!.length).toBe(2);
 
-    // Verify it has 2 children (based on the actual implementation)
-    expect(componentsDir?.children?.length).toBe(2);
-
-    // Verify utils directory exists with no matching children
+    // Verify utils directory exists and has children (even if empty)
     expect(utilsDir).toBeDefined();
-    expect(utilsDir?.children?.length).toBe(0);
+    expect(utilsDir!.children).toBeDefined();
+    expect(utilsDir!.children!.length).toBe(0);
 
     // Verify App.tsx is included
     expect(appFile).toBeDefined();
@@ -160,10 +164,12 @@ describe('useFileFilters', () => {
     // The implementation doesn't actually exclude node_modules directory
     // It just filters its contents
     expect(filteredTree.length).toBe(2); // Both directories remain
-    expect(filteredTree[0].name).toBe('src');
-    expect(filteredTree[1].name).toBe('node_modules');
+    expect(filteredTree[0]?.name).toBe('src');
+    expect(filteredTree[1]?.name).toBe('node_modules');
     // But node_modules should have empty children
-    expect(filteredTree[1].children?.length).toBe(0);
+    // Check children after ensuring filteredTree[1] is defined
+    expect(filteredTree[1]?.children).toBeDefined();
+    expect(filteredTree[1]?.children?.length).toBe(0);
   });
 
   it('should apply both include and exclude filters together', () => {
@@ -178,8 +184,9 @@ describe('useFileFilters', () => {
 
     const srcNode = filteredTree[0];
     expect(srcNode).toBeDefined();
+    expect(srcNode?.children).toBeDefined();
 
-    const children = srcNode.children || [];
+    const children = srcNode?.children ?? []; // Use nullish coalescing
     const nodeNames = children.map((node: IFileNode) => node.name);
 
     // In the current implementation, components directory is NOT excluded,
@@ -189,6 +196,7 @@ describe('useFileFilters', () => {
     // Get components to verify its children
     const componentsDir = children.find((node: IFileNode) => node.name === 'components');
     expect(componentsDir).toBeDefined();
+    expect(componentsDir?.children).toBeDefined(); // Use optional chaining
     expect(componentsDir?.children?.length).toBe(0); // No children match the filters + excludes
 
     // App.tsx should be included
@@ -197,6 +205,8 @@ describe('useFileFilters', () => {
     // Utils directory should exist but with no .tsx files
     expect(nodeNames).toContain('utils');
     const utilsDir = children.find((node: IFileNode) => node.name === 'utils');
+    expect(utilsDir).toBeDefined();
+    expect(utilsDir?.children).toBeDefined(); // Use optional chaining
     expect(utilsDir?.children?.length).toBe(0);
   });
 
@@ -211,7 +221,9 @@ describe('useFileFilters', () => {
     // Based on the implementation, processFilter is called with pattern, index, and array
     expect(processFilter).toHaveBeenCalled();
     // Verify it was called with '*.tsx' as the first argument
-    expect(vi.mocked(processFilter).mock.calls[0][0]).toBe('*.tsx');
+    // Add check for mock calls length before accessing element
+    expect(vi.mocked(processFilter).mock.calls.length).toBeGreaterThan(0);
+    expect(vi.mocked(processFilter).mock.calls[0]?.[0]).toBe('*.tsx');
   });
 
   it('should handle regex filters correctly when useRegex is true', () => {
@@ -225,14 +237,20 @@ describe('useFileFilters', () => {
     });
 
     const srcNode = filteredTree[0];
-    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
-    const appFile = srcNode.children?.find((node: IFileNode) => node.name === 'App.tsx');
+    expect(srcNode).toBeDefined(); // Ensure srcNode exists before proceeding
+
+    const componentsDir = srcNode?.children?.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode?.children?.find((node: IFileNode) => node.name === 'utils');
+    const appFile = srcNode?.children?.find((node: IFileNode) => node.name === 'App.tsx');
 
     // Verify component files are present
+    expect(componentsDir).toBeDefined();
+    expect(componentsDir?.children).toBeDefined();
     expect(componentsDir?.children?.length).toBe(2);
 
     // No .tsx files in utils
+    expect(utilsDir).toBeDefined();
+    expect(utilsDir?.children).toBeDefined();
     expect(utilsDir?.children?.length).toBe(0);
 
     // App.tsx is included
@@ -267,12 +285,17 @@ describe('useFileFilters', () => {
     });
 
     // All directories should still be included even when no files match
-    expect(filteredTree[0].children?.length).toBeGreaterThan(0);
+    expect(filteredTree[0]).toBeDefined();
+    expect(filteredTree[0]?.children).toBeDefined();
+    expect(filteredTree[0]?.children?.length).toBeGreaterThan(0);
+
     const childDirs =
-      filteredTree[0].children?.filter((node: IFileNode) => node.type === 'directory') || [];
+      filteredTree[0]?.children?.filter((node: IFileNode) => node.type === 'directory') ?? []; // Use optional chaining and nullish coalescing
     expect(childDirs.length).toBe(2);
-    expect(childDirs[0].type).toBe('directory');
-    expect(childDirs[1].type).toBe('directory');
+    expect(childDirs[0]).toBeDefined();
+    expect(childDirs[0]?.type).toBe('directory');
+    expect(childDirs[1]).toBeDefined();
+    expect(childDirs[1]?.type).toBe('directory');
   });
 
   it('should include all files when no include filters are provided', () => {
@@ -286,13 +309,19 @@ describe('useFileFilters', () => {
     });
 
     const srcNode = filteredTree[0];
-    const componentsDir = srcNode.children?.find((node: IFileNode) => node.name === 'components');
-    const utilsDir = srcNode.children?.find((node: IFileNode) => node.name === 'utils');
+    expect(srcNode).toBeDefined(); // Add check
+
+    const componentsDir = srcNode?.children?.find((node: IFileNode) => node.name === 'components');
+    const utilsDir = srcNode?.children?.find((node: IFileNode) => node.name === 'utils');
 
     // Based on the actual implementation
+    expect(componentsDir).toBeDefined();
+    expect(componentsDir?.children).toBeDefined();
     expect(componentsDir?.children?.length).toBe(2);
+    expect(utilsDir).toBeDefined();
+    expect(utilsDir?.children).toBeDefined();
     expect(utilsDir?.children?.length).toBe(1);
-    expect(srcNode.children?.length).toBe(3);
+    expect(srcNode?.children?.length).toBe(3); // Add optional chaining
   });
 
   it('should add isVisible property to all included nodes', () => {
@@ -306,8 +335,11 @@ describe('useFileFilters', () => {
     });
 
     // Check if isVisible is set to true for all nodes
-    expect(filteredTree[0].isVisible).toBe(true);
-    expect(filteredTree[0].children?.[0].isVisible).toBe(true);
-    expect(filteredTree[0].children?.[0].children?.[0].isVisible).toBe(true);
+    expect(filteredTree[0]).toBeDefined();
+    expect(filteredTree[0]?.isVisible).toBe(true);
+    expect(filteredTree[0]?.children?.[0]).toBeDefined();
+    expect(filteredTree[0]?.children?.[0]?.isVisible).toBe(true);
+    expect(filteredTree[0]?.children?.[0]?.children?.[0]).toBeDefined();
+    expect(filteredTree[0]?.children?.[0]?.children?.[0]?.isVisible).toBe(true);
   });
 });

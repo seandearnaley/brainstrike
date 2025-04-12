@@ -83,6 +83,7 @@ describe('useUndoableAction', () => {
 
       // Verify toast was called with correct parameters
       expect(mockToast).toHaveBeenCalledTimes(1);
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const toastCall = mockToast.mock.calls[0][0];
       expect(toastCall.title).toBe('Test Action');
       expect(toastCall.duration).toBe(5000); // Default duration
@@ -129,6 +130,7 @@ describe('useUndoableAction', () => {
       });
 
       // Get the onClick handler from the toast call
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const toastCall = mockToast.mock.calls[0][0];
       const undoButton = toastCall.description.props.children[1];
 

@@ -1,7 +1,5 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockDirectoryHandle } from '../../lib/file/__tests__/utils/mock-file-system';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystem } from '../use-file-system';
 
 // Mock the useFileExplorerStore
@@ -47,7 +45,8 @@ describe('useFileSystem', () => {
   describe('isFileSystemAccessSupported', () => {
     it('returns supported true when API is available and context is secure', () => {
       const { result } = renderHook(() => useFileSystem());
-      const { supported, reason } = result.current.isFileSystemAccessSupported();
+      expect(result.current).toBeDefined();
+      const { supported, reason } = result.current!.isFileSystemAccessSupported();
       expect(supported).toBe(true);
       expect(reason).toBe('');
     });
@@ -58,7 +57,8 @@ describe('useFileSystem', () => {
         configurable: true,
       });
       const { result } = renderHook(() => useFileSystem());
-      const { supported, reason } = result.current.isFileSystemAccessSupported();
+      expect(result.current).toBeDefined();
+      const { supported, reason } = result.current!.isFileSystemAccessSupported();
       expect(supported).toBe(false);
       expect(reason).toBe('File System Access API is not supported in this browser');
     });
@@ -69,7 +69,8 @@ describe('useFileSystem', () => {
         configurable: true,
       });
       const { result } = renderHook(() => useFileSystem());
-      const { supported, reason } = result.current.isFileSystemAccessSupported();
+      expect(result.current).toBeDefined();
+      const { supported, reason } = result.current!.isFileSystemAccessSupported();
       expect(supported).toBe(false);
       expect(reason).toBe('File System Access API requires a secure context (HTTPS)');
     });
@@ -81,13 +82,14 @@ describe('useFileSystem', () => {
       mockShowDirectoryPicker.mockResolvedValue(mockDirectoryHandle);
 
       const { result } = renderHook(() => useFileSystem());
+      expect(result.current).toBeDefined();
 
       await act(async () => {
-        const handle = await result.current.selectRootDirectory();
+        const handle = await result.current!.selectRootDirectory();
         expect(handle).toBe(mockDirectoryHandle);
       });
 
-      expect(result.current.rootDirectoryHandle).toBe(mockDirectoryHandle);
+      expect(result.current!.rootDirectoryHandle).toBe(mockDirectoryHandle);
     });
 
     it('throws error when File System Access API is not supported', async () => {
@@ -96,9 +98,10 @@ describe('useFileSystem', () => {
         configurable: true,
       });
       const { result } = renderHook(() => useFileSystem());
+      expect(result.current).toBeDefined();
 
       await act(async () => {
-        await expect(result.current.selectRootDirectory()).rejects.toThrow(
+        await expect(result.current!.selectRootDirectory()).rejects.toThrow(
           'File System Access API is not supported in this browser'
         );
       });
@@ -110,9 +113,10 @@ describe('useFileSystem', () => {
       mockShowDirectoryPicker.mockRejectedValue(error);
 
       const { result } = renderHook(() => useFileSystem());
+      expect(result.current).toBeDefined();
 
       await act(async () => {
-        await expect(result.current.selectRootDirectory()).rejects.toThrow('Permission denied');
+        await expect(result.current!.selectRootDirectory()).rejects.toThrow('Permission denied');
       });
     });
 
@@ -122,10 +126,11 @@ describe('useFileSystem', () => {
       mockShowDirectoryPicker.mockRejectedValue(error);
 
       const { result } = renderHook(() => useFileSystem());
+      expect(result.current).toBeDefined();
 
       let handle: FileSystemDirectoryHandle | null = null;
       await act(async () => {
-        handle = await result.current.selectRootDirectory();
+        handle = await result.current!.selectRootDirectory();
       });
       expect(handle).toBeNull();
     });
@@ -135,9 +140,10 @@ describe('useFileSystem', () => {
       mockShowDirectoryPicker.mockRejectedValue(error);
 
       const { result } = renderHook(() => useFileSystem());
+      expect(result.current).toBeDefined();
 
       await act(async () => {
-        await expect(result.current.selectRootDirectory()).rejects.toThrow('Unknown error');
+        await expect(result.current!.selectRootDirectory()).rejects.toThrow('Unknown error');
       });
     });
   });

@@ -1,5 +1,5 @@
-import type { FileExplorerState, FolderState } from '@brainstrike/types';
-import type { StateCreator, StoreApi, UseBoundStore } from 'zustand';
+import type { FileExplorerState } from '@brainstrike/types';
+import type { StoreApi, UseBoundStore } from 'zustand';
 import {
   cleanupOldFolderStates,
   createNewFolderState,
@@ -51,7 +51,7 @@ export const createFolderStateActions = (
         includeProjectTree: newFolderState.includeProjectTree,
         folderSummaryThreshold: newFolderState.folderSummaryThreshold,
         maxSelectionCount: newFolderState.maxSelectionCount,
-        lastActiveTab: newFolderState.lastActiveTab,
+        lastActiveTab: newFolderState.lastActiveTab ?? 'files',
       });
     } else if (folderId) {
       // Create new folder state (resetting current state fields)
@@ -96,7 +96,7 @@ export const createFolderStateActions = (
         includeProjectTree: folderState.includeProjectTree,
         folderSummaryThreshold: folderState.folderSummaryThreshold,
         maxSelectionCount: folderState.maxSelectionCount,
-        lastActiveTab: folderState.lastActiveTab,
+        lastActiveTab: folderState.lastActiveTab ?? 'files',
       };
     });
   },

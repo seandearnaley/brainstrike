@@ -1,10 +1,17 @@
 import type { IFileNode } from '@brainstrike/types';
-import { Badge } from '@brainstrike/ui';
-import { ScrollArea } from '@brainstrike/ui';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
-import type React from 'react';
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import {
+  Badge,
+  ScrollArea,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@brainstrike/ui';
+import * as React from 'react';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileTree from './file-tree';
 import { FolderBadge } from './folder-badge';
@@ -165,7 +172,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
                   <FileTree
                     fileTree={quickFilteredTree}
                     loadingFiles={loadingFiles}
-                    onRender={onTreeRender}
+                    onRender={onTreeRender || undefined}
                     folderId={currentFolderId || ''}
                   />
                 ) : (

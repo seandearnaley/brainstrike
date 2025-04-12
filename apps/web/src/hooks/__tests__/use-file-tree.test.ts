@@ -1,6 +1,6 @@
 import { PartialRefreshError } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../use-file-tree';
 
 describe('useFileTree', () => {
@@ -210,7 +210,8 @@ describe('useFileTree', () => {
       expect(error).toBeInstanceOf(PartialRefreshError);
       // Verify tree still contains successful files
       expect(result.current.fileTree).toHaveLength(1);
-      expect(result.current.fileTree[0].name).toBe('success.txt');
+      expect(result.current.fileTree[0]).toBeDefined();
+      expect(result.current.fileTree[0]!.name).toBe('success.txt');
     });
   });
 });

@@ -166,7 +166,9 @@ export const OramaSearchPanel: React.FC<OramaSearchPanelProps> = ({
       // Derive a base title from the composite key.
       const parts = compositeKey.split('|@|');
       const titleBase = parts.length >= 2 ? parts[1] : compositeKey;
-      indexedFiles.push(titleBase);
+      if (titleBase) {
+        indexedFiles.push(titleBase);
+      }
 
       // Split the content into chunks.
       const chunks = chunkText(content, 1000, 100);
@@ -174,6 +176,8 @@ export const OramaSearchPanel: React.FC<OramaSearchPanelProps> = ({
 
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
+        if (!chunk || !titleBase) continue;
+        
         const title = `${titleBase} - Chunk ${i + 1}`;
         const embedding = await generateEmbedding(chunk);
         allDocuments.push({

@@ -3,10 +3,9 @@ import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileContent } from '../../lib/file/content';
 import { fileExplorer } from '../../lib/file/explorer';
-import { fileSystem } from '../../lib/file/system';
-import { createFileNode } from '../../test/factories/file-node';
 import { encodeFileSelection } from '../../utils/file-selection-utils';
 import { useFileContentLoading } from '../use-file-content-loading';
+import { createFileNode } from '../../test/factories/file-node';
 
 // Define mock implementations
 vi.mock('../../lib/file/system', () => ({
@@ -71,7 +70,7 @@ describe('useFileContentLoading', () => {
           name: path.split('/').pop() || 'test.txt',
           path,
           handle: mockFileHandle,
-          rootFolderId: rootId,
+          rootFolderId: rootId || 'default-folder',
         });
       }
     );

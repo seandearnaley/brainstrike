@@ -13,6 +13,7 @@ const mockStore = create<FileExplorerState>((set, _get) => ({
   folderStates: {},
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
+  lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
 
   // Actions - Mocked with vi.fn()
   setCurrentFolderId: vi.fn((folderId: string | null) => set({ currentFolderId: folderId })),

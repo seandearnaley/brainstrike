@@ -63,12 +63,15 @@ describe("useQuickFilter", () => {
 			result.current.setQuickFilter("button");
 		});
 
-		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
-			1,
-		);
-		expect(
-			result.current.filteredTree[0].children?.[0].children?.[0].name,
-		).toBe("Button.tsx");
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		const componentsDir = srcDir?.children?.[0];
+		expect(componentsDir).toBeDefined(); // Assert components dir exists
+		expect(componentsDir?.children).toBeDefined(); // Assert components children exist
+		expect(componentsDir?.children).toHaveLength(1);
+		const buttonFile = componentsDir?.children?.[0];
+		expect(buttonFile).toBeDefined(); // Assert file exists
+		expect(buttonFile?.name).toBe("Button.tsx");
 	});
 
 	it("should handle multiple terms with OR logic", () => {
@@ -79,9 +82,12 @@ describe("useQuickFilter", () => {
 		});
 
 		// Both Button.tsx and Navbar.jsx should match
-		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
-			2,
-		);
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		const componentsDir = srcDir?.children?.[0];
+		expect(componentsDir).toBeDefined();
+		expect(componentsDir?.children).toBeDefined();
+		expect(componentsDir?.children).toHaveLength(2);
 	});
 
 	it("should handle exclusion patterns", () => {
@@ -92,11 +98,16 @@ describe("useQuickFilter", () => {
 		});
 
 		// Should match components directory but exclude Button.tsx
-		const componentsDir = result.current.filteredTree[0].children?.[0];
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		const componentsDir = srcDir?.children?.[0];
 		expect(componentsDir).toBeDefined();
 		expect(componentsDir?.name).toBe("components");
+		expect(componentsDir?.children).toBeDefined();
 		expect(componentsDir?.children).toHaveLength(1);
-		expect(componentsDir?.children?.[0].name).toBe("Navbar.jsx");
+		const navbarFile = componentsDir?.children?.[0];
+		expect(navbarFile).toBeDefined();
+		expect(navbarFile?.name).toBe("Navbar.jsx");
 	});
 
 	it("should be case insensitive", () => {
@@ -106,12 +117,15 @@ describe("useQuickFilter", () => {
 			result.current.setQuickFilter("BUTTON");
 		});
 
-		expect(result.current.filteredTree[0].children?.[0].children).toHaveLength(
-			1,
-		);
-		expect(
-			result.current.filteredTree[0].children?.[0].children?.[0].name,
-		).toBe("Button.tsx");
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		const componentsDir = srcDir?.children?.[0];
+		expect(componentsDir).toBeDefined();
+		expect(componentsDir?.children).toBeDefined();
+		expect(componentsDir?.children).toHaveLength(1);
+		const buttonFile = componentsDir?.children?.[0];
+		expect(buttonFile).toBeDefined();
+		expect(buttonFile?.name).toBe("Button.tsx");
 	});
 
 	it("should clear filter", () => {
@@ -131,6 +145,23 @@ describe("useQuickFilter", () => {
 		// Filter should be cleared
 		expect(result.current.quickFilter).toBe("");
 		expect(result.current.filteredTree).toEqual(mockFileTree);
+
+		act(() => {
+			result.current.setQuickFilter("button");
+		});
+
+		// Src directory should still be present
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		expect(srcDir?.name).toBe("src");
+
+		// Components directory should be preserved since it has a matching child
+		const componentsDir = srcDir?.children?.[0];
+		expect(componentsDir).toBeDefined();
+		expect(componentsDir?.name).toBe("components");
+
+		// Utils directory should not be included since no children match
+		expect(srcDir?.children).toHaveLength(1);
 	});
 
 	it("should preserve directory structure when children match", () => {
@@ -141,14 +172,16 @@ describe("useQuickFilter", () => {
 		});
 
 		// Src directory should still be present
-		expect(result.current.filteredTree[0].name).toBe("src");
+		const srcDir = result.current.filteredTree[0];
+		expect(srcDir).toBeDefined();
+		expect(srcDir?.name).toBe("src");
 
 		// Components directory should be preserved since it has a matching child
-		expect(result.current.filteredTree[0].children?.[0].name).toBe(
-			"components",
-		);
+		const componentsDir = srcDir?.children?.[0];
+		expect(componentsDir).toBeDefined();
+		expect(componentsDir?.name).toBe("components");
 
 		// Utils directory should not be included since no children match
-		expect(result.current.filteredTree[0].children).toHaveLength(1);
+		expect(srcDir?.children).toHaveLength(1);
 	});
 });

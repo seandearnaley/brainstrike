@@ -1,4 +1,4 @@
-import type { FileNodeType, IFileNode, SelectionState } from '@/lib/file/types';
+import type { IFileNode, FileNodeType, SelectionState } from '@brainstrike/types';
 import { vi } from 'vitest';
 
 interface BaseNodeOptions {

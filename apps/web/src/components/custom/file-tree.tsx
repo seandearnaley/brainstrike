@@ -7,7 +7,7 @@ import FileTreeNode from './file-tree-node';
 interface IFileTreeProps {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
-  onRender?: () => void;
+  onRender?: (() => void) | undefined;
   folderId: string;
 }
 

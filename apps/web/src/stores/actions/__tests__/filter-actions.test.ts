@@ -24,10 +24,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         includeFilters: ['*.ts', '*.tsx'],
         excludeFilters: ['*.test.ts', 'node_modules'],
       });
@@ -44,10 +53,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         includeFilters: [],
         excludeFilters: [],
       });
@@ -64,10 +82,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         useRegex: true,
       });
     });
@@ -81,10 +108,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         useRegex: false,
       });
     });
@@ -100,10 +136,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         includeProjectTree: true,
       });
     });
@@ -117,10 +162,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         includeProjectTree: false,
       });
     });
@@ -136,10 +190,19 @@ describe('filter-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
-      expect(updatedState).toEqual({
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState!).toEqual({
         folderSummaryThreshold: 500,
       });
     });
@@ -154,11 +217,20 @@ describe('filter-actions', () => {
       // Assert
       expect(consoleSpy).toHaveBeenCalled();
       expect(mockSet).toHaveBeenCalledTimes(1);
-      const stateUpdateFn = mockSet.mock.calls[0][0];
-      const updatedState = stateUpdateFn({});
+      expect(mockSet.mock.calls.length).toBeGreaterThan(0);
+      const arg = mockSet.mock.calls[0]?.[0];
+      expect(arg).toBeDefined();
 
+      let updatedState: Partial<FileExplorerState> | undefined;
+      if (typeof arg === 'function') {
+        updatedState = arg({} as FileExplorerState);
+      } else {
+        updatedState = arg as Partial<FileExplorerState>;
+      }
+
+      expect(updatedState).toBeDefined();
       // Should set to minimum value (represented by a mock here)
-      expect(updatedState).toHaveProperty('folderSummaryThreshold');
+      expect(updatedState!).toHaveProperty('folderSummaryThreshold');
     });
   });
 });

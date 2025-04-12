@@ -171,8 +171,8 @@ const DiffFile: React.FC<{
   diff: {
     path: string;
     type: 'add' | 'modify' | 'remove';
-    oldContent?: string;
-    newContent?: string;
+    oldContent: string | undefined;
+    newContent: string | undefined;
   };
 }> = memo(({ diff }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -287,8 +287,8 @@ const DiffViewer: React.FC<{
   diffs: Array<{
     path: string;
     type: 'add' | 'modify' | 'remove';
-    oldContent?: string;
-    newContent?: string;
+    oldContent: string | undefined;
+    newContent: string | undefined;
   }>;
 }> = memo(({ diffs }) => {
   // Filter out binary files
@@ -346,7 +346,7 @@ DiffViewer.displayName = 'DiffViewer';
 
 const ErrorMessage: React.FC<{
   message: string;
-  onRetry?: () => Promise<void>;
+  onRetry?: (() => Promise<void>) | undefined;
 }> = ({ message, onRetry }) => (
   <div className="flex items-center justify-between text-sm text-red-500 mb-4 p-2 border border-red-200 rounded">
     <span>{message}</span>

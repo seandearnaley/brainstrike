@@ -1,5 +1,4 @@
-import { DEFAULT_STATE } from '@brainstrike/types';
-import type { FileExplorerState, SerializedFolderState, SerializedState } from '@brainstrike/types';
+import type { FileExplorerState } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPersistOptions } from '../file-explorer-persistence';
 
@@ -58,11 +57,12 @@ describe('file-explorer-persistence', () => {
         lastActiveTab: 'files',
       };
 
-      if (!persistOptions.partialize) {
+      const partialize = persistOptions.partialize;
+      if (!partialize) {
         throw new Error('partialize is undefined');
       }
 
-      const result = persistOptions.partialize(mockState as FileExplorerState);
+      const result = partialize(mockState as FileExplorerState);
 
       // Check each part of the serialized state
       expect(result.currentFolderId).toBe('folder-123');
@@ -72,12 +72,15 @@ describe('file-explorer-persistence', () => {
       expect(result.expandedDirectoryPaths).toEqual(['dir1', 'dir2']);
 
       // Check folder states
-      expect(Object.keys(result.folderStates)).toContain('folder-123');
-      expect(Array.isArray(result.folderStates['folder-123'].selectedFilePaths)).toBe(true);
-      expect(result.folderStates['folder-123'].selectedFilePaths).toEqual(['file1', 'file2']);
-      expect(Array.isArray(result.folderStates['folder-123'].expandedDirectoryPaths)).toBe(true);
-      expect(result.folderStates['folder-123'].expandedDirectoryPaths).toEqual(['dir1', 'dir2']);
-      expect(result.folderStates['folder-123'].lastAccessed).toBe(1234567890);
+      const folderState = result.folderStates?.['folder-123'];
+      expect(folderState).toBeDefined();
+      if (folderState) {
+        expect(Array.isArray(folderState.selectedFilePaths)).toBe(true);
+        expect(folderState.selectedFilePaths).toEqual(['file1', 'file2']);
+        expect(Array.isArray(folderState.expandedDirectoryPaths)).toBe(true);
+        expect(folderState.expandedDirectoryPaths).toEqual(['dir1', 'dir2']);
+        expect(folderState.lastAccessed).toBe(1234567890);
+      }
 
       // Check user settings
       expect(result.includeFilters).toEqual(['*.ts', '*.tsx']);
@@ -92,13 +95,13 @@ describe('file-explorer-persistence', () => {
 
   describe('onRehydrateStorage', () => {
     it('should return a function', () => {
-      if (!persistOptions.onRehydrateStorage) {
+      const onRehydrateStorage = persistOptions.onRehydrateStorage;
+      if (!onRehydrateStorage) {
         throw new Error('onRehydrateStorage is undefined');
       }
 
       // Just check that onRehydrateStorage is defined and returns a function
-      const handler = persistOptions.onRehydrateStorage;
-      expect(typeof handler).toBe('function');
+      expect(typeof onRehydrateStorage).toBe('function');
     });
 
     // Instead of directly testing the onRehydrateStorage implementation, which has complex types,
