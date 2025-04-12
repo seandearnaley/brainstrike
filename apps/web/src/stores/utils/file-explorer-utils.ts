@@ -17,12 +17,8 @@ export const saveFolderState = (
     folderSummaryThreshold: state.folderSummaryThreshold,
     maxSelectionCount: state.maxSelectionCount,
     lastAccessed: now,
+    lastActiveTab: state.lastActiveTab || 'files',
   };
-
-  // Only add lastActiveTab if it exists
-  if (state.lastActiveTab !== undefined) {
-    folderState.lastActiveTab = state.lastActiveTab;
-  }
 
   return {
     ...state.folderStates,

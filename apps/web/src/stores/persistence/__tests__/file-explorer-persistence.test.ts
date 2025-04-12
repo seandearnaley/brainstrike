@@ -38,6 +38,7 @@ describe('file-explorer-persistence', () => {
             selectedFilePaths: new Set(['file1', 'file2']),
             expandedDirectoryPaths: new Set(['dir1', 'dir2']),
             lastAccessed: 1234567890,
+            lastActiveTab: 'files',
             includeFilters: ['*.ts', '*.tsx'],
             excludeFilters: ['node_modules'],
             useRegex: true,
@@ -80,6 +81,7 @@ describe('file-explorer-persistence', () => {
         expect(Array.isArray(folderState.expandedDirectoryPaths)).toBe(true);
         expect(folderState.expandedDirectoryPaths).toEqual(['dir1', 'dir2']);
         expect(folderState.lastAccessed).toBe(1234567890);
+        expect(folderState.lastActiveTab).toBe('files');
       }
 
       // Check user settings
