@@ -40,7 +40,7 @@ const config: PlaywrightTestConfig = {
 		command: `PORT=${process.env.PORT || 5173} npm run dev`,
 		url: baseURL,
 		reuseExistingServer: !process.env.CI,
-		timeout: 30000,
+		timeout: 120000, // Increased timeout to 120 seconds (2 minutes)
 		stderr: "pipe",
 		stdout: "pipe",
 	},
