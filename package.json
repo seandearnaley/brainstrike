@@ -16,8 +16,8 @@
 		"clean": "turbo run clean",
 		"type-check": "turbo run type-check",
 		"knip": "knip",
-		"coverage:merge": "turbo run coverage:merge",
-		"coverage:report": "turbo run coverage:report"
+		"coverage:merge": "nyc merge {apps,packages}/*/coverage/coverage-final.json .nyc_output/coverage.json",
+		"coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage"
 	},
 	"keywords": [],
 	"author": "",
@@ -27,10 +27,11 @@
 		"@commitlint/cli": "^19.8.0",
 		"@commitlint/config-conventional": "^19.8.0",
 		"@commitlint/types": "^19.8.0",
-		"knip": "^5.0.0",
-		"tsup": "^8.0.1",
+		"knip": "^5.50.2",
+		"tsup": "^8.4.0",
 		"turbo": "^2.5.0",
 		"typescript": "^5.8.3",
+		"nyc": "^17.1.0",
 		"vitest": "^3.1.1"
 	},
 	"packageManager": "pnpm@10.8.0",

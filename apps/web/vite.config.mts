@@ -3,6 +3,7 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { codecovVitePlugin } from "@codecov/vite-plugin";
 
 export default defineConfig({
   plugins: [
@@ -15,6 +16,16 @@ export default defineConfig({
         process: true, // Provide a global process
       },
     }),
+    // Conditionally configure Codecov plugin
+    ...(process.env['CODECOV_TOKEN']
+      ? [
+          codecovVitePlugin({
+            enableBundleAnalysis: true,
+            bundleName: "brainstrike-web-bundle",
+            uploadToken: process.env['CODECOV_TOKEN'],
+          }),
+        ]
+      : []), // If no token, don't include the plugin config
   ],
   build: {
     minify: "terser", // Use terser for better minification
