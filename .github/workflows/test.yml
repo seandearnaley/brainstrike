@@ -138,6 +138,9 @@ jobs:
       - name: Process coverage reports
         if: always()
         run: |
+          echo "Listing all coverage files to debug:"
+          find apps packages -type f -path '*/coverage/*' | grep -E '(coverage-final.json|coverage.json|coverage-v8.json)'
+          echo "Running coverage merge script..."
           pnpm run coverage:merge
           pnpm run coverage:report
         continue-on-error: true # Don't fail if these scripts aren't defined yet

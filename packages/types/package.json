@@ -20,9 +20,8 @@
 		"lint": "pnpm run --dir=../.. lint",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"type-check": "tsc --noEmit",
-		"coverage:merge": "echo \"No coverage for types package\"",
-		"coverage:report": "echo \"No coverage for types package\""
+		"test:coverage": "vitest run --coverage --reporter=v8 --outputFile=./coverage/coverage.json",
+		"type-check": "tsc --noEmit"
 	},
 	"devDependencies": {
 		"@swc/core": "^1.11.20",
