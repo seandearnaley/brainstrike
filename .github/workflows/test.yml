@@ -80,35 +80,6 @@ jobs:
           echo "Types package source files:"
           ls -la packages/types/src/
 
-      # Fix circular dependencies by creating mock modules
-      - name: Create mock modules for circular dependencies
-        run: |
-          # Create mock @brainstrike/utils module
-          echo "Creating mock @brainstrike/utils module"
-          mkdir -p packages/utils/dist
-          echo "// Mock utils module" > packages/utils/dist/index.js
-          echo "export const generateColorForString = (str) => '#000000';" >> packages/utils/dist/index.js
-          echo "export const darkenColor = (color) => color;" >> packages/utils/dist/index.js
-          echo "export const TOKEN_TYPES = {};" >> packages/utils/dist/index.js
-          echo "export const getTokenColorForType = () => '#000000';" >> packages/utils/dist/index.js
-          
-          # Create mock @brainstrike/hooks module
-          echo "Creating mock @brainstrike/hooks module"
-          mkdir -p packages/hooks/dist
-          echo "// Mock hooks module" > packages/hooks/dist/index.js
-          echo "export const useDebounce = (value, delay) => value;" >> packages/hooks/dist/index.js
-          echo "export const useDebouncedValue = (value, delay) => [value, () => {}];" >> packages/hooks/dist/index.js
-          
-          # Add lastActiveTab to FolderState interface
-          echo "Adding lastActiveTab to FolderState in file-explorer-persistence.ts"
-          if [ -f "src/stores/persistence/__tests__/file-explorer-persistence.test.ts" ]; then
-            sed -i 's/selectedFilePaths: Set<string>;/selectedFilePaths: Set<string>;\n  lastActiveTab?: string;/g' src/stores/persistence/__tests__/file-explorer-persistence.test.ts
-          fi
-          
-          if [ -f "src/stores/utils/file-explorer-utils.ts" ]; then
-            sed -i 's/selectedFilePaths: Set<string>;/selectedFilePaths: Set<string>;\n  lastActiveTab?: string;/g' src/stores/utils/file-explorer-utils.ts
-          fi
-
       - name: Audit dependencies
         run: pnpm audit --prod
         continue-on-error: true # Don't fail the build, but report issues
@@ -117,78 +88,7 @@ jobs:
         run: pnpm run lint
         continue-on-error: true # Don't fail the build due to linting issues
 
-      # Build packages explicitly in the correct order
-      - name: Build types package first
-        run: |
-          cd packages/types
-          # Create dist directory if it doesn't exist
-          mkdir -p dist
-          # Clean any existing build artifacts
-          rm -rf dist/* .tsbuildinfo
-          # Run the build
-          pnpm run build
-          # List the output files
-          echo "Built types package files:"
-          ls -la dist/
-        env:
-          CI: true
-          TSC_COMPILE_ON_ERROR: true
-
-      - name: Verify types package build output
-        run: |
-          if [ -d "packages/types/dist" ]; then
-            echo "Types package dist directory exists"
-            ls -la packages/types/dist
-            if [ -f "packages/types/dist/index.d.ts" ]; then
-              echo "Types package index.d.ts content:"
-              cat packages/types/dist/index.d.ts
-            else
-              echo "index.d.ts does not exist!"
-              echo "Creating a basic index.d.ts file manually:"
-              # Export all type files explicitly
-              echo "// Auto-generated index file for types package" > packages/types/dist/index.d.ts
-              echo "export * from './file-explorer-types';" >> packages/types/dist/index.d.ts
-              echo "export * from './file-system';" >> packages/types/dist/index.d.ts
-              echo "export * from './git-types';" >> packages/types/dist/index.d.ts
-              echo "export * from './errors';" >> packages/types/dist/index.d.ts
-              cat packages/types/dist/index.d.ts
-            fi
-          else
-            echo "Types package dist directory does not exist, creating it"
-            mkdir -p packages/types/dist
-            # Export all type files explicitly
-            echo "// Auto-generated index file for types package" > packages/types/dist/index.d.ts
-            echo "export * from './file-explorer-types';" >> packages/types/dist/index.d.ts
-            echo "export * from './file-system';" >> packages/types/dist/index.d.ts
-            echo "export * from './git-types';" >> packages/types/dist/index.d.ts
-            echo "export * from './errors';" >> packages/types/dist/index.d.ts
-            ls -la packages/types/dist
-          fi
-          
-          # Create type files for missing exports
-          for file in file-explorer-types file-system git-types errors; do
-            if [ ! -f "packages/types/dist/${file}.d.ts" ]; then
-              echo "// Auto-generated ${file} definition" > "packages/types/dist/${file}.d.ts"
-              if [ "$file" = "file-explorer-types" ]; then
-                # Add a basic FolderState interface with the missing lastActiveTab property
-                echo "export interface FolderState {" >> "packages/types/dist/${file}.d.ts"
-                echo "  selectedFilePaths: Set<string>;" >> "packages/types/dist/${file}.d.ts"
-                echo "  expandedDirectoryPaths: Set<string>;" >> "packages/types/dist/${file}.d.ts"
-                echo "  lastAccessed: number;" >> "packages/types/dist/${file}.d.ts"
-                echo "  lastActiveTab?: string;" >> "packages/types/dist/${file}.d.ts"
-                echo "  includeFilters: string[];" >> "packages/types/dist/${file}.d.ts"
-                echo "  excludeFilters: string[];" >> "packages/types/dist/${file}.d.ts"
-                echo "  useRegex: boolean;" >> "packages/types/dist/${file}.d.ts"
-                echo "  includeProjectTree: boolean;" >> "packages/types/dist/${file}.d.ts"
-                echo "  folderSummaryThreshold: number;" >> "packages/types/dist/${file}.d.ts"
-                echo "  maxSelectionCount: number;" >> "packages/types/dist/${file}.d.ts"
-                echo "}" >> "packages/types/dist/${file}.d.ts"
-              fi
-            fi
-          done
-        continue-on-error: true
-
-      # Build remaining packages
+      # Build all packages (Rely on Turborepo's dependency management)
       - name: Build all packages
         run: pnpm run build
         env:
@@ -221,7 +121,10 @@ jobs:
       # Install Playwright browsers AND dependencies together if cache missed
       - name: Install Playwright browsers and dependencies
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        # Explicitly add node_modules/.bin to PATH for this step
+        run: |
+          export PATH="$PNPM_HOME:$PATH"
+          pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |
