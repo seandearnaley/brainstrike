@@ -35,6 +35,13 @@ export default defineConfig({
           return undefined;
         },
       },
+      // Explicitly mark workspace packages as external to prevent bundling issues
+      external: [
+        '@brainstrike/types',
+        '@brainstrike/hooks',
+        '@brainstrike/ui',
+        '@brainstrike/utils'
+      ]
     },
   },
   resolve: {
@@ -42,6 +49,8 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
     },
+    // Ensure Vite can properly resolve the entry files of workspace packages
+    conditions: ['import', 'module', 'node', 'default']
   },
   test: {
     globals: true,
