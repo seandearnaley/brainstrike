@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
-import { getFolderColor } from '../../utils/color-utils';
+import { getFolderColor } from '@brainstrike/utils';
 import { decodeFileSelection } from '../../utils/file-selection-utils';
 import {
   countTokensHeuristic,
@@ -361,8 +361,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             type="button"
             className="flex items-center gap-2 p-3 font-medium cursor-pointer w-full text-left"
             style={{
-              backgroundColor: `var(--folder-bg, ${colors.light.bg})`,
-              color: `var(--folder-text, ${colors.light.text})`,
+              backgroundColor: `var(--folder-bg, ${colors?.light.bg})`,
+              color: `var(--folder-text, ${colors?.light.text})`,
             }}
             onClick={() => toggleFolderExpand(group.folderId)}
             aria-expanded={isFolderExpanded}
@@ -370,8 +370,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             <style>
               {`
                 :global(.dark) [data-folder-id="${group.folderId}"] {
-                  background-color: var(--folder-dark-bg, ${colors.dark.bg}) !important;
-                  color: var(--folder-dark-text, ${colors.dark.text}) !important;
+                  background-color: var(--folder-dark-bg, ${colors?.dark.bg}) !important;
+                  color: var(--folder-dark-text, ${colors?.dark.text}) !important;
                 }
               `}
             </style>
