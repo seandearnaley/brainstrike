@@ -15,19 +15,6 @@ export default defineConfig({
         process: true, // Provide a global process
       },
     }),
-    // Add a custom plugin to handle workspace package resolution
-    {
-      name: 'workspace-package-resolver',
-      enforce: 'pre',
-      resolveId(id) {
-        // Only handle workspace packages
-        if (id.startsWith('@brainstrike/')) {
-          // Let Vite know this package is external and should not be bundled
-          return { id, external: true };
-        }
-        return null;
-      }
-    },
   ],
   build: {
     minify: "terser", // Use terser for better minification
@@ -117,7 +104,12 @@ export default defineConfig({
     },
     mockReset: true,
     deps: {
-      inline: [],
+      inline: [
+        '@brainstrike/types',
+        '@brainstrike/hooks',
+        '@brainstrike/ui',
+        '@brainstrike/utils'
+      ],
     },
   },
 });
