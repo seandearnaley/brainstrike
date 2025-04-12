@@ -56,6 +56,13 @@ jobs:
       - name: Run Biome checks
         run: pnpm run lint
 
+      # Build all packages first before type checking
+      - name: Build all packages
+        run: pnpm run build
+        env:
+          CI: true
+
+      # Now type-check after packages are built
       - name: Type check
         run: pnpm run type-check
 
@@ -85,11 +92,6 @@ jobs:
       - name: Install Playwright browsers
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
         run: npx playwright install chromium
-
-      - name: Build all packages and apps
-        run: pnpm run build
-        env:
-          CI: true
 
       - name: Run E2E tests with coverage
         run: |

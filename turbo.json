@@ -35,6 +35,8 @@
 			"cache": false
 		},
 		"type-check": {
+			"dependsOn": ["^build"],
+			"cache": true,
 			"outputs": [],
 			"inputs": ["src/**/*.tsx", "src/**/*.ts"]
 		},
