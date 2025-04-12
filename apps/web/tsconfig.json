@@ -5,11 +5,7 @@
 		"incremental": true,
 		"outDir": "dist",
 		"paths": {
-			"@/*": ["./src/*"],
-			"@brainstrike/types": ["../../packages/types", "../../packages/types/dist", "../../packages/types/index.ts"],
-			"@brainstrike/hooks": ["../../packages/hooks", "../../packages/hooks/dist", "../../packages/hooks/index.ts"],
-			"@brainstrike/ui": ["../../packages/ui", "../../packages/ui/dist", "../../packages/ui/index.ts"],
-			"@brainstrike/utils": ["../../packages/utils", "../../packages/utils/dist", "../../packages/utils/index.ts"]
+			"@/*": ["./src/*"]
 		},
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},
