@@ -36,12 +36,29 @@ export default defineConfig({
         },
       },
     },
+    commonjsOptions: {
+      transformMixedEsModules: true,
+      include: [
+        /node_modules/,
+        /packages\/(types|utils|hooks|ui)\/dist/
+      ]
+    }
   },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
+      // Explicitly resolve workspace packages to their dist folders
+      "@brainstrike/types": path.resolve(__dirname, "../../packages/types/dist"),
+      "@brainstrike/utils": path.resolve(__dirname, "../../packages/utils/dist"),
+      "@brainstrike/hooks": path.resolve(__dirname, "../../packages/hooks/dist"),
+      "@brainstrike/ui": path.resolve(__dirname, "../../packages/ui/dist")
     },
+    preserveSymlinks: true, // Preserve symlinks to workspace packages
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom"],
+    exclude: ["@brainstrike/types", "@brainstrike/utils", "@brainstrike/hooks", "@brainstrike/ui"]
   },
   test: {
     globals: true,
