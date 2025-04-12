@@ -1,7 +1,9 @@
+/// <reference types="node" />
+import path from "node:path";
+/// <reference types="vitest" />
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
 import { getBaseUrl } from "./src/config/server";
-import path from "node:path";
 
 // Default to Vite's dev server port
 const baseURL = process.env.BASE_URL || "http://localhost:5173";
@@ -35,7 +37,7 @@ const config: PlaywrightTestConfig = {
 	globalSetup: "./e2e/global-setup.ts",
 	// Web server configuration - handles both CI and local development
 	webServer: {
-		command: "npm run dev",
+		command: `PORT=${process.env.PORT || 5173} npm run dev`,
 		url: baseURL,
 		reuseExistingServer: !process.env.CI,
 		timeout: 30000,
