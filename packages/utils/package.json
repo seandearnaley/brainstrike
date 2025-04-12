@@ -18,8 +18,8 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "tsc --build --verbose",
-    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "lint": "eslint src/",
     "clean": "rm -rf dist .tsbuildinfo",
     "test": "vitest run",

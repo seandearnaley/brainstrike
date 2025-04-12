@@ -73,12 +73,6 @@ jobs:
           ls -la packages/types/
           echo "Types package tsconfig.json:"
           cat packages/types/tsconfig.json
-          echo "Creating src directory if it doesn't exist"
-          mkdir -p packages/types/src
-          echo "Copying TS files to src directory for building"
-          cp packages/types/*.ts packages/types/src/ || true
-          echo "Types package source files:"
-          ls -la packages/types/src/
 
       - name: Audit dependencies
         run: pnpm audit --prod

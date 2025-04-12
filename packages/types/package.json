@@ -14,8 +14,8 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc --build --verbose",
-		"dev": "tsc --build --watch --preserveWatchOutput --verbose",
+		"build": "tsup index.ts --format esm,cjs --dts --clean",
+		"dev": "tsup index.ts --format esm,cjs --dts --watch",
 		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
 		"test": "vitest run",
