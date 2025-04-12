@@ -16,7 +16,7 @@
 		"clean": "turbo run clean",
 		"type-check": "turbo run type-check",
 		"knip": "knip",
-		"coverage:merge": "mkdir -p .nyc_tmp && find . -name 'coverage-final.json' -not -path './node_modules/*' | xargs cp --target-directory=.nyc_tmp/ && nyc merge .nyc_tmp .nyc_output/coverage.json && rm -rf .nyc_tmp",
+		"coverage:merge": "mkdir -p .nyc_output && find apps packages -name 'coverage-final.json' > coverage-files.txt && node -e \"const fs=require('fs');const files=fs.readFileSync('coverage-files.txt','utf8').split('\\n').filter(Boolean);const merged={};files.forEach(f=>{if(fs.existsSync(f)){const content=JSON.parse(fs.readFileSync(f,'utf8'));Object.assign(merged,content);}});fs.writeFileSync('.nyc_output/coverage.json',JSON.stringify(merged));\" && rm coverage-files.txt",
 		"coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage"
 	},
 	"keywords": [],

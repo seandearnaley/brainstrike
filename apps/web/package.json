@@ -6,7 +6,7 @@
 		"node": ">=22"
 	},
 	"scripts": {
-		"dev": "vite --port 3000",
+		"dev": "vite --port 3000 --host",
 		"build": "vite build",
 		"start": "vite preview",
 		"lint": "biome check .",
