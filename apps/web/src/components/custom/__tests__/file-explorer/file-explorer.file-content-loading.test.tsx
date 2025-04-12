@@ -4,17 +4,15 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
-import type { FileExplorerState, FolderState } from '@brainstrike/types'; // Import necessary types
+import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 
 // Mock all hooks and components
 vi.mock('@/hooks/use-file-system');
@@ -94,7 +92,7 @@ const mockStore: FileExplorerState = {
       }
     }
   }),
-  addSelectedFile: vi.fn((folderId: string, path: string) => {
+  addSelectedFile: vi.fn((_folderId: string, path: string) => {
     // Use folderId if needed by implementation, current mock doesn't use it
     mockStore.selectedFilePaths.add(path);
     // Simulate loading content when added
@@ -102,7 +100,7 @@ const mockStore: FileExplorerState = {
       mockLoadFileContent(path);
     }
   }),
-  removeSelectedFile: vi.fn((folderId: string, path: string) => {
+  removeSelectedFile: vi.fn((_folderId: string, path: string) => {
     // Use folderId if needed
     mockStore.selectedFilePaths.delete(path);
   }),

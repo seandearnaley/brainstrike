@@ -1,4 +1,3 @@
-import React from 'react';
 import { ThemeSettings } from '../../components/custom/settings/theme-settings';
 
 export default function SettingsPageContent() {

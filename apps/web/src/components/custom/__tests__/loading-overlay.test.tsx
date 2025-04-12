@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { FileExplorerStrings } from '../constants/file-explorer-constants';
 import { LoadingOverlay } from '../loading-overlay';
 

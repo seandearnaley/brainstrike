@@ -95,12 +95,15 @@ describe('useFileExplorerSettings', () => {
 
     expect(localStorageMock.setItem).toHaveBeenCalledWith(STORAGE_KEY, expect.any(String));
 
-    const savedValue = JSON.parse(localStorageMock.setItem.mock.calls[0][1]);
-    expect(savedValue).toEqual({
-      ...result.current.settings,
-      maxSelectionCount: 15,
-      useRegex: true,
-    });
+    const mockCalls = localStorageMock.setItem.mock.calls;
+    if (mockCalls && mockCalls.length > 0 && mockCalls[0] && mockCalls[0][1]) {
+      const savedValue = JSON.parse(mockCalls[0][1]);
+      expect(savedValue).toEqual({
+        ...result.current.settings,
+        maxSelectionCount: 15,
+        useRegex: true,
+      });
+    }
 
     expect(result.current.settings.maxSelectionCount).toBe(15);
     expect(result.current.settings.useRegex).toBe(true);

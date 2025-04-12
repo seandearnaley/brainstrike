@@ -2,7 +2,6 @@ import { Button } from '@brainstrike/ui';
 import { Input } from '@brainstrike/ui';
 import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Info, X } from 'lucide-react';
-import { cn } from '../../lib/utils';
 
 interface FileFilterBarProps {
   value: string;

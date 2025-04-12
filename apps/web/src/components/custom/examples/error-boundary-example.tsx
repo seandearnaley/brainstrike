@@ -5,8 +5,8 @@ import {
   GitOperationError,
   PartialRefreshError,
 } from '@brainstrike/types';
+import { Button } from '@brainstrike/ui';
 import { useState } from 'react';
-import { Button } from '../../ui/button';
 import ErrorBoundary from '../error-boundary';
 
 // Component that demonstrates different error scenarios

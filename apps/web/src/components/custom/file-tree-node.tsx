@@ -1,4 +1,4 @@
-import type { FileNodeType, IFileNode, SelectionState } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import {
@@ -13,7 +13,7 @@ import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { fileExplorer } from '../../lib/file/explorer';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
-import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';
+import { isPathSelectedInFolder } from '../../utils/file-selection-utils';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
 interface IFileTreeNodeProps {

@@ -30,7 +30,6 @@ import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { getFolderColor } from '../../utils/color-utils';
 import { decodeFileSelection } from '../../utils/file-selection-utils';
 import {
-  countTokensAccurate,
   countTokensHeuristic,
   estimateTokenCost,
 } from '../../utils/token-utils';

@@ -6,9 +6,8 @@ import {
   PartialRefreshError,
 } from '@brainstrike/types';
 import { fireEvent, render, screen } from '@testing-library/react';
-import * as React from 'react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, vi } from 'vitest';
 import ErrorBoundary from '../error-boundary';
 
 // Mock the FileExplorerStrings to avoid dependency issues

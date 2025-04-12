@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import Sidebar from '../../components/custom/sidebar/sidebar';
-import { ThemeProvider } from '../../providers/theme-provider';
 import RootLayoutContent from '../root-layout-content';
 
 // Import the mocked modules to access their mock functions

@@ -1,6 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_EXCLUDE_FILTERS, DEFAULT_INCLUDE_FILTERS } from '../../constants/file-explorer';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Import the mock directly now, assuming it exports the hook
 import { useFileExplorerStore } from '../../stores/__mocks__/use-file-explorer-store';
 import { createDirectoryNode, createFileNode } from '../../test/factories/file-node';

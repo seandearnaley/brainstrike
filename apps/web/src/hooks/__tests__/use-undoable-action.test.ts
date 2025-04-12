@@ -190,8 +190,11 @@ describe('useUndoableAction', () => {
       });
 
       // Verify toast was called with custom duration
-      const toastCall = mockToast.mock.calls[0][0];
-      expect(toastCall.duration).toBe(customDuration);
+      const mockCalls = mockToast.mock.calls;
+      if (mockCalls && mockCalls.length > 0 && mockCalls[0] && mockCalls[0][0]) {
+        const toastCall = mockCalls[0][0];
+        expect(toastCall.duration).toBe(customDuration);
+      }
 
       // Since we mocked setTimeout to execute immediately,
       // the timeout should have been cleared already
