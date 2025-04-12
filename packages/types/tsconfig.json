@@ -5,10 +5,11 @@
 		"incremental": true,
 		"tsBuildInfoFile": "./dist/.tsbuildinfo",
 		"rootDir": ".",
-		"outDir": "dist",
-		"declarationDir": "dist"
+		"declaration": true,
+		"declarationDir": "dist",
+		"emitDeclarationOnly": true
 	},
-	"include": ["*.ts"],
+	"include": ["./**/*.ts"],
 	"exclude": ["dist", "node_modules", "**/*.test.ts"],
 	"references": [
 		// {"path": "../../packages/config"}
