@@ -88,7 +88,6 @@ jobs:
         env:
           CI: true
           NODE_ENV: production
-          TSC_COMPILE_ON_ERROR: true
         continue-on-error: true
 
       # Now type-check after packages are built
@@ -115,10 +114,8 @@ jobs:
       # Install Playwright browsers AND dependencies together if cache missed
       - name: Install Playwright browsers and dependencies
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        # Explicitly add node_modules/.bin to PATH for this step
-        run: |
-          export PATH="$PNPM_HOME:$PATH"
-          pnpm exec playwright install --with-deps chromium
+        # Run the command from within the apps/web directory
+        run: cd apps/web && pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |
