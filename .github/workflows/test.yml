@@ -56,13 +56,41 @@ jobs:
       - name: Run Biome checks
         run: pnpm run lint
 
-      # Build all packages first before type checking
-      - name: Build all packages
-        run: pnpm run build
+      # Debug packages
+      - name: Debug package structure 
+        run: |
+          echo "Package directory structure:"
+          find packages -type f -name "package.json" | xargs -I{} dirname {} | xargs -I{} ls -la {}
+          echo "Types package content:"
+          ls -la packages/types
+          echo "Utils package content:"
+          ls -la packages/utils
+          echo "Hooks package content:" 
+          ls -la packages/hooks
+          echo "UI package content:"
+          ls -la packages/ui
+
+      # Build packages individually in correct order
+      - name: Build packages individually
+        run: |
+          echo "Building @brainstrike/types..."
+          cd packages/types && pnpm run build && cd ../..
+          
+          echo "Building @brainstrike/utils..."
+          cd packages/utils && pnpm run build && cd ../..
+          
+          echo "Building @brainstrike/hooks..."
+          cd packages/hooks && pnpm run build && cd ../..
+          
+          echo "Building @brainstrike/ui..."
+          cd packages/ui && pnpm run build && cd ../..
+          
+          echo "Building @brainstrike/web..."
+          cd apps/web && pnpm run build && cd ../..
         env:
           CI: true
 
-      # Now type-check after packages are built
+      # Type check after builds are complete
       - name: Type check
         run: pnpm run type-check
 

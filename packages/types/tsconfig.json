@@ -3,13 +3,13 @@
 	"compilerOptions": {
 		"composite": true,
 		"incremental": true,
-		"tsBuildInfoFile": "./dist/.tsbuildinfo",
-		"rootDir": "src",
+		"tsBuildInfoFile": "./tsconfig.tsbuildinfo",
+		"rootDir": ".",
 		"outDir": "dist",
 		"declarationDir": "dist"
 	},
-	"include": ["src/**/*"],
-	"exclude": ["dist", "node_modules", "**/*.test.ts"],
+	"include": ["./*.ts"],
+	"exclude": ["dist", "node_modules", "**/*.test.ts", "__tests__"],
 	"references": [
 		// {"path": "../../packages/config"}
 	]
