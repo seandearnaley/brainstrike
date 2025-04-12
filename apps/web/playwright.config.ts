@@ -37,10 +37,10 @@ const config: PlaywrightTestConfig = {
 	globalSetup: "./e2e/global-setup.ts",
 	// Web server configuration - handles both CI and local development
 	webServer: {
-		command: `PORT=${process.env.PORT || 5173} npm run dev`,
-		url: baseURL,
+		command: 'npm run dev',
+		url: 'http://localhost:3000',
 		reuseExistingServer: !process.env.CI,
-		timeout: 120000, // Increased timeout to 120 seconds (2 minutes)
+		timeout: 60000,
 		stderr: "pipe",
 		stdout: "pipe",
 	},
