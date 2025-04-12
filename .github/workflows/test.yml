@@ -221,7 +221,7 @@ jobs:
       # Install Playwright browsers AND dependencies together if cache missed
       - name: Install Playwright browsers and dependencies
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |
