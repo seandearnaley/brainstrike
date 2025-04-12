@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true # Continue even if type checking fails
 
       - name: Run Knip (detect unused code)
-        run: pnpm run knip -- --max-issues 10 --cache # Use space instead of =, uses config from knip.jsonc
+        run: pnpm run knip --max-issues 10 --cache # Removed extra --, uses config from knip.jsonc
         continue-on-error: true # Initially allow failures until codebase is cleaned up
 
       - name: Run tests with coverage

@@ -16,7 +16,7 @@
 		"clean": "turbo run clean",
 		"type-check": "turbo run type-check",
 		"knip": "knip",
-		"coverage:merge": "find {apps,packages} -path '*/coverage/coverage-final.json' -print0 | xargs -0 nyc merge -o .nyc_output/coverage.json",
+		"coverage:merge": "find apps packages -path '*/coverage/coverage-final.json' -print0 | xargs -0 nyc merge -o .nyc_output/coverage.json",
 		"coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage"
 	},
 	"keywords": [],
