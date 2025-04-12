@@ -85,8 +85,6 @@ export const BINARY_FILE_EXTENSIONS = [
 
 export const DEFAULT_INCLUDE_FILTERS = ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'];
 
-export const DEFAULT_EXCLUDE_FILTERS = ['node_modules'];
-
 // export const IGNORED_PATHS = ['.git', '.DS_Store'];
 
 export const IGNORED_PATHS = [];

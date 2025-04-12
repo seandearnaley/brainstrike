@@ -10,7 +10,10 @@
         "vitest.config.unit.ts", // Vitest config within the app (if app-specific)
         "vitest.config.integration.ts", // Vitest config within the app (if app-specific)
         "vitest.setup.ts", // Vitest setup within the app (if app-specific)
-        "playwright.config.ts" // Assuming playwright config is here
+        "playwright.config.ts", // Assuming playwright config is here
+        "src/test/**/*.{ts,tsx}",
+        "src/types/git-types.ts",
+        "src/config/server.ts"
       ],
       "project": [
         "src/**/*.{ts,tsx}", // Source files
@@ -24,6 +27,10 @@
         "src/test/**/*.{ts,tsx}",
         "src/types/git-types.ts",
         "src/config/server.ts"
+      ],
+      "ignoreDependencies": [
+        // Config package used implicitly by tsc/vite
+        "@brainstrike/tsconfig"
       ],
       "typescript": {
         // Only add if you need to specify a non-default tsconfig location
@@ -67,6 +74,10 @@
     "packages/types": {
       "project": ["src/**/*.ts"],
       "ignore": [],
+      "ignoreDependencies": [
+        // Implicitly used by test/build runners?
+        "@swc/core"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -95,13 +106,18 @@
     "**/build/**",
     "**/.next/**",
     "**/.turbo/**",
-    "**/*.d.ts"
+    "**/*.d.ts",
+    // Ignore husky hook file
+    ".husky/commit-msg.js"
     // Removed specific file ignores from here as they are moved to apps/web workspace ignore
   ],
   // Keep existing global settings
   "ignoreBinaries": [
     "act",
-    "fta-cli"
+    "fta-cli",
+    "playwright", // Used in GH Actions
+    "eslint",     // Likely false positive from bin field, biome is used
+    "@commitlint/cli" // Used by husky/CI
   ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
@@ -110,13 +126,15 @@
     "@types/dompurify",
     "dompurify",
     "@babel/core",
-    "@semantic-release/git",
     "@types/testing-library__jest-dom", // Likely used by root or app vitest.setup.ts
     "glob",
     "husky",
+    "@commitlint/cli",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
-    "ts-node" // Likely used for scripts/configs
+    "ts-node", // Likely used for scripts/configs
+    // Config package used implicitly by tsc/vite
+    "@brainstrike/tsconfig"
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

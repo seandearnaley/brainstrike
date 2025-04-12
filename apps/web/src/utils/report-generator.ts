@@ -54,7 +54,3 @@ ${projectTreeText}
 
   return finalReportParts.join('\n');
 }
-
-export interface ReportMetrics {
-  // ... rest of file
-}

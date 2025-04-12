@@ -47,6 +47,5 @@
 		"packages/*"
 	],
 	"dependencies": {
-		"react-virtuoso": "^4.12.6"
 	}
 }

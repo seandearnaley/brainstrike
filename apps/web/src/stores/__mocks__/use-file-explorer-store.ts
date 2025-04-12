@@ -104,22 +104,3 @@ const mockStore = create<FileExplorerState>((set, _get) => ({
 export const useFileExplorerStore = mockStore;
 
 // Optional: Export the mock functions themselves if needed for direct assertion/spying in tests
-export const mockActions = {
-  setCurrentFolderId: useFileExplorerStore.getState().setCurrentFolderId,
-  hydrateFolderState: useFileExplorerStore.getState().hydrateFolderState,
-  setSelectedFiles: useFileExplorerStore.getState().setSelectedFiles,
-  addSelectedFile: useFileExplorerStore.getState().addSelectedFile,
-  removeSelectedFile: useFileExplorerStore.getState().removeSelectedFile,
-  toggleSelectedFile: useFileExplorerStore.getState().toggleSelectedFile,
-  clearSelectedFiles: useFileExplorerStore.getState().clearSelectedFiles,
-  setExpandedPaths: useFileExplorerStore.getState().setExpandedPaths,
-  toggleDirectoryExpansion: useFileExplorerStore.getState().toggleDirectoryExpansion,
-  expandAllDirectories: useFileExplorerStore.getState().expandAllDirectories,
-  collapseAllDirectories: useFileExplorerStore.getState().collapseAllDirectories,
-  setFilters: useFileExplorerStore.getState().setFilters,
-  setUseRegex: useFileExplorerStore.getState().setUseRegex,
-  setIncludeProjectTree: useFileExplorerStore.getState().setIncludeProjectTree,
-  setFolderSummaryThreshold: useFileExplorerStore.getState().setFolderSummaryThreshold,
-  setMaxSelectionCount: useFileExplorerStore.getState().setMaxSelectionCount,
-  setLastActiveTab: useFileExplorerStore.getState().setLastActiveTab,
-};
