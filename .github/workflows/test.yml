@@ -32,9 +32,16 @@ jobs:
         with:
           version: '10.8.0'
 
+      # Clear existing caches first
+      - name: Clear Turborepo cache
+        run: rm -rf .turbo
+
       - name: Get pnpm cache directory
         id: pnpm-cache
         run: echo "dir=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+      - name: Clear pnpm cache
+        run: rm -rf ${{ steps.pnpm-cache.outputs.dir }}
 
       - name: Cache pnpm and Turborepo
         uses: actions/cache@v4
@@ -56,65 +63,17 @@ jobs:
       - name: Run Biome checks
         run: pnpm run lint
 
-      # Debug packages
-      - name: Debug package structure 
-        run: |
-          echo "Package directory structure:"
-          find packages -type f -name "package.json" | xargs -I{} dirname {} | xargs -I{} ls -la {}
-          echo "Types package content:"
-          ls -la packages/types
-          echo "Utils package content:"
-          ls -la packages/utils/src
-          echo "Hooks package content:" 
-          ls -la packages/hooks/src
-          echo "UI package content:"
-          ls -la packages/ui/src
-
-      # Build packages individually in correct order with detailed logging
-      - name: Build packages individually
-        run: |
-          echo "Building @brainstrike/types..."
-          cd packages/types 
-          pnpm run build
-          echo "Types build output:"
-          ls -la dist/
-          echo "Checking types dist content:"
-          cat dist/index.js
-          cd ../..
-          
-          echo "Building @brainstrike/utils..."
-          cd packages/utils 
-          pnpm run build
-          echo "Utils build output:"
-          ls -la dist/
-          echo "Checking utils exports:"
-          cat dist/index.js
-          cd ../..
-          
-          echo "Building @brainstrike/hooks..."
-          cd packages/hooks 
-          pnpm run build
-          echo "Hooks build output:"
-          ls -la dist/
-          echo "Checking hooks exports:"
-          cat dist/index.js
-          cd ../..
-          
-          echo "Building @brainstrike/ui..."
-          cd packages/ui 
-          pnpm run build
-          echo "UI build output:"
-          ls -la dist/
-          cd ../..
-          
-          echo "Building @brainstrike/web..."
-          cd apps/web 
-          NODE_OPTIONS="--trace-warnings" DEBUG="vite:*" pnpm run build
-          cd ../..
+      # Build all packages first before type checking
+      - name: Build all packages
+        run: pnpm run build
         env:
           CI: true
 
-      # Type check after builds are complete
+      # Verify build output for a key package
+      - name: Verify @brainstrike/types build output
+        run: ls -la packages/types/dist || echo "packages/types/dist not found or empty"
+
+      # Now type-check after packages are built
       - name: Type check
         run: pnpm run type-check
 
