@@ -58,7 +58,9 @@ jobs:
 
       # Install missing coverage dependency for tests
       - name: Install Vitest coverage dependencies
-        run: pnpm add -D -w @vitest/coverage-v8
+        run: |
+          pnpm add -D -w @vitest/coverage-v8
+          pnpm add -D -g nyc
 
       # Install Codecov plugin for bundle analysis (needed by vite config in apps/web)
       - name: Install Codecov Vite plugin
@@ -138,11 +140,16 @@ jobs:
       - name: Process coverage reports
         if: always()
         run: |
-          echo "Listing all coverage files to debug:"
-          find apps packages -type f -path '*/coverage/*' | grep -E '(coverage-final.json|coverage.json|coverage-v8.json)'
+          echo "Listing all coverage files and directories to debug:"
+          find apps packages -path "*/coverage/*" -type f -name "*.json" -ls
+          
           echo "Running coverage merge script..."
           pnpm run coverage:merge
+          echo "Running coverage report script..."
           pnpm run coverage:report
+          
+          echo "Final merged coverage file exists: $(test -f .nyc_output/coverage.json && echo 'Yes' || echo 'No')"
+          echo "Coverage report exists: $(test -f ./coverage/coverage.json && echo 'Yes' || echo 'No')"
         continue-on-error: true # Don't fail if these scripts aren't defined yet
 
       - name: Upload coverage to Codecov

@@ -20,11 +20,12 @@
 		"lint": "pnpm run --dir=../.. lint",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:coverage": "vitest run --coverage --reporter=v8 --outputFile=./coverage/coverage.json",
+		"test:coverage": "vitest run --coverage",
 		"type-check": "tsc --noEmit"
 	},
 	"devDependencies": {
 		"@swc/core": "^1.11.20",
+		"@vitest/coverage-v8": "^3.1.1",
 		"typescript": "^5.8.3",
 		"vitest": "^3.1.1"
 	}
