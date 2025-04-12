@@ -10,8 +10,9 @@
     "dist"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc && cp src/globals.css dist/globals.css",
-    "clean": "rm -rf dist",
+    "build": "tsc --build --verbose && cp src/globals.css dist/globals.css",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
     "lint": "tsc --noEmit",
     "test": "vitest run"
   },

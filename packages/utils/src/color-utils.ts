@@ -53,5 +53,9 @@ export function getFolderColor(str: string): FolderColors {
 
   // Use the hash to select a color combination
   const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-  return COLOR_COMBINATIONS[index];
+  const selectedColor = COLOR_COMBINATIONS[index];
+  
+  // Ensure we always return a valid FolderColors object
+  // Use non-null assertion for the fallback as COLOR_COMBINATIONS is constant and non-empty
+  return selectedColor ?? COLOR_COMBINATIONS[0]!;
 }

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { jsxDEV } from 'react/jsx-dev-runtime';
+// import * as ProgressPrimitive from '@radix-ui/react-progress'; // Removed: Unused
 import { cn } from './lib/utils';
 
 const Progress = React.forwardRef<

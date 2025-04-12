@@ -13,8 +13,13 @@
 		},
 		"test": {
 			"dependsOn": ["^build"],
+			"outputs": [],
+			"inputs": ["src/**/*.tsx", "src/**/*.ts", "test/**/*.tsx", "test/**/*.ts", "__tests__/**/*.tsx", "__tests__/**/*.ts"]
+		},
+		"test:coverage": {
+			"dependsOn": ["^build"],
 			"outputs": ["coverage/**"],
-			"inputs": ["src/**/*.tsx", "src/**/*.ts", "test/**/*.tsx", "test/**/*.ts"]
+			"inputs": ["src/**/*.tsx", "src/**/*.ts", "test/**/*.tsx", "test/**/*.ts", "__tests__/**/*.tsx", "__tests__/**/*.ts"]
 		},
 		"test:e2e": {
 			"dependsOn": ["build"],
@@ -34,7 +39,7 @@
 			"inputs": ["src/**/*.tsx", "src/**/*.ts"]
 		},
 		"coverage:merge": {
-			"dependsOn": ["test"],
+			"dependsOn": ["^test:coverage"],
 			"outputs": ["coverage-merged/**"],
 			"cache": false
 		},

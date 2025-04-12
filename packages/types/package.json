@@ -7,7 +7,9 @@
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
 	"scripts": {
-		"build": "tsc",
+		"build": "tsc --build --verbose",
+		"dev": "tsc --build --watch --preserveWatchOutput --verbose",
+		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
 		"test": "vitest run",
 		"test:watch": "vitest",

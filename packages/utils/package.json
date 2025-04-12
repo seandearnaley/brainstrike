@@ -11,10 +11,10 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts",
-    "dev": "tsup src/index.ts --format esm,cjs --watch --dts",
+    "build": "tsc --build --verbose",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "eslint src/",
-    "clean": "rm -rf .turbo && rm -rf node_modules && rm -rf dist",
+    "clean": "rm -rf dist .tsbuildinfo",
     "test": "vitest run",
     "test:watch": "vitest"
   },

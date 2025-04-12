@@ -1,11 +1,16 @@
 {
-  "extends": "../config/tsconfig/base.json",
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"],
+  "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "outDir": "dist",
-    "rootDir": "src",
-    "lib": ["DOM", "ES2015", "ES2016", "ES2017", "ES2018", "ES2019", "ES2020"],
-    "jsx": "react-jsx"
-  }
+    "declarationDir": "dist"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts"],
+  "references": [
+    // {"path": "../../packages/config"},
+    {"path": "../../packages/types"}
+  ]
 } 
