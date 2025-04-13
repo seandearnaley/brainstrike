@@ -11,6 +11,17 @@ import { useToast } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
 
+// Interface for a generic error with potential name and message properties
+interface GenericError {
+  name?: string;
+  message?: string;
+}
+
+// Helper function to check if an object is a generic error
+function isGenericError(error: unknown): error is GenericError {
+  return typeof error === 'object' && error !== null;
+}
+
 export const useToastManager = () => {
   const { toast } = useToast();
 
@@ -87,7 +98,11 @@ export const useToastManager = () => {
 
   const handleDirectorySelectError = useCallback(
     (error: unknown) => {
-      console.error('Failed to select root directory:', error);
+      // Log detailed error information
+      console.error('Failed to select root directory. Raw error:', error);
+      if (isGenericError(error)) {
+        console.error(`Error Name: ${error.name}, Error Message: ${error.message}`);
+      }
       showToast({
         title: FileExplorerStrings.ERROR.TITLE,
         description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,

@@ -40,7 +40,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       // Skip loading if file tree is empty (no root directory selected yet)
       if (!fileTree.length) {
-        console.debug('Skipping file load - no root directory selected');
+        // console.debug('Skipping file load - no root directory selected');
         return;
       }
 

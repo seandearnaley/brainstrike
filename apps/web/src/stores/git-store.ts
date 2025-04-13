@@ -93,89 +93,128 @@ export const useGitStore = create<GitState>((set, get) => ({
     const { lastInitializedRepoPath } = get();
 
     if (lastInitializedRepoPath === repoPath) {
-      set({ status: 'idle' });
+      console.log('[GitStore] Repository path matches last initialized, skipping re-initialization.');
+      set({ status: 'idle' }); // Ensure status is idle if we skip
       return;
     }
 
-    set({ status: 'initializing' });
+    console.log(`[GitStore] Initializing FS for repository: ${repoPath}`);
+    set({ status: 'initializing', error: null, fs: null, path: null, isGitRepo: false }); // Reset state fully on new init
+
+    // Create a unique FS instance for this repository
+    const fs = new LightningFS(`git-fs-${dirHandle.name}`);
 
     try {
-      await dirHandle.getDirectoryHandle('.git', { create: false });
-      const fs = new LightningFS('git-fs');
-      await copyDirectoryToLightningFS(dirHandle, fs, repoPath);
-
-      const problematicOID = '635fa4aa0aa95634a0dbc718be5a8d9a2d3e747d';
-      let diagnosticReadOk = false;
+      // Check if .git exists first
       try {
-        console.log(
-          `[GitStore] Attempting to read problematic object ${problematicOID} directly after copy...`
-        );
-        const objectData = await git.readObject({
-          fs,
-          dir: repoPath,
-          oid: problematicOID,
-        });
-        console.log(
-          `[GitStore] Successfully read object ${problematicOID}. Type: ${
-            objectData.type
-          }, Size: ${objectData.object.toString().length}`
-        );
-        diagnosticReadOk = true; // Mark as successful
-      } catch (readError) {
-        console.error(
-          `[GitStore] DIAGNOSTIC FAILED: Failed to read object ${problematicOID} directly after copy. Repo data likely incomplete/corrupted in LightningFS.`,
-          readError
-        );
-        // Set a specific error state indicating potential corruption
-        set({
-          fs, // Keep FS reference for potential retries/debugging
-          path: repoPath,
-          isGitRepo: true, // It *looks* like a git repo, but is unusable
-          status: 'error',
-          error: {
-            code: 'LFS_CORRUPTION_SUSPECTED',
-            message: `Failed initial consistency check after copying repository data. Object ${problematicOID.substring(
-              0,
-              7
-            )}... could not be read. The repository view may be incomplete or corrupted.`,
-            // No retry action here as it likely requires user intervention (e.g., trying a different repo)
-          },
-          lastInitializedRepoPath: repoPath,
-        });
-        // DO NOT proceed further if diagnostic fails
-        return;
+        await dirHandle.getDirectoryHandle('.git', { create: false });
+      } catch (e) {
+        if (e instanceof Error && e.name === 'NotFoundError') {
+          throw new FSInitializationError(
+            'GIT_DIR_NOT_FOUND',
+            'The selected directory does not appear to contain a .git folder.'
+          );
+        } else {
+          throw e; // Re-throw other errors
+        }
       }
 
-      // Proceed only if diagnostic read was OK
-      if (diagnosticReadOk) {
+      console.log('[GitStore] Copying .git directory to LightningFS...');
+      await copyDirectoryToLightningFS(dirHandle, fs, repoPath);
+
+      // Short delay before diagnostic check
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      console.log('[GitStore] Performing diagnostic check...');
+      try {
+        // Step 1: Check if .git/HEAD exists and read its content
+        const headFilePath = `${repoPath}/.git/HEAD`;
+        console.log(`[GitStore] Diagnostic Step 1: Reading ${headFilePath}`);
+        // Correctly provide 'utf8' encoding as the second argument
+        const headFileContent = await fs.promises.readFile(headFilePath, 'utf8');
+        // Add type check before using .trim() due to typing ambiguity
+        const headContentTrimmed = typeof headFileContent === 'string' ? headFileContent.trim() : '[Non-string HEAD content]';
+        console.log(`[GitStore] Diagnostic Step 1 SUCCESS: Read ${headFilePath}, content: ${headContentTrimmed}`);
+
+        // Step 1.5: Check if the file referenced by HEAD exists
+        let refPath: string | null = null;
+        if (typeof headFileContent === 'string' && headFileContent.startsWith('ref: ')) {
+          refPath = headFileContent.substring(5).trim(); // Get the path like 'refs/heads/main'
+          const fullRefPath = `${repoPath}/.git/${refPath}`;
+          console.log(`[GitStore] Diagnostic Step 1.5: Checking existence of resolved HEAD ref file: ${fullRefPath}`);
+          try {
+            await fs.promises.stat(fullRefPath);
+            console.log(`[GitStore] Diagnostic Step 1.5 SUCCESS: File ${fullRefPath} exists.`);
+          } catch (statError) {
+            console.error(`[GitStore] Diagnostic Step 1.5 FAILED: File ${fullRefPath} not found in FS!`, statError);
+            // Optional: Throw here if this check failing guarantees resolveRef will fail?
+            // throw new Error(`Referenced HEAD file ${fullRefPath} not found after copy.`);
+          }
+        } else {
+          console.log('[GitStore] Diagnostic Step 1.5 SKIPPED: HEAD content is not a symbolic ref or not a string.');
+        }
+
+        // Step 2: Attempt to resolve the HEAD reference using isomorphic-git
+        console.log('[GitStore] Diagnostic Step 2: Resolving HEAD reference (using isomorphic-git)...');
+        const headOid = await git.resolveRef({
+          fs,
+          dir: repoPath,
+          ref: 'HEAD',
+        });
+        console.log(`[GitStore] Diagnostic Step 2 SUCCESS: HEAD resolved to ${headOid}`);
+
+        // If both diagnostic steps are successful, update state
         set({
           fs,
           path: repoPath,
           isGitRepo: true,
-          status: 'idle',
+          status: 'loading_branches', // Proceed to load branches
           error: null,
-          lastInitializedRepoPath: repoPath,
-          // Reset other state parts
-          commits: [],
-          diffResultsByPair: {},
-          currentBranch: null,
-          branches: [],
-          selectedBaseBranch: '',
-          selectedCompareBranch: '',
+          lastInitializedRepoPath: repoPath, // Store the path of the successfully initialized repo
         });
-        // Now load branch info etc.
-        await get().loadBranchInfo();
+        console.log('[GitStore] FS Initialization successful, proceeding to load branches.');
+        // Trigger branch loading after successful initialization
+        get().loadBranchInfo();
+      } catch (error) {
+        console.error('[GitStore] DIAGNOSTIC FAILED:', error);
+        // If the specific error is NotFoundError, provide more context
+        if (error instanceof git.Errors.NotFoundError) {
+          console.error(`[GitStore] NotFoundError details: Could not find ref '${error.data?.what}' during diagnostic check.`);
+        }
+        // Throw a specific error if the diagnostic check fails
+        throw new FSInitializationError(
+          'DIAGNOSTIC_READ_FAILED',
+          `Post-copy check failed: Unable to resolve HEAD. ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     } catch (error) {
-      // This catch handles errors from getDirectoryHandle or copyDirectoryToLightningFS (if it re-throws)
-      console.error('[GitStore] Error during main initializeFS try block:', error);
+      console.error('[GitStore] Error during FS Initialization:', error);
+      // Handle specific error types if needed, otherwise generic message
+      let errorCode = 'INIT_ERROR';
+      let errorMessage = 'Failed to initialize repository';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        // Check for common FS errors
+        if (error.name === 'NotFoundError') {
+          errorCode = 'GIT_DIR_NOT_FOUND';
+          errorMessage = 'The selected directory does not appear to contain a .git folder.';
+        } else if (error instanceof FSInitializationError) {
+          // Use the code from our custom error or timeout error
+          errorCode = error.code || 'FS_INIT_ERROR';
+          errorMessage = error.message; // Use the message from the custom error
+        } else if (error instanceof git.Errors.NotFoundError) {
+          errorCode = 'DIAGNOSTIC_READ_FAILED';
+          errorMessage = `Failed to find ref '${error.data?.what}' during initialization`;
+        }
+      }
+
       set({
+        fs: null, // Ensure fs is null on failure
+        path: null,
         isGitRepo: false,
         status: 'error',
-        error: {
-          code: error instanceof FSInitializationError ? error.code || 'INIT_ERROR' : 'INIT_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to initialize repository',
-        },
+        error: { code: errorCode, message: errorMessage },
+        lastInitializedRepoPath: null, // Clear last initialized path on error
       });
     }
   },

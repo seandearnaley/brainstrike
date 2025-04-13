@@ -5,9 +5,20 @@ export async function copyDirectoryToLightningFS(
   fs: LightningFS,
   path: string
 ): Promise<void> {
-  console.log(`[GitUtils] Starting copyDirectoryToLightningFS for path: ${path}`); // Reverted to template literal
-  // Create the root directory
-  await fs.promises.mkdir(path).catch(() => {});
+  console.log(`[GitUtils] Starting copyDirectoryToLightningFS for path: ${path}`);
+  try {
+    await fs.promises.mkdir(path);
+    console.log(`[GitUtils] Created root directory: ${path}`);
+  } catch (mkdirError) {
+    // Ignore if directory already exists, log other errors
+    // @ts-expect-error - code may not exist on all errors
+    if (mkdirError?.code !== 'EEXIST') {
+      console.error(`[GitUtils] FAILED to create root directory ${path}`, mkdirError);
+      throw mkdirError; // Propagate critical error
+    } else {
+      console.log(`[GitUtils] Root directory ${path} already exists.`);
+    }
+  }
 
   // Only copy the .git directory initially
   try {
@@ -15,60 +26,79 @@ export async function copyDirectoryToLightningFS(
     const gitDir = await dirHandle.getDirectoryHandle('.git', {
       create: false,
     });
-    console.log(`[GitUtils] Found .git handle. Starting recursive copy to ${path}/.git`); // Reverted to template literal
-    await copyGitDirectory(gitDir, fs, `${path}/.git`);
-    console.log(`[GitUtils] Finished recursive copy for ${path}/.git`); // Reverted to template literal
+
+    console.log(`[GitUtils] Found .git handle. Starting recursive copy to ${path}/.git`);
+    await copyGitDirectory(fs, gitDir, `${path}/.git`);
+    console.log(`[GitUtils] Finished recursive copy for ${path}/.git`);
   } catch (error) {
     // Log the specific error during .git handle access or copy
-    console.error(`[GitUtils] Error during copyDirectoryToLightningFS for path ${path}:`, error); // Reverted to template literal
+    console.error(`[GitUtils] Error during .git directory processing for path ${path}:`, error);
     // Re-throw the error so the caller knows initialization failed
     throw error;
   }
-  console.log(`[GitUtils] Successfully finished copyDirectoryToLightningFS for path: ${path}`); // Reverted to template literal
+  console.log(`[GitUtils] Successfully finished copyDirectoryToLightningFS for path: ${path}`);
 }
 
-async function copyGitDirectory(
-  sourceDirHandle: FileSystemDirectoryHandle, // Renamed for clarity
+/**
+ * Recursively copies a directory from a FileSystemDirectoryHandle to a LightningFS.
+ * 
+ * @param fs The LightningFS instance to write to.
+ * @param sourceDirHandle The source directory handle to read from.
+ * @param targetPath The path in the LightningFS where the directory should be copied.
+ */
+export async function copyGitDirectory(
   fs: LightningFS,
-  targetGitPath: string // Renamed for clarity
+  sourceDirHandle: FileSystemDirectoryHandle,
+  targetPath: string,
 ): Promise<void> {
-  // console.log(`[GitUtils] Entering copyGitDirectory for target: ${targetGitPath}`); // Verbose entry log (optional)
-  // Create the target directory in LightningFS
-  await fs.promises.mkdir(targetGitPath).catch(() => {});
-
-  // Copy all files and directories within the source .git subdirectory
   try {
-    for await (const [name, entry] of sourceDirHandle.entries()) {
-      const targetEntryPath = `${targetGitPath}/${name}`;
-
-      // console.log(`[GitUtils] Processing entry: ${name} (Kind: ${entry.kind}) -> ${targetEntryPath}`); // Verbose processing log (optional)
-
-      if (entry.kind === 'file') {
-        const fileHandle = entry as FileSystemFileHandle;
-        const file = await fileHandle.getFile();
-        const content = await file.arrayBuffer();
-        console.log(
-          `[GitUtils] Attempting to write file: ${targetEntryPath} (${content.byteLength} bytes)`
-        ); // Log before write
-        try {
-          await fs.promises.writeFile(targetEntryPath, new Uint8Array(content));
-          // console.log(`[GitUtils] Successfully wrote file: ${targetEntryPath}`); // Optional success log (can be noisy)
-        } catch (writeError) {
-          console.error(`[GitUtils] FAILED to write file: ${targetEntryPath}`, writeError); // Log write error specifically
-          throw writeError; // Re-throw to ensure failure propagates
-        }
-      } else if (entry.kind === 'directory') {
-        const subDirHandle = entry as FileSystemDirectoryHandle;
-        // console.log(`[GitUtils] Recursing into directory: ${name}`); // Verbose recursion log (optional)
-        await copyGitDirectory(subDirHandle, fs, targetEntryPath);
-        // console.log(`[GitUtils] Finished recursion for directory: ${name}`); // Verbose recursion finish log (optional)
+    // Ensure the target directory exists in LightningFS
+    try {
+      await fs.promises.mkdir(targetPath);
+    } catch (e) {
+      // Ignore error if directory already exists
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
+        throw e;
       }
     }
-    // console.log(`[GitUtils] Finished processing entries for target: ${targetGitPath}`); // Verbose loop finish log (optional)
+
+    const promises: Promise<void>[] = []; // Array to hold all promises
+
+    for await (const [name, handle] of sourceDirHandle.entries()) {
+      const entryPath = `${targetPath}/${name}`;
+
+      if (handle.kind === 'file') {
+        const fileHandle = handle as FileSystemFileHandle; // Assert type
+        // Add the promise for writing the file to the array
+        promises.push(
+          (async () => {
+            try {
+              const file = await fileHandle.getFile();
+              const buffer = await file.arrayBuffer();
+              await fs.promises.writeFile(entryPath, new Uint8Array(buffer));
+              // console.debug(`[GitUtils] Copied file: ${entryPath}`);
+            } catch (writeError) {
+              console.error(`[GitUtils] Error writing file ${entryPath}:`, writeError);
+              throw writeError; // Re-throw to fail the Promise.all
+            }
+          })()
+        );
+      } else if (handle.kind === 'directory') {
+        const dirHandle = handle as FileSystemDirectoryHandle; // Assert type
+        // Add the promise for the recursive call to the array
+        promises.push(copyGitDirectory(fs, dirHandle, entryPath));
+      }
+    }
+
+    // Wait for all file writes and recursive calls at this level to complete
+    await Promise.all(promises);
+
+    // Log only when the root .git directory copy finishes, if desired
+    // if (isRootGitDir) {
+    //   console.log(`[GitUtils] Finished recursive copy for ${targetPath}`);
+    // }
   } catch (error) {
-    // Catch errors during the loop/recursion
-    console.error(`[GitUtils] Error during recursive copy within ${targetGitPath}:`, error);
-    // Re-throw the error to ensure the caller knows the copy was incomplete
-    throw error;
+    console.error(`[GitUtils] Error copying directory ${targetPath}:`, error);
+    throw error; // Propagate the error
   }
 }
