@@ -10,7 +10,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build --verbose && cp src/globals.css dist/globals.css",
+    "build": "tsc --build --verbose && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "tsc --noEmit",
@@ -22,7 +22,8 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./globals.css": "./dist/globals.css"
+    "./globals.css": "./dist/globals.css",
+    "./styles.css": "./styles.css"
   },
   "keywords": [],
   "author": "",

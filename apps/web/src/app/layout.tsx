@@ -1,4 +1,4 @@
-import './tailwind.css';
+import './globals.css';
 import { Toaster } from '@brainstrike/ui';
 import type React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
