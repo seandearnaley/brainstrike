@@ -1,25 +1,22 @@
 {
-	"extends": "@brainstrike/tsconfig/base.json",
+	"extends": "../../packages/config/tsconfig/base.json",
 	"compilerOptions": {
-		"forceConsistentCasingInFileNames": true,
-		"lib": ["dom", "dom.iterable", "esnext"],
-		"allowJs": true,
-		"target": "es2020",
-		"skipLibCheck": true,
-		"strict": true,
-		"noEmit": true,
-		"esModuleInterop": true,
-		"module": "esnext",
-		"moduleResolution": "bundler",
-		"resolveJsonModule": true,
-		"isolatedModules": true,
-		"jsx": "react-jsx",
+		"composite": true,
 		"incremental": true,
+		"allowImportingTsExtensions": true,
+		"noEmit": true,
+		"outDir": "dist",
 		"paths": {
 			"@/*": ["./src/*"]
 		},
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},
-	"include": ["**/*.ts", "**/*.tsx", "vite.config.mts"],
-	"exclude": ["node_modules", "dist", "build", "coverage"]
+	"include": ["src", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts", "vitest.setup.ts"],
+	"exclude": ["node_modules", "dist", "build", "coverage"],
+	"references": [
+		{"path": "../../packages/hooks"},
+		{"path": "../../packages/types"},
+		{"path": "../../packages/ui"},
+		{"path": "../../packages/utils"}
+	]
 }

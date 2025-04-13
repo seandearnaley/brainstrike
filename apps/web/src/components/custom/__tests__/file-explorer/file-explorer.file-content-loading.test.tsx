@@ -4,16 +4,15 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
+import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 
 // Mock all hooks and components
 vi.mock('@/hooks/use-file-system');
@@ -47,60 +46,112 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 const mockGenerateReportWithContent = vi.fn().mockResolvedValue('Mock Report Content');
 
 // Mock implementation for useFileExplorerStore
-interface MockStore {
-  selectedFilePaths: Set<string>;
-  setSelectedFiles: ReturnType<typeof vi.fn>;
-  includeFilters: string[];
-  excludeFilters: string[];
-  useRegex: boolean;
-  maxSelectionCount: number;
-  setFilters: ReturnType<typeof vi.fn>;
-  currentFolderId: string | null;
-  setCurrentFolderId: ReturnType<typeof vi.fn>;
-  expandedDirectoryPaths: Set<string>;
-  toggleDirectoryExpansion: ReturnType<typeof vi.fn>;
-  addSelectedFile: ReturnType<typeof vi.fn>;
-  removeSelectedFile: ReturnType<typeof vi.fn>;
-  clearSelectedFiles: ReturnType<typeof vi.fn>;
-}
-
-const mockStore: MockStore = {
+// Align this mock more closely with FileExplorerState
+const mockStore: FileExplorerState = {
+  // Data properties (align with FileExplorerData)
+  currentFolderId: 'test', // Provide an initial value for tests
+  folderStates: {},
   selectedFilePaths: new Set<string>(),
-  setSelectedFiles: vi.fn((files: Set<string>) => {
+  expandedDirectoryPaths: new Set<string>(),
+  includeFilters: [],
+  excludeFilters: [],
+  useRegex: false,
+  includeProjectTree: true,
+  folderSummaryThreshold: 5,
+  maxSelectionCount: 10,
+  lastActiveTab: 'files',
+
+  // Action properties (mocked functions)
+  setCurrentFolderId: vi.fn((folderId: string | null) => {
+    mockStore.currentFolderId = folderId;
+  }),
+  hydrateFolderState: vi.fn((folderId: string) => {
+    // Mock implementation: create or update a folder state
+    if (!mockStore.folderStates[folderId]) {
+      mockStore.folderStates[folderId] = {
+        selectedFilePaths: new Set<string>(),
+        expandedDirectoryPaths: new Set<string>(),
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: true,
+        folderSummaryThreshold: 5,
+        maxSelectionCount: 10,
+        lastActiveTab: 'files',
+        lastAccessed: Date.now(),
+      };
+    }
+    mockStore.folderStates[folderId].lastAccessed = Date.now();
+  }),
+  setSelectedFiles: vi.fn((files: ReadonlySet<string>) => {
     mockStore.selectedFilePaths = new Set(files);
+    // Simulate loading content when selected
     for (const file of files) {
       if (!mockFileContents[file]) {
         mockLoadFileContent(file);
       }
     }
   }),
-  includeFilters: [],
-  excludeFilters: [],
-  useRegex: false,
-  maxSelectionCount: 10,
-  setFilters: vi.fn(),
-  currentFolderId: null,
-  setCurrentFolderId: vi.fn((folderId: string | null) => {
-    mockStore.currentFolderId = folderId;
-  }),
-  expandedDirectoryPaths: new Set<string>(),
-  toggleDirectoryExpansion: vi.fn(),
-  addSelectedFile: vi.fn((path: string) => {
+  addSelectedFile: vi.fn((_folderId: string, path: string) => {
+    // Use folderId if needed by implementation, current mock doesn't use it
     mockStore.selectedFilePaths.add(path);
+    // Simulate loading content when added
     if (!mockFileContents[path]) {
       mockLoadFileContent(path);
     }
   }),
-  removeSelectedFile: vi.fn((path: string) => {
+  removeSelectedFile: vi.fn((_folderId: string, path: string) => {
+    // Use folderId if needed
     mockStore.selectedFilePaths.delete(path);
+  }),
+  toggleSelectedFile: vi.fn((folderId: string, path: string) => {
+    if (mockStore.selectedFilePaths.has(path)) {
+      mockStore.removeSelectedFile(folderId, path);
+    } else {
+      mockStore.addSelectedFile(folderId, path);
+    }
   }),
   clearSelectedFiles: vi.fn(() => {
     mockStore.selectedFilePaths.clear();
   }),
+  setExpandedPaths: vi.fn((paths: ReadonlySet<string>) => {
+    mockStore.expandedDirectoryPaths = new Set(paths);
+  }),
+  toggleDirectoryExpansion: vi.fn((path: string) => {
+    const newPaths = new Set(mockStore.expandedDirectoryPaths);
+    if (newPaths.has(path)) {
+        newPaths.delete(path);
+    } else {
+        newPaths.add(path);
+    }
+    mockStore.expandedDirectoryPaths = newPaths;
+  }),
+  setFilters: vi.fn((include: readonly string[], exclude: readonly string[]) => {
+    mockStore.includeFilters = [...include];
+    mockStore.excludeFilters = [...exclude];
+  }),
+  setUseRegex: vi.fn((useRegex: boolean) => {
+    mockStore.useRegex = useRegex;
+  }),
+  setIncludeProjectTree: vi.fn((value: boolean) => {
+    mockStore.includeProjectTree = value;
+  }),
+  setFolderSummaryThreshold: vi.fn((value: number) => {
+    mockStore.folderSummaryThreshold = value;
+  }),
+  setMaxSelectionCount: vi.fn((count: number) => {
+    mockStore.maxSelectionCount = count;
+  }),
+  setLastActiveTab: vi.fn((tab: string) => {
+    mockStore.lastActiveTab = tab;
+  }),
+  // Mock new actions as needed
+  expandAllDirectories: vi.fn(),
+  collapseAllDirectories: vi.fn(),
 };
 
 vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: () => mockStore,
+  useFileExplorerStore: vi.fn(() => mockStore), // Ensure the hook returns the updated mock
 }));
 
 // Mock file content loading functionality
@@ -216,10 +267,15 @@ describe('File Content Loading', () => {
 
     const file1 = mockFilteredTree[0];
     const file2 = mockFilteredTree[1];
+    const folderId = mockStore.currentFolderId!;
+
+    if (!file1 || !file2) {
+      throw new Error('Test setup error: mockFilteredTree is missing expected elements.');
+    }
 
     await act(async () => {
-      mockStore.addSelectedFile(file1.path);
-      mockStore.addSelectedFile(file2.path);
+      mockStore.addSelectedFile(folderId, file1.path);
+      mockStore.addSelectedFile(folderId, file2.path);
     });
 
     await waitFor(() => {
@@ -232,9 +288,14 @@ describe('File Content Loading', () => {
     render(<FileExplorer />);
 
     const file = mockFilteredTree[0];
+    const folderId = mockStore.currentFolderId!;
+
+    if (!file) {
+      throw new Error('Test setup error: mockFilteredTree is missing expected element.');
+    }
 
     await act(async () => {
-      mockStore.addSelectedFile(file.path);
+      mockStore.addSelectedFile(folderId, file.path);
     });
 
     await waitFor(() => {
@@ -247,10 +308,15 @@ describe('File Content Loading', () => {
 
     const file1 = mockFilteredTree[0];
     const file2 = mockFilteredTree[1];
+    const folderId = mockStore.currentFolderId!;
+
+    if (!file1 || !file2) {
+      throw new Error('Test setup error: mockFilteredTree is missing expected elements.');
+    }
 
     await act(async () => {
-      mockStore.addSelectedFile(file1.path);
-      mockStore.addSelectedFile(file2.path);
+      mockStore.addSelectedFile(folderId, file1.path);
+      mockStore.addSelectedFile(folderId, file2.path);
     });
 
     await waitFor(() => {
@@ -259,7 +325,7 @@ describe('File Content Loading', () => {
     });
 
     await act(async () => {
-      mockStore.removeSelectedFile(file1.path);
+      mockStore.removeSelectedFile(folderId, file1.path);
     });
 
     expect(mockStore.selectedFilePaths.has(file1.path)).toBe(false);

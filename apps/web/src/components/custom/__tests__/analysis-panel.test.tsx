@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 import { AnalysisPanel } from '../analysis-panel';
 
@@ -249,7 +249,10 @@ describe('AnalysisPanel', () => {
     // Find and click a file checkbox
     const fileCheckboxes = screen.getAllByRole('checkbox');
     expect(fileCheckboxes.length).toBeGreaterThan(1);
-    fireEvent.click(fileCheckboxes[1]); // First file in list
+    
+    if (fileCheckboxes[1]) {
+      fireEvent.click(fileCheckboxes[1]); // First file in list
+    }
 
     // Verify that setSelectedFiles was called
     expect(mockSetSelectedFiles).toHaveBeenCalled();
@@ -263,7 +266,10 @@ describe('AnalysisPanel', () => {
 
     // Find and click the select all checkbox
     const selectAllCheckbox = screen.getAllByRole('checkbox')[0]; // Header checkbox
-    fireEvent.click(selectAllCheckbox);
+    
+    if (selectAllCheckbox) {
+      fireEvent.click(selectAllCheckbox);
+    }
 
     // Verify that setSelectedFiles was called
     expect(mockSetSelectedFiles).toHaveBeenCalled();

@@ -7,14 +7,14 @@ interface ExperimentalFileSystemFeatures {
 }
 
 // Custom error types for file system operations
-class FileSystemOperationError extends Error {
+export class BrainStrikeError extends Error {
   constructor(
+    public readonly code: string,
     message: string,
-    public readonly operation: string,
-    public readonly cause?: Error
+    public override readonly cause?: Error
   ) {
     super(message);
-    this.name = 'FileSystemOperationError';
+    this.name = this.constructor.name;
   }
 }
 
@@ -46,7 +46,7 @@ export const fileSystem = {
         const path2 = await this.getFullPath(handle2);
         return path1 === path2;
       } catch (error) {
-        throw new FileSystemOperationError(
+        throw new BrainStrikeError(
           'Failed to compare directory paths',
           'isSameDirectory',
           error instanceof Error ? error : undefined
@@ -75,9 +75,9 @@ export const fileSystem = {
           break;
         }
       } catch (_error) {
-        throw new FileSystemOperationError(
+        throw new BrainStrikeError(
+          'GET_FULL_PATH_FAILED',
           'Failed to get full path of directory',
-          'getFullPath',
           _error instanceof Error ? _error : undefined
         );
       }
@@ -147,9 +147,9 @@ export const fileSystem = {
         const decoder = new TextDecoder('utf-8');
         return decoder.decode(new Uint8Array(arrayBuffer));
       } catch (error) {
-        throw new FileSystemOperationError(
+        throw new BrainStrikeError(
+          'READ_FILE_CONTENT_FAILED',
           'Failed to read file content',
-          'readFileContent',
           error instanceof Error ? error : undefined
         );
       }
@@ -196,9 +196,9 @@ export const fileSystem = {
         children.push(child);
       }
     } catch (error) {
-      throw new FileSystemOperationError(
+      throw new BrainStrikeError(
+        'CREATE_FILE_NODE_FAILED',
         'Failed to create file node',
-        'createFileNode',
         error instanceof Error ? error : undefined
       );
     }

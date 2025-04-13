@@ -26,12 +26,24 @@ export const useToastManager = () => {
       variant?: 'default' | 'destructive';
       action?: ToastActionElement;
     }) => {
-      toast({
+      // Define local type for toast options
+      type ToastOptions = {
+        title: string;
+        description: string;
+        variant?: 'default' | 'destructive';
+        action?: ToastActionElement;
+      };
+
+      // Construct the toast options object conditionally
+      const toastOptions: ToastOptions = {
         title,
         description,
         variant,
-        action,
-      });
+      };
+      if (action) {
+        toastOptions.action = action;
+      }
+      toast(toastOptions);
     },
     [toast]
   );

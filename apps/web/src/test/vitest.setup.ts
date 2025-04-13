@@ -48,11 +48,9 @@ Object.defineProperty(window, 'matchMedia', {
 
 // Mock IntersectionObserver
 class MockIntersectionObserver {
-  constructor(callback: IntersectionObserverCallback) {
-    this.callback = callback;
+  constructor(_callback: IntersectionObserverCallback) {
+    // Intentionally empty - callback not used in mock
   }
-
-  private callback: IntersectionObserverCallback;
 
   observe = vi.fn();
   unobserve = vi.fn();
@@ -68,11 +66,9 @@ Object.defineProperty(window, 'IntersectionObserver', {
 
 // Mock ResizeObserver
 class MockResizeObserver {
-  constructor(callback: ResizeObserverCallback) {
-    this.callback = callback;
+  constructor(_callback: ResizeObserverCallback) {
+    // Intentionally empty - callback not used in mock
   }
-
-  private callback: ResizeObserverCallback;
 
   observe = vi.fn();
   unobserve = vi.fn();

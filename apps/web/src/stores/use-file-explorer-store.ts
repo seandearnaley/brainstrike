@@ -7,9 +7,9 @@
  * Action logic is delegated to separate action creator functions imported from ./actions/*.
  */
 
-import type { FileExplorerState } from '@brainstrike/types';
+import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { create } from 'zustand';
+import { create, type StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
@@ -17,24 +17,37 @@ import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
 
+// Explicitly type the state creator function
+const stateCreator: StateCreator<FileExplorerState, [], [['zustand/persist', SerializedState]]> = (set, get) => {
+  const initialData = {
+    // Initial state properties from DEFAULT_STATE
+    ...DEFAULT_STATE,
+    // Ensure lastActiveTab is explicitly set from DEFAULT_STATE or provide default
+    lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+    // Initialize/Override specific state parts as needed
+    currentFolderId: null,
+    folderStates: {},
+    selectedFilePaths: new Set<string>(),
+    expandedDirectoryPaths: new Set<string>(),
+  };
+
+  const actions = {
+    ...createFolderStateActions(set, get),
+    ...createFileSelectionActions(set, get),
+    ...createDirectoryExpansionActions(set, get),
+    ...createSettingsActions(set, get),
+  };
+
+  // Combine data and actions. Type assertion might be needed if inference fails.
+  return {
+    ...initialData,
+    ...actions,
+  } as FileExplorerState;
+};
+
 export const useFileExplorerStore = create<FileExplorerState>()(
   persist(
-    (set, get) => ({
-      // Initial state properties from DEFAULT_STATE
-      ...DEFAULT_STATE, // Spread default state values first
-
-      // Initialize/Override specific state parts as needed
-      currentFolderId: null, // Add missing property
-      folderStates: {}, // Start with empty folder states map
-      selectedFilePaths: new Set<string>(), // Initialize as empty Set
-      expandedDirectoryPaths: new Set<string>(), // Initialize as empty Set
-
-      // Actions (delegated to creators)
-      ...createFolderStateActions(set, get),
-      ...createFileSelectionActions(set, get),
-      ...createDirectoryExpansionActions(set, get),
-      ...createSettingsActions(set, get),
-    }),
-    createPersistOptions() // Persistence configuration
+    stateCreator,
+    createPersistOptions()
   )
 );

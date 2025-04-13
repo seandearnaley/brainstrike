@@ -49,7 +49,7 @@ describe('fileExplorer', () => {
     });
 
     it('should return empty array for directory without children', () => {
-      const dirNode = createDirectoryNode({ children: undefined });
+      const dirNode = createDirectoryNode();
       const paths = fileExplorer.getAllFilePathsInDirectory(dirNode);
       expect(paths).toEqual([]);
     });
@@ -143,8 +143,9 @@ describe('fileExplorer', () => {
     it('should find a node by path', () => {
       const node = fileExplorer.findNodeByPath(testTree, '/root/dir1/fileB.txt');
       expect(node).not.toBeNull();
-      expect(node?.name).toBe('fileB.txt');
-      expect(node?.path).toBe('/root/dir1/fileB.txt');
+      expect(node).toBeDefined();
+      expect(node!.name).toBe('fileB.txt');
+      expect(node!.path).toBe('/root/dir1/fileB.txt');
     });
 
     it('should return null if path not found', () => {
@@ -156,7 +157,8 @@ describe('fileExplorer', () => {
       // Should find when rootFolderId matches
       const node1 = fileExplorer.findNodeByPath(testTree, '/root/dir1/fileB.txt', 'root1');
       expect(node1).not.toBeNull();
-      expect(node1?.name).toBe('fileB.txt');
+      expect(node1).toBeDefined();
+      expect(node1!.name).toBe('fileB.txt');
 
       // Should not find when rootFolderId doesn't match
       const node2 = fileExplorer.findNodeByPath(testTree, '/root/dir2/fileC.txt', 'root1');
@@ -195,7 +197,7 @@ describe('fileExplorer', () => {
     });
 
     it('should return count 0 and isComplete true for directory without children', () => {
-      const dirNode = createDirectoryNode({ children: undefined });
+      const dirNode = createDirectoryNode();
       const result = fileExplorer.getFolderFileCount(dirNode);
       expect(result).toEqual({ count: 0, isComplete: true });
     });
@@ -226,7 +228,7 @@ describe('fileExplorer', () => {
         if (node === childWithIssue) {
           return { count: 5, isComplete: false };
         }
-        return original.call(fileExplorer, node);
+        return (original as typeof fileExplorer.getFolderFileCount).call(fileExplorer, node);
       });
 
       const parent = createDirectoryNode({
@@ -414,23 +416,27 @@ describe('fileExplorer', () => {
       expect(result).toHaveLength(2);
 
       // Check root level file
-      expect(result[0].name).toBe('test.txt');
-      expect(result[0].path).toBe('/test.txt');
-      expect(result[0].type).toBe('file');
-      expect(result[0].depth).toBe(0);
+      expect(result[0]).toBeDefined();
+      expect(result[0]!.name).toBe('test.txt');
+      expect(result[0]!.path).toBe('/test.txt');
+      expect(result[0]!.type).toBe('file');
+      expect(result[0]!.depth).toBe(0);
 
       // Check nested directory
-      expect(result[1].name).toBe('nested');
-      expect(result[1].path).toBe('/nested');
-      expect(result[1].type).toBe('directory');
-      expect(result[1].depth).toBe(0);
-      expect(result[1].children).toHaveLength(1);
+      expect(result[1]).toBeDefined();
+      expect(result[1]!.name).toBe('nested');
+      expect(result[1]!.path).toBe('/nested');
+      expect(result[1]!.type).toBe('directory');
+      expect(result[1]!.depth).toBe(0);
+      expect(result[1]!.children).toBeDefined();
+      expect(result[1]!.children!).toHaveLength(1);
 
       // Check nested file
-      expect(result[1].children?.[0].name).toBe('nested.txt');
-      expect(result[1].children?.[0].path).toBe('/nested/nested.txt');
-      expect(result[1].children?.[0].type).toBe('file');
-      expect(result[1].children?.[0].depth).toBe(1);
+      expect(result[1]!.children![0]).toBeDefined();
+      expect(result[1]!.children![0]!.name).toBe('nested.txt');
+      expect(result[1]!.children![0]!.path).toBe('/nested/nested.txt');
+      expect(result[1]!.children![0]!.type).toBe('file');
+      expect(result[1]!.children![0]!.depth).toBe(1);
 
       // Restore original function
       vi.restoreAllMocks();
@@ -468,7 +474,9 @@ describe('fileExplorer', () => {
 
       // Only the non-ignored file should be in the result
       expect(result).toHaveLength(1);
-      expect(result[0].name).toBe('test.txt');
+      if (result[0]) {
+        expect(result[0].name).toBe('test.txt');
+      }
 
       // Restore original function
       vi.restoreAllMocks();
@@ -491,9 +499,11 @@ describe('fileExplorer', () => {
       const result = await fileExplorer.readFullFileTree(dirHandle, '/parent', 2, 'custom-root-id');
 
       expect(result).toHaveLength(1);
-      expect(result[0].path).toBe('/parent/test.txt');
-      expect(result[0].depth).toBe(2);
-      expect(result[0].rootFolderId).toBe('custom-root-id');
+      if (result[0]) {
+        expect(result[0].path).toBe('/parent/test.txt');
+        expect(result[0].depth).toBe(2);
+        expect(result[0].rootFolderId).toBe('custom-root-id');
+      }
     });
   });
 });

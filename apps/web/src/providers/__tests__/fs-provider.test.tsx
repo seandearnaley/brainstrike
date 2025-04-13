@@ -1,6 +1,6 @@
 import type FS from '@isomorphic-git/lightning-fs';
-import { act, render, screen } from '@testing-library/react';
-import { describe, expect, test, vi } from 'vitest';
+import { act, render } from '@testing-library/react';
+import { beforeEach, describe, expect, vi } from 'vitest';
 import { FSProvider, useFS } from '../fs-provider';
 
 // Mock LightningFS

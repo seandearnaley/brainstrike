@@ -1,4 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
+// import type { IFileNode } from '@/lib/file/types'; // Removed: Unused
 import { fileExplorer } from '../lib/file/explorer';
 import { generateProjectTreeText } from './folder-tree-generator';
 

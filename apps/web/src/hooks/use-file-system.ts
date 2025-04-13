@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { fileSystem } from '../lib/file/system';
 import { useFileExplorerStore } from '../stores/use-file-explorer-store';
 
 export function useFileSystem() {

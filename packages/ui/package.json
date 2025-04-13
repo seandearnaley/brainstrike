@@ -10,17 +10,20 @@
     "dist"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc && cp src/globals.css dist/globals.css",
-    "clean": "rm -rf dist",
+    "build": "tsc --build --verbose && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "exports": {
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./globals.css": "./dist/globals.css"
+    "./globals.css": "./dist/globals.css",
+    "./styles.css": "./styles.css"
   },
   "keywords": [],
   "author": "",
@@ -55,9 +58,8 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.21",
+    "@vitest/coverage-v8": "^3.1.1",
     "jsdom": "^26.0.0",
-    "postcss": "^8",
     "tailwindcss": "^4.0.15",
     "typescript": "^5.8.3",
     "vitest": "^3.1.1"

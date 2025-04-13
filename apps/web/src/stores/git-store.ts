@@ -28,8 +28,8 @@ interface GitCommit {
 interface FileDiff {
   path: string;
   type: 'add' | 'modify' | 'remove';
-  oldContent?: string;
-  newContent?: string;
+  oldContent: string | undefined;
+  newContent: string | undefined;
 }
 
 interface GitState {
@@ -281,6 +281,8 @@ export const useGitStore = create<GitState>((set, get) => ({
             const diff: FileDiff = {
               path: filepath,
               type: !baseOid ? 'add' : !compareOid ? 'remove' : 'modify',
+              oldContent: undefined,
+              newContent: undefined
             };
 
             if (diff.type === 'modify') {
@@ -297,8 +299,9 @@ export const useGitStore = create<GitState>((set, get) => ({
                   : Promise.resolve(undefined),
               ]);
 
-              diff.oldContent = baseContent;
-              diff.newContent = compareContent;
+              // Explicitly handle undefined
+              diff.oldContent = baseContent !== undefined ? baseContent : undefined;
+              diff.newContent = compareContent !== undefined ? compareContent : undefined;
             }
 
             diffs.push(diff);

@@ -1,7 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeSettings } from '../../components/custom/settings/theme-settings';
-import { ThemeProvider } from '../../providers/theme-provider';
+import { describe, expect, it, vi } from 'vitest';
 import Settings from '../settings/page';
 
 // Mock the ThemeSettings component

@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
-import { ScrollArea } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { fileExplorer } from '../../lib/file/explorer';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';

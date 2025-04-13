@@ -1,6 +1,5 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { encodeFileSelection } from '../../../utils/file-selection-utils';
 import { createFileSelectionActions } from '../file-selection-actions';
 
 // Mock the file-selection-utils module
@@ -63,19 +62,23 @@ describe('file-selection-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const arg = mockSet.mock.calls[0][0];
 
-      let updatedState: Partial<FileExplorerState>;
+      let updatedState: Partial<FileExplorerState> | undefined;
       if (typeof arg === 'function') {
         // If set was called with a function: set(state => newState)
-        updatedState = arg({}); // Execute the function
+        // Provide a minimal mock state if needed for the update function
+        updatedState = arg(createMockState({ selectedFilePaths: new Set() }));
       } else {
         // If set was called with an object: set(newState)
-        updatedState = arg;
+        updatedState = arg as Partial<FileExplorerState>; // Type assertion
       }
 
-      expect(updatedState.selectedFilePaths).toEqual(new Set(initialSet)); // Ensure it's a new Set instance
-      expect(updatedState.selectedFilePaths).not.toBe(initialSet); // Verify new instance
+      expect(updatedState).toBeDefined();
+      // Use non-null assertion after check
+      expect(updatedState!.selectedFilePaths).toEqual(new Set(initialSet));
+      expect(updatedState!.selectedFilePaths).not.toBe(initialSet);
     });
 
     it('should filter out invalid composite keys', () => {
@@ -88,16 +91,19 @@ describe('file-selection-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const arg = mockSet.mock.calls[0][0];
-      let updatedState: Partial<FileExplorerState>;
+
+      let updatedState: Partial<FileExplorerState> | undefined;
       if (typeof arg === 'function') {
-        updatedState = arg({ selectedFilePaths: new Set<string>() });
+        updatedState = arg(createMockState({ selectedFilePaths: new Set<string>() }));
       } else {
-        updatedState = arg;
+        updatedState = arg as Partial<FileExplorerState>;
       }
 
-      expect(updatedState.selectedFilePaths).toEqual(new Set(['folder1|@|file1.ts']));
-      expect(updatedState.selectedFilePaths?.has('invalid-key')).toBe(false);
+      expect(updatedState).toBeDefined();
+      expect(updatedState!.selectedFilePaths).toEqual(new Set(['folder1|@|file1.ts']));
+      expect(updatedState!.selectedFilePaths?.has('invalid-key')).toBe(false);
     });
 
     it('should handle empty sets', () => {
@@ -110,15 +116,18 @@ describe('file-selection-actions', () => {
 
       // Assert
       expect(mockSet).toHaveBeenCalledTimes(1);
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const arg = mockSet.mock.calls[0][0];
-      let updatedState: Partial<FileExplorerState>;
+
+      let updatedState: Partial<FileExplorerState> | undefined;
       if (typeof arg === 'function') {
-        updatedState = arg({});
+        updatedState = arg(createMockState({ selectedFilePaths: new Set() }));
       } else {
-        updatedState = arg;
+        updatedState = arg as Partial<FileExplorerState>;
       }
 
-      expect(updatedState.selectedFilePaths).toEqual(new Set<string>());
+      expect(updatedState).toBeDefined();
+      expect(updatedState!.selectedFilePaths).toEqual(new Set<string>());
     });
   });
 
@@ -139,15 +148,18 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
       expect(typeof updateFn).toBe('function');
 
       // Call the update function with our mock state
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
-      expect(updatedState.selectedFilePaths.size).toBe(2);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined(); // Assert Set exists
+      expect(updatedState.selectedFilePaths!.size).toBe(2);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should not add file if max selection count is reached', () => {
@@ -167,13 +179,16 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Call the update function with our mock state
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
       // Verify the file wasn't added (same size as before)
-      expect(updatedState.selectedFilePaths.size).toBe(1);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(1);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(false);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -192,11 +207,14 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Verify the file was added
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
-      const updatedState = updateFn(mockState);
-      expect(updatedState.selectedFilePaths.size).toBe(2);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(2);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 
@@ -217,15 +235,18 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
       expect(typeof updateFn).toBe('function');
 
       // Call the update function with our mock state
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
-      expect(updatedState.selectedFilePaths.size).toBe(1);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(1);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -244,11 +265,14 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Verify the file was removed
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
-      const updatedState = updateFn(mockState);
-      expect(updatedState.selectedFilePaths.size).toBe(1);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(1);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 
@@ -269,15 +293,18 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
       expect(typeof updateFn).toBe('function');
 
       // Call the update function with our mock state
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
-      expect(updatedState.selectedFilePaths.size).toBe(2);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(2);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should remove file from selected files when present', () => {
@@ -296,15 +323,18 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
       expect(typeof updateFn).toBe('function');
 
       // Call the update function with our mock state
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
-      expect(updatedState.selectedFilePaths.size).toBe(1);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(1);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should not add file if max selection count is reached', () => {
@@ -324,13 +354,16 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Call the update function with our mock state
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
-      const updatedState = updateFn(mockState);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
 
       // Verify the file wasn't added (same size as before)
-      expect(updatedState.selectedFilePaths.size).toBe(1);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(1);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(false);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -349,11 +382,14 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledTimes(1);
 
       // Verify the file was added
+      // @ts-expect-error - TS struggles with mock call type narrowing
       const updateFn = mockSet.mock.calls[0][0];
-      const updatedState = updateFn(mockState);
-      expect(updatedState.selectedFilePaths.size).toBe(2);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths.has('folder1|@|file2.ts')).toBe(true);
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths!.size).toBe(2);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 

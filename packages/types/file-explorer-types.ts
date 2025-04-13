@@ -15,7 +15,7 @@ export interface SerializedFolderState {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   maxSelectionCount: number;
-  lastActiveTab?: string;
+  lastActiveTab: string;
   lastAccessed: number;
 }
 
@@ -30,7 +30,7 @@ export interface SerializedState {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   maxSelectionCount: number;
-  lastActiveTab?: string;
+  lastActiveTab: string;
 }
 
 export interface FolderState {
@@ -42,7 +42,7 @@ export interface FolderState {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   maxSelectionCount: number;
-  lastActiveTab?: string;
+  lastActiveTab: string;
   lastAccessed: number;
 }
 
@@ -58,7 +58,7 @@ export interface FileExplorerData {
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
   maxSelectionCount: number;
-  lastActiveTab?: string;
+  lastActiveTab: string;
 }
 
 // Store interface extends data with actions
@@ -110,5 +110,5 @@ export const DEFAULT_STATE = {
   includeProjectTree: true,
   folderSummaryThreshold: 5,
   maxSelectionCount: 100,
-  lastActiveTab: undefined,
+  lastActiveTab: 'files',
 } as const;

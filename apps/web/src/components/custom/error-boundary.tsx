@@ -41,7 +41,7 @@ interface State {
  * for different error types and offers appropriate recovery options.
  */
 class ErrorBoundary extends Component<Props, State> {
-  public state: State = {
+  public override state: State = {
     hasError: false,
     error: null,
     errorInfo: null,
@@ -52,7 +52,7 @@ class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+  public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
     console.error('Uncaught error:', error, errorInfo);
 
@@ -178,7 +178,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     return { icon, title, displayTitle, message, color, actions };
   }
 
-  public render() {
+  public override render() {
     const { hasError, error, errorInfo, isDetailsVisible } = this.state;
     const { fallback, showDetails = import.meta.env.DEV } = this.props;
 

@@ -1,13 +1,7 @@
-import { Button } from '@brainstrike/ui';
 import { FileText, Folder, Settings } from 'lucide-react';
-import React from 'react';
 import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { cn } from '../../../lib/utils';
-import { useFileExplorerStore } from '../../../stores/use-file-explorer-store';
-import { FileFilterBar } from '../../custom/file-filter-bar';
-import FileTreeNode from '../../custom/file-tree-node';
-import { LoadingOverlay } from '../../custom/loading-overlay';
 import { ThemeToggle } from '../../custom/theme-toggle';
 
 const apps = [

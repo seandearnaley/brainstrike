@@ -17,9 +17,8 @@
  */
 
 import { Button } from '@brainstrike/ui';
-import { Download, FileText, RefreshCw } from 'lucide-react';
-import type React from 'react';
-import { memo, useCallback, useMemo } from 'react';
+import { Download, FileText } from 'lucide-react';
+import { useCallback } from 'react';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { encodeFileSelection } from '../../utils/file-selection-utils';
 

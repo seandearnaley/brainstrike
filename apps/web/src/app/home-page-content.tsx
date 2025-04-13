@@ -1,4 +1,3 @@
-import React from 'react';
 import ClientFileExplorer from '../components/custom/client-file-explorer';
 
 export default function HomePageContent() {

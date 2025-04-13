@@ -1,7 +1,7 @@
 import { Badge } from '@brainstrike/ui';
 import { Folder } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { getFolderColor } from '../../utils/color-utils';
+import { getFolderColor } from '@brainstrike/utils';
 
 interface FolderBadgeProps {
   folderId: string;
@@ -17,10 +17,10 @@ export function FolderBadge({ folderId, className }: FolderBadgeProps) {
       className={cn('flex items-center gap-1 px-2 py-0.5 shrink-0 transition-colors', className)}
       style={
         {
-          '--folder-bg': colors.light.bg,
-          '--folder-text': colors.light.text,
-          '--folder-dark-bg': colors.dark.bg,
-          '--folder-dark-text': colors.dark.text,
+          '--folder-bg': colors?.light.bg,
+          '--folder-text': colors?.light.text,
+          '--folder-dark-bg': colors?.dark.bg,
+          '--folder-dark-text': colors?.dark.text,
           backgroundColor: 'var(--folder-bg)',
           color: 'var(--folder-text)',
         } as React.CSSProperties

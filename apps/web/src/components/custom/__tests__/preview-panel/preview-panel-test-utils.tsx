@@ -1,4 +1,5 @@
 import { screen, render as testingLibraryRender } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import { userEvent as createUserEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import type { ReactElement } from 'react';
@@ -90,7 +91,7 @@ export const defaultProps = {
 };
 
 // Custom render function with providers
-function render(ui: ReactElement) {
+function render(ui: ReactElement): RenderResult {
   return testingLibraryRender(ui, {
     wrapper: ({ children }: { children: ReactNode }) => (
       <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">

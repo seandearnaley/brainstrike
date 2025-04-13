@@ -68,20 +68,17 @@ const sampleFileTree: IFileNode[] = [
 
 describe('FileExplorerStore expand/collapse functionality', () => {
   // Reset the store state before each test
-  beforeEach(async () => {
-    // Clear persisted state from localStorage and Zustand's persist storage
-    localStorage.clear();
-    // Resetting the store to its default initial state
-    // We need to ensure Sets are properly initialized
+  beforeEach(() => {
+    // Reset store state before each test
     useFileExplorerStore.setState({
       ...DEFAULT_STATE, // Use imported defaults
-      folderStates: {}, // Ensure folderStates is empty
+      // Ensure lastActiveTab has a default
+      lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+      currentFolderId: null,
+      folderStates: {}, // Reset folder states
       selectedFilePaths: new Set<string>(),
       expandedDirectoryPaths: new Set<string>(),
     }); // Simply set the desired state properties, don't replace
-
-    // Optional: Wait for any potential async operations in Zustand middleware/persist
-    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   test('expandAllDirectories adds all directory paths from file tree', () => {

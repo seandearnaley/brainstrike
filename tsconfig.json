@@ -1,0 +1,27 @@
+{
+  "extends": "./packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@brainstrike/types": ["packages/types", "packages/types/dist", "packages/types/index.ts"],
+      "@brainstrike/hooks": ["packages/hooks", "packages/hooks/dist", "packages/hooks/index.ts"],
+      "@brainstrike/ui": ["packages/ui", "packages/ui/dist", "packages/ui/index.ts"],
+      "@brainstrike/utils": ["packages/utils", "packages/utils/dist", "packages/utils/index.ts"],
+      "@/*": ["apps/web/src/*"]
+    },
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "declarationMap": false,
+    "incremental": false
+  },
+  "include": [],
+  "exclude": ["node_modules", ".turbo", "dist"],
+  "references": [
+    {"path": "./apps/web"},
+    {"path": "./packages/hooks"},
+    {"path": "./packages/types"},
+    {"path": "./packages/ui"},
+    {"path": "./packages/utils"}
+  ]
+}

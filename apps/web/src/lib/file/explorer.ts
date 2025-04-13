@@ -1,6 +1,7 @@
-import type { FileTreeResult, IFileNode } from '@brainstrike/types';
+import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '../../constants/file-explorer';
 import { fileFilter } from '../../lib/utils/filter';
+import path from 'path';
 
 /**
  * Utilities for exploring and manipulating file trees
@@ -9,8 +10,10 @@ export const fileExplorer = {
   /**
    * Checks if a path should be ignored based on predefined patterns
    */
-  shouldIgnorePath(path: string): boolean {
-    const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
+  shouldIgnorePath(pathString: string): boolean {
+    const normalizedPath = path.normalize(pathString).startsWith('/')
+      ? path.normalize(pathString).slice(1)
+      : path.normalize(pathString);
     return IGNORED_PATHS.some((ignoredPath) =>
       fileFilter.matchWildcard(normalizedPath, ignoredPath)
     );

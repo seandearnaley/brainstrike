@@ -1,17 +1,32 @@
 {
 	"name": "@brainstrike/types",
-	"version": "0.0.0",
+	"version": "0.1.0",
+	"description": "Shared TypeScript types for Brainstrike monorepo",
 	"private": true,
-	"license": "MIT",
 	"main": "./dist/index.js",
+	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"require": "./dist/index.js"
+		}
+	},
 	"scripts": {
-		"build": "tsc",
-		"clean": "rm -rf dist"
+		"build": "tsc -p . && tsup",
+		"dev": "tsup --watch",
+		"clean": "rm -rf dist .tsbuildinfo",
+		"lint": "pnpm run --dir=../.. lint",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"test:coverage": "vitest run --coverage",
+		"type-check": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@brainstrike/tsconfig": "workspace:*",
-		"lucide-react": "^0.483.0",
-		"typescript": "^5.3.3"
+		"@swc/core": "^1.11.20",
+		"@vitest/coverage-v8": "^3.1.1",
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.1"
 	}
 }

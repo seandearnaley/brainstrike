@@ -8,7 +8,6 @@ import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
-import { cn } from '../../lib/utils';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import ErrorBoundary from './error-boundary';
 

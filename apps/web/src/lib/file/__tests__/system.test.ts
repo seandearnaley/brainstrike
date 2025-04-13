@@ -5,8 +5,6 @@ import {
   MockFileSystemHandle,
   createCircularHandles,
   createSelfReferencingHandle,
-  mockDirectoryHandle,
-  mockFileHandle,
 } from './utils/mock-file-system';
 
 // Add TextEncoder and TextDecoder to global scope if not already defined

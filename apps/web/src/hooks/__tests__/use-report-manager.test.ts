@@ -154,9 +154,25 @@ describe('useReportManager', () => {
     const mockSaveAs = saveAs as unknown as {
       mock: { calls: Array<unknown[]> };
     };
-    expect(mockSaveAs.mock.calls[0][0]).toBeInstanceOf(Blob);
-    // Second argument should be the filename
-    expect(mockSaveAs.mock.calls[0][1]).toBe(FileExplorerStrings.FILE_NAMES.REPORT);
+
+    // Check the arguments passed to saveAs
+    const firstCallArgs = mockSaveAs.mock.calls[0];
+    expect(firstCallArgs).toBeDefined(); // Ensure the first call exists
+
+    const blobArgument = firstCallArgs?.[0];
+    expect(blobArgument).toBeInstanceOf(Blob); // Assert the first argument is a Blob
+
+    // Check Blob type, allowing for charset (now safely typed)
+    if (blobArgument instanceof Blob) {
+      expect(blobArgument.type).toEqual(expect.stringContaining('text/plain'));
+    } else {
+      // Should not happen if the above expect passed, but satisfies TS
+      throw new Error("Expected first argument to be a Blob");
+    }
+
+    // Check the filename argument
+    const filenameArgument = firstCallArgs?.[1];
+    expect(filenameArgument).toBe(FileExplorerStrings.FILE_NAMES.REPORT);
   });
 
   it('should not download if report generation fails', async () => {

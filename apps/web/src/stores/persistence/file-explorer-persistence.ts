@@ -41,7 +41,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
       includeProjectTree: state.includeProjectTree,
       folderSummaryThreshold: state.folderSummaryThreshold,
       maxSelectionCount: state.maxSelectionCount,
-      lastActiveTab: state.lastActiveTab,
+      lastActiveTab: state.lastActiveTab ?? 'files',
     };
   },
 
@@ -55,6 +55,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         currentFolderId: null,
         folderStates: {},
         ...DEFAULT_STATE,
+        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files'
       };
     }
 
@@ -81,7 +82,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
               ? persistedState.folderSummaryThreshold
               : DEFAULT_STATE.folderSummaryThreshold,
           maxSelectionCount: persistedState.maxSelectionCount || DEFAULT_STATE.maxSelectionCount,
-          lastActiveTab: persistedState.lastActiveTab,
+          lastActiveTab: persistedState.lastActiveTab ?? 'files',
           selectedFilePaths: new Set<string>(),
           expandedDirectoryPaths: new Set<string>(),
         };
@@ -116,6 +117,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
             ? persistedState.expandedDirectoryPaths
             : []
         ),
+        lastActiveTab: persistedState.lastActiveTab ?? 'files'
       };
     } catch (error: unknown) {
       console.error('Error rehydrating file explorer state:', error);
@@ -126,6 +128,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         currentFolderId: null,
         folderStates: {},
         ...DEFAULT_STATE,
+        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files'
       };
     }
   },

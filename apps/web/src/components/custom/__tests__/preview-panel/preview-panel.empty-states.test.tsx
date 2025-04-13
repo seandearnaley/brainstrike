@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, defaultProps, render } from './preview-panel-test-utils';
 
 describe('PreviewPanel - Initial State and Empty States', () => {
   beforeEach(() => {

@@ -4,7 +4,9 @@ module.exports = {
   content: [
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
-    // Include UI package components for styling
+    // Explicitly reference the UI package's source files
+    "../../packages/ui/src/badge.tsx",
+    "../../packages/ui/src/**/*.tsx",
     "../../packages/ui/src/**/*.{js,ts,jsx,tsx}",
   ],
   // Safelist classes that might be used in UI components

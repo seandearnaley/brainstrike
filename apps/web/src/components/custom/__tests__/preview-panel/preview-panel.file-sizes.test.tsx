@@ -133,7 +133,7 @@ describe('PreviewPanel - File Sizes', () => {
     // But we'll just check that some size is displayed
     // Note: We might need a more specific check in a real test
     const sizeCell = screen.getAllByRole('cell')[2]; // Third cell should be size
-    expect(sizeCell.textContent).not.toBe('Unknown');
-    expect(sizeCell.textContent).toMatch(/B|KB/); // Should contain B or KB
+    expect(sizeCell?.textContent).not.toBe('Unknown');
+    expect(sizeCell?.textContent).toMatch(/B|KB/); // Should contain B or KB
   });
 });

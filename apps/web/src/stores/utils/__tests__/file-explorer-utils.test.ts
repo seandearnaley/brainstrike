@@ -186,10 +186,10 @@ describe('file-explorer-utils', () => {
 
       // Assert
       expect(Object.keys(result).length).toBe(19); // Based on observation
-      expect(result.folder0).toBeUndefined(); // Oldest should be removed
-      expect(result.folder1).toBeUndefined(); // Second oldest should be removed
-      expect(result.folder2).toBeUndefined(); // Third oldest should be removed
-      expect(result.folder3).toBeDefined(); // Fourth oldest should remain
+      expect(result['folder0']).toBeUndefined(); // Oldest should be removed
+      expect(result['folder1']).toBeUndefined(); // Second oldest should be removed
+      expect(result['folder2']).toBeUndefined(); // Third oldest should be removed
+      expect(result['folder3']).toBeDefined(); // Fourth oldest should remain
 
       // All newer folders should remain
       for (let i = 3; i < MAX_FOLDER_STATES + 2; i++) {

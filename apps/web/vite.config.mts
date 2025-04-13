@@ -2,11 +2,14 @@ import path from "node:path";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
 import { nodePolyfills } from "vite-plugin-node-polyfills";
+import { codecovVitePlugin } from "@codecov/vite-plugin";
 
 export default defineConfig({
   plugins: [
     react(),
+    tailwindcss(),
     nodePolyfills({
       // Required node core modules for isomorphic-git
       include: ["fs", "path", "buffer", "process"],
@@ -15,6 +18,16 @@ export default defineConfig({
         process: true, // Provide a global process
       },
     }),
+    // Conditionally configure Codecov plugin
+    ...(process.env['CODECOV_TOKEN']
+      ? [
+          codecovVitePlugin({
+            enableBundleAnalysis: true,
+            bundleName: "brainstrike-web-bundle",
+            uploadToken: process.env['CODECOV_TOKEN'],
+          }),
+        ]
+      : []), // If no token, don't include the plugin config
   ],
   build: {
     minify: "terser", // Use terser for better minification
@@ -31,6 +44,8 @@ export default defineConfig({
             // Group vendor dependencies
             return "vendor";
           }
+          // Explicitly return undefined for other modules to keep them in the default chunk
+          return undefined;
         },
       },
     },
@@ -40,6 +55,10 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
     },
+  },
+  optimizeDeps: {
+    // Exclude workspace packages from optimization as they are treated as external
+    exclude: ['@brainstrike/types', '@brainstrike/hooks', '@brainstrike/ui', '@brainstrike/utils'],
   },
   test: {
     globals: true,
@@ -98,7 +117,12 @@ export default defineConfig({
     },
     mockReset: true,
     deps: {
-      inline: [],
+      inline: [
+        '@brainstrike/types',
+        '@brainstrike/hooks',
+        '@brainstrike/ui',
+        '@brainstrike/utils'
+      ],
     },
   },
 });

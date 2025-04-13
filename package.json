@@ -6,27 +6,46 @@
 	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev",
-		"lint": "turbo run lint",
+		"lint": "biome check .",
+		"format": "biome format . --write",
 		"test": "turbo run test",
-		"test:e2e": "cd apps/web && npm run test:e2e",
-		"test:e2e:ui": "cd apps/web && npm run test:e2e:ui",
-		"test:e2e:debug": "cd apps/web && npm run test:e2e:debug",
-		"clean": "turbo run clean"
+		"test:coverage": "turbo run test:coverage",
+		"test:e2e": "cd apps/web && pnpm run test:e2e",
+		"test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
+		"test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
+		"clean": "turbo run clean",
+		"type-check": "turbo run type-check",
+		"knip": "knip",
+		"coverage:merge": "mkdir -p .nyc_output && echo 'Starting coverage file search...' && find apps packages -type f -path '*/coverage/*' -name 'coverage-final.json' > coverage-files.txt && echo 'Search completed. Found:' && cat coverage-files.txt && node -e \"const fs=require('fs');const files=fs.readFileSync('coverage-files.txt','utf8').split('\\n').filter(Boolean);console.log('Found coverage files:', files.length);const merged={};files.forEach(f=>{if(fs.existsSync(f)){try{const content=JSON.parse(fs.readFileSync(f,'utf8'));console.log('Processing file:', f, 'with', Object.keys(content).length, 'entries');Object.assign(merged,content);console.log('Merged coverage from:', f);}catch(e){console.error('Error processing file:', f, e);}}});fs.writeFileSync('.nyc_output/coverage.json',JSON.stringify(merged));console.log('Merged coverage written to .nyc_output/coverage.json, with', Object.keys(merged).length, 'total entries');\" && rm coverage-files.txt",
+		"coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage"
 	},
 	"keywords": [],
 	"author": "",
 	"license": "ISC",
 	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
 		"@commitlint/cli": "^19.8.0",
 		"@commitlint/config-conventional": "^19.8.0",
 		"@commitlint/types": "^19.8.0",
+		"knip": "^5.50.2",
+		"tsup": "^8.4.0",
 		"turbo": "^2.5.0",
 		"typescript": "^5.8.3",
+		"nyc": "^17.1.0",
 		"vitest": "^3.1.1"
 	},
 	"packageManager": "pnpm@10.8.0",
 	"pnpm": {
-		"onlyBuiltDependencies": ["@biomejs/biome", "esbuild"]
+		"onlyBuiltDependencies": [
+			"@biomejs/biome",
+			"@swc/core",
+			"esbuild"
+		]
 	},
-	"workspaces": ["apps/*", "packages/*"]
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"dependencies": {
+	}
 }

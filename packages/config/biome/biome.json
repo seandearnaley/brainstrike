@@ -1,0 +1,110 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "organizeImports": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "warn"
+      },
+      "style": {
+        "useConst": "error",
+        "useTemplate": "error",
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false,
+            "enumMemberCase": "CONSTANT_CASE"
+          }
+        },
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": true,
+            "filenameCases": ["kebab-case"]
+          }
+        }
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "es5",
+      "semicolons": "always"
+    }
+  },
+  "files": {
+    "maxSize": 10000000,
+    "include": ["**/*.{ts,tsx,js,jsx,json}"],
+    "ignore": [
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.next/**",
+      "**/build/**",
+      "**/coverage/**",
+      "**/playwright-report/**",
+      "**/test-results/**"
+    ]
+  },
+  "overrides": [
+    {
+      "include": [
+        "**/__tests__/**",
+        "**/*.test.*",
+        "**/*.stories.*",
+        "**/[*]*.tsx",
+        "**/page.tsx",
+        "**/layout.tsx",
+        "**/loading.tsx",
+        "**/error.tsx",
+        "**/not-found.tsx",
+        "**/route.ts",
+        "**/middleware.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["**/__tests__/**", "**/*.test.*"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["**/constants/**", "**/use-toast.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    }
+  ],
+  "vcs": {
+    "enabled": false
+  }
+}

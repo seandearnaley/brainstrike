@@ -1,15 +1,17 @@
 {
-	"extends": "@brainstrike/tsconfig/base.json",
+	"extends": "../../packages/config/tsconfig/base.json",
 	"compilerOptions": {
-		"outDir": "./dist",
-		"rootDir": ".",
-		"declaration": true,
-		"declarationMap": true,
-		"sourceMap": true,
 		"composite": true,
 		"incremental": true,
-		"tsBuildInfoFile": "./tsconfig.tsbuildinfo"
+		"tsBuildInfoFile": "./dist/.tsbuildinfo",
+		"rootDir": ".",
+		"declaration": true,
+		"declarationDir": "dist",
+		"emitDeclarationOnly": true
 	},
-	"include": [".", "./**/*.ts"],
-	"exclude": ["node_modules", "dist", "__tests__"]
+	"include": ["./**/*.ts"],
+	"exclude": ["dist", "node_modules", "**/*.test.ts"],
+	"references": [
+		// {"path": "../../packages/config"}
+	]
 }
