@@ -56,12 +56,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # Install missing coverage dependency for tests
-      - name: Install Vitest coverage dependencies
-        run: |
-          pnpm add -D -w @vitest/coverage-v8
-          pnpm add -D -g nyc
-
       # Install Codecov plugin for bundle analysis (needed by vite config in apps/web)
       - name: Install Codecov Vite plugin
         run: pnpm add -D -F @brainstrike/web @codecov/vite-plugin
