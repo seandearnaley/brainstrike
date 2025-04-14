@@ -27,7 +27,7 @@ const mockGitState = {
   diffResultsByPair: {},
   error: null,
   activeTab: 'history',
-  initializeFS: vi.fn(),
+  initializeFS: vi.fn().mockReturnValue(Promise.resolve()),
   clearState: vi.fn(),
   loadCommitHistory: vi.fn(),
   compareBranches: vi.fn(),
@@ -211,7 +211,7 @@ describe('GitPanel', () => {
       diffResultsByPair: {},
       error: null,
       activeTab: 'history',
-      initializeFS: vi.fn(),
+      initializeFS: vi.fn().mockReturnValue(Promise.resolve()),
       clearState: vi.fn(),
       loadCommitHistory: vi.fn(),
       compareBranches: vi.fn(),
@@ -245,7 +245,7 @@ describe('GitPanel', () => {
   });
 
   test('should initialize repository when rootDirectoryHandle is provided', () => {
-    const mockInitializeFS = vi.fn();
+    const mockInitializeFS = vi.fn().mockReturnValue(Promise.resolve());
     mockGitState.initializeFS = mockInitializeFS;
 
     // Set up test state

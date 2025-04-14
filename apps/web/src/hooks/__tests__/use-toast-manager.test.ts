@@ -142,7 +142,7 @@ describe('useToastManager', () => {
 
       result.current.handleDirectorySelectError(error);
 
-      expect(console.error).toHaveBeenCalledWith('Failed to select root directory:', error);
+      expect(console.error).toHaveBeenCalledWith('Failed to select root directory. Raw error:', error);
       expect(mockToast).toHaveBeenCalledWith({
         title: FileExplorerStrings.ERROR.TITLE,
         description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,
