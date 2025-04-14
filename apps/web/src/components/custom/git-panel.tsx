@@ -457,7 +457,7 @@ export const GitPanel: React.FC<GitPanelProps> = ({ rootDirectoryHandle }) => {
         defaultValue="history"
         value={activeTab}
         onValueChange={(value) =>
-          setActiveTab(value as 'history' | 'compare' | 'recent' | 'hotspots')
+          setActiveTab(value as 'history' | 'compare' | 'analysis')
         }
         className="h-full flex flex-col"
       >
