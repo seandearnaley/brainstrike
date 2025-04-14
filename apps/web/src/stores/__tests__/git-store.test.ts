@@ -1,7 +1,5 @@
-import { FSInitializationError } from '@brainstrike/types';
-import LightningFS from '@isomorphic-git/lightning-fs';
 import * as git from 'isomorphic-git';
-import { act, renderHook } from '@testing-library/react';
+import { act } from '@testing-library/react';
 import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest';
 import { useGitStore } from '../git-store';
 
@@ -82,8 +80,6 @@ vi.mock('../../lib/git-utils', () => ({
 }));
 
 describe('useGitStore', () => {
-  let fsReadFileMock: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
     // Reset store to initial state
     act(() => {
