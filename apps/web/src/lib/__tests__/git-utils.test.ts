@@ -1,6 +1,6 @@
 import type LightningFS from '@isomorphic-git/lightning-fs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { copyDirectoryToLightningFS } from '../git-utils';
+import { copyDirectoryToLightningFS, copyGitDirectory } from '../git-utils';
 
 // Define missing types
 interface FileSystemHandlePermissionDescriptor {
@@ -226,5 +226,167 @@ describe('git-utils', () => {
 
     // Verify console.error was called
     expect(consoleSpy).toHaveBeenCalled();
+  });
+
+  it('handles existing directory without throwing error', async () => {
+    // Setup mkdir to throw EEXIST error
+    const existsError = new Error('Directory exists');
+    // @ts-expect-error - Adding code property for test
+    existsError.code = 'EEXIST';
+    mockFs.promises.mkdir = vi.fn().mockRejectedValueOnce(existsError).mockResolvedValueOnce(undefined);
+
+    // Create a mock .git directory
+    const gitDir = new MockDirectoryHandle('.git');
+    const rootDirEntries = new Map<string, FileSystemHandle>([['.git', gitDir]]);
+    const rootDir = new MockDirectoryHandle('root', rootDirEntries);
+
+    // Call the function
+    await copyDirectoryToLightningFS(rootDir, mockFs as unknown as LightningFS, '/project');
+
+    // Verify mkdir was called for both directories
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/project');
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/project/.git');
+  });
+
+  it('propagates critical errors during root directory creation', async () => {
+    // Setup mkdir to throw a critical error
+    const criticalError = new Error('Permission denied');
+    // @ts-expect-error - Adding code property for test
+    criticalError.code = 'EACCES';
+    mockFs.promises.mkdir = vi.fn().mockRejectedValueOnce(criticalError);
+
+    // Create a mock directory
+    const rootDir = new MockDirectoryHandle('root');
+
+    // Call the function and expect it to throw
+    await expect(
+      copyDirectoryToLightningFS(rootDir, mockFs as unknown as LightningFS, '/project')
+    ).rejects.toThrow('Permission denied');
+
+    // Verify console.error was called
+    expect(consoleSpy).toHaveBeenCalled();
+  });
+
+  it('copyGitDirectory should handle errors during directory creation', async () => {
+    // Setup mkdir to throw an error other than EEXIST
+    const dirError = new Error('Permission denied');
+    // @ts-expect-error - Adding code property for test
+    dirError.code = 'EACCES';
+    mockFs.promises.mkdir = vi.fn().mockRejectedValueOnce(dirError);
+
+    // Create a source directory
+    const sourceDir = new MockDirectoryHandle('source');
+
+    // Call the function and expect it to throw
+    await expect(
+      copyGitDirectory(mockFs as unknown as LightningFS, sourceDir, '/target')
+    ).rejects.toThrow('Permission denied');
+  });
+
+  it('copyGitDirectory should handle errors during file writing', async () => {
+    // Setup writeFile to throw an error
+    const writeError = new Error('Disk full');
+    mockFs.promises.writeFile = vi.fn().mockRejectedValueOnce(writeError);
+
+    // Create a mock file in the source directory
+    const testFile = new MockFileHandle(
+      'test.txt',
+      new TextEncoder().encode('test content')
+    );
+
+    // Create source directory with the file
+    const sourceDirEntries = new Map<string, FileSystemHandle>([['test.txt', testFile]]);
+    const sourceDir = new MockDirectoryHandle('source', sourceDirEntries);
+
+    // Call the function and expect it to throw
+    await expect(
+      copyGitDirectory(mockFs as unknown as LightningFS, sourceDir, '/target')
+    ).rejects.toThrow('Disk full');
+
+    // Verify mkdir was called
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target');
+    
+    // Verify console.error was called with error about writing file
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Error writing file'),
+      expect.any(Error)
+    );
+  });
+
+  it('recursively copies nested directories correctly', async () => {
+    // Create a nested structure:
+    // source/
+    //   subdir/
+    //     file.txt
+
+    // Create the file in the nested directory
+    const nestedFile = new MockFileHandle(
+      'file.txt',
+      new TextEncoder().encode('nested file content')
+    );
+
+    // Create the nested directory with the file
+    const subdirEntries = new Map<string, FileSystemHandle>([['file.txt', nestedFile]]);
+    const subdir = new MockDirectoryHandle('subdir', subdirEntries);
+
+    // Create source directory with the nested directory
+    const sourceDirEntries = new Map<string, FileSystemHandle>([['subdir', subdir]]);
+    const sourceDir = new MockDirectoryHandle('source', sourceDirEntries);
+
+    // Call the function
+    await copyGitDirectory(mockFs as unknown as LightningFS, sourceDir, '/target');
+
+    // Verify mkdir was called for both directories
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target');
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target/subdir');
+
+    // Verify writeFile was called for the nested file
+    expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+      '/target/subdir/file.txt',
+      expect.any(Uint8Array)
+    );
+  });
+
+  it('handles large directory structures with multiple files and directories', async () => {
+    // Create multiple files for testing
+    const file1 = new MockFileHandle('file1.txt', new TextEncoder().encode('content 1'));
+    const file2 = new MockFileHandle('file2.txt', new TextEncoder().encode('content 2'));
+    const file3 = new MockFileHandle('file3.txt', new TextEncoder().encode('content 3'));
+    
+    // Create multiple directories with files
+    const subdir1Entries = new Map<string, FileSystemHandle>([['file3.txt', file3]]);
+    const subdir1 = new MockDirectoryHandle('subdir1', subdir1Entries);
+    
+    // Create source directory with multiple entries
+    const sourceDirEntries = new Map<string, FileSystemHandle>([
+      ['file1.txt', file1],
+      ['file2.txt', file2],
+      ['subdir1', subdir1],
+    ]);
+    const sourceDir = new MockDirectoryHandle('source', sourceDirEntries);
+
+    // Call the function
+    await copyGitDirectory(mockFs as unknown as LightningFS, sourceDir, '/target');
+
+    // Verify mkdir was called for all directories
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target');
+    expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target/subdir1');
+
+    // Verify writeFile was called for all files
+    expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+      '/target/file1.txt',
+      expect.any(Uint8Array)
+    );
+    expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+      '/target/file2.txt',
+      expect.any(Uint8Array)
+    );
+    expect(mockFs.promises.writeFile).toHaveBeenCalledWith(
+      '/target/subdir1/file3.txt',
+      expect.any(Uint8Array)
+    );
+
+    // Verify the correct number of calls to writeFile
+    expect(mockFs.promises.writeFile).toHaveBeenCalledTimes(3);
   });
 });

@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { GitBranch, GitCompare, Loader2 } from 'lucide-react';
 import * as React from 'react';
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { cn } from '../../lib/utils';
 import { useGitStore } from '../../stores/git-store';
 import { AnalysisPanel } from './analysis-panel';
@@ -413,20 +413,28 @@ export const GitPanel: React.FC<GitPanelProps> = ({ rootDirectoryHandle }) => {
     error,
     activeTab,
     initializeFS,
-    clearState,
     loadCommitHistory,
     compareBranches,
     setSelectedBranches,
     setActiveTab,
   } = useGitStore();
 
+  const initializingHandleRef = useRef<FileSystemDirectoryHandle | null>(null);
+
   React.useEffect(() => {
-    if (rootDirectoryHandle) {
-      initializeFS(rootDirectoryHandle);
-    } else {
-      clearState();
+    if (rootDirectoryHandle && rootDirectoryHandle !== initializingHandleRef.current) {
+      initializingHandleRef.current = rootDirectoryHandle;
+      initializeFS(rootDirectoryHandle).catch((error) => {
+        console.error('[GitPanel] Error during initializeFS call:', error);
+      });
     }
-  }, [rootDirectoryHandle, initializeFS, clearState]);
+
+    return () => {
+      console.log('[GitPanel] useEffect cleanup.');
+      // No longer clearing state here to avoid race conditions with Strict Mode.
+      // The state will clear when the rootDirectoryHandle *actually* changes or the component unmounts.
+    };
+  }, [rootDirectoryHandle, initializeFS]);
 
   if (status === 'initializing' || status === 'loading_branches') {
     return (
@@ -449,7 +457,7 @@ export const GitPanel: React.FC<GitPanelProps> = ({ rootDirectoryHandle }) => {
         defaultValue="history"
         value={activeTab}
         onValueChange={(value) =>
-          setActiveTab(value as 'history' | 'compare' | 'recent' | 'hotspots')
+          setActiveTab(value as 'history' | 'compare' | 'analysis')
         }
         className="h-full flex flex-col"
       >

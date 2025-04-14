@@ -28,10 +28,7 @@
         "src/types/git-types.ts",
         "src/config/server.ts"
       ],
-      "ignoreDependencies": [
-        // Config package used implicitly by tsc/vite
-        "@brainstrike/tsconfig"
-      ],
+      "ignoreDependencies": [],
       "typescript": {
         // Only add if you need to specify a non-default tsconfig location
         "config": "tsconfig.json"
@@ -113,28 +110,22 @@
   ],
   // Keep existing global settings
   "ignoreBinaries": [
-    "act",
-    "fta-cli",
     "playwright", // Used in GH Actions
-    "eslint",     // Likely false positive from bin field, biome is used
-    "@commitlint/cli" // Used by husky/CI
+    "eslint"     // Likely false positive from bin field, biome is used
   ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
     "@monaco-editor/react",
     "monaco-editor",
-    "@types/dompurify",
     "dompurify",
     "@babel/core",
     "@types/testing-library__jest-dom", // Likely used by root or app vitest.setup.ts
     "glob",
     "husky",
-    "@commitlint/cli",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
-    // Config package used implicitly by tsc/vite
-    "@brainstrike/tsconfig"
+    "@commitlint/cli" // Used with commitlint.config.ts but no hooks yet
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

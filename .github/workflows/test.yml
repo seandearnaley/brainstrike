@@ -56,12 +56,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
-      # Install missing coverage dependency for tests
-      - name: Install Vitest coverage dependencies
-        run: |
-          pnpm add -D -w @vitest/coverage-v8
-          pnpm add -D -g nyc
-
       # Install Codecov plugin for bundle analysis (needed by vite config in apps/web)
       - name: Install Codecov Vite plugin
         run: pnpm add -D -F @brainstrike/web @codecov/vite-plugin
@@ -94,12 +88,10 @@ jobs:
         env:
           CI: true
           NODE_ENV: production
-        continue-on-error: true
 
       # Now type-check after packages are built
       - name: Type check
         run: pnpm run type-check
-        continue-on-error: true # Continue even if type checking fails
 
       - name: Run Knip (detect unused code)
         run: pnpm run knip -c knip.jsonc --max-issues 10 --cache # Add -c knip.jsonc, keep extra -- for pnpm
@@ -107,7 +99,6 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm run test:coverage # Explicitly run coverage script
-        continue-on-error: true # Continue even if tests fail
 
       # Separate Playwright cache to avoid permission issues
       - name: Cache Playwright browsers
@@ -135,7 +126,6 @@ jobs:
           CI: true
           PORT: 3000
           BASE_URL: http://127.0.0.1:3000
-        continue-on-error: true # Continue even if E2E tests fail
 
       - name: Process coverage reports
         if: always()
