@@ -64,7 +64,7 @@ jobs:
           REPORT_FILE="knip-report.md"
           
           # Run knip and capture output and exit code
-          OUTPUT=$(pnpm run knip -- --reporter markdown || true)
+          OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
           
           # Check if there are any issues
           if echo "$OUTPUT" | grep -q "Unused"; then
@@ -72,7 +72,7 @@ jobs:
             echo "$OUTPUT" > $REPORT_FILE
           else
             # If no issues found, create a clear success message
-            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "## No unused code detected!" > $REPORT_FILE
             echo "" >> $REPORT_FILE
             echo "Great job! Knip didn't find any unused files, exports, or dependencies in the standard analysis." >> $REPORT_FILE
           fi
@@ -100,7 +100,7 @@ jobs:
             
             // Read the standard report with fallback
             const standardReport = ensureFileExists('knip-report.md', 
-              '## ⚠️ Knip standard analysis failed to run\\n\\nPlease check the workflow logs for details.');
+              '## Knip standard analysis failed to run\\n\\nPlease check the workflow logs for details.');
             
             // Create the comment body using only standard report
             let body = `## Knip Code Analysis Results
