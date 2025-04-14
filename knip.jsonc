@@ -125,7 +125,7 @@
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
-    "@vitest/coverage-v8" // Used for test coverage
+    "@commitlint/cli" // Used with commitlint.config.ts but no hooks yet
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
