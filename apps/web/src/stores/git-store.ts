@@ -45,7 +45,7 @@ interface GitState {
   selectedCompareBranch: string;
   error: { code: string; message: string; retry?: () => Promise<void> } | null;
   lastInitializedRepoPath: string | null;
-  activeTab: 'history' | 'compare' | 'recent' | 'hotspots';
+  activeTab: 'history' | 'compare' | 'analysis';
 
   // Actions
   initializeFS: (dirHandle: FileSystemDirectoryHandle) => Promise<void>;
@@ -54,7 +54,7 @@ interface GitState {
   loadCommitHistory: () => Promise<void>;
   compareBranches: () => Promise<void>;
   setSelectedBranches: (base: string, compare: string) => void;
-  setActiveTab: (tab: 'history' | 'compare' | 'recent' | 'hotspots') => void;
+  setActiveTab: (tab: 'history' | 'compare' | 'analysis') => void;
 }
 
 const initialState = {
@@ -70,7 +70,7 @@ const initialState = {
   selectedCompareBranch: '',
   error: null,
   lastInitializedRepoPath: null,
-  activeTab: 'history' as 'history' | 'compare' | 'recent' | 'hotspots',
+  activeTab: 'history' as 'history' | 'compare' | 'analysis',
 };
 
 export const useGitStore = create<GitState>((set, get) => ({
@@ -80,7 +80,7 @@ export const useGitStore = create<GitState>((set, get) => ({
     set(initialState);
   },
 
-  setActiveTab: (tab: 'history' | 'compare' | 'recent' | 'hotspots') => {
+  setActiveTab: (tab: 'history' | 'compare' | 'analysis') => {
     set({ activeTab: tab });
   },
 
