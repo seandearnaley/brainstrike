@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ThemeProvider } from '../../providers/theme-provider';
+import { HelmetProvider } from 'react-helmet-async'; // Import HelmetProvider
 import RootLayout from '../layout';
 
 // Mock the Inter font
@@ -46,7 +46,6 @@ describe('RootLayout', () => {
     // Verify the root structure
     expect(layout.type).toBe('html');
     expect(layout.props.lang).toBe('en');
-    expect(layout.props.suppressHydrationWarning).toBe(true);
 
     // Get the body element - account for head elements
     const body = Array.isArray(layout.props.children)
@@ -94,22 +93,16 @@ describe('RootLayout', () => {
   });
 
   it('renders correctly in the DOM', () => {
+    // Render the actual RootLayout wrapped only in HelmetProvider
     const { container } = render(
-      <div>
-        <ThemeProvider defaultTheme="system" storageKey="app-theme">
-          <div className="flex h-screen">
-            <div data-testid="sidebar">Sidebar Mock</div>
-            <main className="flex-1 overflow-auto p-4">
-              <div>Test Content</div>
-            </main>
-          </div>
-          <div data-testid="toaster">Toaster Mock</div>
-        </ThemeProvider>
-      </div>
+      <HelmetProvider>
+        <RootLayout>
+          <div>Test Content</div>
+        </RootLayout>
+      </HelmetProvider>
     );
 
-    // Verify the components are rendered
-    expect(screen.getByTestId('theme-provider')).toBeInTheDocument();
+    // Verify the components are rendered using their mock test IDs
     expect(screen.getByTestId('sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('toaster')).toBeInTheDocument();
     expect(screen.getByText('Test Content')).toBeInTheDocument();

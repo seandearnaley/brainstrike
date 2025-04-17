@@ -1,10 +1,13 @@
 import { ThemeSettings } from '../../components/custom/settings/theme-settings';
+import { Helmet } from 'react-helmet-async';
 
 export default function SettingsPageContent() {
   return (
     <div className="container max-w-2xl mx-auto py-8">
-      <title>Settings - Dashboard</title>
-      <meta name="description" content="Customize your dashboard settings" />
+      <Helmet>
+        <title>Settings - BrainStrike.ai</title>
+        <meta name="description" content="Customize your application settings" />
+      </Helmet>
 
       <h1 className="text-3xl font-bold mb-8">Settings</h1>
 

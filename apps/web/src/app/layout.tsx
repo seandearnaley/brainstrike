@@ -1,6 +1,6 @@
 import './globals.css';
 import { Toaster } from '@brainstrike/ui';
-import type React from 'react';
+import React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
 import RouterProvider from '../providers/router-provider';
 import { ThemeProvider } from '../providers/theme-provider';
@@ -11,7 +11,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <title>BrainStrike.ai</title>
       <meta name="description" content="Multi-app dashboard" />
       <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
