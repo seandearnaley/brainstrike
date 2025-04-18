@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ThemeSettings } from '../../../components/custom/settings/theme-settings';
+import { HelmetProvider } from 'react-helmet-async';
 import SettingsPageContent from '../page-content';
 
 // Mock the ThemeSettings component
@@ -14,7 +15,11 @@ describe('SettingsPageContent', () => {
   });
 
   test('renders settings page with correct structure', () => {
-    render(<SettingsPageContent />);
+    render(
+      <HelmetProvider>
+        <SettingsPageContent />
+      </HelmetProvider>
+    );
 
     // Check for main heading
     expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
@@ -32,7 +37,11 @@ describe('SettingsPageContent', () => {
   });
 
   test('renders ThemeSettings component', () => {
-    render(<SettingsPageContent />);
+    render(
+      <HelmetProvider>
+        <SettingsPageContent />
+      </HelmetProvider>
+    );
 
     // Verify ThemeSettings is rendered
     expect(ThemeSettings).toHaveBeenCalled();
@@ -40,7 +49,11 @@ describe('SettingsPageContent', () => {
   });
 
   test('has correct container styling', () => {
-    render(<SettingsPageContent />);
+    render(
+      <HelmetProvider>
+        <SettingsPageContent />
+      </HelmetProvider>
+    );
 
     // Find the main container
     const container = screen.getByText('Settings').closest('div');

@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { HelmetProvider } from 'react-helmet-async';
 // Import global CSS
 import './app/globals.css';
 
@@ -20,18 +21,20 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <FSProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Route with the main layout */}
-          <Route path="/" element={<RootLayoutContent />}>
-            {/* Index route (home page) */}
-            <Route index element={<HomePageContent />} />
-            {/* Settings route */}
-            <Route path="settings" element={<SettingsPageContent />} />
-            {/* Add other routes as needed */}
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <HelmetProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Route with the main layout */}
+            <Route path="/" element={<RootLayoutContent />}>
+              {/* Index route (home page) */}
+              <Route index element={<HomePageContent />} />
+              {/* Settings route */}
+              <Route path="settings" element={<SettingsPageContent />} />
+              {/* Add other routes as needed */}
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </HelmetProvider>
     </FSProvider>
   </React.StrictMode>
 );
