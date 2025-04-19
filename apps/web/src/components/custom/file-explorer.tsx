@@ -12,7 +12,7 @@ import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import ErrorBoundary from './error-boundary';
 
 // Lazy load heavy components
-const ActionButtons = lazy(() => import('./action-buttons'));
+const ActionButtons = lazy(() => import('@brainstrike/ui').then(m => ({ default: m.ActionButtons as React.ComponentType<any> })));
 const FileExplorerMainPanel = lazy(() => import('./file-explorer-main-panel'));
 const FileExplorerSidebar = lazy(() => import('./file-explorer-sidebar'));
 
@@ -273,6 +273,11 @@ const FileExplorer: React.FC = () => {
           <footer className="px-4 lg:px-6 mt-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
             <ActionButtons
               displayedFiles={displayedFiles}
+              selectedFilePaths={selectedFilePaths}
+              maxSelectionCount={maxSelectionCount}
+              currentFolderId={currentFolderId}
+              setSelectedFiles={handleSelectionChange}
+              encodeFileSelection={() => {}}
               onDownloadReport={handleDownloadReport}
               onCopyReport={handleCopyReport}
             />
