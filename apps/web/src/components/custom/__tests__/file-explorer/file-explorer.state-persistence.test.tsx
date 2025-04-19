@@ -59,9 +59,7 @@ vi.mock('../../file-explorer-sidebar', () => ({
   FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
 }));
 
-vi.mock('@/components/custom/file-explorer-main-panel', () => ({
-  FileExplorerMainPanel: () => <div data-testid="main-panel">Main Panel</div>,
-}));
+// Note: This test previously referenced file-explorer-main-panel, but that import has been removed due to migration.
 
 // Mock constants
 vi.mock('../../constants/file-explorer-constants', () => ({

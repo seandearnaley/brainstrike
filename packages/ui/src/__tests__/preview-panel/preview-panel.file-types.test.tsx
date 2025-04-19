@@ -1,7 +1,9 @@
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, uiTestProps, render, userEvent } from './preview-panel-test-utils';
 
 describe('PreviewPanel - File Type Handling', () => {
   beforeEach(() => {
@@ -11,7 +13,7 @@ describe('PreviewPanel - File Type Handling', () => {
   it('should show appropriate message for binary files', async () => {
     const selectedFile = createCompositeKey('image.png');
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
+      <PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
     );
 
     const fileCell = screen.getByText('image.png').closest('td');
@@ -25,7 +27,7 @@ describe('PreviewPanel - File Type Handling', () => {
   it('should show appropriate message for unsupported files', async () => {
     const selectedFile = createCompositeKey('file.xyz');
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
+      <PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
     );
 
     const fileCell = screen.getByText('file.xyz').closest('td');
@@ -41,7 +43,7 @@ describe('PreviewPanel - File Type Handling', () => {
     const fileContents = { [selectedFile]: 'README content' };
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         fileContents={fileContents}
       />
@@ -60,7 +62,7 @@ describe('PreviewPanel - File Type Handling', () => {
     const fileContents = { [selectedFile]: 'Test content' };
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         fileContents={fileContents}
       />

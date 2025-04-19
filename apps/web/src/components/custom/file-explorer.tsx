@@ -9,12 +9,18 @@ import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
+import { useUndoableAction } from '../../hooks/use-undoable-action';
+import { decodeFileSelection } from '../../utils/file-selection-utils';
+import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
 import ErrorBoundary from './error-boundary';
 
 // Lazy load heavy components
-const ActionButtons = lazy(() => import('./action-buttons'));
-const FileExplorerMainPanel = lazy(() => import('./file-explorer-main-panel'));
+const ActionButtons = lazy(() => import('@brainstrike/ui').then(m => ({ default: m.ActionButtons as React.ComponentType<any> })));
 const FileExplorerSidebar = lazy(() => import('./file-explorer-sidebar'));
+
+// MIGRATION: FileExplorerMainPanel is now provided by @brainstrike/ui.
+// Remove local lazy import and use the UI package version.
+const FileExplorerMainPanel = lazy(() => import('@brainstrike/ui').then(m => ({ default: m.PreviewPanel as React.ComponentType<any> })));
 
 // Import lightweight components directly
 import { FileExplorerStrings } from './constants/file-explorer-constants';
@@ -116,6 +122,27 @@ const FileExplorer: React.FC = () => {
     showToast,
     toast,
   });
+
+  const { performUndoableAction } = useUndoableAction<Set<string>, Set<string>>();
+
+  const performUndoableActionForPanel = (
+    key: string,
+    _itemKey: string, // renamed to avoid unused var lint
+    opts: {
+      actionName: string;
+      itemDescription: string;
+      getStateSnapshot: () => Set<string>;
+      onUndo: (key: string, snapshot: Set<string>) => void;
+    }
+  ) => {
+    performUndoableAction(key, opts.getStateSnapshot(), {
+      actionName: opts.actionName,
+      itemDescription: opts.itemDescription,
+      getStateSnapshot: opts.getStateSnapshot,
+      // Adapt onUndo signature to match PreviewPanel expectation
+      onUndo: (_item, snapshot) => opts.onUndo(key, snapshot),
+    });
+  };
 
   useEffect(() => {
     if (quickFilteredTree) {
@@ -266,6 +293,10 @@ const FileExplorer: React.FC = () => {
                   fileContents={fileContents}
                   loadingFiles={loadingFiles}
                   onSelectionChange={handleSelectionChange}
+                  decodeFileSelection={decodeFileSelection}
+                  countTokensHeuristic={countTokensHeuristic}
+                  estimateTokenCost={estimateTokenCost}
+                  performUndoableAction={performUndoableActionForPanel}
                 />
               </Suspense>
             </div>
@@ -273,6 +304,11 @@ const FileExplorer: React.FC = () => {
           <footer className="px-4 lg:px-6 mt-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
             <ActionButtons
               displayedFiles={displayedFiles}
+              selectedFilePaths={selectedFilePaths}
+              maxSelectionCount={maxSelectionCount}
+              currentFolderId={currentFolderId}
+              setSelectedFiles={handleSelectionChange}
+              encodeFileSelection={() => {}}
               onDownloadReport={handleDownloadReport}
               onCopyReport={handleCopyReport}
             />

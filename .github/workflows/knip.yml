@@ -4,19 +4,15 @@ on:
   # Allow manual triggering when needed
   workflow_dispatch:
   
-  # Run on PRs to specific paths that might affect unused code
-  pull_request:
-    paths:
-      - 'package.json'
-      - 'knip.jsonc'
-      - '.github/workflows/knip.yml'
-      - 'apps/**/*.{ts,tsx,js,jsx}'
-      - 'packages/**/*.{ts,tsx,js,jsx}'
-
-  # Run on pushes to main 
+  # Run on pushes to main branch
   push:
     branches:
       - main
+  
+  # Run on PRs to any branch
+  pull_request:
+    branches:
+      - '**'
 
 # Add permissions block to allow writing to pull requests
 permissions:

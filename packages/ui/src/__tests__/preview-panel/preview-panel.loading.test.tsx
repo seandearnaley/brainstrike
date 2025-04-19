@@ -1,7 +1,11 @@
+// All usages of PreviewPanel now use uiTestProps, so type errors for missing required props should be resolved.
+
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, defaultProps, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 describe('PreviewPanel - Loading States', () => {
   beforeEach(() => {
@@ -12,7 +16,7 @@ describe('PreviewPanel - Loading States', () => {
     const selectedFile = createCompositeKey('file1.txt');
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={new Set([selectedFile])}
         fileContents={{}}
@@ -35,7 +39,7 @@ describe('PreviewPanel - Loading States', () => {
 
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={selectedFiles}
         loadingFiles={loadingFiles}
         fileContents={{}}
@@ -52,7 +56,7 @@ describe('PreviewPanel - Loading States', () => {
 
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={loadingFiles}
         fileContents={{}}
@@ -66,7 +70,7 @@ describe('PreviewPanel - Loading States', () => {
     const selectedFile = createCompositeKey('file1.txt');
     const { rerender } = render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={new Set([selectedFile])}
         fileContents={{}}
@@ -78,7 +82,7 @@ describe('PreviewPanel - Loading States', () => {
     // Simulate loading completion
     rerender(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={new Set()}
         fileContents={{ [selectedFile]: 'Loaded content' }}
@@ -107,7 +111,7 @@ describe('PreviewPanel - Loading States', () => {
 
     render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={selectedFiles}
         loadingFiles={loadingFiles}
         fileContents={fileContents}
@@ -122,7 +126,7 @@ describe('PreviewPanel - Loading States', () => {
     const selectedFile = createCompositeKey('file1.txt');
     const { rerender } = render(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={new Set([selectedFile])}
         fileContents={{}}
@@ -132,7 +136,7 @@ describe('PreviewPanel - Loading States', () => {
     // Simulate a race condition where content arrives before loading state updates
     rerender(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([selectedFile])}
         loadingFiles={new Set([selectedFile])}
         fileContents={{ [selectedFile]: 'Content arrived early' }}

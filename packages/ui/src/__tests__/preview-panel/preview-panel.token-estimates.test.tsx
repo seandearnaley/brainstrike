@@ -1,7 +1,9 @@
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, defaultProps, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 // Mock token-utils functions
 vi.mock('@/utils/token-utils', () => ({
@@ -46,7 +48,7 @@ describe('PreviewPanel - Token Estimation', () => {
     const user = userEvent.setup();
 
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={fileContents} />
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={fileContents} />
     );
 
     // First test for the total badge that should be visible
@@ -87,7 +89,7 @@ describe('PreviewPanel - Token Estimation', () => {
     };
 
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={fileContents} />
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={fileContents} />
     );
 
     // Should show the correct number of files somewhere in the UI
@@ -96,7 +98,8 @@ describe('PreviewPanel - Token Estimation', () => {
     expect(filesSelectedText.textContent).toContain('2');
 
     // Should show some token count
-    const tokenTexts = screen.getAllByText(/\d+\s*tokens/);
+    // Accept both "tokens" and "K tokens" since formatTokenCount may abbreviate
+    const tokenTexts = screen.getAllByText((content) => /\d+(\.\d+)?\s*(K\s*)?tokens/.test(content));
     expect(tokenTexts.length).toBeGreaterThan(0);
 
     // Should show cost estimate
@@ -122,7 +125,7 @@ describe('PreviewPanel - Token Estimation', () => {
     const user = userEvent.setup();
 
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={fileContents} />
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={fileContents} />
     );
 
     // Expand all folders
@@ -152,7 +155,7 @@ describe('PreviewPanel - Token Estimation', () => {
     const user = userEvent.setup();
 
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={fileContents} />
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={fileContents} />
     );
 
     // Expand all folders

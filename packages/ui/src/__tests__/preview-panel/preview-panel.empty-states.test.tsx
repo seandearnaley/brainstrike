@@ -1,7 +1,9 @@
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render } from './preview-panel-test-utils';
+import { createCompositeKey, defaultProps, render, uiTestProps } from './preview-panel-test-utils';
 
 describe('PreviewPanel - Initial State and Empty States', () => {
   beforeEach(() => {
@@ -9,19 +11,19 @@ describe('PreviewPanel - Initial State and Empty States', () => {
   });
 
   it('should show "No files selected" when no files are selected', () => {
-    render(<PreviewPanel {...defaultProps} />);
+    render(<PreviewPanel {...uiTestProps} />);
     expect(screen.getByText('No files selected')).toBeInTheDocument();
   });
 
   it('should handle empty selectedFiles', () => {
-    render(<PreviewPanel {...defaultProps} selectedFiles={new Set()} />);
+    render(<PreviewPanel {...uiTestProps} selectedFiles={new Set()} />);
     expect(screen.getByText('No files selected')).toBeInTheDocument();
   });
 
   it('should handle empty fileContents', () => {
     const selectedFile = createCompositeKey('file1.txt');
     render(
-      <PreviewPanel {...defaultProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
+      <PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
     );
     expect(screen.getByText(/file1\.txt/i)).toBeInTheDocument();
   });

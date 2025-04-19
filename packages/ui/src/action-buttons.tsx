@@ -19,43 +19,46 @@
 import { Button } from '@brainstrike/ui';
 import { Download, FileText } from 'lucide-react';
 import { useCallback } from 'react';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
-import { encodeFileSelection } from '../../utils/file-selection-utils';
 
-interface IActionButtonsProps {
-  /** Set of file paths currently visible/filtered in the explorer */
+export interface ActionButtonsProps {
   displayedFiles: Set<string>;
-  /** Callback to trigger report download for selected files */
+  selectedFilePaths: Set<string>;
+  maxSelectionCount: number;
+  currentFolderId: string | null;
+  setSelectedFiles: (files: Set<string>) => void;
+  encodeFileSelection: (folderId: string, path: string) => string;
   onDownloadReport: () => void;
-  /** Callback to copy report content for selected files */
   onCopyReport: () => void;
 }
 
-const ActionButtons = ({ displayedFiles, onDownloadReport, onCopyReport }: IActionButtonsProps) => {
-  const { selectedFilePaths, setSelectedFiles, maxSelectionCount, currentFolderId } =
-    useFileExplorerStore();
-
+export const ActionButtons = ({
+  displayedFiles,
+  selectedFilePaths,
+  maxSelectionCount,
+  currentFolderId,
+  setSelectedFiles,
+  encodeFileSelection,
+  onDownloadReport,
+  onCopyReport,
+}: ActionButtonsProps) => {
   // Handles selecting files up to the max limit
   const handleSelectAll = useCallback(() => {
     if (!currentFolderId) return;
-    // Convert to array to use slice for limiting selection and encode with folder ID
     const filesToSelect = Array.from(displayedFiles)
       .slice(0, maxSelectionCount)
       .map((path) => encodeFileSelection(currentFolderId, path));
     setSelectedFiles(new Set(filesToSelect));
-  }, [displayedFiles, setSelectedFiles, maxSelectionCount, currentFolderId]);
+  }, [displayedFiles, setSelectedFiles, maxSelectionCount, currentFolderId, encodeFileSelection]);
 
   // Clears all selected files
   const handleDeselectAll = useCallback(() => {
     setSelectedFiles(new Set());
   }, [setSelectedFiles]);
 
-  // State flags for button behavior
   const hasDisplayedFiles = displayedFiles.size > 0;
   const hasSelectedFiles = selectedFilePaths.size > 0;
   const canSelectAll = displayedFiles.size <= maxSelectionCount;
 
-  // Determines button text based on current selection state
   const getButtonText = () => {
     if (hasSelectedFiles) return 'Deselect All';
     if (!hasDisplayedFiles) return 'Select All';
@@ -67,7 +70,6 @@ const ActionButtons = ({ displayedFiles, onDownloadReport, onCopyReport }: IActi
       <Button
         variant="outline"
         onClick={hasSelectedFiles ? handleDeselectAll : handleSelectAll}
-        // Only disable when there are no files to select
         disabled={!hasDisplayedFiles}
         className="flex items-center gap-1 h-8"
       >
@@ -95,5 +97,3 @@ const ActionButtons = ({ displayedFiles, onDownloadReport, onCopyReport }: IActi
     </div>
   );
 };
-
-export default ActionButtons;
