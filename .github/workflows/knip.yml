@@ -4,13 +4,13 @@ on:
   # Allow manual triggering when needed
   workflow_dispatch:
   
+  # Run on pushes to main branch
+  push:
+    branches:
+      - main
+  
   # Run on PRs to any branch
   pull_request:
-    branches:
-      - '**'
-  
-  # Run on pushes to any branch
-  push:
     branches:
       - '**'
 
