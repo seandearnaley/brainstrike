@@ -71,6 +71,7 @@ function formatTokenCount(tokens: number): string {
 
 // Remove getFolderColor dependency from @brainstrike/utils for UI package decoupling
 // import { getFolderColor } from '@brainstrike/utils';
+// CHECK THIS
 
 // Provide a fallback getFolderColor utility for UI package
 function getFolderColor(folderId: string): string {
