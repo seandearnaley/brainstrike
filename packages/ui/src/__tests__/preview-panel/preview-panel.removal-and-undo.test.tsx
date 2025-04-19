@@ -1,9 +1,11 @@
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
 import {
   createCompositeKey,
-  defaultProps,
+  uiTestProps,
   mockOnSelectionChange,
   render,
   userEvent,
@@ -16,9 +18,7 @@ describe('PreviewPanel - File Removal and Undo', () => {
 
   it('should remove file when remove button is clicked', async () => {
     const selectedFile = createCompositeKey('file1.txt');
-    render(
-      <PreviewPanel {...defaultProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
-    );
+    render(<PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />);
 
     const removeButton = screen.getByLabelText('Remove file1.txt from selection');
     await userEvent.click(removeButton);
@@ -28,9 +28,7 @@ describe('PreviewPanel - File Removal and Undo', () => {
 
   it('should show undo option in toast when removing a file', async () => {
     const selectedFile = createCompositeKey('file1.txt');
-    render(
-      <PreviewPanel {...defaultProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
-    );
+    render(<PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />);
 
     const removeButton = screen.getByLabelText('Remove file1.txt from selection');
     await userEvent.click(removeButton);
@@ -49,7 +47,7 @@ describe('PreviewPanel - File Removal and Undo', () => {
       createCompositeKey('file2.txt'),
     ]);
 
-    render(<PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={{}} />);
+    render(<PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={{}} />);
 
     const removeButton1 = screen.getByLabelText('Remove file1.txt from selection');
     await userEvent.click(removeButton1);

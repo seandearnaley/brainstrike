@@ -1,7 +1,9 @@
+import React from 'react';
+import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, defaultProps, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 describe('PreviewPanel - Accessibility', () => {
   beforeEach(() => {
@@ -15,7 +17,7 @@ describe('PreviewPanel - Accessibility', () => {
     ]);
     const user = userEvent.setup();
     const { rerender } = render(
-      <PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={{}} />
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={{}} />
     );
 
     // With the new UI, we have more buttons: expand/collapse all, folder toggle, sort buttons, etc.
@@ -26,7 +28,7 @@ describe('PreviewPanel - Accessibility', () => {
     // Rerender with updated selectedFiles
     rerender(
       <PreviewPanel
-        {...defaultProps}
+        {...uiTestProps}
         selectedFiles={new Set([createCompositeKey('file2.txt')])}
         fileContents={{}}
       />
@@ -48,7 +50,7 @@ describe('PreviewPanel - Accessibility', () => {
     ]);
     const user = userEvent.setup();
 
-    render(<PreviewPanel {...defaultProps} selectedFiles={selectedFiles} fileContents={{}} />);
+    render(<PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={{}} />);
 
     // Initial tab order check - with the new UI, the first focusable element is the Expand All button
     await user.tab();

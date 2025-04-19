@@ -4,7 +4,6 @@ import { userEvent as createUserEvent } from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import type { ReactElement } from 'react';
 import { afterEach, vi } from 'vitest';
-import { ThemeProvider } from '../../../../providers/theme-provider';
 
 // Create a userEvent instance with empty options
 const userEvent = {
@@ -90,14 +89,30 @@ export const defaultProps = {
   fileSizes: {},
 };
 
+// Add basic no-op or trivial implementations for required UI props
+export const requiredUiProps = {
+  decodeFileSelection: (compositeKey: string) => {
+    const [folderId, path] = compositeKey.split('|@|');
+    return { folderId: folderId || '', path: path || compositeKey };
+  },
+  countTokensHeuristic: (content: string) => content.length,
+  estimateTokenCost: (tokens: number) => tokens * 0.00001,
+  performUndoableAction: () => {},
+};
+
+// Merge with defaultProps for tests
+export const uiTestProps = {
+  ...defaultProps,
+  ...requiredUiProps,
+};
+
+// Provide a no-op ThemeProvider for UI tests
+const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => <>{children}</>;
+
 // Custom render function with providers
 function render(ui: ReactElement): RenderResult {
   return testingLibraryRender(ui, {
-    wrapper: ({ children }: { children: ReactNode }) => (
-      <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-        {children}
-      </ThemeProvider>
-    ),
+    wrapper: ThemeProvider,
   });
 }
 

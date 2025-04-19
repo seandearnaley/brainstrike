@@ -137,9 +137,10 @@ vi.mock('@/components/custom/file-explorer-main-panel', () => ({
   default: () => <div data-testid="main-panel">Main Panel</div>,
 }));
 
-// Mock action buttons
-vi.mock('../../action-buttons', () => ({
-  default: () => <div data-testid="action-buttons">Action Buttons</div>,
+// Mock ActionButtons and useToast from @brainstrike/ui
+vi.mock('@brainstrike/ui', () => ({
+  ActionButtons: () => <div data-testid="action-buttons" />,
+  useToast: () => ({ toast: vi.fn() }),
 }));
 
 // Mock sidebar component
