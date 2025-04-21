@@ -1,4 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "extends": ["./packages/config/biome/biome.json"]
+  "extends": ["./packages/config/biome/biome.json"],
+  "files": {
+    "include": [
+      "apps/**/src/**/*",
+      "packages/**/src/**/*",
+      "**/*.config.{ts,mts}",
+      "**/*.test.{ts,tsx}"
+    ],
+    "ignore": ["**/node_modules/**", "**/dist/**", "**/.turbo/**", "**/build/**", "**/coverage/**"]
+  }
 }
