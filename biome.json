@@ -5,16 +5,9 @@
     "include": [
       "apps/**/src/**/*",
       "packages/**/src/**/*",
-      // top‑level configs and tests
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}"
     ],
-    "ignore": [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/.turbo/**",
-      "**/build/**",
-      "**/coverage/**"
-    ]
+    "ignore": ["**/node_modules/**", "**/dist/**", "**/.turbo/**", "**/build/**", "**/coverage/**"]
   }
 }
