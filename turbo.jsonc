@@ -77,6 +77,30 @@
       // This composite task itself doesn't need caching.
       "cache": false,
       "outputs": []
+    },
+
+    // --- Test:Coverage Task --- //
+    "test:coverage": {
+      // Ensures the package is built before coverage tests are run.
+      "dependsOn": ["build"],
+      // Coverage output artifacts (e.g., coverage reports).
+      "outputs": ["coverage/**", "test-results/**"]
+    },
+
+    // --- Coverage Merge Task --- //
+    "coverage:merge": {
+      // Merges coverage files from all packages/apps.
+      // No outputs to cache, and should always run fresh.
+      "cache": false,
+      "outputs": [".nyc_output/coverage.json"]
+    },
+
+    // --- Coverage Report Task --- //
+    "coverage:report": {
+      // Generates a combined coverage report from merged data.
+      // No outputs to cache, and should always run fresh.
+      "cache": false,
+      "outputs": ["coverage/**"]
     }
   }
 } 
