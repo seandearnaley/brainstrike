@@ -66,5 +66,5 @@ This rule defines the standardized naming conventions for files and directories 
 ## Implementation
 
 - Biome is configured to enforce these naming conventions
-- Run `npm run lint-all` to check for naming convention violations
+- Run `pnpm run lint` to check for naming convention violations
 - Migration scripts are available in the `scripts/` directory 
