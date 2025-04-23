@@ -93,7 +93,9 @@ export const useGitStore = create<GitState>((set, get) => ({
     const { lastInitializedRepoPath } = get();
 
     if (lastInitializedRepoPath === repoPath) {
-      console.log('[GitStore] Repository path matches last initialized, skipping re-initialization.');
+      console.log(
+        '[GitStore] Repository path matches last initialized, skipping re-initialization.'
+      );
       set({ status: 'idle' }); // Ensure status is idle if we skip
       return;
     }
@@ -114,16 +116,15 @@ export const useGitStore = create<GitState>((set, get) => ({
             'GIT_DIR_NOT_FOUND',
             'The selected directory does not appear to contain a .git folder.'
           );
-        } else {
-          throw e; // Re-throw other errors
         }
+        throw e; // Re-throw other errors
       }
 
       console.log('[GitStore] Copying .git directory to LightningFS...');
       await copyDirectoryToLightningFS(dirHandle, fs, repoPath);
 
       // Short delay before diagnostic check
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise((resolve) => setTimeout(resolve, 200));
 
       console.log('[GitStore] Performing diagnostic check...');
       try {
@@ -133,29 +134,43 @@ export const useGitStore = create<GitState>((set, get) => ({
         // Correctly provide 'utf8' encoding as the second argument
         const headFileContent = await fs.promises.readFile(headFilePath, 'utf8');
         // Add type check before using .trim() due to typing ambiguity
-        const headContentTrimmed = typeof headFileContent === 'string' ? headFileContent.trim() : '[Non-string HEAD content]';
-        console.log(`[GitStore] Diagnostic Step 1 SUCCESS: Read ${headFilePath}, content: ${headContentTrimmed}`);
+        const headContentTrimmed =
+          typeof headFileContent === 'string'
+            ? headFileContent.trim()
+            : '[Non-string HEAD content]';
+        console.log(
+          `[GitStore] Diagnostic Step 1 SUCCESS: Read ${headFilePath}, content: ${headContentTrimmed}`
+        );
 
         // Step 1.5: Check if the file referenced by HEAD exists
         let refPath: string | null = null;
         if (typeof headFileContent === 'string' && headFileContent.startsWith('ref: ')) {
           refPath = headFileContent.substring(5).trim(); // Get the path like 'refs/heads/main'
           const fullRefPath = `${repoPath}/.git/${refPath}`;
-          console.log(`[GitStore] Diagnostic Step 1.5: Checking existence of resolved HEAD ref file: ${fullRefPath}`);
+          console.log(
+            `[GitStore] Diagnostic Step 1.5: Checking existence of resolved HEAD ref file: ${fullRefPath}`
+          );
           try {
             await fs.promises.stat(fullRefPath);
             console.log(`[GitStore] Diagnostic Step 1.5 SUCCESS: File ${fullRefPath} exists.`);
           } catch (statError) {
-            console.error(`[GitStore] Diagnostic Step 1.5 FAILED: File ${fullRefPath} not found in FS!`, statError);
+            console.error(
+              `[GitStore] Diagnostic Step 1.5 FAILED: File ${fullRefPath} not found in FS!`,
+              statError
+            );
             // Optional: Throw here if this check failing guarantees resolveRef will fail?
             // throw new Error(`Referenced HEAD file ${fullRefPath} not found after copy.`);
           }
         } else {
-          console.log('[GitStore] Diagnostic Step 1.5 SKIPPED: HEAD content is not a symbolic ref or not a string.');
+          console.log(
+            '[GitStore] Diagnostic Step 1.5 SKIPPED: HEAD content is not a symbolic ref or not a string.'
+          );
         }
 
         // Step 2: Attempt to resolve the HEAD reference using isomorphic-git
-        console.log('[GitStore] Diagnostic Step 2: Resolving HEAD reference (using isomorphic-git)...');
+        console.log(
+          '[GitStore] Diagnostic Step 2: Resolving HEAD reference (using isomorphic-git)...'
+        );
         const headOid = await git.resolveRef({
           fs,
           dir: repoPath,
@@ -179,7 +194,9 @@ export const useGitStore = create<GitState>((set, get) => ({
         console.error('[GitStore] DIAGNOSTIC FAILED:', error);
         // If the specific error is NotFoundError, provide more context
         if (error instanceof git.Errors.NotFoundError) {
-          console.error(`[GitStore] NotFoundError details: Could not find ref '${error.data?.what}' during diagnostic check.`);
+          console.error(
+            `[GitStore] NotFoundError details: Could not find ref '${error.data?.what}' during diagnostic check.`
+          );
         }
         // Throw a specific error if the diagnostic check fails
         throw new FSInitializationError(
@@ -321,7 +338,7 @@ export const useGitStore = create<GitState>((set, get) => ({
               path: filepath,
               type: !baseOid ? 'add' : !compareOid ? 'remove' : 'modify',
               oldContent: undefined,
-              newContent: undefined
+              newContent: undefined,
             };
 
             if (diff.type === 'modify') {

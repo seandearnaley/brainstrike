@@ -1,7 +1,7 @@
 # Workspace Rules for brainstrike-web (Turborepo Monorepo)
 
 This project uses Turborepo to manage a monorepo containing shared packages and applications.
-Run `npm run test` (powered by Turborepo) to execute tests across the relevant workspace packages.
+Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant workspace packages.
 
 **A. MONOREPO STRUCTURE & PACKAGES**
 

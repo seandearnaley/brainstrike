@@ -154,3 +154,6 @@ Thumbs.db
 
 .secrets
 .vercel
+
+# New pattern to ignore all tsup.config.bundled_*.mjs files in any directory
+**/tsup.config.bundled_*.mjs
