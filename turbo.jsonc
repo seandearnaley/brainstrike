@@ -1,0 +1,82 @@
+{
+  // Turborepo monorepo configuration for brainstrike
+  "$schema": "https://turbo.build/schema.json",
+
+  // Global environment variables that affect the cache hash for ALL tasks.
+  // If any of these change, the cache for all tasks will be invalidated.
+  "globalEnv": [
+    "NODE_ENV" // Common variable used by many tools (e.g., React, Next.js)
+  ],
+
+  // Defines the tasks that can be run via `turbo run <taskName>`
+  "tasks": {
+
+    // --- Build Task --- //
+    "build": {
+      // Ensures that the 'build' task for dependencies runs before this package's build.
+      // Crucial for building packages in the correct topological order.
+      "dependsOn": ["^build"],
+      // Specifies the output artifacts of the build task.
+      // Turborepo caches these directories/files.
+      // '.next/**' is for Next.js apps, 'dist/**' is common for libraries/other apps.
+      // '!./next/cache/**' excludes the Next.js build cache to avoid redundant caching.
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**"
+      ]
+    },
+
+    // --- Test Task --- //
+    "test": {
+      // Ensures the package is built before tests are run.
+      "dependsOn": ["build"],
+      // Specifies the output artifacts of the test task (e.g., coverage reports).
+      "outputs": ["coverage/**", "test-results/**"]
+    },
+
+    // --- Lint Task --- //
+    "lint": {
+      // Linting usually doesn't produce cacheable artifacts and should run on current code.
+      "cache": false,
+      // No outputs to cache.
+      "outputs": []
+    },
+
+    // --- Type Check Task --- //
+    "type-check": {
+      // Ensures the package is built (generating .d.ts files) before type checking.
+      "dependsOn": ["build"],
+      // Type checking doesn't produce persistent artifacts to cache, only console output.
+      // Caching might still be useful if inputs haven't changed, but often set to false or relies on inputs.
+      // For now, let's keep default cache=true but no outputs.
+      "outputs": []
+    },
+
+    // --- Development Task --- //
+    "dev": {
+      // Marks this task as long-running (e.g., a dev server or watch process).
+      // Tasks marked as persistent cannot be depended upon by other tasks.
+      "persistent": true,
+      // Development tasks usually shouldn't be cached as they are interactive/watch processes.
+      "cache": false,
+      // Specifies other tasks that should be run *alongside* this one.
+      // Ideal for starting library watchers when the main app's dev server starts.
+      "with": [
+        "@brainstrike/types#dev",   // Run the 'dev' script from the @brainstrike/types package
+        "@brainstrike/utils#dev",   // Run the 'dev' script from the @brainstrike/utils package
+        "@brainstrike/hooks#dev"    // Run the 'dev' script from the @brainstrike/hooks package
+      ]
+    },
+
+    // --- Composite Check Task (for CI) --- //
+    "check": {
+      // Runs lint, type-check, and test tasks within the same package.
+      // Note: This assumes these tasks are defined in the respective package.json files.
+      "dependsOn": ["lint", "type-check", "test"],
+      // This composite task itself doesn't need caching.
+      "cache": false,
+      "outputs": []
+    }
+  }
+} 
