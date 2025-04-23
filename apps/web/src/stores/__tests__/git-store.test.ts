@@ -1,39 +1,7 @@
 import * as git from 'isomorphic-git';
 import { act } from '@testing-library/react';
-import { vi, describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { vi, describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest';
 import { useGitStore } from '../git-store';
-
-// Mock isomorphic-git
-vi.mock('isomorphic-git', () => {
-  return {
-    Errors: {
-      NotFoundError: class NotFoundError extends Error {
-        data?: { what?: string } | undefined;
-        constructor(message: string, data?: { what?: string } | undefined) {
-          super(message);
-          this.name = 'NotFoundError';
-          this.data = data;
-        }
-      }
-    },
-    resolveRef: vi.fn(),
-    currentBranch: vi.fn(),
-    listBranches: vi.fn(),
-    log: vi.fn(),
-    findMergeBase: vi.fn().mockResolvedValue(['test-oid']),
-    readCommit: vi.fn().mockResolvedValue({
-      oid: 'test-oid',
-      commit: {
-        message: 'test commit',
-        author: { name: 'Test', email: 'test@example.com', timestamp: 1234567890 },
-      }
-    }),
-    listFiles: vi.fn().mockResolvedValue(['test.txt']),
-    readBlob: vi.fn().mockResolvedValue({ blob: new Uint8Array(Buffer.from('test content')) }),
-  };
-});
-
-// Mock the file system
 vi.mock('@isomorphic-git/lightning-fs', () => {
   const mockPromises = {
     mkdir: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +14,60 @@ vi.mock('@isomorphic-git/lightning-fs', () => {
     default: vi.fn().mockImplementation(() => ({
       promises: mockPromises,
     })),
+  };
+});
+import LightningFS from '@isomorphic-git/lightning-fs';
+
+const lightningFSPromises = {
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockResolvedValue('ref: refs/heads/main'),
+  writeFile: vi.fn().mockResolvedValue(undefined),
+  stat: vi.fn().mockResolvedValue({ isDirectory: () => true }),
+};
+
+// Patch every LightningFS instance in beforeEach
+let originalLightningFS: typeof LightningFS;
+beforeAll(() => {
+  originalLightningFS = LightningFS;
+});
+beforeEach(() => {
+  // Patch the promises property for all new instances
+  // @ts-ignore
+  LightningFS.prototype.promises = lightningFSPromises;
+});
+afterAll(() => {
+  // Restore the original prototype
+  // @ts-ignore
+  LightningFS.prototype.promises = originalLightningFS.prototype.promises;
+});
+
+// Mock isomorphic-git
+vi.mock('isomorphic-git', () => {
+  return {
+    Errors: {
+      NotFoundError: class NotFoundError extends Error {
+        data?: { what?: string } | undefined;
+        constructor(message: string, data?: { what?: string } | undefined) {
+          super(message);
+          this.name = 'NotFoundError';
+          this.data = data;
+        }
+      },
+    },
+    resolveRef: vi.fn(),
+    currentBranch: vi.fn(),
+    listBranches: vi.fn(),
+    log: vi.fn(),
+    findMergeBase: vi.fn().mockResolvedValue(['test-oid']),
+    readCommit: vi.fn().mockResolvedValue({
+      oid: 'test-oid',
+      commit: {
+        message: 'test commit',
+        author: { name: 'Test', email: 'test@example.com', timestamp: 1234567890 },
+      },
+    }),
+    listFiles: vi.fn().mockResolvedValue(['test.txt']),
+    readBlob: vi.fn().mockResolvedValue({ blob: new Uint8Array(Buffer.from('test content')) }),
   };
 });
 
@@ -88,7 +110,7 @@ describe('useGitStore', () => {
 
     // Reset mocks
     vi.clearAllMocks();
-    
+
     // Setup git.resolveRef mock for successful cases
     (git.resolveRef as ReturnType<typeof vi.fn>).mockResolvedValue('test-commit-hash');
     (git.currentBranch as ReturnType<typeof vi.fn>).mockResolvedValue('main');
@@ -148,7 +170,7 @@ describe('useGitStore', () => {
     // Verify error state
     expect(useGitStore.getState().isGitRepo).toBe(false);
     expect(useGitStore.getState().status).toBe('error');
-    
+
     const error = useGitStore.getState().error;
     expect(error).not.toBeNull();
     if (error) {
@@ -163,7 +185,7 @@ describe('useGitStore', () => {
     const notFoundError = new git.Errors.NotFoundError('Could not resolve ref');
     // Set the data property directly
     notFoundError.data = { what: 'HEAD' };
-    
+
     // Mock git.resolveRef to throw this specific error
     (git.resolveRef as ReturnType<typeof vi.fn>).mockRejectedValue(notFoundError);
 
@@ -175,7 +197,7 @@ describe('useGitStore', () => {
     // Verify error state
     expect(useGitStore.getState().isGitRepo).toBe(false);
     expect(useGitStore.getState().status).toBe('error');
-    
+
     const error = useGitStore.getState().error;
     expect(error).not.toBeNull();
     if (error) {
@@ -256,7 +278,7 @@ describe('useGitStore', () => {
   test('compareBranches should perform branch comparison', async () => {
     // Mock the required git functions
     (git.resolveRef as ReturnType<typeof vi.fn>).mockResolvedValue('test-commit-hash');
-    
+
     // Mock the compareBranches method to avoid actual implementation
     const mockCompareBranches = vi.fn().mockImplementation(() => {
       // Update the store with test data directly
@@ -268,18 +290,18 @@ describe('useGitStore', () => {
               path: 'test.txt',
               type: 'modify',
               oldContent: 'old content',
-              newContent: 'new content'
-            }
-          ]
-        }
+              newContent: 'new content',
+            },
+          ],
+        },
       });
       return Promise.resolve();
     });
-    
+
     // Replace the real method with our mock
     const originalCompareBranches = useGitStore.getState().compareBranches;
     useGitStore.setState({ compareBranches: mockCompareBranches });
-    
+
     // Setup initial state with selected branches
     await act(async () => {
       await useGitStore.getState().initializeFS(mockDirectoryHandle);
@@ -293,11 +315,11 @@ describe('useGitStore', () => {
 
     // Verify state after comparison
     expect(useGitStore.getState().status).toBe('idle');
-    
+
     // Check if diffs were created
     const diffKey = 'main...develop';
     expect(useGitStore.getState().diffResultsByPair[diffKey]).toBeTruthy();
-    
+
     // Restore the original method
     useGitStore.setState({ compareBranches: originalCompareBranches });
   });
@@ -332,4 +354,9 @@ describe('useGitStore', () => {
     expect(useGitStore.getState().fs).toBeNull();
     expect(useGitStore.getState().path).toBeNull();
   });
-}); 
+
+  test('LightningFS mock provides promises.readFile', () => {
+    const fs = new LightningFS('test');
+    expect(typeof fs.promises.readFile).toBe('function');
+  });
+});
