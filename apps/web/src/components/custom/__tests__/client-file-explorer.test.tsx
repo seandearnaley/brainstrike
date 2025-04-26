@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ClientFileExplorer from '../client-file-explorer';
 
@@ -27,6 +28,18 @@ vi.mock('react', async () => {
   return {
     ...actual,
     Suspense: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
+
+// Mock @brainstrike/ui to mock ErrorBoundary
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...mod,
+    // Mock ErrorBoundary to render children within a div with a test ID
+    ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="mock-error-boundary">{children}</div>
+    ),
   };
 });
 
@@ -89,9 +102,14 @@ describe('ClientFileExplorer', () => {
     expect(screen.getByTestId('mock-file-explorer')).toBeInTheDocument();
   });
 
-  it('renders FileExplorer component', () => {
+  it('renders with ErrorBoundary wrapper and FileExplorer component', () => {
     render(<ClientFileExplorer />);
-    expect(screen.getByTestId('mock-file-explorer')).toBeInTheDocument();
+    // Check for the ErrorBoundary wrapper mock
+    expect(screen.getByTestId('mock-error-boundary')).toBeInTheDocument();
+    // Check that the FileExplorer mock is rendered *inside* the boundary mock
+    expect(screen.getByTestId('mock-error-boundary')).toContainElement(
+      screen.getByTestId('mock-file-explorer')
+    );
   });
 
   it('shows loading state when file system is not initialized', () => {

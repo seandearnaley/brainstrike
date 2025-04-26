@@ -77,8 +77,13 @@ vi.mock('../analysis-panel', () => ({
 }));
 
 // Mock UI components
-vi.mock('@brainstrike/ui', () => {
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  // Import the actual module to get the real 'cn' function
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
+    // Keep the actual 'cn' function
+    cn: actual.cn,
+    // Mock other components as needed
     Tabs: ({ children, ...props }: React.ComponentProps<'div'>) => (
       <div data-testid="tabs" {...props}>
         {children}

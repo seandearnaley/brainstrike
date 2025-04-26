@@ -6,5 +6,10 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function isDevEnv(): boolean {
-  return (process.env as Record<string, string | undefined>)['NODE_ENV'] === 'development';
+  // Vite uses import.meta.env.MODE, not process.env.NODE_ENV, by default in client code
+  // See: https://vitejs.dev/guide/env-and-mode.html#env-variables
+  // Type definition in vite-env.d.ts
+  // In Node environments (like tests), import.meta.env might be undefined,
+  // so we fall back to process.env.NODE_ENV which is commonly set there.
+  return import.meta.env?.MODE === 'development' || process.env['NODE_ENV'] === 'development';
 }

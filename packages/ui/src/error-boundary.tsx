@@ -5,6 +5,7 @@ import {
   GitOperationError,
   PartialRefreshError,
 } from '@brainstrike/types';
+import { Button } from '@brainstrike/ui';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -17,7 +18,6 @@ import {
   X,
 } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { Button } from './button';
 import { cn, isDevEnv } from './lib/utils';
 
 interface Props {

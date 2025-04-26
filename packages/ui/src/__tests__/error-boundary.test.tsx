@@ -52,9 +52,8 @@ vi.mock('../button', () => ({
 }));
 
 // Mock utility functions
-vi.mock('../lib/utils', () => ({
-  cn: (...args: (string | boolean | undefined)[]) => args.filter(Boolean).join(' '),
-  isDevEnv: () => true,
+vi.mock('./lib/utils', () => ({
+  isDevEnv: vi.fn(() => false),
 }));
 
 // Mock component that throws an error
