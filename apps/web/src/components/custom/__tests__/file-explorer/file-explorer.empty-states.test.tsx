@@ -85,7 +85,10 @@ vi.mock('@/hooks/use-report-generation', () => ({
 vi.mock('@/hooks/use-report-manager', () => ({ useReportManager: () => ({}) }));
 vi.mock('@/hooks/use-toast-manager', () => ({ useToastManager: () => ({}) }));
 vi.mock('@/hooks/use-selection-manager', () => ({
-  useSelectionManager: () => ({}),
+  useSelectionManager: () => ({
+    selectedFilePaths: new Set(),
+    handleSelectionChange: vi.fn(),
+  }),
 }));
 vi.mock('@/hooks/use-file-loading-manager', () => ({
   useFileLoadingManager: () => ({}),
@@ -138,10 +141,15 @@ vi.mock('@/components/custom/file-explorer-main-panel', () => ({
 }));
 
 // Mock ActionButtons and useToast from @brainstrike/ui
-vi.mock('@brainstrike/ui', () => ({
-  ActionButtons: () => <div data-testid="action-buttons" />,
-  useToast: () => ({ toast: vi.fn() }),
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...actual,
+    ActionButtons: () => <div data-testid="action-buttons" />,
+    useToast: () => ({ toast: vi.fn() }),
+    ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 // Mock sidebar component
 vi.mock('../../file-explorer-sidebar', () => {

@@ -24,3 +24,6 @@ export * from './tooltip';
 
 // Export hooks
 export * from './use-toast';
+
+// Export ErrorBoundary
+export { default as ErrorBoundary } from './error-boundary';

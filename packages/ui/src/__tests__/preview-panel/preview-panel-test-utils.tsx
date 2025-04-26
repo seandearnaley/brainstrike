@@ -1,8 +1,7 @@
 import { screen, render as testingLibraryRender } from '@testing-library/react';
 import type { RenderResult } from '@testing-library/react';
 import { userEvent as createUserEvent } from '@testing-library/user-event';
-import type { ReactNode } from 'react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { afterEach, vi } from 'vitest';
 
 // Create a userEvent instance with empty options

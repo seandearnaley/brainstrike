@@ -50,13 +50,13 @@ describe('useToast', () => {
       toastId = id;
     });
 
-    expect(result.current.toasts[0].open).toBe(true);
+    expect(result.current.toasts[0]?.open).toBe(true);
 
     act(() => {
       result.current.dismiss(toastId);
     });
 
-    expect(result.current.toasts[0].open).toBe(false);
+    expect(result.current.toasts[0]?.open).toBe(false);
   });
 
   it('should dismiss all toasts when no id is provided', () => {

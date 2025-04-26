@@ -20,6 +20,9 @@ importers:
       '@commitlint/types':
         specifier: ^19.8.0
         version: 19.8.0
+      '@testing-library/jest-dom':
+        specifier: ^6.4.9
+        version: 6.6.3
       knip:
         specifier: ^5.50.2
         version: 5.50.5(@types/node@22.14.1)(typescript@5.8.3)
@@ -273,6 +276,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@radix-ui/react-accordion':
         specifier: ^1.1.2
         version: 1.2.4(@types/react-dom@19.1.2(@types/react@19.1.2))(@types/react@19.1.2)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)

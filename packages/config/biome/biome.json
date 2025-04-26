@@ -102,6 +102,16 @@
           }
         }
       }
+    },
+    {
+      "include": ["**/lib/utils.ts", "**/lib/utils/*.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
     }
   ],
   "vcs": {

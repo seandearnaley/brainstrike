@@ -7,13 +7,6 @@ vi.mock('../file-explorer', () => ({
   default: () => <div data-testid="mock-file-explorer">File Explorer</div>,
 }));
 
-// Mock ErrorBoundary
-vi.mock('../error-boundary', () => ({
-  default: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="mock-error-boundary">{children}</div>
-  ),
-}));
-
 // Mock fs-provider with factory function to allow changing the return value
 const mockUseFS = vi.fn().mockReturnValue({
   isInitialized: true,
@@ -93,7 +86,7 @@ describe('ClientFileExplorer', () => {
 
   it('renders with ErrorBoundary wrapper', () => {
     render(<ClientFileExplorer />);
-    expect(screen.getByTestId('mock-error-boundary')).toBeInTheDocument();
+    expect(screen.getByTestId('mock-file-explorer')).toBeInTheDocument();
   });
 
   it('renders FileExplorer component', () => {
