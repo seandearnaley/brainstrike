@@ -233,7 +233,10 @@ describe('git-utils', () => {
     const existsError = new Error('Directory exists');
     // @ts-expect-error - Adding code property for test
     existsError.code = 'EEXIST';
-    mockFs.promises.mkdir = vi.fn().mockRejectedValueOnce(existsError).mockResolvedValueOnce(undefined);
+    mockFs.promises.mkdir = vi
+      .fn()
+      .mockRejectedValueOnce(existsError)
+      .mockResolvedValueOnce(undefined);
 
     // Create a mock .git directory
     const gitDir = new MockDirectoryHandle('.git');
@@ -289,10 +292,7 @@ describe('git-utils', () => {
     mockFs.promises.writeFile = vi.fn().mockRejectedValueOnce(writeError);
 
     // Create a mock file in the source directory
-    const testFile = new MockFileHandle(
-      'test.txt',
-      new TextEncoder().encode('test content')
-    );
+    const testFile = new MockFileHandle('test.txt', new TextEncoder().encode('test content'));
 
     // Create source directory with the file
     const sourceDirEntries = new Map<string, FileSystemHandle>([['test.txt', testFile]]);
@@ -305,7 +305,7 @@ describe('git-utils', () => {
 
     // Verify mkdir was called
     expect(mockFs.promises.mkdir).toHaveBeenCalledWith('/target');
-    
+
     // Verify console.error was called with error about writing file
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('Error writing file'),
@@ -352,11 +352,11 @@ describe('git-utils', () => {
     const file1 = new MockFileHandle('file1.txt', new TextEncoder().encode('content 1'));
     const file2 = new MockFileHandle('file2.txt', new TextEncoder().encode('content 2'));
     const file3 = new MockFileHandle('file3.txt', new TextEncoder().encode('content 3'));
-    
+
     // Create multiple directories with files
     const subdir1Entries = new Map<string, FileSystemHandle>([['file3.txt', file3]]);
     const subdir1 = new MockDirectoryHandle('subdir1', subdir1Entries);
-    
+
     // Create source directory with multiple entries
     const sourceDirEntries = new Map<string, FileSystemHandle>([
       ['file1.txt', file1],

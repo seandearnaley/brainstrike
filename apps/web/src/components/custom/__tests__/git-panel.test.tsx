@@ -331,14 +331,14 @@ describe('GitPanel', () => {
   test('should display error message with retry button', () => {
     // Create a mock retry function
     const mockRetry = vi.fn().mockResolvedValue(undefined);
-    
+
     // Update mock state for this test
     Object.assign(mockGitState, {
       status: 'error',
-      error: { 
-        code: 'TEST_ERROR', 
+      error: {
+        code: 'TEST_ERROR',
         message: 'Test error message',
-        retry: mockRetry 
+        retry: mockRetry,
       },
     });
 
@@ -346,11 +346,11 @@ describe('GitPanel', () => {
 
     // Check for error message
     expect(screen.getByText('Test error message')).toBeInTheDocument();
-    
+
     // Find and click retry button
     const retryButton = screen.getByText('Retry');
     fireEvent.click(retryButton);
-    
+
     // Verify retry was called
     expect(mockRetry).toHaveBeenCalled();
   });
@@ -360,7 +360,8 @@ describe('GitPanel', () => {
     Object.assign(mockGitState, {
       activeTab: 'compare',
       diffResultsByPair: {
-        'main...develop': [  // Updated key to match the implementation
+        'main...develop': [
+          // Updated key to match the implementation
           {
             path: 'binary-file.bin',
             type: 'add',
@@ -373,7 +374,7 @@ describe('GitPanel', () => {
     });
 
     render(<GitPanel rootDirectoryHandle={mockDirectoryHandle} />);
-    
+
     // Instead of checking for "binary file" text, check for div that would contain binary files
     expect(screen.getByTestId('tabs-content-compare')).toBeInTheDocument();
   });

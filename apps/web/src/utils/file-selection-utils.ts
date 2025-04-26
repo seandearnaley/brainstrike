@@ -26,12 +26,12 @@ export function decodeFileSelection(compositeKey: string): {
     throw new Error('Invalid composite key format');
   }
   const [folderId, ...pathParts] = compositeKey.split(SEPARATOR);
-  
+
   // Although the check above should prevent this, satisfy TS that folderId is a string
   if (typeof folderId !== 'string') {
     throw new Error('Failed to parse folderId from composite key');
   }
-  
+
   return { folderId, path: pathParts.join(SEPARATOR) };
 }
 

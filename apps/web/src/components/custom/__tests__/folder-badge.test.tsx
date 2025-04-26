@@ -1,6 +1,6 @@
+import { getFolderColor } from '@brainstrike/utils';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { getFolderColor } from '@brainstrike/utils';
 import { FolderBadge } from '../folder-badge';
 
 // Define mock function type

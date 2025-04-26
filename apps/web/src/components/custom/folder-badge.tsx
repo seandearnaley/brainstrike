@@ -1,7 +1,7 @@
 import { Badge } from '@brainstrike/ui';
+import { getFolderColor } from '@brainstrike/utils';
 import { Folder } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { getFolderColor } from '@brainstrike/utils';
 
 interface FolderBadgeProps {
   folderId: string;

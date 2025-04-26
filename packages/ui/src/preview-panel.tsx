@@ -64,9 +64,9 @@ interface SortConfig {
 }
 
 function formatTokenCount(tokens: number): string {
-  if (tokens > 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M tokens';
-  if (tokens > 1_000) return (tokens / 1_000).toFixed(1) + 'K tokens';
-  return tokens.toLocaleString() + ' tokens';
+  if (tokens > 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`;
+  if (tokens > 1_000) return `${(tokens / 1_000).toFixed(1)}K tokens`;
+  return `${tokens.toLocaleString()} tokens`;
 }
 
 // Remove getFolderColor dependency from @brainstrike/utils for UI package decoupling
@@ -77,8 +77,16 @@ function formatTokenCount(tokens: number): string {
 function getFolderColor(folderId: string): string {
   // Always return a valid string (never undefined)
   const colors = [
-    '#DBEAFE', '#DCFCE7', '#FEF9C3', '#FCE7F3', '#EDE9FE',
-    '#E0E7FF', '#FECACA', '#CCFBF1', '#FFEDD5', '#F3F4F6',
+    '#DBEAFE',
+    '#DCFCE7',
+    '#FEF9C3',
+    '#FCE7F3',
+    '#EDE9FE',
+    '#E0E7FF',
+    '#FECACA',
+    '#CCFBF1',
+    '#FFEDD5',
+    '#F3F4F6',
   ];
   let hash = 0;
   for (let i = 0; i < folderId.length; i++) {
@@ -192,7 +200,14 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }
 
     return Object.values(groups);
-  }, [selectedFiles, sortConfig, fileSizes, fileContents]);
+  }, [
+    selectedFiles,
+    sortConfig,
+    fileSizes,
+    fileContents,
+    countTokensHeuristic,
+    decodeFileSelection,
+  ]);
 
   const handleRemoveFile = useCallback(
     (compositeKey: string) => {
@@ -212,7 +227,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         },
       });
     },
-    [selectedFiles, onSelectionChange, performUndoableAction]
+    [selectedFiles, onSelectionChange, performUndoableAction, decodeFileSelection]
   );
 
   const handleBatchRemove = useCallback(() => {

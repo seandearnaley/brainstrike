@@ -4,28 +4,28 @@
  */
 const COLOR_COMBINATIONS = [
   {
-    light: { bg: "#E6F3FF", text: "#0A558C" }, // Blue
-    dark: { bg: "#1E3A8A", text: "#E6F3FF" },
+    light: { bg: '#E6F3FF', text: '#0A558C' }, // Blue
+    dark: { bg: '#1E3A8A', text: '#E6F3FF' },
   },
   {
-    light: { bg: "#E6FFE6", text: "#166534" }, // Green
-    dark: { bg: "#166534", text: "#E6FFE6" },
+    light: { bg: '#E6FFE6', text: '#166534' }, // Green
+    dark: { bg: '#166534', text: '#E6FFE6' },
   },
   {
-    light: { bg: "#FFF1E6", text: "#9A3412" }, // Orange
-    dark: { bg: "#9A3412", text: "#FFF1E6" },
+    light: { bg: '#FFF1E6', text: '#9A3412' }, // Orange
+    dark: { bg: '#9A3412', text: '#FFF1E6' },
   },
   {
-    light: { bg: "#F3E6FF", text: "#6B21A8" }, // Purple
-    dark: { bg: "#6B21A8", text: "#F3E6FF" },
+    light: { bg: '#F3E6FF', text: '#6B21A8' }, // Purple
+    dark: { bg: '#6B21A8', text: '#F3E6FF' },
   },
   {
-    light: { bg: "#FFE6E6", text: "#991B1B" }, // Red
-    dark: { bg: "#991B1B", text: "#FFE6E6" },
+    light: { bg: '#FFE6E6', text: '#991B1B' }, // Red
+    dark: { bg: '#991B1B', text: '#FFE6E6' },
   },
   {
-    light: { bg: "#E6FFFA", text: "#047857" }, // Teal
-    dark: { bg: "#047857", text: "#E6FFFA" },
+    light: { bg: '#E6FFFA', text: '#047857' }, // Teal
+    dark: { bg: '#047857', text: '#E6FFFA' },
   },
 ];
 
@@ -53,9 +53,14 @@ export function getFolderColor(str: string): FolderColors {
 
   // Use the hash to select a color combination
   const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-  const selectedColor = COLOR_COMBINATIONS[index];
-  
+  const selectedColor: FolderColors | undefined = COLOR_COMBINATIONS[index];
+
   // Ensure we always return a valid FolderColors object
-  // Use non-null assertion for the fallback as COLOR_COMBINATIONS is constant and non-empty
-  return selectedColor ?? COLOR_COMBINATIONS[0]!;
+  if (selectedColor !== undefined) return selectedColor;
+  if (COLOR_COMBINATIONS.length > 0) return COLOR_COMBINATIONS[0] as FolderColors;
+  // Fallback: return a default color scheme if COLOR_COMBINATIONS is empty
+  return {
+    light: { bg: '#FFFFFF', text: '#000000' },
+    dark: { bg: '#000000', text: '#FFFFFF' },
+  };
 }

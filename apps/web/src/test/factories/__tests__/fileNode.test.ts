@@ -192,7 +192,7 @@ describe('File Node Factories', () => {
 
       const tree = createFileTreeFromStructure(structure);
       expect(tree).toHaveLength(1);
-      
+
       const rootFolder = tree[0];
       expect(rootFolder).toBeDefined();
       if (!rootFolder || !rootFolder.children || rootFolder.children.length === 0) {

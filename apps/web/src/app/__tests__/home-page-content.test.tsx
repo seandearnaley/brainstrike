@@ -1,7 +1,7 @@
 import { render } from '@testing-library/react';
+import { HelmetProvider } from 'react-helmet-async';
 import { describe, expect, it, vi } from 'vitest';
 import HomePageContent from '../home-page-content';
-import { HelmetProvider } from 'react-helmet-async';
 
 // Mock the ClientFileExplorer component
 vi.mock('../../components/custom/client-file-explorer', () => ({

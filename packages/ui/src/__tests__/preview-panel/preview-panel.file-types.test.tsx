@@ -3,7 +3,7 @@ import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, uiTestProps, render, userEvent } from './preview-panel-test-utils';
+import { createCompositeKey, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 describe('PreviewPanel - File Type Handling', () => {
   beforeEach(() => {

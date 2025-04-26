@@ -1,6 +1,6 @@
 import './globals.css';
 import { Toaster } from '@brainstrike/ui';
-import React from 'react';
+import type React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
 import RouterProvider from '../providers/router-provider';
 import { ThemeProvider } from '../providers/theme-provider';

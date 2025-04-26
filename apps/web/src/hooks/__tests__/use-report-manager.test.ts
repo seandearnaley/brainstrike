@@ -167,7 +167,7 @@ describe('useReportManager', () => {
       expect(blobArgument.type).toEqual(expect.stringContaining('text/plain'));
     } else {
       // Should not happen if the above expect passed, but satisfies TS
-      throw new Error("Expected first argument to be a Blob");
+      throw new Error('Expected first argument to be a Blob');
     }
 
     // Check the filename argument

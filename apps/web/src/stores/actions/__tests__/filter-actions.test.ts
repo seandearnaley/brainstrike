@@ -36,7 +36,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         includeFilters: ['*.ts', '*.tsx'],
         excludeFilters: ['*.test.ts', 'node_modules'],
       });
@@ -65,7 +65,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         includeFilters: [],
         excludeFilters: [],
       });
@@ -94,7 +94,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         useRegex: true,
       });
     });
@@ -120,7 +120,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         useRegex: false,
       });
     });
@@ -148,7 +148,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         includeProjectTree: true,
       });
     });
@@ -174,7 +174,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         includeProjectTree: false,
       });
     });
@@ -202,7 +202,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!).toEqual({
+      expect(updatedState).toEqual({
         folderSummaryThreshold: 500,
       });
     });
@@ -229,8 +229,7 @@ describe('filter-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      // Should set to minimum value (represented by a mock here)
-      expect(updatedState!).toHaveProperty('folderSummaryThreshold');
+      expect(updatedState).toHaveProperty('folderSummaryThreshold');
     });
   });
 });

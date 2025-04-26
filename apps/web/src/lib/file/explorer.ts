@@ -1,7 +1,7 @@
+import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '../../constants/file-explorer';
 import { fileFilter } from '../../lib/utils/filter';
-import path from 'path';
 
 /**
  * Utilities for exploring and manipulating file trees

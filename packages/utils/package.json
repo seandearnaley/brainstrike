@@ -18,10 +18,10 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "tsc -p . && tsup src/index.ts --format esm,cjs --clean",
+    "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
+    "build": "pnpm run clean && tsc --emitDeclarationOnly -p tsconfig.json && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "lint": "eslint src/",
-    "clean": "rm -rf dist .tsbuildinfo",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
@@ -35,7 +35,8 @@
     "@vitest/coverage-v8": "^3.1.1",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
-    "vitest": "^3.1.1"
+    "vitest": "^3.1.1",
+    "rimraf": "^5.0.7"
   },
   "publishConfig": {
     "access": "public"

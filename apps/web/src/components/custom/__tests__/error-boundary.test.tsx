@@ -204,7 +204,7 @@ describe('ErrorBoundary', () => {
 
     // Click the Show Details button if it exists
     if (showDetailsButton) {
-        fireEvent.click(showDetailsButton);
+      fireEvent.click(showDetailsButton);
     }
 
     // Now error details should be visible

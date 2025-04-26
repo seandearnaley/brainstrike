@@ -8,19 +8,27 @@ import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
+import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { decodeFileSelection } from '../../utils/file-selection-utils';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
 import ErrorBoundary from './error-boundary';
 
 // Lazy load heavy components
-const ActionButtons = lazy(() => import('@brainstrike/ui').then(m => ({ default: m.ActionButtons as React.ComponentType<any> })));
+const ActionButtons = lazy(() =>
+  import('@brainstrike/ui').then((m) => ({
+    default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
+  }))
+);
 const FileExplorerSidebar = lazy(() => import('./file-explorer-sidebar'));
 
 // MIGRATION: FileExplorerMainPanel is now provided by @brainstrike/ui.
 // Remove local lazy import and use the UI package version.
-const FileExplorerMainPanel = lazy(() => import('@brainstrike/ui').then(m => ({ default: m.PreviewPanel as React.ComponentType<any> })));
+const FileExplorerMainPanel = lazy(() =>
+  import('@brainstrike/ui').then((m) => ({
+    default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+  }))
+);
 
 // Import lightweight components directly
 import { FileExplorerStrings } from './constants/file-explorer-constants';

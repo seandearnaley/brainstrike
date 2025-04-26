@@ -139,14 +139,12 @@ describe('useFileFilters', () => {
 
     // Verify components directory exists and has children
     expect(componentsDir).toBeDefined();
-    expect(componentsDir!.children).toBeDefined();
-    expect(componentsDir!.children!.length).toBe(2);
+    expect(componentsDir?.children).toBeDefined();
+    expect(componentsDir?.children?.length).toBe(2);
 
-    // Verify utils directory exists and has children (even if empty)
     expect(utilsDir).toBeDefined();
-    expect(utilsDir!.children).toBeDefined();
-    expect(utilsDir!.children!.length).toBe(0);
-
+    expect(utilsDir?.children).toBeDefined();
+    expect(utilsDir?.children?.length).toBe(0);
     // Verify App.tsx is included
     expect(appFile).toBeDefined();
   });
@@ -196,7 +194,7 @@ describe('useFileFilters', () => {
     // Get components to verify its children
     const componentsDir = children.find((node: IFileNode) => node.name === 'components');
     expect(componentsDir).toBeDefined();
-    expect(componentsDir?.children).toBeDefined(); // Use optional chaining
+    expect(componentsDir?.children).toBeDefined();
     expect(componentsDir?.children?.length).toBe(0); // No children match the filters + excludes
 
     // App.tsx should be included
@@ -206,7 +204,7 @@ describe('useFileFilters', () => {
     expect(nodeNames).toContain('utils');
     const utilsDir = children.find((node: IFileNode) => node.name === 'utils');
     expect(utilsDir).toBeDefined();
-    expect(utilsDir?.children).toBeDefined(); // Use optional chaining
+    expect(utilsDir?.children).toBeDefined();
     expect(utilsDir?.children?.length).toBe(0);
   });
 

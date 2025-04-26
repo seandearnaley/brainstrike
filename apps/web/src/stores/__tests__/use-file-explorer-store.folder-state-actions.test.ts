@@ -7,7 +7,8 @@ import { createSettingsActions } from '../actions/settings-actions';
 import { MAX_FOLDER_STATES, MIN_MAX_SELECTION_COUNT } from '../constants/file-explorer-constants';
 
 // Combine required action interfaces
-type TestActions = ReturnType<typeof createFolderStateActions> & ReturnType<typeof createSettingsActions>;
+type TestActions = ReturnType<typeof createFolderStateActions> &
+  ReturnType<typeof createSettingsActions>;
 
 describe('Folder State Actions', () => {
   let store: {
@@ -27,27 +28,30 @@ describe('Folder State Actions', () => {
   });
 
   beforeEach(() => {
-    const zustandStore = createStore<FileExplorerState>(() => ({
-      ...getInitialState(),
-      // These will be overwritten by the real actions, but TypeScript needs them
-      setCurrentFolderId: vi.fn(),
-      hydrateFolderState: vi.fn(),
-      setMaxSelectionCount: vi.fn(),
-      setLastActiveTab: vi.fn(),
-      setFilters: vi.fn(),
-      setUseRegex: vi.fn(),
-      setIncludeProjectTree: vi.fn(),
-      setFolderSummaryThreshold: vi.fn(),
-      setSelectedFiles: vi.fn(),
-      addSelectedFile: vi.fn(),
-      removeSelectedFile: vi.fn(),
-      toggleSelectedFile: vi.fn(),
-      clearSelectedFiles: vi.fn(),
-      setExpandedPaths: vi.fn(),
-      toggleDirectoryExpansion: vi.fn(),
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-    } as FileExplorerState));
+    const zustandStore = createStore<FileExplorerState>(
+      () =>
+        ({
+          ...getInitialState(),
+          // These will be overwritten by the real actions, but TypeScript needs them
+          setCurrentFolderId: vi.fn(),
+          hydrateFolderState: vi.fn(),
+          setMaxSelectionCount: vi.fn(),
+          setLastActiveTab: vi.fn(),
+          setFilters: vi.fn(),
+          setUseRegex: vi.fn(),
+          setIncludeProjectTree: vi.fn(),
+          setFolderSummaryThreshold: vi.fn(),
+          setSelectedFiles: vi.fn(),
+          addSelectedFile: vi.fn(),
+          removeSelectedFile: vi.fn(),
+          toggleSelectedFile: vi.fn(),
+          clearSelectedFiles: vi.fn(),
+          setExpandedPaths: vi.fn(),
+          toggleDirectoryExpansion: vi.fn(),
+          expandAllDirectories: vi.fn(),
+          collapseAllDirectories: vi.fn(),
+        }) as FileExplorerState
+    );
 
     const folderActions = createFolderStateActions(zustandStore.setState, zustandStore.getState);
     const settingsActions = createSettingsActions(zustandStore.setState, zustandStore.getState);

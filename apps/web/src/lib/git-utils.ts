@@ -15,9 +15,8 @@ export async function copyDirectoryToLightningFS(
     if (mkdirError?.code !== 'EEXIST') {
       console.error(`[GitUtils] FAILED to create root directory ${path}`, mkdirError);
       throw mkdirError; // Propagate critical error
-    } else {
-      console.log(`[GitUtils] Root directory ${path} already exists.`);
     }
+    console.log(`[GitUtils] Root directory ${path} already exists.`);
   }
 
   // Only copy the .git directory initially
@@ -41,7 +40,7 @@ export async function copyDirectoryToLightningFS(
 
 /**
  * Recursively copies a directory from a FileSystemDirectoryHandle to a LightningFS.
- * 
+ *
  * @param fs The LightningFS instance to write to.
  * @param sourceDirHandle The source directory handle to read from.
  * @param targetPath The path in the LightningFS where the directory should be copied.
@@ -49,7 +48,7 @@ export async function copyDirectoryToLightningFS(
 export async function copyGitDirectory(
   fs: LightningFS,
   sourceDirHandle: FileSystemDirectoryHandle,
-  targetPath: string,
+  targetPath: string
 ): Promise<void> {
   try {
     // Ensure the target directory exists in LightningFS

@@ -1,6 +1,6 @@
-import * as git from 'isomorphic-git';
 import { act } from '@testing-library/react';
-import { vi, describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest';
+import * as git from 'isomorphic-git';
+import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { useGitStore } from '../git-store';
 vi.mock('@isomorphic-git/lightning-fs', () => {
   const mockPromises = {
