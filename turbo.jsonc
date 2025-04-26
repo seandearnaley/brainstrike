@@ -21,9 +21,7 @@
       // '.next/**' is for Next.js apps, 'dist/**' is common for libraries/other apps.
       // '!./next/cache/**' excludes the Next.js build cache to avoid redundant caching.
       "outputs": [
-        "dist/**",
-        ".next/**",
-        "!.next/cache/**"
+        "dist/**"
       ]
     },
 
