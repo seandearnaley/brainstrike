@@ -11,7 +11,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import * as React from 'react';
+import type * as React from 'react';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileTree from './file-tree';
 import { FolderBadge } from './folder-badge';

@@ -1,5 +1,5 @@
-import { ThemeSettings } from '../../components/custom/settings/theme-settings';
 import { Helmet } from 'react-helmet-async';
+import { ThemeSettings } from '../../components/custom/settings/theme-settings';
 
 export default function SettingsPageContent() {
   return (

@@ -55,7 +55,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         currentFolderId: null,
         folderStates: {},
         ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files'
+        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
       };
     }
 
@@ -117,7 +117,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
             ? persistedState.expandedDirectoryPaths
             : []
         ),
-        lastActiveTab: persistedState.lastActiveTab ?? 'files'
+        lastActiveTab: persistedState.lastActiveTab ?? 'files',
       };
     } catch (error: unknown) {
       console.error('Error rehydrating file explorer state:', error);
@@ -128,7 +128,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         currentFolderId: null,
         folderStates: {},
         ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files'
+        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
       };
     }
   },

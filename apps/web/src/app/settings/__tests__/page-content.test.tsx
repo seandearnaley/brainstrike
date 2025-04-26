@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
+import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { ThemeSettings } from '../../../components/custom/settings/theme-settings';
-import { HelmetProvider } from 'react-helmet-async';
 import SettingsPageContent from '../page-content';
 
 // Mock the ThemeSettings component

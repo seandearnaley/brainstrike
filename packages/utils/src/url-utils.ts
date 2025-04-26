@@ -8,7 +8,7 @@
  * @returns The URL without trailing slashes
  */
 export function removeTrailingSlash(url: string): string {
-  return url.replace(/\/+$/, "");
+  return url.replace(/\/+$/, '');
 }
 
 /**
@@ -17,7 +17,7 @@ export function removeTrailingSlash(url: string): string {
  * @returns The URL with a trailing slash
  */
 export function addTrailingSlash(url: string): string {
-  return url.endsWith("/") ? url : `${url}/`;
+  return url.endsWith('/') ? url : `${url}/`;
 }
 
 /**
@@ -30,19 +30,19 @@ export function joinUrlParts(...parts: string[]): string {
     .map((part, i) => {
       if (i === 0) {
         // Keep trailing slash on first part if it exists
-        return part.replace(/\/+$/, "/");
+        return part.replace(/\/+$/, '/');
       }
 
       if (i === parts.length - 1) {
         // Keep leading slash on last part if it exists
-        return part.replace(/^\/+/, "/");
+        return part.replace(/^\/+/, '/');
       }
 
       // Remove both leading and trailing slashes for middle parts
-      return part.replace(/^\/+/, "").replace(/\/+$/, "");
+      return part.replace(/^\/+/, '').replace(/\/+$/, '');
     })
-    .join("")
-    .replace(/\/+/g, "/"); // Replace multiple consecutive slashes with a single one
+    .join('')
+    .replace(/\/+/g, '/'); // Replace multiple consecutive slashes with a single one
 }
 
 /**
@@ -80,11 +80,11 @@ export function parseQueryParams(url: string): Record<string, string> {
     }
   } catch (e) {
     // If URL is invalid, try to parse just the query string
-    const queryString = url.split("?")[1] || "";
-    for (const param of queryString.split("&")) {
-      const [key, value] = param.split("=");
+    const queryString = url.split('?')[1] || '';
+    for (const param of queryString.split('&')) {
+      const [key, value] = param.split('=');
       if (key) {
-        params[decodeURIComponent(key)] = decodeURIComponent(value || "");
+        params[decodeURIComponent(key)] = decodeURIComponent(value || '');
       }
     }
   }

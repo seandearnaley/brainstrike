@@ -456,9 +456,7 @@ export const GitPanel: React.FC<GitPanelProps> = ({ rootDirectoryHandle }) => {
       <Tabs
         defaultValue="history"
         value={activeTab}
-        onValueChange={(value) =>
-          setActiveTab(value as 'history' | 'compare' | 'analysis')
-        }
+        onValueChange={(value) => setActiveTab(value as 'history' | 'compare' | 'analysis')}
         className="h-full flex flex-col"
       >
         <TabsList className="grid w-full grid-cols-3 shrink-0">

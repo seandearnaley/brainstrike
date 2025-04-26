@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { HelmetProvider } from 'react-helmet-async';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
 // Import global CSS
 import './app/globals.css';
 

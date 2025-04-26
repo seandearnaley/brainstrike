@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
 import { HelmetProvider } from 'react-helmet-async'; // Import HelmetProvider
+import { describe, expect, it, vi } from 'vitest';
 import RootLayout from '../layout';
 
 // Mock the Inter font

@@ -8,9 +8,9 @@
  * @returns The file extension (without the dot) or empty string if no extension
  */
 export function getFileExtension(filename: string): string {
-  const lastDotIndex = filename.lastIndexOf(".");
+  const lastDotIndex = filename.lastIndexOf('.');
   if (lastDotIndex === -1 || lastDotIndex === 0) {
-    return "";
+    return '';
   }
   return filename.slice(lastDotIndex + 1).toLowerCase();
 }
@@ -22,50 +22,50 @@ export function getFileExtension(filename: string): string {
  */
 export function isTextFile(filename: string): boolean {
   const textFileExtensions = [
-    "txt",
-    "md",
-    "markdown",
-    "js",
-    "jsx",
-    "ts",
-    "tsx",
-    "json",
-    "html",
-    "htm",
-    "css",
-    "scss",
-    "less",
-    "xml",
-    "svg",
-    "yml",
-    "yaml",
-    "toml",
-    "ini",
-    "cfg",
-    "conf",
-    "sh",
-    "bash",
-    "py",
-    "rb",
-    "php",
-    "java",
-    "c",
-    "cpp",
-    "h",
-    "hpp",
-    "cs",
-    "go",
-    "rs",
-    "swift",
-    "kt",
-    "pl",
-    "sql",
-    "graphql",
-    "gql",
-    "tsx",
-    "jsx",
-    "vue",
-    "svelte",
+    'txt',
+    'md',
+    'markdown',
+    'js',
+    'jsx',
+    'ts',
+    'tsx',
+    'json',
+    'html',
+    'htm',
+    'css',
+    'scss',
+    'less',
+    'xml',
+    'svg',
+    'yml',
+    'yaml',
+    'toml',
+    'ini',
+    'cfg',
+    'conf',
+    'sh',
+    'bash',
+    'py',
+    'rb',
+    'php',
+    'java',
+    'c',
+    'cpp',
+    'h',
+    'hpp',
+    'cs',
+    'go',
+    'rs',
+    'swift',
+    'kt',
+    'pl',
+    'sql',
+    'graphql',
+    'gql',
+    'tsx',
+    'jsx',
+    'vue',
+    'svelte',
   ];
   const ext = getFileExtension(filename);
   return textFileExtensions.indexOf(ext) !== -1;
@@ -78,46 +78,46 @@ export function isTextFile(filename: string): boolean {
  */
 export function isBinaryFile(filename: string): boolean {
   const binaryFileExtensions = [
-    "jpg",
-    "jpeg",
-    "png",
-    "gif",
-    "bmp",
-    "ico",
-    "svg",
-    "webp",
-    "tiff",
-    "psd",
-    "mp3",
-    "wav",
-    "ogg",
-    "mp4",
-    "avi",
-    "mov",
-    "wmv",
-    "flv",
-    "webm",
-    "pdf",
-    "doc",
-    "docx",
-    "xls",
-    "xlsx",
-    "ppt",
-    "pptx",
-    "zip",
-    "rar",
-    "tar",
-    "gz",
-    "7z",
-    "exe",
-    "dll",
-    "so",
-    "dylib",
-    "ttf",
-    "otf",
-    "woff",
-    "woff2",
-    "eot",
+    'jpg',
+    'jpeg',
+    'png',
+    'gif',
+    'bmp',
+    'ico',
+    'svg',
+    'webp',
+    'tiff',
+    'psd',
+    'mp3',
+    'wav',
+    'ogg',
+    'mp4',
+    'avi',
+    'mov',
+    'wmv',
+    'flv',
+    'webm',
+    'pdf',
+    'doc',
+    'docx',
+    'xls',
+    'xlsx',
+    'ppt',
+    'pptx',
+    'zip',
+    'rar',
+    'tar',
+    'gz',
+    '7z',
+    'exe',
+    'dll',
+    'so',
+    'dylib',
+    'ttf',
+    'otf',
+    'woff',
+    'woff2',
+    'eot',
   ];
   const ext = getFileExtension(filename);
   return binaryFileExtensions.indexOf(ext) !== -1;
@@ -129,10 +129,9 @@ export function isBinaryFile(filename: string): boolean {
  * @returns The filename without extension
  */
 export function getBaseFilename(filename: string): string {
-  const lastSlashIndex = filename.lastIndexOf("/");
-  const nameWithExtension =
-    lastSlashIndex === -1 ? filename : filename.slice(lastSlashIndex + 1);
-  const lastDotIndex = nameWithExtension.lastIndexOf(".");
+  const lastSlashIndex = filename.lastIndexOf('/');
+  const nameWithExtension = lastSlashIndex === -1 ? filename : filename.slice(lastSlashIndex + 1);
+  const lastDotIndex = nameWithExtension.lastIndexOf('.');
   if (lastDotIndex === -1 || lastDotIndex === 0) {
     return nameWithExtension;
   }
@@ -146,11 +145,11 @@ export function getBaseFilename(filename: string): string {
  * @returns A formatted string (e.g. "1.5 KB")
  */
 export function formatFileSize(bytes: number, decimals = 1): string {
-  if (bytes === 0) return "0 Bytes";
+  if (bytes === 0) return '0 Bytes';
 
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
 
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 

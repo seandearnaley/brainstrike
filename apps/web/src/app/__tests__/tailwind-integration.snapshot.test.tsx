@@ -1,6 +1,6 @@
-import { render } from '@testing-library/react';
 import { Badge } from '@brainstrike/ui';
-import { describe, it, expect } from 'vitest';
+import { render } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
 
 describe('Tailwind Integration Snapshot', () => {
   it('should render UI package Badge component with correct Tailwind styles', () => {
@@ -9,4 +9,4 @@ describe('Tailwind Integration Snapshot', () => {
     // If padding or other base styles change unexpectedly, the snapshot will fail.
     expect(container.firstChild).toMatchSnapshot();
   });
-}); 
+});

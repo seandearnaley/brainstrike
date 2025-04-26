@@ -1,9 +1,9 @@
-import { useCallback } from "react";
+import { useCallback } from 'react';
 
 /**
  * Types for toast manager
  */
-export type ToastVariant = "default" | "destructive";
+export type ToastVariant = 'default' | 'destructive';
 
 export interface ToastOptions {
   title: string;
@@ -25,7 +25,7 @@ export function useToastManager(toastContext: ToastContextType) {
   const { toast } = toastContext;
 
   const showToast = useCallback(
-    ({ title, description, variant = "default", action }: ToastOptions) => {
+    ({ title, description, variant = 'default', action }: ToastOptions) => {
       toast({
         title,
         description,
@@ -41,7 +41,7 @@ export function useToastManager(toastContext: ToastContextType) {
       showToast({
         title,
         description,
-        variant: "destructive",
+        variant: 'destructive',
         action,
       });
     },

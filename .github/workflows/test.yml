@@ -80,7 +80,7 @@ jobs:
 
       - name: Run Biome checks
         run: pnpm run lint
-        continue-on-error: true # Don't fail the build due to linting issues
+        continue-on-error: false # Don't fail the build due to linting issues
 
       # Build all packages (Rely on Turborepo's dependency management)
       - name: Build all packages

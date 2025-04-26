@@ -41,7 +41,7 @@ export async function copyDirectoryToLightningFS(
 
 /**
  * Recursively copies a directory from a FileSystemDirectoryHandle to a LightningFS.
- * 
+ *
  * @param fs The LightningFS instance to write to.
  * @param sourceDirHandle The source directory handle to read from.
  * @param targetPath The path in the LightningFS where the directory should be copied.
@@ -49,7 +49,7 @@ export async function copyDirectoryToLightningFS(
 export async function copyGitDirectory(
   fs: LightningFS,
   sourceDirHandle: FileSystemDirectoryHandle,
-  targetPath: string,
+  targetPath: string
 ): Promise<void> {
   try {
     // Ensure the target directory exists in LightningFS

@@ -4,6 +4,7 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
+import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
@@ -12,7 +13,6 @@ import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
-import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 
 // Mock all hooks and components
 vi.mock('@/hooks/use-file-system');
@@ -120,9 +120,9 @@ const mockStore: FileExplorerState = {
   toggleDirectoryExpansion: vi.fn((path: string) => {
     const newPaths = new Set(mockStore.expandedDirectoryPaths);
     if (newPaths.has(path)) {
-        newPaths.delete(path);
+      newPaths.delete(path);
     } else {
-        newPaths.add(path);
+      newPaths.add(path);
     }
     mockStore.expandedDirectoryPaths = newPaths;
   }),

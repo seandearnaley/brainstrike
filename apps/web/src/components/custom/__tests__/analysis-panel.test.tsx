@@ -249,7 +249,7 @@ describe('AnalysisPanel', () => {
     // Find and click a file checkbox
     const fileCheckboxes = screen.getAllByRole('checkbox');
     expect(fileCheckboxes.length).toBeGreaterThan(1);
-    
+
     if (fileCheckboxes[1]) {
       fireEvent.click(fileCheckboxes[1]); // First file in list
     }
@@ -266,7 +266,7 @@ describe('AnalysisPanel', () => {
 
     // Find and click the select all checkbox
     const selectAllCheckbox = screen.getAllByRole('checkbox')[0]; // Header checkbox
-    
+
     if (selectAllCheckbox) {
       fireEvent.click(selectAllCheckbox);
     }

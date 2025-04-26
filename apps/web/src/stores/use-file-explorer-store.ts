@@ -9,7 +9,7 @@
 
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { create, type StateCreator } from 'zustand';
+import { type StateCreator, create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
@@ -18,7 +18,10 @@ import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
 
 // Explicitly type the state creator function
-const stateCreator: StateCreator<FileExplorerState, [], [['zustand/persist', SerializedState]]> = (set, get) => {
+const stateCreator: StateCreator<FileExplorerState, [], [['zustand/persist', SerializedState]]> = (
+  set,
+  get
+) => {
   const initialData = {
     // Initial state properties from DEFAULT_STATE
     ...DEFAULT_STATE,
@@ -46,8 +49,5 @@ const stateCreator: StateCreator<FileExplorerState, [], [['zustand/persist', Ser
 };
 
 export const useFileExplorerStore = create<FileExplorerState>()(
-  persist(
-    stateCreator,
-    createPersistOptions()
-  )
+  persist(stateCreator, createPersistOptions())
 );

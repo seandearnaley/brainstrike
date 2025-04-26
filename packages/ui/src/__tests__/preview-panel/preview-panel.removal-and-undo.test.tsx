@@ -5,9 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
 import {
   createCompositeKey,
-  uiTestProps,
   mockOnSelectionChange,
   render,
+  uiTestProps,
   userEvent,
 } from './preview-panel-test-utils';
 
@@ -18,7 +18,9 @@ describe('PreviewPanel - File Removal and Undo', () => {
 
   it('should remove file when remove button is clicked', async () => {
     const selectedFile = createCompositeKey('file1.txt');
-    render(<PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />);
+    render(
+      <PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
+    );
 
     const removeButton = screen.getByLabelText('Remove file1.txt from selection');
     await userEvent.click(removeButton);
@@ -28,7 +30,9 @@ describe('PreviewPanel - File Removal and Undo', () => {
 
   it('should show undo option in toast when removing a file', async () => {
     const selectedFile = createCompositeKey('file1.txt');
-    render(<PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />);
+    render(
+      <PreviewPanel {...uiTestProps} selectedFiles={new Set([selectedFile])} fileContents={{}} />
+    );
 
     const removeButton = screen.getByLabelText('Remove file1.txt from selection');
     await userEvent.click(removeButton);

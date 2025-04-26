@@ -3,7 +3,13 @@ import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import { createCompositeKey, defaultProps, render, uiTestProps, userEvent } from './preview-panel-test-utils';
+import {
+  createCompositeKey,
+  defaultProps,
+  render,
+  uiTestProps,
+  userEvent,
+} from './preview-panel-test-utils';
 
 // Mock token-utils functions
 vi.mock('@/utils/token-utils', () => ({
@@ -99,7 +105,9 @@ describe('PreviewPanel - Token Estimation', () => {
 
     // Should show some token count
     // Accept both "tokens" and "K tokens" since formatTokenCount may abbreviate
-    const tokenTexts = screen.getAllByText((content) => /\d+(\.\d+)?\s*(K\s*)?tokens/.test(content));
+    const tokenTexts = screen.getAllByText((content) =>
+      /\d+(\.\d+)?\s*(K\s*)?tokens/.test(content)
+    );
     expect(tokenTexts.length).toBeGreaterThan(0);
 
     // Should show cost estimate

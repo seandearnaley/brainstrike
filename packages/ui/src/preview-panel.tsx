@@ -77,8 +77,16 @@ function formatTokenCount(tokens: number): string {
 function getFolderColor(folderId: string): string {
   // Always return a valid string (never undefined)
   const colors = [
-    '#DBEAFE', '#DCFCE7', '#FEF9C3', '#FCE7F3', '#EDE9FE',
-    '#E0E7FF', '#FECACA', '#CCFBF1', '#FFEDD5', '#F3F4F6',
+    '#DBEAFE',
+    '#DCFCE7',
+    '#FEF9C3',
+    '#FCE7F3',
+    '#EDE9FE',
+    '#E0E7FF',
+    '#FECACA',
+    '#CCFBF1',
+    '#FFEDD5',
+    '#F3F4F6',
   ];
   let hash = 0;
   for (let i = 0; i < folderId.length; i++) {
