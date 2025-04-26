@@ -210,8 +210,7 @@ describe('useFileTree', () => {
       expect(error).toBeInstanceOf(PartialRefreshError);
       // Verify tree still contains successful files
       expect(result.current.fileTree).toHaveLength(1);
-      expect(result.current.fileTree[0]).toBeDefined();
-      expect(result.current.fileTree[0]!.name).toBe('success.txt');
+      expect(result.current.fileTree[0]?.name).toBe('success.txt');
     });
   });
 });

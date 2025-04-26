@@ -144,8 +144,8 @@ describe('fileExplorer', () => {
       const node = fileExplorer.findNodeByPath(testTree, '/root/dir1/fileB.txt');
       expect(node).not.toBeNull();
       expect(node).toBeDefined();
-      expect(node!.name).toBe('fileB.txt');
-      expect(node!.path).toBe('/root/dir1/fileB.txt');
+      expect(node?.name).toBe('fileB.txt');
+      expect(node?.path).toBe('/root/dir1/fileB.txt');
     });
 
     it('should return null if path not found', () => {
@@ -158,7 +158,7 @@ describe('fileExplorer', () => {
       const node1 = fileExplorer.findNodeByPath(testTree, '/root/dir1/fileB.txt', 'root1');
       expect(node1).not.toBeNull();
       expect(node1).toBeDefined();
-      expect(node1!.name).toBe('fileB.txt');
+      expect(node1?.name).toBe('fileB.txt');
 
       // Should not find when rootFolderId doesn't match
       const node2 = fileExplorer.findNodeByPath(testTree, '/root/dir2/fileC.txt', 'root1');
@@ -417,26 +417,26 @@ describe('fileExplorer', () => {
 
       // Check root level file
       expect(result[0]).toBeDefined();
-      expect(result[0]!.name).toBe('test.txt');
-      expect(result[0]!.path).toBe('/test.txt');
-      expect(result[0]!.type).toBe('file');
-      expect(result[0]!.depth).toBe(0);
+      expect(result[0]?.name).toBe('test.txt');
+      expect(result[0]?.path).toBe('/test.txt');
+      expect(result[0]?.type).toBe('file');
+      expect(result[0]?.depth).toBe(0);
 
       // Check nested directory
       expect(result[1]).toBeDefined();
-      expect(result[1]!.name).toBe('nested');
-      expect(result[1]!.path).toBe('/nested');
-      expect(result[1]!.type).toBe('directory');
-      expect(result[1]!.depth).toBe(0);
-      expect(result[1]!.children).toBeDefined();
-      expect(result[1]!.children!).toHaveLength(1);
+      expect(result[1]?.name).toBe('nested');
+      expect(result[1]?.path).toBe('/nested');
+      expect(result[1]?.type).toBe('directory');
+      expect(result[1]?.depth).toBe(0);
+      expect(result[1]?.children).toBeDefined();
+      expect(result[1]?.children?.length).toBe(1);
 
       // Check nested file
-      expect(result[1]!.children![0]).toBeDefined();
-      expect(result[1]!.children![0]!.name).toBe('nested.txt');
-      expect(result[1]!.children![0]!.path).toBe('/nested/nested.txt');
-      expect(result[1]!.children![0]!.type).toBe('file');
-      expect(result[1]!.children![0]!.depth).toBe(1);
+      expect(result[1]?.children?.[0]).toBeDefined();
+      expect(result[1]?.children?.[0]?.name).toBe('nested.txt');
+      expect(result[1]?.children?.[0]?.path).toBe('/nested/nested.txt');
+      expect(result[1]?.children?.[0]?.type).toBe('file');
+      expect(result[1]?.children?.[0]?.depth).toBe(1);
 
       // Restore original function
       vi.restoreAllMocks();

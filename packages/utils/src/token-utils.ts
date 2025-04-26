@@ -15,7 +15,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
     // This allows using the package without the dependency if not needed
     const tokenizer = await import('gpt-tokenizer');
     return tokenizer.encode(text).length;
-  } catch (e) {
+  } catch (_e) {
     // Fallback to heuristic method if the package is not available
     console.warn('gpt-tokenizer not available, using heuristic estimate instead');
     return countTokensHeuristic(text);

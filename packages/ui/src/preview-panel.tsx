@@ -64,9 +64,9 @@ interface SortConfig {
 }
 
 function formatTokenCount(tokens: number): string {
-  if (tokens > 1_000_000) return (tokens / 1_000_000).toFixed(1) + 'M tokens';
-  if (tokens > 1_000) return (tokens / 1_000).toFixed(1) + 'K tokens';
-  return tokens.toLocaleString() + ' tokens';
+  if (tokens > 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`;
+  if (tokens > 1_000) return `${(tokens / 1_000).toFixed(1)}K tokens`;
+  return `${tokens.toLocaleString()} tokens`;
 }
 
 // Remove getFolderColor dependency from @brainstrike/utils for UI package decoupling
@@ -200,7 +200,14 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }
 
     return Object.values(groups);
-  }, [selectedFiles, sortConfig, fileSizes, fileContents]);
+  }, [
+    selectedFiles,
+    sortConfig,
+    fileSizes,
+    fileContents,
+    countTokensHeuristic,
+    decodeFileSelection,
+  ]);
 
   const handleRemoveFile = useCallback(
     (compositeKey: string) => {
@@ -220,7 +227,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
         },
       });
     },
-    [selectedFiles, onSelectionChange, performUndoableAction]
+    [selectedFiles, onSelectionChange, performUndoableAction, decodeFileSelection]
   );
 
   const handleBatchRemove = useCallback(() => {

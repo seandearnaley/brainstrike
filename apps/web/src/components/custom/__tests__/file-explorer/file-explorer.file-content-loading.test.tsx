@@ -267,10 +267,12 @@ describe('File Content Loading', () => {
 
     const file1 = mockFilteredTree[0];
     const file2 = mockFilteredTree[1];
-    const folderId = mockStore.currentFolderId!;
+    const folderId = mockStore.currentFolderId;
 
-    if (!file1 || !file2) {
-      throw new Error('Test setup error: mockFilteredTree is missing expected elements.');
+    if (!file1 || !file2 || !folderId) {
+      throw new Error(
+        'Test setup error: mockFilteredTree or currentFolderId is missing expected elements.'
+      );
     }
 
     await act(async () => {
@@ -288,10 +290,12 @@ describe('File Content Loading', () => {
     render(<FileExplorer />);
 
     const file = mockFilteredTree[0];
-    const folderId = mockStore.currentFolderId!;
+    const folderId = mockStore.currentFolderId;
 
-    if (!file) {
-      throw new Error('Test setup error: mockFilteredTree is missing expected element.');
+    if (!file || !folderId) {
+      throw new Error(
+        'Test setup error: mockFilteredTree or currentFolderId is missing expected element.'
+      );
     }
 
     await act(async () => {
@@ -308,10 +312,12 @@ describe('File Content Loading', () => {
 
     const file1 = mockFilteredTree[0];
     const file2 = mockFilteredTree[1];
-    const folderId = mockStore.currentFolderId!;
+    const folderId = mockStore.currentFolderId;
 
-    if (!file1 || !file2) {
-      throw new Error('Test setup error: mockFilteredTree is missing expected elements.');
+    if (!file1 || !file2 || !folderId) {
+      throw new Error(
+        'Test setup error: mockFilteredTree or currentFolderId is missing expected elements.'
+      );
     }
 
     await act(async () => {

@@ -16,14 +16,18 @@ import ErrorBoundary from './error-boundary';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
-  import('@brainstrike/ui').then((m) => ({ default: m.ActionButtons as React.ComponentType<any> }))
+  import('@brainstrike/ui').then((m) => ({
+    default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
+  }))
 );
 const FileExplorerSidebar = lazy(() => import('./file-explorer-sidebar'));
 
 // MIGRATION: FileExplorerMainPanel is now provided by @brainstrike/ui.
 // Remove local lazy import and use the UI package version.
 const FileExplorerMainPanel = lazy(() =>
-  import('@brainstrike/ui').then((m) => ({ default: m.PreviewPanel as React.ComponentType<any> }))
+  import('@brainstrike/ui').then((m) => ({
+    default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+  }))
 );
 
 // Import lightweight components directly

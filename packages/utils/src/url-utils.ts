@@ -78,7 +78,7 @@ export function parseQueryParams(url: string): Record<string, string> {
     for (const [key, value] of urlObj.searchParams.entries()) {
       params[key] = value;
     }
-  } catch (e) {
+  } catch (_e) {
     // If URL is invalid, try to parse just the query string
     const queryString = url.split('?')[1] || '';
     for (const param of queryString.split('&')) {

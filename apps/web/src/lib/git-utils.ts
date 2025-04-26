@@ -15,9 +15,8 @@ export async function copyDirectoryToLightningFS(
     if (mkdirError?.code !== 'EEXIST') {
       console.error(`[GitUtils] FAILED to create root directory ${path}`, mkdirError);
       throw mkdirError; // Propagate critical error
-    } else {
-      console.log(`[GitUtils] Root directory ${path} already exists.`);
     }
+    console.log(`[GitUtils] Root directory ${path} already exists.`);
   }
 
   // Only copy the .git directory initially

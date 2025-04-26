@@ -53,9 +53,14 @@ export function getFolderColor(str: string): FolderColors {
 
   // Use the hash to select a color combination
   const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-  const selectedColor = COLOR_COMBINATIONS[index];
+  const selectedColor: FolderColors | undefined = COLOR_COMBINATIONS[index];
 
   // Ensure we always return a valid FolderColors object
-  // Use non-null assertion for the fallback as COLOR_COMBINATIONS is constant and non-empty
-  return selectedColor ?? COLOR_COMBINATIONS[0]!;
+  if (selectedColor !== undefined) return selectedColor;
+  if (COLOR_COMBINATIONS.length > 0) return COLOR_COMBINATIONS[0] as FolderColors;
+  // Fallback: return a default color scheme if COLOR_COMBINATIONS is empty
+  return {
+    light: { bg: '#FFFFFF', text: '#000000' },
+    dark: { bg: '#000000', text: '#FFFFFF' },
+  };
 }

@@ -186,9 +186,14 @@ describe('file-explorer-utils', () => {
 
       // Assert
       expect(Object.keys(result).length).toBe(19); // Based on observation
+      // NOTE: Bracket notation with string literal is required for index signature access in TypeScript
+      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
       expect(result['folder0']).toBeUndefined(); // Oldest should be removed
+      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
       expect(result['folder1']).toBeUndefined(); // Second oldest should be removed
+      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
       expect(result['folder2']).toBeUndefined(); // Third oldest should be removed
+      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
       expect(result['folder3']).toBeDefined(); // Fourth oldest should remain
 
       // All newer folders should remain

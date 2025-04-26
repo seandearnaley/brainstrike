@@ -77,8 +77,8 @@ describe('file-selection-actions', () => {
 
       expect(updatedState).toBeDefined();
       // Use non-null assertion after check
-      expect(updatedState!.selectedFilePaths).toEqual(new Set(initialSet));
-      expect(updatedState!.selectedFilePaths).not.toBe(initialSet);
+      expect(updatedState?.selectedFilePaths).toEqual(new Set(initialSet));
+      expect(updatedState?.selectedFilePaths).not.toBe(initialSet);
     });
 
     it('should filter out invalid composite keys', () => {
@@ -102,8 +102,8 @@ describe('file-selection-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!.selectedFilePaths).toEqual(new Set(['folder1|@|file1.ts']));
-      expect(updatedState!.selectedFilePaths?.has('invalid-key')).toBe(false);
+      expect(updatedState?.selectedFilePaths).toEqual(new Set(['folder1|@|file1.ts']));
+      expect(updatedState?.selectedFilePaths?.has('invalid-key')).toBe(false);
     });
 
     it('should handle empty sets', () => {
@@ -127,7 +127,7 @@ describe('file-selection-actions', () => {
       }
 
       expect(updatedState).toBeDefined();
-      expect(updatedState!.selectedFilePaths).toEqual(new Set<string>());
+      expect(updatedState?.selectedFilePaths).toEqual(new Set<string>());
     });
   });
 
@@ -157,9 +157,9 @@ describe('file-selection-actions', () => {
 
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined(); // Assert Set exists
-      expect(updatedState.selectedFilePaths!.size).toBe(2);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(2);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should not add file if max selection count is reached', () => {
@@ -186,9 +186,9 @@ describe('file-selection-actions', () => {
       // Verify the file wasn't added (same size as before)
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(1);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.size).toBe(1);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -212,9 +212,9 @@ describe('file-selection-actions', () => {
       const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(2);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(2);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 
@@ -244,9 +244,9 @@ describe('file-selection-actions', () => {
 
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(1);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(1);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -270,9 +270,9 @@ describe('file-selection-actions', () => {
       const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(1);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(1);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 
@@ -302,9 +302,9 @@ describe('file-selection-actions', () => {
 
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(2);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(2);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should remove file from selected files when present', () => {
@@ -332,9 +332,9 @@ describe('file-selection-actions', () => {
 
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(1);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(false);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(1);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
 
     it('should not add file if max selection count is reached', () => {
@@ -361,9 +361,9 @@ describe('file-selection-actions', () => {
       // Verify the file wasn't added (same size as before)
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(1);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.size).toBe(1);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false);
     });
 
     it('should work normally with null currentFolderId', () => {
@@ -387,9 +387,9 @@ describe('file-selection-actions', () => {
       const updatedState = updateFn(mockState) as Partial<FileExplorerState>; // Assert return type
       expect(updatedState).toBeDefined();
       expect(updatedState.selectedFilePaths).toBeDefined();
-      expect(updatedState.selectedFilePaths!.size).toBe(2);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file1.ts')).toBe(true);
-      expect(updatedState.selectedFilePaths!.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.size).toBe(2);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
     });
   });
 
