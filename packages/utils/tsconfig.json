@@ -6,13 +6,13 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "src",
     "declaration": true,
-    "declarationDir": "../dist",
-    "emitDeclarationOnly": true
+    "declarationDir": "./dist",
+    "outDir": "./dist",
+    "declarationMap": true
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
   "references": [
-    // {"path": "../../packages/config"},
     {"path": "../../packages/types"}
   ]
 } 
