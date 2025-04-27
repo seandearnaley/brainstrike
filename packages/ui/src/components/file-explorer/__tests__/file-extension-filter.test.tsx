@@ -3,7 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExtensionFilter from '../file-extension-filter';
 
-// Simplify the tests to focus on core functionality without debounce
+// Simplified tests to focus on core functionality without debounce
+
 describe('FileExtensionFilter', () => {
   const defaultProps = {
     includeFilters: ['*.ts', '*.tsx'],

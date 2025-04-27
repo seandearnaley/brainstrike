@@ -20,7 +20,7 @@
   "scripts": {
     "build": "tsc -p . && tsup src/index.ts --format esm,cjs --clean",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
-    "lint": "eslint src/",
+    "lint": "tsc --noEmit",
     "clean": "rm -rf dist .tsbuildinfo",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

@@ -4,11 +4,11 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
+import { useFileExplorerSettings } from '@brainstrike/hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
-import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
@@ -18,7 +18,7 @@ import FileExplorer from '../../file-explorer';
 vi.mock('@/hooks/use-file-system');
 vi.mock('@/hooks/use-file-explorer');
 vi.mock('@/hooks/use-quick-filter');
-vi.mock('@/hooks/use-file-explorer-settings');
+vi.mock('@brainstrike/hooks');
 vi.mock('@/hooks/use-report-generation');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();

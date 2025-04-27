@@ -1,12 +1,12 @@
-import { Label } from '@brainstrike/ui';
-import type React from 'react';
+import type { FC } from 'react';
+import { Label } from '../../label';
 
-interface MaxSelectionCountSettingProps {
+export interface MaxSelectionCountSettingProps {
   value: number;
   onChange: (value: number) => void;
 }
 
-const MaxSelectionCountSetting: React.FC<MaxSelectionCountSettingProps> = ({ value, onChange }) => (
+const MaxSelectionCountSetting: FC<MaxSelectionCountSettingProps> = ({ value, onChange }) => (
   <div className="space-y-2">
     <Label htmlFor="max-selection-count">Max Selection Count</Label>
     <input

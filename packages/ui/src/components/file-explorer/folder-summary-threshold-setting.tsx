@@ -1,12 +1,12 @@
-import { Label } from '@brainstrike/ui';
-import type React from 'react';
+import type { FC } from 'react';
+import { Label } from '../../label';
 
-interface FolderSummaryThresholdSettingProps {
+export interface FolderSummaryThresholdSettingProps {
   value: number;
   onChange: (value: number) => void;
 }
 
-const FolderSummaryThresholdSetting: React.FC<FolderSummaryThresholdSettingProps> = ({
+const FolderSummaryThresholdSetting: FC<FolderSummaryThresholdSettingProps> = ({
   value,
   onChange,
 }) => (

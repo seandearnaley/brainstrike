@@ -1,25 +1,22 @@
-import { Button } from '@brainstrike/ui';
-import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { useFileExplorerSettings } from '@brainstrike/hooks';
+import type { FileExplorerSettings } from '@brainstrike/types';
+import {
+  Button,
+  FileExtensionFilter,
+  FolderSummaryThresholdSetting,
+  IncludeProjectTreeSetting,
+  MaxSelectionCountSetting,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+  UseRegexSetting,
+} from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
-import FileExtensionFilter from './file-extension-filter';
-import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
-import IncludeProjectTreeSetting from './include-project-tree-setting';
-import MaxSelectionCountSetting from './max-selection-count-setting';
-import UseRegexSetting from './use-regex-setting';
 
 // Types
-interface FileExplorerSettings {
-  includeFilters: string[];
-  excludeFilters: string[];
-  useRegex: boolean;
-  maxSelectionCount: number;
-  includeProjectTree: boolean;
-  folderSummaryThreshold: number;
-}
-
 interface FileExplorerConfigProps {
   filterError: string | null;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
@@ -28,28 +25,15 @@ interface FileExplorerConfigProps {
 // Main Component
 const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, onFilterChange }) => {
   const store = useFileExplorerStore();
+  const { settings: persisted, updateSettings } = useFileExplorerSettings();
   const [isOpen, setIsOpen] = useState(false);
-  const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
-    includeFilters: store.includeFilters,
-    excludeFilters: store.excludeFilters,
-    useRegex: store.useRegex,
-    maxSelectionCount: store.maxSelectionCount,
-    includeProjectTree: store.includeProjectTree,
-    folderSummaryThreshold: store.folderSummaryThreshold,
-  }));
+  const [settings, setSettings] = useState<FileExplorerSettings>(() => persisted);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    setSettings({
-      includeFilters: store.includeFilters,
-      excludeFilters: store.excludeFilters,
-      useRegex: store.useRegex,
-      maxSelectionCount: store.maxSelectionCount,
-      includeProjectTree: store.includeProjectTree,
-      folderSummaryThreshold: store.folderSummaryThreshold,
-    });
-  }, [isOpen, store]);
+    setSettings(persisted);
+  }, [isOpen, persisted]);
 
   const handleSettingChange = <K extends keyof FileExplorerSettings>(
     key: K,
@@ -75,6 +59,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     store.setFolderSummaryThreshold(folderSummaryThreshold);
 
     onFilterChange(includeFilters, excludeFilters, useRegex);
+    updateSettings(settings);
     setIsOpen(false);
   };
 

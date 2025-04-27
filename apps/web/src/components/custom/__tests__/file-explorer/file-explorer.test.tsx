@@ -1,9 +1,8 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
-import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
+import { useFileExplorerSettings } from '@brainstrike/hooks';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
@@ -11,19 +10,20 @@ import { FileExplorerStrings } from '../../constants/file-explorer-constants';
 import FileExplorer from '../../file-explorer';
 import {
   createMockDirectoryHandle,
-  defaultMockStore,
   mockFileExplorer,
   mockFileSystem,
   mockQuickFilter,
   mockReportGeneration,
   mockSettings,
-  resetDefaultMockStore,
 } from '../helpers/file-explorer-test-utils';
+import { mockToast } from '../../../../__mocks__/ui-mocks';
 
 vi.mock('../../../../hooks/use-file-system');
 vi.mock('../../../../hooks/use-file-explorer');
 vi.mock('../../../../hooks/use-quick-filter');
-vi.mock('../../../../hooks/use-file-explorer-settings');
+vi.mock('@brainstrike/hooks', () => ({
+  useFileExplorerSettings: vi.fn(),
+}));
 vi.mock('../../../../hooks/use-report-generation');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
@@ -48,24 +48,53 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 // Mock imported from ui-mocks.ts
 // No need to mock useToast here as it's done in ui-mocks.ts
 
-// Reuse a mockStore instance
-const mockStore = { ...defaultMockStore };
+// Mock the store actions needed by FileExplorerConfig
+const mockSetFilters = vi.fn();
+const mockSetUseRegex = vi.fn();
+const mockSetIncludeProjectTree = vi.fn();
+const mockSetFolderSummaryThreshold = vi.fn();
+const mockSetMaxSelectionCount = vi.fn();
 
-vi.mock('../../../../stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: () => mockStore,
-}));
+vi.mock('../../../../stores/use-file-explorer-store', async (importOriginal) => {
+  const actualStore =
+    await importOriginal<typeof import('../../../../stores/use-file-explorer-store')>();
+  return {
+    ...actualStore, // Keep actual exports if needed elsewhere
+    useFileExplorerStore: vi.fn().mockImplementation((selector) => {
+      // Provide mock actions and minimal state if necessary
+      const state = {
+        currentFolderId: 'test', // Example state if needed by FileExplorer
+        selectedFilePaths: new Set<string>(), // Ensure this state is provided
+        setCurrentFolderId: vi.fn(), // Add missing action used by FileExplorer
+        setFilters: mockSetFilters,
+        setUseRegex: mockSetUseRegex,
+        setIncludeProjectTree: mockSetIncludeProjectTree,
+        setFolderSummaryThreshold: mockSetFolderSummaryThreshold,
+        setMaxSelectionCount: mockSetMaxSelectionCount,
+        // ... add other state/actions used by FileExplorer if needed
+      };
+      return selector ? selector(state) : state;
+    }),
+  };
+});
 
 describe('FileExplorer', () => {
   beforeEach(() => {
-    resetDefaultMockStore(mockStore);
     (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);
     (useFileExplorer as ReturnType<typeof vi.fn>).mockReturnValue(mockFileExplorer);
     (useQuickFilter as ReturnType<typeof vi.fn>).mockReturnValue(mockQuickFilter);
     (useFileExplorerSettings as ReturnType<typeof vi.fn>).mockReturnValue({
-      settings: mockSettings.settings,
+      settings: { ...mockSettings.settings },
       updateSettings: mockSettings.updateSettings,
     });
     (useReportGeneration as ReturnType<typeof vi.fn>).mockReturnValue(mockReportGeneration);
+
+    // Clear store action mocks
+    mockSetFilters.mockClear();
+    mockSetUseRegex.mockClear();
+    mockSetIncludeProjectTree.mockClear();
+    mockSetFolderSummaryThreshold.mockClear();
+    mockSetMaxSelectionCount.mockClear();
   });
 
   afterEach(() => {
@@ -135,8 +164,6 @@ describe('FileExplorer', () => {
       isLoading: false,
       isRefreshing: false,
     });
-
-    mockStore.currentFolderId = 'test';
 
     await act(async () => {
       render(<FileExplorer />);

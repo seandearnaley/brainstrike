@@ -12,6 +12,7 @@ export * from "./errors";
 export * from "./git-types";
 export * from "./file-explorer-types";
 export * from "./file-system"; // Added export for file system types
+export * from "./file-explorer";
 
 // Explicitly re-export the classes as values
 export {

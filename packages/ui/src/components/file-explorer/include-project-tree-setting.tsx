@@ -1,16 +1,13 @@
-import { Label } from '@brainstrike/ui';
-import { Switch } from '@brainstrike/ui';
-import type React from 'react';
+import type { FC } from 'react';
+import { Label } from '../../label';
+import { Switch } from '../../switch';
 
-interface IncludeProjectTreeSettingProps {
+export interface IncludeProjectTreeSettingProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
 }
 
-const IncludeProjectTreeSetting: React.FC<IncludeProjectTreeSettingProps> = ({
-  checked,
-  onChange,
-}) => (
+const IncludeProjectTreeSetting: FC<IncludeProjectTreeSettingProps> = ({ checked, onChange }) => (
   <div className="flex items-center space-x-2">
     <Switch id="include-project-tree" checked={checked} onCheckedChange={onChange} />
     <Label htmlFor="include-project-tree">Include Project Tree</Label>

@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_INCLUDE_FILTERS } from '../../constants/file-explorer';
-import { useFileExplorerSettings } from '../use-file-explorer-settings';
+import { DEFAULT_INCLUDE_FILTERS, useFileExplorerSettings } from '../use-file-explorer-settings';
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -65,10 +64,7 @@ describe('useFileExplorerSettings', () => {
   });
 
   it('should handle errors when loading settings', () => {
-    // Mock console.error to prevent test output noise
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    // Simulate a JSON parse error
     localStorageMock.getItem.mockReturnValueOnce('invalid-json');
 
     const { result } = renderHook(() => useFileExplorerSettings());
@@ -82,48 +78,36 @@ describe('useFileExplorerSettings', () => {
       includeProjectTree: true,
       folderSummaryThreshold: 100,
     });
-
     consoleErrorSpy.mockRestore();
   });
 
   it('should update settings and save to localStorage', () => {
     const { result } = renderHook(() => useFileExplorerSettings());
-
     act(() => {
       result.current.updateSettings({ maxSelectionCount: 15, useRegex: true });
     });
 
     expect(localStorageMock.setItem).toHaveBeenCalledWith(STORAGE_KEY, expect.any(String));
-
-    const mockCalls = localStorageMock.setItem.mock.calls;
-    if (mockCalls && mockCalls.length > 0 && mockCalls[0] && mockCalls[0][1]) {
-      const savedValue = JSON.parse(mockCalls[0][1]);
-      expect(savedValue).toEqual({
-        ...result.current.settings,
-        maxSelectionCount: 15,
-        useRegex: true,
-      });
-    }
-
+    const savedValue = JSON.parse(localStorageMock.setItem.mock.calls[0][1]);
+    expect(savedValue).toEqual({
+      ...result.current.settings,
+      maxSelectionCount: 15,
+      useRegex: true,
+    });
     expect(result.current.settings.maxSelectionCount).toBe(15);
     expect(result.current.settings.useRegex).toBe(true);
   });
 
   it('should handle errors when saving settings', () => {
-    // Mock console.error to prevent test output noise
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    // Simulate a localStorage error
     localStorageMock.setItem.mockImplementationOnce(() => {
       throw new Error('Storage error');
     });
 
     const { result } = renderHook(() => useFileExplorerSettings());
-
     act(() => {
       result.current.updateSettings({ maxSelectionCount: 15 });
     });
-
     expect(consoleErrorSpy).toHaveBeenCalled();
     consoleErrorSpy.mockRestore();
   });

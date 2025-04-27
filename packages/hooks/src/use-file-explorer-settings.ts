@@ -1,9 +1,9 @@
 import { useCallback, useMemo } from 'react';
-import { DEFAULT_INCLUDE_FILTERS } from '../constants/file-explorer';
 
+export const DEFAULT_INCLUDE_FILTERS = ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'];
 const STORAGE_KEY = 'fileExplorerSettings';
 
-interface FileExplorerSettings {
+export interface FileExplorerSettings {
   maxSelectionCount: number;
   includeFilters: string[];
   excludeFilters: string[];
@@ -12,7 +12,6 @@ interface FileExplorerSettings {
   folderSummaryThreshold: number;
 }
 
-// Load settings synchronously
 const loadStoredSettings = (): FileExplorerSettings => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -33,8 +32,7 @@ const loadStoredSettings = (): FileExplorerSettings => {
 };
 
 export function useFileExplorerSettings() {
-  // Use useMemo to maintain a stable reference to the settings object
-  // This object is intentionally mutable to allow direct updates that are visible to all consumers
+  // Use useMemo to maintain a stable settings object
   const settings = useMemo(() => loadStoredSettings(), []);
 
   const updateSettings = useCallback(
@@ -42,8 +40,7 @@ export function useFileExplorerSettings() {
       const newSettings = { ...settings, ...updates };
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
-        // Intentionally mutate the memoized object to maintain the reference
-        // while ensuring all consumers see the updates
+        // Mutate settings object so all consumers see updates
         Object.assign(settings, updates);
       } catch (error) {
         console.error('Error saving file explorer settings:', error);
@@ -52,8 +49,5 @@ export function useFileExplorerSettings() {
     [settings]
   );
 
-  return {
-    settings,
-    updateSettings,
-  };
+  return { settings, updateSettings };
 }

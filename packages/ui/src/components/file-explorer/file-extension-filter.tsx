@@ -1,10 +1,9 @@
-import { Input } from '@brainstrike/ui';
 import { debounce } from 'lodash';
 import { AlertCircle } from 'lucide-react';
-import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import * as React from 'react';
+import { Input } from '../../input';
 
-interface FileExtensionFilterProps {
+export interface FileExtensionFilterProps {
   includeFilters: string[];
   excludeFilters: string[];
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
@@ -19,19 +18,18 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   useRegex,
   filterError,
 }) => {
-  const [includeInput, setIncludeInput] = useState(() => includeFilters.join(', '));
-  const [excludeInput, setExcludeInput] = useState(() => excludeFilters.join(', '));
-  const isFirstMount = useRef(true);
+  const [includeInput, setIncludeInput] = React.useState(() => includeFilters.join(', '));
+  const [excludeInput, setExcludeInput] = React.useState(() => excludeFilters.join(', '));
+  const isFirstMount = React.useRef(true);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!isFirstMount.current) return;
-
     isFirstMount.current = false;
     setIncludeInput(includeFilters.join(', '));
     setExcludeInput(excludeFilters.join(', '));
   }, [includeFilters, excludeFilters]);
 
-  const debouncedFilterChange = useMemo(
+  const debouncedFilterChange = React.useMemo(
     () =>
       debounce((newInclude: string[], newExclude: string[]) => {
         onFilterChange(newInclude, newExclude, useRegex);
@@ -46,7 +44,6 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
     isInclude: boolean
   ) => {
     setInput(value);
-
     const newFilters = value
       .split(',')
       .map((f) => f.trim())
@@ -58,21 +55,6 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
     );
   };
 
-  const handleIncludeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleInputChange(e.target.value, setIncludeInput, excludeFilters, true);
-  };
-
-  const handleExcludeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleInputChange(e.target.value, setExcludeInput, includeFilters, false);
-  };
-
-  const getPlaceholder = (isInclude: boolean) =>
-    useRegex
-      ? 'Enter regex patterns, separated by commas'
-      : isInclude
-        ? 'e.g. *.ts, src/**/*.js'
-        : 'e.g. *.test.js, node_modules/**';
-
   return (
     <div className="space-y-2">
       <div>
@@ -83,8 +65,10 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
           id="include-files"
           type="text"
           value={includeInput}
-          onChange={handleIncludeInputChange}
-          placeholder={getPlaceholder(true)}
+          onChange={(e) => handleInputChange(e.target.value, setIncludeInput, excludeFilters, true)}
+          placeholder={
+            useRegex ? 'Enter regex patterns, separated by commas' : 'e.g. *.ts, src/**/*.js'
+          }
         />
       </div>
       <div>
@@ -95,8 +79,14 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
           id="exclude-files"
           type="text"
           value={excludeInput}
-          onChange={handleExcludeInputChange}
-          placeholder={getPlaceholder(false)}
+          onChange={(e) =>
+            handleInputChange(e.target.value, setExcludeInput, includeFilters, false)
+          }
+          placeholder={
+            useRegex
+              ? 'Enter regex patterns, separated by commas'
+              : 'e.g. *.test.js, node_modules/**'
+          }
         />
       </div>
       {filterError && (

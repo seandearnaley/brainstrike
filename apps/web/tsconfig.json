@@ -7,7 +7,15 @@
 		"noEmit": true,
 		"outDir": "dist",
 		"paths": {
-			"@/*": ["./src/*"]
+			"@/*": ["./src/*"],
+			"@brainstrike/hooks": ["../../packages/hooks/src"],
+			"@brainstrike/hooks/*": ["../../packages/hooks/src/*"],
+			"@brainstrike/types": ["../../packages/types"],
+			"@brainstrike/types/*": ["../../packages/types/*"],
+			"@brainstrike/ui": ["../../packages/ui/src"],
+			"@brainstrike/ui/*": ["../../packages/ui/src/*"],
+			"@brainstrike/utils": ["../../packages/utils/src"],
+			"@brainstrike/utils/*": ["../../packages/utils/src/*"]
 		},
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},
