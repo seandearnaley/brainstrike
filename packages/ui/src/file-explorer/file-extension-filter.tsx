@@ -1,7 +1,7 @@
 import { debounce } from 'lodash';
 import { AlertCircle } from 'lucide-react';
 import * as React from 'react';
-import { Input } from '../../input';
+import { Input } from '../input';
 
 export interface FileExtensionFilterProps {
   includeFilters: string[];

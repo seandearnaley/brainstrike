@@ -1,5 +1,5 @@
 import type { FC } from 'react';
-import { Label } from '../../label';
+import { Label } from '../label';
 
 export interface MaxSelectionCountSettingProps {
   value: number;
