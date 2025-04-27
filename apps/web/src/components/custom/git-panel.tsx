@@ -3,10 +3,10 @@ import { Button } from '@brainstrike/ui';
 import { ScrollArea } from '@brainstrike/ui';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@brainstrike/ui';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
+import { cn } from '@brainstrike/ui';
 import { GitBranch, GitCompare, Loader2 } from 'lucide-react';
 import * as React from 'react';
 import { memo, useMemo, useRef } from 'react';
-import { cn } from '../../lib/utils';
 import { useGitStore } from '../../stores/git-store';
 import { AnalysisPanel } from './analysis-panel';
 

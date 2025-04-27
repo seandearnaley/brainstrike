@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { ErrorBoundary } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
@@ -12,7 +13,6 @@ import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { decodeFileSelection } from '../../utils/file-selection-utils';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
-import ErrorBoundary from './error-boundary';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>

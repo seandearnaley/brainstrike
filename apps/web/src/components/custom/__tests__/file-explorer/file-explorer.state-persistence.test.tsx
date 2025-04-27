@@ -51,9 +51,14 @@ vi.mock('@/components/ui/button', () => ({
 }));
 
 // Mock components
-vi.mock('@/components/custom/error-boundary', () => ({
-  default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...mod,
+    // Mock ErrorBoundary to just render children
+    ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 vi.mock('../../file-explorer-sidebar', () => ({
   FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,

@@ -1,17 +1,10 @@
 // All usages of PreviewPanel now use uiTestProps, so type errors for missing required props should be resolved.
 
-import React from 'react';
 import '@testing-library/jest-dom';
 import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../../preview-panel';
-import {
-  createCompositeKey,
-  defaultProps,
-  render,
-  uiTestProps,
-  userEvent,
-} from './preview-panel-test-utils';
+import { createCompositeKey, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 describe('PreviewPanel - Loading States', () => {
   beforeEach(() => {

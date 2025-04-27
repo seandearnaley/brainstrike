@@ -1,6 +1,6 @@
+import { ErrorBoundary } from '@brainstrike/ui';
 import React, { Suspense, useState, useEffect } from 'react';
 import { useFS } from '../../providers/fs-provider';
-import ErrorBoundary from './error-boundary';
 
 // Loading fallback component
 function FileExplorerLoading() {

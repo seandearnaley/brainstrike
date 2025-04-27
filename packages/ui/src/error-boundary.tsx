@@ -18,8 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { cn } from '../../lib/utils';
-import { FileExplorerStrings } from './constants/file-explorer-constants';
+import { cn, isDevEnv } from './lib/utils';
 
 interface Props {
   children: ReactNode;
@@ -109,19 +108,20 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 
     // Default error info
     let icon = AlertTriangle;
-    const title = FileExplorerStrings.ERROR.TITLE;
+    const title = 'Error';
     let color = 'text-red-500';
     let message = error.message;
     let actions = null;
 
-    // Custom title for display that's separate from the FileExplorerStrings.ERROR.TITLE
+    // Custom title for display that's separate from the default error title
     let displayTitle = 'Error';
 
     // Specialized handling based on error type
     if (error instanceof FSInitializationError) {
+      const fsError = error as FSInitializationError;
       icon = FolderOpen;
       displayTitle = 'File System Error';
-      message = `Failed to initialize file system: ${error.message}`;
+      message = `Failed to initialize file system: ${fsError.message}`;
       color = 'text-amber-500';
       actions = (
         <Button onClick={this.handleReload} variant="outline" className="mt-2">
@@ -129,9 +129,10 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </Button>
       );
     } else if (error instanceof GitOperationError) {
+      const gitError = error as GitOperationError;
       icon = GitBranch;
       displayTitle = 'Git Operation Error';
-      message = `Git operation '${error.operation}' failed: ${error.message}`;
+      message = `Git operation '${gitError.operation}' failed: ${gitError.message}`;
       color = 'text-blue-500';
       actions = (
         <Button onClick={this.handleReset} variant="outline" className="mt-2">
@@ -139,9 +140,10 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </Button>
       );
     } else if (error instanceof FileContentError) {
+      const fileError = error as FileContentError;
       icon = FileWarning;
       displayTitle = 'File Content Error';
-      message = `Failed to load file '${error.path}': ${error.message}`;
+      message = `Failed to load file '${fileError.path}': ${fileError.message}`;
       color = 'text-orange-500';
       actions = (
         <div className="flex gap-2 mt-2">
@@ -154,9 +156,10 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </div>
       );
     } else if (error instanceof ConcurrentLoadingError) {
+      const concurrentError = error as ConcurrentLoadingError;
       icon = Server;
       displayTitle = 'Loading Error';
-      message = `Failed to load ${error.failedPaths.length} files: ${error.message}`;
+      message = `Failed to load ${concurrentError.failedPaths.length} files: ${concurrentError.message}`;
       color = 'text-purple-500';
       actions = (
         <Button onClick={this.handleReset} variant="outline" className="mt-2">
@@ -164,9 +167,10 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </Button>
       );
     } else if (error instanceof PartialRefreshError) {
+      const partialError = error as PartialRefreshError;
       icon = RefreshCw;
       displayTitle = 'Partial Refresh Error';
-      message = `Refresh partially failed: ${error.successCount} succeeded, ${error.failCount} failed`;
+      message = `Refresh partially failed: ${partialError.successCount} succeeded, ${partialError.failCount} failed`;
       color = 'text-yellow-500';
       actions = (
         <Button onClick={this.handleReset} variant="outline" className="mt-2">
@@ -180,13 +184,13 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 
   public override render() {
     const { hasError, error, errorInfo, isDetailsVisible } = this.state;
-    const { fallback, showDetails = import.meta.env.DEV } = this.props;
+    const { fallback, showDetails } = this.props;
+    const details = showDetails !== undefined ? showDetails : isDevEnv();
 
     if (!hasError) {
       return this.props.children;
     }
 
-    // Use custom fallback if provided
     if (fallback) {
       return fallback;
     }
@@ -227,7 +231,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 Go Back
               </Button>
 
-              {showDetails && (
+              {details && (
                 <Button
                   onClick={this.handleToggleDetails}
                   variant="outline"
@@ -238,7 +242,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                 </Button>
               )}
 
-              {showDetails && (
+              {details && (
                 <Button
                   onClick={this.handleCopyErrorDetails}
                   variant="outline"
@@ -251,7 +255,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           </div>
 
           {/* Error details (for development) */}
-          {isDetailsVisible && showDetails && (
+          {isDetailsVisible && details && (
             <div className="p-4 border-t bg-muted/20">
               <h3 className="font-semibold mb-2">Error Details</h3>
               <div className="bg-muted p-2 rounded text-sm font-mono overflow-auto max-h-60">

@@ -27,6 +27,7 @@
 		"@commitlint/cli": "^19.8.0",
 		"@commitlint/config-conventional": "^19.8.0",
 		"@commitlint/types": "^19.8.0",
+		"@testing-library/jest-dom": "^6.4.9",
 		"knip": "^5.50.2",
 		"nyc": "^17.1.0",
 		"tsup": "^8.4.0",

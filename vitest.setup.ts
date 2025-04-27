@@ -1,3 +1,4 @@
+import '@testing-library/jest-dom/vitest';
 import { vi } from 'vitest';
 
 // Silence console logs, warnings, and errors during tests
