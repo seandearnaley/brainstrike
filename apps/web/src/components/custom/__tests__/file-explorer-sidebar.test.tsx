@@ -16,6 +16,16 @@ vi.mock('../folder-badge', () => ({
   FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
 }));
 
+// Mock FileTree to a simple stub to avoid timeouts
+vi.mock('../file-tree', () => ({
+  __esModule: true,
+  default: () => (
+    <ul role="tree" aria-label="File tree">
+      <li>Mock Node</li>
+    </ul>
+  ),
+}));
+
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [
     createDirectoryNode({

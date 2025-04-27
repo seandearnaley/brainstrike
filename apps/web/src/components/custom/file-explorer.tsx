@@ -1,4 +1,3 @@
-import type { IFileNode } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
@@ -9,7 +8,6 @@ import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
-import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { decodeFileSelection } from '../../utils/file-selection-utils';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
@@ -60,8 +58,10 @@ const FileExplorer: React.FC = () => {
   } = useFileExplorerStore();
 
   // Local state for UI
-  const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Add state for tracking which file paths are currently displayed
+  const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
 
   const {
     fileTree,
@@ -77,9 +77,7 @@ const FileExplorer: React.FC = () => {
     isInitialLoad,
     loadFileContent,
     loadingProgress,
-  } = useFileExplorer({
-    onDisplayedFilePathsChange: setDisplayedFiles,
-  });
+  } = useFileExplorer({ onDisplayedFilePathsChange: setDisplayedFiles });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -87,14 +85,7 @@ const FileExplorer: React.FC = () => {
     return new Error(filterError);
   }, [filterError]);
 
-  const {
-    toast,
-    showToast,
-    handleRefreshError,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    handleSelectionLimitError,
-  } = useToastManager();
+  const { toast, showToast, handleRefreshError, handleSelectionLimitError } = useToastManager();
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: handleSelectionLimitError,
@@ -131,51 +122,13 @@ const FileExplorer: React.FC = () => {
     toast,
   });
 
-  const { performUndoableAction } = useUndoableAction<Set<string>, Set<string>>();
-
-  const performUndoableActionForPanel = (
-    key: string,
-    _itemKey: string, // renamed to avoid unused var lint
-    opts: {
-      actionName: string;
-      itemDescription: string;
-      getStateSnapshot: () => Set<string>;
-      onUndo: (key: string, snapshot: Set<string>) => void;
-    }
-  ) => {
-    performUndoableAction(key, opts.getStateSnapshot(), {
-      actionName: opts.actionName,
-      itemDescription: opts.itemDescription,
-      getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match PreviewPanel expectation
-      onUndo: (_item, snapshot) => opts.onUndo(key, snapshot),
-    });
-  };
-
-  useEffect(() => {
-    if (quickFilteredTree) {
-      const allVisibleFiles = new Set<string>();
-      const collectVisibleFiles = (nodes: IFileNode[]) => {
-        for (const node of nodes) {
-          if (node.type === 'file' && node.isVisible !== false) {
-            allVisibleFiles.add(node.path);
-          } else if (node.type === 'directory' && node.children) {
-            collectVisibleFiles(node.children);
-          }
-        }
-      };
-      collectVisibleFiles(quickFilteredTree);
-      setDisplayedFiles(allVisibleFiles);
-    }
-  }, [quickFilteredTree]);
-
   const handleRefresh = useCallback(async () => {
     if (!rootDirectoryHandle) return;
 
     setIsRefreshing(true);
     try {
       await refreshFileExplorer();
-      showToast({
+      toast({
         title: FileExplorerStrings.SUCCESS.TITLE,
         description: FileExplorerStrings.SUCCESS.REFRESH_SUCCESS,
       });
@@ -184,31 +137,20 @@ const FileExplorer: React.FC = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
+  }, [rootDirectoryHandle, refreshFileExplorer, toast, handleRefreshError]);
 
   const handleDirectorySelect = useCallback(async () => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
-      handleBrowserCompatibilityError(reason);
+      toast({
+        title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
+        description: reason,
+        variant: 'destructive',
+      });
       return;
     }
-
-    try {
-      const handle = await handleRootDirectorySelect();
-      if (handle === null) {
-        // User cancelled the directory selection, do nothing
-        return;
-      }
-      // Additional business logic for successful selection can be added here if needed
-    } catch (error) {
-      handleDirectorySelectError(error);
-    }
-  }, [
-    handleRootDirectorySelect,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    isFileSystemAccessSupported,
-  ]);
+    await handleRootDirectorySelect();
+  }, [isFileSystemAccessSupported, toast, handleRootDirectorySelect]);
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -304,7 +246,6 @@ const FileExplorer: React.FC = () => {
                   decodeFileSelection={decodeFileSelection}
                   countTokensHeuristic={countTokensHeuristic}
                   estimateTokenCost={estimateTokenCost}
-                  performUndoableAction={performUndoableActionForPanel}
                 />
               </Suspense>
             </div>

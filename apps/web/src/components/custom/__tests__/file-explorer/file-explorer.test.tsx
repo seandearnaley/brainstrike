@@ -1,8 +1,9 @@
+import { useFileExplorerSettings } from '@brainstrike/hooks';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mockToast } from '../../../../__mocks__/ui-mocks';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
-import { useFileExplorerSettings } from '@brainstrike/hooks';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
@@ -16,7 +17,15 @@ import {
   mockReportGeneration,
   mockSettings,
 } from '../helpers/file-explorer-test-utils';
-import { mockToast } from '../../../../__mocks__/ui-mocks';
+
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
+  const { mockToast } = await import('../../../../__mocks__/ui-mocks');
+  return {
+    ...originalModule,
+    useToast: () => ({ toast: mockToast }),
+  };
+});
 
 vi.mock('../../../../hooks/use-file-system');
 vi.mock('../../../../hooks/use-file-explorer');
@@ -25,25 +34,6 @@ vi.mock('@brainstrike/hooks', () => ({
   useFileExplorerSettings: vi.fn(),
 }));
 vi.mock('../../../../hooks/use-report-generation');
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
-  return {
-    ...originalModule,
-    Button: ({
-      children,
-      onClick,
-      disabled,
-    }: {
-      children: React.ReactNode;
-      onClick?: () => void;
-      disabled?: boolean;
-    }) => (
-      <button type="button" onClick={onClick} disabled={disabled}>
-        {children}
-      </button>
-    ),
-  };
-});
 
 // Mock imported from ui-mocks.ts
 // No need to mock useToast here as it's done in ui-mocks.ts
@@ -80,6 +70,7 @@ vi.mock('../../../../stores/use-file-explorer-store', async (importOriginal) => 
 
 describe('FileExplorer', () => {
   beforeEach(() => {
+    mockToast.mockClear();
     (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);
     (useFileExplorer as ReturnType<typeof vi.fn>).mockReturnValue(mockFileExplorer);
     (useQuickFilter as ReturnType<typeof vi.fn>).mockReturnValue(mockQuickFilter);

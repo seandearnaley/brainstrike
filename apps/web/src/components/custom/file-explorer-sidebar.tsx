@@ -52,29 +52,19 @@ const DirectoryStatus: React.FC<{
   );
 };
 
-const FilterBadge: React.FC<{
-  label: string;
-  value: string;
-  variant?: 'default' | 'secondary' | 'destructive' | 'outline';
-}> = ({ label, value, variant = 'secondary' }) => (
-  <Tooltip>
-    <TooltipTrigger>
-      <Badge variant={variant} className="cursor-help">
-        {value}
-      </Badge>
-    </TooltipTrigger>
-    <TooltipContent>
-      <p>{`${label}: ${value}`}</p>
-    </TooltipContent>
-  </Tooltip>
-);
+interface FilterStatusProps {
+  includeFilters?: string[];
+  excludeFilters?: string[];
+  useRegex?: boolean;
+  quickFilter?: string;
+}
 
-const FilterStatus: React.FC<{
-  includeFilters: string[];
-  excludeFilters: string[];
-  useRegex: boolean;
-  quickFilter: string;
-}> = ({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
+const FilterStatus: React.FC<FilterStatusProps> = ({
+  includeFilters = [],
+  excludeFilters = [],
+  useRegex = false,
+  quickFilter = '',
+}) => {
   const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
 
   if (!hasFilters) return null;
@@ -121,6 +111,23 @@ const FilterStatus: React.FC<{
     </TooltipProvider>
   );
 };
+
+const FilterBadge: React.FC<{
+  label: string;
+  value: string;
+  variant?: 'default' | 'secondary' | 'destructive' | 'outline';
+}> = ({ label, value, variant = 'secondary' }) => (
+  <Tooltip>
+    <TooltipTrigger>
+      <Badge variant={variant} className="cursor-help">
+        {value}
+      </Badge>
+    </TooltipTrigger>
+    <TooltipContent>
+      <p>{`${label}: ${value}`}</p>
+    </TooltipContent>
+  </Tooltip>
+);
 
 const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   rootDirectoryHandle,
