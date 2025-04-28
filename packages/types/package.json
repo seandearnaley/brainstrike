@@ -14,9 +14,9 @@
 		}
 	},
 	"scripts": {
-		"build": "tsc -p . && tsup",
+		"build": "pnpm run clean && tsc -p . && tsup index.ts --format esm,cjs --clean=false",
 		"dev": "tsup --watch",
-		"clean": "rm -rf dist .tsbuildinfo",
+		"clean": "rimraf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
 		"test": "vitest run",
 		"test:watch": "vitest",
@@ -26,10 +26,15 @@
 	"devDependencies": {
 		"@swc/core": "^1.11.20",
 		"@vitest/coverage-v8": "^3.1.1",
+		"rimraf": "^5.0.10",
+		"tsup": "^8.4.0",
 		"typescript": "^5.8.3",
 		"vitest": "^3.1.1"
 	},
+	"sideEffects": false,
 	"turbo": {
-		"outputs": ["dist/**"]
+		"outputs": [
+			"dist/**"
+		]
 	}
 }
