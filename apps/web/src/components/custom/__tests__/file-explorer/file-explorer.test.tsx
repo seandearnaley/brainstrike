@@ -53,14 +53,16 @@ vi.mock('../../../../stores/use-file-explorer-store', async (importOriginal) => 
     useFileExplorerStore: vi.fn().mockImplementation((selector) => {
       // Provide mock actions and minimal state if necessary
       const state = {
-        currentFolderId: 'test', // Example state if needed by FileExplorer
-        selectedFilePaths: new Set<string>(), // Ensure this state is provided
-        setCurrentFolderId: vi.fn(), // Add missing action used by FileExplorer
+        currentFolderId: 'test',
+        selectedFilePaths: new Set<string>(),
+        setCurrentFolderId: vi.fn(),
         setFilters: mockSetFilters,
         setUseRegex: mockSetUseRegex,
         setIncludeProjectTree: mockSetIncludeProjectTree,
         setFolderSummaryThreshold: mockSetFolderSummaryThreshold,
         setMaxSelectionCount: mockSetMaxSelectionCount,
+        expandAllDirectories: vi.fn(),
+        collapseAllDirectories: vi.fn(),
         // ... add other state/actions used by FileExplorer if needed
       };
       return selector ? selector(state) : state;
@@ -68,7 +70,7 @@ vi.mock('../../../../stores/use-file-explorer-store', async (importOriginal) => 
   };
 });
 
-describe.skip('FileExplorer', () => {
+describe('FileExplorer', () => {
   beforeEach(() => {
     mockToast.mockClear();
     (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);
