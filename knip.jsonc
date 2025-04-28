@@ -69,12 +69,9 @@
       }
     },
     "packages/types": {
-      "project": ["src/**/*.ts"],
+      "project": ["*.ts"],
       "ignore": [],
-      "ignoreDependencies": [
-        // Implicitly used by test/build runners?
-        "@swc/core"
-      ],
+      "ignoreDependencies": [],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -125,7 +122,8 @@
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
-    "@commitlint/cli" // Used with commitlint.config.ts but no hooks yet
+    "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
+    "tsup" // Ignore root tsup as it's used via workspace scripts
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
