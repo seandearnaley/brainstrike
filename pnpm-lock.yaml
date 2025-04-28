@@ -212,6 +212,9 @@ importers:
 
   packages/hooks:
     dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -315,9 +318,6 @@ importers:
       clsx:
         specifier: ^2.1.1
         version: 2.1.1
-      lodash:
-        specifier: ^4.17.21
-        version: 4.17.21
       lucide-react:
         specifier: ^0.483.0
         version: 0.483.0(react@19.1.0)

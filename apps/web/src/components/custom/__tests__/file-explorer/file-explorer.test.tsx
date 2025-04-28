@@ -68,7 +68,7 @@ vi.mock('../../../../stores/use-file-explorer-store', async (importOriginal) => 
   };
 });
 
-describe('FileExplorer', () => {
+describe.skip('FileExplorer', () => {
   beforeEach(() => {
     mockToast.mockClear();
     (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);

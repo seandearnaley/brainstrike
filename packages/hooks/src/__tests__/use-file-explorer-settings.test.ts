@@ -1,6 +1,15 @@
+// Import defaults directly from the types package
+import {
+  DEFAULT_EXCLUDE_FILTERS,
+  DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  DEFAULT_INCLUDE_FILTERS,
+  DEFAULT_INCLUDE_PROJECT_TREE,
+  DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_USE_REGEX,
+} from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_INCLUDE_FILTERS, useFileExplorerSettings } from '../use-file-explorer-settings';
+import { useFileExplorerSettings } from '../use-file-explorer-settings';
 
 // Mock localStorage
 const localStorageMock = (() => {
@@ -37,12 +46,12 @@ describe('useFileExplorerSettings', () => {
 
     expect(localStorageMock.getItem).toHaveBeenCalledWith(STORAGE_KEY);
     expect(result.current.settings).toEqual({
-      maxSelectionCount: 10,
-      includeFilters: DEFAULT_INCLUDE_FILTERS,
-      excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
-      useRegex: false,
-      includeProjectTree: true,
-      folderSummaryThreshold: 100,
+      maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+      includeFilters: [...DEFAULT_INCLUDE_FILTERS],
+      excludeFilters: [...DEFAULT_EXCLUDE_FILTERS],
+      useRegex: DEFAULT_USE_REGEX,
+      includeProjectTree: DEFAULT_INCLUDE_PROJECT_TREE,
+      folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
     });
   });
 
@@ -71,12 +80,12 @@ describe('useFileExplorerSettings', () => {
 
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(result.current.settings).toEqual({
-      maxSelectionCount: 10,
-      includeFilters: DEFAULT_INCLUDE_FILTERS,
-      excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
-      useRegex: false,
-      includeProjectTree: true,
-      folderSummaryThreshold: 100,
+      maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+      includeFilters: [...DEFAULT_INCLUDE_FILTERS],
+      excludeFilters: [...DEFAULT_EXCLUDE_FILTERS],
+      useRegex: DEFAULT_USE_REGEX,
+      includeProjectTree: DEFAULT_INCLUDE_PROJECT_TREE,
+      folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
     });
     consoleErrorSpy.mockRestore();
   });

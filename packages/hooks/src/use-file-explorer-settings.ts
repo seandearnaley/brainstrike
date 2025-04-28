@@ -1,7 +1,12 @@
+import {
+  DEFAULT_EXCLUDE_FILTERS,
+  DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  DEFAULT_INCLUDE_FILTERS,
+  DEFAULT_INCLUDE_PROJECT_TREE,
+  DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_USE_REGEX,
+} from '@brainstrike/types';
 import { useCallback, useMemo } from 'react';
-
-export const DEFAULT_INCLUDE_FILTERS = ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'];
-const STORAGE_KEY = 'fileExplorerSettings';
 
 export interface FileExplorerSettings {
   maxSelectionCount: number;
@@ -13,8 +18,18 @@ export interface FileExplorerSettings {
 }
 
 const loadStoredSettings = (): FileExplorerSettings => {
+  if (typeof window === 'undefined') {
+    return {
+      maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+      includeFilters: [...DEFAULT_INCLUDE_FILTERS],
+      excludeFilters: [...DEFAULT_EXCLUDE_FILTERS],
+      useRegex: DEFAULT_USE_REGEX,
+      includeProjectTree: DEFAULT_INCLUDE_PROJECT_TREE,
+      folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+    };
+  }
   try {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem('fileExplorerSettings');
     if (stored) {
       return JSON.parse(stored);
     }
@@ -22,12 +37,12 @@ const loadStoredSettings = (): FileExplorerSettings => {
     console.error('Error loading file explorer settings:', error);
   }
   return {
-    maxSelectionCount: 10,
-    includeFilters: DEFAULT_INCLUDE_FILTERS,
-    excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
-    useRegex: false,
-    includeProjectTree: true,
-    folderSummaryThreshold: 100,
+    maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
+    includeFilters: [...DEFAULT_INCLUDE_FILTERS],
+    excludeFilters: [...DEFAULT_EXCLUDE_FILTERS],
+    useRegex: DEFAULT_USE_REGEX,
+    includeProjectTree: DEFAULT_INCLUDE_PROJECT_TREE,
+    folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   };
 };
 
@@ -37,9 +52,10 @@ export function useFileExplorerSettings() {
 
   const updateSettings = useCallback(
     (updates: Partial<FileExplorerSettings>) => {
+      if (typeof window === 'undefined') return;
       const newSettings = { ...settings, ...updates };
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(newSettings));
+        localStorage.setItem('fileExplorerSettings', JSON.stringify(newSettings));
         // Mutate settings object so all consumers see updates
         Object.assign(settings, updates);
       } catch (error) {

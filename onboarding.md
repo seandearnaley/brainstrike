@@ -86,4 +86,4 @@ This structure enables fast development, consistent tooling, and seamless code s
 - Use `pnpm --filter <package>...` to scope commands to specific packages.
 
 ---
-For further details, refer to the full [Onboarding Guide](onboarding.md) and individual package README files.
+- For further details, refer to the root `README.md` and individual package README files.

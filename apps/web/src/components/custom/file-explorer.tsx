@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
@@ -97,6 +98,30 @@ const FileExplorer: React.FC = () => {
     filteredTree: quickFilteredTree,
     clearFilter,
   } = useQuickFilter(fileTree);
+
+  useEffect(() => {
+    function collectVisiblePaths(nodes: IFileNode[]): Set<string> {
+      const paths = new Set<string>();
+      if (!Array.isArray(nodes)) {
+        return paths;
+      }
+      for (const node of nodes) {
+        if (node.type === 'file') {
+          paths.add(node.path);
+        } else if (node.type === 'directory' && node.children) {
+          const childPaths = collectVisiblePaths(node.children);
+          for (const p of childPaths) {
+            paths.add(p);
+          }
+        }
+      }
+      return paths;
+    }
+
+    setDisplayedFiles(
+      Array.isArray(quickFilteredTree) ? collectVisiblePaths(quickFilteredTree) : new Set<string>()
+    );
+  }, [quickFilteredTree]);
 
   const { loadingFiles } = useFileLoadingManager({
     selectedFilePaths,

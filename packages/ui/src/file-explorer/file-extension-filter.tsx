@@ -1,4 +1,3 @@
-import { debounce } from 'lodash';
 import { AlertCircle } from 'lucide-react';
 import * as React from 'react';
 import { Input } from '../input';
@@ -9,6 +8,15 @@ export interface FileExtensionFilterProps {
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   useRegex: boolean;
   filterError: string | null;
+}
+
+// Simple debounce implementation to avoid large dependencies
+function debounce<FuncArgs extends unknown[]>(func: (...args: FuncArgs) => void, wait: number) {
+  let timeout: ReturnType<typeof setTimeout>;
+  return (...args: FuncArgs) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
 }
 
 const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({

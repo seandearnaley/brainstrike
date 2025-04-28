@@ -35,7 +35,7 @@ interface PreviewPanelProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
   countTokensHeuristic: (content: string) => number;
   estimateTokenCost: (tokens: number) => number;
-  performUndoableAction: (
+  performUndoableAction?: (
     key: string,
     itemKey: string,
     opts: {
@@ -104,7 +104,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   decodeFileSelection,
   countTokensHeuristic,
   estimateTokenCost,
-  performUndoableAction,
+  performUndoableAction = () => {},
 }: PreviewPanelProps) => {
   const [batchSelectedFiles, setBatchSelectedFiles] = useState<Set<string>>(new Set());
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());

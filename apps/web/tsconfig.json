@@ -8,12 +8,12 @@
 		"outDir": "dist",
 		"paths": {
 			"@/*": ["./src/*"],
-			"@brainstrike/hooks": ["../../packages/hooks/src"],
-			"@brainstrike/hooks/*": ["../../packages/hooks/src/*"],
+			"@brainstrike/hooks": ["../../packages/hooks"],
+			"@brainstrike/hooks/*": ["../../packages/hooks/*"],
 			"@brainstrike/types": ["../../packages/types"],
 			"@brainstrike/types/*": ["../../packages/types/*"],
-			"@brainstrike/ui": ["../../packages/ui/src"],
-			"@brainstrike/ui/*": ["../../packages/ui/src/*"],
+			"@brainstrike/ui": ["../../packages/ui"],
+			"@brainstrike/ui/*": ["../../packages/ui/*"],
 			"@brainstrike/utils": ["../../packages/utils/src"],
 			"@brainstrike/utils/*": ["../../packages/utils/src/*"]
 		},

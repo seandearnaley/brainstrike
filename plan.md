@@ -7,13 +7,13 @@ This document outlines the step-by-step plan to migrate all file explorer config
 
 ## Document Revisions
 
-- **v1.0** (`YYYY-MM-DD`): Initial creation of migration plan.
-- **v1.1** (`2024-06-XX`): Started Iteration 1 – Group A (Atomic UI Components): scaffolding component files under `packages/ui`.
-- **v1.2** (`2024-06-XX`): Completed Iteration 1 – Group A (Atomic UI Components): implemented components, tests, exports, and test pipeline.
-- **v1.3** (`2024-06-XX`): Completed Iteration 2 – Group B (Hooks & Local Storage): implemented hook, tests, exports, and test pipeline.
-- **v1.4** (`2024-06-XX`): Completed Iteration 3 – Group C (Types & Constants): implemented types, constants, tests, exports, and test pipeline.
-- **v1.5** (`2024-06-XX`): Completed Iteration 4 – Group D (Config Container & App Wiring): Refactored `FileExplorerConfig` to use shared packages; updated its tests.
-- **v1.6** (`2024-06-XX`): Completed Iteration 5 – Group E (Cleanup Legacy Code): Deleted legacy component/hook files and tests from `apps/web`.
+- **v1.0**: Initial creation of migration plan.
+- **v1.1**: Started Iteration 1 – Group A (Atomic UI Components): scaffolding component files under `packages/ui`.
+- **v1.2**: Completed Iteration 1 – Group A (Atomic UI Components): implemented components, tests, exports, and test pipeline.
+- **v1.3**: Completed Iteration 2 – Group B (Hooks & Local Storage): implemented hook, tests, exports, and test pipeline.
+- **v1.4**: Completed Iteration 3 – Group C (Types & Constants): implemented types, constants, tests, exports, and test pipeline.
+- **v1.5**: Completed Iteration 4 – Group D (Config Container & App Wiring): Refactored `FileExplorerConfig` to use shared packages; updated its tests.
+- **v1.6**: Completed Iteration 5 – Group E (Cleanup Legacy Code): Deleted legacy component/hook files and tests from `apps/web`.
 
 ---
 

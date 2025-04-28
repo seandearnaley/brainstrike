@@ -83,8 +83,5 @@ export const BINARY_FILE_EXTENSIONS = [
   '.flac',
 ];
 
-export const DEFAULT_INCLUDE_FILTERS = ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'];
-
-// export const IGNORED_PATHS = ['.git', '.DS_Store'];
-
+// export constants for text and binary file extensions only
 export const IGNORED_PATHS = [];
