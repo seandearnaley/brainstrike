@@ -14,8 +14,8 @@
 			"@brainstrike/types/*": ["../../packages/types/*"],
 			"@brainstrike/ui": ["../../packages/ui"],
 			"@brainstrike/ui/*": ["../../packages/ui/*"],
-			"@brainstrike/utils": ["../../packages/utils/src"],
-			"@brainstrike/utils/*": ["../../packages/utils/src/*"]
+			"@brainstrike/utils": ["../../packages/utils"],
+			"@brainstrike/utils/*": ["../../packages/utils/*"]
 		},
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},

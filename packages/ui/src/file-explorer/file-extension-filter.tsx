@@ -12,11 +12,22 @@ export interface FileExtensionFilterProps {
 
 // Simple debounce implementation to avoid large dependencies
 function debounce<FuncArgs extends unknown[]>(func: (...args: FuncArgs) => void, wait: number) {
-  let timeout: ReturnType<typeof setTimeout>;
-  return (...args: FuncArgs) => {
-    clearTimeout(timeout);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const debouncedFunc = (...args: FuncArgs) => {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
     timeout = setTimeout(() => func(...args), wait);
   };
+
+  const cancel = () => {
+    if (timeout !== undefined) {
+      clearTimeout(timeout);
+    }
+  };
+
+  return { debouncedFunc, cancel };
 }
 
 const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
@@ -39,11 +50,18 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
 
   const debouncedFilterChange = React.useMemo(
     () =>
-      debounce((newInclude: string[], newExclude: string[]) => {
+      debounce<[string[], string[]]>((newInclude: string[], newExclude: string[]) => {
         onFilterChange(newInclude, newExclude, useRegex);
       }, 300),
     [onFilterChange, useRegex]
   );
+
+  // Cleanup debounce on unmount
+  React.useEffect(() => {
+    return () => {
+      debouncedFilterChange.cancel();
+    };
+  }, [debouncedFilterChange]);
 
   const handleInputChange = (
     value: string,
@@ -57,7 +75,7 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
       .map((f) => f.trim())
       .filter(Boolean);
 
-    debouncedFilterChange(
+    debouncedFilterChange.debouncedFunc(
       isInclude ? newFilters : otherFilters,
       isInclude ? otherFilters : newFilters
     );

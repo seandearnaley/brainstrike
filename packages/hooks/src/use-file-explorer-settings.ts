@@ -6,16 +6,8 @@ import {
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_USE_REGEX,
 } from '@brainstrike/types';
+import type { FileExplorerSettings } from '@brainstrike/types';
 import { useCallback, useMemo } from 'react';
-
-export interface FileExplorerSettings {
-  maxSelectionCount: number;
-  includeFilters: string[];
-  excludeFilters: string[];
-  useRegex: boolean;
-  includeProjectTree: boolean;
-  folderSummaryThreshold: number;
-}
 
 const loadStoredSettings = (): FileExplorerSettings => {
   if (typeof window === 'undefined') {
@@ -52,7 +44,8 @@ export function useFileExplorerSettings() {
 
   const updateSettings = useCallback(
     (updates: Partial<FileExplorerSettings>) => {
-      if (typeof window === 'undefined') return;
+      // Guard against SSR environments where window or localStorage might be undefined
+      if (typeof window === 'undefined' || typeof localStorage === 'undefined') return;
       const newSettings = { ...settings, ...updates };
       try {
         localStorage.setItem('fileExplorerSettings', JSON.stringify(newSettings));

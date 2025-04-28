@@ -26,22 +26,6 @@ This structure enables fast development, consistent tooling, and seamless code s
 └─ README.md             # High-level project overview
 ```  
 
-## 3. Key Versions & Tools
-- Node.js: v22 (`.nvmrc`)
-- pnpm: 10.9.0 (`packageManager` in root `package.json`)
-- Turborepo: ^2.5.2 (`turbo` in devDependencies)
-- TypeScript: ^5.8.3 (root)
-- Biome: ^1.9.4 (lint/format)
-- Commitlint: ^19.8.0 (conventional commits)
-- Playwright: ^1.51.1 (e2e in `apps/web`)
-
-**Frontend (apps/web)**
-- React 19.x
-- Vite ^6.2.3
-- TailwindCSS ^4.1.3
-- Zustand ^5.0.3 (state management)
-- React Router DOM ^7.4.1
-
 ## 4. Getting Started
 1. Prerequisites:
    ```bash

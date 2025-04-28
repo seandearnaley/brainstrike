@@ -7,6 +7,8 @@ import {
   DEFAULT_MAX_SELECTION_COUNT,
   DEFAULT_USE_REGEX,
 } from '@brainstrike/types';
+// Import the type as well
+import type { FileExplorerSettings } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorerSettings } from '../use-file-explorer-settings';

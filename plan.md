@@ -165,9 +165,4 @@ This document outlines the step-by-step plan to migrate all file explorer config
 
 ---
 
-*End of v1.0 migration plan.*
-*End of v1.2 migration plan.*
-*End of v1.3 migration plan.*
-*End of v1.4 migration plan.*
-*End of v1.5 migration plan.*
 *End of v1.6 migration plan.* 
