@@ -15,7 +15,6 @@ import type * as React from 'react';
 import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileTree from './file-tree';
 import { FolderBadge } from './folder-badge';
-import { GitPanel } from './git-panel';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
@@ -163,7 +162,6 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
         <Tabs defaultValue="files" className="h-full flex flex-col overflow-hidden">
           <TabsList className="w-full shrink-0">
             <TabsTrigger value="files">Files</TabsTrigger>
-            <TabsTrigger value="git">Git</TabsTrigger>
           </TabsList>
           <TabsContent value="files" className="flex-1 overflow-hidden">
             <ScrollArea className="h-full">
@@ -182,9 +180,6 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
                 )}
               </div>
             </ScrollArea>
-          </TabsContent>
-          <TabsContent value="git" className="flex-1 overflow-hidden">
-            <GitPanel rootDirectoryHandle={rootDirectoryHandle} />
           </TabsContent>
         </Tabs>
       )}
