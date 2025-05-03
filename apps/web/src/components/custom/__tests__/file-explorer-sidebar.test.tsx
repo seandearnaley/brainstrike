@@ -1,15 +1,9 @@
 import type { IFileNode } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import { FileExplorerStrings } from '../constants/file-explorer-constants';
 import FileExplorerSidebar from '../file-explorer-sidebar';
-
-// Mock the GitPanel component since it's more complex and tested separately
-vi.mock('../git-panel', () => ({
-  GitPanel: () => <div data-testid="git-panel">Mock Git Panel</div>,
-}));
 
 // Mock the FolderBadge component to simplify testing
 vi.mock('../folder-badge', () => ({
@@ -144,26 +138,5 @@ describe('FileExplorerSidebar', () => {
 
     // Use getByText directly to find the regex text
     expect(screen.getByText('regex')).toBeInTheDocument();
-  });
-
-  it('can switch to Git tab', async () => {
-    const user = userEvent.setup();
-
-    // Use userEvent.setup() to interact with the component
-    const { getAllByRole } = render(<FileExplorerSidebar {...defaultProps} />);
-
-    // Find the Git tab by its text content
-    const gitTab = getAllByRole('tab').find((tab) => tab.textContent === 'Git');
-
-    // Click on the Git tab
-    if (gitTab) {
-      await user.click(gitTab);
-
-      // Check if git tab is selected
-      expect(gitTab).toHaveAttribute('aria-selected', 'true');
-    } else {
-      // If gitTab is undefined, fail the test
-      expect(gitTab).toBeDefined();
-    }
   });
 });
