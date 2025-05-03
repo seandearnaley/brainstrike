@@ -1,12 +1,11 @@
 import { cn } from '@brainstrike/ui';
-import { FileText, Folder, Settings } from 'lucide-react';
+import { Folder, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
 import { ThemeToggle } from '../../custom/theme-toggle';
 
 const apps = [
   { name: 'Context Explorer', icon: Folder, path: '/' },
-  { name: 'App 2', icon: FileText, path: '/app2' },
   { name: 'Settings', icon: Settings, path: '/settings' },
 ];
 
