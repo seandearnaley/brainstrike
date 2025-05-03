@@ -42,20 +42,18 @@ describe('Sidebar', () => {
 
     // Verify all links are present
     expect(screen.getByTitle('Context Explorer')).toBeInTheDocument();
-    expect(screen.getByTitle('App 2')).toBeInTheDocument();
     expect(screen.getByTitle('Settings')).toBeInTheDocument();
 
     // Verify correct hrefs
     expect(screen.getByTitle('Context Explorer').closest('a')).toHaveAttribute('href', '/');
-    expect(screen.getByTitle('App 2').closest('a')).toHaveAttribute('href', '/app2');
     expect(screen.getByTitle('Settings').closest('a')).toHaveAttribute('href', '/settings');
   });
 
   it('highlights the active route', () => {
-    mockUseLocation.mockReturnValue({ pathname: '/app2' });
+    mockUseLocation.mockReturnValue({ pathname: '/settings' });
     renderWithRouter(<Sidebar />);
 
-    const activeLink = screen.getByTitle('App 2').closest('a');
+    const activeLink = screen.getByTitle('Settings').closest('a');
     expect(activeLink).toHaveClass('bg-gray-200 dark:bg-gray-700');
 
     const inactiveLink = screen.getByTitle('Context Explorer').closest('a');
@@ -69,7 +67,7 @@ describe('Sidebar', () => {
     const navLinks = screen.getAllByRole('link');
     const navIcons = navLinks.map((link) => link.querySelector('svg'));
 
-    expect(navIcons).toHaveLength(3);
+    expect(navIcons).toHaveLength(2);
     for (const icon of navIcons) {
       expect(icon).toHaveClass('w-6 h-6');
     }

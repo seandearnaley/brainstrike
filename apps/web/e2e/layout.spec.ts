@@ -19,7 +19,7 @@ test.describe('Application Layout', () => {
     
     // Check if all navigation links are present
     const sidebarLinks = await page.locator('aside a');
-    await expect(sidebarLinks).toHaveCount(3); // We have 3 apps in the sidebar
+    await expect(sidebarLinks).toHaveCount(2); // We have 3 apps in the sidebar
     
     // Verify the first link (Context Explorer) is active by default
     const firstLink = sidebarLinks.first();
