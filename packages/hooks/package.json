@@ -20,11 +20,9 @@
   "scripts": {
     "build": "tsc -p . && tsup src/index.ts --format esm,cjs --clean",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
-    "lint": "eslint src/",
     "clean": "rm -rf dist .tsbuildinfo",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "react": "^18.2.0",
