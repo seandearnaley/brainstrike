@@ -5,6 +5,11 @@ import { createDirectoryNode, createFileNode } from '../../../test/factories/fil
 import { FileExplorerStrings } from '../constants/file-explorer-constants';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 
+// Mock the GitPanel component since it's more complex and tested separately
+vi.mock('../git-panel', () => ({
+  GitPanel: () => <div data-testid="git-panel">Mock Git Panel</div>,
+}));
+
 // Mock the FolderBadge component to simplify testing
 vi.mock('../folder-badge', () => ({
   FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
