@@ -22,7 +22,10 @@
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "gpt-tokenizer": "^2.1.2"

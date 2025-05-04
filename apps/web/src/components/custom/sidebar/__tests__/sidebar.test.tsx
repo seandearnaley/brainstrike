@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ThemeProvider } from '../../../../providers/theme-provider';
 import Sidebar from '../sidebar';
 
 // Mock react-router-dom
@@ -14,31 +15,26 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock theme provider and ThemeToggle component to avoid theme provider dependency
-vi.mock('@/providers/theme-provider', () => ({
-  useTheme: () => ({
-    theme: 'light',
-    setTheme: vi.fn(),
-  }),
-}));
-
-// Mock the ThemeToggle component to avoid theme provider issues
-vi.mock('@/components/custom/theme-toggle', () => ({
-  ThemeToggle: () => <div data-testid="theme-toggle">Theme Toggle</div>,
-}));
-
 describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseLocation.mockReturnValue({ pathname: '/' });
   });
 
-  const renderWithRouter = (ui: ReactElement) => {
-    return render(ui, { wrapper: MemoryRouter });
+  const renderWithProviders = (ui: ReactElement) => {
+    return render(ui, {
+      wrapper: ({ children }) => (
+        <MemoryRouter>
+          <ThemeProvider defaultTheme="light" storageKey="vitest-theme">
+            {children}
+          </ThemeProvider>
+        </MemoryRouter>
+      ),
+    });
   };
 
   it('renders all app icons with correct links', () => {
-    renderWithRouter(<Sidebar />);
+    renderWithProviders(<Sidebar />);
 
     // Verify all links are present
     expect(screen.getByTitle('Context Explorer')).toBeInTheDocument();
@@ -51,7 +47,7 @@ describe('Sidebar', () => {
 
   it('highlights the active route', () => {
     mockUseLocation.mockReturnValue({ pathname: '/settings' });
-    renderWithRouter(<Sidebar />);
+    renderWithProviders(<Sidebar />);
 
     const activeLink = screen.getByTitle('Settings').closest('a');
     expect(activeLink).toHaveClass('bg-gray-200 dark:bg-gray-700');
@@ -61,7 +57,7 @@ describe('Sidebar', () => {
   });
 
   it('displays icons with correct dimensions', () => {
-    renderWithRouter(<Sidebar />);
+    renderWithProviders(<Sidebar />);
 
     // Query for navigation icons (excluding theme toggle)
     const navLinks = screen.getAllByRole('link');
@@ -74,7 +70,7 @@ describe('Sidebar', () => {
   });
 
   it('renders with correct layout classes', () => {
-    renderWithRouter(<Sidebar />);
+    renderWithProviders(<Sidebar />);
 
     const sidebar = screen.getByRole('complementary');
     expect(sidebar).toHaveClass(
@@ -91,7 +87,11 @@ describe('Sidebar', () => {
   });
 
   it('renders theme toggle button', () => {
-    renderWithRouter(<Sidebar />);
-    expect(screen.getByTestId('theme-toggle')).toBeInTheDocument();
+    renderWithProviders(<Sidebar />);
+    // Expect the actual button rendered by ThemeToggle
+    // The button likely has a title, let's check for that
+    expect(screen.getByRole('button', { name: /toggle theme/i })).toBeInTheDocument();
+    // Or check for the specific SVG icons if needed
+    // expect(screen.getByTestId('theme-sun-icon')).toBeInTheDocument();
   });
 });

@@ -2,7 +2,8 @@
  * @vitest-environment happy-dom
  */
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileSystem } from '../../../../hooks/use-file-system';
 import FileExplorer from '../../file-explorer';
 
 // Mock constants first so they can be used by other mocks
@@ -53,14 +54,8 @@ vi.mock('@/hooks/use-file-explorer', () => ({
   }),
 }));
 
-vi.mock('@/hooks/use-file-system', () => ({
-  useFileSystem: () => ({
-    selectRootDirectory: vi.fn(),
-    rootDirectoryHandle: null,
-    isAccessLoading: false,
-    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
-  }),
-}));
+// Update the mock for useFileSystem using the correct relative path
+vi.mock('../../../../hooks/use-file-system');
 
 // Mock all other required hooks with empty implementations
 vi.mock('@/hooks/use-quick-filter', () => ({
@@ -206,7 +201,31 @@ vi.mock('react', async () => {
   };
 });
 
+// Explicitly mock useDebouncedValue
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...mod,
+    useDebouncedValue: (value: unknown) => value, // Simple pass-through mock
+  };
+});
+
 describe('FileExplorer - Empty States', () => {
+  // Add beforeEach to set up the mock implementation
+  beforeEach(() => {
+    // Clear previous mocks if necessary
+    vi.clearAllMocks();
+
+    // Set up the mock return value for useFileSystem
+    const mockFileSystem = {
+      selectRootDirectory: vi.fn(),
+      rootDirectoryHandle: null,
+      isAccessLoading: false,
+      isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+    };
+    (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);
+  });
+
   it('renders the component with title', () => {
     render(<FileExplorer />);
     expect(screen.getByText('Context Explorer')).toBeInTheDocument();
