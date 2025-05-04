@@ -32,7 +32,7 @@ export default defineWorkspace([
     resolve: {
       alias: {
         '@/': new URL('./apps/web/src/', import.meta.url).pathname,
-      },
+  },
     },
   },
   // Define test projects for shared packages
@@ -93,6 +93,21 @@ export default defineWorkspace([
     resolve: {
       alias: {
         '@/': new URL('./packages/utils/src/', import.meta.url).pathname,
+      },
+    },
+  },
+  {
+    test: {
+      globals: true,
+      setupFiles: ["./vitest.setup.ts"],
+      include: ["packages/types/**/*.{test,spec}.{ts,tsx}"],
+      exclude: ["packages/types/node_modules/**", "packages/types/dist/**"],
+      name: "package-types",
+      environment: "node",
+    },
+    resolve: {
+      alias: {
+        '@/': new URL('./packages/types/', import.meta.url).pathname,
       },
     },
   },
