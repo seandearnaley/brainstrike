@@ -18,13 +18,14 @@
     "dist/**"
   ],
   "scripts": {
-    "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
     "build": "pnpm run clean && tsc --emitDeclarationOnly -p tsconfig.json && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
-    "dev": "tsup src/index.ts --format esm,cjs --watch",
-    "lint": "eslint src/",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
+    "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "gpt-tokenizer": "^2.1.2"

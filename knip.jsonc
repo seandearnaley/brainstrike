@@ -6,11 +6,9 @@
       "entry": [
         "index.html", // Entry for the web app
         "src/main.tsx", // Main entry point
-        "vitest.config.ts", // Vitest config within the app (if app-specific)
-        "vitest.config.unit.ts", // Vitest config within the app (if app-specific)
-        "vitest.config.integration.ts", // Vitest config within the app (if app-specific)
-        "vitest.setup.ts", // Vitest setup within the app (if app-specific)
-        "playwright.config.ts", // Assuming playwright config is here
+        "vite.config.mts", // Vite config for web app
+        "vitest.setup.ts",
+        "playwright.config.ts",
         "src/test/**/*.{ts,tsx}",
         "src/types/git-types.ts",
         "src/config/server.ts"
@@ -35,7 +33,9 @@
       }
     },
     "packages/ui": {
-      "entry": ["src/index.ts"], // Main entry for the UI package
+      "entry": [
+        "src/index.ts"
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -47,7 +47,9 @@
       }
     },
     "packages/hooks": {
-      "entry": ["src/index.ts"],
+      "entry": [
+        "src/index.ts"
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -58,7 +60,9 @@
       }
     },
     "packages/utils": {
-      "entry": ["src/index.ts"],
+      "entry": [
+        "src/index.ts"
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -125,7 +129,9 @@
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
-    "@commitlint/cli" // Used with commitlint.config.ts but no hooks yet
+    "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
+    "@vitejs/plugin-react", // Only used in Vite config
+    "@vitest/coverage-v8"   // Only used in Vitest config
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

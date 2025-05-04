@@ -11,8 +11,11 @@
 		"./tsconfig/*": "./tsconfig/*"
 	},
 	"scripts": {
+		"build": "tsc -p .",
+		"dev": "tsc -p . --watch",
+		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
-		"type-check": "echo \"Skipping type-check for config package as it's just configuration files\""
+		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {},
 	"devDependencies": {

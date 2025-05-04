@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTheme } from '../../../providers/theme-provider';
 import { ThemeToggle } from '../theme-toggle';
 
-vi.mock('@/providers/theme-provider', () => ({
+vi.mock('../../../providers/theme-provider', () => ({
   useTheme: vi.fn(),
 }));
 

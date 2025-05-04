@@ -1,70 +1,78 @@
-import { render, screen } from '@testing-library/react';
+import type { FileExplorerState } from '@brainstrike/types';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileExplorerStore } from '../../../stores/use-file-explorer-store';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import FileTreeNode from '../file-tree-node';
 
-// Create a mock store instance
-const createMockStore = () => ({
-  selectedFilePaths: new Set<string>(),
-  expandedDirectoryPaths: new Set<string>(),
+// Mock the store hook module directly
+vi.mock('../../../stores/use-file-explorer-store');
+
+// Define initial state fully satisfying FileExplorerState
+const initialFullState: FileExplorerState = {
+  selectedFilePaths: new Set(),
   maxSelectionCount: 100,
+  currentFolderId: null,
+  folderStates: {},
+  expandedDirectoryPaths: new Set(),
+  includeFilters: [],
+  excludeFilters: [],
+  useRegex: false,
+  includeProjectTree: true,
+  folderSummaryThreshold: 5,
+  lastActiveTab: 'files',
+  // Add mock implementations for all actions
+  setCurrentFolderId: vi.fn(),
+  hydrateFolderState: vi.fn(),
+  setSelectedFiles: vi.fn(),
+  addSelectedFile: vi.fn(),
+  removeSelectedFile: vi.fn(),
+  toggleSelectedFile: vi.fn(),
+  clearSelectedFiles: vi.fn(),
+  setExpandedPaths: vi.fn(),
+  toggleDirectoryExpansion: vi.fn(),
+  setFilters: vi.fn(),
+  setUseRegex: vi.fn(),
+  setIncludeProjectTree: vi.fn(),
+  setFolderSummaryThreshold: vi.fn(),
+  setMaxSelectionCount: vi.fn(),
+  setLastActiveTab: vi.fn(),
+  expandAllDirectories: vi.fn(),
+  collapseAllDirectories: vi.fn(),
+};
+
+// Set up the initial mock state before each test using the actual store's setState
+beforeEach(() => {
+  act(() => {
+    // Reset store to full initial state before each test
+    useFileExplorerStore.setState(initialFullState, true); // Replace state with full object
+  });
+  // Clear any potential mock calls from previous tests if other mocks are involved
+  // vi.clearAllMocks(); // Might not be needed if only store state is changing
 });
 
-let mockStore = createMockStore();
+// Default props for convenience
+const defaultFileProps = {
+  node: createFileNode({ name: 'test.tsx', path: 'src/test.tsx' }),
+  isExpanded: false,
+  onToggleDirectoryExpansion: vi.fn(),
+  onToggleFileSelection: vi.fn(),
+  isLoading: false,
+  folderId: 'test-folder',
+};
 
-// Mock the store module
-vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: vi.fn(() => mockStore),
-}));
-
-// Helper to update store state
-const setStoreState = (newState: Partial<ReturnType<typeof createMockStore>>) => {
-  mockStore = {
-    ...mockStore,
-    ...newState,
-  };
+const defaultDirProps = {
+  node: createDirectoryNode({ name: 'components', path: 'src/components' }),
+  isExpanded: false,
+  onToggleDirectoryExpansion: vi.fn(),
+  onToggleFileSelection: vi.fn(),
+  isLoading: false,
+  folderId: 'test-folder',
 };
 
 describe('FileTreeNode', () => {
-  const defaultFileProps = {
-    node: createFileNode({
-      name: 'test.tsx',
-      path: 'src/test.tsx',
-      rootFolderId: 'test-folder',
-    }),
-    isExpanded: false,
-    onToggleDirectoryExpansion: vi.fn(),
-    onToggleFileSelection: vi.fn(),
-    isLoading: false,
-    folderId: 'test-folder',
-  };
-
-  const defaultDirProps = {
-    node: createDirectoryNode({
-      name: 'components',
-      path: 'src/components',
-      rootFolderId: 'test-folder',
-      children: [
-        createFileNode({
-          name: 'Child.tsx',
-          path: 'src/components/Child.tsx',
-          rootFolderId: 'test-folder',
-        }),
-      ],
-    }),
-    isExpanded: false,
-    onToggleDirectoryExpansion: vi.fn(),
-    onToggleFileSelection: vi.fn(),
-    isLoading: false,
-    folderId: 'test-folder',
-  };
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockStore = createMockStore();
-  });
-
   it('renders a file node correctly', () => {
     render(<FileTreeNode {...defaultFileProps} />);
 
@@ -113,7 +121,25 @@ describe('FileTreeNode', () => {
   });
 
   it('shows children when directory is expanded', () => {
-    render(<FileTreeNode {...defaultDirProps} isExpanded={true} />);
+    // Explicitly define the node with children for this test
+    const nodeWithChildren = createDirectoryNode({
+      name: 'components',
+      path: 'src/components',
+      children: [
+        createFileNode({
+          name: 'Child.tsx',
+          path: 'src/components/Child.tsx',
+        }),
+      ],
+    });
+
+    const props = {
+      ...defaultDirProps, // Spread defaults first
+      node: nodeWithChildren, // Override with the node containing children
+      isExpanded: true, // Ensure expanded is set
+    };
+
+    render(<FileTreeNode {...props} />);
 
     expect(screen.getByText('Child.tsx')).toBeInTheDocument();
   });
@@ -147,45 +173,60 @@ describe('FileTreeNode', () => {
       folderId: 'test-folder',
     };
 
-    setStoreState({
-      selectedFilePaths: new Set(),
-    });
-
     render(<FileTreeNode {...props} />);
     expect(screen.getByText('Child.tsx')).toBeInTheDocument();
   });
 
-  it('shows correct checkbox state for fully selected directory', () => {
+  it('shows correct checkbox state for fully selected directory', async () => {
+    const user = userEvent.setup();
     const mockToggleDirectoryExpansion = vi.fn();
-    const mockToggleFileSelection = vi.fn();
+    const childFilePath = 'src/components/Child.tsx';
 
     const props = {
       node: createDirectoryNode({
         name: 'components',
         path: 'src/components',
+        rootFolderId: 'test-folder', // Ensure rootFolderId is passed if needed by node structure
         children: [
           createFileNode({
             name: 'Child.tsx',
-            path: 'src/components/Child.tsx',
+            path: childFilePath,
+            rootFolderId: 'test-folder',
           }),
         ],
       }),
       isExpanded: true,
       onToggleDirectoryExpansion: mockToggleDirectoryExpansion,
-      onToggleFileSelection: mockToggleFileSelection,
+      // Mock the toggle function to update the *actual* store state
+      onToggleFileSelection: vi.fn((path: string) => {
+        const key = `test-folder|@|${path}`;
+        act(() => {
+          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
+          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
+          const newSelectedPaths = new Set(currentSelected);
+          if (newSelectedPaths.has(key)) {
+            newSelectedPaths.delete(key);
+          } else if (newSelectedPaths.size < maxCount) {
+            newSelectedPaths.add(key);
+          }
+          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+        });
+      }),
       isLoading: false,
       folderId: 'test-folder',
     };
 
-    setStoreState({
-      selectedFilePaths: new Set(['test-folder|@|src/components/Child.tsx']),
-    });
-
     render(<FileTreeNode {...props} />);
-    const checkbox = screen.getByRole('checkbox', {
+
+    const childCheckbox = screen.getByRole('checkbox', { name: 'Select Child.tsx' });
+    await user.click(childCheckbox);
+
+    const parentCheckbox = screen.getByRole('checkbox', {
       name: 'Select components',
     });
-    expect(checkbox).toHaveAttribute('data-state', 'checked');
+    await waitFor(() => {
+      expect(parentCheckbox).toHaveAttribute('data-state', 'checked');
+    });
   });
 
   it('filters out invisible children', () => {
@@ -238,38 +279,52 @@ describe('FileTreeNode', () => {
   });
 
   describe('Directory Selection Behavior', () => {
-    const setupDirTest = (selectedPaths: string[] = []) => {
-      const mockToggleFileSelection = vi.fn();
-      const dirNode = createDirectoryNode({
-        name: 'test-dir',
-        path: 'src/test-dir',
-        rootFolderId: 'test-folder',
-        children: [
-          createFileNode({
-            name: 'file1.tsx',
-            path: 'src/test-dir/file1.tsx',
-            rootFolderId: 'test-folder',
-          }),
-          createFileNode({
-            name: 'file2.tsx',
-            path: 'src/test-dir/file2.tsx',
-            rootFolderId: 'test-folder',
-          }),
-          createFileNode({
-            name: 'file3.tsx',
-            path: 'src/test-dir/file3.tsx',
-            rootFolderId: 'test-folder',
-          }),
-        ],
+    it('shows indeterminate state when some files are selected', async () => {
+      const file1Key = 'test-folder|@|src/test-dir/file1.tsx';
+
+      // Set initial state directly
+      act(() => {
+        useFileExplorerStore.setState({ selectedFilePaths: new Set([file1Key]) });
       });
 
-      setStoreState({
-        selectedFilePaths: new Set(selectedPaths.map((path) => `test-folder|@|${path}`)),
-        maxSelectionCount: 100,
+      const mockToggleFileSelection = vi.fn((path: string) => {
+        const key = `test-folder|@|${path}`;
+        act(() => {
+          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
+          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
+          const newSelectedPaths = new Set(currentSelected);
+          if (newSelectedPaths.has(key)) {
+            newSelectedPaths.delete(key);
+          } else if (newSelectedPaths.size < maxCount) {
+            newSelectedPaths.add(key);
+          }
+          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+        });
       });
 
       const props = {
-        node: dirNode,
+        node: createDirectoryNode({
+          name: 'test-dir',
+          path: 'src/test-dir',
+          rootFolderId: 'test-folder',
+          children: [
+            createFileNode({
+              name: 'file1.tsx',
+              path: 'src/test-dir/file1.tsx',
+              rootFolderId: 'test-folder',
+            }),
+            createFileNode({
+              name: 'file2.tsx',
+              path: 'src/test-dir/file2.tsx',
+              rootFolderId: 'test-folder',
+            }),
+            createFileNode({
+              name: 'file3.tsx',
+              path: 'src/test-dir/file3.tsx',
+              rootFolderId: 'test-folder',
+            }),
+          ],
+        }),
         isExpanded: true,
         onToggleDirectoryExpansion: vi.fn(),
         onToggleFileSelection: mockToggleFileSelection,
@@ -277,61 +332,66 @@ describe('FileTreeNode', () => {
         folderId: 'test-folder',
       };
 
-      return { props, mockToggleFileSelection };
-    };
-
-    it('shows indeterminate state when some files are selected', async () => {
-      const { props } = setupDirTest(['src/test-dir/file1.tsx']);
       render(<FileTreeNode {...props} />);
 
-      const checkbox = screen.getByRole('checkbox', {
+      // No need to click child, state is set initially
+      const parentCheckbox = screen.getByRole('checkbox', {
         name: 'Select test-dir',
       });
-      expect(checkbox).toHaveAttribute('data-state', 'indeterminate');
+      await waitFor(() => {
+        expect(parentCheckbox).toHaveAttribute('data-state', 'indeterminate');
+      });
     });
 
     it('selects all child files when clicked in indeterminate state', async () => {
-      const { props, mockToggleFileSelection } = setupDirTest(['src/test-dir/file1.tsx']);
       const user = userEvent.setup();
-      render(<FileTreeNode {...props} />);
+      const file1Key = 'test-folder|@|src/test-dir/file1.tsx';
+      const file2Key = 'test-folder|@|src/test-dir/file2.tsx';
+      const file3Key = 'test-folder|@|src/test-dir/file3.tsx';
 
-      const checkbox = screen.getByRole('checkbox', {
-        name: 'Select test-dir',
-      });
-      await user.click(checkbox);
-
-      // Should select the remaining unselected files
-      expect(mockToggleFileSelection.mock.calls.map((call) => call[0])).toEqual(
-        expect.arrayContaining(['src/test-dir/file2.tsx', 'src/test-dir/file3.tsx'])
-      );
-    });
-
-    it('handles nested directory selection correctly', async () => {
-      const nestedDir = createDirectoryNode({
-        name: 'parent',
-        path: 'src/parent',
-        children: [
-          createDirectoryNode({
-            name: 'child',
-            path: 'src/parent/child',
-            children: [
-              createFileNode({
-                name: 'nested.tsx',
-                path: 'src/parent/child/nested.tsx',
-              }),
-            ],
-          }),
-        ],
+      // Set initial state directly
+      act(() => {
+        useFileExplorerStore.setState({ selectedFilePaths: new Set([file1Key]) });
       });
 
-      const mockToggleFileSelection = vi.fn();
-      setStoreState({
-        selectedFilePaths: new Set(),
-        maxSelectionCount: 100,
+      const mockToggleFileSelection = vi.fn((path: string) => {
+        const key = `test-folder|@|${path}`;
+        act(() => {
+          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
+          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
+          const newSelectedPaths = new Set(currentSelected);
+          if (newSelectedPaths.has(key)) {
+            newSelectedPaths.delete(key);
+          } else if (newSelectedPaths.size < maxCount) {
+            newSelectedPaths.add(key);
+          }
+          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+        });
       });
 
       const props = {
-        node: nestedDir,
+        node: createDirectoryNode({
+          name: 'test-dir',
+          path: 'src/test-dir',
+          rootFolderId: 'test-folder',
+          children: [
+            createFileNode({
+              name: 'file1.tsx',
+              path: 'src/test-dir/file1.tsx',
+              rootFolderId: 'test-folder',
+            }),
+            createFileNode({
+              name: 'file2.tsx',
+              path: 'src/test-dir/file2.tsx',
+              rootFolderId: 'test-folder',
+            }),
+            createFileNode({
+              name: 'file3.tsx',
+              path: 'src/test-dir/file3.tsx',
+              rootFolderId: 'test-folder',
+            }),
+          ],
+        }),
         isExpanded: true,
         onToggleDirectoryExpansion: vi.fn(),
         onToggleFileSelection: mockToggleFileSelection,
@@ -339,7 +399,69 @@ describe('FileTreeNode', () => {
         folderId: 'test-folder',
       };
 
+      render(<FileTreeNode {...props} />);
+
+      const parentCheckbox = screen.getByRole('checkbox', {
+        name: 'Select test-dir',
+      });
+
+      await waitFor(() => {
+        expect(parentCheckbox).toHaveAttribute('data-state', 'indeterminate');
+      });
+
+      await user.click(parentCheckbox);
+
+      // Check the final store state after the click triggers updates
+      await waitFor(() => {
+        const finalSelected = useFileExplorerStore.getState().selectedFilePaths;
+        expect(finalSelected).toEqual(new Set([file1Key, file2Key, file3Key]));
+        expect(parentCheckbox).toHaveAttribute('data-state', 'checked');
+      });
+    });
+
+    it('handles nested directory selection correctly', async () => {
       const user = userEvent.setup();
+      const nestedFileKey = 'test-folder|@|src/parent/child/nested.tsx';
+
+      const mockToggleFileSelection = vi.fn((path: string) => {
+        const key = `test-folder|@|${path}`;
+        act(() => {
+          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
+          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
+          const newSelectedPaths = new Set(currentSelected);
+          if (newSelectedPaths.has(key)) {
+            newSelectedPaths.delete(key);
+          } else if (newSelectedPaths.size < maxCount) {
+            newSelectedPaths.add(key);
+          }
+          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+        });
+      });
+
+      const props = {
+        node: createDirectoryNode({
+          name: 'parent',
+          path: 'src/parent',
+          children: [
+            createDirectoryNode({
+              name: 'child',
+              path: 'src/parent/child',
+              children: [
+                createFileNode({
+                  name: 'nested.tsx',
+                  path: 'src/parent/child/nested.tsx',
+                }),
+              ],
+            }),
+          ],
+        }),
+        isExpanded: true,
+        onToggleDirectoryExpansion: vi.fn(),
+        onToggleFileSelection: mockToggleFileSelection,
+        isLoading: false,
+        folderId: 'test-folder',
+      };
+
       render(<FileTreeNode {...props} />);
 
       const parentCheckbox = screen.getByRole('checkbox', {
@@ -347,10 +469,11 @@ describe('FileTreeNode', () => {
       });
       await user.click(parentCheckbox);
 
-      // Should select the nested file
-      expect(mockToggleFileSelection.mock.calls.map((call) => call[0])).toContain(
-        'src/parent/child/nested.tsx'
-      );
+      await waitFor(() => {
+        const finalSelected = useFileExplorerStore.getState().selectedFilePaths;
+        expect(finalSelected).toContain(nestedFileKey);
+        expect(parentCheckbox).toHaveAttribute('data-state', 'checked');
+      });
     });
   });
 });
