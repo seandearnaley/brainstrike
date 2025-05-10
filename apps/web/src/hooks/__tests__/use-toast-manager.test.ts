@@ -1,9 +1,9 @@
 import { PartialRefreshError } from '@brainstrike/types';
+import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerStrings } from '@brainstrike/types';
 import { useToastManager } from '../use-toast-manager';
 
 // Mock dependencies
