@@ -1,5 +1,5 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection } from '@brainstrike/utils';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];

@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';

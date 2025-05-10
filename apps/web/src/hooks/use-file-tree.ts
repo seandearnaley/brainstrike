@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils/path-filter';
+import { fileFilter } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 // Batch size for progress updates

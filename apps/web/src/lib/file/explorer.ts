@@ -1,7 +1,7 @@
 // import path from 'node:path'; // Removed for browser compatibility
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils/path-filter';
+import { fileFilter } from '@brainstrike/utils';
 
 function normalizePath(pathString: string): string {
   // Remove duplicate slashes, handle leading slash

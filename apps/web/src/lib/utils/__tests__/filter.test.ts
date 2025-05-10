@@ -1,5 +1,5 @@
 import type { FileFilterOptions } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils/path-filter';
+import { fileFilter } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 
@@ -229,7 +229,6 @@ describe('fileFilter', () => {
       expect(result).not.toBeNull();
       if (result) {
         expect(result.children?.length).toBe(1);
-        // @ts-expect-error - TS struggles with type narrowing after expect/array access here
         expect(result.children?.[0].name).toBe('app.js');
       }
     });

@@ -1,4 +1,4 @@
-import { fileContent } from '@brainstrike/utils/file-content';
+import { fileContent } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 
 describe('fileContent', () => {

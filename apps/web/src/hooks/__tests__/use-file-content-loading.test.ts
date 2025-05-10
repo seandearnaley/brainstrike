@@ -1,6 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { fileContent } from '@brainstrike/utils/file-content';
-import { encodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { encodeFileSelection, fileContent } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileExplorer } from '../../lib/file/explorer';
@@ -14,14 +13,20 @@ vi.mock('../../lib/file/system', () => ({
   },
 }));
 
-vi.mock('@brainstrike/utils/file-content', () => ({
-  fileContent: {
-    isTextContent: vi.fn(),
-    isTextExtension: vi.fn(),
-    isBinaryExtension: vi.fn(),
-    readFileContent: vi.fn(),
-  },
-}));
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    // biome-ignore lint/suspicious/noExplicitAny: no time
+    ...(actual as any),
+    fileContent: {
+      isTextContent: vi.fn(),
+      isTextExtension: vi.fn(),
+      isBinaryExtension: vi.fn(),
+      readFileContent: vi.fn(),
+    },
+    encodeFileSelection: vi.fn((folderId, path) => `${folderId}|@|${path}`),
+  };
+});
 
 vi.mock('../../lib/file/explorer', () => ({
   fileExplorer: {

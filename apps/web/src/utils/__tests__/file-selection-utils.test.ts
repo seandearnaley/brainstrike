@@ -3,7 +3,7 @@ import {
   encodeFileSelection,
   getSelectedPathsForFolder,
   isPathSelectedInFolder,
-} from '@brainstrike/utils/selection-utils';
+} from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 
 describe('file-selection-utils', () => {

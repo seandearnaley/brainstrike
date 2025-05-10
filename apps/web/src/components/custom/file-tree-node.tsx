@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
-import { isPathSelectedInFolder } from '@brainstrike/utils/selection-utils';
+import { isPathSelectedInFolder } from '@brainstrike/utils';
 import {
   ChevronDown,
   ChevronRight,

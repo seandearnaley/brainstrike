@@ -1,7 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
-import { fileContent } from '@brainstrike/utils/file-content';
-import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
+import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useRef, useState } from 'react';
 import { fileExplorer } from '../lib/file/explorer';
 
