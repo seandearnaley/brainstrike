@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { minimatch } from 'minimatch';
-import { processFilter } from '../utils/filter-utils';
+import { processFilter } from './filter-utils';
 
 export function generateProjectTreeText(
   fileTree: IFileNode[],
@@ -12,8 +12,12 @@ export function generateProjectTreeText(
   const lines: string[] = [];
 
   // Process filters only for glob patterns
-  const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
-  const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
+  const processedIncludeFilters: string[] = useRegex
+    ? includeFilters
+    : includeFilters.map(processFilter);
+  const processedExcludeFilters: string[] = useRegex
+    ? excludeFilters
+    : excludeFilters.map(processFilter);
 
   const matchesPattern = (path: string, patterns: string[], useRegex: boolean): boolean => {
     if (patterns.length === 0) {

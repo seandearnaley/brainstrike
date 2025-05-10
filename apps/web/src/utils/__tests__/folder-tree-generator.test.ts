@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { generateProjectTreeText } from '../folder-tree-generator';
+import { generateProjectTreeText } from '@brainstrike/utils/tree-generator';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
   kind: 'file',

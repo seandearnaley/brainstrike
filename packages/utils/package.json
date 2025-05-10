@@ -10,6 +10,26 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./file-content": {
+      "types": "./dist/file-content.d.ts",
+      "import": "./dist/file-content.mjs",
+      "require": "./dist/file-content.js"
+    },
+    "./path-filter": {
+      "types": "./dist/path-filter.d.ts",
+      "import": "./dist/path-filter.mjs",
+      "require": "./dist/path-filter.js"
+    },
+    "./tree-generator": {
+      "types": "./dist/tree-generator.d.ts",
+      "import": "./dist/tree-generator.mjs",
+      "require": "./dist/tree-generator.js"
+    },
+    "./selection-utils": {
+      "types": "./dist/selection-utils.d.ts",
+      "import": "./dist/selection-utils.mjs",
+      "require": "./dist/selection-utils.js"
     }
   },
   "sideEffects": false,
@@ -18,7 +38,7 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "pnpm run clean && tsc --emitDeclarationOnly -p tsconfig.json && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
+    "build": "pnpm run clean && tsc --emitDeclarationOnly -p tsconfig.json && tsup src/index.ts src/file-content.ts src/path-filter.ts src/tree-generator.ts src/selection-utils.ts --format esm,cjs --out-dir dist --clean",
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
     "lint": "pnpm run --dir=../.. lint",
@@ -28,7 +48,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "gpt-tokenizer": "^2.1.2"
+    "gpt-tokenizer": "^2.1.2",
+    "@brainstrike/types": "workspace:*",
+    "minimatch": "^10"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",

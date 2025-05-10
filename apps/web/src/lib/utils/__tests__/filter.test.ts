@@ -1,7 +1,7 @@
 import type { FileFilterOptions } from '@brainstrike/types';
+import { fileFilter } from '@brainstrike/utils/path-filter';
 import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
-import { fileFilter } from '../filter';
 
 describe('fileFilter', () => {
   describe('shouldIgnorePath', () => {

@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import {
   decodeFileSelection,
   encodeFileSelection,
   getSelectedPathsForFolder,
   isPathSelectedInFolder,
-} from '../file-selection-utils';
+} from '@brainstrike/utils/selection-utils';
+import { describe, expect, it } from 'vitest';
 
 describe('file-selection-utils', () => {
   const folderId = 'folder-123';

@@ -1,5 +1,5 @@
+import { fileContent } from '@brainstrike/utils/file-content';
 import { describe, expect, it } from 'vitest';
-import { fileContent } from '../content';
 
 describe('fileContent', () => {
   describe('isTextContent', () => {

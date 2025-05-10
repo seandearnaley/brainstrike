@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
+import { decodeFileSelection } from '@brainstrike/utils/selection-utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
@@ -12,7 +13,6 @@ import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
-import { decodeFileSelection } from '../../utils/file-selection-utils';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
 
 // Lazy load heavy components
