@@ -1,22 +1,6 @@
-import {
-  ConcurrentLoadingError,
-  FSInitializationError,
-  FileContentError,
-  GitOperationError,
-  PartialRefreshError,
-} from '@brainstrike/types';
+import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
-import {
-  AlertTriangle,
-  ArrowLeft,
-  Bug,
-  FileWarning,
-  FolderOpen,
-  GitBranch,
-  RefreshCw,
-  Server,
-  X,
-} from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { cn, isDevEnv } from './lib/utils';
 
@@ -117,29 +101,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     let displayTitle = 'Error';
 
     // Specialized handling based on error type
-    if (error instanceof FSInitializationError) {
-      const fsError = error as FSInitializationError;
-      icon = FolderOpen;
-      displayTitle = 'File System Error';
-      message = `Failed to initialize file system: ${fsError.message}`;
-      color = 'text-amber-500';
-      actions = (
-        <Button onClick={this.handleReload} variant="outline" className="mt-2">
-          Request Permissions Again
-        </Button>
-      );
-    } else if (error instanceof GitOperationError) {
-      const gitError = error as GitOperationError;
-      icon = GitBranch;
-      displayTitle = 'Git Operation Error';
-      message = `Git operation '${gitError.operation}' failed: ${gitError.message}`;
-      color = 'text-blue-500';
-      actions = (
-        <Button onClick={this.handleReset} variant="outline" className="mt-2">
-          Retry Git Operation
-        </Button>
-      );
-    } else if (error instanceof FileContentError) {
+    if (error instanceof FileContentError) {
       const fileError = error as FileContentError;
       icon = FileWarning;
       displayTitle = 'File Content Error';

@@ -3,21 +3,14 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-import { nodePolyfills } from "vite-plugin-node-polyfills";
+// import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    nodePolyfills({
-      // Required node core modules for isomorphic-git
-      include: ["fs", "path", "buffer", "process"],
-      globals: {
-        Buffer: true, // Provide a global Buffer
-        process: true, // Provide a global process
-      },
-    }),
+    // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
       ? [

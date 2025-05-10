@@ -9,27 +9,6 @@ export class PartialRefreshError extends Error {
 	}
 }
 
-export class FSInitializationError extends Error {
-	constructor(
-		message: string,
-		public code?: string,
-	) {
-		super(message);
-		this.name = "FSInitializationError";
-	}
-}
-
-export class GitOperationError extends Error {
-	constructor(
-		message: string,
-		public operation: string,
-		public code?: string,
-	) {
-		super(message);
-		this.name = "GitOperationError";
-	}
-}
-
 export class FileContentError extends Error {
 	constructor(
 		message: string,

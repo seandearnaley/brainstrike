@@ -47,8 +47,6 @@ export const FileIcon = createMockIcon('FileIcon');
 export const FileText = createMockIcon('FileText');
 export const Folder = createMockIcon('Folder');
 export const FolderOpen = createMockIcon('FolderOpen');
-export const GitBranch = createMockIcon('GitBranch');
-export const GitCompare = createMockIcon('GitCompare');
 export const Info = createMockIcon('Info');
 export const Loader2 = createMockIcon(
   'Loader2',
@@ -88,8 +86,6 @@ export default {
   FileText,
   Folder,
   FolderOpen,
-  GitBranch,
-  GitCompare,
   Info,
   Loader2,
   Minus,

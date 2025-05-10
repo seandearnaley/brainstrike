@@ -1,23 +1,23 @@
 // Import the actual classes
 import {
   PartialRefreshError,
-  FSInitializationError,
-  GitOperationError,
+  // FSInitializationError, // Removed
+  // GitOperationError, // Removed
   FileContentError,
   ConcurrentLoadingError,
 } from './errors';
 
 // Export types from other files
 export * from "./errors";
-export * from "./git-types";
 export * from "./file-explorer-types";
+// export * from "./git-types"; // Removed as git-types.ts is deleted
 export * from "./file-system"; // Added export for file system types
 
 // Explicitly re-export the classes as values
 export {
   PartialRefreshError,
-  FSInitializationError,
-  GitOperationError,
+  // FSInitializationError, // Removed
+  // GitOperationError, // Removed
   FileContentError,
   ConcurrentLoadingError,
 };

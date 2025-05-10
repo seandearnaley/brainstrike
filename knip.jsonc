@@ -10,7 +10,6 @@
         "vitest.setup.ts",
         "playwright.config.ts",
         "src/test/**/*.{ts,tsx}",
-        "src/types/git-types.ts",
         "src/config/server.ts"
       ],
       "project": [
@@ -23,7 +22,6 @@
         "**/*.test.{ts,tsx}",
         "**/*.stories.{ts,tsx}",
         "src/test/**/*.{ts,tsx}",
-        "src/types/git-types.ts",
         "src/config/server.ts"
       ],
       "ignoreDependencies": [],

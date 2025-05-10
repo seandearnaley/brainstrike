@@ -1,6 +1,5 @@
 import { ErrorBoundary } from '@brainstrike/ui';
 import React, { Suspense, useState, useEffect } from 'react';
-import { useFS } from '../../providers/fs-provider';
 
 // Loading fallback component
 function FileExplorerLoading() {
@@ -42,7 +41,6 @@ const FileExplorer = React.lazy(() => {
 });
 
 export default function ClientFileExplorer() {
-  const { isInitialized, error } = useFS();
   const [isSupported, setIsSupported] = useState(true);
 
   useEffect(() => {
@@ -73,14 +71,6 @@ export default function ClientFileExplorer() {
 
   if (!isSupported) {
     return <FileSystemNotSupported />;
-  }
-
-  if (error) {
-    return <div className="p-4 text-red-500">Error initializing file system: {error.message}</div>;
-  }
-
-  if (!isInitialized) {
-    return <FileExplorerLoading />;
   }
 
   return (
