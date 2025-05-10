@@ -8,13 +8,13 @@
 	"types": "./dist/index.d.ts",
 	"exports": {
 		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.mjs",
-			"require": "./dist/index.js"
+			"import": "./dist/index.d.ts",
+			"require": "./dist/index.d.ts",
+			"default": "./dist/index.d.ts"
 		}
 	},
 	"scripts": {
-		"build": "tsc -p . && tsup",
+		"build": "rm -rf dist && tsc -b .",
 		"dev": "tsup --watch",
 		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",

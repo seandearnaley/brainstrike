@@ -53,12 +53,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-turbo-
 
-      # Clean all node_modules and dist folders BEFORE install
-      - name: Clean all node_modules and dist folders
+      # Clean all node_modules BEFORE install
+      - name: Clean all node_modules
         run: |
-          echo "Cleaning all node_modules and dist folders..."
+          echo "Cleaning all node_modules..."
           find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +
-          find . -name 'dist' -type d -prune -exec rm -rf '{}' +
 
       - name: Install dependencies
         run: pnpm install

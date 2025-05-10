@@ -10,7 +10,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build --verbose && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
+    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
