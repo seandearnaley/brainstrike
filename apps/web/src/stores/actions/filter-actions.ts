@@ -6,7 +6,9 @@
  */
 
 import type { FileExplorerState } from '@brainstrike/types';
-import { MIN_FOLDER_SUMMARY_THRESHOLD } from '../constants/file-explorer-constants';
+import {
+  MIN_FOLDER_SUMMARY_THRESHOLD /*, MAX_FOLDER_SUMMARY_THRESHOLD */,
+} from '@brainstrike/types';
 
 export const createFilterActions = (
   set: (fn: (state: FileExplorerState) => Partial<FileExplorerState>) => void

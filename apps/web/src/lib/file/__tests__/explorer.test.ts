@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
+import { IGNORED_PATHS } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { IGNORED_PATHS } from '../../../constants/file-explorer';
 import {
   createDirectoryNode,
   createFileNode,

@@ -1,5 +1,10 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { DEFAULT_STATE } from '@brainstrike/types';
+import {
+  DEFAULT_STATE,
+  MAX_FOLDER_SUMMARY_THRESHOLD,
+  MAX_SELECTION_COUNT,
+  MIN_MAX_SELECTION_COUNT,
+} from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { encodeFileSelection, isPathSelectedInFolder } from '../../utils/file-selection-utils';
@@ -7,11 +12,6 @@ import { createDirectoryExpansionActions } from '../actions/directory-expansion-
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
-import {
-  MAX_FOLDER_SUMMARY_THRESHOLD,
-  MAX_SELECTION_COUNT,
-  MIN_MAX_SELECTION_COUNT,
-} from '../constants/file-explorer-constants';
 
 // Combine all action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &

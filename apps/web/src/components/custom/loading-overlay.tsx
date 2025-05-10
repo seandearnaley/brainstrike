@@ -1,9 +1,9 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 import { Progress } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
 import { Loader2, RefreshCw } from 'lucide-react';
 import React from 'react';
 import type { LoadingProgressState } from '../../hooks/use-file-tree';
-import { FileExplorerStrings } from './constants/file-explorer-constants';
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
   isLoading: boolean;

@@ -18,8 +18,6 @@
       "dependsOn": ["^build"],
       // Specifies the output artifacts of the build task.
       // Turborepo caches these directories/files.
-      // '.next/**' is for Next.js apps, 'dist/**' is common for libraries/other apps.
-      // '!./next/cache/**' excludes the Next.js build cache to avoid redundant caching.
       "outputs": [
         "dist/**"
       ]

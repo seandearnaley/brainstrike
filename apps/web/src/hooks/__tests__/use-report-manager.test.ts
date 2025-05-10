@@ -1,6 +1,6 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileExplorerStrings } from '../../components/custom/constants/file-explorer-constants';
 import { useReportManager } from '../use-report-manager';
 
 // Mock file-saver

@@ -1,6 +1,6 @@
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
-import { IGNORED_PATHS } from '../../constants/file-explorer';
+import { IGNORED_PATHS } from '@brainstrike/types';
 import { fileFilter } from '../../lib/utils/filter';
 
 /**

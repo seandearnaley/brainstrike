@@ -1,11 +1,11 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import type { StoreApi, UseBoundStore } from 'zustand';
 import {
   MAX_FOLDER_SUMMARY_THRESHOLD,
   MAX_SELECTION_COUNT,
   MIN_FOLDER_SUMMARY_THRESHOLD,
   MIN_MAX_SELECTION_COUNT,
-} from '../constants/file-explorer-constants';
+} from '@brainstrike/types';
+import type { StoreApi, UseBoundStore } from 'zustand';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
 type GetState<T> = UseBoundStore<StoreApi<T>>['getState'];

@@ -1,4 +1,4 @@
-import { FileExplorerStrings } from './constants/file-explorer-constants';
+import { FileExplorerStrings } from '@brainstrike/types';
 
 export const FileExplorerHeader: React.FC = () => {
   return (

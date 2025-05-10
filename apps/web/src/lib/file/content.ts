@@ -1,4 +1,4 @@
-import { BINARY_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from '../../constants/file-explorer';
+import { BINARY_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from '@brainstrike/types';
 
 /**
  * Maximum file size in bytes that we'll attempt to load (1MB)

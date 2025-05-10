@@ -1,6 +1,6 @@
+import { DEFAULT_STATE } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_INCLUDE_FILTERS } from '../../constants/file-explorer';
 import { useFileExplorerSettings } from '../use-file-explorer-settings';
 
 // Mock localStorage
@@ -39,7 +39,7 @@ describe('useFileExplorerSettings', () => {
     expect(localStorageMock.getItem).toHaveBeenCalledWith(STORAGE_KEY);
     expect(result.current.settings).toEqual({
       maxSelectionCount: 10,
-      includeFilters: DEFAULT_INCLUDE_FILTERS,
+      includeFilters: DEFAULT_STATE.includeFilters,
       excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
       useRegex: false,
       includeProjectTree: true,
@@ -76,7 +76,7 @@ describe('useFileExplorerSettings', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
     expect(result.current.settings).toEqual({
       maxSelectionCount: 10,
-      includeFilters: DEFAULT_INCLUDE_FILTERS,
+      includeFilters: DEFAULT_STATE.includeFilters,
       excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
       useRegex: false,
       includeProjectTree: true,

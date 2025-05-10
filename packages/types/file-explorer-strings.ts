@@ -60,4 +60,4 @@ export const FileExplorerStrings = {
     OFF: 'Off',
     QUICK_FILTER: 'Quick Filter:',
   },
-} as const;
+} as const; 

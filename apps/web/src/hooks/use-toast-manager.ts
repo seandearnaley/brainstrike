@@ -6,10 +6,10 @@
  */
 
 import { PartialRefreshError } from '@brainstrike/types';
+import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { useCallback } from 'react';
-import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
 
 // Interface for a generic error with potential name and message properties
 interface GenericError {

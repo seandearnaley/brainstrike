@@ -1,3 +1,4 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,7 +8,6 @@ import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-set
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
-import { FileExplorerStrings } from '../../constants/file-explorer-constants';
 import FileExplorer from '../../file-explorer';
 import {
   createMockDirectoryHandle,

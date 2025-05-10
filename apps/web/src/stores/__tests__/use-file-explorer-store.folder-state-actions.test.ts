@@ -1,10 +1,9 @@
 import type { FileExplorerState, FolderState } from '@brainstrike/types';
-import { DEFAULT_STATE } from '@brainstrike/types';
+import { DEFAULT_STATE, MAX_FOLDER_STATES, MIN_MAX_SELECTION_COUNT } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
-import { MAX_FOLDER_STATES, MIN_MAX_SELECTION_COUNT } from '../constants/file-explorer-constants';
 
 // Combine required action interfaces
 type TestActions = ReturnType<typeof createFolderStateActions> &
