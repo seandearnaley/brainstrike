@@ -102,7 +102,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 
     // Specialized handling based on error type
     if (error instanceof FileContentError) {
-      const fileError = error as FileContentError;
+      const fileError = error as InstanceType<typeof FileContentError>;
       icon = FileWarning;
       displayTitle = 'File Content Error';
       message = `Failed to load file '${fileError.path}': ${fileError.message}`;
@@ -118,7 +118,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </div>
       );
     } else if (error instanceof ConcurrentLoadingError) {
-      const concurrentError = error as ConcurrentLoadingError;
+      const concurrentError = error as InstanceType<typeof ConcurrentLoadingError>;
       icon = Server;
       displayTitle = 'Loading Error';
       message = `Failed to load ${concurrentError.failedPaths.length} files: ${concurrentError.message}`;
@@ -129,7 +129,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
         </Button>
       );
     } else if (error instanceof PartialRefreshError) {
-      const partialError = error as PartialRefreshError;
+      const partialError = error as InstanceType<typeof PartialRefreshError>;
       icon = RefreshCw;
       displayTitle = 'Partial Refresh Error';
       message = `Refresh partially failed: ${partialError.successCount} succeeded, ${partialError.failCount} failed`;
