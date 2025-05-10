@@ -53,6 +53,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pnpm-turbo-
 
+      # Clean all node_modules and dist folders BEFORE install
+      - name: Clean all node_modules and dist folders
+        run: |
+          echo "Cleaning all node_modules and dist folders..."
+          find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +
+          find . -name 'dist' -type d -prune -exec rm -rf '{}' +
+
       - name: Install dependencies
         run: pnpm install
 
@@ -81,12 +88,6 @@ jobs:
       - name: Run Biome checks
         run: pnpm run lint
         continue-on-error: false # Don't fail the build due to linting issues
-
-      - name: Clean all node_modules and dist folders
-        run: |
-          echo "Cleaning all node_modules and dist folders..."
-          find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +
-          find . -name 'dist' -type d -prune -exec rm -rf '{}' +
 
       # Build all packages (Rely on Turborepo's dependency management)
       - name: Build all packages
