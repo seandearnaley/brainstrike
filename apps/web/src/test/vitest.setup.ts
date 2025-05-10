@@ -73,7 +73,7 @@ Object.defineProperty(window, 'ResizeObserver', {
   value: MockResizeObserver,
 });
 
-// Mock TextDecoder/TextEncoder for isomorphic-git
+// Mock TextDecoder/TextEncoder
 // This addresses the type compatibility issue with TextDecoder
 class MockTextDecoder {
   // We're intentionally not using these parameters but need them for the interface

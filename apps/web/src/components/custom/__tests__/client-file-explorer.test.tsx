@@ -67,10 +67,10 @@ describe('ClientFileExplorer', () => {
     });
 
     // Reset mocks
-    mockUseFS.mockReturnValue({
-      isInitialized: true,
-      error: null,
-    });
+    // mockUseFS.mockReturnValue({ // mockUseFS is no longer directly used by component, but some tests might still use the mock setup.
+    //   isInitialized: true,
+    //   error: null,
+    // });
 
     // Clear console spy history
     consoleWarnSpy.mockClear();
@@ -112,26 +112,26 @@ describe('ClientFileExplorer', () => {
     );
   });
 
-  it('shows loading state when file system is not initialized', () => {
-    mockUseFS.mockReturnValue({
-      isInitialized: false,
-      error: null,
-    });
+  // it('shows loading state when file system is not initialized', () => { // Test removed
+  //   mockUseFS.mockReturnValue({
+  //     isInitialized: false,
+  //     error: null,
+  //   });
+  //
+  //   render(<ClientFileExplorer />);
+  //   expect(screen.getByText('Loading File Explorer...')).toBeInTheDocument();
+  // });
 
-    render(<ClientFileExplorer />);
-    expect(screen.getByText('Loading File Explorer...')).toBeInTheDocument();
-  });
-
-  it('shows error message when file system initialization fails', () => {
-    const errorMessage = 'Failed to initialize';
-    mockUseFS.mockReturnValue({
-      isInitialized: false,
-      error: new Error(errorMessage),
-    });
-
-    render(<ClientFileExplorer />);
-    expect(screen.getByText(`Error initializing file system: ${errorMessage}`)).toBeInTheDocument();
-  });
+  // it('shows error message when file system initialization fails', () => { // Test removed
+  //   const errorMessage = 'Failed to initialize';
+  //   mockUseFS.mockReturnValue({
+  //     isInitialized: false,
+  //     error: new Error(errorMessage),
+  //   });
+  //
+  //   render(<ClientFileExplorer />);
+  //   expect(screen.getByText(`Error initializing file system: ${errorMessage}`)).toBeInTheDocument();
+  // });
 
   it('shows unsupported message when File System Access API is not available', () => {
     // Remove showDirectoryPicker to simulate unsupported browser

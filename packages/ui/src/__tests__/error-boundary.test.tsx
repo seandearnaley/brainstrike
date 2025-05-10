@@ -1,10 +1,4 @@
-import {
-  ConcurrentLoadingError,
-  FSInitializationError,
-  FileContentError,
-  GitOperationError,
-  PartialRefreshError,
-} from '@brainstrike/types';
+import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { describe, expect, vi } from 'vitest';
@@ -16,8 +10,6 @@ vi.mock('lucide-react', () => ({
   ArrowLeft: () => <div data-testid="icon-arrow-left">ArrowLeft</div>,
   Bug: () => <div data-testid="icon-bug">Bug</div>,
   FileWarning: () => <div data-testid="icon-file-warning">FileWarning</div>,
-  FolderOpen: () => <div data-testid="icon-folder-open">FolderOpen</div>,
-  GitBranch: () => <div data-testid="icon-git-branch">GitBranch</div>,
   RefreshCw: () => <div data-testid="icon-refresh">RefreshCw</div>,
   Server: () => <div data-testid="icon-server">Server</div>,
   X: () => <div data-testid="icon-x">X</div>,
@@ -89,22 +81,6 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Reload Page')).toBeInTheDocument();
   });
 
-  test('renders specialized UI for FSInitializationError', () => {
-    const errorMessage = 'Permission denied';
-    render(
-      <ErrorBoundary>
-        <ErrorThrowingComponent
-          error={new FSInitializationError(errorMessage, 'PERMISSION_DENIED')}
-        />
-      </ErrorBoundary>
-    );
-    expect(screen.getByText('File System Error')).toBeInTheDocument();
-    expect(screen.getByText('Request Permissions Again')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Failed to initialize file system: Permission denied/)
-    ).toBeInTheDocument();
-  });
-
   test('renders specialized UI for FileContentError', () => {
     const errorMessage = 'File is too large';
     const filePath = '/path/to/large/file.txt';
@@ -117,19 +93,6 @@ describe('ErrorBoundary', () => {
     expect(screen.getByText('Retry Loading')).toBeInTheDocument();
     expect(screen.getByText('Skip File')).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`Failed to load file '${filePath}'`))).toBeInTheDocument();
-  });
-
-  test('renders specialized UI for GitOperationError', () => {
-    const errorMessage = 'Failed to pull from remote';
-    const operation = 'pull';
-    render(
-      <ErrorBoundary>
-        <ErrorThrowingComponent error={new GitOperationError(errorMessage, operation)} />
-      </ErrorBoundary>
-    );
-    expect(screen.getByText('Git Operation Error')).toBeInTheDocument();
-    expect(screen.getByText('Retry Git Operation')).toBeInTheDocument();
-    expect(screen.getByText(/Git operation 'pull' failed/)).toBeInTheDocument();
   });
 
   test('calls onReset when reset button is clicked', () => {

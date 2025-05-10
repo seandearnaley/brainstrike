@@ -73,7 +73,6 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
     *   Follow GitHub Actions CI/CD pipeline (defined in `.github/workflows`).
 
 10. **GOTCHAS & SPECIAL CONSIDERATIONS**
-    *   Careful with file system operations in `isomorphic-git` (used in `apps/web`).
     *   Handle large directory trees efficiently (e.g., virtualization, pagination in UI).
     *   Manage Zustand store updates carefully to prevent unnecessary re-renders.
     *   Use proper error handling, especially for async operations and external APIs.
