@@ -355,9 +355,15 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       gpt-tokenizer:
         specifier: ^2.1.2
         version: 2.9.0
+      minimatch:
+        specifier: ^10
+        version: 10.0.1
     devDependencies:
       '@swc/core':
         specifier: ^1.11.20

@@ -5,9 +5,8 @@
 		"incremental": true,
 		"tsBuildInfoFile": "./dist/.tsbuildinfo",
 		"rootDir": ".",
-		"declaration": true,
-		"declarationDir": "dist",
-		"emitDeclarationOnly": true
+		"outDir": "dist",
+		"declaration": true
 	},
 	"include": ["./**/*.ts"],
 	"exclude": ["dist", "node_modules", "**/*.test.ts"],

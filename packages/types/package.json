@@ -9,12 +9,12 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.mjs",
+			"import": "./dist/index.js",
 			"require": "./dist/index.js"
 		}
 	},
 	"scripts": {
-		"build": "tsc -p . && tsup",
+		"build": "rm -rf dist && tsc -b .",
 		"dev": "tsup --watch",
 		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",

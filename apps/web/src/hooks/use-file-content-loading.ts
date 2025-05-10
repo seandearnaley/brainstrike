@@ -1,9 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
+import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useRef, useState } from 'react';
-import { fileContent } from '../lib/file/content';
 import { fileExplorer } from '../lib/file/explorer';
-import { decodeFileSelection } from '../utils/file-selection-utils';
 
 const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
 

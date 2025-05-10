@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { generateProjectTreeText } from '../folder-tree-generator';
+import { generateProjectTreeText } from '@brainstrike/utils';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
   kind: 'file',
@@ -118,11 +118,11 @@ describe('generateProjectTreeText', () => {
     const result = generateProjectTreeText([rootDir], [], [], false, 0);
     const lines = result.split('\n');
 
-    expect(lines.findIndex((l) => l.includes('a/'))).toBeLessThan(
-      lines.findIndex((l) => l.includes('a.ts'))
+    expect(lines.findIndex((l: string) => l.includes('a/'))).toBeLessThan(
+      lines.findIndex((l: string) => l.includes('a.ts'))
     );
-    expect(lines.findIndex((l) => l.includes('a.ts'))).toBeLessThan(
-      lines.findIndex((l) => l.includes('b.ts'))
+    expect(lines.findIndex((l: string) => l.includes('a.ts'))).toBeLessThan(
+      lines.findIndex((l: string) => l.includes('b.ts'))
     );
   });
 });

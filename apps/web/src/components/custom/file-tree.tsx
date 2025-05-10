@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
-import { encodeFileSelection } from '../../utils/file-selection-utils';
 import FileTreeNode from './file-tree-node';
 
 interface IFileTreeProps {

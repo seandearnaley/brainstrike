@@ -1,7 +1,12 @@
-import path from 'node:path';
+// import path from 'node:path'; // Removed for browser compatibility
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
-import { fileFilter } from '../../lib/utils/filter';
+import { fileFilter } from '@brainstrike/utils';
+
+function normalizePath(pathString: string): string {
+  // Remove duplicate slashes, handle leading slash
+  return pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
+}
 
 /**
  * Utilities for exploring and manipulating file trees
@@ -11,9 +16,7 @@ export const fileExplorer = {
    * Checks if a path should be ignored based on predefined patterns
    */
   shouldIgnorePath(pathString: string): boolean {
-    const normalizedPath = path.normalize(pathString).startsWith('/')
-      ? path.normalize(pathString).slice(1)
-      : path.normalize(pathString);
+    const normalizedPath = normalizePath(pathString);
     return IGNORED_PATHS.some((ignoredPath) =>
       fileFilter.matchWildcard(normalizedPath, ignoredPath)
     );

@@ -18,9 +18,9 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "pnpm run clean && tsc --emitDeclarationOnly -p tsconfig.json && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
-    "clean": "rimraf dist && rimraf src/**/*.js{,.map} src/**/*.d.ts{,.map}",
+    "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
@@ -28,7 +28,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "gpt-tokenizer": "^2.1.2"
+    "gpt-tokenizer": "^2.1.2",
+    "@brainstrike/types": "workspace:*",
+    "minimatch": "^10"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",
