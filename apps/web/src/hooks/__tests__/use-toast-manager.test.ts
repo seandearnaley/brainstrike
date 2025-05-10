@@ -3,7 +3,7 @@ import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { FileExplorerStrings } from '../../components/custom/constants/file-explorer-constants';
+import { FileExplorerStrings } from '@brainstrike/types';
 import { useToastManager } from '../use-toast-manager';
 
 // Mock dependencies

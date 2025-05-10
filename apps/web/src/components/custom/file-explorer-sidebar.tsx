@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { FileExplorerStrings } from '@brainstrike/types';
 import {
   Badge,
   ScrollArea,
@@ -12,7 +13,6 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import type * as React from 'react';
-import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileTree from './file-tree';
 import { FolderBadge } from './folder-badge';
 

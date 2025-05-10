@@ -1,3 +1,4 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 /**
  * @vitest-environment happy-dom
  */
@@ -5,30 +6,6 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystem } from '../../../../hooks/use-file-system';
 import FileExplorer from '../../file-explorer';
-
-// Mock constants first so they can be used by other mocks
-vi.mock('../../constants/file-explorer-constants', () => ({
-  FileExplorerStrings: {
-    TITLE: 'Context Explorer',
-    SELECT_ROOT: 'Select Root',
-    LOADING: {
-      ROOT_DIRECTORY: 'Loading root directory...',
-    },
-    STATUS: {
-      NO_FILES_FOUND: 'No matching files found',
-    },
-    ERROR: {
-      BROWSER_COMPATIBILITY: 'Browser Compatibility Error',
-    },
-    SUCCESS: {
-      TITLE: 'Success',
-      REFRESH_SUCCESS: 'Refresh successful',
-    },
-  },
-}));
-
-// Import the mocked constants
-import { FileExplorerStrings } from '../../constants/file-explorer-constants';
 
 // Mock all dependencies at the module level
 vi.mock('@/hooks/use-file-explorer', () => ({

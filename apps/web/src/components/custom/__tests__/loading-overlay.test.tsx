@@ -1,6 +1,6 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { FileExplorerStrings } from '../constants/file-explorer-constants';
 import { LoadingOverlay } from '../loading-overlay';
 
 describe('LoadingOverlay', () => {

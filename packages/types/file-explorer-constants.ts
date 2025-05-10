@@ -83,8 +83,12 @@ export const BINARY_FILE_EXTENSIONS = [
   '.flac',
 ];
 
-export const DEFAULT_INCLUDE_FILTERS = ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'];
+export const IGNORED_PATHS: string[] = []; // Explicitly typed as string array
 
-// export const IGNORED_PATHS = ['.git', '.DS_Store'];
+// Minimum and Maximum allowed value for Folder Summary Threshold setting
+export const MIN_FOLDER_SUMMARY_THRESHOLD = 0;
+export const MAX_FOLDER_SUMMARY_THRESHOLD = 1000;
 
-export const IGNORED_PATHS = [];
+// Minimum and Maximum allowed value for Max Selection Count setting
+export const MIN_MAX_SELECTION_COUNT = 1;
+export const MAX_SELECTION_COUNT = 1000; 

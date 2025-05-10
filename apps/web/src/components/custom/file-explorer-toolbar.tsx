@@ -1,7 +1,7 @@
+import { FileExplorerStrings } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
 import { ChevronsDown, ChevronsUp, Folder, RefreshCw } from 'lucide-react';
-import { FileExplorerStrings } from './constants/file-explorer-constants';
 import FileExplorerConfig from './file-explorer-config';
 import { FileFilterBar } from './file-filter-bar';
 import { SelectionCounter } from './selection-counter';

@@ -8,7 +8,7 @@
 import type { ToastActionElement } from '@brainstrike/ui';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
-import { FileExplorerStrings } from '../components/custom/constants/file-explorer-constants';
+import { FileExplorerStrings } from '@brainstrike/types';
 
 interface UseReportManagerProps {
   rootDirectoryHandle: FileSystemDirectoryHandle | null;

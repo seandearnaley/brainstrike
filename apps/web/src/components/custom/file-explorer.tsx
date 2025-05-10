@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
@@ -31,7 +32,6 @@ const FileExplorerMainPanel = lazy(() =>
 );
 
 // Import lightweight components directly
-import { FileExplorerStrings } from './constants/file-explorer-constants';
 import { FileExplorerHeader } from './file-explorer-header';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { LoadingOverlay } from './loading-overlay';

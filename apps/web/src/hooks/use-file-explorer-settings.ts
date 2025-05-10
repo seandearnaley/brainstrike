@@ -1,5 +1,5 @@
+import { DEFAULT_STATE } from '@brainstrike/types';
 import { useCallback, useMemo } from 'react';
-import { DEFAULT_INCLUDE_FILTERS } from '../constants/file-explorer';
 
 const STORAGE_KEY = 'fileExplorerSettings';
 
@@ -24,7 +24,7 @@ const loadStoredSettings = (): FileExplorerSettings => {
   }
   return {
     maxSelectionCount: 10,
-    includeFilters: DEFAULT_INCLUDE_FILTERS,
+    includeFilters: DEFAULT_STATE.includeFilters,
     excludeFilters: ['node_modules', 'test-results', 'playwright-report'],
     useRegex: false,
     includeProjectTree: true,
