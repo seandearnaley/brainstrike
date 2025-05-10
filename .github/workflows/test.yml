@@ -97,6 +97,7 @@ jobs:
           NODE_ENV: production
 
       - name: Debug types package in node_modules
+        if: always()
         run: |
           echo "Contents of node_modules/@brainstrike/types/dist:"
           ls -la node_modules/@brainstrike/types/dist/ || echo "dist/ not found"
