@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFilterActions } from '../src/actions/filter-actions';
+import { createFilterActions } from '../filter-actions';
 
 describe('filter-actions', () => {
   // Setup common mocks

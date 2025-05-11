@@ -1,6 +1,6 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { Badge } from '@brainstrike/ui';
 import type React from 'react';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 
 interface SelectionCounterProps {
   maxSelections: number;

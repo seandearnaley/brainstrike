@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createDirectoryActions } from '../src/actions/directory-actions';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createDirectoryActions } from '../directory-actions';
 
 describe('directory-actions', () => {
   // Setup common mocks

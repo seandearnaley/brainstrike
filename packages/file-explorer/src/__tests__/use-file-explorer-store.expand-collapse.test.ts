@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types'; // Import defaults
 import { beforeEach, describe, expect, test } from 'vitest'; // Added imports
-import { useFileExplorerStore } from '../use-file-explorer-store';
+import { useFileExplorerStore } from '../store';
 
 // A simple file tree for testing
 const sampleFileTree: IFileNode[] = [

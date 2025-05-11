@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileSelectionActions } from '../src/actions/file-selection-actions';
+import { createFileSelectionActions } from '../file-selection-actions';
 
 // Mock the file-selection-utils module
 vi.mock('@brainstrike/utils', () => ({

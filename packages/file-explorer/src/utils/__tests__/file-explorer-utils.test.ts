@@ -5,7 +5,7 @@ import {
   cleanupOldFolderStates,
   createNewFolderState,
   saveFolderState,
-} from '../src/utils/file-explorer-utils';
+} from '../file-explorer-utils';
 
 describe('file-explorer-utils', () => {
   describe('saveFolderState', () => {

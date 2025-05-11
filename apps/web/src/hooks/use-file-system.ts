@@ -1,5 +1,5 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useState } from 'react';
-import { useFileExplorerStore } from '../stores/use-file-explorer-store';
 
 export function useFileSystem() {
   const [rootDirectoryHandle, setRootDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(

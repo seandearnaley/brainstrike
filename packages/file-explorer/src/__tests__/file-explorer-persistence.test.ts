@@ -1,6 +1,6 @@
 import type { FileExplorerState } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createPersistOptions } from '../src/persistence/file-explorer-persistence';
+import { createPersistOptions } from '../persistence/file-explorer-persistence';
 
 // Mock console to reduce test noise
 const consoleSpy = {

@@ -10,7 +10,7 @@ import { DEFAULT_STATE } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
 // eslint-disable-next-line no-undef -- process.env is available in Vite/Node environments
 
-// biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
+// biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
 const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
 
 export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => ({
@@ -18,7 +18,6 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
   version: 3,
 
   partialize: (state) => {
-    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
     if (isDev) {
       console.log('Serializing state:', {
         currentFolderId: state.currentFolderId,
@@ -53,14 +52,12 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
   },
 
   onRehydrateStorage: () => (persistedState) => {
-    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
     if (isDev) {
       console.log('Rehydrating storage, full persisted state:', persistedState);
     }
 
     // Important: Always provide a complete default state if nothing is persisted
     if (!persistedState) {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
       if (isDev) {
         console.log('No persisted state found, returning default state');
       }
@@ -75,7 +72,6 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
     try {
       // If there's no current folder ID, clear selected files
       if (!persistedState.currentFolderId) {
-        // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
         if (isDev) {
           console.log('No current folder ID, clearing selected files');
         }
@@ -136,7 +132,6 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         lastActiveTab: persistedState.lastActiveTab ?? 'files',
       };
     } catch (error: unknown) {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
       if (isDev) {
         console.error('Error rehydrating file explorer state:', error);
         if (error instanceof Error) {
