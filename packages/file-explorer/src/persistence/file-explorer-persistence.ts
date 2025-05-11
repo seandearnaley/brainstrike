@@ -10,13 +10,16 @@ import { DEFAULT_STATE } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
 // eslint-disable-next-line no-undef -- process.env is available in Vite/Node environments
 
+// biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
+const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
+
 export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => ({
   name: 'file-explorer-storage',
   version: 3,
 
   partialize: (state) => {
     // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
-    if (process.env['NODE_ENV'] !== 'production') {
+    if (isDev) {
       console.log('Serializing state:', {
         currentFolderId: state.currentFolderId,
         folderStateKeys: Object.keys(state.folderStates || {}),
@@ -51,14 +54,14 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
 
   onRehydrateStorage: () => (persistedState) => {
     // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
-    if (process.env['NODE_ENV'] !== 'production') {
+    if (isDev) {
       console.log('Rehydrating storage, full persisted state:', persistedState);
     }
 
     // Important: Always provide a complete default state if nothing is persisted
     if (!persistedState) {
       // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
-      if (process.env['NODE_ENV'] !== 'production') {
+      if (isDev) {
         console.log('No persisted state found, returning default state');
       }
       return {
@@ -73,7 +76,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
       // If there's no current folder ID, clear selected files
       if (!persistedState.currentFolderId) {
         // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
-        if (process.env['NODE_ENV'] !== 'production') {
+        if (isDev) {
           console.log('No current folder ID, clearing selected files');
         }
         return {
@@ -134,7 +137,7 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
       };
     } catch (error: unknown) {
       // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility
-      if (process.env['NODE_ENV'] !== 'production') {
+      if (isDev) {
         console.error('Error rehydrating file explorer state:', error);
         if (error instanceof Error) {
           console.error('Stack trace:', error.stack);

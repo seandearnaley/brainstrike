@@ -15,7 +15,7 @@
   "private": true,
   "scripts": {
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
-    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist",
+    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
     "build": "pnpm run build:types && pnpm run build:js",
     "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
     "test": "vitest run --coverage"
@@ -31,7 +31,6 @@
   },
   "devDependencies": {
     "tsup": "^8",
-    "@types/node": "^20",
-    "use-sync-external-store": "^1"
+    "@types/node": "^20"
   }
 } 
