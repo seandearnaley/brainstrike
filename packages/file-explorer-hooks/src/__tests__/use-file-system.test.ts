@@ -12,12 +12,12 @@ vi.mock('@brainstrike/file-explorer', () => ({
 }));
 
 // Mock the file system module
-vi.mock('../../lib/file/system', () => ({
-  fileSystem: {
-    generateUniqueFolderId: vi.fn().mockResolvedValue('test-folder-id'),
-    isSameDirectory: vi.fn().mockResolvedValue(true),
-  },
-}));
+// vi.mock('../../lib/file/system', () => ({
+//   fileSystem: {
+//     generateUniqueFolderId: vi.fn().mockResolvedValue('test-folder-id'),
+//     isSameDirectory: vi.fn().mockResolvedValue(true),
+//   },
+// }));
 
 describe('useFileSystem', () => {
   let mockShowDirectoryPicker: ReturnType<typeof vi.fn>;

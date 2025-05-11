@@ -22,6 +22,8 @@
     "serve-static": "serve dist -p 3000"
   },
   "dependencies": {
+    "@brainstrike/file-explorer": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -38,8 +40,7 @@
     "react-dom": "^19",
     "react-helmet-async": "^2.0.5",
     "react-router-dom": "^7.4.1",
-    "zustand": "^5.0.3",
-    "@brainstrike/file-explorer": "workspace:*"
+    "zustand": "^5.0.3"
   },
   "devDependencies": {
     "@babel/core": "^7.26.10",

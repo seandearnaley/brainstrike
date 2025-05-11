@@ -1,0 +1,26 @@
+{
+  "name": "@brainstrike/file-explorer-hooks",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "dev":   "tsup src/index.ts --format esm,cjs --dts --watch",
+    "test":  "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "dependencies": {
+    "@brainstrike/file-explorer": "workspace:*",
+    "@brainstrike/utils":         "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8",
+    "@types/react": "^19.0.0",
+    "@testing-library/react": "^16"
+  }
+} 

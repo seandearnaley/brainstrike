@@ -22,6 +22,7 @@
     {"path": "./packages/hooks"},
     {"path": "./packages/types"},
     {"path": "./packages/ui"},
-    {"path": "./packages/utils"}
+    {"path": "./packages/utils"},
+    {"path": "./packages/file-explorer-hooks"}
   ]
 }
