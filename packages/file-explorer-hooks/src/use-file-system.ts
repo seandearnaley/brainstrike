@@ -1,5 +1,4 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
-// import { isDirectoryHandle } from '@brainstrike/utils'; // This line should be removed or commented out
 import { useState } from 'react';
 
 export function useFileSystem() {
