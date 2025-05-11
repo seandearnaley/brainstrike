@@ -44,7 +44,6 @@
   "devDependencies": {
     "@babel/core": "^7.26.10",
     "@biomejs/biome": "1.9.4",
-    "@brainstrike/types": "workspace:*",
     "@codecov/vite-plugin": "^1.9.0",
     "@playwright/test": "^1.51.1",
     "@tailwindcss/vite": "^4.1.3",

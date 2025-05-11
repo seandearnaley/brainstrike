@@ -47,6 +47,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
+      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
     },
   },
   optimizeDeps: {
