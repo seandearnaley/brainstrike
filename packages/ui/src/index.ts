@@ -21,6 +21,7 @@ export * from './tabs';
 export * from './toast';
 export * from './toaster';
 export * from './tooltip';
+export * from './folder-badge';
 
 // Export hooks
 export * from './use-toast';

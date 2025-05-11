@@ -5,10 +5,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 
-// Mock the FolderBadge component to simplify testing
-vi.mock('../folder-badge', () => ({
-  FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...actual,
+    FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
+  };
+});
 
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [
