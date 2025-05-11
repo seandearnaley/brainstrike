@@ -1,13 +1,13 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { useSelectionManager } from '../use-selection-manager';
 
 // Define type for the mock
 type FileExplorerStoreMock = typeof useFileExplorerStore;
 
 // Mock the useFileExplorerStore
-vi.mock('../../stores/use-file-explorer-store', () => ({
+vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(),
 }));
 

@@ -1,0 +1,27 @@
+{
+  "name": "@brainstrike/file-explorer",
+  "version": "0.1.0",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "private": true,
+  "scripts": {
+    "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
+    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run build:types && pnpm run build:js",
+    "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
+    "test": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "zustand": "^4"
+  },
+  "dependencies": {
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8"
+  }
+} 

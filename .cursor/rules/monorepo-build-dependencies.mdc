@@ -1,0 +1,21 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Monorepo Build & Dependency Management (Turborepo)
+
+When modifying shared packages within this Turborepo setup (e.g., files in `packages/types`, `packages/utils`), it's crucial to **rebuild the modified shared package first** before attempting to build or type-check dependent applications or packages (like `apps/web`).
+
+**Command:**
+Use `pnpm --filter <package-name> run build` to rebuild a specific shared package. For example:
+`pnpm --filter @brainstrike/utils run build`
+
+**Reasoning:**
+Dependent packages rely on the build artifacts (like JavaScript files and TypeScript declaration files in the `dist` directory) of the shared packages. If the shared package is not rebuilt after changes, consumers will use outdated artifacts, leading to:
+*   Type errors (e.g., "Cannot find module" or incorrect type inferences).
+*   Runtime errors if the underlying logic has changed.
+
+**Verification:**
+After rebuilding necessary packages, always run `pnpm turbo run check` or at least `pnpm turbo run type-check` and `pnpm turbo run test` to ensure the entire monorepo is healthy and changes have propagated correctly.
+Refer to [pnpm-workspace.yaml](mdc:pnpm-workspace.yaml) for workspace configuration and [turbo.jsonc](mdc:turbo.jsonc) for Turborepo pipeline definitions.

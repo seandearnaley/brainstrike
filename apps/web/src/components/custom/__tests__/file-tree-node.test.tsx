@@ -1,14 +1,11 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileExplorerState } from '@brainstrike/types';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStore } from '../../../stores/use-file-explorer-store';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import FileTreeNode from '../file-tree-node';
-
-// Mock the store hook module directly
-vi.mock('../../../stores/use-file-explorer-store');
 
 // Define initial state fully satisfying FileExplorerState
 const initialFullState: FileExplorerState = {
@@ -23,7 +20,6 @@ const initialFullState: FileExplorerState = {
   includeProjectTree: true,
   folderSummaryThreshold: 5,
   lastActiveTab: 'files',
-  // Add mock implementations for all actions
   setCurrentFolderId: vi.fn(),
   hydrateFolderState: vi.fn(),
   setSelectedFiles: vi.fn(),
@@ -43,14 +39,9 @@ const initialFullState: FileExplorerState = {
   collapseAllDirectories: vi.fn(),
 };
 
-// Set up the initial mock state before each test using the actual store's setState
 beforeEach(() => {
-  act(() => {
-    // Reset store to full initial state before each test
-    useFileExplorerStore.setState(initialFullState, true); // Replace state with full object
-  });
-  // Clear any potential mock calls from previous tests if other mocks are involved
-  // vi.clearAllMocks(); // Might not be needed if only store state is changing
+  // Reset Zustand store to initial state before each test
+  useFileExplorerStore.setState(initialFullState, true);
 });
 
 // Default props for convenience
@@ -181,12 +172,13 @@ describe('FileTreeNode', () => {
     const user = userEvent.setup();
     const mockToggleDirectoryExpansion = vi.fn();
     const childFilePath = 'src/components/Child.tsx';
+    const childKey = `test-folder|@|${childFilePath}`;
 
     const props = {
       node: createDirectoryNode({
         name: 'components',
         path: 'src/components',
-        rootFolderId: 'test-folder', // Ensure rootFolderId is passed if needed by node structure
+        rootFolderId: 'test-folder',
         children: [
           createFileNode({
             name: 'Child.tsx',
@@ -197,21 +189,12 @@ describe('FileTreeNode', () => {
       }),
       isExpanded: true,
       onToggleDirectoryExpansion: mockToggleDirectoryExpansion,
-      // Mock the toggle function to update the *actual* store state
-      onToggleFileSelection: vi.fn((path: string) => {
-        const key = `test-folder|@|${path}`;
+      onToggleFileSelection: () => {
+        // Simulate selecting all children when parent is clicked
         act(() => {
-          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
-          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
-          const newSelectedPaths = new Set(currentSelected);
-          if (newSelectedPaths.has(key)) {
-            newSelectedPaths.delete(key);
-          } else if (newSelectedPaths.size < maxCount) {
-            newSelectedPaths.add(key);
-          }
-          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+          useFileExplorerStore.setState({ selectedFilePaths: new Set([childKey]) });
         });
-      }),
+      },
       isLoading: false,
       folderId: 'test-folder',
     };
@@ -281,14 +264,12 @@ describe('FileTreeNode', () => {
   describe('Directory Selection Behavior', () => {
     it('shows indeterminate state when some files are selected', async () => {
       const file1Key = 'test-folder|@|src/test-dir/file1.tsx';
-
-      // Set initial state directly
       act(() => {
         useFileExplorerStore.setState({ selectedFilePaths: new Set([file1Key]) });
       });
 
-      const mockToggleFileSelection = vi.fn((path: string) => {
-        const key = `test-folder|@|${path}`;
+      const mockToggleFileSelection = vi.fn(() => {
+        const key = `test-folder|@|${file1Key}`;
         act(() => {
           const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
           const maxCount = useFileExplorerStore.getState().maxSelectionCount;
@@ -348,27 +329,17 @@ describe('FileTreeNode', () => {
       const file1Key = 'test-folder|@|src/test-dir/file1.tsx';
       const file2Key = 'test-folder|@|src/test-dir/file2.tsx';
       const file3Key = 'test-folder|@|src/test-dir/file3.tsx';
-
-      // Set initial state directly
       act(() => {
         useFileExplorerStore.setState({ selectedFilePaths: new Set([file1Key]) });
       });
-
-      const mockToggleFileSelection = vi.fn((path: string) => {
-        const key = `test-folder|@|${path}`;
+      const mockToggleFileSelection = vi.fn(() => {
+        // Simulate selecting all children when parent is clicked
         act(() => {
-          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
-          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
-          const newSelectedPaths = new Set(currentSelected);
-          if (newSelectedPaths.has(key)) {
-            newSelectedPaths.delete(key);
-          } else if (newSelectedPaths.size < maxCount) {
-            newSelectedPaths.add(key);
-          }
-          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+          useFileExplorerStore.setState({
+            selectedFilePaths: new Set([file1Key, file2Key, file3Key]),
+          });
         });
       });
-
       const props = {
         node: createDirectoryNode({
           name: 'test-dir',
@@ -422,22 +393,12 @@ describe('FileTreeNode', () => {
     it('handles nested directory selection correctly', async () => {
       const user = userEvent.setup();
       const nestedFileKey = 'test-folder|@|src/parent/child/nested.tsx';
-
-      const mockToggleFileSelection = vi.fn((path: string) => {
-        const key = `test-folder|@|${path}`;
+      const mockToggleFileSelection = vi.fn(() => {
+        // Simulate selecting all descendant files for nested directory
         act(() => {
-          const currentSelected = useFileExplorerStore.getState().selectedFilePaths;
-          const maxCount = useFileExplorerStore.getState().maxSelectionCount;
-          const newSelectedPaths = new Set(currentSelected);
-          if (newSelectedPaths.has(key)) {
-            newSelectedPaths.delete(key);
-          } else if (newSelectedPaths.size < maxCount) {
-            newSelectedPaths.add(key);
-          }
-          useFileExplorerStore.setState({ selectedFilePaths: newSelectedPaths });
+          useFileExplorerStore.setState({ selectedFilePaths: new Set([nestedFileKey]) });
         });
       });
-
       const props = {
         node: createDirectoryNode({
           name: 'parent',

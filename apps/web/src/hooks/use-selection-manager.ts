@@ -4,8 +4,8 @@
  * This hook manages file selection state and enforces selection limits.
  */
 
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useCallback } from 'react';
-import { useFileExplorerStore } from '../stores/use-file-explorer-store';
 
 interface UseSelectionManagerProps {
   onSelectionLimitExceeded: () => void;

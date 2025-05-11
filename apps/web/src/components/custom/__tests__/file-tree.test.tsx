@@ -1,7 +1,7 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileExplorerStore } from '../../../stores/use-file-explorer-store';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import FileTree from '../file-tree';
 
