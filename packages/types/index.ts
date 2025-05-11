@@ -5,15 +5,15 @@ import {
   // GitOperationError, // Removed
   FileContentError,
   ConcurrentLoadingError,
-} from './errors.js';
+} from './errors';
 
 // Export types from other files
-export * from "./errors.js";
-export * from "./file-explorer-types.js";
-export * from "./file-explorer-constants.js";
-export * from "./file-explorer-strings.js";
+export * from "./errors";
+export * from "./file-explorer-types";
+export * from "./file-explorer-constants";
+export * from "./file-explorer-strings";
 // export * from "./git-types"; // Removed as git-types.ts is deleted
-export * from "./file-system.js"; // Added export for file system types
+export * from "./file-system"; // Added export for file system types
 
 // Explicitly re-export the classes as values
 export {
