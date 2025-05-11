@@ -14,8 +14,7 @@
     "test": "vitest run --coverage"
   },
   "peerDependencies": {
-    "react": "^19",
-    "zustand": "^4"
+    "zustand": "^5"
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",

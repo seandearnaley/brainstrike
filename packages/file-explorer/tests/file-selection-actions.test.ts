@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileSelectionActions } from '../src/actions/file-selection-actions';
 
 // Mock the file-selection-utils module
-vi.mock('../../../utils/file-selection-utils', () => ({
+vi.mock('@brainstrike/utils', () => ({
   encodeFileSelection: (folderId: string, path: string) => `${folderId}|@|${path}`,
 }));
 
