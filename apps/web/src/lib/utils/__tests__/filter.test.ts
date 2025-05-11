@@ -227,10 +227,10 @@ describe('fileFilter', () => {
 
       const result = fileFilter.filterNode(root, options);
       expect(result).not.toBeNull();
-      if (result) {
-        expect(result.children?.length).toBe(1);
-        expect(result.children?.[0].name).toBe('app.js');
-      }
+      expect(result?.children).toBeDefined();
+      expect(result?.children?.length).toBe(1);
+      expect(result?.children?.[0]).toBeDefined();
+      expect(result?.children?.[0]?.name).toBe('app.js');
     });
   });
 });

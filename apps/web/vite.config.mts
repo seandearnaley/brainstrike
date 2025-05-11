@@ -47,12 +47,17 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
-      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
     },
   },
   optimizeDeps: {
-    // Exclude workspace packages from optimization as they are treated as external
-    exclude: ['@brainstrike/types', '@brainstrike/hooks', '@brainstrike/ui', '@brainstrike/utils'],
+    include: [
+      '@brainstrike/types',
+      '@brainstrike/hooks',
+      '@brainstrike/ui',
+      '@brainstrike/utils',
+      '@brainstrike/file-explorer' // Assuming it might be used directly or indirectly
+    ],
+    exclude: [] // Clear exclude or remove the key entirely
   },
   test: {
     globals: true,

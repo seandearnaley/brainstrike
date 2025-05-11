@@ -6,7 +6,6 @@
   "types": "dist/index.d.ts",
   "files": ["dist"],
   "private": true,
-  "sideEffects": false,
   "scripts": {
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
     "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist",
