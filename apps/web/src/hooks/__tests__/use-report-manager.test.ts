@@ -63,8 +63,8 @@ describe('useReportManager', () => {
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     // Should show a success toast
     expect(mockShowToast).toHaveBeenCalledWith({
-      title: FileExplorerStrings.SUCCESS.TITLE,
-      description: FileExplorerStrings.SUCCESS.REPORT_COPIED,
+      title: FileExplorerStrings.success.title,
+      description: FileExplorerStrings.success.reportCopied,
     });
     // Should call clipboard.writeText with the report content
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('Test Report Content');
@@ -86,8 +86,8 @@ describe('useReportManager', () => {
 
     // Should show an error toast
     expect(mockToast).toHaveBeenCalledWith({
-      title: FileExplorerStrings.ERROR.TITLE,
-      description: FileExplorerStrings.ERROR.NO_ROOT_DIRECTORY,
+      title: FileExplorerStrings.error.title,
+      description: FileExplorerStrings.error.noRootDirectory,
       variant: 'destructive',
     });
     // Should not call report generation
@@ -124,8 +124,8 @@ describe('useReportManager', () => {
     expect(mockDismiss).toHaveBeenCalledTimes(1);
     // Should show an error toast
     expect(mockShowToast).toHaveBeenCalledWith({
-      title: FileExplorerStrings.ERROR.TITLE,
-      description: `${FileExplorerStrings.ERROR.REPORT_COPY_FAILED}: Clipboard error`,
+      title: FileExplorerStrings.error.title,
+      description: `${FileExplorerStrings.error.reportCopyFailed}: Clipboard error`,
       variant: 'destructive',
     });
   });
@@ -172,7 +172,7 @@ describe('useReportManager', () => {
 
     // Check the filename argument
     const filenameArgument = firstCallArgs?.[1];
-    expect(filenameArgument).toBe(FileExplorerStrings.FILE_NAMES.REPORT);
+    expect(filenameArgument).toBe(FileExplorerStrings.fileNames.report);
   });
 
   it('should not download if report generation fails', async () => {

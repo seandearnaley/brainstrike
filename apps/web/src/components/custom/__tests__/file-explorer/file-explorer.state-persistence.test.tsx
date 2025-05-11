@@ -74,13 +74,6 @@ vi.mock('../../constants/file-explorer-constants', () => ({
 }));
 
 // Mock store
-vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: () => ({
-    selectedFilePaths: new Set<string>(),
-    currentFolderId: null,
-    setCurrentFolderId: vi.fn(),
-  }),
-}));
 
 // Skip this test file for now
 describe.skip('FileExplorer - State Persistence', () => {

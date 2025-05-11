@@ -1,9 +1,9 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { Button } from '@brainstrike/ui';
 import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import IncludeProjectTreeSetting from './include-project-tree-setting';

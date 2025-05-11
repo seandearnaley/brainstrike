@@ -50,7 +50,7 @@ describe('FileExplorerSidebar', () => {
     render(<FileExplorerSidebar {...defaultProps} />);
 
     // Check for the directory status - use exact text from constants
-    expect(screen.getByText(FileExplorerStrings.STATUS.CURRENT_DIRECTORY)).toBeInTheDocument();
+    expect(screen.getByText(FileExplorerStrings.status.currentDirectory)).toBeInTheDocument();
 
     // Check that the files tab is present
     expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();

@@ -85,7 +85,7 @@ describe('useToastManager', () => {
       result.current.handlePartialRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.TITLE,
+        title: FileExplorerStrings.error.title,
         description: 'Partial refresh failed',
         variant: 'destructive',
       });
@@ -100,8 +100,8 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: 'Partial refresh failed',
+        title: FileExplorerStrings.error.title,
+        description: error.message,
         variant: 'destructive',
       });
     });
@@ -113,8 +113,8 @@ describe('useToastManager', () => {
       result.current.handleRefreshError(error);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.REFRESH_FAILED,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.refreshFailed,
         variant: 'destructive',
       });
     });
@@ -128,7 +128,7 @@ describe('useToastManager', () => {
       result.current.handleBrowserCompatibilityError(reason);
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
+        title: FileExplorerStrings.error.browserCompatibility,
         description: reason,
         variant: 'destructive',
       });
@@ -147,8 +147,8 @@ describe('useToastManager', () => {
         error
       );
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.rootDirectoryFailed,
         variant: 'destructive',
       });
     });
@@ -161,8 +161,8 @@ describe('useToastManager', () => {
       result.current.handleSelectionLimitError();
 
       expect(mockToast).toHaveBeenCalledWith({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.SELECTION_LIMIT_EXCEEDED,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.selectionLimitExceeded,
         variant: 'destructive',
       });
     });

@@ -1,3 +1,4 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import {
@@ -10,7 +11,6 @@ import {
 } from '@brainstrike/ui';
 import { useCallback } from 'react';
 import { fileExplorer } from '../../lib/file/explorer';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 
 interface FolderSelectionDialogProps {
   open: boolean;

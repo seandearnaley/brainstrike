@@ -7,7 +7,7 @@
  * Action logic is delegated to separate action creator functions imported from ./actions/*.
  */
 
-import type { FileExplorerState, SerializedState } from '@brainstrike/types';
+import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { type StateCreator, create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -18,7 +18,7 @@ import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
 
 // Explicitly type the state creator function
-const stateCreator: StateCreator<FileExplorerState, [], [['zustand/persist', SerializedState]]> = (
+const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown]], []> = (
   set,
   get
 ) => {

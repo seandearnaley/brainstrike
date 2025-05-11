@@ -36,13 +36,13 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       if (message) return message;
 
       if (isInitialLoad) {
-        return FileExplorerStrings.LOADING.ROOT_DIRECTORY;
+        return FileExplorerStrings.loading.rootDirectory;
       }
 
       if (!progressState) {
         return isInitialLoad
-          ? FileExplorerStrings.LOADING.ROOT_DIRECTORY
-          : FileExplorerStrings.LOADING.REFRESHING;
+          ? FileExplorerStrings.loading.rootDirectory
+          : FileExplorerStrings.loading.refreshing;
       }
 
       if (progressState.phase === 'counting') {
@@ -71,12 +71,12 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
     const getProgressDescription = () => {
       if (description) return description;
       if (!progressState) {
-        return FileExplorerStrings.PROMPTS.WAIT_FOR_LOADING;
+        return FileExplorerStrings.prompts.waitForLoading;
       }
       if (progressState.phase === 'counting') {
         return 'This may take a moment for large directories';
       }
-      return FileExplorerStrings.PROMPTS.WAIT_FOR_LOADING;
+      return FileExplorerStrings.prompts.waitForLoading;
     };
 
     const progressPercentage =

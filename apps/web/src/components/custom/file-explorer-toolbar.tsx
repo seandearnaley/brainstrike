@@ -48,7 +48,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
             disabled={isLoading && !isRefreshing}
           >
             <Folder className="h-4 w-4 mr-2" />
-            {FileExplorerStrings.SELECT_ROOT}
+            {FileExplorerStrings.selectRoot}
           </Button>
           <Button
             variant="outline"
@@ -57,7 +57,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
             disabled={isLoading || isRefreshing}
           >
             <RefreshCw className={cn('h-4 w-4 mr-2', { 'animate-spin': isRefreshing })} />
-            {FileExplorerStrings.REFRESH}
+            {FileExplorerStrings.refresh}
           </Button>
           <Button
             variant="outline"

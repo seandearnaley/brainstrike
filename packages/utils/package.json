@@ -18,7 +18,7 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist --clean",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
     "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
@@ -35,7 +35,6 @@
   "devDependencies": {
     "@swc/core": "^1.11.20",
     "@types/node": "^20.11.0",
-    "@vitest/coverage-v8": "^3.1.1",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^3.1.1",

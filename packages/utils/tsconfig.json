@@ -5,8 +5,9 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "declarationDir": "./dist",
+    "emitDeclarationOnly": true,
     "outDir": "./dist",
+    "rootDir": "src",
     "declarationMap": true
   },
   "include": ["src/**/*"],

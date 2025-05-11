@@ -45,7 +45,7 @@ const DirectoryStatus: React.FC<{
   if (!rootDirectoryHandle) return null;
   return (
     <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 border-b">
-      <span>{FileExplorerStrings.STATUS.CURRENT_DIRECTORY}</span>
+      <span>{FileExplorerStrings.status.currentDirectory}</span>
       <FolderBadge folderId={rootDirectoryHandle.name} />
     </div>
   );
@@ -84,7 +84,7 @@ const FilterStatus: React.FC<{
         {includeFilters.map((filter) => (
           <FilterBadge
             key={`include-${filter}`}
-            label={FileExplorerStrings.STATUS.INCLUDE_FILTERS}
+            label={FileExplorerStrings.status.includeFilters}
             value={filter}
             variant="default"
           />
@@ -92,14 +92,14 @@ const FilterStatus: React.FC<{
         {excludeFilters.map((filter) => (
           <FilterBadge
             key={`exclude-${filter}`}
-            label={FileExplorerStrings.STATUS.EXCLUDE_FILTERS}
+            label={FileExplorerStrings.status.excludeFilters}
             value={filter}
             variant="destructive"
           />
         ))}
         {quickFilter && (
           <FilterBadge
-            label={FileExplorerStrings.STATUS.QUICK_FILTER}
+            label={FileExplorerStrings.status.quickFilter}
             value={quickFilter}
             variant="outline"
           />
@@ -112,7 +112,7 @@ const FilterStatus: React.FC<{
               </Badge>
             </TooltipTrigger>
             <TooltipContent>
-              <p>{FileExplorerStrings.STATUS.REGEX_MODE}</p>
+              <p>{FileExplorerStrings.status.regexMode}</p>
             </TooltipContent>
           </Tooltip>
         )}

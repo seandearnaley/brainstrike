@@ -87,7 +87,7 @@ export interface FileExplorerState extends FileExplorerData {
   setLastActiveTab: (tab: string) => void;
 
   // New actions
-  expandAllDirectories: (fileTree: import("./file-system").IFileNode[]) => void;
+  expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
   collapseAllDirectories: () => void;
 }
 
@@ -97,14 +97,14 @@ export const MAX_FOLDER_STATES = 20;
 export const DEFAULT_STATE = {
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
-  includeFilters: ["*.tsx", "*.ts", "*.js", "*.jsx", "*.json"] as string[],
+  includeFilters: ['*.tsx', '*.ts', '*.js', '*.jsx', '*.json'] as string[],
   excludeFilters: [
-    ".aider*",
-    "node_modules",
-    ".next",
-    "coverage",
-    "test-results",
-    "playwright-report",
+    '.aider*',
+    'node_modules',
+    '.next',
+    'coverage',
+    'test-results',
+    'playwright-report',
   ] as string[],
   useRegex: false,
   includeProjectTree: true,

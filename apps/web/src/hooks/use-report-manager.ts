@@ -37,8 +37,8 @@ export const useReportManager = ({
   const handleGenerateReport = useCallback(async () => {
     if (!rootDirectoryHandle) {
       toast({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.NO_ROOT_DIRECTORY,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.noRootDirectory,
         variant: 'destructive',
       });
       return null;
@@ -50,11 +50,8 @@ export const useReportManager = ({
     } catch (error) {
       console.error('Error generating report:', error);
       toast({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description:
-          error instanceof Error
-            ? error.message
-            : FileExplorerStrings.ERROR.REPORT_GENERATION_FAILED,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.reportGenerationFailed,
         variant: 'destructive',
       });
       return null;
@@ -66,7 +63,7 @@ export const useReportManager = ({
     if (report) {
       saveAs(
         new Blob([report], { type: 'text/plain;charset=utf-8' }),
-        FileExplorerStrings.FILE_NAMES.REPORT
+        FileExplorerStrings.fileNames.report
       );
     }
   }, [handleGenerateReport]);
@@ -74,8 +71,8 @@ export const useReportManager = ({
   const handleCopyReport = useCallback(async () => {
     let reportToast: ReturnType<typeof toast> | undefined;
     reportToast = toast({
-      title: FileExplorerStrings.LOADING.GENERATING_REPORT,
-      description: FileExplorerStrings.PROMPTS.WAIT_FOR_REPORT,
+      title: FileExplorerStrings.loading.generatingReport,
+      description: FileExplorerStrings.prompts.waitForReport,
       duration: Number.POSITIVE_INFINITY,
     });
 
@@ -86,18 +83,18 @@ export const useReportManager = ({
       await navigator.clipboard.writeText(report);
       reportToast?.dismiss?.();
       showToast({
-        title: FileExplorerStrings.SUCCESS.TITLE,
-        description: FileExplorerStrings.SUCCESS.REPORT_COPIED,
+        title: FileExplorerStrings.success.title,
+        description: FileExplorerStrings.success.reportCopied,
       });
       return;
     } catch (error) {
       reportToast?.dismiss?.();
       showToast({
-        title: FileExplorerStrings.ERROR.TITLE,
+        title: FileExplorerStrings.error.title,
         description:
           error instanceof Error
-            ? `${FileExplorerStrings.ERROR.REPORT_COPY_FAILED}: ${error.message}`
-            : FileExplorerStrings.ERROR.REPORT_COPY_FAILED,
+            ? `${FileExplorerStrings.error.reportCopyFailed}: ${error.message}`
+            : FileExplorerStrings.error.reportCopyFailed,
         variant: 'destructive',
       });
     }

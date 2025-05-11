@@ -1,19 +1,19 @@
 // Import the actual classes
 import {
-  PartialRefreshError,
+  ConcurrentLoadingError,
   // FSInitializationError, // Removed
   // GitOperationError, // Removed
   FileContentError,
-  ConcurrentLoadingError,
+  PartialRefreshError,
 } from './errors';
 
 // Export types from other files
-export * from "./errors";
-export * from "./file-explorer-types";
-export * from "./file-explorer-constants";
-export * from "./file-explorer-strings";
+export * from './errors';
+export * from './file-explorer-types';
+export * from './file-explorer-constants';
+export * from './file-explorer-strings';
 // export * from "./git-types"; // Removed as git-types.ts is deleted
-export * from "./file-system"; // Added export for file system types
+export * from './file-system'; // Added export for file system types
 
 // Explicitly re-export the classes as values
 export {
@@ -28,7 +28,7 @@ export {
 export type FileContents = Record<string, string>;
 
 // Dummy value export to force .d.ts emission
-export const __types_dummy_export = 0;
+export const TYPES_DUMMY_EXPORT = 0;
 
 // Global module augmentation moved to lucide-react.d.ts
 // declare module 'lucide-react';

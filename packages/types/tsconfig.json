@@ -2,14 +2,21 @@
 	"extends": "../../packages/config/tsconfig/base.json",
 	"compilerOptions": {
 		"composite": true,
-		"incremental": true,
 		"tsBuildInfoFile": "./dist/.tsbuildinfo",
-		"rootDir": ".",
+		"rootDir": "src",
 		"outDir": "dist",
-		"declaration": true
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"declarationMap": true
 	},
-	"include": ["./**/*.ts"],
-	"exclude": ["dist", "node_modules", "**/*.test.ts"],
+	"include": [
+		"src/**/*.ts"
+	],
+	"exclude": [
+		"dist",
+		"node_modules",
+		"**/*.test.ts"
+	],
 	"references": [
 		// {"path": "../../packages/config"}
 	]

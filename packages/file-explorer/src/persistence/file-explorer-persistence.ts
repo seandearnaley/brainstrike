@@ -8,17 +8,23 @@
 import type { FileExplorerState, SerializedState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
+// eslint-disable-next-line no-undef -- process.env is available in Vite/Node environments
+
+// biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
 
 export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => ({
   name: 'file-explorer-storage',
   version: 3,
 
   partialize: (state) => {
-    console.log('Serializing state:', {
-      currentFolderId: state.currentFolderId,
-      folderStateKeys: Object.keys(state.folderStates || {}),
-      selectedCount: state.selectedFilePaths?.size ?? 0,
-    });
+    if (isDev) {
+      console.log('Serializing state:', {
+        currentFolderId: state.currentFolderId,
+        folderStateKeys: Object.keys(state.folderStates || {}),
+        selectedCount: state.selectedFilePaths?.size ?? 0,
+      });
+    }
 
     return {
       currentFolderId: state.currentFolderId,
@@ -46,11 +52,15 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
   },
 
   onRehydrateStorage: () => (persistedState) => {
-    console.log('Rehydrating storage, full persisted state:', persistedState);
+    if (isDev) {
+      console.log('Rehydrating storage, full persisted state:', persistedState);
+    }
 
     // Important: Always provide a complete default state if nothing is persisted
     if (!persistedState) {
-      console.log('No persisted state found, returning default state');
+      if (isDev) {
+        console.log('No persisted state found, returning default state');
+      }
       return {
         currentFolderId: null,
         folderStates: {},
@@ -62,7 +72,9 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
     try {
       // If there's no current folder ID, clear selected files
       if (!persistedState.currentFolderId) {
-        console.log('No current folder ID, clearing selected files');
+        if (isDev) {
+          console.log('No current folder ID, clearing selected files');
+        }
         return {
           currentFolderId: null,
           folderStates: {},
@@ -120,9 +132,11 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
         lastActiveTab: persistedState.lastActiveTab ?? 'files',
       };
     } catch (error: unknown) {
-      console.error('Error rehydrating file explorer state:', error);
-      if (error instanceof Error) {
-        console.error('Stack trace:', error.stack);
+      if (isDev) {
+        console.error('Error rehydrating file explorer state:', error);
+        if (error instanceof Error) {
+          console.error('Stack trace:', error.stack);
+        }
       }
       return {
         currentFolderId: null,

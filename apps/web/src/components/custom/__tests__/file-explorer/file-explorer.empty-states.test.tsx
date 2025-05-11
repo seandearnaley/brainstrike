@@ -82,7 +82,8 @@ vi.mock('@/components/custom/error-boundary', () => ({
 vi.mock('../../file-explorer-header', () => ({
   FileExplorerHeader: () => (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold">{FileExplorerStrings.TITLE}</h1>
+      {/* Replace {FileExplorerStrings.title} with the correct camelCase key or a string literal if the key is gone. */}
+      <h1 className="text-2xl font-bold">{FileExplorerStrings.title}</h1>
     </header>
   ),
 }));
@@ -96,7 +97,7 @@ vi.mock('../../file-explorer-toolbar', () => ({
   }) => (
     <div>
       <button type="button" onClick={onDirectorySelect}>
-        {FileExplorerStrings.SELECT_ROOT}
+        {FileExplorerStrings.selectRoot}
       </button>
     </div>
   ),
@@ -131,36 +132,6 @@ vi.mock('../../file-explorer-sidebar', () => {
     stack: [],
   };
 });
-
-// Mock minimal store
-vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: (selector: unknown) => {
-    const mockStore = {
-      selectedFilePaths: new Set<string>(),
-      currentFolderId: null,
-      setCurrentFolderId: vi.fn(),
-      expandedFolderIds: new Set<string>(),
-      setExpandedFolderIds: vi.fn(),
-      toggleFolderExpanded: vi.fn(),
-      collapseAllFolders: vi.fn(),
-      expandAllFolders: vi.fn(),
-      expandAllDirectories: vi.fn(),
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      maxSelectionCount: 10,
-      includeProjectTree: false,
-      folderSummaryThreshold: 100,
-      setFilters: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-    };
-
-    if (typeof selector === 'function') {
-      return selector(mockStore);
-    }
-    return mockStore;
-  },
-}));
 
 // Mock React.lazy and Suspense
 vi.mock('react', async () => {

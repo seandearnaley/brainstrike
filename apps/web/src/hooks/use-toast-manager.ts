@@ -62,7 +62,7 @@ export const useToastManager = () => {
   const handlePartialRefreshError = useCallback(
     (error: PartialRefreshError) => {
       showToast({
-        title: FileExplorerStrings.ERROR.TITLE,
+        title: FileExplorerStrings.error.title,
         description: error.message,
         variant: 'destructive',
       });
@@ -76,8 +76,8 @@ export const useToastManager = () => {
         handlePartialRefreshError(error);
       } else {
         showToast({
-          title: FileExplorerStrings.ERROR.TITLE,
-          description: FileExplorerStrings.ERROR.REFRESH_FAILED,
+          title: FileExplorerStrings.error.title,
+          description: FileExplorerStrings.error.refreshFailed,
           variant: 'destructive',
         });
       }
@@ -88,7 +88,7 @@ export const useToastManager = () => {
   const handleBrowserCompatibilityError = useCallback(
     (reason: string) => {
       showToast({
-        title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
+        title: FileExplorerStrings.error.browserCompatibility,
         description: reason,
         variant: 'destructive',
       });
@@ -104,8 +104,8 @@ export const useToastManager = () => {
         console.error(`Error Name: ${error.name}, Error Message: ${error.message}`);
       }
       showToast({
-        title: FileExplorerStrings.ERROR.TITLE,
-        description: FileExplorerStrings.ERROR.ROOT_DIRECTORY_FAILED,
+        title: FileExplorerStrings.error.title,
+        description: FileExplorerStrings.error.rootDirectoryFailed,
         variant: 'destructive',
       });
     },
@@ -114,8 +114,8 @@ export const useToastManager = () => {
 
   const handleSelectionLimitError = useCallback(() => {
     toast({
-      title: FileExplorerStrings.ERROR.TITLE,
-      description: FileExplorerStrings.ERROR.SELECTION_LIMIT_EXCEEDED,
+      title: FileExplorerStrings.error.title,
+      description: FileExplorerStrings.error.selectionLimitExceeded,
       variant: 'destructive',
     });
   }, [toast]);

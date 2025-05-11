@@ -1,3 +1,4 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
@@ -12,7 +13,6 @@ import { useReportManager } from '../../hooks/use-report-manager';
 import { useSelectionManager } from '../../hooks/use-selection-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
 import { useUndoableAction } from '../../hooks/use-undoable-action';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
 
 // Lazy load heavy components
@@ -176,8 +176,8 @@ const FileExplorer: React.FC = () => {
     try {
       await refreshFileExplorer();
       showToast({
-        title: FileExplorerStrings.SUCCESS.TITLE,
-        description: FileExplorerStrings.SUCCESS.REFRESH_SUCCESS,
+        title: FileExplorerStrings.success.title,
+        description: FileExplorerStrings.success.refreshSuccess,
       });
     } catch (error) {
       handleRefreshError(error);

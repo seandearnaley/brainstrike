@@ -1,3 +1,4 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
@@ -13,7 +14,6 @@ import {
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
 import { fileExplorer } from '../../lib/file/explorer';
-import { useFileExplorerStore } from '../../stores/use-file-explorer-store';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
 interface IFileTreeNodeProps {
