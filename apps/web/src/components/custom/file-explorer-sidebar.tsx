@@ -12,9 +12,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
+import { FolderBadge } from '@brainstrike/ui';
 import type * as React from 'react';
 import FileTree from './file-tree';
-import { FolderBadge } from './folder-badge';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
