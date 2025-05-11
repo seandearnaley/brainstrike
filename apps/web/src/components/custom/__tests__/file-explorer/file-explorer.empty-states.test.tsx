@@ -132,36 +132,6 @@ vi.mock('../../file-explorer-sidebar', () => {
   };
 });
 
-// Mock minimal store
-vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: (selector: unknown) => {
-    const mockStore = {
-      selectedFilePaths: new Set<string>(),
-      currentFolderId: null,
-      setCurrentFolderId: vi.fn(),
-      expandedFolderIds: new Set<string>(),
-      setExpandedFolderIds: vi.fn(),
-      toggleFolderExpanded: vi.fn(),
-      collapseAllFolders: vi.fn(),
-      expandAllFolders: vi.fn(),
-      expandAllDirectories: vi.fn(),
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      maxSelectionCount: 10,
-      includeProjectTree: false,
-      folderSummaryThreshold: 100,
-      setFilters: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-    };
-
-    if (typeof selector === 'function') {
-      return selector(mockStore);
-    }
-    return mockStore;
-  },
-}));
-
 // Mock React.lazy and Suspense
 vi.mock('react', async () => {
   const actual = await vi.importActual('react');
