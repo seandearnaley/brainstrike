@@ -82,6 +82,7 @@ vi.mock('@/components/custom/error-boundary', () => ({
 vi.mock('../../file-explorer-header', () => ({
   FileExplorerHeader: () => (
     <header className="mb-4">
+      {/* Replace {FileExplorerStrings.title} with the correct camelCase key or a string literal if the key is gone. */}
       <h1 className="text-2xl font-bold">{FileExplorerStrings.title}</h1>
     </header>
   ),
