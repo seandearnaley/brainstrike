@@ -4,6 +4,13 @@
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
   "files": ["dist"],
   "private": true,
   "scripts": {
@@ -14,13 +21,17 @@
     "test": "vitest run --coverage"
   },
   "peerDependencies": {
-    "zustand": "^5"
+    "zustand": "^5",
+    "react": ">=16.8",
+    "use-sync-external-store": "^1"
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "tsup": "^8"
+    "tsup": "^8",
+    "@types/node": "^20",
+    "use-sync-external-store": "^1"
   }
 } 

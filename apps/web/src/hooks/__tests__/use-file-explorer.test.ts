@@ -17,7 +17,7 @@ vi.mock('../use-file-content-loading');
 
 // Mock the store using the mock implementation
 // The mock file now exports the hook directly
-vi.mock('@/stores/use-file-explorer-store', () => {
+vi.mock('@brainstrike/file-explorer', () => {
   return {
     useFileExplorerStore,
   };

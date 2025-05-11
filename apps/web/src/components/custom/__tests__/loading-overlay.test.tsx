@@ -12,17 +12,17 @@ describe('LoadingOverlay', () => {
   it('should render with default props when isLoading is true', () => {
     render(<LoadingOverlay isLoading={true} />);
     expect(screen.getByRole('alert')).toBeInTheDocument();
-    expect(screen.getByText(FileExplorerStrings.LOADING.REFRESHING)).toBeInTheDocument();
+    expect(screen.getByText(FileExplorerStrings.loading.refreshing)).toBeInTheDocument();
   });
 
   it('should show root directory loading message for initial load', () => {
     render(<LoadingOverlay isLoading={true} isInitialLoad={true} />);
-    expect(screen.getByText(FileExplorerStrings.LOADING.ROOT_DIRECTORY)).toBeInTheDocument();
+    expect(screen.getByText(FileExplorerStrings.loading.rootDirectory)).toBeInTheDocument();
   });
 
   it('should show refreshing message for non-initial load', () => {
     render(<LoadingOverlay isLoading={true} isInitialLoad={false} />);
-    expect(screen.getByText(FileExplorerStrings.LOADING.REFRESHING)).toBeInTheDocument();
+    expect(screen.getByText(FileExplorerStrings.loading.refreshing)).toBeInTheDocument();
   });
 
   it('should show custom message when provided', () => {

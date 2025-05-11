@@ -150,10 +150,6 @@ const mockStore: FileExplorerState = {
   collapseAllDirectories: vi.fn(),
 };
 
-vi.mock('@/stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: vi.fn(() => mockStore), // Ensure the hook returns the updated mock
-}));
-
 // Mock file content loading functionality
 const mockLoadFileContent = vi
   .fn()

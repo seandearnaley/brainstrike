@@ -82,7 +82,7 @@ vi.mock('@/components/custom/error-boundary', () => ({
 vi.mock('../../file-explorer-header', () => ({
   FileExplorerHeader: () => (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold">{FileExplorerStrings.TITLE}</h1>
+      <h1 className="text-2xl font-bold">{FileExplorerStrings.title}</h1>
     </header>
   ),
 }));
@@ -96,7 +96,7 @@ vi.mock('../../file-explorer-toolbar', () => ({
   }) => (
     <div>
       <button type="button" onClick={onDirectorySelect}>
-        {FileExplorerStrings.SELECT_ROOT}
+        {FileExplorerStrings.selectRoot}
       </button>
     </div>
   ),

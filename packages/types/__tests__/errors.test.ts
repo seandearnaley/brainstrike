@@ -1,5 +1,6 @@
 /// <reference types="vitest/globals" />
-import { PartialRefreshError } from "../errors";
+import { PartialRefreshError } from "../src/errors";
+import { describe, it, expect } from 'vitest';
 
 describe("PartialRefreshError", () => {
 	it("should create an error with the correct properties", () => {

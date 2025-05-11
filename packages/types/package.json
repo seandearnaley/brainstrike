@@ -9,13 +9,13 @@
 	"exports": {
 		".": {
 			"types": "./dist/index.d.ts",
-			"import": "./dist/index.js",
+			"import": "./dist/index.mjs",
 			"require": "./dist/index.js"
 		}
 	},
 	"scripts": {
-		"build": "rm -rf dist && tsc -b .",
-		"dev": "tsup --watch",
+		"build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+		"dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
 		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
 		"type-check": "tsc --noEmit",

@@ -4,7 +4,7 @@ import { useFileSystem } from '../use-file-system';
 
 // Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
-vi.mock('../../stores/use-file-explorer-store', () => ({
+vi.mock('@brainstrike/file-explorer', () => ({
   useFileExplorerStore: vi.fn(() => ({
     setCurrentFolderId: mockSetCurrentFolderId,
     currentFolderId: 'test-folder-id',

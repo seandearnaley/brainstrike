@@ -51,10 +51,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 // Reuse a mockStore instance
 const mockStore = { ...defaultMockStore };
 
-vi.mock('../../../../stores/use-file-explorer-store', () => ({
-  useFileExplorerStore: () => mockStore,
-}));
-
 describe('FileExplorer', () => {
   beforeEach(() => {
     resetDefaultMockStore(mockStore);
@@ -77,7 +73,7 @@ describe('FileExplorer', () => {
       render(<FileExplorer />);
     });
     await waitFor(() => {
-      expect(screen.getByText(FileExplorerStrings.TITLE)).toBeInTheDocument();
+      expect(screen.getByText(FileExplorerStrings.title)).toBeInTheDocument();
     });
   });
 
@@ -94,7 +90,7 @@ describe('FileExplorer', () => {
 
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(
-        FileExplorerStrings.LOADING.ROOT_DIRECTORY
+        FileExplorerStrings.loading.rootDirectory
       );
     });
   });
@@ -116,7 +112,7 @@ describe('FileExplorer', () => {
       render(<FileExplorer />);
     });
 
-    const selectRootButton = screen.getByText(FileExplorerStrings.SELECT_ROOT);
+    const selectRootButton = screen.getByText(FileExplorerStrings.selectRoot);
     await act(async () => {
       await userEvent.click(selectRootButton);
     });
@@ -142,7 +138,7 @@ describe('FileExplorer', () => {
       render(<FileExplorer />);
     });
 
-    const refreshButton = screen.getByText(FileExplorerStrings.REFRESH);
+    const refreshButton = screen.getByText(FileExplorerStrings.refresh);
     await act(async () => {
       await userEvent.click(refreshButton);
     });
@@ -151,8 +147,8 @@ describe('FileExplorer', () => {
       expect(mockRefreshFileExplorer).toHaveBeenCalled();
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: FileExplorerStrings.SUCCESS.TITLE,
-          description: FileExplorerStrings.SUCCESS.REFRESH_SUCCESS,
+          title: FileExplorerStrings.success.title,
+          description: FileExplorerStrings.success.refreshSuccess,
         })
       );
     });
@@ -172,7 +168,7 @@ describe('FileExplorer', () => {
       render(<FileExplorer />);
     });
 
-    const selectRootButton = screen.getByText(FileExplorerStrings.SELECT_ROOT);
+    const selectRootButton = screen.getByText(FileExplorerStrings.selectRoot);
     await act(async () => {
       await userEvent.click(selectRootButton);
     });
@@ -180,7 +176,7 @@ describe('FileExplorer', () => {
     await waitFor(() => {
       expect(mockToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          title: FileExplorerStrings.ERROR.BROWSER_COMPATIBILITY,
+          title: FileExplorerStrings.error.browserCompatibility,
           description: mockReason,
           variant: 'destructive',
         })

@@ -176,8 +176,8 @@ const FileExplorer: React.FC = () => {
     try {
       await refreshFileExplorer();
       showToast({
-        title: FileExplorerStrings.SUCCESS.TITLE,
-        description: FileExplorerStrings.SUCCESS.REFRESH_SUCCESS,
+        title: FileExplorerStrings.success.title,
+        description: FileExplorerStrings.success.refreshSuccess,
       });
     } catch (error) {
       handleRefreshError(error);

@@ -50,14 +50,14 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: [
+    // Exclude workspace packages from optimization as they are treated as external
+    exclude: [
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/file-explorer' // Assuming it might be used directly or indirectly
-    ],
-    exclude: [] // Clear exclude or remove the key entirely
+      '@brainstrike/file-explorer'
+    ]
   },
   test: {
     globals: true,
