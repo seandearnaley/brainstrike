@@ -4,18 +4,30 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
+import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
-import { useFileSystem } from '../../../../hooks/use-file-system';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
-vi.mock('../../../../hooks/use-file-system');
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useFileSystem: vi.fn(() => ({
+    selectRootDirectory: vi.fn(),
+    rootDirectoryHandle: null,
+    isAccessLoading: false,
+    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+  })),
+  useSelectionManager: vi.fn(() => ({
+    selectedFilePaths: new Set(),
+    handleSelectionChange: vi.fn(),
+    wouldExceedSelectionLimit: vi.fn(() => false),
+  })),
+}));
 vi.mock('../../../../hooks/use-file-explorer');
 vi.mock('../../../../hooks/use-quick-filter');
 vi.mock('../../../../hooks/use-file-explorer-settings');

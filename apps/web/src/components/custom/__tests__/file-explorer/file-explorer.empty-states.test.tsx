@@ -1,10 +1,10 @@
+import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings } from '@brainstrike/types';
 /**
  * @vitest-environment happy-dom
  */
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileSystem } from '../../../../hooks/use-file-system';
 import FileExplorer from '../../file-explorer';
 
 // Mock all dependencies at the module level
@@ -32,7 +32,19 @@ vi.mock('@/hooks/use-file-explorer', () => ({
 }));
 
 // Update the mock for useFileSystem using the correct relative path
-vi.mock('../../../../hooks/use-file-system');
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useFileSystem: vi.fn(() => ({
+    selectRootDirectory: vi.fn(),
+    rootDirectoryHandle: null,
+    isAccessLoading: false,
+    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+  })),
+  useSelectionManager: vi.fn(() => ({
+    selectedFilePaths: new Set(),
+    handleSelectionChange: vi.fn(),
+    wouldExceedSelectionLimit: vi.fn(() => false),
+  })),
+}));
 
 // Mock all other required hooks with empty implementations
 vi.mock('@/hooks/use-quick-filter', () => ({
