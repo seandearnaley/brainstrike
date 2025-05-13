@@ -3,7 +3,7 @@ import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils';
+import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
@@ -17,7 +17,7 @@ import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
-  import('@brainstrike/ui').then((m) => ({
+  import('@brainstrike/file-explorer-ui').then((m) => ({
     default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
@@ -316,7 +316,7 @@ const FileExplorer: React.FC = () => {
               maxSelectionCount={maxSelectionCount}
               currentFolderId={currentFolderId}
               setSelectedFiles={handleSelectionChange}
-              encodeFileSelection={() => {}}
+              encodeFileSelection={encodeFileSelection}
               onDownloadReport={handleDownloadReport}
               onCopyReport={handleCopyReport}
             />

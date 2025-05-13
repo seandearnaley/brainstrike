@@ -13,6 +13,7 @@ export default defineConfig({
     alias: {
       '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
       '@brainstrike/file-explorer-hooks': resolve(__dirname, '../../packages/file-explorer-hooks/src'),
+      '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
     },
   },
 }); 

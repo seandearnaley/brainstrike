@@ -116,6 +116,27 @@ describe('ActionButtons', () => {
       });
       expect(selectButton).not.toBeDisabled();
     });
+
+    it('should not call setSelectedFiles with undefined when encodeFileSelection returns undefined', async () => {
+      const setSelectedFiles = vi.fn();
+      const props = getProps({
+        displayedFiles: new Set(['file1.txt', 'file2.txt']),
+        // Bypass TS: simulate bug by returning undefined as string
+        encodeFileSelection: (() => undefined) as unknown as (
+          folderId: string,
+          path: string
+        ) => string,
+        setSelectedFiles,
+      });
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      const selectAllButton = screen.getByRole('button', { name: /select all/i });
+      await user.click(selectAllButton);
+
+      expect(setSelectedFiles).toHaveBeenCalled();
+      const calledWith = setSelectedFiles.mock.calls[0]?.[0];
+      expect([...calledWith].every((v) => typeof v === 'string')).toBe(true);
+    });
   });
 
   describe('Report Buttons', () => {
