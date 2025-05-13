@@ -26,16 +26,14 @@
     "react": "^19"
   },
   "dependencies": {
-    "@brainstrike/ui": "workspace:*",
-    "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/file-explorer-hooks": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/ui": "workspace:*"
   },
   "devDependencies": {
     "lucide-react": "^0.417.0",
     "@types/react": "^19",
     "@testing-library/react": "^16",
     "@testing-library/user-event": "^14",
-    "@testing-library/jest-dom": "^6"
+    "@testing-library/jest-dom": "^6",
+    "jsdom": "^24.0.0"
   }
 }

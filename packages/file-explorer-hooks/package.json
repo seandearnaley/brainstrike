@@ -17,8 +17,7 @@
     "react": "^19"
   },
   "dependencies": {
-    "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/utils":         "workspace:*"
+    "@brainstrike/file-explorer": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
