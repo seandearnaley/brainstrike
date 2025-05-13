@@ -3,7 +3,6 @@ export * from './lib/utils';
 
 // Export components
 export * from './accordion';
-export * from './action-buttons';
 export * from './badge';
 export * from './button';
 export * from './checkbox';

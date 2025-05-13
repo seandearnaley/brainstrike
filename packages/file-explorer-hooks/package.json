@@ -7,8 +7,10 @@
   "types": "dist/index.d.ts",
   "files": ["dist"],
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
-    "dev":   "tsup src/index.ts --format esm,cjs --dts --watch",
+    "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
+    "build:js": "tsup src/index.ts --format esm,cjs --clean",
+    "build": "pnpm run build:types && pnpm run build:js",
+    "dev":   "pnpm run build:types && tsup src/index.ts --format esm,cjs --watch",
     "test":  "vitest run --coverage"
   },
   "peerDependencies": {

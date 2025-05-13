@@ -24,6 +24,7 @@
   "dependencies": {
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

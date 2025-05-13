@@ -17,7 +17,7 @@ import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
-  import('@brainstrike/ui').then((m) => ({
+  import('@brainstrike/file-explorer-ui').then((m) => ({
     default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );

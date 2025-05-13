@@ -1,0 +1,19 @@
+{
+  "extends": "../../packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir":  "dist",
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "declaration": true,
+    "declarationDir": "dist"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../file-explorer" },
+    { "path": "../file-explorer-hooks" },
+    { "path": "../ui" },
+    { "path": "../utils" }
+  ]
+} 
