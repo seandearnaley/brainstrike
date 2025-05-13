@@ -44,7 +44,7 @@ test.describe('File Explorer', () => {
   test('should show action buttons in disabled state initially', async ({ page }) => {
     // Check action buttons using more specific selectors
     const downloadButton = page.getByRole('button', { name: /download report/i });
-    const copyButton = page.getByRole('button', { name: /copy report/i });
+    const copyButton = page.getByRole('button', { name: /copy( report)?/i });
     const selectAllButton = page.getByRole('button', { name: /select all/i });
 
     // Verify buttons are visible and disabled
