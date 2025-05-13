@@ -46,7 +46,8 @@ export const ActionButtons = ({
     if (!currentFolderId) return;
     const filesToSelect = Array.from(displayedFiles)
       .slice(0, maxSelectionCount)
-      .map((path) => encodeFileSelection(currentFolderId, path));
+      .map((path) => encodeFileSelection(currentFolderId, path))
+      .filter((v): v is string => typeof v === 'string'); // Guard: only strings
     setSelectedFiles(new Set(filesToSelect));
   }, [displayedFiles, setSelectedFiles, maxSelectionCount, currentFolderId, encodeFileSelection]);
 
