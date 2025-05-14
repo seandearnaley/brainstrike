@@ -26,7 +26,8 @@
     "react": "^19"
   },
   "dependencies": {
-    "@brainstrike/ui": "workspace:*"
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "lucide-react": "^0.417.0",

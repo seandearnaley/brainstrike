@@ -1,8 +1,8 @@
+import { FolderBadge } from '@brainstrike/file-explorer-ui';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import {
   Badge,
-  FolderBadge,
   ScrollArea,
   Tabs,
   TabsContent,

@@ -262,6 +262,9 @@ importers:
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       react:
         specifier: ^19
         version: 19.1.0

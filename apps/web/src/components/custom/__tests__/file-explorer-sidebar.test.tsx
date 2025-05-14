@@ -5,8 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   return {
     ...actual,
     FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
