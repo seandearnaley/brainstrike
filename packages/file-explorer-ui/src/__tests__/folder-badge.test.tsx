@@ -1,7 +1,7 @@
 import { getFolderColor } from '@brainstrike/utils';
 import { render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { FolderBadge } from '../folder-badge';
+import { FolderBadge } from '../folder-badge'; // Updated import
 
 // Define mock function type
 type MockedGetFolderColor = ReturnType<typeof vi.fn> & {
