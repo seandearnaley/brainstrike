@@ -42,7 +42,7 @@ Detailed breakdown of the application code structure and key pointers for extrac
 ├── app/            # Root layouts, page wrappers (uses React Helmet, imports globals.css)
 ├── components/     # Local UI components
 │   ├── Presentational (buttons, dialogs, inputs)
-│   └── custom/     # Feature modules (analysis-panel, file-explorer, timeline-analysis)
+│   └── custom/     # Feature modules (file-explorer)
 ├── hooks/          # App-specific hooks (data fetching, selectors, side-effects)
 ├── stores/         # Global state stores, actions, persistence logic
 ├── lib/            # Core services (API clients, git analysis logic)
