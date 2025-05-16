@@ -84,7 +84,6 @@ export function isBinaryFile(filename: string): boolean {
     'gif',
     'bmp',
     'ico',
-    'svg',
     'webp',
     'tiff',
     'psd',
