@@ -27,7 +27,8 @@
   },
   "dependencies": {
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
     "lucide-react": "^0.417.0",
