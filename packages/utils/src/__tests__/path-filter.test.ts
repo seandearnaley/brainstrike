@@ -233,5 +233,35 @@ describe('fileFilter', () => {
         expect(result.children?.[0].name).toBe('app.js');
       }
     });
+
+    it("should include directories with matching children even if the directory doesn't match include filters", () => {
+      const jsFile = createFileNode({ name: 'app.js', path: '/root/sub/app.js' });
+      const sub = createDirectoryNode({
+        name: 'sub',
+        path: '/root/sub',
+        children: [jsFile],
+      });
+      const root = createDirectoryNode({
+        name: 'root',
+        path: '/root',
+        children: [sub],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: ['**/*.js'],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(root, options);
+      expect(result).not.toBeNull();
+      if (result) {
+        expect(result.children?.length).toBe(1);
+        const subDir = result.children?.[0];
+        expect(subDir?.name).toBe('sub');
+        expect(subDir?.children?.length).toBe(1);
+        expect(subDir?.children?.[0].name).toBe('app.js');
+      }
+    });
   });
 });

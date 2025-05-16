@@ -58,26 +58,36 @@ export const fileFilter = {
       return null;
     }
 
-    // Finally check include filters
-    if (
-      includeFilters.length > 0 &&
-      !includeFilters.some((pattern: string) => matchFn(node.path, pattern))
-    ) {
-      return null;
-    }
-
-    // For directories, recursively filter children
     if (node.type === 'directory' && node.children) {
+      // Recursively filter children first
       const filteredChildren = node.children
         .map((child: IFileNode) =>
           this.filterNode(child, { includeFilters, excludeFilters, useRegex })
         )
         .filter((child): child is IFileNode => child !== null);
 
+      const directoryMatches =
+        includeFilters.length === 0 ||
+        includeFilters.some((pattern: string) => matchFn(node.path, pattern));
+
+      // If directory doesn't match include filters and has no matching children,
+      // exclude it from the results
+      if (!directoryMatches && filteredChildren.length === 0) {
+        return null;
+      }
+
       return {
         ...node,
         children: filteredChildren,
       };
+    }
+
+    // For files, apply include filters after exclude checks
+    if (
+      includeFilters.length > 0 &&
+      !includeFilters.some((pattern: string) => matchFn(node.path, pattern))
+    ) {
+      return null;
     }
 
     return node;
