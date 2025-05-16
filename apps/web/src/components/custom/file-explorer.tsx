@@ -32,7 +32,7 @@ const FileExplorerMainPanel = lazy(() =>
 );
 
 // Import lightweight components directly
-import { FileExplorerHeader } from './file-explorer-header';
+import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { FileExplorerToolbar } from './file-explorer-toolbar';
 import { LoadingOverlay } from './loading-overlay';
 
