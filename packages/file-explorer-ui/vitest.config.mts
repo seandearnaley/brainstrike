@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { resolve } from 'path';
 
 export default defineConfig({
   test: {
@@ -10,7 +11,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // No specific aliases needed for this package itself yet
+      '@brainstrike/types': resolve(__dirname, '../types/src'),
+      '@brainstrike/ui': resolve(__dirname, '../ui/src'),
+      '@brainstrike/utils': resolve(__dirname, '../utils/src'),
     },
   },
 }); 
