@@ -3,7 +3,13 @@ import { Progress } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
 import { Loader2, RefreshCw } from 'lucide-react';
 import React from 'react';
-import type { LoadingProgressState } from '../../hooks/use-file-tree';
+
+export interface LoadingProgressState {
+  loaded: number;
+  total: number;
+  currentPath?: string;
+  phase: 'counting' | 'loading';
+}
 
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
   isLoading: boolean;
