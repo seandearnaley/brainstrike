@@ -265,6 +265,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       react:
         specifier: ^19
         version: 19.1.0
