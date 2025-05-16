@@ -3,7 +3,7 @@ import { configure } from '@testing-library/react';
 import { beforeEach, expect, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
-// Configure React 18 test environment
+// Configure React 19 test environment
 configure({
   testIdAttribute: 'data-testid',
 });
