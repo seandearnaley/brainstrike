@@ -80,34 +80,49 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     *   Vitest: For unit and integration tests (`.test.ts`, `.integration.test.ts`).
     *   Playwright: For End-to-End (E2E) tests (primarily within `apps/web`).
 *   **Running Tests**:
-    *   Run all tests across the monorepo (as CI would):
-        ```bash
-        pnpm test
-        ```
-    *   Run tests for a specific package (e.g., `@brainstrike/utils`):
-        ```bash
-        pnpm test --filter @brainstrike/utils
-        ```
-        Or, to run tests for the `web` app:
-        ```bash
-        pnpm test --filter web
-        ```
-    *   From within a package's directory, you can often run its specific test script:
-        ```bash
-        cd packages/utils
-        pnpm test
-        ```
-    *   **Focusing Vitest Tests**: To run specific Vitest tests by name pattern within a package that uses Vitest:
-        ```bash
-        # First, navigate to the package directory
-        cd packages/hooks
-        # Then, run vitest with the test name pattern
-        pnpm vitest run -t "useMyHook basic functionality"
-        ```
-        Alternatively, to pass arguments through Turborepo (syntax might vary slightly based on exact setup):
-        ```bash
-        pnpm turbo run test --filter @brainstrike/hooks -- -- -t "useMyHook basic functionality"
-        ```
+    *   **Unit & Integration Tests (Vitest)**:
+        *   Run all unit/integration tests across the monorepo (as CI would for these types):
+            ```bash
+            pnpm test
+            ```
+            This command utilizes Turborepo to execute the `test` scripts in each package (which typically run Vitest).
+        *   Run unit/integration tests for a specific package (e.g., `@brainstrike/utils`):
+            ```bash
+            pnpm test --filter @brainstrike/utils
+            ```
+            Or, for the `web` app's unit/integration tests:
+            ```bash
+            pnpm test --filter web
+            ```
+        *   From within a package's directory, you can often run its specific Vitest test script:
+            ```bash
+            cd packages/utils
+            pnpm test # This would run the 'test' script in packages/utils/package.json
+            ```
+        *   **Focusing Vitest Tests**: To run specific Vitest tests by name pattern within a package that uses Vitest:
+            ```bash
+            # First, navigate to the package directory (e.g., packages/hooks)
+            cd packages/hooks
+            # Then, run vitest with the test name pattern
+            pnpm vitest run -t "useMyHook basic functionality"
+            ```
+            Alternatively, to pass arguments through Turborepo from the root:
+            ```bash
+            pnpm turbo run test --filter @brainstrike/hooks -- -- -t "useMyHook basic functionality"
+            ```
+    *   **End-to-End Tests (Playwright for `apps/web`)**:
+        *   Run Playwright E2E tests for the `apps/web` application from the monorepo root:
+            ```bash
+            pnpm test:e2e
+            ```
+            This command, defined in the root `package.json`, specifically targets the E2E tests in `apps/web`.
+        *   To run Playwright E2E tests with the UI mode or in debug mode (from the root):
+            ```bash
+            pnpm test:e2e:ui
+            pnpm test:e2e:debug
+            ```
+            These also execute scripts defined in the root `package.json` that target `apps/web`.
+
 *   **Test Location**: Tests should be co-located with the source files they are testing (e.g., `my-component.tsx` and `my-component.test.tsx` in the same directory).
 *   **Type Checking**: Ensure there are no TypeScript errors.
     ```bash
