@@ -17,3 +17,5 @@ export { default as FolderSummaryThresholdSetting } from './folder-summary-thres
 export { default as IncludeProjectTreeSetting } from './include-project-tree-setting';
 export { default as MaxSelectionCountSetting } from './max-selection-count-setting';
 export { default as UseRegexSetting } from './use-regex-setting';
+export { default as FileTree } from './file-tree';
+export { default as FileTreeNode } from './file-tree-node';
