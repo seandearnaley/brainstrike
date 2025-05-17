@@ -1,5 +1,5 @@
+import { processFilter } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
-import { processFilter } from '../filter-utils';
 
 describe('filter-utils', () => {
   describe('processFilter', () => {
