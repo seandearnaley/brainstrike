@@ -1,10 +1,10 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
-import { FileExtensionFilter } from '@brainstrike/file-explorer-ui';
 import { Button } from '@brainstrike/ui';
 import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
 import MaxSelectionCountSetting from './max-selection-count-setting';
@@ -111,7 +111,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
               <FileExtensionFilter
                 includeFilters={settings.includeFilters}
                 excludeFilters={settings.excludeFilters}
-                onFilterChange={(newInclude, newExclude) => {
+                onFilterChange={(newInclude: string[], newExclude: string[]) => {
                   handleSettingChange('includeFilters', newInclude);
                   handleSettingChange('excludeFilters', newExclude);
                 }}

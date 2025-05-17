@@ -253,15 +253,18 @@ importers:
 
   packages/file-explorer-ui:
     dependencies:
+      '@brainstrike/file-explorer':
+        specifier: workspace:*
+        version: link:../file-explorer
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
-      '@brainstrike/types':
-        specifier: workspace:*
-        version: link:../types
       react:
         specifier: ^19
         version: 19.1.0
