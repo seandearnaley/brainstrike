@@ -63,4 +63,43 @@ test.describe('File Explorer', () => {
     const counter = page.locator('output').filter({ hasText: '0/10' });
     await expect(counter).toBeVisible();
   });
+
+  test('should download a report for a single selected file', async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true });
+      const fileHandle = {
+        kind: 'file',
+        name: 'test.txt',
+        async getFile() {
+          return new File(['test file'], 'test.txt', { type: 'text/plain' });
+        },
+      } as FileSystemFileHandle;
+      const directoryHandle = {
+        kind: 'directory',
+        name: 'mock-root',
+        async *entries() {
+          yield ['test.txt', fileHandle];
+        },
+      } as FileSystemDirectoryHandle;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (window as any).showDirectoryPicker = async () => directoryHandle;
+    });
+
+    await page.goto('/');
+
+    await page.getByRole('button', { name: /select root/i }).click();
+
+    const fileCheckbox = page.getByRole('checkbox', { name: 'Select test.txt' });
+    await expect(fileCheckbox).toBeVisible();
+    await fileCheckbox.click();
+
+    const downloadButton = page.getByRole('button', { name: /download report/i });
+    await expect(downloadButton).toBeEnabled();
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      downloadButton.click(),
+    ]);
+    await expect(download.suggestedFilename()).toBe('report.txt');
+  });
 });
