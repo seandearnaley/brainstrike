@@ -10,7 +10,6 @@ export * from './dialog';
 export * from './input';
 export * from './label';
 export * from './popover';
-export * from './preview-panel';
 export * from './progress';
 export * from './scroll-area';
 export * from './select';
