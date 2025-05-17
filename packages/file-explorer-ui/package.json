@@ -11,7 +11,9 @@
       "types": "./dist/index.d.ts"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsc -b .",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
@@ -28,7 +30,8 @@
   "dependencies": {
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/file-explorer": "workspace:*"
   },
   "devDependencies": {
     "lucide-react": "^0.417.0",

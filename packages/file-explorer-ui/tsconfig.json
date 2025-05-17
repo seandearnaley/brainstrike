@@ -7,7 +7,10 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/file-explorer": ["../file-explorer/src"]
+    }
   },
   "include": ["src"],
   "references": [

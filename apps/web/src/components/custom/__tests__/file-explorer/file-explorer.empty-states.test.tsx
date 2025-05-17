@@ -101,19 +101,23 @@ vi.mock('../../file-explorer-header', () => ({
 }));
 
 // Mock FileExplorerToolbar
-vi.mock('../../file-explorer-toolbar', () => ({
-  FileExplorerToolbar: ({
-    onDirectorySelect,
-  }: {
-    onDirectorySelect: () => void;
-  }) => (
-    <div>
-      <button type="button" onClick={onDirectorySelect}>
-        {FileExplorerStrings.selectRoot}
-      </button>
-    </div>
-  ),
-}));
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+  return {
+    ...actual,
+    FileExplorerToolbar: ({
+      onDirectorySelect,
+    }: {
+      onDirectorySelect: () => void;
+    }) => (
+      <div>
+        <button type="button" onClick={onDirectorySelect}>
+          {FileExplorerStrings.selectRoot}
+        </button>
+      </div>
+    ),
+  };
+});
 
 // Mock LoadingOverlay from the shared UI package
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
@@ -140,9 +144,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 // Mock sidebar component
-vi.mock('../../file-explorer-sidebar', () => {
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   const FileExplorerSidebar = () => <div data-testid="sidebar">Sidebar</div>;
   return {
+    ...actual,
     default: FileExplorerSidebar,
     FileExplorerSidebar,
     stack: [],

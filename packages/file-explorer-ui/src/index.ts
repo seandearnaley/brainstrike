@@ -1,3 +1,16 @@
 export * from './action-buttons';
 export * from './folder-badge';
 export * from './loading-overlay';
+export * from './file-explorer-toolbar';
+export { default as FileExplorerSidebar } from './file-explorer-sidebar';
+export { default as FileTree } from './file-tree';
+export { default as FileTreeNode } from './file-tree-node';
+export { FolderSelectionDialog } from './folder-selection-dialog';
+export { default as FileExplorerConfig } from './file-explorer-config';
+export { FileFilterBar } from './file-filter-bar';
+export { default as FileExtensionFilter } from './file-extension-filter';
+export { default as MaxSelectionCountSetting } from './max-selection-count-setting';
+export { default as IncludeProjectTreeSetting } from './include-project-tree-setting';
+export { default as FolderSummaryThresholdSetting } from './folder-summary-threshold-setting';
+export { default as UseRegexSetting } from './use-regex-setting';
+export { SelectionCounter } from './selection-counter';

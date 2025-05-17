@@ -1,0 +1,190 @@
+import { FolderBadge } from '@brainstrike/file-explorer-ui';
+import type { IFileNode } from '@brainstrike/types';
+import { FileExplorerStrings } from '@brainstrike/types';
+import {
+  Badge,
+  ScrollArea,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@brainstrike/ui';
+import type * as React from 'react';
+import FileTree from './file-tree';
+
+const NoFilesSelected = () => (
+  <div className="text-center text-muted-foreground p-8">
+    <p>No directory selected</p>
+    <p className="text-sm mt-2">Use the folder button to select a directory</p>
+  </div>
+);
+
+interface FileExplorerSidebarProps {
+  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+  treeError: Error | null;
+  filterError: Error | null;
+  includeFilters: string[];
+  excludeFilters: string[];
+  useRegex: boolean;
+  quickFilter: string;
+  quickFilteredTree: IFileNode[] | null;
+  loadingFiles: Set<string>;
+  isLoading: boolean;
+  isInitialLoad: boolean;
+  currentFolderId: string | null;
+  onTreeRender?: () => void;
+}
+
+const DirectoryStatus: React.FC<{
+  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+}> = ({ rootDirectoryHandle }) => {
+  if (!rootDirectoryHandle) return null;
+  return (
+    <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 border-b">
+      <span>{FileExplorerStrings.status.currentDirectory}</span>
+      <FolderBadge folderId={rootDirectoryHandle.name} />
+    </div>
+  );
+};
+
+const FilterBadge: React.FC<{
+  label: string;
+  value: string;
+  variant?: 'default' | 'secondary' | 'destructive' | 'outline';
+}> = ({ label, value, variant = 'secondary' }) => (
+  <Tooltip>
+    <TooltipTrigger>
+      <Badge variant={variant} className="cursor-help">
+        {value}
+      </Badge>
+    </TooltipTrigger>
+    <TooltipContent>
+      <p>{`${label}: ${value}`}</p>
+    </TooltipContent>
+  </Tooltip>
+);
+
+const FilterStatus: React.FC<{
+  includeFilters: string[];
+  excludeFilters: string[];
+  useRegex: boolean;
+  quickFilter: string;
+}> = ({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
+  const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
+
+  if (!hasFilters) return null;
+
+  return (
+    <TooltipProvider>
+      <div className="flex items-center gap-2 flex-wrap p-2 border-b">
+        {includeFilters.map((filter) => (
+          <FilterBadge
+            key={`include-${filter}`}
+            label={FileExplorerStrings.status.includeFilters}
+            value={filter}
+            variant="default"
+          />
+        ))}
+        {excludeFilters.map((filter) => (
+          <FilterBadge
+            key={`exclude-${filter}`}
+            label={FileExplorerStrings.status.excludeFilters}
+            value={filter}
+            variant="destructive"
+          />
+        ))}
+        {quickFilter && (
+          <FilterBadge
+            label={FileExplorerStrings.status.quickFilter}
+            value={quickFilter}
+            variant="outline"
+          />
+        )}
+        {useRegex && (
+          <Tooltip>
+            <TooltipTrigger>
+              <Badge variant="secondary" className="cursor-help">
+                regex
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{FileExplorerStrings.status.regexMode}</p>
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    </TooltipProvider>
+  );
+};
+
+const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
+  rootDirectoryHandle,
+  treeError,
+  filterError,
+  includeFilters,
+  excludeFilters,
+  useRegex,
+  quickFilter,
+  quickFilteredTree,
+  loadingFiles,
+  isLoading,
+  isInitialLoad,
+  currentFolderId,
+  onTreeRender,
+}) => {
+  return (
+    <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+      {(treeError || filterError) && !isLoading && !isInitialLoad && (
+        <div
+          className="bg-red-100 dark:bg-red-900 border border-red-400 dark:border-red-700 text-red-700 dark:text-red-200 p-3 rounded m-2 text-sm"
+          role="alert"
+        >
+          <strong>Error: </strong>
+          {treeError?.message}
+          {filterError && ` ${filterError.message}`}
+        </div>
+      )}
+      <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
+      <FilterStatus
+        includeFilters={includeFilters}
+        excludeFilters={excludeFilters}
+        useRegex={useRegex}
+        quickFilter={quickFilter}
+      />
+
+      {!rootDirectoryHandle ? (
+        <NoFilesSelected />
+      ) : (
+        <Tabs defaultValue="files" className="h-full flex flex-col overflow-hidden">
+          <TabsList className="w-full shrink-0">
+            <TabsTrigger value="files">Files</TabsTrigger>
+          </TabsList>
+          <TabsContent value="files" className="flex-1 overflow-hidden">
+            <ScrollArea className="h-full">
+              <div className="p-2">
+                {quickFilteredTree && quickFilteredTree.length > 0 ? (
+                  <FileTree
+                    fileTree={quickFilteredTree}
+                    loadingFiles={loadingFiles}
+                    onRender={onTreeRender || undefined}
+                    folderId={currentFolderId || ''}
+                  />
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    No matching files found
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        </Tabs>
+      )}
+    </div>
+  );
+};
+
+export default FileExplorerSidebar;

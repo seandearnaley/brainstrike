@@ -1,7 +1,7 @@
+import { FileFilterBar } from '@brainstrike/file-explorer-ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileFilterBar } from '../file-filter-bar';
 
 describe('FileFilterBar', () => {
   const defaultProps = {
