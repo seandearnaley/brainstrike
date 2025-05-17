@@ -69,31 +69,7 @@ function formatTokenCount(tokens: number): string {
   return `${tokens.toLocaleString()} tokens`;
 }
 
-// Remove getFolderColor dependency from @brainstrike/utils for UI package decoupling
-// import { getFolderColor } from '@brainstrike/utils';
-// CHECK THIS
-
-// Provide a fallback getFolderColor utility for UI package
-function getFolderColor(folderId: string): string {
-  // Always return a valid string (never undefined)
-  const colors = [
-    '#DBEAFE',
-    '#DCFCE7',
-    '#FEF9C3',
-    '#FCE7F3',
-    '#EDE9FE',
-    '#E0E7FF',
-    '#FECACA',
-    '#CCFBF1',
-    '#FFEDD5',
-    '#F3F4F6',
-  ];
-  let hash = 0;
-  for (let i = 0; i < folderId.length; i++) {
-    hash = (hash * 31 + folderId.charCodeAt(i)) % colors.length;
-  }
-  return colors[Math.abs(hash) % colors.length] || '#F3F4F6';
-}
+import { getFolderColor } from '@brainstrike/utils';
 
 export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   selectedFiles,
@@ -386,7 +362,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   const renderFolderGroup = useCallback(
     (group: FolderGroup) => {
-      const folderBg = getFolderColor(group.folderId);
+      const colors = getFolderColor(group.folderId);
 
       const allFilesInFolderSelected = group.files.every(({ compositeKey }) =>
         batchSelectedFiles.has(compositeKey)
@@ -409,8 +385,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             type="button"
             className="flex items-center gap-2 p-3 font-medium cursor-pointer w-full text-left"
             style={{
-              backgroundColor: folderBg,
-              color: '#222',
+              backgroundColor: colors.light.bg,
+              color: colors.light.text,
             }}
             onClick={() => toggleFolderExpand(group.folderId)}
             aria-expanded={isFolderExpanded}
@@ -418,8 +394,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
             <style>
               {`
                 :global(.dark) [data-folder-id="${group.folderId}"] {
-                  background-color: ${folderBg} !important;
-                  color: #fff !important;
+                  background-color: ${colors.dark.bg} !important;
+                  color: ${colors.dark.text} !important;
                 }
               `}
             </style>
