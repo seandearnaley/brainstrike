@@ -19,3 +19,4 @@ export { default as MaxSelectionCountSetting } from './max-selection-count-setti
 export { default as UseRegexSetting } from './use-regex-setting';
 export { default as FileTree } from './file-tree';
 export { default as FileTreeNode } from './file-tree-node';
+export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';

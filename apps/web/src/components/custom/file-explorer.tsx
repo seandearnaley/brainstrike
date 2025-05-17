@@ -1,8 +1,8 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
+import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { ErrorBoundary } from '@brainstrike/ui';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -246,7 +246,7 @@ const FileExplorer: React.FC = () => {
   }, []);
 
   return (
-    <ErrorBoundary>
+    <FileExplorerErrorBoundary>
       <div className="@container/main flex flex-col h-full max-h-[calc(100vh-2rem)] overflow-hidden">
         <FileExplorerHeader />
         <div className="flex-1 flex flex-col overflow-hidden">
@@ -327,7 +327,7 @@ const FileExplorer: React.FC = () => {
           </footer>
         </div>
       </div>
-    </ErrorBoundary>
+    </FileExplorerErrorBoundary>
   );
 };
 
