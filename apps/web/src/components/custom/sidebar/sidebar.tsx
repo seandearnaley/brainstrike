@@ -1,5 +1,4 @@
 import { NavigationSidebar } from '@brainstrike/ui';
-import { cn } from '@brainstrike/ui';
 import { ThemeToggle } from '@brainstrike/ui';
 import { Folder, Settings } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
