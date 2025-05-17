@@ -7,3 +7,5 @@ export { default as FileExtensionFilter } from './file-extension-filter';
 export { default as FileFilterBar } from './file-filter-bar';
 export * from './file-extension-filter';
 export * from './file-filter-bar';
+export { default as FileExplorerSidebar } from './file-explorer-sidebar';
+export * from './file-explorer-utils';

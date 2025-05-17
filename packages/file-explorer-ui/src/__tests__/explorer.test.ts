@@ -1,12 +1,12 @@
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { fileExplorer } from '../file-explorer-utils';
 import {
   createDirectoryNode,
   createFileNode,
   createNestedDirectoryStructure,
-} from '../../../test/factories/file-node';
-import { fileExplorer } from '../explorer';
+} from '../test/factories/file-node';
 
 describe('fileExplorer', () => {
   describe('shouldIgnorePath', () => {

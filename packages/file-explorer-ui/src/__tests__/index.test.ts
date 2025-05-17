@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import FileExplorerSidebar from '../file-explorer-sidebar';
+import { fileExplorer } from '../file-explorer-utils';
 import FileExtensionFilter from '../file-extension-filter';
 import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../file-filter-bar';
 import * as index from '../index';
@@ -13,5 +15,13 @@ describe('file-explorer-ui index exports', () => {
   it('should re-export FileFilterBar as named export matching default and named', () => {
     expect(index.FileFilterBar).toBe(FileFilterBar);
     expect(index.FileFilterBar).toBe(NamedFileFilterBar);
+  });
+
+  it('should re-export FileExplorerSidebar as named export', () => {
+    expect(index.FileExplorerSidebar).toBe(FileExplorerSidebar);
+  });
+
+  it('should re-export fileExplorer object', () => {
+    expect(index.fileExplorer).toBe(fileExplorer);
   });
 });

@@ -1,8 +1,8 @@
+import { fileExplorer } from '@brainstrike/file-explorer-ui';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, fileContent } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileExplorer } from '../../lib/file/explorer';
 import { createFileNode } from '../../test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 
@@ -28,7 +28,7 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
   };
 });
 
-vi.mock('../../lib/file/explorer', () => ({
+vi.mock('@brainstrike/file-explorer-ui', () => ({
   fileExplorer: {
     findNodeByPath: vi.fn(),
     getFileExtension: vi.fn().mockReturnValue('.txt'),
