@@ -1,7 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
+import { processFilter } from '@brainstrike/utils';
 import { minimatch } from 'minimatch';
 import { useCallback, useRef, useState } from 'react';
-import { processFilter } from '../utils/filter-utils';
 
 export function useFileFilters() {
   const regexCache = useRef<{ [pattern: string]: RegExp | null }>({});
