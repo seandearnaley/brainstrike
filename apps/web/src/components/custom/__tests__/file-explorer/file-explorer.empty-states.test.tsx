@@ -101,27 +101,19 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ActionButtons: () => <div data-testid="action-buttons">Actions</div>,
 }));
 
-// Mock FileExplorerToolbar
-vi.mock('../../file-explorer-toolbar', () => ({
-  FileExplorerToolbar: ({
-    onDirectorySelect,
-  }: {
-    onDirectorySelect: () => void;
-  }) => (
-    <div>
-      <button type="button" onClick={onDirectorySelect}>
-        {FileExplorerStrings.selectRoot}
-      </button>
-    </div>
-  ),
-}));
-
-// Mock LoadingOverlay from the shared UI package
+// Mock LoadingOverlay and FileExplorerToolbar from the shared UI package
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   return {
     ...actual,
     LoadingOverlay: () => null,
+    FileExplorerToolbar: ({ onDirectorySelect }: { onDirectorySelect: () => void }) => (
+      <div>
+        <button type="button" onClick={onDirectorySelect}>
+          {FileExplorerStrings.selectRoot}
+        </button>
+      </div>
+    ),
   };
 });
 
