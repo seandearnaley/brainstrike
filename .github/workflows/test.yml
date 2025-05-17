@@ -1,4 +1,5 @@
 name: Test
+
 on:
   push:
     branches:
@@ -10,17 +11,21 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  security-events: write # For dependency scanning
+  security-events: write # For Snyk & dependency scanning
 
 jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    env: # Common env vars for all steps
+      CI: "true"
+      # NODE_ENV is now set per step where its specific value is critical
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # Required by Turborepo for determining affected packages
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -32,48 +37,34 @@ jobs:
         with:
           version: '10.8.0'
 
-      # Clear existing caches first
-      - name: Clear Turborepo cache
-        run: rm -rf .turbo
+      - name: Get pnpm store path
+        id: pnpm-cache-dir
+        shell: sh # Ensure portability
+        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
 
-      - name: Get pnpm cache directory
-        id: pnpm-cache
-        run: echo "dir=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-      - name: Clear pnpm cache
-        run: rm -rf ${{ steps.pnpm-cache.outputs.dir }}
-
-      - name: Cache pnpm and Turborepo
+      - name: Cache pnpm store and Turborepo
         uses: actions/cache@v4
         with:
           path: |
-            ${{ steps.pnpm-cache.outputs.dir }}
-            ${{ github.workspace }}/.turbo
-          key: ${{ runner.os }}-pnpm-turbo-${{ hashFiles('**/pnpm-lock.yaml') }}
+            ${{ steps.pnpm-cache-dir.outputs.STORE_PATH }}
+            .turbo
+          key: ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-turbo-
-
-      # Clean all node_modules BEFORE install
-      - name: Clean all node_modules
-        run: |
-          echo "Cleaning all node_modules..."
-          find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +
+            ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json') }}-
+            ${{ runner.os }}-pnpm-turbo-v3-
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
+        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
 
-      # Install Codecov plugin for bundle analysis (needed by vite config in apps/web)
-      - name: Install Codecov Vite plugin
-        run: pnpm add -D -F @brainstrike/web @codecov/vite-plugin
-
-      - name: Verify package links
+      - name: Verify package links (Optional Sanity Check)
         run: |
           echo "Verifying package links..."
           pnpm list -r --depth 0
           echo "Checking for workspace:* dependencies..."
-          grep -r "workspace:" --include="package.json" .
+          grep -r "workspace:" --include="package.json" . || true # Allow no workspace deps
 
-      - name: Verify types package structure
+      - name: Verify types package structure (Optional Sanity Check)
         run: |
           echo "Types package structure:"
           ls -la packages/types/
@@ -82,77 +73,82 @@ jobs:
 
       - name: Audit dependencies
         run: pnpm audit --prod
-        continue-on-error: true # Don't fail the build, but report issues
+        continue-on-error: true
 
-      - name: Run Biome checks
-        run: pnpm run lint
-        continue-on-error: false # Don't fail the build due to linting issues
+      - name: Run Biome checks (Lint & Format)
+        run: pnpm run lint # Fails build on issues
 
-      # Build all packages (Rely on Turborepo's dependency management)
       - name: Build all packages
         run: pnpm run build
         env:
-          CI: true
-          NODE_ENV: production
-          
-      # Now type-check after packages are built
+          NODE_ENV: "production" # Ensure builds are production builds
+
       - name: Type check
         run: pnpm run type-check
+        env:
+          NODE_ENV: "production" # Type check against production build artifacts
 
       - name: Run Knip (detect unused code)
-        run: pnpm run knip -c knip.jsonc --max-issues 10 --cache # Add -c knip.jsonc, keep extra -- for pnpm
-        continue-on-error: true # Initially allow failures until codebase is cleaned up
+        run: pnpm run knip -c knip.jsonc --max-issues 10 --cache
+        continue-on-error: true
 
-      - name: Run tests with coverage
-        run: pnpm run test:coverage # Explicitly run coverage script
+      - name: Run tests with coverage (Unit & Integration)
+        run: pnpm run test:coverage
+        env:
+          NODE_ENV: "test" # Important: Tests (especially using React Testing Library's act) need non-production NODE_ENV
 
-      # Separate Playwright cache to avoid permission issues
       - name: Cache Playwright browsers
-        uses: actions/cache@v4
         id: playwright-browsers-cache
+        uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-browsers-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-browsers-v1-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-browsers-v1-
 
-      # Install Playwright browsers AND dependencies together if cache missed
-      - name: Install Playwright browsers and dependencies
+      - name: Install Playwright browsers and dependencies (if cache missed)
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        # Run the command from within the apps/web directory
         run: cd apps/web && pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |
-          # Ensure port 3000 is free
           if lsof -ti:3000 >/dev/null; then
+            echo "Port 3000 is in use. Attempting to kill process(es)..."
             lsof -ti:3000 | xargs -r kill -9
           fi
-          
           pnpm run test:e2e
         env:
-          CI: true
-          PORT: 3000
-          BASE_URL: http://127.0.0.1:3000
+          NODE_ENV: "test" # E2E server and tests might also benefit from NODE_ENV=test
+          PORT: "3000"
+          BASE_URL: "http://127.0.0.1:3000"
 
       - name: Process coverage reports
         if: always()
         run: |
-          echo "Listing all coverage files and directories to debug:"
-          find apps packages -path "*/coverage/*" -type f -name "*.json" -ls
+          echo "Listing all raw coverage files (coverage-final.json) to debug:"
+          find . -path "*/coverage/coverage-final.json" -type f -ls
           
           echo "Running coverage merge script..."
-          pnpm run coverage:merge
-          echo "Running coverage report script..."
-          pnpm run coverage:report
+          pnpm run coverage:merge # This script should create .nyc_output/coverage.json
           
-          echo "Final merged coverage file exists: $(test -f .nyc_output/coverage.json && echo 'Yes' || echo 'No')"
-          echo "Coverage report exists: $(test -f ./coverage/coverage.json && echo 'Yes' || echo 'No')"
-        continue-on-error: true # Don't fail if these scripts aren't defined yet
+          echo "Checking for merged coverage file (.nyc_output/coverage.json)..."
+          if [ -f .nyc_output/coverage.json ]; then
+            echo ".nyc_output/coverage.json exists."
+            echo "Running coverage report script (to generate lcov, text reports, etc. in ./coverage/)..."
+            pnpm run coverage:report # This script uses .nyc_output/coverage.json as input
+          else
+            echo "WARN: Merged coverage file .nyc_output/coverage.json not found! Subsequent reports might be incomplete."
+          fi
+          
+          echo "Checking for lcov report for Codecov (expected ./coverage/lcov.info): $(test -f ./coverage/lcov.info && echo 'Yes' || echo 'No')"
+        continue-on-error: true
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v5 # As per user's original workflow
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/coverage.json
+          # nyc report script should generate lcov.info in ./coverage/
+          files: ./coverage/lcov.info 
           fail_ci_if_error: false
           verbose: true
 
@@ -164,14 +160,13 @@ jobs:
           path: |
             coverage/
             apps/web/playwright-report/
-            apps/web/test-results/
-            **/coverage-report/
+            apps/web/test-results/ # For Vitest JUnit reports, if configured
           retention-days: 30
+          if-no-files-found: warn
 
-      # Add dependency scanning with a more appropriate action
-      - name: Run dependency vulnerability scan
+      - name: Run dependency vulnerability scan (Snyk)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: snyk/actions/node@master
+        uses: snyk/actions/node@master # Consider using a specific tag like @0.7.0 for stability
         continue-on-error: true
         with:
           args: --severity-threshold=high
