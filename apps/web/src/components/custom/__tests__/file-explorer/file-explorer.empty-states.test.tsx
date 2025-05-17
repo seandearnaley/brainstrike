@@ -133,12 +133,12 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 // Mock sidebar component
-vi.mock('../../file-explorer-sidebar', () => {
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   const FileExplorerSidebar = () => <div data-testid="sidebar">Sidebar</div>;
   return {
-    default: FileExplorerSidebar,
+    ...actual,
     FileExplorerSidebar,
-    stack: [],
   };
 });
 

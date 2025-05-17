@@ -1,6 +1,6 @@
-import { generateProjectTreeText } from '@brainstrike/utils';
 // import type { IFileNode } from '@/lib/file/types'; // Removed: Unused
-import { fileExplorer } from '../lib/file/explorer';
+import { fileExplorer } from '@brainstrike/file-explorer-ui';
+import { generateProjectTreeText } from '@brainstrike/utils';
 
 // Modify generateReport to accept rootDirectoryHandle and be asynchronous
 export async function generateReport(
