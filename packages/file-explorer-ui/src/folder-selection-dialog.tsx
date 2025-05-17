@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from '@brainstrike/ui';
 import { useCallback } from 'react';
-import { fileExplorer } from '../../lib/file/explorer';
+import { fileExplorer } from './file-explorer-utils';
 
 interface FolderSelectionDialogProps {
   open: boolean;

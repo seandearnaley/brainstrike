@@ -60,9 +60,13 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-vi.mock('../../file-explorer-sidebar', () => ({
-  FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
-}));
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+  return {
+    ...actual,
+    FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
+  };
+});
 
 // Note: This test previously referenced file-explorer-main-panel, but that import has been removed due to migration.
 
