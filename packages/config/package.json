@@ -11,8 +11,6 @@
 		"./tsconfig/*": "./tsconfig/*"
 	},
 	"scripts": {
-		"build": "tsc -p .",
-		"dev": "tsc -p . --watch",
 		"clean": "rm -rf dist .tsbuildinfo",
 		"lint": "pnpm run --dir=../.. lint",
 		"type-check": "tsc --noEmit"
