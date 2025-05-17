@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExtensionFilter from '../file-extension-filter';
@@ -60,5 +60,32 @@ describe('FileExtensionFilter', () => {
       <FileExtensionFilter {...defaultProps} useRegex={true} filterError="Invalid regex pattern" />
     );
     expect(screen.getByText('Invalid regex pattern')).toBeInTheDocument();
+  });
+
+  it('shows example placeholders when not using regex', () => {
+    render(<FileExtensionFilter {...defaultProps} />);
+    expect(screen.getByLabelText(/Files to Include/i)).toHaveAttribute(
+      'placeholder',
+      'e.g. *.ts, src/**/*.js'
+    );
+    expect(screen.getByLabelText(/Files to Exclude/i)).toHaveAttribute(
+      'placeholder',
+      'e.g. *.test.js, node_modules/**'
+    );
+  });
+
+  it('calls onFilterChange after debounced input', async () => {
+    vi.useFakeTimers();
+    const onFilterChange = vi.fn();
+    render(<FileExtensionFilter {...defaultProps} onFilterChange={onFilterChange} />);
+
+    const includeInput = screen.getByLabelText(/Files to Include/i);
+    act(() => {
+      fireEvent.change(includeInput, { target: { value: 'foo' } });
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(onFilterChange).toHaveBeenCalledWith(['foo'], defaultProps.excludeFilters, false);
+    vi.useRealTimers();
   });
 });
