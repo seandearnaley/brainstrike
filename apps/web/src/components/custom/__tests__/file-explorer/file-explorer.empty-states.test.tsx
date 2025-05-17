@@ -116,10 +116,14 @@ vi.mock('../../file-explorer-toolbar', () => ({
   ),
 }));
 
-// Mock LoadingOverlay
-vi.mock('../../loading-overlay', () => ({
-  LoadingOverlay: () => null,
-}));
+// Mock LoadingOverlay from the shared UI package
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+  return {
+    ...actual,
+    LoadingOverlay: () => null,
+  };
+});
 
 // Mock main panel
 vi.mock('@/components/custom/file-explorer-main-panel', () => ({
