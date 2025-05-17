@@ -12,8 +12,7 @@
 	},
 	"scripts": {
 		"clean": "rm -rf dist .tsbuildinfo",
-		"lint": "pnpm run --dir=../.. lint",
-		"type-check": "tsc --noEmit"
+		"lint": "pnpm run --dir=../.. lint"
 	},
 	"dependencies": {},
 	"devDependencies": {
