@@ -1,6 +1,6 @@
 import { Button } from '@brainstrike/ui';
 import { Moon, Sun } from 'lucide-react';
-import { useTheme } from '../../providers/theme-provider';
+import { useTheme } from './theme-provider';
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();

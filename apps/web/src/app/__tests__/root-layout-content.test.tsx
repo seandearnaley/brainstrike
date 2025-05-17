@@ -19,9 +19,6 @@ vi.mock('../../components/custom/sidebar/sidebar', () => ({
 // Mock the UI package components
 vi.mock('@brainstrike/ui', () => ({
   Toaster: vi.fn(() => <div data-testid="toaster-mock">Toaster Mock</div>),
-}));
-
-vi.mock('../../providers/theme-provider', () => ({
   ThemeProvider: vi.fn(({ children, ...props }) => (
     <div data-testid="theme-provider-mock" data-props={JSON.stringify(props)}>
       {children}

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useTheme } from '../../../providers/theme-provider';
+import { useTheme } from '../theme-provider';
 import { ThemeToggle } from '../theme-toggle';
 
-vi.mock('../../../providers/theme-provider', () => ({
+vi.mock('../theme-provider', () => ({
   useTheme: vi.fn(),
 }));
 

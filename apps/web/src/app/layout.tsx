@@ -1,9 +1,9 @@
 import './globals.css';
 import { Toaster } from '@brainstrike/ui';
+import { ThemeProvider } from '@brainstrike/ui';
 import type React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
 import RouterProvider from '../providers/router-provider';
-import { ThemeProvider } from '../providers/theme-provider';
 
 export default function RootLayout({
   children,
