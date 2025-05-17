@@ -1,5 +1,11 @@
 import { Input } from '@brainstrike/ui';
-import { debounce } from 'lodash';
+function debounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: number) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  return (...args: Args) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => fn(...args), wait);
+  };
+}
 import { AlertCircle } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
