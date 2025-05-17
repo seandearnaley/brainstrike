@@ -55,3 +55,4 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = ({ value, onChange, o
     </div>
   );
 };
+export default FileFilterBar;
