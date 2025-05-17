@@ -1,8 +1,8 @@
 import { cn } from '@brainstrike/ui';
+import { ThemeToggle } from '@brainstrike/ui';
 import { Folder, Settings } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLocation } from 'react-router-dom';
-import { ThemeToggle } from '../../custom/theme-toggle';
 
 const apps = [
   { name: 'Context Explorer', icon: Folder, path: '/' },
