@@ -7,3 +7,6 @@ export { default as FileExtensionFilter } from './file-extension-filter';
 export { default as FileFilterBar } from './file-filter-bar';
 export * from './file-extension-filter';
 export * from './file-filter-bar';
+export { default as FileTree } from './file-tree/file-tree';
+export { default as FileTreeNode } from './file-tree/file-tree-node';
+export * from './file-tree/folder-selection-dialog';

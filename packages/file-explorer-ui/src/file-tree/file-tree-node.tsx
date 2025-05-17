@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { fileExplorer } from '../../lib/file/explorer';
+import { fileExplorer } from './explorer';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
 interface IFileTreeNodeProps {

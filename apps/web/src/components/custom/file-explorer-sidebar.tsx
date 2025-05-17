@@ -1,4 +1,5 @@
 import { FolderBadge } from '@brainstrike/file-explorer-ui';
+import { FileTree } from '@brainstrike/file-explorer-ui';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import {
@@ -14,7 +15,6 @@ import {
   TooltipTrigger,
 } from '@brainstrike/ui';
 import type * as React from 'react';
-import FileTree from './file-tree';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
