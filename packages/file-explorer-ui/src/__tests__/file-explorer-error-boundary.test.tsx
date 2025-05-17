@@ -1,5 +1,5 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { describe, expect, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -97,5 +97,55 @@ describe('FileExplorerErrorBoundary', () => {
     expect(screen.getByText('Partial Refresh Error')).toBeInTheDocument();
     expect(screen.getByText('Retry Failed Operations')).toBeInTheDocument();
     expect(screen.getByText(/Refresh partially failed: 5 succeeded, 3 failed/)).toBeInTheDocument();
+  });
+
+  test('toggles error details visibility', () => {
+    render(
+      <FileExplorerErrorBoundary showDetails={true}>
+        <ErrorThrowingComponent error={new Error('Toggle error')} />
+      </FileExplorerErrorBoundary>
+    );
+
+    const toggleButton = screen.getByRole('button', { name: /show details/i });
+    expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
+
+    fireEvent.click(toggleButton);
+    expect(screen.getByText('Error Details')).toBeInTheDocument();
+    expect(toggleButton.textContent).toMatch(/hide details/i);
+
+    fireEvent.click(toggleButton);
+    expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
+    expect(toggleButton.textContent).toMatch(/show details/i);
+  });
+
+  test('copies error details to clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    // @ts-expect-error - allow assigning clipboard for test
+    navigator.clipboard = { writeText };
+    const alertSpy = vi.fn();
+    window.alert = alertSpy as unknown as typeof window.alert;
+
+    render(
+      <FileExplorerErrorBoundary showDetails={true}>
+        <ErrorThrowingComponent error={new Error('Copy error')} />
+      </FileExplorerErrorBoundary>
+    );
+
+    fireEvent.click(screen.getByText('Copy Details'));
+    // wait for promise resolution
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(alertSpy).toHaveBeenCalledWith('Error details copied to clipboard');
+  });
+
+  test('renders generic error message for unknown error', () => {
+    render(
+      <FileExplorerErrorBoundary>
+        <ErrorThrowingComponent error={new Error('Unknown')} />
+      </FileExplorerErrorBoundary>
+    );
+    expect(screen.getByText('Error')).toBeInTheDocument();
+    expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 });
