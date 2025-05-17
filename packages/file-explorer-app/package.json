@@ -1,0 +1,39 @@
+{
+  "name": "@brainstrike/file-explorer-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "echo skip",
+    "dev": "echo skip",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "echo skip",
+    "test": "echo skip",
+    "test:watch": "echo skip",
+    "test:coverage": "echo skip"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "dependencies": {
+    "@brainstrike/file-explorer": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@testing-library/react": "^16"
+  }
+}

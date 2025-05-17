@@ -4,6 +4,7 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
+import { FileExplorer } from '@brainstrike/file-explorer-app';
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
@@ -12,7 +13,6 @@ import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import { useQuickFilter } from '../../../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
-import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
 vi.mock('@brainstrike/file-explorer-hooks', () => ({

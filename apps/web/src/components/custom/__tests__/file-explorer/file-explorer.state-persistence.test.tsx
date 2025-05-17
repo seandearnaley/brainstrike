@@ -1,10 +1,13 @@
+/**
+ * @vitest-environment happy-dom
+ */
+import { FileExplorer } from '@brainstrike/file-explorer-app';
 import { render, screen } from '@testing-library/react';
 /**
  * @vitest-environment happy-dom
  */
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import FileExplorer from '../../file-explorer';
 
 // Mock all components and hooks
 vi.mock('@/hooks/use-file-explorer', () => ({

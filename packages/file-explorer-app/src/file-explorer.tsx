@@ -1,3 +1,10 @@
+import { useFileExplorer } from '@/hooks/use-file-explorer';
+import { useFileLoadingManager } from '@/hooks/use-file-loading-manager';
+import { useQuickFilter } from '@/hooks/use-quick-filter';
+import { useReportGeneration } from '@/hooks/use-report-generation';
+import { useReportManager } from '@/hooks/use-report-manager';
+import { useToastManager } from '@/hooks/use-toast-manager';
+import { useUndoableAction } from '@/hooks/use-undoable-action';
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
@@ -5,15 +12,8 @@ import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
-import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
-import { useFileExplorer } from '../../hooks/use-file-explorer';
-import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
-import { useQuickFilter } from '../../hooks/use-quick-filter';
-import { useReportGeneration } from '../../hooks/use-report-generation';
-import { useReportManager } from '../../hooks/use-report-manager';
-import { useToastManager } from '../../hooks/use-toast-manager';
-import { useUndoableAction } from '../../hooks/use-undoable-action';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>

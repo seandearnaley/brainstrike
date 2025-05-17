@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import HomePageContent from '../home-page-content';
 
 // Mock the ClientFileExplorer component
-vi.mock('../../components/custom/client-file-explorer', () => ({
+vi.mock('@brainstrike/file-explorer-app', () => ({
   __esModule: true,
   default: vi.fn(() => <div data-testid="client-file-explorer">Mock ClientFileExplorer</div>),
 }));

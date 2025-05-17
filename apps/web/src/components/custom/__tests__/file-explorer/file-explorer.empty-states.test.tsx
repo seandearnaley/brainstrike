@@ -1,3 +1,4 @@
+import { FileExplorer } from '@brainstrike/file-explorer-app';
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerStrings } from '@brainstrike/types';
 /**
@@ -5,7 +6,6 @@ import { FileExplorerStrings } from '@brainstrike/types';
  */
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import FileExplorer from '../../file-explorer';
 
 // Mock all dependencies at the module level
 vi.mock('@/hooks/use-file-explorer', () => ({

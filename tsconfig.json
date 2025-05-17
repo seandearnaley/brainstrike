@@ -10,6 +10,7 @@
       "@brainstrike/file-explorer": ["packages/file-explorer/src"],
       "@brainstrike/file-explorer-hooks": ["packages/file-explorer-hooks/src"],
       "@brainstrike/file-explorer-ui": ["packages/file-explorer-ui/src"],
+      "@brainstrike/file-explorer-app": ["packages/file-explorer-app/src"],
       "@/*": ["apps/web/src/*"]
     },
     "noEmit": true,
@@ -27,6 +28,7 @@
     {"path": "./packages/ui"},
     {"path": "./packages/utils"},
     {"path": "./packages/file-explorer-hooks"},
-    {"path": "./packages/file-explorer-ui"}
+    {"path": "./packages/file-explorer-ui"},
+    {"path": "./packages/file-explorer-app"}
   ]
 }

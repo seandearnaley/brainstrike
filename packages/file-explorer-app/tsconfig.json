@@ -1,0 +1,27 @@
+{
+  "extends": "../../packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "declaration": true,
+    "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/file-explorer": ["../file-explorer/src"],
+      "@brainstrike/file-explorer-hooks": ["../file-explorer-hooks/src"],
+      "@brainstrike/file-explorer-ui": ["../file-explorer-ui/src"],
+      "@/*": ["../../apps/web/src/*"]
+    }
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../file-explorer" },
+    { "path": "../file-explorer-hooks" },
+    { "path": "../file-explorer-ui" },
+    { "path": "../utils" },
+    { "path": "../types" }
+  ]
+}

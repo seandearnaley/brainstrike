@@ -1,10 +1,10 @@
+import { ClientFileExplorer } from '@brainstrike/file-explorer-app';
 import { render, screen } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import ClientFileExplorer from '../client-file-explorer';
 
 // Mock the FileExplorer component that's loaded by React.lazy
-vi.mock('../file-explorer', () => ({
+vi.mock('@brainstrike/file-explorer-app/src/file-explorer', () => ({
   default: () => <div data-testid="mock-file-explorer">File Explorer</div>,
 }));
 
