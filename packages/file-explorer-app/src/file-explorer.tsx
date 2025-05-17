@@ -6,14 +6,14 @@ import { ErrorBoundary } from '@brainstrike/ui';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
-import { useFileExplorer } from '../../hooks/use-file-explorer';
-import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
-import { useQuickFilter } from '../../hooks/use-quick-filter';
-import { useReportGeneration } from '../../hooks/use-report-generation';
-import { useReportManager } from '../../hooks/use-report-manager';
-import { useToastManager } from '../../hooks/use-toast-manager';
-import { useUndoableAction } from '../../hooks/use-undoable-action';
-import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
+import { useFileExplorer } from './hooks/use-file-explorer';
+import { useFileLoadingManager } from './hooks/use-file-loading-manager';
+import { useQuickFilter } from './hooks/use-quick-filter';
+import { useReportGeneration } from './hooks/use-report-generation';
+import { useReportManager } from './hooks/use-report-manager';
+import { useToastManager } from './hooks/use-toast-manager';
+import { useUndoableAction } from './hooks/use-undoable-action';
+import { countTokensHeuristic, estimateTokenCost } from './utils/token-utils';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>

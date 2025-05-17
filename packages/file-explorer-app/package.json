@@ -1,0 +1,48 @@
+{
+  "name": "@brainstrike/file-explorer-app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "rm -rf dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "peerDependencies": {
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "dependencies": {
+    "@brainstrike/file-explorer": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "file-saver": "^2.0.5",
+    "minimatch": "^9.0.1"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16",
+    "@testing-library/user-event": "^14",
+    "@testing-library/jest-dom": "^6",
+    "jsdom": "^24.0.0",
+    "@types/react": "^19",
+    "@types/node": "^22"
+  }
+}

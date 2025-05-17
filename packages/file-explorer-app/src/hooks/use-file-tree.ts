@@ -163,7 +163,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
             });
             updateProgress(path);
           }
-        } catch (err) {
+        } catch (err: unknown) {
           console.error(`Error processing ${path}:`, err);
           stats.failCount++;
         }
@@ -207,7 +207,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
     try {
       const newTree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle);
       setFileTree(newTree);
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Error loading file tree:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
       throw err;
@@ -231,7 +231,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
   }, [rootDirectoryHandle, loadTree]);
 
   useEffect(() => {
-    loadTree().catch((err) => {
+    loadTree().catch((err: unknown) => {
       console.error('Error in initial tree load:', err);
     });
   }, [loadTree]);
