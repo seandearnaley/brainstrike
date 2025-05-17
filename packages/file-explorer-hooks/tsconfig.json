@@ -8,8 +8,18 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "declarationMap": true,
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/types": ["../types/src"],
+      "@brainstrike/types/*": ["../types/src/*"],
+      "@brainstrike/hooks": ["../hooks/src"],
+      "@brainstrike/hooks/*": ["../hooks/src/*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
-} 
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
+  "references": [
+    { "path": "../types" },
+    { "path": "../hooks" }
+  ]
+}

@@ -31,7 +31,7 @@ vi.mock('@/hooks/use-file-explorer', () => ({
   }),
 }));
 
-// Update the mock for useFileSystem using the correct relative path
+// Update the mock for useFileSystem and related hooks using the package path
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileSystem: vi.fn(() => ({
     selectRootDirectory: vi.fn(),
@@ -44,10 +44,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleSelectionChange: vi.fn(),
     wouldExceedSelectionLimit: vi.fn(() => false),
   })),
-}));
-
-// Mock all other required hooks with empty implementations
-vi.mock('@/hooks/use-quick-filter', () => ({
   useQuickFilter: () => ({
     includeFilters: [],
     excludeFilters: [],
@@ -58,6 +54,7 @@ vi.mock('@/hooks/use-quick-filter', () => ({
     setUseRegex: vi.fn(),
     setQuickFilter: vi.fn(),
   }),
+  useFileLoadingManager: () => ({}),
 }));
 
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
@@ -73,9 +70,6 @@ vi.mock('@/hooks/use-selection-manager', () => ({
     selectedFilePaths: new Set(),
     handleSelectionChange: vi.fn(),
   }),
-}));
-vi.mock('@/hooks/use-file-loading-manager', () => ({
-  useFileLoadingManager: () => ({}),
 }));
 
 // Mock UI components

@@ -1,8 +1,8 @@
+import { useQuickFilter } from '@brainstrike/file-explorer-hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDirectoryNode, createFileNode } from '../../test/factories/file-node';
-import { useQuickFilter } from '../use-quick-filter';
 
 // Mock the useDebouncedValue hook
 vi.mock('@brainstrike/hooks', () => ({

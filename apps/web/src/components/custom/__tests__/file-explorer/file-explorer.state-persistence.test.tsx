@@ -15,8 +15,9 @@ vi.mock('@/hooks/use-file-system', () => ({
   useFileSystem: () => ({}),
 }));
 
-vi.mock('@/hooks/use-quick-filter', () => ({
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useQuickFilter: () => ({}),
+  useFileLoadingManager: () => ({}),
 }));
 
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
@@ -37,10 +38,6 @@ vi.mock('@/hooks/use-toast-manager', () => ({
 
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({}),
-}));
-
-vi.mock('@/hooks/use-file-loading-manager', () => ({
-  useFileLoadingManager: () => ({}),
 }));
 
 // Mock UI components
