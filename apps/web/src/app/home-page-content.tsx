@@ -1,5 +1,5 @@
+import { ClientFileExplorer } from '@brainstrike/file-explorer-app';
 import { Helmet } from 'react-helmet-async';
-import ClientFileExplorer from '../components/custom/client-file-explorer';
 
 export default function HomePageContent() {
   return (

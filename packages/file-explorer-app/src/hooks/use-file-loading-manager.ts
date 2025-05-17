@@ -23,7 +23,7 @@ export const useFileLoadingManager = ({
 
   const handleFileLoading = useCallback(
     async (path: string) => {
-      setLoadingFiles((prev) => {
+      setLoadingFiles((prev: Set<string>) => {
         const newSet = new Set(prev);
         newSet.add(path);
         return newSet;
@@ -32,7 +32,7 @@ export const useFileLoadingManager = ({
       try {
         await loadFileContent(path);
       } finally {
-        setLoadingFiles((prev) => {
+        setLoadingFiles((prev: Set<string>) => {
           const newSet = new Set(prev);
           newSet.delete(path);
           return newSet;
