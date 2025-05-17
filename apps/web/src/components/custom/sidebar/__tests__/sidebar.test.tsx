@@ -1,8 +1,8 @@
+import { ThemeProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ThemeProvider } from '../../../../providers/theme-provider';
 import Sidebar from '../sidebar';
 
 // Mock react-router-dom

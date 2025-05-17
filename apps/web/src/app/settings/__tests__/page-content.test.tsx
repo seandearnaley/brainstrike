@@ -1,11 +1,11 @@
+import { ThemeSettings } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
-import { ThemeSettings } from '../../../components/custom/settings/theme-settings';
 import SettingsPageContent from '../page-content';
 
 // Mock the ThemeSettings component
-vi.mock('../../../components/custom/settings/theme-settings', () => ({
+vi.mock('@brainstrike/ui', () => ({
   ThemeSettings: vi.fn(() => <div data-testid="theme-settings-mock">Theme Settings Mock</div>),
 }));
 

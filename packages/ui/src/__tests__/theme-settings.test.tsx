@@ -1,10 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useTheme } from '../../../../providers/theme-provider';
+import { useTheme } from '../theme-provider';
 import { ThemeSettings } from '../theme-settings';
 
 // Use relative path for vi.mock
-vi.mock('../../../../providers/theme-provider', () => ({
+vi.mock('../theme-provider', () => ({
   useTheme: vi.fn(),
 }));
 

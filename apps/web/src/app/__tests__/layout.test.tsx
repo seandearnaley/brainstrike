@@ -19,11 +19,6 @@ vi.mock('../../components/custom/sidebar/sidebar', () => ({
 vi.mock('@brainstrike/ui', () => ({
   __esModule: true,
   Toaster: () => <div data-testid="toaster">Toaster Mock</div>,
-}));
-
-// Mock theme provider but keep the original component name for the test
-vi.mock('../../providers/theme-provider', () => ({
-  __esModule: true,
   ThemeProvider: ({
     children,
     defaultTheme,
