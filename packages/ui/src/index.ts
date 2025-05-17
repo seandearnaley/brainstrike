@@ -19,6 +19,7 @@ export * from './tabs';
 export * from './toast';
 export * from './toaster';
 export * from './tooltip';
+export * from './navigation-sidebar';
 export * from './theme-provider';
 export * from './theme-toggle';
 export * from './theme-settings';
