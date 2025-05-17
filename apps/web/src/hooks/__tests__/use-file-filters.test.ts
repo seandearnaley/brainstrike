@@ -1,11 +1,11 @@
 import type { IFileNode } from '@brainstrike/types';
+import { processFilter } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { processFilter } from '../../utils/filter-utils';
 import { useFileFilters } from '../use-file-filters';
 
 // Mock the filter-utils module
-vi.mock('../../utils/filter-utils', () => ({
+vi.mock('@brainstrike/utils', () => ({
   processFilter: vi.fn((pattern) => {
     // Default mock implementation that matches the actual behavior
     if (pattern.includes('/')) return pattern;
