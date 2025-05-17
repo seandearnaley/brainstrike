@@ -1,4 +1,4 @@
-import { ErrorBoundary } from '@brainstrike/ui';
+import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import React, { Suspense, useState, useEffect } from 'react';
 
 // Loading fallback component
@@ -74,10 +74,10 @@ export default function ClientFileExplorer() {
   }
 
   return (
-    <ErrorBoundary>
+    <FileExplorerErrorBoundary>
       <Suspense fallback={<FileExplorerLoading />}>
         <FileExplorer />
       </Suspense>
-    </ErrorBoundary>
+    </FileExplorerErrorBoundary>
   );
 }
