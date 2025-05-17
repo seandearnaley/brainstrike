@@ -1,9 +1,9 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import {
+  Button,
   ErrorBoundary,
   type ErrorBoundaryProps,
   type ErrorBoundaryState,
-  Button,
   isDevEnv,
 } from '@brainstrike/ui';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
