@@ -31,13 +31,13 @@ vi.mock('react', async () => {
   };
 });
 
-// Mock @brainstrike/ui to mock ErrorBoundary
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@brainstrike/ui')>();
+// Mock @brainstrike/file-explorer-ui to mock FileExplorerErrorBoundary
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   return {
     ...mod,
-    // Mock ErrorBoundary to render children within a div with a test ID
-    ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+    // Mock FileExplorerErrorBoundary to render children within a div with a test ID
+    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="mock-error-boundary">{children}</div>
     ),
   };
@@ -97,14 +97,14 @@ describe('ClientFileExplorer', () => {
     expect(container).toBeInTheDocument();
   });
 
-  it('renders with ErrorBoundary wrapper', () => {
+  it('renders with FileExplorerErrorBoundary wrapper', () => {
     render(<ClientFileExplorer />);
     expect(screen.getByTestId('mock-file-explorer')).toBeInTheDocument();
   });
 
-  it('renders with ErrorBoundary wrapper and FileExplorer component', () => {
+  it('renders with FileExplorerErrorBoundary wrapper and FileExplorer component', () => {
     render(<ClientFileExplorer />);
-    // Check for the ErrorBoundary wrapper mock
+    // Check for the FileExplorerErrorBoundary wrapper mock
     expect(screen.getByTestId('mock-error-boundary')).toBeInTheDocument();
     // Check that the FileExplorer mock is rendered *inside* the boundary mock
     expect(screen.getByTestId('mock-error-boundary')).toContainElement(

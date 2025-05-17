@@ -123,12 +123,12 @@ vi.mock('@/components/custom/file-explorer-main-panel', () => ({
 }));
 
 // Mock ActionButtons and useToast from @brainstrike/ui
-vi.mock('@brainstrike/ui', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@brainstrike/ui')>();
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   return {
     ...mod,
     // Mock ErrorBoundary to just render children
-    ErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
 
