@@ -1,5 +1,6 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
+import { useUndoableAction } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { ErrorBoundary } from '@brainstrike/ui';
@@ -12,7 +13,6 @@ import { useQuickFilter } from '../../hooks/use-quick-filter';
 import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 import { useToastManager } from '../../hooks/use-toast-manager';
-import { useUndoableAction } from '../../hooks/use-undoable-action';
 import { countTokensHeuristic, estimateTokenCost } from '../../utils/token-utils';
 
 // Lazy load heavy components
@@ -152,7 +152,7 @@ const FileExplorer: React.FC = () => {
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
       // Adapt onUndo signature to match PreviewPanel expectation
-      onUndo: (_item, snapshot) => opts.onUndo(key, snapshot),
+      onUndo: (_item: Set<string>, snapshot: Set<string>) => opts.onUndo(key, snapshot),
     });
   };
 

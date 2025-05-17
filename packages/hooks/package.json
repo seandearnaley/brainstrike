@@ -29,14 +29,15 @@
   },
   "dependencies": {
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "@brainstrike/ui": "workspace:*"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",
     "@testing-library/react": "^16.2.0",
     "@types/node": "^20.11.0",
-    "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^3.1.1",
     "jsdom": "^26.0.0",

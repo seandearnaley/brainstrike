@@ -1,8 +1,8 @@
+import { useUndoableAction } from '@brainstrike/hooks';
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockToast } from '../../__mocks__/ui-mocks';
-import { useUndoableAction } from '../use-undoable-action';
 
 // Mock for toast functions
 const mockDismiss = vi.fn();
