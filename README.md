@@ -1,95 +1,62 @@
 # BrainStrike Monorepo
 
-## Overview
-BrainStrike is a modern, modular monorepo for AI-powered productivity tools. The project has been migrated from Next.js to a Vite + React architecture for improved performance, flexibility, and developer experience.
+BrainStrike is a 2025-ready Turbo monorepo for building AI-powered productivity tools. It uses Vite, React 19 and pnpm workspaces to keep development fast and maintainable.
 
----
+## Quick Start
 
-## Tech Stack
-- **Vite**: Fast build tool and dev server for React apps
-- **React 19**: Modern functional components and hooks
-- **React Router**: SPA routing
-- **react-helmet-async**: Declarative head management (title/meta)
-- **Vitest**: Unit and integration testing
-- **Turbo**: Monorepo build orchestration
-- **PNPM**: Workspace-aware package management
-- **TypeScript**: Type safety across all packages
+1. **Install dependencies**
+   ```bash
+   pnpm install
+   ```
+2. **Run the web app**
+   ```bash
+   pnpm dev --filter web
+   ```
 
----
+## Requirements
+- Node.js 22+ (see `.nvmrc`)
+- pnpm 10+
 
-## Key Migration Notes
-- **Next.js has been fully removed.**
-- **All page-level `<title>` and `<meta>` tags** are now managed with [`react-helmet-async`](https://github.com/staylor/react-helmet-async).
-- **Routing** is handled by React Router. See `apps/web/src/main.tsx` for route setup.
-- **Tests** are colocated with source files and use Vitest. All tests pass as of the latest migration.
-
----
-
-## Development
-
-### Install Dependencies
-```sh
-pnpm install
-```
-
-### Start Dev Server (Web App)
-```sh
-cd apps/web
-pnpm dev
-```
-
-### Run All Tests
-```sh
-pnpm test
-```
-
-### Lint & Type Check
-```sh
-pnpm turbo run lint
-pnpm turbo run type-check
-```
-
----
-
-## Head Management Example
-To set the page title or meta tags in a component:
-```tsx
-import { Helmet } from 'react-helmet-async';
-
-export default function MyPage() {
-  return (
-    <>
-      <Helmet>
-        <title>My Page Title</title>
-        <meta name="description" content="My page description." />
-      </Helmet>
-      {/* page content */}
-    </>
-  );
-}
-```
-
----
-
-## Monorepo Structure
+## Repository Layout
 ```
 apps/
-  web/           # Vite + React app
+  web/                 # Main Vite + React application
 packages/
-  ui/            # Shared UI components
-  hooks/         # Shared React hooks
-  utils/         # Utility functions
-  types/         # Shared TypeScript types
+  ui/                  # Shared UI components
+  hooks/               # Reusable React hooks
+  utils/               # Common utilities
+  types/               # Shared TypeScript types
+  config/              # Tooling configuration
+  file-explorer/       # Core file analysis logic
+  file-explorer-hooks/ # Hooks for file explorer domain
+  file-explorer-ui/    # UI for file explorer features
 ```
 
----
+## Toolchain Highlights
+- **Vite** + **React 19** with **Tailwind CSS v4**
+- **Turborepo** orchestrates builds and tasks
+- **pnpm** for dependency management
+- **TypeScript 5** for type safety
+- **Biome** for linting and formatting
+- **Vitest** & **Playwright** for testing
+- **React Router** and **react-helmet-async** for routing and head management
+
+## Common Commands
+```bash
+pnpm dev --filter web        # Start local development
+pnpm build                   # Build all apps and packages
+pnpm test                    # Run unit and integration tests
+pnpm test:e2e                # Run Playwright E2E tests
+pnpm turbo run lint          # Lint the codebase with Biome
+pnpm turbo run type-check    # Run TypeScript type checks
+pnpm format                  # Auto-format source files
+```
 
 ## Contributing
-- Follow the code style enforced by Biome and project lint rules.
-- Keep tests passing and update them with any major refactor.
-- Document any new dependencies or architectural changes.
-
----
+- Follow [AGENTS.md](./AGENTS.md) for coding standards and workflow
+- Use Conventional Commits for commit messages
+- Ensure `pnpm lint`, `pnpm format`, `pnpm type-check` and `pnpm test` all succeed
+- See [`onboarding.md`](./onboarding.md) and [`monorepo-docs.md`](./monorepo-docs.md) for deep technical guides
 
 ## License
 ISC
