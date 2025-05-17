@@ -5,37 +5,46 @@ test.describe('File Explorer', () => {
     // Robustly mock the File System Access API for E2E/CI
     await page.addInitScript(() => {
       /* eslint-disable */
-      // @ts-ignore
       class FileSystemFileHandle {
         constructor(name) {
+          // @ts-expect-error
           this.kind = 'file';
+          // @ts-expect-error
           this.name = name;
         }
         async getFile() {
+          // @ts-expect-error
           return new File(['test content'], this.name);
         }
       }
 
-      // @ts-ignore
       class FileSystemDirectoryHandle {
         constructor(name, entries) {
+          // @ts-expect-error
           this.kind = 'directory';
+          // @ts-expect-error
           this.name = name;
+          // @ts-expect-error
           this._entries = entries;
         }
         async *entries() {
+          // @ts-expect-error
           for (const [name, handle] of Object.entries(this._entries)) {
             yield [name, handle];
           }
         }
         async getDirectoryHandle(name) {
+          // @ts-expect-error
           if (this._entries[name] && this._entries[name].kind === 'directory') {
+            // @ts-expect-error
             return this._entries[name];
           }
           throw new Error('Directory not found');
         }
         async getFileHandle(name) {
+          // @ts-expect-error
           if (this._entries[name] && this._entries[name].kind === 'file') {
+            // @ts-expect-error
             return this._entries[name];
           }
           throw new Error('File not found');
@@ -55,6 +64,7 @@ test.describe('File Explorer', () => {
       });
 
       // Patch showDirectoryPicker
+      // @ts-expect-error
       window.showDirectoryPicker = async () => root;
       /* eslint-enable */
     });
