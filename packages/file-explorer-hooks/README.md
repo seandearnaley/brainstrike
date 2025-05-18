@@ -6,6 +6,7 @@ This package contains React hooks for the file explorer feature, designed to be 
 
 - `useFileSystem`: Provides core file system access functionalities, including selecting a root directory and checking API compatibility.
 - `useSelectionManager`: Manages file and directory selection state, including selection limits.
+- `useToastManager`: Provides helper functions for displaying file-explorer related toasts.
 
 ## Installation
 
