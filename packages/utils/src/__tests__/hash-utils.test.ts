@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { stableHash } from '../hash';
+import { stableHash } from '../hash-utils';
 
-describe('hash', () => {
+describe('hash-utils', () => {
   describe('stableHash', () => {
     it('generates consistent hashes for the same input', () => {
       const input = 'test/path/to/directory';
