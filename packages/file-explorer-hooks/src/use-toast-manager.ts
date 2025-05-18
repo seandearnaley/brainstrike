@@ -1,12 +1,4 @@
-/**
- * Toast Manager Hook
- *
- * This hook provides a consistent interface for managing toasts in the file explorer.
- * It handles common toast patterns and error handling.
- */
-
-import { PartialRefreshError } from '@brainstrike/types';
-import { FileExplorerStrings } from '@brainstrike/types';
+import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { useCallback } from 'react';
@@ -22,9 +14,38 @@ function isGenericError(error: unknown): error is GenericError {
   return typeof error === 'object' && error !== null;
 }
 
+/**
+ * `useToastManager` hook for File Explorer contexts.
+ *
+ * This hook provides a consistent interface for managing toasts specifically tailored
+ * for file explorer operations and error handling within the Brainstrike ecosystem.
+ * It utilizes `@brainstrike/ui` for toast presentation and `@brainstrike/types`
+ * for specific error types (e.g., `PartialRefreshError`) and strings (`FileExplorerStrings`).
+ *
+ * Placed in `packages/file-explorer-hooks` because its functionality is closely tied to
+ * file explorer concepts and uses types/strings specific to that domain, making it
+ * reusable across different file explorer implementations or related features.
+ *
+ * @returns An object with functions to display various file-explorer related toasts:
+ *  - `toast`: The raw toast function from `@brainstrike/ui`.
+ *  - `showToast`: A generic toast display function.
+ *  - `handlePartialRefreshError`: Handles `PartialRefreshError` toasts.
+ *  - `handleRefreshError`: Handles generic refresh errors.
+ *  - `handleBrowserCompatibilityError`: Handles browser compatibility issue toasts.
+ *  - `handleDirectorySelectError`: Handles errors during directory selection.
+ *  - `handleSelectionLimitError`: Handles toasts for selection limits.
+ */
 export const useToastManager = () => {
   const { toast } = useToast();
 
+  /**
+   * Displays a toast notification.
+   * @param {object} options - Toast options.
+   * @param {string} options.title - The title of the toast.
+   * @param {string} options.description - The description/content of the toast.
+   * @param {'default' | 'destructive'} [options.variant='default'] - The variant of the toast.
+   * @param {ToastActionElement} [options.action] - Optional action element for the toast.
+   */
   const showToast = useCallback(
     ({
       title,
@@ -37,16 +58,15 @@ export const useToastManager = () => {
       variant?: 'default' | 'destructive';
       action?: ToastActionElement;
     }) => {
-      // Define local type for toast options
-      type ToastOptions = {
+      // Define local type for toast options, consistent with useToast's expectations
+      type ResolvedToastOptions = {
         title: string;
         description: string;
         variant?: 'default' | 'destructive';
         action?: ToastActionElement;
       };
 
-      // Construct the toast options object conditionally
-      const toastOptions: ToastOptions = {
+      const toastOptions: ResolvedToastOptions = {
         title,
         description,
         variant,
@@ -98,7 +118,6 @@ export const useToastManager = () => {
 
   const handleDirectorySelectError = useCallback(
     (error: unknown) => {
-      // Log detailed error information
       console.error('Failed to select root directory. Raw error:', error);
       if (isGenericError(error)) {
         console.error(`Error Name: ${error.name}, Error Message: ${error.message}`);

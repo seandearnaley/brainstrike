@@ -35,7 +35,6 @@ function MyComponent() {
 ## Available Hooks
 
 - **useDebouncedValue**: Creates a debounced version of a value
-- **useToastManager**: Simplifies toast notification management
 
 ## Development
 

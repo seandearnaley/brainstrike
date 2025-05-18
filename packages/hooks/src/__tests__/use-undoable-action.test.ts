@@ -1,7 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../../__mocks__/ui-mocks';
+// import { mockToast } from '../../__mocks__/ui-mocks'; // TODO: This path will be invalid after move. Needs review.
+import { mockToast } from '../__mocks__/ui-mocks'; // Adjusted path assuming mock is moved/created in packages/hooks
 import { useUndoableAction } from '../use-undoable-action';
 
 // Mock for toast functions
@@ -83,7 +84,6 @@ describe('useUndoableAction', () => {
 
       // Verify toast was called with correct parameters
       expect(mockToast).toHaveBeenCalledTimes(1);
-      // @ts-expect-error - TS struggles with mock call type narrowing
       const toastCall = mockToast.mock.calls[0][0];
       expect(toastCall.title).toBe('Test Action');
       expect(toastCall.duration).toBe(5000); // Default duration
@@ -130,7 +130,6 @@ describe('useUndoableAction', () => {
       });
 
       // Get the onClick handler from the toast call
-      // @ts-expect-error - TS struggles with mock call type narrowing
       const toastCall = mockToast.mock.calls[0][0];
       const undoButton = toastCall.description.props.children[1];
 

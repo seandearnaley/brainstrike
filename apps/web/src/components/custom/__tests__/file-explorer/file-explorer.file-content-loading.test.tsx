@@ -27,6 +27,15 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleSelectionChange: vi.fn(),
     wouldExceedSelectionLimit: vi.fn(() => false),
   })),
+  useToastManager: vi.fn(() => ({
+    showErrorToast: vi.fn(),
+    showSuccessToast: vi.fn(),
+    showUndoToast: vi.fn(),
+    showInfoToast: vi.fn(),
+    handleGenericError: vi.fn(),
+    handleDirectorySelectError: vi.fn(),
+    handleSelectionLimitError: vi.fn(),
+  })),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
 vi.mock('../../../../hooks/use-quick-filter');
