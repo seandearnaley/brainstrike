@@ -15,21 +15,19 @@ vi.mock('@/hooks/use-file-system', () => ({
   useFileSystem: () => ({}),
 }));
 
+const { mockUseQuickFilter, mockUseReportGeneration } = vi.hoisted(() => ({
+  mockUseQuickFilter: vi.fn(() => ({})),
+  mockUseReportGeneration: vi.fn(() => ({})),
+}));
+
 vi.mock('@brainstrike/hooks', () => ({
-  useQuickFilter: () => ({}),
+  useQuickFilter: mockUseQuickFilter,
+  useReportGeneration: mockUseReportGeneration,
 }));
 
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
 }));
-
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
-  return {
-    ...actual,
-    useReportGeneration: () => ({}),
-  };
-});
 
 vi.mock('@/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
@@ -55,22 +53,10 @@ vi.mock('@/components/ui/button', () => ({
 }));
 
 // Mock components
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...mod,
-    // Mock ErrorBoundary to just render children
-    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  };
-});
-
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...actual,
-    FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
-  };
-});
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
+}));
 
 // Note: This test previously referenced file-explorer-main-panel, but that import has been removed due to migration.
 
