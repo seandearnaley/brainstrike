@@ -5,7 +5,6 @@
 */
 
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
-import { useQuickFilter } from '@brainstrike/hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,14 +36,17 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   })),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
+const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
+  mockUseQuickFilter: vi.fn(),
+  mockUseReportGeneration: vi.fn(),
+  mockUseReportManager: vi.fn(),
+}));
+vi.mock('@brainstrike/hooks', () => {
   return {
-    ...original,
     useUndoableAction: () => ({ performUndoableAction: vi.fn() }),
-    useQuickFilter: vi.fn(),
-    useReportGeneration: vi.fn(),
-    useReportManager: vi.fn(),
+    useQuickFilter: mockUseQuickFilter,
+    useReportGeneration: mockUseReportGeneration,
+    useReportManager: mockUseReportManager,
   };
 });
 vi.mock('../../../../hooks/use-file-explorer-settings');
@@ -270,16 +272,20 @@ describe('File Content Loading', () => {
     });
 
     // Setup useQuickFilter mock correctly in beforeEach
-    (useQuickFilter as ReturnType<typeof vi.fn>).mockReturnValue({
+    mockUseQuickFilter.mockReturnValue({
       quickFilter: '',
       setQuickFilter: vi.fn(),
       filteredTree: mockFilteredTree, // Use the mock tree
     });
 
     // Setup useReportGeneration mock correctly in beforeEach
-    const hooks = require('@brainstrike/hooks');
-    hooks.useReportGeneration.mockReturnValue({
+    mockUseReportGeneration.mockReturnValue({
       generateReportWithContent: mockGenerateReportWithContent,
+    });
+
+    mockUseReportManager.mockReturnValue({
+      handleDownloadReport: vi.fn(),
+      handleCopyReport: vi.fn(),
     });
 
     // Reset file contents mock
