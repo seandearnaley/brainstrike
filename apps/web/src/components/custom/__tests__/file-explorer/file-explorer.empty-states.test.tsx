@@ -53,14 +53,42 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 vi.mock('@/hooks/use-file-tree-persistence', () => ({
   useFileTreePersistence: () => ({}),
 }));
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
-  return {
-    ...actual,
-    useReportGeneration: () => ({}),
-    useReportManager: () => ({}),
-  };
-});
+const {
+  mockUseReportGeneration,
+  mockUseReportManager,
+  mockUseDebouncedValue,
+  mockUseQuickFilter,
+  mockUseFileFilters,
+  mockUseUndoableAction,
+} = vi.hoisted(() => ({
+  mockUseReportGeneration: vi.fn(() => ({})),
+  mockUseReportManager: vi.fn(() => ({})),
+  mockUseDebouncedValue: vi.fn((value: unknown) => value),
+  mockUseQuickFilter: vi.fn(() => ({
+    includeFilters: [],
+    excludeFilters: [],
+    useRegex: false,
+    quickFilter: '',
+    setIncludeFilters: vi.fn(),
+    setExcludeFilters: vi.fn(),
+    setUseRegex: vi.fn(),
+    setQuickFilter: vi.fn(),
+  })),
+  mockUseFileFilters: vi.fn(() => ({
+    applyFileFilters: vi.fn(),
+    filterError: null,
+  })),
+  mockUseUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
+}));
+
+vi.mock('@brainstrike/hooks', () => ({
+  useReportGeneration: mockUseReportGeneration,
+  useReportManager: mockUseReportManager,
+  useDebouncedValue: mockUseDebouncedValue,
+  useQuickFilter: mockUseQuickFilter,
+  useFileFilters: mockUseFileFilters,
+  useUndoableAction: mockUseUndoableAction,
+}));
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set(),
@@ -83,57 +111,30 @@ vi.mock('@/components/custom/error-boundary', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
-// Mock FileExplorerHeader
+// Mock components from file-explorer-ui
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerHeader: () => (
     <header className="mb-4">
-      {/* Replace {FileExplorerStrings.title} with the correct camelCase key or a string literal if the key is gone. */}
       <h1 className="text-2xl font-bold">{FileExplorerStrings.title}</h1>
     </header>
   ),
   ActionButtons: () => <div data-testid="action-buttons">Actions</div>,
+  LoadingOverlay: () => null,
+  FileExplorerToolbar: ({ onDirectorySelect }: { onDirectorySelect: () => void }) => (
+    <div>
+      <button type="button" onClick={onDirectorySelect}>
+        {FileExplorerStrings.selectRoot}
+      </button>
+    </div>
+  ),
+  FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
 }));
-
-// Mock LoadingOverlay and FileExplorerToolbar from the shared UI package
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...actual,
-    LoadingOverlay: () => null,
-    FileExplorerToolbar: ({ onDirectorySelect }: { onDirectorySelect: () => void }) => (
-      <div>
-        <button type="button" onClick={onDirectorySelect}>
-          {FileExplorerStrings.selectRoot}
-        </button>
-      </div>
-    ),
-  };
-});
 
 // Mock main panel
 vi.mock('@/components/custom/file-explorer-main-panel', () => ({
   default: () => <div data-testid="main-panel">Main Panel</div>,
 }));
-
-// Mock ActionButtons and useToast from @brainstrike/ui
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...mod,
-    // Mock ErrorBoundary to just render children
-    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  };
-});
-
-// Mock sidebar component
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  const FileExplorerSidebar = () => <div data-testid="sidebar">Sidebar</div>;
-  return {
-    ...actual,
-    FileExplorerSidebar,
-  };
-});
 
 // Mock React.lazy and Suspense
 vi.mock('react', async () => {
@@ -148,25 +149,6 @@ vi.mock('react', async () => {
       return (props: Record<string, unknown>) => (Component ? <Component {...props} /> : null);
     },
     Suspense: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  };
-});
-
-// Explicitly mock selected hooks from @brainstrike/hooks
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const mod = await importOriginal<typeof import('@brainstrike/hooks')>();
-  return {
-    ...mod,
-    useDebouncedValue: (value: unknown) => value, // Simple pass-through mock
-    useQuickFilter: () => ({
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      quickFilter: '',
-      setIncludeFilters: vi.fn(),
-      setExcludeFilters: vi.fn(),
-      setUseRegex: vi.fn(),
-      setQuickFilter: vi.fn(),
-    }),
   };
 });
 
