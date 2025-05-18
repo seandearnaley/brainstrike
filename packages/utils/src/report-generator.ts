@@ -1,6 +1,6 @@
 // import type { IFileNode } from '@/lib/file/types'; // Removed: Unused
-import { fileExplorer } from '@brainstrike/file-explorer-ui';
-import { generateProjectTreeText } from '@brainstrike/utils';
+import { readFullFileTree } from './file-system-utils';
+import { generateProjectTreeText } from './tree-generator';
 
 // Modify generateReport to accept rootDirectoryHandle and be asynchronous
 export async function generateReport(
@@ -16,8 +16,8 @@ export async function generateReport(
   let projectTreeText = '';
 
   if (includeProjectTree) {
-    // Read the full file tree recursively using fileExplorer
-    const fullFileTree = await fileExplorer.readFullFileTree(rootDirectoryHandle);
+    // Read the full file tree recursively using readFullFileTree from local utils
+    const fullFileTree = await readFullFileTree(rootDirectoryHandle);
     // Generate project tree text
     projectTreeText = generateProjectTreeText(
       fullFileTree,

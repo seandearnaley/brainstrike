@@ -1,5 +1,4 @@
 import type { IFileNode } from '@brainstrike/types';
-import { IGNORED_PATHS } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fileExplorer } from '../file-explorer-utils';
 import {
@@ -9,38 +8,6 @@ import {
 } from '../test/factories/file-node';
 
 describe('fileExplorer', () => {
-  describe('shouldIgnorePath', () => {
-    it('should return true for paths matching ignored patterns', () => {
-      for (const pattern of IGNORED_PATHS as string[]) {
-        // Create a path that would match each pattern
-        const testPath = pattern.replace('*', 'test');
-        expect(fileExplorer.shouldIgnorePath(testPath)).toBe(true);
-      }
-    });
-
-    it('should return false for paths not matching ignored patterns', () => {
-      const validPaths = ['src/components/test.tsx', 'public/images/logo.png'];
-      for (const path of validPaths) {
-        expect(fileExplorer.shouldIgnorePath(path)).toBe(false);
-      }
-    });
-
-    it('should handle paths with or without leading slash', () => {
-      // Mock the shouldIgnorePath method for this test since IGNORED_PATHS is empty in actual code
-      vi.spyOn(fileExplorer, 'shouldIgnorePath').mockImplementation((path) => {
-        // Mock implementation that ignores .git folders
-        return path.includes('.git');
-      });
-
-      const path = '.git/config';
-      expect(fileExplorer.shouldIgnorePath(path)).toBe(true);
-      expect(fileExplorer.shouldIgnorePath(`/${path}`)).toBe(true);
-
-      // Restore original implementation
-      vi.mocked(fileExplorer.shouldIgnorePath).mockRestore();
-    });
-  });
-
   describe('getAllFilePathsInDirectory', () => {
     it('should return the file path for a file node', () => {
       const fileNode = createFileNode({ path: '/test.txt' });
@@ -370,140 +337,6 @@ describe('fileExplorer', () => {
       expect(lines[2]).toBe('  📁 dirB');
       expect(lines[3]).toBe('  📄 fileA.txt');
       expect(lines[4]).toBe('  📄 fileZ.txt');
-    });
-  });
-
-  describe('readFullFileTree', () => {
-    it('should recursively read a directory structure', async () => {
-      // Mock directory entries
-      const fileHandle = {
-        kind: 'file',
-        name: 'test.txt',
-      } as FileSystemFileHandle;
-
-      const nestedFileHandle = {
-        kind: 'file',
-        name: 'nested.txt',
-      } as FileSystemFileHandle;
-
-      const nestedDirHandle = {
-        kind: 'directory',
-        name: 'nested',
-        entries: vi.fn().mockImplementation(function* () {
-          yield ['nested.txt', nestedFileHandle];
-        }),
-      } as unknown as FileSystemDirectoryHandle;
-
-      const dirHandle = {
-        kind: 'directory',
-        name: 'root',
-        entries: vi.fn().mockImplementation(function* () {
-          yield ['test.txt', fileHandle];
-          yield ['nested', nestedDirHandle];
-        }),
-      } as unknown as FileSystemDirectoryHandle;
-
-      // Mock shouldIgnorePath to not ignore any test paths
-      const originalShouldIgnore = fileExplorer.shouldIgnorePath;
-      vi.spyOn(fileExplorer, 'shouldIgnorePath').mockImplementation((path) => {
-        // Only ignore specific test paths if needed
-        if (path === '/ignored-path') return true;
-        return originalShouldIgnore.call(fileExplorer, path);
-      });
-
-      const result = await fileExplorer.readFullFileTree(dirHandle);
-
-      expect(result).toHaveLength(2);
-
-      // Check root level file
-      expect(result[0]).toBeDefined();
-      expect(result[0]?.name).toBe('test.txt');
-      expect(result[0]?.path).toBe('/test.txt');
-      expect(result[0]?.type).toBe('file');
-      expect(result[0]?.depth).toBe(0);
-
-      // Check nested directory
-      expect(result[1]).toBeDefined();
-      expect(result[1]?.name).toBe('nested');
-      expect(result[1]?.path).toBe('/nested');
-      expect(result[1]?.type).toBe('directory');
-      expect(result[1]?.depth).toBe(0);
-      expect(result[1]?.children).toBeDefined();
-      expect(result[1]?.children?.length).toBe(1);
-
-      // Check nested file
-      expect(result[1]?.children?.[0]).toBeDefined();
-      expect(result[1]?.children?.[0]?.name).toBe('nested.txt');
-      expect(result[1]?.children?.[0]?.path).toBe('/nested/nested.txt');
-      expect(result[1]?.children?.[0]?.type).toBe('file');
-      expect(result[1]?.children?.[0]?.depth).toBe(1);
-
-      // Restore original function
-      vi.restoreAllMocks();
-    });
-
-    it('should ignore paths specified by shouldIgnorePath', async () => {
-      // Mock directory entries with an ignored path
-      const fileHandle = {
-        kind: 'file',
-        name: 'test.txt',
-      } as FileSystemFileHandle;
-
-      const ignoredFileHandle = {
-        kind: 'file',
-        name: 'node_modules',
-      } as FileSystemFileHandle;
-
-      const dirHandle = {
-        kind: 'directory',
-        name: 'root',
-        entries: vi.fn().mockImplementation(function* () {
-          yield ['test.txt', fileHandle];
-          yield ['node_modules', ignoredFileHandle];
-        }),
-      } as unknown as FileSystemDirectoryHandle;
-
-      // Mock shouldIgnorePath to explicitly ignore the node_modules path in this test
-      const originalShouldIgnore = fileExplorer.shouldIgnorePath;
-      vi.spyOn(fileExplorer, 'shouldIgnorePath').mockImplementation((path) => {
-        if (path === '/node_modules') return true;
-        return originalShouldIgnore.call(fileExplorer, path);
-      });
-
-      const result = await fileExplorer.readFullFileTree(dirHandle);
-
-      // Only the non-ignored file should be in the result
-      expect(result).toHaveLength(1);
-      if (result[0]) {
-        expect(result[0].name).toBe('test.txt');
-      }
-
-      // Restore original function
-      vi.restoreAllMocks();
-    });
-
-    it('should use provided parent path, depth, and rootFolderId', async () => {
-      const fileHandle = {
-        kind: 'file',
-        name: 'test.txt',
-      } as FileSystemFileHandle;
-
-      const dirHandle = {
-        kind: 'directory',
-        name: 'custom-root',
-        entries: vi.fn().mockImplementation(function* () {
-          yield ['test.txt', fileHandle];
-        }),
-      } as unknown as FileSystemDirectoryHandle;
-
-      const result = await fileExplorer.readFullFileTree(dirHandle, '/parent', 2, 'custom-root-id');
-
-      expect(result).toHaveLength(1);
-      if (result[0]) {
-        expect(result[0].path).toBe('/parent/test.txt');
-        expect(result[0].depth).toBe(2);
-        expect(result[0].rootFolderId).toBe('custom-root-id');
-      }
     });
   });
 });

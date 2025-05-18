@@ -11,5 +11,7 @@ export * from './path-filter';
 export * from './tree-generator';
 export * from './selection-utils';
 export * from './hash-utils';
+export * from './report-generator';
+export * from './file-system-utils';
 
 export type { ColorScheme, FolderColors };

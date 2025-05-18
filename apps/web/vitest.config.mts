@@ -2,6 +2,12 @@ import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 
 export default defineConfig({
+  optimizeDeps: {
+    include: [
+      '@brainstrike/hooks',
+      '@brainstrike/ui',
+    ],
+  },
   test: {
     environment: 'jsdom',
     globals: true,
@@ -19,5 +25,6 @@ export default defineConfig({
       '@brainstrike/file-explorer-hooks': resolve(__dirname, '../../packages/file-explorer-hooks/src'),
       '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
     },
+    preserveSymlinks: true,
   },
 }); 

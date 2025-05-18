@@ -33,7 +33,9 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "minimatch": "^10.0.1"
+    "minimatch": "^10.0.1",
+    "file-saver": "2.0.5",
+    "@types/file-saver": "2.0.7"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",

@@ -52,10 +52,17 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
 }));
-vi.mock('@/hooks/use-report-generation', () => ({
-  useReportGeneration: () => ({}),
+vi.mock('@/hooks/use-file-tree-persistence', () => ({
+  useFileTreePersistence: () => ({}),
 }));
-vi.mock('@/hooks/use-report-manager', () => ({ useReportManager: () => ({}) }));
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...actual,
+    useReportGeneration: () => ({}),
+    useReportManager: () => ({}),
+  };
+});
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set(),

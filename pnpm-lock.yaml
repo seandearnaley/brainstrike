@@ -302,6 +302,12 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      '@types/file-saver':
+        specifier: 2.0.7
+        version: 2.0.7
+      file-saver:
+        specifier: 2.0.5
+        version: 2.0.5
       minimatch:
         specifier: ^10.0.1
         version: 10.0.1

@@ -11,7 +11,6 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
-import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
@@ -44,10 +43,11 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
     ...original,
     useUndoableAction: () => ({ performUndoableAction: vi.fn() }),
     useQuickFilter: vi.fn(),
+    useReportGeneration: vi.fn(),
+    useReportManager: vi.fn(),
   };
 });
 vi.mock('../../../../hooks/use-file-explorer-settings');
-vi.mock('../../../../hooks/use-report-generation');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
@@ -231,11 +231,6 @@ const mockSettings = {
   updateSettings: vi.fn(),
 };
 
-// Mock implementation for useReportGeneration
-(useReportGeneration as ReturnType<typeof vi.fn>).mockReturnValue({
-  generateReportWithContent: mockGenerateReportWithContent,
-});
-
 // "File Content Loading" test suite, extracted from FileExplorer.test.tsx
 describe('File Content Loading', () => {
   beforeEach(() => {
@@ -282,7 +277,8 @@ describe('File Content Loading', () => {
     });
 
     // Setup useReportGeneration mock correctly in beforeEach
-    (useReportGeneration as ReturnType<typeof vi.fn>).mockReturnValue({
+    const hooks = require('@brainstrike/hooks');
+    hooks.useReportGeneration.mockReturnValue({
       generateReportWithContent: mockGenerateReportWithContent,
     });
 

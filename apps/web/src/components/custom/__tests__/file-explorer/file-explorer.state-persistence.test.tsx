@@ -23,9 +23,13 @@ vi.mock('@/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
 }));
 
-vi.mock('@/hooks/use-report-generation', () => ({
-  useReportGeneration: () => ({}),
-}));
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...actual,
+    useReportGeneration: () => ({}),
+  };
+});
 
 vi.mock('@/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
