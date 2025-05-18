@@ -26,23 +26,17 @@ export function addTrailingSlash(url: string): string {
  * @returns Joined URL
  */
 export function joinUrlParts(...parts: string[]): string {
-  return parts
+  const joined = parts
     .map((part, i) => {
       if (i === 0) {
-        // Keep trailing slash on first part if it exists
-        return part.replace(/\/+$/, '/');
+        return part.replace(/\/+$/, '');
       }
-
-      if (i === parts.length - 1) {
-        // Keep leading slash on last part if it exists
-        return part.replace(/^\/+/, '/');
-      }
-
-      // Remove both leading and trailing slashes for middle parts
-      return part.replace(/^\/+/, '').replace(/\/+$/, '');
+      return part.replace(/^\/+|\/+$/g, '');
     })
-    .join('')
-    .replace(/\/+/g, '/'); // Replace multiple consecutive slashes with a single one
+    .filter(Boolean)
+    .join('/');
+
+  return joined.replace(/(?<!:)\/+/g, '/');
 }
 
 /**
