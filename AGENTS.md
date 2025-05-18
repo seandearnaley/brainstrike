@@ -19,7 +19,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 
 ## Development Environment & Tips
 
-*   **Node.js**: Use Node.js version 18.x or higher.
+*   **Node.js**: Use Node.js version 22.x or higher.
 *   **Package Manager**: This project uses `pnpm`. Install dependencies from the root of the monorepo:
     ```bash
     pnpm install

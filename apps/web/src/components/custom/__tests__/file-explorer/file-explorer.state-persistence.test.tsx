@@ -15,7 +15,7 @@ vi.mock('@/hooks/use-file-system', () => ({
   useFileSystem: () => ({}),
 }));
 
-vi.mock('@/hooks/use-quick-filter', () => ({
+vi.mock('@brainstrike/hooks', () => ({
   useQuickFilter: () => ({}),
 }));
 

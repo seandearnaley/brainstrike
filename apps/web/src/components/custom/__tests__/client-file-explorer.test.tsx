@@ -179,4 +179,23 @@ describe('ClientFileExplorer', () => {
       expect.any(Error)
     );
   });
+
+  it('shows fallback when FileExplorer import fails', async () => {
+    vi.resetModules();
+    vi.doMock('../file-explorer', () => {
+      throw new Error('import error');
+    });
+    vi.unmock('react');
+
+    const { default: ClientFileExplorerFail } = await import('../client-file-explorer');
+
+    render(<ClientFileExplorerFail />);
+
+    expect(
+      await screen.findByText(
+        'Failed to load File Explorer component. Please check the console for details.'
+      )
+    ).toBeInTheDocument();
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Error loading FileExplorer:', expect.any(Error));
+  });
 });
