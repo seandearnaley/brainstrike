@@ -16,7 +16,7 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
 **B. CORE RULES**
 
 1.  **TECHNOLOGY STACK & VERSIONS**
-    *   Use Node.js >= 18.x (as required by `apps/web`)
+    *   Use Node.js >= 22.x (as required by `apps/web`)
     *   Vite latest stable version (for `apps/web`)
     *   TypeScript for all new code (Leverage shared types from `@brainstrike/types`)
     *   React 19+ with functional components and hooks only (Leverage shared hooks from `@brainstrike/hooks`)
