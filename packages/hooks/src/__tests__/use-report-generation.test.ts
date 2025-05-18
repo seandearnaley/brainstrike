@@ -1,12 +1,16 @@
+import { generateReport } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateReport } from '../../utils/report-generator';
 import { useReportGeneration } from '../use-report-generation';
 
 // Mock the report generator
-vi.mock('../../utils/report-generator', () => ({
-  generateReport: vi.fn(),
-}));
+vi.mock('@brainstrike/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/utils')>();
+  return {
+    ...actual,
+    generateReport: vi.fn(),
+  };
+});
 
 describe('useReportGeneration', () => {
   const mockSelectedFiles = new Set<string>(['file1.ts', 'file2.ts']);

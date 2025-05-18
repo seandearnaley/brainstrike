@@ -1,5 +1,5 @@
+import { generateReport } from '@brainstrike/utils';
 import { useCallback, useState } from 'react';
-import { generateReport } from '../utils/report-generator';
 
 interface UseReportGenerationProps {
   selectedFiles: Set<string>;

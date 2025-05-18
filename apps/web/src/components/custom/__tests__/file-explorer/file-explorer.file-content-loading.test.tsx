@@ -5,13 +5,11 @@
 */
 
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
-import { useQuickFilter } from '@brainstrike/hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
-import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
@@ -38,16 +36,20 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   })),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
+const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
+  mockUseQuickFilter: vi.fn(),
+  mockUseReportGeneration: vi.fn(),
+  mockUseReportManager: vi.fn(),
+}));
+vi.mock('@brainstrike/hooks', () => {
   return {
-    ...original,
     useUndoableAction: () => ({ performUndoableAction: vi.fn() }),
-    useQuickFilter: vi.fn(),
+    useQuickFilter: mockUseQuickFilter,
+    useReportGeneration: mockUseReportGeneration,
+    useReportManager: mockUseReportManager,
   };
 });
 vi.mock('../../../../hooks/use-file-explorer-settings');
-vi.mock('../../../../hooks/use-report-generation');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
@@ -231,11 +233,6 @@ const mockSettings = {
   updateSettings: vi.fn(),
 };
 
-// Mock implementation for useReportGeneration
-(useReportGeneration as ReturnType<typeof vi.fn>).mockReturnValue({
-  generateReportWithContent: mockGenerateReportWithContent,
-});
-
 // "File Content Loading" test suite, extracted from FileExplorer.test.tsx
 describe('File Content Loading', () => {
   beforeEach(() => {
@@ -275,15 +272,20 @@ describe('File Content Loading', () => {
     });
 
     // Setup useQuickFilter mock correctly in beforeEach
-    (useQuickFilter as ReturnType<typeof vi.fn>).mockReturnValue({
+    mockUseQuickFilter.mockReturnValue({
       quickFilter: '',
       setQuickFilter: vi.fn(),
       filteredTree: mockFilteredTree, // Use the mock tree
     });
 
     // Setup useReportGeneration mock correctly in beforeEach
-    (useReportGeneration as ReturnType<typeof vi.fn>).mockReturnValue({
+    mockUseReportGeneration.mockReturnValue({
       generateReportWithContent: mockGenerateReportWithContent,
+    });
+
+    mockUseReportManager.mockReturnValue({
+      handleDownloadReport: vi.fn(),
+      handleCopyReport: vi.fn(),
     });
 
     // Reset file contents mock

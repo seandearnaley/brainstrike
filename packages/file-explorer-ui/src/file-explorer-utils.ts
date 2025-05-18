@@ -1,26 +1,15 @@
 // import path from 'node:path'; // Removed for browser compatibility
 import type { IFileNode } from '@brainstrike/types';
-import { IGNORED_PATHS } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
+// Removed IGNORED_PATHS import as shouldIgnorePath (which uses it) is moved
+import { fileFilter } from '@brainstrike/utils'; // This should be okay, utils is a sibling
 
-function normalizePath(pathString: string): string {
-  // Remove duplicate slashes, handle leading slash
-  return pathString.replace(/\/+/g, '/').replace(/^\/+/, '');
-}
+// Removed normalizePath, shouldIgnorePath, and readFullFileTree functions as they are moved to @brainstrike/utils/file-system-utils
 
 /**
  * Utilities for exploring and manipulating file trees
  */
 export const fileExplorer = {
-  /**
-   * Checks if a path should be ignored based on predefined patterns
-   */
-  shouldIgnorePath(pathString: string): boolean {
-    const normalizedPath = normalizePath(pathString);
-    return IGNORED_PATHS.some((ignoredPath) =>
-      fileFilter.matchWildcard(normalizedPath, ignoredPath)
-    );
-  },
+  // shouldIgnorePath is removed
 
   /**
    * Gets all file paths in a directory recursively
@@ -143,52 +132,5 @@ export const fileExplorer = {
     }
 
     return lines.join('\n');
-  },
-
-  /**
-   * Reads the full file tree recursively from a directory handle
-   */
-  async readFullFileTree(
-    directoryHandle: FileSystemDirectoryHandle,
-    parentPath = '',
-    depth = 0,
-    rootFolderId = directoryHandle.name
-  ): Promise<IFileNode[]> {
-    const entries: IFileNode[] = [];
-
-    for await (const [name, handle] of directoryHandle.entries()) {
-      const path = `${parentPath}/${name}`;
-      if (this.shouldIgnorePath(path)) continue;
-
-      if (handle.kind === 'file') {
-        entries.push({
-          name,
-          path,
-          depth,
-          type: 'file',
-          handle: handle as FileSystemFileHandle,
-          selectionState: 'unchecked',
-          rootFolderId,
-        });
-      } else if (handle.kind === 'directory') {
-        const children = await this.readFullFileTree(
-          handle as FileSystemDirectoryHandle,
-          path,
-          depth + 1,
-          rootFolderId
-        );
-        entries.push({
-          name,
-          path,
-          depth,
-          type: 'directory',
-          children,
-          handle: handle as FileSystemDirectoryHandle,
-          selectionState: 'unchecked',
-          rootFolderId,
-        });
-      }
-    }
-    return entries;
   },
 };
