@@ -44,6 +44,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleSelectionChange: vi.fn(),
     wouldExceedSelectionLimit: vi.fn(() => false),
   })),
+  useToastManager: () => ({}),
 }));
 
 // Mock all other required hooks with empty implementations
@@ -67,7 +68,6 @@ vi.mock('@/hooks/use-report-generation', () => ({
   useReportGeneration: () => ({}),
 }));
 vi.mock('@/hooks/use-report-manager', () => ({ useReportManager: () => ({}) }));
-vi.mock('@/hooks/use-toast-manager', () => ({ useToastManager: () => ({}) }));
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set(),

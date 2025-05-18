@@ -32,10 +32,36 @@ function MyComponent() {
 }
 ```
 
+### `useUndoableAction`
+
+```tsx
+import { useUndoableAction } from "@brainstrike/hooks";
+
+function DeleteButton({ file }: { file: string }) {
+  const { performUndoableAction } = useUndoableAction<string>();
+
+  return (
+    <button
+      onClick={() =>
+        performUndoableAction(file, file, {
+          actionName: "Deleted file",
+          itemDescription: file,
+          onUndo: (f) => {
+            // restore the file here
+          },
+        })
+      }
+    >
+      Delete
+    </button>
+  );
+}
+```
+
 ## Available Hooks
 
 - **useDebouncedValue**: Creates a debounced version of a value
-- **useToastManager**: Simplifies toast notification management
+- **useUndoableAction**: Allows actions to be reverted with a toast-based undo
 
 ## Development
 
