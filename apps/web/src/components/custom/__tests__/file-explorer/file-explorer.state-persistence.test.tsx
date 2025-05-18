@@ -31,7 +31,7 @@ vi.mock('@/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
 }));
 
-vi.mock('@/hooks/use-toast-manager', () => ({
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({}),
 }));
 
