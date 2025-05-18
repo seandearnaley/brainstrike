@@ -30,8 +30,6 @@ const FileExplorerSidebar = lazy(() =>
   }))
 );
 
-// MIGRATION: FileExplorerMainPanel is now provided by @brainstrike/file-explorer-ui.
-// Remove local lazy import and use this package version.
 const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
     default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
