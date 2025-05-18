@@ -31,7 +31,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "minimatch": "^10.0.1"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",
