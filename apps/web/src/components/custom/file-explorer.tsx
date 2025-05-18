@@ -14,6 +14,10 @@ import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
+import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
+import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
+import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
+import { LoadingFallback } from '@brainstrike/ui';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
@@ -33,18 +37,6 @@ const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
     default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
   }))
-);
-
-import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
-// Import lightweight components directly
-import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
-import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
-
-// Loading fallback component
-const LoadingComponent = () => (
-  <div className="flex items-center justify-center h-full">
-    <div className="animate-pulse">Loading...</div>
-  </div>
 );
 
 // Log successful imports to help with debugging
@@ -279,7 +271,7 @@ const FileExplorer: React.FC = () => {
                 onExpandAll={expandAll}
                 onCollapseAll={collapseAll}
               />
-              <Suspense fallback={<LoadingComponent />}>
+              <Suspense fallback={<LoadingFallback />}>
                 <FileExplorerSidebar
                   rootDirectoryHandle={rootDirectoryHandle}
                   treeError={treeError}
@@ -298,7 +290,7 @@ const FileExplorer: React.FC = () => {
               </Suspense>
             </div>
             <div className="w-full md:w-1/2 @container/content flex flex-col overflow-hidden border-t md:border-t-0 md:border-l px-2 bg-card/50">
-              <Suspense fallback={<LoadingComponent />}>
+              <Suspense fallback={<LoadingFallback />}>
                 <FileExplorerMainPanel
                   rootDirectoryHandle={rootDirectoryHandle}
                   selectedFiles={selectedFilePaths}

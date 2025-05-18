@@ -1,0 +1,18 @@
+import type { ReactNode } from 'react';
+import { cn } from './lib/utils';
+
+export interface LoadingFallbackProps {
+  /** The message to display while loading */
+  message?: ReactNode;
+}
+
+/**
+ * A centered loading placeholder with pulse animation.
+ */
+export function LoadingFallback({ message = 'Loading...' }: LoadingFallbackProps) {
+  return (
+    <div className={cn('flex items-center justify-center h-full')}>
+      <div className="animate-pulse">{message}</div>
+    </div>
+  );
+}
