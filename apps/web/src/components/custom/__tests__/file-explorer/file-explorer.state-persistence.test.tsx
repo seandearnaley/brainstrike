@@ -25,6 +25,14 @@ vi.mock('@brainstrike/hooks', () => ({
   useReportGeneration: mockUseReportGeneration,
 }));
 
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...actual,
+    useReportGeneration: () => ({}),
+  };
+});
+
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
 }));
@@ -35,6 +43,7 @@ vi.mock('@/hooks/use-report-manager', () => ({
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({}),
+  useFileExplorerSettings: () => ({}),
 }));
 
 vi.mock('@/hooks/use-selection-manager', () => ({

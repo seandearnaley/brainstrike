@@ -45,13 +45,11 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     wouldExceedSelectionLimit: vi.fn(() => false),
   })),
   useToastManager: () => ({}),
+  useFileExplorerSettings: vi.fn(),
 }));
 
 // Mock all other required hooks with empty implementations
 
-vi.mock('@/hooks/use-file-explorer-settings', () => ({
-  useFileExplorerSettings: () => ({}),
-}));
 vi.mock('@/hooks/use-file-tree-persistence', () => ({
   useFileTreePersistence: () => ({}),
 }));

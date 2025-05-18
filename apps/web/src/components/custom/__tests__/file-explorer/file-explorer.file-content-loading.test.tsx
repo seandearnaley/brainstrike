@@ -4,12 +4,11 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
-import { useFileSystem } from '@brainstrike/file-explorer-hooks';
+import { useFileExplorerSettings, useFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
-import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
 import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
@@ -34,6 +33,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleDirectorySelectError: vi.fn(),
     handleSelectionLimitError: vi.fn(),
   })),
+  useFileExplorerSettings: vi.fn(),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
 const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
@@ -49,7 +49,6 @@ vi.mock('@brainstrike/hooks', () => {
     useReportManager: mockUseReportManager,
   };
 });
-vi.mock('../../../../hooks/use-file-explorer-settings');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
