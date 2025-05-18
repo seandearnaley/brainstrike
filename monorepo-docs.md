@@ -151,6 +151,27 @@ import { Button, Input } from '@brainstrike/ui';
 - **Biome** is used for linting and formatting (see `biome.json`).
 - **Strict TypeScript** everywhere; shared types live in `packages/types`.
 
+### 6.1 Mocking Workspace Packages
+
+When writing tests that import other workspace packages (for example,
+`@brainstrike/hooks` consuming components from `@brainstrike/ui`), avoid
+calling `importOriginal` inside the mock factory. This can load multiple
+copies of a module and break interdependent mocks. Instead, define
+hoisted mocks using `vi.hoisted` so mock exports are available before
+`vi.mock` runs.
+
+```ts
+const { mockUseFoo } = vi.hoisted(() => ({
+  mockUseFoo: vi.fn(),
+}));
+vi.mock('@brainstrike/hooks', () => ({
+  useFoo: mockUseFoo,
+}));
+```
+
+Hoisted mocks keep tests deterministic and are recommended whenever
+mocking packages like `@brainstrike/hooks` and `@brainstrike/ui`.
+
 ## 7. Key Conventions & Gotchas
 
 - **Never import app code into packages.** Packages must remain decoupled.
