@@ -11,35 +11,61 @@ function deferred<T>() {
 }
 
 describe('useLoadingManager', () => {
-  it('does not load already loaded keys', () => {
-    const loadFn = vi.fn();
-    renderHook(() => useLoadingManager<string>(['a', 'b'], (k) => k === 'a', loadFn));
-    expect(loadFn).toHaveBeenCalledTimes(1);
-    expect(loadFn).toHaveBeenCalledWith('b');
+  it('does not load already loaded keys', async () => {
+    const stableLoadFn = vi.fn();
+    const stableKeys = ['a', 'b'];
+    const stableIsLoaded = vi.fn((k: string) => k === 'a');
+
+    renderHook(({ keys, isLoaded, loadFn }) => useLoadingManager<string>(keys, isLoaded, loadFn), {
+      initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+    });
+
+    await waitFor(() => {
+      expect(stableLoadFn).toHaveBeenCalledTimes(1);
+      expect(stableLoadFn).toHaveBeenCalledWith('b');
+    });
+    expect(stableIsLoaded).toHaveBeenCalledWith('a');
+    expect(stableIsLoaded).toHaveBeenCalledWith('b');
   });
 
   it('tracks loading state until resolved', async () => {
     const def = deferred<void>();
-    const loadFn = vi.fn(() => def.promise);
-    const { result } = renderHook(() => useLoadingManager<string>(['key1'], () => false, loadFn));
+    const stableLoadFn = vi.fn(() => def.promise);
+    const stableKeys = ['key1'];
+    const stableIsLoaded = vi.fn((_k: string) => false);
 
-    // Initially loading contains 'key1'
-    expect(loadFn).toHaveBeenCalledWith('key1');
-    expect(result.current.loading.has('key1')).toBe(true);
+    const { result } = renderHook(
+      ({ keys, isLoaded, loadFn }) => useLoadingManager<string>(keys, isLoaded, loadFn),
+      {
+        initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+      }
+    );
 
-    // Resolve the promise
-    act(() => {
+    await waitFor(() => expect(result.current.loading.has('key1')).toBe(true));
+    expect(stableLoadFn).toHaveBeenCalledWith('key1');
+    expect(stableIsLoaded).toHaveBeenCalledWith('key1');
+
+    await act(async () => {
       def.resolve();
+      await Promise.resolve();
     });
 
-    // Wait for key to be removed from loading set
     await waitFor(() => expect(result.current.loading.has('key1')).toBe(false));
   });
 
   it('handles empty keys', () => {
-    const loadFn = vi.fn();
-    const { result } = renderHook(() => useLoadingManager<number>([], () => false, loadFn));
-    expect(loadFn).not.toHaveBeenCalled();
+    const stableLoadFn = vi.fn();
+    const stableKeys: number[] = [];
+    const stableIsLoaded = vi.fn((_k: number) => false);
+
+    const { result } = renderHook(
+      ({ keys, isLoaded, loadFn }) => useLoadingManager<number>(keys, isLoaded, loadFn),
+      {
+        initialProps: { keys: stableKeys, isLoaded: stableIsLoaded, loadFn: stableLoadFn },
+      }
+    );
+    expect(stableLoadFn).not.toHaveBeenCalled();
     expect(result.current.loading.size).toBe(0);
+    expect(stableIsLoaded).not.toHaveBeenCalled();
   });
 });

@@ -2,22 +2,22 @@ import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
+import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
+import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
+import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
+import { useQuickFilter } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
+import { LoadingFallback } from '@brainstrike/ui';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
 import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
-import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
-import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
-import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
-import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
-import { LoadingFallback } from '@brainstrike/ui';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>

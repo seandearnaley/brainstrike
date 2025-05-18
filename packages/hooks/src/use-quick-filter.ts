@@ -1,7 +1,7 @@
-// New file: useQuickFilter hook
-import { useDebouncedValue } from './use-debounced-value';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
+// New file: useQuickFilter hook
+import { useDebouncedValue } from './use-debounced-value';
 
 interface FilterPatterns {
   includes: string[];

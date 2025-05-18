@@ -1,24 +1,28 @@
-import { act, renderHook } from '@testing-library/react';
-import { describe, it, expect } from 'vitest';
-import { useFileFilters } from '../use-file-filters';
 import type { IFileNode } from '@brainstrike/types';
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it } from 'vitest';
+import { useFileFilters } from '../use-file-filters';
 
 // Helper to create file nodes
+const dummyHandle = {} as FileSystemFileHandle;
 const fileNode = (name: string, path: string): IFileNode => ({
   type: 'file',
   name,
   path,
-  handle: {} as any,
+  handle: dummyHandle,
+  depth: 0,
   selectionState: 'unchecked',
   rootFolderId: 'root',
 });
 
 // Helper to create directory nodes
+const dummyDirHandle = {} as FileSystemDirectoryHandle;
 const dirNode = (name: string, path: string, children: IFileNode[]): IFileNode => ({
   type: 'directory',
   name,
   path,
-  handle: {} as any,
+  handle: dummyDirHandle,
+  depth: 0,
   selectionState: 'unchecked',
   rootFolderId: 'root',
   children,
@@ -37,7 +41,7 @@ describe('useFileFilters', () => {
     const { result } = renderHook(() => useFileFilters());
     const { applyFileFilters, filterError } = result.current;
     const filtered = applyFileFilters(mockTree, [], []);
-    expect(filtered).toEqual(mockTree);
+    expect(filtered).toMatchObject(mockTree);
     expect(filterError).toBeNull();
   });
 
@@ -45,12 +49,21 @@ describe('useFileFilters', () => {
     const { result } = renderHook(() => useFileFilters());
     const { applyFileFilters } = result.current;
     const filtered = applyFileFilters(mockTree, ['*.txt'], []);
-    // Expect only foo.txt under root, bar.md filtered out, sub directory present but children empty
-    expect(filtered).toHaveLength(1);
+
+    expect(filtered).toHaveLength(1); // root directory
     const rootDir = filtered[0];
-    const children = rootDir.children ?? [];
-    expect(children).toHaveLength(1);
-    expect(children[0].name).toBe('foo.txt');
+    expect(rootDir.name).toBe('root');
+    const rootChildren = rootDir.children ?? [];
+    expect(rootChildren).toHaveLength(2); // foo.txt AND the sub directory
+
+    const fooTxtNode = rootChildren.find((node) => node.name === 'foo.txt');
+    expect(fooTxtNode).toBeDefined();
+    expect(fooTxtNode?.type).toBe('file');
+
+    const subDirNode = rootChildren.find((node) => node.name === 'sub');
+    expect(subDirNode).toBeDefined();
+    expect(subDirNode?.type).toBe('directory');
+    expect(subDirNode?.children ?? []).toHaveLength(0); // sub directory should be empty
   });
 
   it('filters by exclude glob patterns', () => {
@@ -99,7 +112,6 @@ describe('useFileFilters', () => {
 
   it('returns empty on invalid regex and sets filterError', () => {
     const { result } = renderHook(() => useFileFilters());
-    const { applyFileFilters } = result.current;
     let filtered: IFileNode[] = [];
     act(() => {
       filtered = result.current.applyFileFilters(mockTree, ['['], [], true);

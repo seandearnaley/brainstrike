@@ -1,9 +1,9 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
+import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useState } from 'react';
 import { useFileContentLoading } from './use-file-content-loading';
-import { useFileFilters } from '@brainstrike/hooks';
 import type { LoadingProgressState } from './use-file-tree';
 import { useFileTree } from './use-file-tree';
 

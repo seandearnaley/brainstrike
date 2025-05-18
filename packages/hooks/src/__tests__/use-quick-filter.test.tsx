@@ -1,7 +1,7 @@
-import { act, renderHook } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
-import { useQuickFilter } from '../use-quick-filter';
 import type { IFileNode } from '@brainstrike/types';
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+import { useQuickFilter } from '../use-quick-filter';
 
 // Mock the debounced hook to return the filter immediately
 vi.mock('../use-debounced-value', () => ({
@@ -9,16 +9,29 @@ vi.mock('../use-debounced-value', () => ({
 }));
 
 describe('useQuickFilter', () => {
+  const dummyHandle = {} as FileSystemFileHandle;
+  const dummyDirHandle = {} as FileSystemDirectoryHandle;
+  const fileNode = (name: string, path: string): IFileNode => ({
+    type: 'file',
+    name,
+    path,
+    handle: dummyHandle,
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
+  });
+  const dirNode = (name: string, path: string, children: IFileNode[]): IFileNode => ({
+    type: 'directory',
+    name,
+    path,
+    handle: dummyDirHandle,
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: 'root',
+    children,
+  });
   const mockTree: IFileNode[] = [
-    {
-      type: 'directory',
-      name: 'src',
-      path: 'src',
-      children: [
-        { type: 'file', name: 'foo.txt', path: 'src/foo.txt' },
-        { type: 'file', name: 'bar.txt', path: 'src/bar.txt' },
-      ],
-    },
+    dirNode('src', 'src', [fileNode('foo.txt', 'src/foo.txt'), fileNode('bar.txt', 'src/bar.txt')]),
   ];
 
   it('returns original tree when filter is empty', () => {

@@ -1,6 +1,6 @@
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
+import { ErrorFallback, LoadingFallback, UnsupportedFeature } from '@brainstrike/ui';
 import React, { Suspense, useState, useEffect } from 'react';
-import { LoadingFallback, UnsupportedFeature, ErrorFallback } from '@brainstrike/ui';
 
 // Lazy load the file explorer component with better error handling for Vite
 const FileExplorer = React.lazy(() => {

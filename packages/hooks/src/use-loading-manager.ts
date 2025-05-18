@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * A generic hook to manage asynchronous loading state for a set of keys.
@@ -20,26 +20,46 @@ export function useLoadingManager<K>(
 
   const handleLoad = useCallback(
     async (key: K) => {
-      setLoading((prev) => new Set(prev).add(key));
+      let shouldInitiateLoad = false;
+      setLoading((prevLoading) => {
+        if (prevLoading.has(key)) {
+          // Already loading or load initiated in a concurrent call, no state change needed.
+          return prevLoading;
+        }
+        shouldInitiateLoad = true;
+        const newLoading = new Set(prevLoading);
+        newLoading.add(key);
+        return newLoading;
+      });
+
+      if (!shouldInitiateLoad) {
+        // If the key was already in the loading set, don't re-execute loadFn.
+        return;
+      }
+
       try {
         await loadFn(key);
       } finally {
-        setLoading((prev) => {
-          const next = new Set(prev);
-          next.delete(key);
-          return next;
+        setLoading((prevLoading) => {
+          const newLoading = new Set(prevLoading);
+          newLoading.delete(key);
+          return newLoading;
         });
       }
     },
-    [loadFn]
+    [loadFn] // setLoading is stable and not needed as a dep for useCallback
   );
 
   useEffect(() => {
     for (const key of keys) {
+      // The guard against re-initiating an already active load is now within handleLoad.
       if (!isLoaded(key)) {
         handleLoad(key);
       }
     }
+    // Dependencies: keys, isLoaded, and handleLoad (which depends on loadFn).
+    // `loading` state is managed internally by handleLoad and doesn't need to be a dependency here
+    // to trigger the initiation of loads.
   }, [keys, isLoaded, handleLoad]);
 
   return { loading };

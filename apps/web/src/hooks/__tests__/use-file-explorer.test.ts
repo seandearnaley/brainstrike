@@ -6,20 +6,31 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileNode } from '../../test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 import { useFileExplorer } from '../use-file-explorer';
-import { useFileFilters } from '../use-file-filters';
 import { useFileTree } from '../use-file-tree';
 
 vi.mock('@brainstrike/file-explorer', () => ({ useFileExplorerStore: vi.fn() }));
 vi.mock('@brainstrike/file-explorer-hooks', () => ({ useFileSystem: vi.fn() }));
 vi.mock('../use-file-tree', () => ({ useFileTree: vi.fn() }));
 vi.mock('../use-file-content-loading', () => ({ useFileContentLoading: vi.fn() }));
-vi.mock('../use-file-filters', () => ({ useFileFilters: vi.fn() }));
+
+// Define mockApplyFileFilters *before* it's used in the subsequent mock
+const mockApplyFileFilters = vi.fn();
+
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...original,
+    useFileFilters: vi.fn(() => ({
+      applyFileFilters: mockApplyFileFilters,
+      filterError: null,
+    })),
+  };
+});
 
 const mockSelectRootDirectory = vi.fn();
 const mockRefreshTree = vi.fn();
 const mockHandleFileContentLoading = vi.fn();
 const mockClearFileContents = vi.fn();
-const mockApplyFileFilters = vi.fn();
 
 describe('useFileExplorer', () => {
   const mockRootHandle = {} as FileSystemDirectoryHandle;
@@ -29,12 +40,14 @@ describe('useFileExplorer', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockApplyFileFilters.mockClear();
 
     initialFileTree = [
       createFileNode({ name: 'file1.ts', path: '/file1.ts' }),
       createFileNode({ name: 'file2.js', path: '/file2.js' }),
     ];
     filteredTree = [initialFileTree[0] as IFileNode];
+    mockApplyFileFilters.mockReturnValue(filteredTree);
 
     vi.mocked(useFileExplorerStore).mockReturnValue({
       includeFilters: [],
@@ -65,12 +78,6 @@ describe('useFileExplorer', () => {
       error: null,
       handleFileContentLoading: mockHandleFileContentLoading,
       clearFileContents: mockClearFileContents,
-    });
-
-    mockApplyFileFilters.mockReturnValue(filteredTree);
-    vi.mocked(useFileFilters).mockReturnValue({
-      applyFileFilters: mockApplyFileFilters,
-      filterError: null,
     });
 
     onDisplayedFilePathsChange = vi.fn();
