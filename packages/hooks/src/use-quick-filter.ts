@@ -1,6 +1,7 @@
-import { useDebouncedValue } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
+// New file: useQuickFilter hook
+import { useDebouncedValue } from './use-debounced-value';
 
 interface FilterPatterns {
   includes: string[];
@@ -25,6 +26,9 @@ function parseFilterString(filter: string): FilterPatterns {
   );
 }
 
+/**
+ * A hook that provides debounced include/exclude filtering over a tree of IFileNode.
+ */
 export function useQuickFilter(fileTree: IFileNode[]) {
   const [quickFilter, setQuickFilter] = useState('');
   const debouncedFilter = useDebouncedValue(quickFilter, 150);
@@ -38,24 +42,21 @@ export function useQuickFilter(fileTree: IFileNode[]) {
       .map((node) => {
         const searchableText = [node.name.toLowerCase(), node.path.toLowerCase()].join(' ');
 
-        // Check if node matches any exclude pattern
+        // Exclude matching nodes
         const isExcluded = excludes.some((exclude) => searchableText.includes(exclude));
-
         if (isExcluded) {
           return null;
         }
 
-        // Check if node matches any include pattern (OR logic)
+        // Include logic
         const isIncluded =
           includes.length === 0 || includes.some((include) => searchableText.includes(include));
 
         if (node.type === 'directory' && node.children) {
           const filteredChildren = applyQuickFilter(node.children, filter);
-          // Show directory if it has matching children
           if (filteredChildren.length > 0) {
             return { ...node, children: filteredChildren };
           }
-          // Or if the directory itself matches the filter
           if (isIncluded) {
             return { ...node, children: [] };
           }
@@ -67,9 +68,10 @@ export function useQuickFilter(fileTree: IFileNode[]) {
       .filter(Boolean) as IFileNode[];
   }, []);
 
-  const filteredTree = useMemo(() => {
-    return applyQuickFilter(fileTree, debouncedFilter);
-  }, [fileTree, debouncedFilter, applyQuickFilter]);
+  const filteredTree = useMemo(
+    () => applyQuickFilter(fileTree, debouncedFilter),
+    [fileTree, debouncedFilter, applyQuickFilter]
+  );
 
   const clearFilter = useCallback(() => {
     setQuickFilter('');

@@ -1,23 +1,6 @@
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
+import { ErrorFallback, LoadingFallback, UnsupportedFeature } from '@brainstrike/ui';
 import React, { Suspense, useState, useEffect } from 'react';
-
-// Loading fallback component
-function FileExplorerLoading() {
-  return <div className="p-4 text-center">Loading File Explorer...</div>;
-}
-
-// Error fallback component
-function FileSystemNotSupported() {
-  return (
-    <div className="p-8 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4">File System Access</h2>
-      <p className="mb-4">
-        The File System Access API is not supported in this browser or environment. Please use a
-        modern browser like Chrome, Edge, or Opera.
-      </p>
-    </div>
-  );
-}
 
 // Lazy load the file explorer component with better error handling for Vite
 const FileExplorer = React.lazy(() => {
@@ -32,9 +15,7 @@ const FileExplorer = React.lazy(() => {
       // Return a fallback component
       return {
         default: () => (
-          <div className="p-4 text-red-500">
-            Failed to load File Explorer component. Please check the console for details.
-          </div>
+          <ErrorFallback message="Failed to load File Explorer component. Please check the console for details." />
         ),
       };
     });
@@ -70,12 +51,17 @@ export default function ClientFileExplorer() {
   }, []);
 
   if (!isSupported) {
-    return <FileSystemNotSupported />;
+    return (
+      <UnsupportedFeature
+        title="File System Access"
+        description="The File System Access API is not supported in this browser or environment. Please use a modern browser like Chrome, Edge, or Opera."
+      />
+    );
   }
 
   return (
     <FileExplorerErrorBoundary>
-      <Suspense fallback={<FileExplorerLoading />}>
+      <Suspense fallback={<LoadingFallback message="Loading File Explorer..." />}>
         <FileExplorer />
       </Suspense>
     </FileExplorerErrorBoundary>

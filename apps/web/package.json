@@ -33,7 +33,6 @@
     "dompurify": "^3.2.4",
     "file-saver": "^2.0.5",
     "lucide-react": "^0.483.0",
-    "minimatch": "^10.0.1",
     "monaco-editor": "^0.52.2",
     "playwright": "^1.50.1",
     "react": "^19",

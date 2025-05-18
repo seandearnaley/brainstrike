@@ -48,18 +48,6 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 // Mock all other required hooks with empty implementations
-vi.mock('@/hooks/use-quick-filter', () => ({
-  useQuickFilter: () => ({
-    includeFilters: [],
-    excludeFilters: [],
-    useRegex: false,
-    quickFilter: '',
-    setIncludeFilters: vi.fn(),
-    setExcludeFilters: vi.fn(),
-    setUseRegex: vi.fn(),
-    setQuickFilter: vi.fn(),
-  }),
-}));
 
 vi.mock('@/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
@@ -158,12 +146,22 @@ vi.mock('react', async () => {
   };
 });
 
-// Explicitly mock useDebouncedValue
+// Explicitly mock selected hooks from @brainstrike/hooks
 vi.mock('@brainstrike/hooks', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@brainstrike/hooks')>();
   return {
     ...mod,
     useDebouncedValue: (value: unknown) => value, // Simple pass-through mock
+    useQuickFilter: () => ({
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      quickFilter: '',
+      setIncludeFilters: vi.fn(),
+      setExcludeFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setQuickFilter: vi.fn(),
+    }),
   };
 });
 

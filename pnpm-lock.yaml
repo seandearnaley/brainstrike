@@ -86,9 +86,6 @@ importers:
       lucide-react:
         specifier: ^0.483.0
         version: 0.483.0(react@19.1.0)
-      minimatch:
-        specifier: ^10.0.1
-        version: 10.0.1
       monaco-editor:
         specifier: ^0.52.2
         version: 0.52.2
@@ -296,9 +293,18 @@ importers:
 
   packages/hooks:
     dependencies:
+      '@brainstrike/types':
+        specifier: workspace:*
+        version: link:../types
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      minimatch:
+        specifier: ^10.0.1
+        version: 10.0.1
       react:
         specifier: ^19.0.0
         version: 19.1.0

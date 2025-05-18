@@ -62,6 +62,9 @@ function DeleteButton({ file }: { file: string }) {
 
 - **useDebouncedValue**: Creates a debounced version of a value
 - **useUndoableAction**: Allows actions to be reverted with a toast-based undo
+- **useQuickFilter**: Filters a tree of IFileNode with debounced include/exclude search
+- **useFileFilters**: Applies include or exclude filters to a file tree using globs or regex
+- **useLoadingManager**: Manages asynchronous loading state for a collection of keys
 
 ## Development
 
