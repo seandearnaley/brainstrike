@@ -1,7 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-// import { mockToast } from '../../__mocks__/ui-mocks'; // TODO: This path will be invalid after move. Needs review.
 import { mockToast } from '../__mocks__/ui-mocks'; // Adjusted path assuming mock is moved/created in packages/hooks
 import { useUndoableAction } from '../use-undoable-action';
 
