@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { useFileExplorer } from '../../hooks/use-file-explorer';
 import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
-import { useQuickFilter } from '../../hooks/use-quick-filter';
+import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration } from '../../hooks/use-report-generation';
 import { useReportManager } from '../../hooks/use-report-manager';
 

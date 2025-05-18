@@ -10,7 +10,7 @@ import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import { useFileExplorerSettings } from '../../../../hooks/use-file-explorer-settings';
-import { useQuickFilter } from '../../../../hooks/use-quick-filter';
+import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration } from '../../../../hooks/use-report-generation';
 import FileExplorer from '../../file-explorer';
 
@@ -38,7 +38,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   })),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
-vi.mock('../../../../hooks/use-quick-filter');
+vi.mock('@brainstrike/hooks');
 vi.mock('../../../../hooks/use-file-explorer-settings');
 vi.mock('../../../../hooks/use-report-generation');
 vi.mock('@brainstrike/ui', async (importOriginal) => {
