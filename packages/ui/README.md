@@ -74,6 +74,9 @@ The package includes the following components:
 - Tabs
 - Toast/Toaster
 - Tooltip
+- LoadingFallback
+- ErrorFallback
+- UnsupportedFeature
 
 And utility hooks:
 
