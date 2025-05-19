@@ -39,6 +39,13 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     isAccessLoading: false,
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
   })),
+  useFileTree: vi.fn(() => ({
+    fileTree: [],
+    isLoading: false,
+    error: null,
+    refreshTree: vi.fn(),
+    loadingProgress: { loaded: 0, total: 0, phase: 'loading' },
+  })),
   useSelectionManager: vi.fn(() => ({
     selectedFilePaths: new Set(),
     handleSelectionChange: vi.fn(),

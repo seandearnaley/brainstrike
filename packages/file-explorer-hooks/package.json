@@ -19,7 +19,8 @@
   "dependencies": {
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/ui": "workspace:*"
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

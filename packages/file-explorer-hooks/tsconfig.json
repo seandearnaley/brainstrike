@@ -8,8 +8,20 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
     "declarationMap": true,
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "paths": {
+      "@brainstrike/file-explorer": ["../file-explorer/src"],
+      "@brainstrike/types": ["../types/src"],
+      "@brainstrike/ui": ["../ui/src"],
+      "@brainstrike/utils": ["../utils/src"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
-} 
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
+  "references": [
+    { "path": "../file-explorer" },
+    { "path": "../types" },
+    { "path": "../ui" },
+    { "path": "../utils" }
+  ]
+}
