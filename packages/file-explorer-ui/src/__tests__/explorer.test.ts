@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
+import { fileExplorer } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileExplorer } from '../file-explorer-utils';
 import {
   createDirectoryNode,
   createFileNode,

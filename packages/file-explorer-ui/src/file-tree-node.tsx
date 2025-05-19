@@ -3,6 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
 import { isPathSelectedInFolder } from '@brainstrike/utils';
+import { fileExplorer } from '@brainstrike/utils';
 import {
   ChevronDown,
   ChevronRight,
@@ -13,7 +14,6 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
-import { fileExplorer } from './file-explorer-utils';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
 interface IFileTreeNodeProps {

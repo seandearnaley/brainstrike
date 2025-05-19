@@ -1,16 +1,10 @@
-// import path from 'node:path'; // Removed for browser compatibility
 import type { IFileNode } from '@brainstrike/types';
-// Removed IGNORED_PATHS import as shouldIgnorePath (which uses it) is moved
-import { fileFilter } from '@brainstrike/utils'; // This should be okay, utils is a sibling
-
-// Removed normalizePath, shouldIgnorePath, and readFullFileTree functions as they are moved to @brainstrike/utils/file-system-utils
+import { fileFilter } from './path-filter';
 
 /**
  * Utilities for exploring and manipulating file trees
  */
 export const fileExplorer = {
-  // shouldIgnorePath is removed
-
   /**
    * Gets all file paths in a directory recursively
    */

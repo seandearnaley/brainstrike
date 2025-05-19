@@ -19,6 +19,9 @@ vi.mock('../../components/custom/sidebar/sidebar', () => ({
 vi.mock('@brainstrike/ui', () => ({
   __esModule: true,
   Toaster: () => <div data-testid="toaster">Toaster Mock</div>,
+  RouterProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="router-provider">{children}</div>
+  ),
   ThemeProvider: ({
     children,
     defaultTheme,

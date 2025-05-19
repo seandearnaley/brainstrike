@@ -1,9 +1,9 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileExplorerState } from '@brainstrike/types';
+import { fileExplorer } from '@brainstrike/utils';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileExplorer } from '../file-explorer-utils';
 import { FolderSelectionDialog } from '../folder-selection-dialog';
 import { createDirectoryNode } from '../test/factories/file-node';
 

@@ -26,6 +26,8 @@ export * from './navigation-sidebar';
 export * from './theme-provider';
 export * from './theme-toggle';
 export * from './theme-settings';
+export { default as RouterProvider } from './router-provider';
+export type { RouterProviderProps } from './router-provider';
 
 // Export hooks
 export * from './use-toast';
