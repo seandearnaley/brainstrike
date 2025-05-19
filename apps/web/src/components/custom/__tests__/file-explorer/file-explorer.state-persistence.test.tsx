@@ -44,14 +44,11 @@ vi.mock('@/hooks/use-report-manager', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({}),
   useFileExplorerSettings: () => ({}),
+  useFileLoadingManager: () => ({}),
 }));
 
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({}),
-}));
-
-vi.mock('@/hooks/use-file-loading-manager', () => ({
-  useFileLoadingManager: () => ({}),
 }));
 
 // Mock UI components

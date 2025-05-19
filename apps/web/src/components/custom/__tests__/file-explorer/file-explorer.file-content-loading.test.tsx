@@ -34,6 +34,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleSelectionLimitError: vi.fn(),
   })),
   useFileExplorerSettings: vi.fn(),
+  useFileLoadingManager: vi.fn(() => ({})),
 }));
 vi.mock('../../../../hooks/use-file-explorer');
 const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
