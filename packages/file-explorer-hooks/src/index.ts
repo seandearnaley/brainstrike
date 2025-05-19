@@ -5,3 +5,4 @@ export * from './use-file-explorer-settings';
 export * from './use-file-explorer';
 export * from './use-file-tree';
 export * from './use-file-content-loading';
+export * from './use-file-loading-manager';

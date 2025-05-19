@@ -9,6 +9,9 @@ import FileExplorer from '../../file-explorer';
 // Mock all components and hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileExplorer: () => ({}),
+  useToastManager: () => ({}),
+  useFileExplorerSettings: () => ({}),
+  useFileLoadingManager: () => ({}),
 }));
 
 vi.mock('@/hooks/use-file-system', () => ({
@@ -41,17 +44,8 @@ vi.mock('@/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
 }));
 
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useToastManager: () => ({}),
-  useFileExplorerSettings: () => ({}),
-}));
-
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({}),
-}));
-
-vi.mock('@/hooks/use-file-loading-manager', () => ({
-  useFileLoadingManager: () => ({}),
 }));
 
 // Mock UI components
