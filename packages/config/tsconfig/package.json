@@ -1,6 +1,9 @@
 {
 	"name": "@brainstrike/tsconfig",
 	"version": "0.0.0",
-	"private": true,
-	"license": "MIT"
+        "private": true,
+        "engines": {
+                "node": ">=22"
+        },
+        "license": "MIT"
 }

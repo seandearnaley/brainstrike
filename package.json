@@ -2,8 +2,11 @@
 	"name": "brainstrike",
 	"version": "1.0.0",
 	"description": "Brainstrike.ai",
-	"main": "index.js",
-	"scripts": {
+        "main": "index.js",
+        "engines": {
+                "node": ">=22"
+        },
+        "scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev",
 		"lint": "biome check .",
