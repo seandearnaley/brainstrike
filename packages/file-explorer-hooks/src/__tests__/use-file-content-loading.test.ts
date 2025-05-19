@@ -7,7 +7,7 @@ import { createFileNode } from '../../../file-explorer-ui/src/test/factories/fil
 import { useFileContentLoading } from '../use-file-content-loading';
 
 // Define mock implementations
-vi.mock('../../../../apps/web/src/lib/file/system', () => ({
+vi.mock('../../../utils/src/file-system', () => ({
   fileSystem: {
     readFileContent: vi.fn().mockResolvedValue('test content'),
   },
