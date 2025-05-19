@@ -7,7 +7,7 @@ Welcome to the `brainstrike` monorepo! This guide is designed to help both human
 This is a Turborepo-powered monorepo using `pnpm` as the package manager. The structure is as follows:
 
 *   **`apps/`**: Contains deployable applications.
-    *   `web`: The main Next.js web application.
+    *   `web`: The Vite + React implementation of the web application.
 *   **`packages/`**: Contains shared code, configuration, and UI components used by applications.
     *   `@brainstrike/ui`: Shared React UI components (based on shadcn/ui & Radix).
     *   `@brainstrike/hooks`: Reusable React hooks.

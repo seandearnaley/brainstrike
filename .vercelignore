@@ -28,7 +28,6 @@ docs
 dist
 out
 build
-.next
 
 # Other files to ignore
 *.log

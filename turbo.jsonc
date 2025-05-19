@@ -5,7 +5,7 @@
   // Global environment variables that affect the cache hash for ALL tasks.
   // If any of these change, the cache for all tasks will be invalidated.
   "globalEnv": [
-    "NODE_ENV" // Common variable used by many tools (e.g., React, Next.js)
+    "NODE_ENV" // Common variable used by many tools (e.g., React, bundlers)
   ],
 
   // Defines the tasks that can be run via `turbo run <taskName>`
