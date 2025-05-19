@@ -1,9 +1,9 @@
-import { stableHash } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fileSystem } from '../system';
+import { fileSystem } from '../file-system';
+import { stableHash } from '../hash-utils';
 
 // Mock the hash utility
-vi.mock('@brainstrike/utils', () => ({
+vi.mock('../hash-utils', () => ({
   stableHash: vi.fn().mockImplementation(async (input: string) => `hash-${input}`),
 }));
 
