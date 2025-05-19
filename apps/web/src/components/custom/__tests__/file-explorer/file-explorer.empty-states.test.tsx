@@ -42,6 +42,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   })),
   useToastManager: () => ({}),
   useFileExplorerSettings: vi.fn(),
+  useFileLoadingManager: () => ({}),
 }));
 
 // Mock all other required hooks with empty implementations
@@ -90,9 +91,6 @@ vi.mock('@/hooks/use-selection-manager', () => ({
     selectedFilePaths: new Set(),
     handleSelectionChange: vi.fn(),
   }),
-}));
-vi.mock('@/hooks/use-file-loading-manager', () => ({
-  useFileLoadingManager: () => ({}),
 }));
 
 // Mock UI components

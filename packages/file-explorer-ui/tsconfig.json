@@ -16,7 +16,6 @@
   "include": ["src"],
   "references": [
     { "path": "../file-explorer" },
-    { "path": "../file-explorer-hooks" },
     { "path": "../ui" },
     { "path": "../utils" },
     { "path": "../types" }
