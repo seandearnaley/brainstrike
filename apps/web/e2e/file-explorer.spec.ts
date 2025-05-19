@@ -463,15 +463,14 @@ test.describe('File Explorer Settings', () => {
     
     // Verify counter is now 2/10 (or whatever it was before reset, assuming test.ts and test2.ts are still checked)
     // Let's ensure the counter reflects the new max.
-    const counter = page.locator('output');
+    // counter is already defined with 'let' earlier in this scope.
     await expect(counter).toHaveText(/2\/10/); // If two items were selected.
 
     // Uncheck all to be clean for next tests, though beforeEach should handle root selection.
-    const file1Checkbox = page.getByRole('checkbox', { name: 'Select test.ts' });
-    const file2Checkbox = page.getByRole('checkbox', { name: 'Select test2.ts' });
+    // file1Checkbox, file2Checkbox, and folder1Checkbox are already defined in this scope.
     if (await file1Checkbox.isChecked()) await file1Checkbox.uncheck();
     if (await file2Checkbox.isChecked()) await file2Checkbox.uncheck();
-    if (await folder1Checkbox.isChecked()) await folder1Checkbox.uncheck();
+    if (await folder1Checkbox.isChecked()) await folder1Checkbox.uncheck(); // folder1Checkbox was also defined earlier
     await expect(counter).toHaveText(/0\/10/);
   });
 
