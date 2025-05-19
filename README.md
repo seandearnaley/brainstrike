@@ -16,6 +16,7 @@ BrainStrike is a 2025-ready Turbo monorepo for building AI-powered productivity 
 ## Requirements
 - Node.js 22+ (see `.nvmrc`)
 - pnpm 10+
+- Each package.json declares `"engines": { "node": ">=22" }`
 
 ## Repository Layout
 ```

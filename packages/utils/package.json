@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/utils",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "private": true,
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

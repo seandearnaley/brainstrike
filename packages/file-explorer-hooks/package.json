@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/file-explorer-hooks",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "private": true,
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
@@ -24,9 +27,10 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
+  "license": "ISC",
   "devDependencies": {
     "tsup": "^8",
     "@types/react": "^19.0.0",
     "@testing-library/react": "^16"
   }
-} 
+}

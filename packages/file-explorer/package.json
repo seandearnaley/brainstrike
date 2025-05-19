@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/file-explorer",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -30,8 +33,9 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },
+  "license": "ISC",
   "devDependencies": {
     "tsup": "^8",
     "@types/node": "^20"
   }
-} 
+}
