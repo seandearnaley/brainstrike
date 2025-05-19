@@ -1,6 +1,6 @@
+import { fileExplorer } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
-import { fileExplorer } from '../file-explorer-utils';
 import FileExtensionFilter from '../file-extension-filter';
 import FileFilterBar, { FileFilterBar as NamedFileFilterBar } from '../file-filter-bar';
 import * as index from '../index';

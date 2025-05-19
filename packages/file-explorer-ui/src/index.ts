@@ -8,7 +8,7 @@ export { default as FileFilterBar } from './file-filter-bar';
 export * from './file-extension-filter';
 export * from './file-filter-bar';
 export { default as FileExplorerSidebar } from './file-explorer-sidebar';
-export * from './file-explorer-utils';
+export { fileExplorer } from '@brainstrike/utils';
 export * from './file-explorer-toolbar';
 export { default as FileExplorerConfig } from './file-explorer-config';
 export * from './file-explorer-config';
