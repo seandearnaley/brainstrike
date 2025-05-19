@@ -5,37 +5,41 @@
 */
 
 import { useFileExplorerSettings, useFileSystem } from '@brainstrike/file-explorer-hooks';
+import { useFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useFileExplorer } from '../../../../hooks/use-file-explorer';
 import FileExplorer from '../../file-explorer';
 
 // Mock all hooks and components using relative paths
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useFileSystem: vi.fn(() => ({
-    selectRootDirectory: vi.fn(),
-    rootDirectoryHandle: null,
-    isAccessLoading: false,
-    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
-  })),
-  useSelectionManager: vi.fn(() => ({
-    selectedFilePaths: new Set(),
-    handleSelectionChange: vi.fn(),
-    wouldExceedSelectionLimit: vi.fn(() => false),
-  })),
-  useToastManager: vi.fn(() => ({
-    showErrorToast: vi.fn(),
-    showSuccessToast: vi.fn(),
-    showUndoToast: vi.fn(),
-    showInfoToast: vi.fn(),
-    handleGenericError: vi.fn(),
-    handleDirectorySelectError: vi.fn(),
-    handleSelectionLimitError: vi.fn(),
-  })),
-  useFileExplorerSettings: vi.fn(),
-}));
-vi.mock('../../../../hooks/use-file-explorer');
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useFileSystem: vi.fn(() => ({
+      selectRootDirectory: vi.fn(),
+      rootDirectoryHandle: null,
+      isAccessLoading: false,
+      isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+    })),
+    useSelectionManager: vi.fn(() => ({
+      selectedFilePaths: new Set(),
+      handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(() => false),
+    })),
+    useFileExplorer: vi.fn(),
+    useToastManager: vi.fn(() => ({
+      showErrorToast: vi.fn(),
+      showSuccessToast: vi.fn(),
+      showUndoToast: vi.fn(),
+      showInfoToast: vi.fn(),
+      handleGenericError: vi.fn(),
+      handleDirectorySelectError: vi.fn(),
+      handleSelectionLimitError: vi.fn(),
+    })),
+    useFileExplorerSettings: vi.fn(),
+  };
+});
 const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
   mockUseQuickFilter: vi.fn(),
   mockUseReportGeneration: vi.fn(),

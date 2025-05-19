@@ -1,15 +1,15 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
-import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileNode } from '../../test/factories/file-node';
+import { createFileNode } from '../../../file-explorer-ui/src/test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 import { useFileExplorer } from '../use-file-explorer';
+import { useFileSystem } from '../use-file-system';
 import { useFileTree } from '../use-file-tree';
 
 vi.mock('@brainstrike/file-explorer', () => ({ useFileExplorerStore: vi.fn() }));
-vi.mock('@brainstrike/file-explorer-hooks', () => ({ useFileSystem: vi.fn() }));
+vi.mock('../use-file-system', () => ({ useFileSystem: vi.fn() }));
 vi.mock('../use-file-tree', () => ({ useFileTree: vi.fn() }));
 vi.mock('../use-file-content-loading', () => ({ useFileContentLoading: vi.fn() }));
 
