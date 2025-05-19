@@ -8,9 +8,9 @@
   "files": ["dist"],
   "scripts": {
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
-    "build:js": "tsup src/index.ts --format esm,cjs --clean",
+    "build:js": "tsup",
     "build": "pnpm run build:types && pnpm run build:js",
-    "dev":   "pnpm run build:types && tsup src/index.ts --format esm,cjs --watch",
+    "dev":   "pnpm run build:types && tsup --watch",
     "test":  "vitest run --coverage"
   },
   "peerDependencies": {
