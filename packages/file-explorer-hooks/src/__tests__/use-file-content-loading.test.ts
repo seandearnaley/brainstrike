@@ -3,11 +3,11 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, fileContent } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileNode } from '../../test/factories/file-node';
+import { createFileNode } from '../../../file-explorer-ui/src/test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 
 // Define mock implementations
-vi.mock('../../lib/file/system', () => ({
+vi.mock('../../../../apps/web/src/lib/file/system', () => ({
   fileSystem: {
     readFileContent: vi.fn().mockResolvedValue('test content'),
   },

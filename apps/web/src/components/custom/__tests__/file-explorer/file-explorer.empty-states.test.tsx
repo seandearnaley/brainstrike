@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorer from '../../file-explorer';
 
 // Mock all dependencies at the module level
-vi.mock('@/hooks/use-file-explorer', () => ({
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileExplorer: () => ({
     fileTree: [],
     isLoading: false,
@@ -29,10 +29,6 @@ vi.mock('@/hooks/use-file-explorer', () => ({
     isInitialLoad: false,
     loadingProgress: null,
   }),
-}));
-
-// Update the mock for useFileSystem using the correct relative path
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileSystem: vi.fn(() => ({
     selectRootDirectory: vi.fn(),
     rootDirectoryHandle: null,

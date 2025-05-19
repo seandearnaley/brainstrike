@@ -45,7 +45,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-      if (import.meta.env.DEV) {
+      if ((import.meta as any).env?.DEV) {
         console.debug('Initial file node lookup:', {
           compositeKey,
           path,
@@ -65,7 +65,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         // Try to find the node again
         fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-        if (import.meta.env.DEV) {
+        if ((import.meta as any).env?.DEV) {
           console.debug('Retry file node lookup:', {
             compositeKey,
             path,

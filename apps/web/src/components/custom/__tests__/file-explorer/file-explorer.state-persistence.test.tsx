@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import FileExplorer from '../../file-explorer';
 
 // Mock all components and hooks
-vi.mock('@/hooks/use-file-explorer', () => ({
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileExplorer: () => ({}),
 }));
 
