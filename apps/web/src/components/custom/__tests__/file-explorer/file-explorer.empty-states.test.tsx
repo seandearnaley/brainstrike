@@ -46,6 +46,13 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   })),
   useToastManager: () => ({}),
   useFileExplorerSettings: vi.fn(),
+  useFileContentLoading: vi.fn(() => ({
+    fileContents: {},
+    isLoading: false,
+    error: null,
+    handleFileContentLoading: vi.fn(),
+    clearFileContents: vi.fn(),
+  })),
 }));
 
 // Mock all other required hooks with empty implementations

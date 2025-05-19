@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@brainstrike/file-explorer": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*"
   },

@@ -44,6 +44,13 @@ vi.mock('@/hooks/use-report-manager', () => ({
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({}),
   useFileExplorerSettings: () => ({}),
+  useFileContentLoading: vi.fn(() => ({
+    fileContents: {},
+    isLoading: false,
+    error: null,
+    handleFileContentLoading: vi.fn(),
+    clearFileContents: vi.fn(),
+  })),
 }));
 
 vi.mock('@/hooks/use-selection-manager', () => ({

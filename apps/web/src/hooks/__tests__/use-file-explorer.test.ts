@@ -1,17 +1,19 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useFileSystem } from '@brainstrike/file-explorer-hooks';
+import { useFileContentLoading } from '@brainstrike/file-explorer-hooks';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileNode } from '../../test/factories/file-node';
-import { useFileContentLoading } from '../use-file-content-loading';
 import { useFileExplorer } from '../use-file-explorer';
 import { useFileTree } from '../use-file-tree';
 
 vi.mock('@brainstrike/file-explorer', () => ({ useFileExplorerStore: vi.fn() }));
-vi.mock('@brainstrike/file-explorer-hooks', () => ({ useFileSystem: vi.fn() }));
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useFileSystem: vi.fn(),
+  useFileContentLoading: vi.fn(),
+}));
 vi.mock('../use-file-tree', () => ({ useFileTree: vi.fn() }));
-vi.mock('../use-file-content-loading', () => ({ useFileContentLoading: vi.fn() }));
 
 // Define mockApplyFileFilters *before* it's used in the subsequent mock
 const mockApplyFileFilters = vi.fn();
