@@ -4,6 +4,12 @@ import { FileContentError } from '@brainstrike/types';
 import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useRef, useState } from 'react';
 
+interface ImportMetaWithViteEnv {
+  readonly env: {
+    readonly DEV: boolean;
+  };
+}
+
 const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
 
 interface UseFileContentLoadingReturn {
@@ -45,7 +51,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-      if ((import.meta as any).env?.DEV) {
+      if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
         console.debug('Initial file node lookup:', {
           compositeKey,
           path,
@@ -65,7 +71,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         // Try to find the node again
         fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-        if ((import.meta as any).env?.DEV) {
+        if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
           console.debug('Retry file node lookup:', {
             compositeKey,
             path,
