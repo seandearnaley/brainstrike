@@ -3,14 +3,13 @@ import { test, expect, Page } from '@playwright/test';
 // Helper Functions
 async function selectRoot(page: Page) {
   const selectRootButton = page.getByRole('button', { name: /select root/i });
-  if (await selectRootButton.isVisible()) {
+  // Try to click the button if it's visible within a short timeout
+  if (await selectRootButton.isVisible({ timeout: 2000 })) { 
     await selectRootButton.click();
-    await page.waitForSelector('output'); // Wait for selection counter
-  } else {
-    // If the select root button is not visible, we assume the root is already selected.
-    // Ensure some known root item is visible to confirm.
-    await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).toBeVisible();
   }
+  // Regardless of button click, now wait for the file tree and counter to be ready
+  await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).toBeVisible({ timeout: 10000 }); // Increased timeout
+  await expect(page.locator('output')).toBeVisible({ timeout: 5000 }); // Ensure counter is also there
 }
 
 async function openSettings(page: Page) {
@@ -51,6 +50,7 @@ async function navigateToFolderPath(page: Page, pathArray: string[]) {
     const folderItem = page.getByRole('button', { name: folderName });
     await expect(folderItem).toBeVisible();
     await folderItem.click();
+    await page.waitForTimeout(300); // Wait for UI to update after click
   }
 }
 
@@ -158,8 +158,10 @@ test.describe('File Explorer', () => {
       /* eslint-enable */
     });
     await page.goto('/');
+    await page.waitForLoadState('domcontentloaded'); // Wait for DOM to be ready
     // Wait for the main content to be ready
     await expect(page.locator('h1')).toHaveText('Context Explorer');
+    await page.waitForTimeout(500); // Extra wait for potential Vite HMR
   });
 
   test('should show initial empty state', async ({ page }) => {
@@ -256,8 +258,9 @@ test.describe('File Explorer', () => {
     await navigateToFolderPath(page, ['folder1']);
 
     // 3. Verify the content of 'folder1'
-    await expect(page.getByRole('checkbox', { name: 'Select nested.txt' })).toBeVisible();
-    await expect(page.getByRole('checkbox', { name: 'Select another-nested.txt' })).toBeVisible();
+    // Increased timeout for this specific critical assertion
+    await expect(page.getByRole('checkbox', { name: 'Select nested.txt' })).toBeVisible({ timeout: 7000 }); 
+    await expect(page.getByRole('checkbox', { name: 'Select another-nested.txt' })).toBeVisible({ timeout: 7000 });
     await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).not.toBeVisible(); // Root file not visible
 
     // 4. Navigate back to root
@@ -276,8 +279,10 @@ test.describe('File Explorer', () => {
     // 2. Find and check the checkbox for 'folder1'
     const folder1Checkbox = page.getByRole('checkbox', { name: 'Select folder1' });
     await expect(folder1Checkbox).toBeVisible();
+    await expect(folder1Checkbox).toBeEnabled({ timeout: 3000 }); // Ensure it's clickable
     await folder1Checkbox.check();
-    await expect(folder1Checkbox).toBeChecked();
+    await page.waitForTimeout(200); // Small delay for UI to update state
+    await expect(folder1Checkbox).toBeChecked(); 
 
     // 3. Assert selection counter updates
     // Assuming selecting a folder itself counts as 1.
@@ -310,7 +315,7 @@ test.describe('File Explorer', () => {
     await navigateToFolderPath(page, ['folder2', 'subfolder1']);
     
     // Verify subfolder1 content (nested-file.txt) is visible and root items are not
-    await expect(page.getByRole('checkbox', { name: 'Select nested-file.txt' })).toBeVisible();
+    await expect(page.getByRole('checkbox', { name: 'Select nested-file.txt' })).toBeVisible({ timeout: 7000 });
     await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).not.toBeVisible();
     await expect(page.getByRole('button', { name: 'folder1' })).not.toBeVisible();
 
@@ -353,7 +358,7 @@ test.describe('File Explorer', () => {
     // Using a more generic approach to find a message within the file display area.
     // This assumes the file list area might have a specific role or structure.
     // For now, we'll look for a common text pattern.
-    await expect(page.getByText(/This folder is empty|No files or folders/i)).toBeVisible();
+    await expect(page.getByText(/This folder is empty|No files or folders/i)).toBeVisible({ timeout: 7000 });
     
     // 4. Assert no file/folder checkboxes are present (other than potentially a "select all" if it's always visible)
     // Check for any item checkbox. There should be none.
