@@ -53,7 +53,6 @@
     "ignore": [
       "**/node_modules/**",
       "**/dist/**",
-      "**/.next/**",
       "**/build/**",
       "**/coverage/**",
       "**/playwright-report/**",
@@ -62,19 +61,7 @@
   },
   "overrides": [
     {
-      "include": [
-        "**/__tests__/**",
-        "**/*.test.*",
-        "**/*.stories.*",
-        "**/[*]*.tsx",
-        "**/page.tsx",
-        "**/layout.tsx",
-        "**/loading.tsx",
-        "**/error.tsx",
-        "**/not-found.tsx",
-        "**/route.ts",
-        "**/middleware.ts"
-      ],
+      "include": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*", "**/[*]*.tsx"],
       "linter": {
         "rules": {
           "style": {

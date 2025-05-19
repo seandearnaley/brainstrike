@@ -103,7 +103,6 @@
     "**/node_modules/**",
     "**/dist/**",
     "**/build/**",
-    "**/.next/**",
     "**/.turbo/**",
     "**/*.d.ts",
     // Ignore husky hook file

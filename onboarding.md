@@ -99,7 +99,7 @@ Turborepo orchestrates tasks across the monorepo, optimizing builds through cach
 
 - **`globalDependencies`**: Changes to `tsconfig.json` will invalidate caches for tasks depending on it.
 - **`pipeline` (defined via `tasks`)**: Defines the relationships and caching behavior for common scripts (`build`, `lint`, `test`, `dev`, etc.).
-  - **`build`**: Depends on the `build` task of its dependencies (`^build`). Outputs generated files to `dist/` or `.next/`.
+  - **`build`**: Depends on the `build` task of its dependencies (`^build`). Outputs generated files to `dist/`.
   - **`lint`**: Depends on `^build`. Caching enabled. No output artifacts expected.
   - **`test`**: Depends on `^build`. Defines specific input file patterns (`src/**/*.ts`, `__tests__/**/*.tsx`, etc.).
   - **`test:coverage`**: Similar to `test` but outputs to `coverage/**`.
@@ -140,7 +140,7 @@ Biome enforces linting rules and code formatting. The root config extends the sh
   - `style/useTemplate`: `error`
   - `style/useNamingConvention`: `error` (strictCase=false, enumMember=CONSTANT_CASE)
   - `style/useFilenamingConvention`: `error` (strictCase=true, filenames=`kebab-case`)
-- **Ignored Files**: `node_modules`, `dist`, `.next`, `build`, `coverage`, `playwright-report`, `test-results`.
+- **Ignored Files**: `node_modules`, `dist`, `build`, `coverage`, `playwright-report`, `test-results`.
 
 ### 5.2 TypeScript (`tsconfig.json`, `packages/config/tsconfig/base.json`)
 
@@ -228,7 +228,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
     ```
 8.  **Cleaning Build Artifacts**:
     ```bash
-    # Remove build outputs (dist, .next, etc.) and turbo cache
+    # Remove build outputs (dist, etc.) and turbo cache
     pnpm clean
     ```
 9.  **Checking for Unused Code**:
