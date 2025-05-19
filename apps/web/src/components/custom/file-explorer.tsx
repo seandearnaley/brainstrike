@@ -2,6 +2,7 @@ import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorer } from '@brainstrike/file-explorer-hooks';
+import { useFileLoadingManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
@@ -16,7 +17,6 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
-import { useFileLoadingManager } from '../../hooks/use-file-loading-manager';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
