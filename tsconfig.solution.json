@@ -5,6 +5,7 @@
     { "path": "packages/utils" },
     { "path": "packages/hooks" },
     { "path": "packages/ui" },
+    { "path": "packages/test-utils" },
     { "path": "apps/web" }
   ]
-} 
+}

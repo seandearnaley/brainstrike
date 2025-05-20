@@ -63,7 +63,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "happy-dom",
-    setupFiles: ["./src/test/vitest.setup.ts"],
+    setupFiles: ["@brainstrike/test-utils/vitest.setup"],
     include: [
       "src/**/__tests__/**/*.test.{ts,tsx}",
       "src/**/__tests__/**/*.spec.{ts,tsx}",
