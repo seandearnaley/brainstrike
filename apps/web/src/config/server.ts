@@ -1,7 +1,8 @@
 /**
  * Server configuration constants
  */
-export const DEFAULT_PORT = 3000;
+// biome-ignore lint/complexity/useLiteralKeys: required for noPropertyAccessFromIndexSignature
+export const DEFAULT_PORT = process.env['PORT'] ? Number.parseInt(process.env['PORT'], 10) : 3000;
 export const PORT_RANGE = {
   start: DEFAULT_PORT,
   end: DEFAULT_PORT + 5,
