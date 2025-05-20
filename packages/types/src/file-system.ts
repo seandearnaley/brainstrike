@@ -23,6 +23,8 @@ export interface IFileNode {
   rootFolderId: string;
   size?: number;
   lastModified?: number;
+  isSymbolicLink?: boolean;
+  isDepthTruncated?: boolean;
 }
 
 /**
