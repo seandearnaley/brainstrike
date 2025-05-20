@@ -47,17 +47,17 @@ async function setMaxSelection(page: Page, count: number | string) {
 
 async function navigateToFolderPath(page: Page, pathArray: string[]) {
   for (const folderName of pathArray) {
-    const folderItem = page.getByRole('button', { name: folderName });
-    await expect(folderItem).toBeVisible();
-    await folderItem.click();
+    const expandButton = page.getByRole('button', { name: new RegExp(`^Expand ${folderName} directory$`, 'i') });
+    await expect(expandButton).toBeVisible();
+    await expandButton.click();
     await page.waitForTimeout(300); // Wait for UI to update after click
   }
 }
 
 async function goBackToRoot(page: Page) {
-  const rootBreadcrumb = page.getByRole('button', { name: 'test-root' });
-  await expect(rootBreadcrumb).toBeVisible();
-  await rootBreadcrumb.click();
+  const collapseAll = page.getByRole('button', { name: /collapse all/i });
+  await expect(collapseAll).toBeVisible();
+  await collapseAll.click();
 }
 
 // Main Test Suite
@@ -259,9 +259,10 @@ test.describe('File Explorer', () => {
 
     // 3. Verify the content of 'folder1'
     // Increased timeout for this specific critical assertion
-    await expect(page.getByRole('checkbox', { name: 'Select nested.txt' })).toBeVisible({ timeout: 7000 }); 
+    await expect(page.getByRole('checkbox', { name: 'Select nested.txt' })).toBeVisible({ timeout: 7000 });
     await expect(page.getByRole('checkbox', { name: 'Select another-nested.txt' })).toBeVisible({ timeout: 7000 });
-    await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).not.toBeVisible(); // Root file not visible
+    // Root items remain visible in the tree view
+    await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).toBeVisible();
 
     // 4. Navigate back to root
     await goBackToRoot(page);
@@ -280,7 +281,7 @@ test.describe('File Explorer', () => {
     const folder1Checkbox = page.getByRole('checkbox', { name: 'Select folder1' });
     await expect(folder1Checkbox).toBeVisible();
     await expect(folder1Checkbox).toBeEnabled({ timeout: 3000 }); // Ensure it's clickable
-    await folder1Checkbox.check();
+    await folder1Checkbox.click();
     await page.waitForTimeout(200); // Small delay for UI to update state
     await expect(folder1Checkbox).toBeChecked(); 
 
@@ -300,7 +301,7 @@ test.describe('File Explorer', () => {
     await expect(copyButton).toBeEnabled();
 
     // 5. Uncheck the folder and verify buttons are disabled and counter is zero
-    await folder1Checkbox.uncheck();
+    await folder1Checkbox.click();
     await expect(folder1Checkbox).not.toBeChecked();
     await expect(counter).toHaveText(/0\/10/);
     await expect(downloadButton).toBeDisabled();
@@ -314,14 +315,14 @@ test.describe('File Explorer', () => {
     // 2. Navigate into 'folder2/subfolder1'
     await navigateToFolderPath(page, ['folder2', 'subfolder1']);
     
-    // Verify subfolder1 content (nested-file.txt) is visible and root items are not
+    // Verify subfolder1 content (nested-file.txt) is visible
     await expect(page.getByRole('checkbox', { name: 'Select nested-file.txt' })).toBeVisible({ timeout: 7000 });
-    await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder1' })).not.toBeVisible();
+    // Root items remain visible in the tree
+    await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).toBeVisible();
 
     // 3. Select 'nested-file.txt'
     const nestedFileCheckbox = page.getByRole('checkbox', { name: 'Select nested-file.txt' });
-    await nestedFileCheckbox.check();
+    await nestedFileCheckbox.click();
     await expect(nestedFileCheckbox).toBeChecked();
 
     // 5. Assert selection counter updates
@@ -352,21 +353,12 @@ test.describe('File Explorer', () => {
     // 2. Navigate into 'empty-folder'
     await navigateToFolderPath(page, ['empty-folder']);
 
-    // 3. Assert that an "empty folder" message is displayed
-    // The exact message needs to match what the application displays.
-    // Let's assume it's "This folder is empty" or "No files or folders to display".
-    // Using a more generic approach to find a message within the file display area.
-    // This assumes the file list area might have a specific role or structure.
-    // For now, we'll look for a common text pattern.
-    await expect(page.getByText(/This folder is empty|No files or folders/i)).toBeVisible({ timeout: 7000 });
-    
-    // 4. Assert no file/folder checkboxes are present (other than potentially a "select all" if it's always visible)
-    // Check for any item checkbox. There should be none.
-    // Refining selector: looking for checkboxes that are children of listitems, assuming files/folders are in a list
+    // 3. Assert the folder has no visible children
+    await expect(page.locator('fieldset[aria-label="Contents of empty-folder"]')).toHaveCount(0);
+
+    // 4. Assert no item checkboxes are present
     const itemCheckboxes = page.locator('li').getByRole('checkbox');
     await expect(itemCheckboxes).toHaveCount(0);
-    // Or, more broadly, ensure no checkboxes with "Select " prefix are visible if that's a pattern
-    await expect(page.getByRole('checkbox', { name: /^Select /i })).toHaveCount(0);
 
 
     // 5. Assert "Select All" button is disabled or behaves correctly
@@ -473,9 +465,9 @@ test.describe('File Explorer Settings', () => {
 
     // Uncheck all to be clean for next tests, though beforeEach should handle root selection.
     // file1Checkbox, file2Checkbox, and folder1Checkbox are already defined in this scope.
-    if (await file1Checkbox.isChecked()) await file1Checkbox.uncheck();
-    if (await file2Checkbox.isChecked()) await file2Checkbox.uncheck();
-    if (await folder1Checkbox.isChecked()) await folder1Checkbox.uncheck(); // folder1Checkbox was also defined earlier
+    if (await file1Checkbox.isChecked()) await file1Checkbox.click();
+    if (await file2Checkbox.isChecked()) await file2Checkbox.click();
+    if (await folder1Checkbox.isChecked()) await folder1Checkbox.click(); // folder1Checkbox was also defined earlier
     await expect(counter).toHaveText(/0\/10/);
   });
 
@@ -491,11 +483,8 @@ test.describe('File Explorer Settings', () => {
 
     // 5. Assert other files/folders are not visible
     await expect(page.getByRole('checkbox', { name: 'Select folder1' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder1' })).not.toBeVisible(); // Check for navigation item too
     await expect(page.getByRole('checkbox', { name: 'Select folder2' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder2' })).not.toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Select empty-folder' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'empty-folder' })).not.toBeVisible();
     
     // Check a nested file, it shouldn't be visible because its parent folder1 is hidden
     // To be absolutely sure, navigate into folder1 (if it were visible) then check.
@@ -508,7 +497,6 @@ test.describe('File Explorer Settings', () => {
 
     // 7. Verify items are visible again
     await expect(page.getByRole('checkbox', { name: 'Select folder1' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder1' })).toBeVisible();
   });
 
   test('should apply folder name filter "folder*" and verify results', async ({ page }) => {
@@ -519,15 +507,12 @@ test.describe('File Explorer Settings', () => {
 
     // 4. Assert only items starting with "folder" are visible
     await expect(page.getByRole('checkbox', { name: 'Select folder1' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder1' })).toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Select folder2' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'folder2' })).toBeVisible();
 
     // 5. Assert other files/folders are not visible
     await expect(page.getByRole('checkbox', { name: 'Select test.ts' })).not.toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Select test2.ts' })).not.toBeVisible();
     await expect(page.getByRole('checkbox', { name: 'Select empty-folder' })).not.toBeVisible();
-    await expect(page.getByRole('button', { name: 'empty-folder' })).not.toBeVisible();
 
     // 6. Clear the filter for test isolation
     await openSettings(page);
