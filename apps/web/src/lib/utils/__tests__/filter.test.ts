@@ -1,7 +1,37 @@
-import type { FileFilterOptions } from '@brainstrike/types';
+import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
 import { describe, expect, it, vi } from 'vitest';
-import { createDirectoryNode, createFileNode } from '../../../test/factories/file-node';
+
+function createFileNode({ name, path }: { name: string; path: string }): IFileNode {
+  return {
+    name,
+    path,
+    type: 'file',
+    depth: path.split('/').length - 1,
+    selectionState: 'unchecked',
+    rootFolderId: 'test-folder',
+    isVisible: true,
+    handle: {} as unknown as FileSystemFileHandle,
+  };
+}
+
+function createDirectoryNode({
+  name,
+  path,
+  children = [],
+}: { name: string; path: string; children?: IFileNode[] }): IFileNode {
+  return {
+    name,
+    path,
+    type: 'directory',
+    depth: path.split('/').length - 1,
+    selectionState: 'unchecked',
+    rootFolderId: 'test-folder',
+    isVisible: true,
+    children,
+    handle: {} as unknown as FileSystemDirectoryHandle,
+  };
+}
 
 describe('fileFilter', () => {
   describe('shouldIgnorePath', () => {
