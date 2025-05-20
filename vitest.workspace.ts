@@ -7,6 +7,7 @@ export default defineWorkspace([
   './packages/ui/vitest.config.ts',
   './packages/utils/vitest.config.ts',
   './packages/types/vitest.config.ts',
+  './packages/test-utils/vitest.config.ts',
   './packages/file-explorer-ui/vitest.config.mts',
   './packages/file-explorer-hooks/vitest.config.ts',
   './packages/file-explorer/package.json',
