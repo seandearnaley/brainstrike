@@ -1,0 +1,42 @@
+{
+  "name": "@brainstrike/test-utils",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./vitest.setup": "./src/vitest.setup.ts"
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "files": ["dist/**"],
+  "scripts": {
+    "build": "echo skipping build",
+    "dev": "echo skipping dev",
+    "clean": "rm -rf dist",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "echo skip type-check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1",
+    "jsdom": "^26.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "turbo": {
+    "outputs": ["dist/**"]
+  }
+}

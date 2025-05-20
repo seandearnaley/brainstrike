@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     globals: true, // Optional, but often used
-    setupFiles: ['../../vitest.setup.ts'], // Reference the root setup file
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },
 }); 

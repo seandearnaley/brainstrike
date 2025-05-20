@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
-    setupFiles: ['../../vitest.setup.ts'],
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
   },
