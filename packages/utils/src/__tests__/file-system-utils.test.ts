@@ -240,7 +240,13 @@ describe('readFullFileTree', () => {
       ['file1.txt', mockFile('file1.txt')],
       ['node_modules', mockDirectory('node_modules', [['some_lib', mockFile('some_lib.js')]])],
       ['.git', mockDirectory('.git', [['HEAD', mockFile('HEAD')]])],
-      ['src', mockDirectory('src', [['index.ts', mockFile('index.ts')]])],
+      [
+        'src',
+        mockDirectory('src', [
+          ['index.ts', mockFile('index.ts')],
+          ['nested', mockDirectory('nested', [['node_modules', mockDirectory('node_modules')]])],
+        ]),
+      ],
     ]);
 
     const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
@@ -248,8 +254,10 @@ describe('readFullFileTree', () => {
     expect(result.find((node) => node.name === 'node_modules')).toBeUndefined();
     expect(result.find((node) => node.name === '.git')).toBeUndefined();
     expect(result.find((node) => node.name === 'file1.txt')).toBeDefined();
-    expect(result.find((node) => node.name === 'src')).toBeDefined();
-    expect(result.find((node) => node.name === 'src')?.children?.[0].name).toBe('index.ts');
+    const src = result.find((node) => node.name === 'src');
+    expect(src).toBeDefined();
+    expect(src?.children?.some((child) => child.name === 'node_modules')).toBe(false);
+    expect(src?.children?.[0].name).toBe('index.ts');
   });
 
   // Test Scenario 6: Empty Directory

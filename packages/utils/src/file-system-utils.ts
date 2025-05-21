@@ -1,6 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
 import { IGNORED_PATHS } from '@brainstrike/types';
-import { fileFilter } from './path-filter'; // Adjusted from '@brainstrike/utils'
 
 // Moved from packages/file-explorer-ui/src/file-explorer-utils.ts
 function normalizePath(pathString: string): string {
@@ -14,7 +13,7 @@ function normalizePath(pathString: string): string {
  */
 function shouldIgnorePath(pathString: string): boolean {
   const normalizedPath = normalizePath(pathString);
-  return IGNORED_PATHS.some((ignoredPath) => fileFilter.matchWildcard(normalizedPath, ignoredPath));
+  return IGNORED_PATHS.some((ignoredPath) => normalizedPath.split('/').includes(ignoredPath));
 }
 
 /**
