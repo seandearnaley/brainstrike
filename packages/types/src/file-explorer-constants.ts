@@ -83,7 +83,14 @@ export const BINARY_FILE_EXTENSIONS = [
   '.flac',
 ];
 
-export const IGNORED_PATHS: string[] = []; // Explicitly typed as string array
+export const IGNORED_PATHS: string[] = [
+  '.git',
+  'node_modules',
+  '.next',
+  'dist',
+  'build',
+  '.DS_Store',
+];
 
 // Minimum and Maximum allowed value for Folder Summary Threshold setting
 export const MIN_FOLDER_SUMMARY_THRESHOLD = 0;
