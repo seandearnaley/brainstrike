@@ -41,15 +41,12 @@ const mockDirectory = (
 describe('readFullFileTree', () => {
   // Test Scenario 1: Basic Valid Tree
   it('should process a basic valid tree structure', async () => {
-    const rootHandle = mockDirectory('root', [
+    const _rootHandle = mockDirectory('root', [
       ['file1.txt', mockFile('file1.txt')],
-      [
-        'dir1',
-        mockDirectory('dir1', [['file2.txt', mockFile('file2.txt')]]),
-      ],
+      ['dir1', mockDirectory('dir1', [['file2.txt', mockFile('file2.txt')]])],
     ]);
 
-    const result = await readFullFileTree(rootHandle as any); // Use 'as any' for mock compatibility
+    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
@@ -71,7 +68,7 @@ describe('readFullFileTree', () => {
       isDepthTruncated: false,
     });
     expect(result[1].children).toHaveLength(1);
-    expect(result[1].children![0]).toMatchObject({
+    expect(result[1].children?.[0]).toMatchObject({
       name: 'file2.txt',
       path: '/dir1/file2.txt',
       type: 'file',
@@ -86,25 +83,30 @@ describe('readFullFileTree', () => {
   it('should handle circular references (symbolic links)', async () => {
     const dirA = mockDirectory('a');
     const dirB = mockDirectory('b', [['loop_to_a', dirA]]);
-     // Create the circular dependency: dirA contains dirB
-    (dirA as any).entries = async function* () {
+    // Create the circular dependency: dirA contains dirB
+    dirA.entries = async function* () {
       yield ['dirB', dirB];
     };
-    
-    const rootHandle = mockDirectory('root', [['dirA', dirA]]);
 
-    const result = await readFullFileTree(rootHandle as any);
+    const _rootHandle = mockDirectory('root', [['dirA', dirA]]);
+
+    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ name: 'dirA', path: '/dirA', depth: 0, type: 'directory' });
-    
+
     const childrenOfA = result[0].children;
     expect(childrenOfA).toHaveLength(1);
-    expect(childrenOfA![0]).toMatchObject({ name: 'dirB', path: '/dirA/dirB', depth: 1, type: 'directory' });
+    expect(childrenOfA?.[0]).toMatchObject({
+      name: 'dirB',
+      path: '/dirA/dirB',
+      depth: 1,
+      type: 'directory',
+    });
 
-    const childrenOfB = childrenOfA![0].children;
+    const childrenOfB = childrenOfA?.[0].children;
     expect(childrenOfB).toHaveLength(1);
-    expect(childrenOfB![0]).toMatchObject({
+    expect(childrenOfB?.[0]).toMatchObject({
       name: 'loop_to_a',
       path: '/dirA/dirB/loop_to_a',
       type: 'directory',
@@ -115,25 +117,36 @@ describe('readFullFileTree', () => {
       rootFolderId: 'root',
     });
   });
-  
+
   // Test Scenario 3: Depth Limiting
   it('should limit recursion depth correctly', async () => {
     const rootHandle = mockDirectory('d0', [
-      ['d1', mockDirectory('d1', [
-        ['d2', mockDirectory('d2', [
-          ['d3', mockDirectory('d3', [
-            ['file.txt', mockFile('file.txt')],
-          ])],
-        ])],
-      ])],
+      [
+        'd1',
+        mockDirectory('d1', [
+          [
+            'd2',
+            mockDirectory('d2', [
+              ['d3', mockDirectory('d3', [['file.txt', mockFile('file.txt')]])],
+            ]),
+          ],
+        ]),
+      ],
     ]);
 
-    const result = await readFullFileTree(rootHandle as any, '', 0, 'd0', new Set(), 2); // maxDepth = 2
+    const result = await readFullFileTree(
+      rootHandle as unknown as FileSystemDirectoryHandle,
+      '',
+      0,
+      'd0',
+      new Set(),
+      2
+    ); // maxDepth = 2
 
     expect(result).toHaveLength(1); // d1
     expect(result[0].name).toBe('d1');
     expect(result[0].depth).toBe(0);
-    expect(result[0].children![0]).toMatchObject({
+    expect(result[0].children?.[0]).toMatchObject({
       name: 'd2',
       path: '/d1/d2',
       depth: 1, // d2 is at depth 1 relative to d1, overall depth is parentPath depth + 1
@@ -145,17 +158,17 @@ describe('readFullFileTree', () => {
     // So, when processing d1 (depth 0 for its call), its child d2 (depth 1) is fine.
     // When processing d2 (depth 1 for its call), its child d3 (depth 2) is where truncation happens.
     // The 'd2' node itself should have isDepthTruncated: true.
-    
+
     // Let's re-evaluate based on the function's `depth` parameter usage.
     // readFullFileTree(d0, '', 0, 'd0', visited, 2)
     // -> d1 (depth 0) -> children from readFullFileTree(d1Handle, '/d1', 1, 'd0', visited, 2)
     //   -> d2 (depth 1) -> children from readFullFileTree(d2Handle, '/d1/d2', 2, 'd0', visited, 2)
     //     -> d2Handle is at depth 2 for THIS call. depth >= maxDepth (2 >= 2) is true.
     //        So, d2 node itself should be marked as truncated.
-    
+
     const d1Node = result[0]; // This is d1
     expect(d1Node.children).toHaveLength(1);
-    const d2Node = d1Node.children![0]; // This is d2
+    const d2Node = d1Node.children?.[0]; // This is d2
 
     expect(d2Node).toMatchObject({
       name: 'd2',
@@ -171,7 +184,7 @@ describe('readFullFileTree', () => {
 
   // Test Scenario 4: Depth Limiting at Root
   it('should limit recursion at root if maxDepth is 0', async () => {
-    const rootHandle = mockDirectory('root', [
+    const _rootHandle = mockDirectory('root', [
       ['file1.txt', mockFile('file1.txt')],
       ['dir1', mockDirectory('dir1')],
     ]);
@@ -191,8 +204,15 @@ describe('readFullFileTree', () => {
     // If we call readFullFileTree(rootHandle, '', 0, 'root', visited, 0),
     // inside, when processing children of rootHandle, depth will be 0.
     // So, file1.txt and dir1 will be created with isDepthTruncated: true and children: [].
-    
-    const result = await readFullFileTree(rootHandle as any, '', 0, 'root', new Set(), 0); // maxDepth = 0
+
+    const result = await readFullFileTree(
+      _rootHandle as unknown as FileSystemDirectoryHandle,
+      '',
+      0,
+      'root',
+      new Set(),
+      0
+    ); // maxDepth = 0
 
     expect(result).toHaveLength(2);
     expect(result[0]).toMatchObject({
@@ -202,13 +222,13 @@ describe('readFullFileTree', () => {
       depth: 0,
       // isDepthTruncated is not applicable to files in this context
     });
-     expect(result[1]).toMatchObject({
+    expect(result[1]).toMatchObject({
       name: 'dir1',
       path: '/dir1',
       type: 'directory',
       depth: 0,
       isSymbolicLink: false,
-      isDepthTruncated: true, 
+      isDepthTruncated: true,
       children: [],
       rootFolderId: 'root',
     });
@@ -216,32 +236,32 @@ describe('readFullFileTree', () => {
 
   // Test Scenario 5: Path Ignoring (shouldIgnorePath)
   it('should ignore paths like .git and node_modules', async () => {
-    const rootHandle = mockDirectory('root', [
+    const _rootHandle = mockDirectory('root', [
       ['file1.txt', mockFile('file1.txt')],
       ['node_modules', mockDirectory('node_modules', [['some_lib', mockFile('some_lib.js')]])],
       ['.git', mockDirectory('.git', [['HEAD', mockFile('HEAD')]])],
       ['src', mockDirectory('src', [['index.ts', mockFile('index.ts')]])],
     ]);
 
-    const result = await readFullFileTree(rootHandle as any);
+    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
     expect(result).toHaveLength(2); // file1.txt and src
-    expect(result.find(node => node.name === 'node_modules')).toBeUndefined();
-    expect(result.find(node => node.name === '.git')).toBeUndefined();
-    expect(result.find(node => node.name === 'file1.txt')).toBeDefined();
-    expect(result.find(node => node.name === 'src')).toBeDefined();
-    expect(result.find(node => node.name === 'src')!.children![0].name).toBe('index.ts');
+    expect(result.find((node) => node.name === 'node_modules')).toBeUndefined();
+    expect(result.find((node) => node.name === '.git')).toBeUndefined();
+    expect(result.find((node) => node.name === 'file1.txt')).toBeDefined();
+    expect(result.find((node) => node.name === 'src')).toBeDefined();
+    expect(result.find((node) => node.name === 'src')?.children?.[0].name).toBe('index.ts');
   });
-  
+
   // Test Scenario 6: Empty Directory
   it('should handle empty directories correctly', async () => {
-    const rootHandle = mockDirectory('root', [
+    const _rootHandle = mockDirectory('root', [
       ['emptyDir', mockDirectory('emptyDir')],
       ['file1.txt', mockFile('file1.txt')],
     ]);
 
-    const result = await readFullFileTree(rootHandle as any);
+    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
     expect(result).toHaveLength(2);
-    const emptyDirNode = result.find(node => node.name === 'emptyDir');
+    const emptyDirNode = result.find((node) => node.name === 'emptyDir');
     expect(emptyDirNode).toBeDefined();
     expect(emptyDirNode).toMatchObject({
       type: 'directory',
@@ -255,13 +275,19 @@ describe('readFullFileTree', () => {
   it('should prioritize depth limit over symbolic link if depth limit is met first', async () => {
     const dirA = mockDirectory('a'); // This will be the target of the "loop"
     // dirB contains a "link" back to dirA, but dirB itself is deep enough to be truncated
-    const dirB = mockDirectory('b', [['loop_to_a', dirA]]); 
-    (dirA as any).entries = async function*() { yield ['dirB_child_of_A', dirB]; }; // Not strictly needed for this test variant
+    const dirB = mockDirectory('b', [['loop_to_a', dirA]]);
+    dirA.entries = async function* () {
+      yield ['dirB_child_of_A', dirB];
+    }; // Not strictly needed for this test variant
 
-    const rootHandle = mockDirectory('root', [
-        ['dir1', mockDirectory('dir1', [ // depth 0 for dir1's children
-            ['dirA_child_of_dir1', dirA]   // dirA_child_of_dir1 is at depth 1
-        ])]
+    const _rootHandle = mockDirectory('root', [
+      [
+        'dir1',
+        mockDirectory('dir1', [
+          // depth 0 for dir1's children
+          ['dirA_child_of_dir1', dirA], // dirA_child_of_dir1 is at depth 1
+        ]),
+      ],
     ]);
     // Call with maxDepth = 1.
     // Processing root (children at depth 0): dir1 (depth 0)
@@ -277,15 +303,19 @@ describe('readFullFileTree', () => {
     const symlinkTarget = mockDirectory('symlink_target');
     const d2_symlink = mockDirectory('d2_symlink');
     // Make d2_symlink point to symlinkTarget for its *children definition* if it were to be expanded
-    (d2_symlink as any).entries = async function*() { yield ['actual_child_of_target', symlinkTarget]; };
+    d2_symlink.entries = async function* () {
+      yield ['actual_child_of_target', symlinkTarget];
+    };
 
-
-    const root = mockDirectory('root', [
-      ['d1', mockDirectory('d1', [
-        ['d2_is_the_symlink', d2_symlink], // d2_is_the_symlink is depth 1
-      ])]
+    const _root = mockDirectory('root', [
+      [
+        'd1',
+        mockDirectory('d1', [
+          ['d2_is_the_symlink', d2_symlink], // d2_is_the_symlink is depth 1
+        ]),
+      ],
     ]);
-    
+
     // To make 'd2_is_the_symlink' a symbolic link, it would need to point to an *already visited path*
     // The current structure doesn't make d2_is_the_symlink a symbolic link based on visitedPaths.
     // For this test, let's make a real cycle that gets truncated.
@@ -294,11 +324,20 @@ describe('readFullFileTree', () => {
     // "level1_repeats" should be truncated.
 
     const level0 = mockDirectory('level0');
-    (level0 as any).entries = async function*() { yield ['level1_repeats', level0]; }; // level1_repeats points back to level0
+    level0.entries = async function* () {
+      yield ['level1_repeats', level0];
+    }; // level1_repeats points back to level0
 
     const topHandle = mockDirectory('top', [['level0_entry', level0]]);
 
-    const result = await readFullFileTree(topHandle as any, '', 0, 'top', new Set(), 0); // maxDepth = 0
+    const result = await readFullFileTree(
+      topHandle as unknown as FileSystemDirectoryHandle,
+      '',
+      0,
+      'top',
+      new Set(),
+      0
+    ); // maxDepth = 0
 
     expect(result).toHaveLength(1);
     const level0Node = result[0];

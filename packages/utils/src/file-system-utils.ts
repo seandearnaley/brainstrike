@@ -27,17 +27,15 @@ export async function readFullFileTree(
   parentPath = '',
   depth = 0,
   rootFolderId = directoryHandle.name,
-  visitedPaths: Set<string> = new Set(),
-  maxDepth: number = 30 // Added maxDepth parameter
+  visitedHandles: Set<FileSystemDirectoryHandle> = new Set(),
+  maxDepth = 30 // Added maxDepth parameter
 ): Promise<IFileNode[]> {
   const entries: IFileNode[] = [];
 
   for await (const [name, handle] of directoryHandle.entries()) {
-    const currentPath = `${parentPath}/${name}`; 
+    const currentPath = `${parentPath}/${name}`;
     // Use the local shouldIgnorePath function
     if (shouldIgnorePath(currentPath)) continue;
-
-    const normalizedPath = normalizePath(currentPath);
 
     if (handle.kind === 'file') {
       entries.push({
@@ -48,10 +46,12 @@ export async function readFullFileTree(
         handle: handle as FileSystemFileHandle,
         selectionState: 'unchecked', // Default value
         rootFolderId,
+        isSymbolicLink: false,
+        isDepthTruncated: false,
       });
     } else if (handle.kind === 'directory') {
       // 1. Check depth limit first
-      if (depth >= maxDepth) {
+      if (depth >= maxDepth - 1) {
         entries.push({
           name,
           path: currentPath,
@@ -61,14 +61,14 @@ export async function readFullFileTree(
           handle: handle as FileSystemDirectoryHandle,
           selectionState: 'unchecked',
           rootFolderId,
-          isSymbolicLink: false, 
+          isSymbolicLink: false,
           isDepthTruncated: true, // Mark as depth truncated
         });
         continue; // Stop processing this directory further
       }
 
       // 2. Check for circular references (symbolic links)
-      if (visitedPaths.has(normalizedPath)) {
+      if (visitedHandles.has(handle as FileSystemDirectoryHandle)) {
         entries.push({
           name,
           path: currentPath,
@@ -79,22 +79,22 @@ export async function readFullFileTree(
           selectionState: 'unchecked',
           rootFolderId,
           isSymbolicLink: true, // Mark as symlink/cycle
-          isDepthTruncated: false, 
+          isDepthTruncated: false,
         });
         continue; // Stop processing this directory further
       }
-      
+
       // 3. If not too deep and not a cycle, proceed with recursion
       // Create a new Set for the recursive call, including the current path
-      const newVisitedPaths = new Set(visitedPaths);
-      newVisitedPaths.add(normalizedPath);
+      const newVisitedHandles = new Set(visitedHandles);
+      newVisitedHandles.add(handle as FileSystemDirectoryHandle);
 
       const children = await readFullFileTree(
         handle as FileSystemDirectoryHandle,
         currentPath, // Use unnormalized currentPath for parentPath in recursion
         depth + 1,
         rootFolderId,
-        newVisitedPaths, // Pass the new set for cycle detection
+        newVisitedHandles, // Pass the new set for cycle detection
         maxDepth // Pass maxDepth along
       );
       entries.push({
@@ -106,8 +106,8 @@ export async function readFullFileTree(
         handle: handle as FileSystemDirectoryHandle,
         selectionState: 'unchecked', // Default value
         rootFolderId,
-        isSymbolicLink: false, 
-        isDepthTruncated: false, 
+        isSymbolicLink: false,
+        isDepthTruncated: false,
       });
     }
   }
