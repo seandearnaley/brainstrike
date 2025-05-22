@@ -10,7 +10,9 @@ import {
   File as FileIcon,
   Folder,
   FolderOpen,
+  Link2 as Link2Icon,
   Loader2,
+  MoreHorizontal as MoreHorizontalIcon,
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
@@ -263,7 +265,11 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
             </button>
           )}
           {renderIcon()}
+          {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
           <span className="ml-1">{node.name}</span>
+          {node.type === 'directory' && node.isDepthTruncated && (
+            <MoreHorizontalIcon className="ml-1 h-4 w-4 text-gray-500" />
+          )}
         </div>
         {node.type === 'directory' && isExpanded && node.children && (
           <fieldset className="ml-6" aria-label={`Contents of ${node.name}`}>
