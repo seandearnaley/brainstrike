@@ -1,4 +1,3 @@
-import { fileExplorer } from '@brainstrike/utils';
 import { describe, expect, it } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 import FileExtensionFilter from '../file-extension-filter';
@@ -19,9 +18,5 @@ describe('file-explorer-ui index exports', () => {
 
   it('should re-export FileExplorerSidebar as named export', () => {
     expect(index.FileExplorerSidebar).toBe(FileExplorerSidebar);
-  });
-
-  it('should re-export fileExplorer object', () => {
-    expect(index.fileExplorer).toBe(fileExplorer);
   });
 });

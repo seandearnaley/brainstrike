@@ -1,11 +1,11 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileExplorerState } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
+import { createDirectoryNode } from '@brainstrike/utils/test/factories/file-node';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FolderSelectionDialog } from '../folder-selection-dialog';
-import { createDirectoryNode } from '../test/factories/file-node';
 
 const initialState: FileExplorerState = {
   selectedFilePaths: new Set(),

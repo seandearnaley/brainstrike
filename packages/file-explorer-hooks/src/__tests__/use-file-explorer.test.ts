@@ -1,8 +1,8 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { createFileNode } from '@brainstrike/utils/src/test/factories/file-node';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileNode } from '../../../file-explorer-ui/src/test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 import { useFileExplorer } from '../use-file-explorer';
 import { useFileSystem } from '../use-file-system';

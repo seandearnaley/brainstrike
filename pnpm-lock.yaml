@@ -231,9 +231,6 @@ importers:
       '@brainstrike/file-explorer':
         specifier: workspace:*
         version: link:../file-explorer
-      '@brainstrike/file-explorer-ui':
-        specifier: workspace:*
-        version: link:../file-explorer-ui
       '@brainstrike/hooks':
         specifier: workspace:*
         version: link:../hooks
@@ -268,6 +265,12 @@ importers:
       '@brainstrike/file-explorer':
         specifier: workspace:*
         version: link:../file-explorer
+      '@brainstrike/file-explorer-hooks':
+        specifier: workspace:*
+        version: link:../file-explorer-hooks
+      '@brainstrike/hooks':
+        specifier: workspace:*
+        version: link:../hooks
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -5514,7 +5517,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.1.3(@types/node@22.15.17)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.29.2)(terser@5.39.0)
+      vitest: 3.1.3(@types/node@20.17.46)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.29.2)(terser@5.39.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -5569,7 +5572,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.13
       tinyrainbow: 2.0.0
-      vitest: 3.1.3(@types/node@22.15.17)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.29.2)(terser@5.39.0)
+      vitest: 3.1.3(@types/node@20.17.46)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.29.2)(terser@5.39.0)
 
   '@vitest/utils@3.1.3':
     dependencies:
