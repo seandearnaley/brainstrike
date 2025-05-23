@@ -14,7 +14,10 @@
         "include": ["src", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts"],
 	"exclude": ["node_modules", "dist", "build", "coverage"],
 	"references": [
+		{"path": "../../packages/app-shell"},
+		{"path": "../../packages/fonts"},
 		{"path": "../../packages/hooks"},
+		{"path": "../../packages/server-config"},
 		{"path": "../../packages/types"},
 		{"path": "../../packages/ui"},
 		{"path": "../../packages/utils"},

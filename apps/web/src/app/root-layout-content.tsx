@@ -1,19 +1,22 @@
-import { Toaster } from '@brainstrike/ui';
-import { ThemeProvider } from '@brainstrike/ui';
-import { Outlet } from 'react-router-dom';
-import Sidebar from '../components/custom/sidebar/sidebar';
+import { AppLayout, createAppConfig } from '@brainstrike/app-shell';
+import { Folder, Settings } from 'lucide-react';
+import { Outlet, useLocation } from 'react-router-dom';
+
+const appConfig = createAppConfig({
+  navigationItems: [
+    { name: 'Context Explorer', icon: Folder, path: '/' },
+    { name: 'Settings', icon: Settings, path: '/settings' },
+  ],
+});
 
 export default function RootLayoutContent() {
+  const { pathname } = useLocation();
+
   return (
-    <ThemeProvider defaultTheme="system" storageKey="app-theme">
-      <div className="flex h-screen">
-        <Sidebar />
-        <main className="flex-1 overflow-auto p-4">
-          {/* Child routes will render here */}
-          <Outlet />
-        </main>
-      </div>
-      <Toaster />
-    </ThemeProvider>
+    <div className="h-screen">
+      <AppLayout config={appConfig} currentPath={pathname}>
+        <Outlet />
+      </AppLayout>
+    </div>
   );
 }

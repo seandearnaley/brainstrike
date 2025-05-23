@@ -68,4 +68,36 @@ describe('useLoadingManager', () => {
     expect(result.current.loading.size).toBe(0);
     expect(stableIsLoaded).not.toHaveBeenCalled();
   });
+
+  it('ignores duplicate keys while already loading', async () => {
+    const def = deferred<void>();
+    const stableLoadFn = vi.fn(() => def.promise);
+    const stableIsLoaded = vi.fn(() => false);
+
+    const { result, rerender } = renderHook(
+      ({ keys }) => useLoadingManager<string>(keys, stableIsLoaded, stableLoadFn),
+      {
+        initialProps: { keys: ['dup'] },
+      }
+    );
+
+    await waitFor(() => expect(result.current.loading.has('dup')).toBe(true));
+    expect(stableLoadFn).toHaveBeenCalledTimes(1);
+
+    rerender({ keys: ['dup', 'dup'] });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(stableLoadFn).toHaveBeenCalledTimes(1);
+    expect(result.current.loading.size).toBe(1);
+
+    await act(async () => {
+      def.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.loading.size).toBe(0));
+  });
 });

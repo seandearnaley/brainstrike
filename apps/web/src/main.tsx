@@ -10,9 +10,6 @@ import HomePageContent from './app/home-page-content';
 import RootLayoutContent from './app/root-layout-content';
 import SettingsPageContent from './app/settings/page-content';
 
-// Initialize file system and other global dependencies
-// import { FSProvider } from './providers/fs-provider'; // Removed
-
 const rootElement = document.getElementById('root');
 if (!rootElement) {
   throw new Error("Failed to find the root element with ID 'root'");
@@ -20,7 +17,6 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    {/* <FSProvider> */}
     {/* Removed FSProvider wrapper */}
     <HelmetProvider>
       <BrowserRouter>
@@ -36,7 +32,6 @@ ReactDOM.createRoot(rootElement).render(
         </Routes>
       </BrowserRouter>
     </HelmetProvider>
-    {/* </FSProvider> */}
     {/* Removed FSProvider wrapper */}
   </React.StrictMode>
 );
