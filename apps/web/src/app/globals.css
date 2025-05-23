@@ -219,12 +219,6 @@
     margin: 0.25rem 0;
     cursor: pointer;
   }
-  &:hover {
-    background-color: hsl(var(--muted));
-  }
-  .dark &:hover {
-    background-color: hsl(var(--accent));
-  }
 }
 
 @utility file-tree-node {
