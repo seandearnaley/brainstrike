@@ -35,3 +35,11 @@ export * from './use-toast';
 // Export ErrorBoundary
 export { default as ErrorBoundary } from './error-boundary';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
+
+// Export icon assets
+export { default as icon16 } from '../icons/icon-16x16.png?url';
+export { default as icon32 } from '../icons/icon-32x32.png?url';
+export { default as icon48 } from '../icons/icon-48x48.png?url';
+export { default as icon192 } from '../icons/icon-192x192.png?url';
+export { default as icon512 } from '../icons/icon-512x512.png?url';
+export { default as appleTouchIcon } from '../icons/apple-touch-icon.png?url';

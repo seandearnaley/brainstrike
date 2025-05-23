@@ -1,5 +1,15 @@
 import './globals.css';
-import { RouterProvider, ThemeProvider, Toaster } from '@brainstrike/ui';
+import {
+  RouterProvider,
+  ThemeProvider,
+  Toaster,
+  appleTouchIcon,
+  icon16,
+  icon32,
+  icon48,
+  icon192,
+  icon512,
+} from '@brainstrike/ui';
 import type React from 'react';
 import Sidebar from '../components/custom/sidebar/sidebar';
 
@@ -12,13 +22,13 @@ export default function RootLayout({
     <html lang="en">
       <title>BrainStrike.ai</title>
       <meta name="description" content="Multi-app dashboard" />
-      <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
-      <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
-      <link rel="icon" type="image/png" sizes="48x48" href="/icons/icon-48x48.png" />
-      <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
-      <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
+      <link rel="icon" type="image/png" sizes="16x16" href={icon16} />
+      <link rel="icon" type="image/png" sizes="32x32" href={icon32} />
+      <link rel="icon" type="image/png" sizes="48x48" href={icon48} />
+      <link rel="icon" type="image/png" sizes="192x192" href={icon192} />
+      <link rel="icon" type="image/png" sizes="512x512" href={icon512} />
       <link rel="shortcut icon" href="/favicon.ico" />
-      <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+      <link rel="apple-touch-icon" href={appleTouchIcon} />
       <body>
         <ThemeProvider defaultTheme="system" storageKey="app-theme">
           <RouterProvider>
