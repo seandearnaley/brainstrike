@@ -30,7 +30,7 @@ This document outlines the changes made to migrate the end-to-end (e2e) testing 
    - Updated import paths in `global-setup.ts`
    - Fixed linting issues in the e2e test files
    - Added caching configuration for Turborepo
-   - Configured server auto-detection to work with Vite's port (5173)
+   - Configured server auto-detection to work with the default port (3000)
    - Set headless mode to true by default in Playwright config
 
 ## Why Use Shell Scripts?

@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
 import { getBaseUrl, DEFAULT_PORT } from "./src/config/server";
 
-// Default to Vite's dev server port
-const baseURL = process.env.BASE_URL || "http://localhost:5173";
+// Default to the development server's port
+const baseURL = process.env.BASE_URL || getBaseUrl(DEFAULT_PORT);
 const serverURL = getBaseUrl(DEFAULT_PORT);
 
 // Make sure to log important info

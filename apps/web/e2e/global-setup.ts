@@ -1,4 +1,4 @@
-import { getBaseUrl, getPortsToCheck } from "../src/config/server";
+import { getBaseUrl, getPortsToCheck, DEFAULT_PORT } from "../src/config/server";
 
 // Helper to log messages during server detection
 function log(message: string, level: "info" | "error" = "info") {
@@ -9,33 +9,33 @@ function log(message: string, level: "info" | "error" = "info") {
 
 // Function to check if dev server is running and get its port
 async function findRunningDevServer(): Promise<number | null> {
-	// First check Vite's default port 5173
-	try {
-		log("Checking Vite port 5173 first...");
-		const response = await fetch("http://localhost:5173", {
-			method: "GET",
-			signal: AbortSignal.timeout(3000),
-		});
+        // First check the default development port
+        try {
+                log(`Checking default port ${DEFAULT_PORT} first...`);
+                const response = await fetch(getBaseUrl(DEFAULT_PORT), {
+                        method: "GET",
+                        signal: AbortSignal.timeout(3000),
+                });
 
-		log(`Response from 5173: status=${response.status}`);
+                log(`Response from ${DEFAULT_PORT}: status=${response.status}`);
 
-		const html = await response.text();
-		log(`Got HTML content from port 5173, length=${html.length}`);
+                const html = await response.text();
+                log(`Got HTML content from port ${DEFAULT_PORT}, length=${html.length}`);
 
-		const isVite = html.includes("vite") || html.includes("data-vite");
-		const isBrainstrike = html.includes("brainstrike-web");
+                const isVite = html.includes("vite") || html.includes("data-vite");
+                const isBrainstrike = html.includes("brainstrike-web");
 
-		log(
-			`Markers on port 5173: isVite=${isVite}, isBrainstrike=${isBrainstrike}`,
-		);
+                log(
+                        `Markers on port ${DEFAULT_PORT}: isVite=${isVite}, isBrainstrike=${isBrainstrike}`,
+                );
 
-		if (response.ok && (isVite || isBrainstrike)) {
-			log("Found Vite dev server running on port 5173");
-			return 5173;
-		}
-	} catch (error) {
-		log(`Port 5173 not available: ${error}`, "error");
-	}
+                if (response.ok && (isVite || isBrainstrike)) {
+                        log(`Found dev server running on port ${DEFAULT_PORT}`);
+                        return DEFAULT_PORT;
+                }
+        } catch (error) {
+                log(`Port ${DEFAULT_PORT} not available: ${error}`, "error");
+        }
 
 	// Then check the configured ports from server.ts
 	const portsToCheck = getPortsToCheck();
@@ -85,24 +85,19 @@ async function globalSetup() {
 	try {
 		// Only try to find running server if we're not in CI
 		if (!process.env.CI) {
-			const runningPort = await findRunningDevServer();
-			if (runningPort) {
-				// If port is 5173, use exact string for Vite
-				if (runningPort === 5173) {
-					process.env.BASE_URL = "http://localhost:5173";
-				} else {
-					process.env.BASE_URL = getBaseUrl(runningPort);
-				}
-				log(`Using existing dev server at ${process.env.BASE_URL}`);
-			} else {
-				log(
-					"No development server found. Will use the one configured in webServer",
-					"error",
-				);
-				// Don't throw error - let the webServer config handle it
-				process.env.BASE_URL = "http://localhost:5173"; // Default to Vite port
-				log(`Defaulting to ${process.env.BASE_URL}`);
-			}
+                        const runningPort = await findRunningDevServer();
+                        if (runningPort) {
+                                process.env.BASE_URL = getBaseUrl(runningPort);
+                                log(`Using existing dev server at ${process.env.BASE_URL}`);
+                        } else {
+                                log(
+                                        "No development server found. Will use the one configured in webServer",
+                                        "error",
+                                );
+                                // Don't throw error - let the webServer config handle it
+                                process.env.BASE_URL = getBaseUrl(DEFAULT_PORT); // Default to configured port
+                                log(`Defaulting to ${process.env.BASE_URL}`);
+                        }
 		} else {
 			log("Running in CI environment, skipping server detection");
 		}
