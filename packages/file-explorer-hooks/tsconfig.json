@@ -7,5 +7,12 @@
     "declaration": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
+  "references": [
+    { "path": "../file-explorer" },
+    { "path": "../hooks" },
+    { "path": "../types" },
+    { "path": "../ui" },
+    { "path": "../utils" }
+  ]
 } 

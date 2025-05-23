@@ -6,6 +6,13 @@
     { "path": "packages/hooks" },
     { "path": "packages/ui" },
     { "path": "packages/test-utils" },
+    { "path": "packages/config" },
+    { "path": "packages/fonts" },
+    { "path": "packages/server-config" },
+    { "path": "packages/app-shell" },
+    { "path": "packages/file-explorer" },
+    { "path": "packages/file-explorer-hooks" },
+    { "path": "packages/file-explorer-ui" },
     { "path": "apps/web" }
   ]
 }
