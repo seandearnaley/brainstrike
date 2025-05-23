@@ -1,11 +1,11 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileExplorerState } from '@brainstrike/types';
+import { createDirectoryNode, createFileNode } from '@brainstrike/utils/test/factories/file-node';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { act } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeNode from '../file-tree-node';
-import { createDirectoryNode, createFileNode } from '../test/factories/file-node';
 
 // Define initial state fully satisfying FileExplorerState
 const initialFullState: FileExplorerState = {

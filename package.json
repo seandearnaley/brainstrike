@@ -2,11 +2,11 @@
 	"name": "brainstrike",
 	"version": "1.0.0",
 	"description": "Brainstrike.ai",
-        "main": "index.js",
-        "engines": {
-                "node": ">=22"
-        },
-        "scripts": {
+	"main": "index.js",
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
 		"build": "turbo run build",
 		"dev": "turbo run dev",
 		"lint": "biome check .",
@@ -32,7 +32,6 @@
 		"@commitlint/config-conventional": "^19.8.0",
 		"@commitlint/types": "^19.8.0",
 		"@playwright/test": "^1.52.0",
-		"@testing-library/jest-dom": "^6.4.9",
 		"@vitest/coverage-v8": "^3.1.1",
 		"happy-dom": "^17.4.4",
 		"knip": "^5.50.2",
@@ -47,6 +46,7 @@
 		"onlyBuiltDependencies": [
 			"@biomejs/biome",
 			"@swc/core",
+			"@tailwindcss/oxide",
 			"esbuild"
 		]
 	},

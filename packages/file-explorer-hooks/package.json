@@ -11,9 +11,9 @@
   "files": ["dist"],
   "scripts": {
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
-    "build:js": "tsup",
+    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
     "build": "pnpm run build:types && pnpm run build:js",
-    "dev":   "pnpm run build:types && tsup --watch",
+    "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
     "test":  "vitest run --coverage"
   },
   "peerDependencies": {
@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
@@ -33,5 +32,12 @@
     "@types/react": "^19.0.0",
     "@testing-library/react": "^16",
     "@brainstrike/test-utils": "workspace:*"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
   }
 }

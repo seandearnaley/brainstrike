@@ -1,9 +1,9 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import { createDirectoryNode, createFileNode } from '@brainstrike/utils/test/factories/file-node';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
-import { createDirectoryNode, createFileNode } from '../test/factories/file-node';
 
 describe('FileTree', () => {
   const mockFileTree = [

@@ -33,7 +33,9 @@
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*"
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
+    "@brainstrike/hooks": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {

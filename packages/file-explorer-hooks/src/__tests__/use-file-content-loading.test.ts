@@ -1,9 +1,9 @@
-import { fileExplorer } from '@brainstrike/file-explorer-ui';
 import type { IFileNode } from '@brainstrike/types';
+import { fileExplorer } from '@brainstrike/utils';
 import { encodeFileSelection, fileContent } from '@brainstrike/utils';
+import { createFileNode } from '@brainstrike/utils/src/test/factories/file-node';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileNode } from '../../../file-explorer-ui/src/test/factories/file-node';
 import { useFileContentLoading } from '../use-file-content-loading';
 
 // Define mock implementations
@@ -27,13 +27,6 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
     encodeFileSelection: vi.fn((folderId, path) => `${folderId}|@|${path}`),
   };
 });
-
-vi.mock('@brainstrike/file-explorer-ui', () => ({
-  fileExplorer: {
-    findNodeByPath: vi.fn(),
-    getFileExtension: vi.fn().mockReturnValue('.txt'),
-  },
-}));
 
 // Mock console.debug and error to avoid test noise
 vi.spyOn(console, 'debug').mockImplementation(() => {});
@@ -69,22 +62,20 @@ describe('useFileContentLoading', () => {
     };
 
     // Setup fileExplorer mock
-    vi.mocked(fileExplorer.findNodeByPath).mockImplementation(
-      (_: IFileNode[], path: string, rootId?: string) => {
-        // Return a mock file node that matches the path and rootId
-        return createFileNode({
-          name: path.split('/').pop() || 'test.txt',
-          path,
-          handle: mockFileHandle,
-          rootFolderId: rootId || 'default-folder',
-        });
-      }
-    );
+    fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
+      // Return a mock file node that matches the path and rootId
+      return createFileNode({
+        name: path.split('/').pop() || 'test.txt',
+        path,
+        handle: mockFileHandle,
+        rootFolderId: rootId || 'default-folder',
+      });
+    });
 
     // Setup fileContent mock
-    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
-    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
-    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+    fileContent.isTextContent = vi.fn().mockReturnValue(true);
+    fileContent.isTextExtension = vi.fn().mockReturnValue(true);
+    fileContent.isBinaryExtension = vi.fn().mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -125,9 +116,6 @@ describe('useFileContentLoading', () => {
         rootFolderId: TEST_FOLDER_ID,
       });
 
-      // Ensure findNodeByPath returns the file node
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(fileNode);
-
       // Render the hook with the file tree containing our file node
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
       const compositeKey = getCompositeKey('/test.txt');
@@ -150,9 +138,8 @@ describe('useFileContentLoading', () => {
         rootFolderId: TEST_FOLDER_ID,
       });
 
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(fileNode);
       // Make this extension binary
-      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(true);
+      fileContent.isBinaryExtension = vi.fn().mockReturnValue(true);
 
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
       const compositeKey = getCompositeKey('/test.png');
@@ -181,8 +168,6 @@ describe('useFileContentLoading', () => {
         rootFolderId: TEST_FOLDER_ID,
       });
 
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(fileNode);
-
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
       const compositeKey = getCompositeKey('/large.txt');
 
@@ -207,8 +192,6 @@ describe('useFileContentLoading', () => {
         rootFolderId: TEST_FOLDER_ID,
       });
 
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(fileNode);
-
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
       const compositeKey = getCompositeKey('/error.txt');
 
@@ -222,7 +205,7 @@ describe('useFileContentLoading', () => {
     });
 
     it('should handle missing file nodes', async () => {
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(null);
+      fileExplorer.findNodeByPath = vi.fn().mockReturnValue(null);
 
       const { result } = renderUseFileContentLoadingHook([]);
       const compositeKey = getCompositeKey('/nonexistent.txt');
@@ -247,11 +230,9 @@ describe('useFileContentLoading', () => {
         })
       );
 
-      vi.mocked(fileExplorer.findNodeByPath).mockImplementation(
-        (_: IFileNode[], path: string, rootId?: string) => {
-          return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
-        }
-      );
+      fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
+        return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
+      });
 
       const { result, rerender } = renderUseFileContentLoadingHook(files);
       const compositeKeys = files.map((f) => getCompositeKey(f.path));
@@ -288,11 +269,9 @@ describe('useFileContentLoading', () => {
         }),
       ];
 
-      vi.mocked(fileExplorer.findNodeByPath).mockImplementation(
-        (_: IFileNode[], path: string, rootId?: string) => {
-          return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
-        }
-      );
+      fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
+        return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
+      });
 
       const { result, rerender } = renderUseFileContentLoadingHook(files);
       const compositeKeys = files.map((f) => getCompositeKey(f.path));
