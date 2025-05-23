@@ -13,8 +13,10 @@ export default function RootLayoutContent() {
   const { pathname } = useLocation();
 
   return (
-    <AppLayout config={appConfig} currentPath={pathname}>
-      <Outlet />
-    </AppLayout>
+    <div className="h-screen">
+      <AppLayout config={appConfig} currentPath={pathname}>
+        <Outlet />
+      </AppLayout>
+    </div>
   );
 }

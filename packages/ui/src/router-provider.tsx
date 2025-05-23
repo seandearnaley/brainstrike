@@ -10,7 +10,7 @@ export default function RouterProvider({ children, routerComponent }: RouterProv
   const RouterComponent = routerComponent ?? BrowserRouter;
   return (
     <RouterComponent>
-      <div className="h-full">{children}</div>
+      <div className="h-screen">{children}</div>
     </RouterComponent>
   );
 }
