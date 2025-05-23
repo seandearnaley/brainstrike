@@ -213,7 +213,10 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
     # Check for lint errors and formatting issues
     pnpm lint
 
-    # Automatically fix formatting issues
+    # Automatically fix common lint issues
+    pnpm lint --fix
+
+    # Automatically fix remaining formatting issues
     pnpm format
     ```
 6.  **Type Checking**:
@@ -257,7 +260,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 ## 8. Contribution Guidelines
 
 1.  **Branching**: Create feature branches from `main` (or `develop` if used). Use descriptive names (e.g., `feat/user-authentication`, `fix/login-button-bug`).
-2.  **Code Style**: Adhere strictly to Biome rules (`pnpm format` and `pnpm lint`).
+2.  **Code Style**: Adhere strictly to Biome rules (`pnpm lint --fix` and `pnpm format`).
 3.  **Type Safety**: Ensure code passes TypeScript checks (`pnpm type-check`). Eliminate `any` types where possible.
 4.  **Testing**: Add relevant unit, integration, or E2E tests for new features or bug fixes. Aim for high test coverage. Ensure all tests pass (`pnpm test`, `pnpm test:e2e`).
 5.  **Commit Messages**: Follow the Conventional Commits standard (enforced by `commitlint`). Use `git commit -m "type(scope): subject"` format.
