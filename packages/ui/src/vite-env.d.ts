@@ -6,6 +6,13 @@ interface ImportMetaEnv {
   readonly MODE: string;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Global interface extension
 interface ImportMeta {
   readonly env: ImportMetaEnv;
+}
+
+// Type declarations for PNG assets with ?url suffix
+declare module '*.png?url' {
+  const src: string;
+  export default src;
 }

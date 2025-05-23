@@ -22,6 +22,7 @@ export default defineConfig({
         ]
       : []), // If no token, don't include the plugin config
   ],
+  assetsInclude: ['**/*.png'],
   build: {
     minify: "terser", // Use terser for better minification
     terserOptions: {
