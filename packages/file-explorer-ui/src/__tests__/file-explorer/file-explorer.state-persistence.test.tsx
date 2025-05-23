@@ -12,6 +12,11 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useToastManager: () => ({}),
   useFileExplorerSettings: () => ({}),
   useFileLoadingManager: () => ({}),
+  useSelectionManager: () => ({
+    selectedFilePaths: new Set(),
+    handleSelectionChange: vi.fn(),
+    wouldExceedSelectionLimit: vi.fn(() => false),
+  }),
 }));
 
 vi.mock('@/hooks/use-file-system', () => ({
@@ -59,7 +64,26 @@ vi.mock('@/components/ui/button', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
+  FileExplorerHeader: () => (
+    <header>
+      <h1>Context Explorer</h1>
+    </header>
+  ),
+  FileExplorerToolbar: () => <div data-testid="toolbar">Toolbar</div>,
+  LoadingOverlay: () => null,
+  ActionButtons: () => <div data-testid="actions">Actions</div>,
+  PreviewPanel: () => <div data-testid="preview">Preview</div>,
 }));
+
+// Mock React.lazy and Suspense to avoid async behavior
+vi.mock('react', async () => {
+  const actual = await vi.importActual('react');
+  return {
+    ...actual,
+    lazy: () => () => null,
+    Suspense: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  };
+});
 
 // Note: This test previously referenced file-explorer-main-panel, but that import has been removed due to migration.
 
@@ -71,9 +95,32 @@ vi.mock('../../constants/file-explorer-constants', () => ({
 }));
 
 // Mock store
+const mockStore = {
+  includeFilters: [],
+  excludeFilters: [],
+  useRegex: false,
+  maxSelectionCount: 10,
+  includeProjectTree: true,
+  folderSummaryThreshold: 5,
+  currentFolderId: null,
+  folderStates: {},
+  selectedFilePaths: new Set<string>(),
+  expandedDirectoryPaths: new Set<string>(),
+  lastActiveTab: 'files',
+  setFilters: vi.fn(),
+  setCurrentFolderId: vi.fn(),
+  expandAllDirectories: vi.fn(),
+  collapseAllDirectories: vi.fn(),
+};
 
-// Skip this test file for now
-describe.skip('FileExplorer - State Persistence', () => {
+vi.mock('@brainstrike/file-explorer', () => {
+  const useFileExplorerStore = Object.assign(() => mockStore, {
+    getState: () => mockStore,
+  });
+  return { useFileExplorerStore };
+});
+
+describe('FileExplorer - State Persistence', () => {
   it('should render with the correct title', () => {
     render(<FileExplorer />);
     expect(screen.getByText('Context Explorer')).toBeInTheDocument();
