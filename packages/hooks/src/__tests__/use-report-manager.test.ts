@@ -94,8 +94,30 @@ describe('useReportManager', () => {
     expect(mockGenerateReportWithContent).not.toHaveBeenCalled();
   });
 
-  it.skip('should handle error during report generation', async () => {
-    // Test skipped temporarily to get accurate coverage report
+  it('should handle error during report generation', async () => {
+    mockGenerateReportWithContent.mockRejectedValue(new Error('gen fail'));
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleCopyReport();
+    });
+
+    expect(mockToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.error.title,
+      description: FileExplorerStrings.error.reportGenerationFailed,
+      variant: 'destructive',
+    });
+    expect(mockShowToast).not.toHaveBeenCalled();
+    expect(mockDismiss).not.toHaveBeenCalled();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
   });
 
   it('should handle error during clipboard copy', async () => {
