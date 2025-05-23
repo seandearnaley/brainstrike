@@ -57,6 +57,10 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
         ```bash
         pnpm lint
         ```
+    *   Auto-fix simple problems (recommended before committing):
+        ```bash
+        pnpm lint --fix # runs `biome check --fix`
+        ```
     *   Format code:
         ```bash
         pnpm format
@@ -140,7 +144,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
 *   **Checklist**:
     *   All tests pass (`pnpm test`).
-    *   Code is linted and formatted (`pnpm lint` and `pnpm format`).
+    *   Code is linted and formatted (`pnpm lint --fix` and `pnpm format`).
     *   No type errors (`pnpm type-check`).
     *   PR description clearly explains the changes and reasoning.
     *   New functionality is covered by tests.
@@ -153,7 +157,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 ## Validating Changes (Summary)
 
 Before pushing code or opening a PR, ensure:
-1.  **Linting**: `pnpm lint` (fix any reported issues).
+1.  **Linting**: `pnpm lint --fix` (fix any reported issues).
 2.  **Formatting**: `pnpm format` (apply formatting).
 3.  **Type Checking**: `pnpm type-check` (resolve all TypeScript errors).
 4.  **Testing**: `pnpm test` (all tests should pass). For targeted tests, use filtering as described above.

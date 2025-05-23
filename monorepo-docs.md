@@ -84,6 +84,7 @@ Detailed breakdown of the application code structure and key pointers for extrac
 - `pnpm build` — full build across all workspaces
 - `pnpm test` — run all tests
 - `pnpm turbo run lint` — run linter
+- `pnpm lint --fix` — auto-fix lint issues using Biome
 - `pnpm turbo run type-check` — run type checks
 
 ## 4. Component Extraction & Migration Workflow
@@ -189,6 +190,7 @@ mocking packages like `@brainstrike/hooks` and `@brainstrike/ui`.
 | Build all                   | `pnpm build`                     |
 | Test all                    | `pnpm test`                      |
 | Lint all                    | `pnpm turbo run lint`             |
+| Fix lint issues             | `pnpm lint --fix`             |
 | Type-check all              | `pnpm turbo run type-check`      |
 
 ## 9. Further Reading
