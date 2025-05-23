@@ -1,0 +1,36 @@
+{
+  "name": "@brainstrike/server-config",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "^22.15.17"
+  }
+}
