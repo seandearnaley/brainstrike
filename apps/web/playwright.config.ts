@@ -1,9 +1,10 @@
 /// <reference types="node" />
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
-import { getBaseUrl, DEFAULT_PORT } from "./src/config/server";
+import { getBaseUrl, DEFAULT_PORT } from "@brainstrike/server-config";
 
 // Default to Vite's dev server port
 const baseURL = process.env.BASE_URL || "http://localhost:5173";

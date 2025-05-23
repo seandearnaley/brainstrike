@@ -1,8 +1,6 @@
 import './globals.css';
 import {
   RouterProvider,
-  ThemeProvider,
-  Toaster,
   appleTouchIcon,
   icon16,
   icon32,
@@ -11,7 +9,6 @@ import {
   icon512,
 } from '@brainstrike/ui';
 import type React from 'react';
-import Sidebar from '../components/custom/sidebar/sidebar';
 
 export default function RootLayout({
   children,
@@ -30,15 +27,7 @@ export default function RootLayout({
       <link rel="shortcut icon" href="/favicon.ico" />
       <link rel="apple-touch-icon" href={appleTouchIcon} />
       <body>
-        <ThemeProvider defaultTheme="system" storageKey="app-theme">
-          <RouterProvider>
-            <div className="flex h-screen">
-              <Sidebar />
-              <main className="flex-1 overflow-auto p-4">{children}</main>
-            </div>
-            <Toaster />
-          </RouterProvider>
-        </ThemeProvider>
+        <RouterProvider>{children}</RouterProvider>
       </body>
     </html>
   );

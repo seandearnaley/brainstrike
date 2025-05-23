@@ -1,30 +1,34 @@
+import { PageWrapper } from '@brainstrike/app-shell';
 import { ThemeSettings } from '@brainstrike/ui';
 import { Helmet } from 'react-helmet-async';
 
 export default function SettingsPageContent() {
   return (
-    <div className="container max-w-2xl mx-auto py-8">
+    <>
       <Helmet>
         <title>Settings - BrainStrike.ai</title>
         <meta name="description" content="Customize your application settings" />
       </Helmet>
 
-      <h1 className="text-3xl font-bold mb-8">Settings</h1>
+      <PageWrapper
+        title="Settings"
+        description="Customize your application settings and preferences"
+      >
+        <div className="space-y-6">
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">Appearance</h2>
+            <ThemeSettings />
+          </div>
 
-      <div className="space-y-6">
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">Appearance</h2>
-          <ThemeSettings />
+          {/* Add more settings sections here */}
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold">More Settings</h2>
+            <p className="text-sm text-muted-foreground">
+              Additional settings will be added here in future updates.
+            </p>
+          </div>
         </div>
-
-        {/* Add more settings sections here */}
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold">More Settings</h2>
-          <p className="text-sm text-muted-foreground">
-            Additional settings will be added here in future updates.
-          </p>
-        </div>
-      </div>
-    </div>
+      </PageWrapper>
+    </>
   );
 }
