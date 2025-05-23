@@ -246,7 +246,7 @@ const FileExplorer: React.FC = () => {
               loadingProgress ?? {
                 loaded: 0,
                 total: 0,
-                phase: 'counting',
+                phase: 'counting' as const,
               }
             }
             className="z-50"

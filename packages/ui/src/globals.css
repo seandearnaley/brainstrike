@@ -1,8 +1,10 @@
 /* 
- * UI Components CSS Variables
+ * UI Components CSS Variables and Global Styles
  * This file defines the theme variables used by the UI components.
  * It should be imported by the consuming application after Tailwind's base imports.
  */
+
+@import "tailwindcss";
 
 :root {
   --background: 0 0% 100%;
@@ -82,5 +84,32 @@
   }
   to {
     height: 0;
+  }
+}
+
+/* Container utility with responsive sizing */
+.container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+@media (min-width: 640px) {
+  .container {
+    max-width: none;
+  }
+}
+@media (min-width: 1400px) {
+  .container {
+    max-width: 1400px;
+  }
+}
+
+/* Border color compatibility for Tailwind v4 */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
   }
 }

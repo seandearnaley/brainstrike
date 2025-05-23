@@ -5,11 +5,43 @@ import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
+import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+
+function copyFontsPlugin() {
+  return {
+    name: 'copy-fonts',
+    buildStart() {
+      // Copy fonts from the fonts package to public directory
+      const fontsPackagePath = path.resolve(__dirname, '../../packages/fonts/src/inter');
+      const publicFontsPath = path.resolve(__dirname, 'public/fonts/inter');
+      
+      // Create the public fonts directory if it doesn't exist
+      if (!existsSync(path.resolve(__dirname, 'public/fonts'))) {
+        mkdirSync(path.resolve(__dirname, 'public/fonts'), { recursive: true });
+      }
+      if (!existsSync(publicFontsPath)) {
+        mkdirSync(publicFontsPath, { recursive: true });
+      }
+      
+      // Copy font files
+      const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
+      fontFiles.forEach(file => {
+        const src = path.join(fontsPackagePath, file);
+        const dest = path.join(publicFontsPath, file);
+        if (existsSync(src)) {
+          copyFileSync(src, dest);
+          console.log(`Copied font: ${file}`);
+        }
+      });
+    }
+  };
+}
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    copyFontsPlugin(),
     // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
