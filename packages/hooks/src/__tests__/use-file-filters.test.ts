@@ -119,4 +119,29 @@ describe('useFileFilters', () => {
     expect(filtered).toEqual([]);
     expect(result.current.filterError).toContain('Invalid regex pattern');
   });
+
+  it('returns empty on invalid regex in exclude and sets filterError', () => {
+    const { result } = renderHook(() => useFileFilters());
+    let filtered: IFileNode[] = [];
+    act(() => {
+      filtered = result.current.applyFileFilters(mockTree, [], ['['], true);
+    });
+    expect(filtered).toEqual([]);
+    expect(result.current.filterError).toContain('Invalid regex pattern');
+  });
+
+  it('clears filterError on subsequent valid calls', () => {
+    const { result } = renderHook(() => useFileFilters());
+    act(() => {
+      result.current.applyFileFilters(mockTree, ['['], [], true);
+    });
+    expect(result.current.filterError).toContain('Invalid regex pattern');
+
+    let filtered: IFileNode[] = [];
+    act(() => {
+      filtered = result.current.applyFileFilters(mockTree, [], []);
+    });
+    expect(result.current.filterError).toBeNull();
+    expect(filtered).toMatchObject(mockTree);
+  });
 });
