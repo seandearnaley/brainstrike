@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const loadModule = async () => await import('../server');
+const loadModule = async () => await import('@brainstrike/server-config');
 
 describe('server config', () => {
   beforeEach(() => {
