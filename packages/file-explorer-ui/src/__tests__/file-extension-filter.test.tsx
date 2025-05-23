@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExtensionFilter from '../file-extension-filter';
 
@@ -23,27 +22,37 @@ describe('FileExtensionFilter', () => {
     expect(screen.getByLabelText(/Files to Exclude/i)).toHaveValue('*.spec.ts');
   });
 
-  // Skip the problematic debounce tests for now
-  it.skip('maintains input value while typing without reverting', async () => {
-    const user = userEvent.setup();
+  it('maintains input value while typing without reverting', () => {
+    vi.useFakeTimers();
     render(<FileExtensionFilter {...defaultProps} />);
 
     const includeInput = screen.getByLabelText(/Files to Include/i);
-    await user.clear(includeInput);
-    await user.type(includeInput, '*.js');
+    fireEvent.change(includeInput, { target: { value: '*.j' } });
+    fireEvent.change(includeInput, { target: { value: '*.js' } });
 
     expect(includeInput).toHaveValue('*.js');
+    vi.useRealTimers();
   });
 
-  it.skip('debounces filter changes', async () => {
-    const user = userEvent.setup();
-    render(<FileExtensionFilter {...defaultProps} />);
+  it('debounces filter changes', () => {
+    vi.useFakeTimers();
+    const onFilterChange = vi.fn();
+    render(<FileExtensionFilter {...defaultProps} onFilterChange={onFilterChange} />);
 
     const includeInput = screen.getByLabelText(/Files to Include/i);
-    await user.clear(includeInput);
-    await user.type(includeInput, '*.jsx');
+    fireEvent.change(includeInput, { target: { value: '*.jsx' } });
 
-    expect(includeInput).toHaveValue('*.jsx');
+    expect(onFilterChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(onFilterChange).not.toHaveBeenCalled();
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    expect(onFilterChange).toHaveBeenCalledTimes(1);
+    expect(onFilterChange).toHaveBeenCalledWith(['*.jsx'], defaultProps.excludeFilters, false);
+    vi.useRealTimers();
   });
 
   it('handles regex mode placeholder text', () => {

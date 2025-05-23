@@ -21,11 +21,36 @@ describe('PreviewPanel - Token Estimation', () => {
     vi.clearAllMocks();
   });
 
-  // Due to an apparent rendering issue with the test environment, skipping this test for now
-  it.skip('should display token information in the batch selection bar', async () => {
-    // Test implementation is correct but we're getting a rendering error
-    // related to React component issues in the test environment
-    expect(true).toBe(true);
+  it('should display token information in the batch selection bar', async () => {
+    const file1 = createCompositeKey('file1.txt');
+    const file2 = createCompositeKey('file2.txt');
+
+    const selectedFiles = new Set([file1, file2]);
+
+    const fileContents = {
+      [file1]: 'Small content',
+      [file2]: 'This file has a bit more text than the first one',
+    };
+
+    const user = userEvent.setup();
+
+    render(
+      <PreviewPanel {...uiTestProps} selectedFiles={selectedFiles} fileContents={fileContents} />
+    );
+
+    // Select the first file via its checkbox
+    const firstCheckbox = screen.getByRole('checkbox', {
+      name: /Select file1.txt/i,
+    });
+    await user.click(firstCheckbox);
+
+    // Batch bar should show the number of selected items
+    expect(screen.getByText(/1 item selected/i)).toBeInTheDocument();
+
+    // And it should display token information for the selection
+    const tokenBadges = screen.getAllByText(/tokens/);
+    expect(tokenBadges.length).toBeGreaterThan(0);
+    expect(screen.getByText(/New total:/i)).toBeInTheDocument();
   });
 
   it('should display token counts and total token information', async () => {
