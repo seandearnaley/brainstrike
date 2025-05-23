@@ -49,6 +49,7 @@ pnpm build                   # Build all apps and packages
 pnpm test                    # Run unit and integration tests
 pnpm test:e2e                # Run Playwright E2E tests
 pnpm turbo run lint          # Lint the codebase with Biome
+pnpm lint --fix              # Auto-fix lint issues with Biome
 pnpm turbo run type-check    # Run TypeScript type checks
 pnpm format                  # Auto-format source files
 ```
@@ -56,7 +57,7 @@ pnpm format                  # Auto-format source files
 ## Contributing
 - Follow [AGENTS.md](./AGENTS.md) for coding standards and workflow
 - Use Conventional Commits for commit messages
-- Ensure `pnpm lint`, `pnpm format`, `pnpm type-check` and `pnpm test` all succeed
+- Ensure `pnpm lint --fix`, `pnpm format`, `pnpm type-check` and `pnpm test` all succeed
 - See [`onboarding.md`](./onboarding.md) and [`monorepo-docs.md`](./monorepo-docs.md) for deep technical guides
 
 ## License
