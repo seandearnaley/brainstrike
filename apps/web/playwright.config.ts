@@ -1,6 +1,5 @@
 /// <reference types="node" />
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
