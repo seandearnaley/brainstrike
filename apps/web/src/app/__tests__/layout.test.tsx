@@ -35,6 +35,13 @@ vi.mock('@brainstrike/ui', () => ({
       {children}
     </div>
   ),
+  // Mock icon assets
+  icon16: '/mock-icon-16.png',
+  icon32: '/mock-icon-32.png',
+  icon48: '/mock-icon-48.png',
+  icon192: '/mock-icon-192.png',
+  icon512: '/mock-icon-512.png',
+  appleTouchIcon: '/mock-apple-touch-icon.png',
 }));
 
 describe('RootLayout', () => {
