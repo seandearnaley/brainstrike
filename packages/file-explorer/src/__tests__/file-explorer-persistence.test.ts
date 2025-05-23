@@ -15,18 +15,21 @@ const getFreshPersistOptions = async () => {
 
 describe('file-explorer-persistence', () => {
   beforeEach(() => {
-    originalNodeEnv = process.env.NODE_ENV;
+    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+    originalNodeEnv = process.env['NODE_ENV'];
     vi.clearAllMocks(); // Clear mocks for console spies
     vi.resetModules(); // Reset modules to ensure isDev is re-evaluated based on NODE_ENV
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalNodeEnv;
+    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+    process.env['NODE_ENV'] = originalNodeEnv;
   });
 
   describe('createPersistOptions', () => {
     it('should create persist options with the correct configuration', async () => {
-      process.env.NODE_ENV = 'production'; // Arbitrary for this test
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'production'; // Arbitrary for this test
       const persistOptions = await getFreshPersistOptions();
       expect(persistOptions.name).toBe('file-explorer-storage');
       expect(persistOptions.version).toBe(3);
@@ -39,7 +42,8 @@ describe('file-explorer-persistence', () => {
     let partializeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['partialize']>;
 
     beforeEach(async () => {
-      process.env.NODE_ENV = 'development';
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'development';
       vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
       if (!persistOptions.partialize) throw new Error('Partialize function not found');
@@ -86,7 +90,8 @@ describe('file-explorer-persistence', () => {
     >;
 
     beforeEach(async () => {
-      process.env.NODE_ENV = 'development';
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'development';
       vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
       if (!persistOptions.onRehydrateStorage)
@@ -104,8 +109,10 @@ describe('file-explorer-persistence', () => {
 
     it('No Persisted State: should return default state and log', () => {
       if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as any;
-      const result: FileExplorerState | null = rehydrate(null);
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(null);
       expect(result).toEqual({
         currentFolderId: null,
         folderStates: {},
@@ -123,14 +130,16 @@ describe('file-explorer-persistence', () => {
 
     it('Persisted State with No Current Folder ID: should return modified state and log', () => {
       if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as any;
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
       const persistedStateWithNoFolder: Partial<SerializedState> = {
         currentFolderId: null,
         includeFilters: ['persisted.ts'],
         maxSelectionCount: 200,
         lastActiveTab: 'preview',
       };
-      const result = rehydrate(persistedStateWithNoFolder as SerializedState);
+      const result = (rehydrate as (persistedState: SerializedState | null) => FileExplorerState)(
+        persistedStateWithNoFolder as SerializedState
+      );
       expect(result).toEqual({
         currentFolderId: null,
         folderStates: {},
@@ -153,7 +162,7 @@ describe('file-explorer-persistence', () => {
 
     it('Error During Rehydration: should return default state and log error', () => {
       if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as any;
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
 
       // Mock Object.fromEntries to throw an error for this specific test case
       const fromEntriesSpy = vi.spyOn(Object, 'fromEntries').mockImplementationOnce(() => {
@@ -166,7 +175,9 @@ describe('file-explorer-persistence', () => {
         // which then calls our mocked Object.fromEntries.
         folderStates: { 'error-key': 'trigger-error-mock' },
       } as unknown as SerializedState;
-      const result: FileExplorerState | null = rehydrate(malformedPersistedState);
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(malformedPersistedState);
       expect(result).toEqual({
         currentFolderId: null,
         folderStates: {},
@@ -191,7 +202,8 @@ describe('file-explorer-persistence', () => {
     >;
 
     beforeEach(async () => {
-      process.env.NODE_ENV = 'production';
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'production';
       vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
       if (!persistOptions.onRehydrateStorage)
@@ -201,7 +213,7 @@ describe('file-explorer-persistence', () => {
 
     it('Successful Rehydration (Happy Path): should correctly rehydrate state and not log dev messages', () => {
       if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as any;
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
       const persistedState: SerializedState = {
         currentFolderId: 'folder-abc',
         folderStates: {
@@ -228,7 +240,9 @@ describe('file-explorer-persistence', () => {
         maxSelectionCount: 150,
         lastActiveTab: 'settings',
       };
-      const result: FileExplorerState | null = rehydrate(persistedState);
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(persistedState);
       expect(result?.currentFolderId).toBe('folder-abc');
       expect(result?.selectedFilePaths).toEqual(new Set(['fileGlobal.ts']));
       expect(result?.expandedDirectoryPaths).toEqual(new Set(['globalDir']));
@@ -242,7 +256,7 @@ describe('file-explorer-persistence', () => {
 
     it('Successful Rehydration with missing lastActiveTab: should default to "files" and not log', () => {
       if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as any;
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
       const persistedState: Partial<SerializedState> = {
         currentFolderId: 'folder-xyz',
         selectedFilePaths: [],
@@ -255,7 +269,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 5,
         maxSelectionCount: 100,
       };
-      const result: FileExplorerState | null = rehydrate(persistedState as SerializedState);
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(persistedState as SerializedState);
       expect(result?.lastActiveTab).toBe('files');
       expect(consoleLogSpy).not.toHaveBeenCalled();
       expect(consoleErrorSpy).not.toHaveBeenCalled();
