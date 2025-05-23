@@ -124,7 +124,7 @@ const FileExplorer: React.FC = () => {
     toast,
   });
 
-  const { performUndoableAction } = useUndoableAction<Set<string>, Set<string>>();
+  const { performUndoableAction } = useUndoableAction();
 
   const performUndoableActionForPanel = (
     key: string,
@@ -141,7 +141,7 @@ const FileExplorer: React.FC = () => {
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
       // Adapt onUndo signature to match PreviewPanel expectation
-      onUndo: (_item: Set<string>, snapshot: Set<string>) => opts.onUndo(key, snapshot),
+      onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };
 

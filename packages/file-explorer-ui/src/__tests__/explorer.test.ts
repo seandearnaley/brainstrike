@@ -1,11 +1,11 @@
 import type { IFileNode } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createDirectoryNode,
   createFileNode,
   createNestedDirectoryStructure,
-} from '../test/factories/file-node';
+} from '@brainstrike/utils/test/factories/file-node';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('fileExplorer', () => {
   describe('getAllFilePathsInDirectory', () => {

@@ -111,8 +111,6 @@
   ],
   // Keep existing global settings
   "ignoreBinaries": [
-    "playwright", // Used in GH Actions
-    "eslint"     // Likely false positive from bin field, biome is used
   ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
@@ -128,7 +126,6 @@
     "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
-    "@vitest/coverage-v8"   // Only used in Vitest config
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
