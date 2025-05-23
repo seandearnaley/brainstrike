@@ -8,5 +8,9 @@ export interface RouterProviderProps {
 
 export default function RouterProvider({ children, routerComponent }: RouterProviderProps) {
   const RouterComponent = routerComponent ?? BrowserRouter;
-  return <RouterComponent>{children}</RouterComponent>;
+  return (
+    <RouterComponent>
+      <div className="h-full">{children}</div>
+    </RouterComponent>
+  );
 }
