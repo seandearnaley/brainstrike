@@ -19,6 +19,8 @@ brainstrike/
 │   ├── hooks/        # Reusable React hooks
 │   ├── types/        # Shared TypeScript types/interfaces
 │   ├── utils/        # Utility functions
+│   ├── storage/      # Cross-platform storage adapters
+│   ├── file-system/  # Cross-platform file system adapters
 │   └── config/       # Shared config (tsconfig, biome, etc)
 ├── turbo.jsonc       # Turborepo pipeline config
 ├── pnpm-workspace.yaml # pnpm workspace definition
@@ -68,6 +70,7 @@ Detailed breakdown of the application code structure and key pointers for extrac
 - **Type-only imports**: Centralize interfaces/constants in `packages/types` and use `import type`.
 - **Dependency discovery**: Use `grep_search` or IDE search to identify cross-folder imports and external dependencies.
 - **Domain packages**: For complex features (analysis, file-explorer), consider dedicated packages rather than forcing into `ui`.
+- **Adapter Pattern**: File explorer functionality is decoupled from platform APIs via `@brainstrike/storage` and `@brainstrike/file-system`. Web, memory, and mock adapters provide browser support and robust tests while keeping the door open for an Electron implementation.
 - **Peer dependency sync**: Ensure React, Tailwind, and other peer deps match across migrated packages via package.json alignment.
 
 ## 3. Turborepo Pipeline & Task Conventions
