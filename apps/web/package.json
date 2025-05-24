@@ -22,7 +22,10 @@
     "serve-static": "serve dist -p 3000"
   },
   "dependencies": {
+    "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/fonts": "workspace:*",
+    "@brainstrike/server-config": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",

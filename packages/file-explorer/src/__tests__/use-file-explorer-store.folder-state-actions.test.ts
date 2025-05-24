@@ -84,6 +84,33 @@ describe('Folder State Actions', () => {
     expect(state.expandedDirectoryPaths.size).toBe(0);
   });
 
+  it('should create default folder state when switching to a new id', () => {
+    store.setState((state: FileExplorerState) => ({
+      ...state,
+      selectedFilePaths: new Set(['file1']),
+      expandedDirectoryPaths: new Set(['dir1']),
+    }));
+
+    store.setCurrentFolderId('newId');
+
+    const state = store.getState();
+    expect(state.currentFolderId).toBe('newId');
+    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
+    const newState = state.folderStates['newId'];
+    expect(newState).toBeDefined();
+    if (!newState) throw new Error('Expected folder state to be defined');
+    expect(newState.selectedFilePaths.size).toBe(0);
+    expect(newState.expandedDirectoryPaths.size).toBe(0);
+    expect(newState.useRegex).toBe(false);
+    expect(newState.includeProjectTree).toBe(true);
+    expect(newState.folderSummaryThreshold).toBe(100);
+    expect(newState.maxSelectionCount).toBe(100);
+    expect(newState.lastActiveTab).toBe('files');
+    expect(newState.lastAccessed).toBeGreaterThan(0);
+    expect(state.selectedFilePaths.size).toBe(0);
+    expect(state.expandedDirectoryPaths.size).toBe(0);
+  });
+
   it('should hydrate state with stored folder state when folder id is provided', () => {
     const testFolderId = 'testFolder123';
     const customFilters = ['*.tsx'];
