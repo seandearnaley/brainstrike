@@ -254,6 +254,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
   - **Coverage**: NYC aggregates coverage data from Vitest runs across packages.
 - **CI/CD**: GitHub Actions workflows (`.github/workflows`) likely handle automated testing, linting, building, and potentially deployment on pushes/PRs. (Specific workflow details should be checked in the `.github` folder).
 - **Git Hooks**: Husky (`.husky/`) ensures code quality checks (e.g., commit message linting) run automatically before commits or pushes.
+- **File Explorer Adapter Pattern**: Storage and file system logic is abstracted behind `@brainstrike/storage` and `@brainstrike/file-system`. Adapters for web, memory, and mock implementations allow the explorer to run in browsers, tests, or future Electron apps without changing core code.
 
 ---
 

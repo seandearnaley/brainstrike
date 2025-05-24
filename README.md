@@ -28,6 +28,8 @@ packages/
   utils/               # Common utilities
   types/               # Shared TypeScript types
   config/              # Tooling configuration
+  storage/             # Cross-platform storage adapters
+  file-system/         # Cross-platform file system adapters
   file-explorer/       # Core file analysis logic
   file-explorer-hooks/ # Hooks for file explorer domain
   file-explorer-ui/    # UI for file explorer features
@@ -41,6 +43,7 @@ packages/
 - **Biome** for linting and formatting
 - **Vitest** & **Playwright** for testing
 - **React Router** and **react-helmet-async** for routing and head management
+- **Adapter Pattern** for the file explorer (storage & file system adapters enable web and Electron with in-memory/mocked options for tests)
 
 ## Common Commands
 ```bash
@@ -59,6 +62,8 @@ pnpm format                  # Auto-format source files
 - Use Conventional Commits for commit messages
 - Ensure `pnpm lint --fix`, `pnpm format`, `pnpm type-check` and `pnpm test` all succeed
 - See [`onboarding.md`](./onboarding.md) and [`monorepo-docs.md`](./monorepo-docs.md) for deep technical guides
+
+The file explorer relies on `@brainstrike/storage` and `@brainstrike/file-system` packages which implement a platform-aware adapter pattern. Web, in-memory, and mock adapters enable browser usage, isolated tests, and pave the way for an Electron desktop app.
 
 ## License
 ISC
