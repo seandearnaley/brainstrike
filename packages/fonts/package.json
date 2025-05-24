@@ -1,0 +1,27 @@
+{
+  "name": "@brainstrike/fonts",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./inter/*": "./src/inter/*"
+  },
+  "files": ["dist", "src/inter"],
+  "scripts": {
+    "build": "rm -rf dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit"
+  },
+  "license": "ISC"
+} 

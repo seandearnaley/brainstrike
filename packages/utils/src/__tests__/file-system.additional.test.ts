@@ -102,6 +102,22 @@ describe('fileSystem', () => {
       );
       expect(resultDifferent).toBe(false);
     });
+
+    it('should warn and compare names when isSameEntry throws and no path info', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      Object.defineProperty(mockDirectoryHandle1, 'isSameEntry', {
+        value: vi.fn().mockRejectedValue(new Error('boom')),
+      });
+
+      // Do not provide getParent so path comparison is skipped
+
+      const result = await fileSystem.isSameDirectory(mockDirectoryHandle1, mockDirectoryHandle2);
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(result).toBe(true);
+      warnSpy.mockRestore();
+    });
   });
 
   describe('getFullPath', () => {
@@ -188,6 +204,19 @@ describe('fileSystem', () => {
 
       expect(folderId).toContain('h');
       expect(stableHash).toHaveBeenCalledWith(expect.stringContaining('root/testDir'));
+    });
+
+    it('should use fallback strategy when getParent throws synchronously', async () => {
+      Object.defineProperty(mockDirectoryHandle1, 'getParent', {
+        value: vi.fn().mockImplementation(() => {
+          throw new Error('sync fail');
+        }),
+      });
+
+      const folderId = await fileSystem.generateUniqueFolderId(mockDirectoryHandle1);
+
+      expect(stableHash).toHaveBeenCalledWith('root/testDir');
+      expect(folderId).toBe('hhash-root/testDir');
     });
   });
 
