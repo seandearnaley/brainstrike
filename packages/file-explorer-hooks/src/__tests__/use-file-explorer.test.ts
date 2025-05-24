@@ -1,4 +1,5 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
@@ -33,7 +34,13 @@ const mockHandleFileContentLoading = vi.fn();
 const mockClearFileContents = vi.fn();
 
 describe('useFileExplorer', () => {
-  const mockRootHandle = {} as FileSystemDirectoryHandle;
+  const mockRootHandle: DirectoryHandle = {
+    path: '/mock-root',
+    name: 'mock-root',
+    kind: 'directory',
+    platform: 'web',
+    _internal: {} as FileSystemDirectoryHandle,
+  };
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
   let onDisplayedFilePathsChange: ReturnType<typeof vi.fn>;
@@ -89,7 +96,7 @@ describe('useFileExplorer', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-    } as ReturnType<typeof useFileSystem>);
+    });
 
     vi.mocked(useFileTree).mockReturnValue({
       fileTree: initialFileTree,
@@ -113,7 +120,7 @@ describe('useFileExplorer', () => {
   it('should select root directory', async () => {
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
-    let handle: FileSystemDirectoryHandle | null = null;
+    let handle: DirectoryHandle | null = null;
     await act(async () => {
       handle = await result.current.actions.handleRootDirectorySelect();
     });
@@ -158,7 +165,7 @@ describe('useFileExplorer', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-    } as ReturnType<typeof useFileSystem>);
+    });
 
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
