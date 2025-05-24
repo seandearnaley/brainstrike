@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import { INTER_FONT_FILES } from "@brainstrike/fonts";
 
 function copyFontsPlugin() {
   return {
@@ -23,9 +24,8 @@ function copyFontsPlugin() {
         mkdirSync(publicFontsPath, { recursive: true });
       }
       
-      // Copy font files
-      const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
-      fontFiles.forEach(file => {
+      // Copy font files using constants from fonts package
+      INTER_FONT_FILES.forEach(file => {
         const src = path.join(fontsPackagePath, file);
         const dest = path.join(publicFontsPath, file);
         if (existsSync(src)) {
