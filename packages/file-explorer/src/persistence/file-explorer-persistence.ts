@@ -13,6 +13,14 @@ import type { PersistOptions } from 'zustand/middleware';
 // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
 const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
 
+const isTest =
+  typeof process !== 'undefined' &&
+  // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+  (process.env['NODE_ENV'] === 'test' ||
+    (typeof globalThis !== 'undefined' &&
+      ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis)));
+const shouldLog = isDev && !isTest;
+
 type ZustandPersistWrapper<T> = { state?: T; version?: number };
 
 export const createPersistOptions = (
@@ -29,7 +37,7 @@ export const createPersistOptions = (
         // console.log('[Persist] getItem value:', value ? JSON.parse(value) : null);
         return value ? JSON.parse(value) : null;
       } catch (error) {
-        if (isDev) {
+        if (shouldLog) {
           console.error('Error getting item from storage:', error);
         }
         return null;
@@ -40,7 +48,7 @@ export const createPersistOptions = (
         // console.log('[Persist] setItem value:', value);
         await storageAdapter.setItem(name, JSON.stringify(value));
       } catch (error) {
-        if (isDev) {
+        if (shouldLog) {
           console.error('Error setting item in storage:', error);
         }
       }
@@ -49,7 +57,7 @@ export const createPersistOptions = (
       try {
         await storageAdapter.removeItem(name);
       } catch (error) {
-        if (isDev) {
+        if (shouldLog) {
           console.error('Error removing item from storage:', error);
         }
       }
@@ -57,7 +65,7 @@ export const createPersistOptions = (
   },
 
   partialize: (state) => {
-    if (isDev) {
+    if (shouldLog) {
       // console.log('[Partialize] Input FileExplorerState (with Sets):', state);
     }
     const serialized: SerializedState = {
@@ -85,17 +93,18 @@ export const createPersistOptions = (
       maxSelectionCount: state.maxSelectionCount,
       lastActiveTab: state.lastActiveTab ?? 'files',
     };
-    if (isDev) {
+    if (shouldLog) {
       // console.log('[Partialize] Output SerializedState (with Arrays):', serialized);
     }
     return serialized;
   },
 
   migrate: (rawPersistedState, version) => {
-    if (isDev) console.log('[Migrate] Received raw state:', rawPersistedState, 'Version:', version);
+    if (shouldLog)
+      console.log('[Migrate] Received raw state:', rawPersistedState, 'Version:', version);
 
     if (rawPersistedState == null) {
-      if (isDev) console.log('[Migrate] No state (null or undefined), returning it as is.');
+      if (shouldLog) console.log('[Migrate] No state (null or undefined), returning it as is.');
       return rawPersistedState as unknown as SerializedState;
     }
 
@@ -104,18 +113,18 @@ export const createPersistOptions = (
       wrapper.state !== undefined ? wrapper.state : (rawPersistedState as SerializedState);
 
     if (stateToProcess == null) {
-      if (isDev)
+      if (shouldLog)
         console.log('[Migrate] No actual state after unwrap (null/undefined), returning as is.');
       return stateToProcess as unknown as SerializedState;
     }
 
     const serialized = stateToProcess as SerializedState;
-    if (isDev) console.log('[Migrate] Returning valid SerializedState:', serialized);
+    if (shouldLog) console.log('[Migrate] Returning valid SerializedState:', serialized);
     return serialized;
   },
 
   merge: (persisted, current) => {
-    if (isDev)
+    if (shouldLog)
       console.log(
         '[Merge] Persisted (SerializedState from migrate):',
         persisted,
@@ -123,7 +132,7 @@ export const createPersistOptions = (
         current
       );
     if (!persisted) {
-      if (isDev) console.log('[Merge] No persisted state, returning current initial state.');
+      if (shouldLog) console.log('[Merge] No persisted state, returning current initial state.');
       return current;
     }
 
@@ -174,12 +183,13 @@ export const createPersistOptions = (
       }
     }
 
-    if (isDev) console.log('[Merge] Resulting merged FileExplorerState (with Sets):', mergedState);
+    if (shouldLog)
+      console.log('[Merge] Resulting merged FileExplorerState (with Sets):', mergedState);
     return mergedState;
   },
 
   onRehydrateStorage: (state) => {
-    if (isDev) {
+    if (shouldLog) {
       console.log('[onRehydrateStorage] Storage rehydrated. Final state in store:', state);
     }
   },

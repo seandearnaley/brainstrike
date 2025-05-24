@@ -316,13 +316,11 @@ describe('file-explorer-persistence', () => {
       onRehydrateStorageFn = persistOptions.onRehydrateStorage;
     });
 
-    it('should be called with the rehydrated state and log when isDev is true', () => {
+    it('should be called with the rehydrated state but not log in test environment', () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
       onRehydrateStorageFn(mockHydratedState);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[onRehydrateStorage] Storage rehydrated. Final state in store:',
-        mockHydratedState
-      );
+      // In test environment, logs should be silenced even when NODE_ENV is development
+      expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
     it('should not log when isDev is false (production)', async () => {
