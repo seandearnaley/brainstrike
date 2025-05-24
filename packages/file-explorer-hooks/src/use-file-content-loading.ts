@@ -1,4 +1,4 @@
-import type { FileHandle } from '@brainstrike/file-system';
+import type { FileHandle, Platform } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
@@ -113,11 +113,15 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       try {
         // Create a FileHandle from the IFileNode
+        const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
+        const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
+        const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
+
         const fileHandle: FileHandle = {
           path: fileNode.path,
           name: fileNode.name,
           kind: 'file',
-          platform: 'web', // TODO: Get this from context
+          platform,
           _internal: fileNode.handle,
         };
 

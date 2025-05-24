@@ -161,4 +161,24 @@ describe('MemoryStorageAdapter', () => {
       expect(result?.length).toBe(10000);
     });
   });
+
+  describe('debug logging', () => {
+    it('should not log by default', async () => {
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const defaultAdapter = new MemoryStorageAdapter();
+      await defaultAdapter.setItem('key', 'value');
+      await defaultAdapter.getItem('key');
+      expect(debugSpy).not.toHaveBeenCalled();
+      debugSpy.mockRestore();
+    });
+
+    it('should log when enabled', async () => {
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+      const debugAdapter = new MemoryStorageAdapter(true);
+      await debugAdapter.setItem('key', 'value');
+      await debugAdapter.getItem('key');
+      expect(debugSpy).toHaveBeenCalled();
+      debugSpy.mockRestore();
+    });
+  });
 });

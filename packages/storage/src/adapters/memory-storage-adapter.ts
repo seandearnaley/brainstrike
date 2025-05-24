@@ -8,23 +8,34 @@ import type { StorageAdapter } from '../types';
  */
 export class MemoryStorageAdapter implements StorageAdapter {
   private storage = new Map<string, string>();
+  private readonly debug: boolean;
+
+  constructor(debug = false) {
+    this.debug = debug;
+  }
 
   async getItem(key: string): Promise<string | null> {
     if (this.storage.has(key)) {
       const value = this.storage.get(key) as string;
-      console.log(
-        `[MemoryStorageAdapter] getItem - key: ${key}, value: ${value === '' ? '""' : value ? `${value.substring(0, 50)}...` : 'null (should not happen if key exists)'}`
-      );
+      if (this.debug) {
+        console.debug(
+          `[MemoryStorageAdapter] getItem - key: ${key}, value: ${value === '' ? '""' : value ? `${value.substring(0, 50)}...` : 'null (should not happen if key exists)'}`
+        );
+      }
       return value;
     }
-    console.log(`[MemoryStorageAdapter] getItem - key: ${key}, value: null (key not found)`);
+    if (this.debug) {
+      console.debug(`[MemoryStorageAdapter] getItem - key: ${key}, value: null (key not found)`);
+    }
     return null;
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    console.log(
-      `[MemoryStorageAdapter] setItem - key: ${key}, value: ${value.substring(0, 50)}...`
-    );
+    if (this.debug) {
+      console.debug(
+        `[MemoryStorageAdapter] setItem - key: ${key}, value: ${value.substring(0, 50)}...`
+      );
+    }
     this.storage.set(key, value);
   }
 

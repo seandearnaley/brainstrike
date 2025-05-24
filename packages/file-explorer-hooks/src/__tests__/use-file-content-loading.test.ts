@@ -189,6 +189,42 @@ describe('useFileContentLoading', () => {
 
       expect(result.current.fileContents[compositeKey]).toBe(expectedLargeContent);
     });
+
+    it('passes platform information to the adapter', async () => {
+      const filePath = '/platform.txt';
+      const fileNode = createFileNode({
+        name: 'platform.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'platform.txt',
+          path: filePath,
+          platform: 'electron',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      // Override the fileExplorer mock to return this specific node
+      fileExplorer.findNodeByPath = vi.fn(() => fileNode);
+      MockFileSystemAdapter.setMockFileContent(filePath, 'platform content');
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+      const compositeKey = getCompositeKey(filePath);
+      const readFileSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readFileSpy).toHaveBeenCalledWith(expect.objectContaining({ platform: 'electron' }));
+      readFileSpy.mockRestore();
+    });
   });
 
   describe('Error Handling', () => {
