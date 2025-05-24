@@ -2,6 +2,9 @@
   // Turborepo monorepo configuration for brainstrike
   "$schema": "https://turbo.build/schema.json",
 
+  // Global configuration
+  "concurrency": "15",
+
   // Global environment variables that affect the cache hash for ALL tasks.
   // If any of these change, the cache for all tasks will be invalidated.
   "globalEnv": [
@@ -59,10 +62,17 @@
       // Specifies other tasks that should be run *alongside* this one.
       // Ideal for starting library watchers when the main app's dev server starts.
       "with": [
-        "@brainstrike/types#dev",   // Run the 'dev' script from the @brainstrike/types package
-        "@brainstrike/utils#dev",   // Run the 'dev' script from the @brainstrike/utils package
-        "@brainstrike/hooks#dev",   // Run the 'dev' script from the @brainstrike/hooks package
-        "@brainstrike/file-explorer#dev" // Run the 'dev' script from the @brainstrike/file-explorer package
+        "@brainstrike/types#dev",              // Run the 'dev' script from the @brainstrike/types package
+        "@brainstrike/utils#dev",              // Run the 'dev' script from the @brainstrike/utils package
+        "@brainstrike/hooks#dev",              // Run the 'dev' script from the @brainstrike/hooks package
+        "@brainstrike/file-explorer#dev",      // Run the 'dev' script from the @brainstrike/file-explorer package
+        "@brainstrike/ui#dev",                 // Run the 'dev' script from the @brainstrike/ui package
+        "@brainstrike/file-explorer-hooks#dev", // Run the 'dev' script from the @brainstrike/file-explorer-hooks package
+        "@brainstrike/test-utils#dev",         // Run the 'dev' script from the @brainstrike/test-utils package
+        "@brainstrike/server-config#dev",     // Run the 'dev' script from the @brainstrike/server-config package
+        "@brainstrike/app-shell#dev",          // Run the 'dev' script from the @brainstrike/app-shell package
+        "@brainstrike/fonts#dev",              // Run the 'dev' script from the @brainstrike/fonts package
+        "@brainstrike/file-explorer-ui#dev"    // Run the 'dev' script from the @brainstrike/file-explorer-ui package
       ]
     },
 

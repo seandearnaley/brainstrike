@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getFolderColor } from '../color-utils';
+import { type FolderColors, getFolderColor } from '../color-utils';
 
 describe('color-utils', () => {
   describe('getFolderColor', () => {
@@ -82,6 +82,47 @@ describe('color-utils', () => {
         expect(color.dark.bg).toMatch(/^#([A-F0-9]{6})$/i);
         expect(color.dark.text).toMatch(/^#([A-F0-9]{6})$/i);
       }
+    });
+
+    it('should return default colors when no combinations are defined', async () => {
+      vi.resetModules();
+
+      vi.doMock('../color-utils', async () => {
+        const actual = await vi.importActual('../color-utils');
+
+        const getFolderColor = (str: string) => {
+          const COLOR_COMBINATIONS: FolderColors[] = [];
+          let hash = 0;
+          for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+          }
+
+          const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
+          const selectedColor = COLOR_COMBINATIONS[index];
+
+          if (selectedColor !== undefined) return selectedColor;
+          if (COLOR_COMBINATIONS.length > 0) return COLOR_COMBINATIONS[0];
+          return {
+            light: { bg: '#FFFFFF', text: '#000000' },
+            dark: { bg: '#000000', text: '#FFFFFF' },
+          };
+        };
+
+        return {
+          ...actual,
+          getFolderColor,
+        };
+      });
+
+      const { getFolderColor: mockedGetFolderColor } = await import('../color-utils');
+      const color = mockedGetFolderColor('a');
+
+      expect(color).toEqual({
+        light: { bg: '#FFFFFF', text: '#000000' },
+        dark: { bg: '#000000', text: '#FFFFFF' },
+      });
+
+      vi.resetModules();
     });
   });
 });

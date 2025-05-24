@@ -1,68 +1,95 @@
 import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, test, vi } from 'vitest';
-import Sidebar from '../../components/custom/sidebar/sidebar';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
 
-// Import the mocked modules to access their mock functions
-import * as BrainstrikeUI from '@brainstrike/ui';
+interface MockAppLayoutProps {
+  children: React.ReactNode;
+  config: {
+    title: string;
+    navigationItems: unknown[];
+  };
+  currentPath: string;
+}
 
-// Mock the dependencies
-vi.mock('react-router-dom', () => ({
-  Outlet: () => <div data-testid="outlet-mock">Outlet Mock</div>,
-}));
+interface MockAppConfig {
+  title: string;
+  description: string;
+  themeStorageKey: string;
+  navigationItems: unknown[];
+}
 
-vi.mock('../../components/custom/sidebar/sidebar', () => ({
-  __esModule: true,
-  default: vi.fn(() => <div data-testid="sidebar-mock">Sidebar Mock</div>),
-}));
-
-// Mock the UI package components
-vi.mock('@brainstrike/ui', () => ({
-  Toaster: vi.fn(() => <div data-testid="toaster-mock">Toaster Mock</div>),
-  ThemeProvider: vi.fn(({ children, ...props }) => (
-    <div data-testid="theme-provider-mock" data-props={JSON.stringify(props)}>
+// Mock the app-shell package
+vi.mock('@brainstrike/app-shell', () => ({
+  AppLayout: ({ children, config, currentPath }: MockAppLayoutProps) => (
+    <div data-testid="app-layout" data-current-path={currentPath}>
+      <div data-testid="app-config-title">{config.title}</div>
       {children}
     </div>
-  )),
+  ),
+  createAppConfig: (config: Partial<MockAppConfig>) => ({
+    title: 'BrainStrike.ai',
+    description: 'Multi-app dashboard',
+    themeStorageKey: 'app-theme',
+    navigationItems: [],
+    ...config,
+  }),
 }));
+
+// Mock react-router-dom
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual('react-router-dom');
+  return {
+    ...actual,
+    useLocation: () => ({ pathname: '/test-path' }),
+    Outlet: () => <div data-testid="outlet">Outlet Content</div>,
+  };
+});
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  test('renders root layout with all required components', () => {
-    render(<RootLayoutContent />);
+  it('renders without crashing', () => {
+    render(
+      <MemoryRouter>
+        <RootLayoutContent />
+      </MemoryRouter>
+    );
 
-    // Check if ThemeProvider is rendered with correct props via data attribute
-    const themeProviderElement = screen.getByTestId('theme-provider-mock');
-    const themeProps = JSON.parse(themeProviderElement.getAttribute('data-props') || '{}');
-    expect(themeProps.defaultTheme).toBe('system');
-    expect(themeProps.storageKey).toBe('app-theme');
-
-    // Check if Sidebar is rendered
-    expect(Sidebar).toHaveBeenCalled();
-    expect(screen.getByTestId('sidebar-mock')).toBeInTheDocument();
-
-    // Check if Outlet is rendered for child routes
-    expect(screen.getByTestId('outlet-mock')).toBeInTheDocument();
-
-    // Check if Toaster is rendered
-    expect(BrainstrikeUI.Toaster).toHaveBeenCalled();
-    expect(screen.getByTestId('toaster-mock')).toBeInTheDocument();
+    expect(screen.getByTestId('app-layout')).toBeInTheDocument();
   });
 
-  test('has correct layout structure', () => {
-    render(<RootLayoutContent />);
+  it('passes the correct current path to AppLayout', () => {
+    render(
+      <MemoryRouter>
+        <RootLayoutContent />
+      </MemoryRouter>
+    );
 
-    // Check for main element with appropriate classes
-    const mainElement = screen.getByRole('main');
-    expect(mainElement).toHaveClass('flex-1');
-    expect(mainElement).toHaveClass('overflow-auto');
-    expect(mainElement).toHaveClass('p-4');
+    const appLayout = screen.getByTestId('app-layout');
+    expect(appLayout).toHaveAttribute('data-current-path', '/test-path');
+  });
 
-    // Check for the flex container
-    expect(mainElement.parentElement).toHaveClass('flex');
-    expect(mainElement.parentElement).toHaveClass('h-screen');
+  it('renders the outlet for child routes', () => {
+    render(
+      <MemoryRouter>
+        <RootLayoutContent />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('outlet')).toBeInTheDocument();
+    expect(screen.getByText('Outlet Content')).toBeInTheDocument();
+  });
+
+  it('uses the correct app configuration', () => {
+    render(
+      <MemoryRouter>
+        <RootLayoutContent />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
   });
 });

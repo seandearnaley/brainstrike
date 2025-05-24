@@ -1,4 +1,4 @@
-import { getBaseUrl, getPortsToCheck } from "../src/config/server";
+import { getBaseUrl, getPortsToCheck } from "@brainstrike/server-config";
 
 // Helper to log messages during server detection
 function log(message: string, level: "info" | "error" = "info") {
