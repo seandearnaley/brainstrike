@@ -16,7 +16,9 @@
     "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
     "build": "pnpm run build:types && pnpm run build:js",
     "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
-    "test": "vitest run --coverage"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "peerDependencies": {
     "react": "^19"
@@ -36,7 +38,9 @@
     "@testing-library/react": "^16",
     "@types/react": "^19.0.0",
     "@vitejs/plugin-react": "^4.5.0",
-    "tsup": "^8"
+    "@vitest/coverage-v8": "^3.1.1",
+    "tsup": "^8",
+    "vitest": "^3.1.1"
   },
   "exports": {
     ".": {
