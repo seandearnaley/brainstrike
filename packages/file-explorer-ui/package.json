@@ -15,7 +15,9 @@
     },
     "./styles.css": "./styles.css"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsc -b .",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
@@ -42,12 +44,13 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "lucide-react": "^0.417.0",
-    "@types/react": "^19",
+    "@brainstrike/test-utils": "workspace:*",
+    "@testing-library/jest-dom": "^6",
     "@testing-library/react": "^16",
     "@testing-library/user-event": "^14",
-    "@testing-library/jest-dom": "^6",
+    "@types/react": "^19",
+    "@vitejs/plugin-react": "^4.4.1",
     "jsdom": "^24.0.0",
-    "@brainstrike/test-utils": "workspace:*"
+    "lucide-react": "^0.417.0"
   }
 }

@@ -8,13 +8,15 @@
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build:types": "tsc src/index.ts --declaration --emitDeclarationOnly --outDir dist --moduleResolution bundler --module esnext --target es2020 --lib dom,es2020 --skipLibCheck --jsx react-jsx",
     "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
     "build": "pnpm run build:types && pnpm run build:js",
     "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
-    "test":  "vitest run --coverage"
+    "test": "vitest run --coverage"
   },
   "peerDependencies": {
     "react": "^19"
@@ -30,10 +32,11 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "tsup": "^8",
-    "@types/react": "^19.0.0",
+    "@brainstrike/test-utils": "workspace:*",
     "@testing-library/react": "^16",
-    "@brainstrike/test-utils": "workspace:*"
+    "@types/react": "^19.0.0",
+    "@vitejs/plugin-react": "^4.5.0",
+    "tsup": "^8"
   },
   "exports": {
     ".": {

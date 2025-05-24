@@ -170,6 +170,7 @@ describe('file-explorer-persistence', () => {
 
   describe('merge', () => {
     let mergeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['merge']>;
+    let partializeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['partialize']>;
     const initialCurrentState: FileExplorerState = {
       ...(DEFAULT_STATE as FileExplorerState),
       currentFolderId: null,
@@ -187,8 +188,10 @@ describe('file-explorer-persistence', () => {
 
     beforeEach(async () => {
       const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.merge) throw new Error('Merge function not found');
+      if (!persistOptions.merge || !persistOptions.partialize)
+        throw new Error('Merge or partialize function not found');
       mergeFn = persistOptions.merge;
+      partializeFn = persistOptions.partialize;
     });
 
     it('should return current initial state if persisted state is undefined', () => {
@@ -263,6 +266,38 @@ describe('file-explorer-persistence', () => {
         true
       );
       expect(result.folderStates['initial-folder']?.lastActiveTab).toBe('preview');
+    });
+
+    it('should round-trip state via partialize and merge', () => {
+      const state: FileExplorerState = {
+        ...(DEFAULT_STATE as FileExplorerState),
+        currentFolderId: 'rt-folder',
+        selectedFilePaths: new Set(['s1', 's2']),
+        expandedDirectoryPaths: new Set(['d1']),
+        folderStates: {
+          'rt-folder': {
+            ...testDefaultFolderState,
+            selectedFilePaths: new Set(['fs1']),
+            expandedDirectoryPaths: new Set(['fd1']),
+            lastActiveTab: 'files',
+            lastAccessed: 123,
+          },
+        },
+      };
+
+      const serialized = partializeFn(state);
+      const merged = mergeFn(serialized, initialCurrentState);
+
+      expect(merged.currentFolderId).toBe('rt-folder');
+      expect(Array.from(merged.selectedFilePaths)).toEqual(['s1', 's2']);
+      expect(Array.from(merged.expandedDirectoryPaths)).toEqual(['d1']);
+      expect(merged.folderStates['rt-folder']).toBeDefined();
+      expect(Array.from(merged.folderStates['rt-folder']?.selectedFilePaths ?? new Set())).toEqual([
+        'fs1',
+      ]);
+      expect(
+        Array.from(merged.folderStates['rt-folder']?.expandedDirectoryPaths ?? new Set())
+      ).toEqual(['fd1']);
     });
   });
 
