@@ -8,5 +8,10 @@
     "emitDeclarationOnly": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "references": [{ "path": "../types" }, { "path": "../utils" }]
+  "references": [
+    { "path": "../types" },
+    { "path": "../utils" },
+    { "path": "../storage" },
+    { "path": "../file-system" }
+  ]
 } 

@@ -1,45 +1,12 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
-import type { FileExplorerState } from '@brainstrike/types';
+import { createDirectoryNode } from '@brainstrike/test-utils';
 import { fileExplorer } from '@brainstrike/utils';
-import { createDirectoryNode } from '@brainstrike/utils/test/factories/file-node';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FolderSelectionDialog } from '../folder-selection-dialog';
-
-const initialState: FileExplorerState = {
-  selectedFilePaths: new Set(),
-  maxSelectionCount: 10,
-  currentFolderId: null,
-  folderStates: {},
-  expandedDirectoryPaths: new Set(),
-  includeFilters: [],
-  excludeFilters: [],
-  useRegex: false,
-  includeProjectTree: true,
-  folderSummaryThreshold: 5,
-  lastActiveTab: 'files',
-  setCurrentFolderId: vi.fn(),
-  hydrateFolderState: vi.fn(),
-  setSelectedFiles: vi.fn(),
-  addSelectedFile: vi.fn(),
-  removeSelectedFile: vi.fn(),
-  toggleSelectedFile: vi.fn(),
-  clearSelectedFiles: vi.fn(),
-  setExpandedPaths: vi.fn(),
-  toggleDirectoryExpansion: vi.fn(),
-  setFilters: vi.fn(),
-  setUseRegex: vi.fn(),
-  setIncludeProjectTree: vi.fn(),
-  setFolderSummaryThreshold: vi.fn(),
-  setMaxSelectionCount: vi.fn(),
-  setLastActiveTab: vi.fn(),
-  expandAllDirectories: vi.fn(),
-  collapseAllDirectories: vi.fn(),
-};
+import { FileExplorerTestWrapper } from './test-helpers';
 
 beforeEach(() => {
-  useFileExplorerStore.setState(initialState, true);
   vi.clearAllMocks();
 });
 
@@ -54,7 +21,8 @@ describe('FolderSelectionDialog', () => {
         fileCount={3}
         onConfirm={vi.fn()}
         onToggleFileSelection={vi.fn()}
-      />
+      />,
+      { wrapper: FileExplorerTestWrapper }
     );
 
     expect(screen.getByText(/This will select all 3 files/i)).toBeInTheDocument();
@@ -62,23 +30,25 @@ describe('FolderSelectionDialog', () => {
   });
 
   it('shows limited selection message when slots are insufficient', () => {
-    useFileExplorerStore.setState({ selectedFilePaths: new Set(['a', 'b', 'c']) });
+    // Note: The new context system starts with empty selection by default
+    // This test checks if the dialog correctly calculates available slots
     const node = createDirectoryNode({ name: 'root', path: '/root' });
     render(
       <FolderSelectionDialog
         open={true}
         onOpenChange={vi.fn()}
         node={node}
-        fileCount={10}
+        fileCount={150} // Exceed default max of 100
         onConfirm={vi.fn()}
         onToggleFileSelection={vi.fn()}
-      />
+      />,
+      { wrapper: FileExplorerTestWrapper }
     );
 
     expect(
-      screen.getByText(/Only 7 out of 10 files.*first 7 files will be selected/i)
+      screen.getByText(/Only 10 out of 150 files.*first 10 files will be selected/i)
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Select 7 Files/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Select 10 Files/i })).toBeInTheDocument();
   });
 
   it('selects files and closes dialog on confirm', async () => {
@@ -100,7 +70,8 @@ describe('FolderSelectionDialog', () => {
         fileCount={2}
         onConfirm={confirm}
         onToggleFileSelection={toggle}
-      />
+      />,
+      { wrapper: FileExplorerTestWrapper }
     );
 
     const button = screen.getByRole('button', { name: 'Select All' });

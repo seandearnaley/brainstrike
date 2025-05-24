@@ -1,22 +1,19 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { Badge } from '@brainstrike/ui';
 import type React from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-interface SelectionCounterProps {
-  maxSelections: number;
-}
-
-export const SelectionCounter: React.FC<SelectionCounterProps> = ({ maxSelections }) => {
-  const { selectedFilePaths } = useFileExplorerStore();
+export const SelectionCounter: React.FC = () => {
+  const store = useFileExplorerStoreContext();
+  const { selectedFilePaths, maxSelectionCount } = store();
   const selectedCount = selectedFilePaths.size;
 
   return (
     <output>
       <Badge
-        variant={selectedCount === maxSelections ? 'destructive' : 'secondary'}
+        variant={selectedCount === maxSelectionCount ? 'destructive' : 'secondary'}
         className="whitespace-nowrap text-xs sm:text-sm"
       >
-        {selectedCount}/{maxSelections}
+        {selectedCount}/{maxSelectionCount}
       </Badge>
     </output>
   );

@@ -1,0 +1,56 @@
+import type { StorageAdapter } from '../types';
+
+/**
+ * Memory Storage Adapter
+ *
+ * In-memory implementation of StorageAdapter for testing purposes.
+ * Data is not persisted between sessions.
+ */
+export class MemoryStorageAdapter implements StorageAdapter {
+  private storage = new Map<string, string>();
+
+  async getItem(key: string): Promise<string | null> {
+    if (this.storage.has(key)) {
+      const value = this.storage.get(key) as string;
+      console.log(
+        `[MemoryStorageAdapter] getItem - key: ${key}, value: ${value === '' ? '""' : value ? `${value.substring(0, 50)}...` : 'null (should not happen if key exists)'}`
+      );
+      return value;
+    }
+    console.log(`[MemoryStorageAdapter] getItem - key: ${key}, value: null (key not found)`);
+    return null;
+  }
+
+  async setItem(key: string, value: string): Promise<void> {
+    console.log(
+      `[MemoryStorageAdapter] setItem - key: ${key}, value: ${value.substring(0, 50)}...`
+    );
+    this.storage.set(key, value);
+  }
+
+  async removeItem(key: string): Promise<void> {
+    this.storage.delete(key);
+  }
+
+  async clear(): Promise<void> {
+    this.storage.clear();
+  }
+
+  async getAllKeys(): Promise<string[]> {
+    return Array.from(this.storage.keys());
+  }
+
+  /**
+   * Get the current storage size (for testing purposes)
+   */
+  getSize(): number {
+    return this.storage.size;
+  }
+
+  /**
+   * Check if a key exists (for testing purposes)
+   */
+  has(key: string): boolean {
+    return this.storage.has(key);
+  }
+}

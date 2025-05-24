@@ -5,19 +5,24 @@ import { render, screen } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorer from '../../file-explorer';
+import { FileExplorerTestWrapper } from '../test-helpers';
 
 // Mock all components and hooks
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useFileExplorer: () => ({}),
-  useToastManager: () => ({}),
-  useFileExplorerSettings: () => ({}),
-  useFileLoadingManager: () => ({}),
-  useSelectionManager: () => ({
-    selectedFilePaths: new Set(),
-    handleSelectionChange: vi.fn(),
-    wouldExceedSelectionLimit: vi.fn(() => false),
-  }),
-}));
+vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
+  return {
+    ...actual,
+    useFileExplorer: () => ({}),
+    useToastManager: () => ({}),
+    useFileExplorerSettings: () => ({}),
+    useFileLoadingManager: () => ({}),
+    useSelectionManager: () => ({
+      selectedFilePaths: new Set(),
+      handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(() => false),
+    }),
+  };
+});
 
 vi.mock('@/hooks/use-file-system', () => ({
   useFileSystem: () => ({}),
@@ -117,12 +122,13 @@ vi.mock('@brainstrike/file-explorer', () => {
   const useFileExplorerStore = Object.assign(() => mockStore, {
     getState: () => mockStore,
   });
-  return { useFileExplorerStore };
+  const createFileExplorerStore = vi.fn(() => useFileExplorerStore);
+  return { useFileExplorerStore, createFileExplorerStore };
 });
 
 describe('FileExplorer - State Persistence', () => {
   it('should render with the correct title', () => {
-    render(<FileExplorer />);
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
     expect(screen.getByText('Context Explorer')).toBeInTheDocument();
   });
 });

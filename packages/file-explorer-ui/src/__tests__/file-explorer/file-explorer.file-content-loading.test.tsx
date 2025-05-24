@@ -6,10 +6,12 @@
 
 import { useFileExplorerSettings, useFileSystem } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorer } from '@brainstrike/file-explorer-hooks';
-import type { FileExplorerState } from '@brainstrike/types'; // Import necessary types
+import { createFileNode } from '@brainstrike/test-utils'; // Changed import path
+import type { FileExplorerState, IFileNode } from '@brainstrike/types'; // Import necessary types
 import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorer from '../../file-explorer';
+import { FileExplorerTestWrapper } from '../test-helpers';
 
 // Mock all hooks and components using relative paths
 vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
@@ -40,17 +42,50 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     useFileExplorerSettings: vi.fn(),
   };
 });
-const { mockUseQuickFilter, mockUseReportGeneration, mockUseReportManager } = vi.hoisted(() => ({
-  mockUseQuickFilter: vi.fn(),
-  mockUseReportGeneration: vi.fn(),
-  mockUseReportManager: vi.fn(),
-}));
-vi.mock('@brainstrike/hooks', () => {
+const {
+  mockUseQuickFilter,
+  mockUseReportGeneration,
+  mockUseReportManager,
+  mockUseFileFilters,
+  mockUseUndoableAction,
+} = vi.hoisted(() => {
+  const applyFileFiltersSpy = vi.fn();
   return {
-    useUndoableAction: () => ({ performUndoableAction: vi.fn() }),
+    mockUseReportGeneration: vi.fn(() => ({
+      generateReportWithContent: vi.fn().mockResolvedValue('Mock Report'),
+    })),
+    mockUseReportManager: vi.fn(() => ({
+      handleDownloadReport: vi.fn(),
+      handleCopyReport: vi.fn(),
+    })),
+    mockUseDebouncedValue: vi.fn((value: unknown) => value),
+    mockUseQuickFilter: vi.fn(() => ({
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
+      quickFilter: '',
+      setIncludeFilters: vi.fn(),
+      setExcludeFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setQuickFilter: vi.fn(),
+      filteredTree: [] as IFileNode[],
+    })),
+    mockUseFileFilters: vi.fn(() => ({
+      applyFileFilters: applyFileFiltersSpy,
+      filterError: null,
+    })),
+    mockUseUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
+  };
+});
+vi.mock('@brainstrike/hooks', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
+  return {
+    ...original,
+    useUndoableAction: mockUseUndoableAction,
     useQuickFilter: mockUseQuickFilter,
     useReportGeneration: mockUseReportGeneration,
     useReportManager: mockUseReportManager,
+    useFileFilters: mockUseFileFilters,
   };
 });
 vi.mock('@brainstrike/ui', async (importOriginal) => {
@@ -189,21 +224,10 @@ const mockLoadFileContent = vi
   .mockImplementation(async (path: string) => `Content of ${path}`);
 const mockFileContents: Record<string, string> = {};
 
-const mockFilteredTree = [
-  {
-    path: 'test.ts',
-    type: 'file' as const,
-    handle: {},
-    name: 'test.ts',
-    isVisible: true,
-  },
-  {
-    path: 'test2.ts',
-    type: 'file' as const,
-    handle: {},
-    name: 'test2.ts',
-    isVisible: true,
-  },
+// Define mockFilteredTree using the factory
+const mockFilteredTree: IFileNode[] = [
+  createFileNode({ path: 'test.ts', name: 'test.ts' }),
+  createFileNode({ path: 'test2.ts', name: 'test2.ts' }),
 ];
 
 // Mock implementation for useFileExplorer
@@ -276,9 +300,15 @@ describe('File Content Loading', () => {
 
     // Setup useQuickFilter mock correctly in beforeEach
     mockUseQuickFilter.mockReturnValue({
+      includeFilters: [],
+      excludeFilters: [],
+      useRegex: false,
       quickFilter: '',
+      setIncludeFilters: vi.fn(),
+      setExcludeFilters: vi.fn(),
+      setUseRegex: vi.fn(),
       setQuickFilter: vi.fn(),
-      filteredTree: mockFilteredTree, // Use the mock tree
+      filteredTree: mockFilteredTree, // This now uses the correctly typed tree
     });
 
     // Setup useReportGeneration mock correctly in beforeEach
@@ -300,7 +330,7 @@ describe('File Content Loading', () => {
   afterEach(cleanup);
 
   it('should call loadFileContent for newly selected files', async () => {
-    render(<FileExplorer />);
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
 
     act(() => {
       mockStore.setSelectedFiles(new Set(['test.ts']));
@@ -314,7 +344,7 @@ describe('File Content Loading', () => {
 
   it('should not call loadFileContent for already loaded files', async () => {
     mockFileContents['test.ts'] = 'Existing content';
-    render(<FileExplorer />);
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
 
     act(() => {
       mockStore.setSelectedFiles(new Set(['test.ts']));
@@ -336,7 +366,7 @@ describe('File Content Loading', () => {
     mockFileContents['test.ts'] = 'Content of test.ts';
 
     // Re-render or update component state as needed
-    const { rerender } = render(<FileExplorer />);
+    const { rerender } = render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
     rerender(<FileExplorer />); // Trigger re-render if necessary
 
     act(() => {
@@ -364,7 +394,7 @@ describe('File Content Loading', () => {
       clearFileContents: mockClearFileContents, // Provide the mock clear function
     });
 
-    render(<FileExplorer />); // Re-render with the updated mock
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper }); // Re-render with the updated mock
 
     act(() => {
       mockStore.clearSelectedFiles(); // Call the store action

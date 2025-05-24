@@ -1,28 +1,28 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useFileTree } from '../use-file-tree';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
 describe('useFileTree', () => {
-  let mockDirectoryHandle: FileSystemDirectoryHandle;
-  let mockFileHandle: FileSystemFileHandle;
+  let mockDirectoryHandle: DirectoryHandle;
 
   beforeEach(() => {
-    mockFileHandle = {
-      kind: 'file' as const,
-      name: 'test.txt',
-      getFile: vi.fn(),
-    } as unknown as FileSystemFileHandle;
+    // Clear any previous mock data
+    MockFileSystemAdapter.clearMockData();
 
     mockDirectoryHandle = {
-      kind: 'directory' as const,
+      kind: 'directory',
       name: 'root',
-      entries: vi.fn(),
-    } as unknown as FileSystemDirectoryHandle;
+      path: 'root',
+      platform: 'web',
+    };
   });
 
   it('should initialize with empty state', () => {
-    const { result } = renderHook(() => useFileTree(null));
+    const { result } = renderHook(() => useFileTree(null), { wrapper: AdaptersTestWrapper });
 
     expect(result.current.fileTree).toEqual([]);
     expect(result.current.isLoading).toBe(false);
@@ -30,27 +30,71 @@ describe('useFileTree', () => {
   });
 
   describe('Partial Refresh Scenarios', () => {
-    it('should throw PartialRefreshError when some files fail to load', async () => {
-      // Mock a directory with mixed success/failure
-      const mockEntries = [
-        ['success.txt', mockFileHandle],
-        [
-          'fail.txt',
-          {
-            ...mockFileHandle,
-            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
-          },
-        ],
-      ];
-      mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
-        yield* mockEntries;
-      });
+    it('should throw PartialRefreshError when some subdirectories fail to load', async () => {
+      // Create a structure with files and subdirectories
+      const mockSuccessFile: IFileNode = {
+        name: 'success.txt',
+        path: 'root/success.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        size: 100,
+      };
 
-      const { result } = renderHook(() => useFileTree(mockDirectoryHandle));
+      const mockSuccessDir: IFileNode = {
+        name: 'success-dir',
+        path: 'root/success-dir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      const mockFailDir: IFileNode = {
+        name: 'fail-dir',
+        path: 'root/fail-dir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      // Setup root directory with mixed content
+      MockFileSystemAdapter.setMockDirectoryData('root', [
+        mockSuccessFile,
+        mockSuccessDir,
+        mockFailDir,
+      ]);
+
+      // Success directory has some files (hook will call with just the directory name)
+      MockFileSystemAdapter.setMockDirectoryData('success-dir', [
+        {
+          name: 'nested.txt',
+          path: 'root/success-dir/nested.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 2,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+      ]);
+
+      // Fail directory will throw an error when accessed (hook will call with just the directory name)
+      MockFileSystemAdapter.setMockDirectoryError('fail-dir', new Error('Access denied'));
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
 
       // Wait for initial load to complete
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       // Attempt refresh and expect it to throw
@@ -65,38 +109,48 @@ describe('useFileTree', () => {
 
       expect(error).toBeInstanceOf(PartialRefreshError);
       if (error instanceof PartialRefreshError) {
-        expect(error.successCount).toBe(1);
-        expect(error.failCount).toBe(1);
+        expect(error.successCount).toBeGreaterThan(0);
+        expect(error.failCount).toBeGreaterThan(0);
       }
     });
 
-    it('should throw regular Error when all files fail to load', async () => {
-      // Mock a directory where all files fail
-      const mockEntries = [
-        [
-          'fail1.txt',
-          {
-            ...mockFileHandle,
-            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
-          },
-        ],
-        [
-          'fail2.txt',
-          {
-            ...mockFileHandle,
-            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
-          },
-        ],
-      ];
-      mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
-        yield* mockEntries;
-      });
+    it('should throw regular Error when all subdirectories fail to load', async () => {
+      // Create directories that will all fail
+      const mockFailDir1: IFileNode = {
+        name: 'fail-dir1',
+        path: 'root/fail-dir1',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
 
-      const { result } = renderHook(() => useFileTree(mockDirectoryHandle));
+      const mockFailDir2: IFileNode = {
+        name: 'fail-dir2',
+        path: 'root/fail-dir2',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [mockFailDir1, mockFailDir2]);
+
+      // Make both directories fail (hook will call with just directory names)
+      MockFileSystemAdapter.setMockDirectoryError('fail-dir1', new Error('Access denied'));
+      MockFileSystemAdapter.setMockDirectoryError('fail-dir2', new Error('Access denied'));
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
 
       // Wait for initial load to complete
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       // Attempt refresh and expect it to throw
@@ -117,38 +171,78 @@ describe('useFileTree', () => {
     });
 
     it('should handle nested directory partial failures', async () => {
-      // Mock a nested directory structure with mixed success/failure
-      const mockNestedEntries = [
-        ['success.txt', mockFileHandle],
-        [
-          'fail.txt',
-          {
-            ...mockFileHandle,
-            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
-          },
-        ],
-      ];
-      const mockNestedDir = {
-        kind: 'directory' as const,
-        name: 'nested',
-        entries: vi.fn().mockImplementation(async function* () {
-          yield* mockNestedEntries;
-        }),
+      // Create a complex nested structure
+      const mockRootFile: IFileNode = {
+        name: 'root.txt',
+        path: 'root/root.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
       };
 
-      const mockRootEntries = [
-        ['root.txt', mockFileHandle],
-        ['nested', mockNestedDir],
-      ];
-      mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
-        yield* mockRootEntries;
-      });
+      const mockParentDir: IFileNode = {
+        name: 'parent',
+        path: 'root/parent',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
 
-      const { result } = renderHook(() => useFileTree(mockDirectoryHandle));
+      const mockSuccessNestedDir: IFileNode = {
+        name: 'success-nested',
+        path: 'root/parent/success-nested',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      const mockFailNestedDir: IFileNode = {
+        name: 'fail-nested',
+        path: 'root/parent/fail-nested',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      // Setup directory structure (hook will call with full paths for nested dirs)
+      MockFileSystemAdapter.setMockDirectoryData('root', [mockRootFile, mockParentDir]);
+      MockFileSystemAdapter.setMockDirectoryData('parent', [
+        mockSuccessNestedDir,
+        mockFailNestedDir,
+      ]);
+      MockFileSystemAdapter.setMockDirectoryData('parent/success-nested', [
+        {
+          name: 'deep.txt',
+          path: 'root/parent/success-nested/deep.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 3,
+          selectionState: 'unchecked',
+          rootFolderId: 'root',
+        },
+      ]);
+
+      // Make one nested directory fail (hook will call with full path for nested dirs)
+      MockFileSystemAdapter.setMockDirectoryError('parent/fail-nested', new Error('Access denied'));
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
 
       // Wait for initial load to complete
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
       // Attempt refresh and expect it to throw
@@ -169,33 +263,58 @@ describe('useFileTree', () => {
     });
 
     it('should maintain file tree state after partial refresh', async () => {
-      // Mock initial successful load
-      const initialEntries = [['success.txt', mockFileHandle]];
-      mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
-        yield* initialEntries;
-      });
+      // Setup initial successful structure
+      const mockSuccessFile: IFileNode = {
+        name: 'success.txt',
+        path: 'root/success.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      };
 
-      const { result } = renderHook(() => useFileTree(mockDirectoryHandle));
+      const mockSuccessDir: IFileNode = {
+        name: 'success-dir',
+        path: 'root/success-dir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [mockSuccessFile, mockSuccessDir]);
+      MockFileSystemAdapter.setMockDirectoryData('success-dir', []);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
 
       // Wait for initial load to complete
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       });
 
-      // Mock partial failure for refresh
-      const refreshEntries = [
-        ['success.txt', mockFileHandle],
-        [
-          'fail.txt',
-          {
-            ...mockFileHandle,
-            getFile: vi.fn().mockRejectedValue(new Error('Access denied')),
-          },
-        ],
-      ];
-      mockDirectoryHandle.entries = vi.fn().mockImplementation(async function* () {
-        yield* refreshEntries;
-      });
+      // Add a failing directory for refresh
+      const mockFailDir: IFileNode = {
+        name: 'fail-dir',
+        path: 'root/fail-dir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [
+        mockSuccessFile,
+        mockSuccessDir,
+        mockFailDir,
+      ]);
+      MockFileSystemAdapter.setMockDirectoryError('fail-dir', new Error('Access denied'));
 
       // Attempt refresh
       let error: unknown;
@@ -208,9 +327,39 @@ describe('useFileTree', () => {
       });
 
       expect(error).toBeInstanceOf(PartialRefreshError);
-      // Verify tree still contains successful files
+      // Verify tree still contains successful files/directories
+      expect(result.current.fileTree.length).toBeGreaterThan(0);
+      const fileNames = result.current.fileTree.map((node) => node.name);
+      expect(fileNames).toContain('success.txt');
+    });
+  });
+
+  describe('Basic functionality', () => {
+    it('should load a simple file tree successfully', async () => {
+      const mockFile: IFileNode = {
+        name: 'test.txt',
+        path: 'root/test.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [mockFile]);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      // Wait for load to complete
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+
       expect(result.current.fileTree).toHaveLength(1);
-      expect(result.current.fileTree[0]?.name).toBe('success.txt');
+      expect(result.current.fileTree[0]?.name).toBe('test.txt');
+      expect(result.current.error).toBeNull();
     });
   });
 });

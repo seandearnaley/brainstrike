@@ -1,8 +1,10 @@
+import type { FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
 import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useRef, useState } from 'react';
+import { useAdapters } from './adapters-context';
 
 interface ImportMetaWithViteEnv {
   readonly env: {
@@ -27,6 +29,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const loadingPathsRef = useRef(new Set<string>());
+  const { fileSystemAdapter } = useAdapters();
 
   const loadSingleFileContent = useCallback(
     async (compositeKey: string) => {
@@ -109,13 +112,21 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
       loadingPathsRef.current.add(compositeKey);
 
       try {
-        const fileHandle = fileNode.handle as FileSystemFileHandle;
-        let file: File;
+        // Create a FileHandle from the IFileNode
+        const fileHandle: FileHandle = {
+          path: fileNode.path,
+          name: fileNode.name,
+          kind: 'file',
+          platform: 'web', // TODO: Get this from context
+          _internal: fileNode.handle,
+        };
+
+        let content: string;
 
         try {
-          file = await fileHandle.getFile();
+          content = await fileSystemAdapter.readFile(fileHandle);
         } catch (error) {
-          console.error('Error getting file handle:', {
+          console.error('Error reading file:', {
             error,
             path,
             folderId,
@@ -124,7 +135,6 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
           throw new FileContentError('Error accessing file', path, 'LOADING_ERROR');
         }
 
-        const content = await file.text();
         const extension = fileExplorer.getFileExtension(path);
 
         // Early return for known binary files
@@ -175,7 +185,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         loadingPathsRef.current.delete(compositeKey);
       }
     },
-    [fileTree, fileContents]
+    [fileTree, fileContents, fileSystemAdapter]
   );
 
   const handleFileContentLoading = useCallback(

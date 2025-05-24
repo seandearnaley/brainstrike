@@ -1,12 +1,13 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
-import { useSelectionManager } from '@brainstrike/file-explorer-hooks';
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorer } from '@brainstrike/file-explorer-hooks';
 import { useFileLoadingManager } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
+import {
+  extractNativeDirectoryHandleAsNull,
+  extractNativeDirectoryHandleAsUndefined,
+} from '@brainstrike/file-system';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
@@ -17,6 +18,9 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorer } from './use-file-explorer-context';
+import { useSelectionManager } from './use-selection-manager-context';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
@@ -40,6 +44,7 @@ const FileExplorerMainPanel = lazy(() =>
 console.log('Core imports loaded successfully');
 
 const FileExplorer: React.FC = () => {
+  const store = useFileExplorerStoreContext();
   const {
     includeFilters,
     excludeFilters,
@@ -50,7 +55,7 @@ const FileExplorer: React.FC = () => {
     setFilters,
     currentFolderId,
     setCurrentFolderId,
-  } = useFileExplorerStore();
+  } = store();
 
   // Local state for UI
   const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
@@ -109,7 +114,7 @@ const FileExplorer: React.FC = () => {
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,
     fileContents,
-    rootDirectoryHandle: rootDirectoryHandle ?? undefined,
+    rootDirectoryHandle: extractNativeDirectoryHandleAsUndefined(rootDirectoryHandle),
     includeFilters,
     excludeFilters,
     useRegex,
@@ -118,7 +123,7 @@ const FileExplorer: React.FC = () => {
   });
 
   const { handleDownloadReport, handleCopyReport } = useReportManager({
-    rootDirectoryHandle,
+    rootDirectoryHandle: extractNativeDirectoryHandleAsNull(rootDirectoryHandle),
     generateReportWithContent,
     showToast,
     toast,
@@ -226,13 +231,13 @@ const FileExplorer: React.FC = () => {
 
   const expandAll = useCallback(() => {
     if (fileTree && fileTree.length > 0) {
-      useFileExplorerStore.getState().expandAllDirectories(fileTree);
+      store.getState().expandAllDirectories(fileTree);
     }
-  }, [fileTree]);
+  }, [fileTree, store]);
 
   const collapseAll = useCallback(() => {
-    useFileExplorerStore.getState().collapseAllDirectories();
-  }, []);
+    store.getState().collapseAllDirectories();
+  }, [store]);
 
   return (
     <FileExplorerErrorBoundary>
@@ -258,7 +263,6 @@ const FileExplorer: React.FC = () => {
                 onRefresh={handleRefresh}
                 onFilterChange={handleFilterChange}
                 filterError={filterError}
-                maxSelectionCount={maxSelectionCount}
                 quickFilter={quickFilter}
                 setQuickFilter={setQuickFilter}
                 clearQuickFilter={clearFilter}

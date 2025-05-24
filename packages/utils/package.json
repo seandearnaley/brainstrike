@@ -13,9 +13,7 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
-    },
-    "./src/test/factories/file-node": "./src/test/factories/file-node.ts",
-    "./test/factories/file-node": "./src/test/factories/file-node.ts"
+    }
   },
   "sideEffects": false,
   "license": "MIT",

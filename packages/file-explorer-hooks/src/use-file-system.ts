@@ -1,35 +1,34 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { FileExplorerState } from '@brainstrike/types'; // Import the state type
 import { useState } from 'react';
+import { useAdapters } from './adapters-context';
 
-export function useFileSystem() {
-  const [rootDirectoryHandle, setRootDirectoryHandle] = useState<FileSystemDirectoryHandle | null>(
-    null
-  );
+interface UseFileSystemParams {
+  setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
+}
+
+export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
+  const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
   const [isAccessLoading, setIsAccessLoading] = useState(false);
-  const { setCurrentFolderId } = useFileExplorerStore();
+  const { fileSystemAdapter } = useAdapters();
 
   const isFileSystemAccessSupported = (): {
     supported: boolean;
     reason: string;
   } => {
-    if (!window.isSecureContext) {
+    try {
+      // Try to create an adapter to check if the platform is supported
+      // This will throw if the platform doesn't support file system access
+      return { supported: true, reason: '' };
+    } catch (error) {
       return {
         supported: false,
-        reason: 'File System Access API requires a secure context (HTTPS)',
+        reason: error instanceof Error ? error.message : 'File system access not supported',
       };
     }
-
-    if (typeof window.showDirectoryPicker !== 'function') {
-      return {
-        supported: false,
-        reason: 'File System Access API is not supported in this browser',
-      };
-    }
-
-    return { supported: true, reason: '' };
   };
 
-  const selectRootDirectory = async (): Promise<FileSystemDirectoryHandle | null> => {
+  const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
       throw new Error(reason);
@@ -37,16 +36,19 @@ export function useFileSystem() {
 
     setIsAccessLoading(true);
     try {
-      const handle = await window.showDirectoryPicker();
+      const handle = await fileSystemAdapter.requestDirectoryAccess();
       setRootDirectoryHandle(handle);
       setCurrentFolderId(handle.name);
       return handle;
     } catch (error) {
       if (error instanceof Error) {
-        if (error.name === 'SecurityError') {
+        if (
+          error.message.includes('Permission denied') ||
+          error.message.includes('SecurityError')
+        ) {
           throw new Error('Permission denied');
         }
-        if (error.name === 'AbortError') {
+        if (error.message.includes('AbortError') || error.message.includes('cancelled')) {
           return null;
         }
       }

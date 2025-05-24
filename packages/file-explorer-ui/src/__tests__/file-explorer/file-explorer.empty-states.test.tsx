@@ -1,67 +1,110 @@
-import { useFileSystem } from '@brainstrike/file-explorer-hooks';
-import { FileExplorerStrings } from '@brainstrike/types';
 /**
  * @vitest-environment happy-dom
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorer from '../../file-explorer';
+import { FileExplorerTestWrapper } from '../test-helpers';
 
-// Mock all dependencies at the module level
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useFileExplorer: () => ({
+// Mock local hooks that FileExplorer uses
+vi.mock('../../use-file-explorer-context', () => ({
+  useFileExplorer: vi.fn(() => ({
     fileTree: [],
     isLoading: false,
     error: null,
     rootDirectoryHandle: null,
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
     handleRootDirectorySelect: vi.fn(),
-    fileContents: {},
-    applyFileFilters: vi.fn(),
-    filterError: null,
-    refreshFileTree: vi.fn(),
     loadFileContent: vi.fn(),
-    isLoadingContents: {},
-    contentErrors: {},
-    handleFileContentLoading: vi.fn(),
-    clearFileContents: vi.fn(),
     refreshFileExplorer: vi.fn(),
+    clearFileContents: vi.fn(),
+    fileContents: {},
+    filterError: null,
     isInitialLoad: false,
     loadingProgress: null,
-  }),
+    displayedFilePaths: new Set<string>(),
+    applyFileFilters: vi.fn(() => []),
+  })),
+}));
+
+vi.mock('../../use-selection-manager-context', () => ({
+  useSelectionManager: vi.fn(() => ({
+    selectedFilePaths: new Set<string>(),
+    handleSelectionChange: vi.fn(),
+    wouldExceedSelectionLimit: vi.fn(() => false),
+  })),
+}));
+
+vi.mock('../../use-file-system-context', () => ({
   useFileSystem: vi.fn(() => ({
     selectRootDirectory: vi.fn(),
     rootDirectoryHandle: null,
     isAccessLoading: false,
     isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
   })),
-  useSelectionManager: vi.fn(() => ({
-    selectedFilePaths: new Set(),
-    handleSelectionChange: vi.fn(),
-    wouldExceedSelectionLimit: vi.fn(() => false),
-  })),
-  useToastManager: () => ({}),
-  useFileExplorerSettings: vi.fn(),
-  useFileLoadingManager: () => ({}),
 }));
 
-// Mock all other required hooks with empty implementations
+vi.mock('../../use-file-tree-context', () => ({
+  useFileTree: vi.fn(() => ({
+    fileTree: [],
+    isLoading: false,
+    error: null,
+    refreshTree: vi.fn(),
+    loadingProgress: { loaded: 0, total: 0, phase: 'counting' },
+  })),
+}));
 
+// Mock all dependencies at the module level
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useFileSystem: vi.fn(() => ({
+    selectRootDirectory: vi.fn(),
+    rootDirectoryHandle: null,
+    isAccessLoading: false,
+    isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
+  })),
+  useToastManager: vi.fn(() => ({})),
+  useFileExplorerSettings: vi.fn(() => ({
+    folderSummaryThreshold: 100,
+    maxSelectionCount: 100,
+    includeFilters: [],
+    excludeFilters: [],
+    useRegex: false,
+    includeProjectTree: true,
+    setFolderSummaryThreshold: vi.fn(),
+    setMaxSelectionCount: vi.fn(),
+    setIncludeFilters: vi.fn(),
+    setExcludeFilters: vi.fn(),
+    setUseRegex: vi.fn(),
+    setIncludeProjectTree: vi.fn(),
+  })),
+  useFileLoadingManager: vi.fn(() => ({ isLoading: false, loadingFiles: new Set<string>() })),
+  useFileContentLoading: vi.fn(() => ({
+    fileContents: {},
+    isLoading: false,
+    error: null,
+    handleFileContentLoading: vi.fn(),
+    clearFileContents: vi.fn(),
+  })),
+  useFileTree: vi.fn(() => ({
+    fileTree: [],
+    isLoading: false,
+    error: null,
+    refreshTree: vi.fn(),
+    loadingProgress: { loaded: 0, total: 0, phase: 'counting' },
+  })),
+  AdaptersProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
+// Mock other hooks
 vi.mock('@/hooks/use-file-tree-persistence', () => ({
   useFileTreePersistence: () => ({}),
 }));
-const {
-  mockUseReportGeneration,
-  mockUseReportManager,
-  mockUseDebouncedValue,
-  mockUseQuickFilter,
-  mockUseFileFilters,
-  mockUseUndoableAction,
-} = vi.hoisted(() => ({
-  mockUseReportGeneration: vi.fn(() => ({})),
-  mockUseReportManager: vi.fn(() => ({})),
-  mockUseDebouncedValue: vi.fn((value: unknown) => value),
-  mockUseQuickFilter: vi.fn(() => ({
+
+vi.mock('@brainstrike/hooks', () => ({
+  useReportGeneration: vi.fn(() => ({})),
+  useReportManager: vi.fn(() => ({})),
+  useDebouncedValue: vi.fn((value: unknown) => value),
+  useQuickFilter: vi.fn(() => ({
     includeFilters: [],
     excludeFilters: [],
     useRegex: false,
@@ -71,21 +114,13 @@ const {
     setUseRegex: vi.fn(),
     setQuickFilter: vi.fn(),
   })),
-  mockUseFileFilters: vi.fn(() => ({
+  useFileFilters: vi.fn(() => ({
     applyFileFilters: vi.fn(),
     filterError: null,
   })),
-  mockUseUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
+  useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
 }));
 
-vi.mock('@brainstrike/hooks', () => ({
-  useReportGeneration: mockUseReportGeneration,
-  useReportManager: mockUseReportManager,
-  useDebouncedValue: mockUseDebouncedValue,
-  useQuickFilter: mockUseQuickFilter,
-  useFileFilters: mockUseFileFilters,
-  useUndoableAction: mockUseUndoableAction,
-}));
 vi.mock('@/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set(),
@@ -109,7 +144,7 @@ vi.mock('@/components/custom/error-boundary', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerHeader: () => (
     <header className="mb-4">
-      <h1 className="text-2xl font-bold">{FileExplorerStrings.title}</h1>
+      <h1 className="text-2xl font-bold">Context Explorer</h1>
     </header>
   ),
   ActionButtons: () => <div data-testid="action-buttons">Actions</div>,
@@ -117,12 +152,13 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerToolbar: ({ onDirectorySelect }: { onDirectorySelect: () => void }) => (
     <div>
       <button type="button" onClick={onDirectorySelect}>
-        {FileExplorerStrings.selectRoot}
+        Select Root
       </button>
     </div>
   ),
   FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
+  PreviewPanel: () => <div data-testid="main-panel">Main Panel</div>,
 }));
 
 // Mock main panel
@@ -130,45 +166,26 @@ vi.mock('@/components/custom/file-explorer-main-panel', () => ({
   default: () => <div data-testid="main-panel">Main Panel</div>,
 }));
 
-// Mock React.lazy and Suspense
-vi.mock('react', async () => {
-  const actual = await vi.importActual('react');
-  return {
-    ...actual,
-    lazy: (factory: () => Promise<{ default: React.ComponentType }>) => {
-      let Component: React.ComponentType | undefined;
-      factory().then((module) => {
-        Component = module.default;
-      });
-      return (props: Record<string, unknown>) => (Component ? <Component {...props} /> : null);
-    },
-    Suspense: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  };
-});
-
 describe('FileExplorer - Empty States', () => {
-  // Add beforeEach to set up the mock implementation
   beforeEach(() => {
-    // Clear previous mocks if necessary
     vi.clearAllMocks();
-
-    // Set up the mock return value for useFileSystem
-    const mockFileSystem = {
-      selectRootDirectory: vi.fn(),
-      rootDirectoryHandle: null,
-      isAccessLoading: false,
-      isFileSystemAccessSupported: () => ({ supported: true, reason: '' }),
-    };
-    (useFileSystem as ReturnType<typeof vi.fn>).mockReturnValue(mockFileSystem);
   });
 
-  it('renders the component with title', () => {
-    render(<FileExplorer />);
-    expect(screen.getByText('Context Explorer')).toBeInTheDocument();
+  it('renders the component with title', async () => {
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
+
+    // Wait for lazy components to load
+    await waitFor(() => {
+      expect(screen.getByText('Context Explorer')).toBeInTheDocument();
+    });
   });
 
-  it('renders the Select Root button', () => {
-    render(<FileExplorer />);
-    expect(screen.getByText('Select Root')).toBeInTheDocument();
+  it('renders the Select Root button', async () => {
+    render(<FileExplorer />, { wrapper: FileExplorerTestWrapper });
+
+    // Wait for lazy components to load
+    await waitFor(() => {
+      expect(screen.getByText('Select Root')).toBeInTheDocument();
+    });
   });
 });

@@ -17,21 +17,27 @@
   "license": "MIT",
   "files": ["dist/**"],
   "scripts": {
-    "build": "echo skipping build",
-    "dev": "echo skipping dev",
-    "clean": "rm -rf dist",
+    "build": "pnpm run clean && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
+    "clean": "rimraf dist .turbo",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "echo skip type-check",
+    "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
+  "dependencies": {
+    "@brainstrike/types": "workspace:*"
+  },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.6.3",
+    "@swc/core": "^1.11.20",
     "@types/node": "^20.11.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^3.1.1",
-    "jsdom": "^26.0.0"
+    "jsdom": "^26.0.0",
+    "rimraf": "^5.0.7"
   },
   "publishConfig": {
     "access": "public"

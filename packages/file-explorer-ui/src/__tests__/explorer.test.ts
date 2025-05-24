@@ -1,10 +1,10 @@
-import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
 import {
   createDirectoryNode,
   createFileNode,
   createNestedDirectoryStructure,
-} from '@brainstrike/utils/test/factories/file-node';
+} from '@brainstrike/test-utils';
+import type { IFileNode } from '@brainstrike/types';
+import { fileExplorer } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 describe('fileExplorer', () => {
@@ -191,7 +191,7 @@ describe('fileExplorer', () => {
 
       // Mock the function to return incomplete for one child
       const original = fileExplorer.getFolderFileCount;
-      vi.spyOn(fileExplorer, 'getFolderFileCount').mockImplementation((node) => {
+      vi.spyOn(fileExplorer, 'getFolderFileCount').mockImplementation((node: IFileNode) => {
         if (node === childWithIssue) {
           return { count: 5, isComplete: false };
         }

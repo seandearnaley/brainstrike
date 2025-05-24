@@ -22,20 +22,23 @@
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run",
+    "test:watch": "NODE_OPTIONS='--max-old-space-size=8192' vitest",
+    "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192' vitest run --coverage"
   },
   "peerDependencies": {
-    "react": "^19"
+    "react": "^19",
+    "zustand": "^5"
   },
   "dependencies": {
     "@brainstrike/file-explorer": "workspace:*",
-    "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
-    "@brainstrike/hooks": "workspace:*"
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {

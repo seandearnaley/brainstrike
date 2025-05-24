@@ -21,3 +21,4 @@ export { default as FileTreeNode } from './file-tree-node';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
 export { default as ClientFileExplorer } from './client-file-explorer';
 export { default as FileExplorer } from './file-explorer';
+export * from './file-explorer-provider';

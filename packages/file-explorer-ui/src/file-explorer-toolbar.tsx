@@ -1,3 +1,4 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
@@ -11,13 +12,12 @@ interface FileExplorerToolbarProps {
   onRefresh: () => Promise<void>;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   filterError: string | null;
-  maxSelectionCount: number;
   quickFilter: string;
   setQuickFilter: (value: string) => void;
   clearQuickFilter: () => void;
   isLoading: boolean;
   isRefreshing: boolean;
-  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   onExpandAll: () => void;
   onCollapseAll: () => void;
 }
@@ -27,7 +27,6 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
   onRefresh,
   onFilterChange,
   filterError,
-  maxSelectionCount,
   quickFilter,
   setQuickFilter,
   clearQuickFilter,
@@ -79,7 +78,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
           </Button>
           <FileExplorerConfig filterError={filterError} onFilterChange={onFilterChange} />
         </div>
-        <SelectionCounter maxSelections={maxSelectionCount} />
+        <SelectionCounter />
       </div>
       {rootDirectoryHandle && (
         <FileFilterBar value={quickFilter} onChange={setQuickFilter} onClear={clearQuickFilter} />

@@ -1,9 +1,10 @@
+import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { createDirectoryNode, createFileNode } from '@brainstrike/utils/test/factories/file-node';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
@@ -50,7 +51,7 @@ describe('FileExplorerSidebar', () => {
   };
 
   it('renders with directory and files', () => {
-    render(<FileExplorerSidebar {...defaultProps} />);
+    render(<FileExplorerSidebar {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
 
     // Check for the directory status - use exact text from constants
     expect(screen.getByText(FileExplorerStrings.status.currentDirectory)).toBeInTheDocument();
@@ -63,7 +64,9 @@ describe('FileExplorerSidebar', () => {
   });
 
   it('displays "No directory selected" when rootDirectoryHandle is null', () => {
-    render(<FileExplorerSidebar {...defaultProps} rootDirectoryHandle={null} />);
+    render(<FileExplorerSidebar {...defaultProps} rootDirectoryHandle={null} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     expect(screen.getByText('No directory selected')).toBeInTheDocument();
     expect(screen.getByText('Use the folder button to select a directory')).toBeInTheDocument();
@@ -72,7 +75,9 @@ describe('FileExplorerSidebar', () => {
   it('displays error message when treeError exists', () => {
     const mockError = new Error('Tree loading failed');
 
-    render(<FileExplorerSidebar {...defaultProps} treeError={mockError} />);
+    render(<FileExplorerSidebar {...defaultProps} treeError={mockError} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByText(/Tree loading failed/i, { exact: false })).toBeInTheDocument();
@@ -81,7 +86,9 @@ describe('FileExplorerSidebar', () => {
   it('displays error message when filterError exists', () => {
     const mockError = new Error('Filter error');
 
-    render(<FileExplorerSidebar {...defaultProps} filterError={mockError} />);
+    render(<FileExplorerSidebar {...defaultProps} filterError={mockError} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByText(/Filter error/i, { exact: false })).toBeInTheDocument();
@@ -92,7 +99,8 @@ describe('FileExplorerSidebar', () => {
     const filterError = new Error('Filter error');
 
     render(
-      <FileExplorerSidebar {...defaultProps} treeError={treeError} filterError={filterError} />
+      <FileExplorerSidebar {...defaultProps} treeError={treeError} filterError={filterError} />,
+      { wrapper: FileExplorerTestWrapper }
     );
 
     const alert = screen.getByRole('alert');
@@ -102,13 +110,17 @@ describe('FileExplorerSidebar', () => {
   });
 
   it('displays "No matching files found" when quickFilteredTree is empty', () => {
-    render(<FileExplorerSidebar {...defaultProps} quickFilteredTree={[]} />);
+    render(<FileExplorerSidebar {...defaultProps} quickFilteredTree={[]} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
   });
 
   it('displays include filters when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} includeFilters={['.ts', '.tsx']} />);
+    render(<FileExplorerSidebar {...defaultProps} includeFilters={['.ts', '.tsx']} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     // Use getByText directly to find the filters
     expect(screen.getByText('.ts')).toBeInTheDocument();
@@ -116,7 +128,9 @@ describe('FileExplorerSidebar', () => {
   });
 
   it('displays exclude filters when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} excludeFilters={['.css', '.md']} />);
+    render(<FileExplorerSidebar {...defaultProps} excludeFilters={['.css', '.md']} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     // Use getByText directly to find the filters
     expect(screen.getByText('.css')).toBeInTheDocument();
@@ -124,7 +138,9 @@ describe('FileExplorerSidebar', () => {
   });
 
   it('displays quick filter when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} quickFilter="component" />);
+    render(<FileExplorerSidebar {...defaultProps} quickFilter="component" />, {
+      wrapper: FileExplorerTestWrapper,
+    });
 
     // Use getByText directly to find the filter
     expect(screen.getByText('component')).toBeInTheDocument();
@@ -136,7 +152,8 @@ describe('FileExplorerSidebar', () => {
         {...defaultProps}
         useRegex={true}
         quickFilter="test" // Need to add a filter to make the regex badge appear
-      />
+      />,
+      { wrapper: FileExplorerTestWrapper }
     );
 
     // Use getByText directly to find the regex text

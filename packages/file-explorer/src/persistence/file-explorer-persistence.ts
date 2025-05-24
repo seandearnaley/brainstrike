@@ -5,42 +5,78 @@
  * It handles state serialization/deserialization and rehydration.
  */
 
-import type { FileExplorerState, SerializedState } from '@brainstrike/types';
-import { DEFAULT_STATE } from '@brainstrike/types';
+import type { StorageAdapter } from '@brainstrike/storage';
+import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
 // eslint-disable-next-line no-undef -- process.env is available in Vite/Node environments
 
 // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
 const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
 
-export const createPersistOptions = (): PersistOptions<FileExplorerState, SerializedState> => ({
-  name: 'file-explorer-storage',
-  version: 3,
+type ZustandPersistWrapper<T> = { state?: T; version?: number };
+
+export const createPersistOptions = (
+  storageAdapter: StorageAdapter
+): PersistOptions<FileExplorerState, SerializedState> => ({
+  name: 'file-explorer-storage-v4',
+  version: 1,
+
+  // Use the provided storage adapter instead of default localStorage
+  storage: {
+    getItem: async (name: string) => {
+      try {
+        const value = await storageAdapter.getItem(name);
+        // console.log('[Persist] getItem value:', value ? JSON.parse(value) : null);
+        return value ? JSON.parse(value) : null;
+      } catch (error) {
+        if (isDev) {
+          console.error('Error getting item from storage:', error);
+        }
+        return null;
+      }
+    },
+    setItem: async (name: string, value: unknown) => {
+      try {
+        // console.log('[Persist] setItem value:', value);
+        await storageAdapter.setItem(name, JSON.stringify(value));
+      } catch (error) {
+        if (isDev) {
+          console.error('Error setting item in storage:', error);
+        }
+      }
+    },
+    removeItem: async (name: string) => {
+      try {
+        await storageAdapter.removeItem(name);
+      } catch (error) {
+        if (isDev) {
+          console.error('Error removing item from storage:', error);
+        }
+      }
+    },
+  },
 
   partialize: (state) => {
     if (isDev) {
-      console.log('Serializing state:', {
-        currentFolderId: state.currentFolderId,
-        folderStateKeys: Object.keys(state.folderStates || {}),
-        selectedCount: state.selectedFilePaths?.size ?? 0,
-      });
+      // console.log('[Partialize] Input FileExplorerState (with Sets):', state);
     }
-
-    return {
+    const serialized: SerializedState = {
       currentFolderId: state.currentFolderId,
       folderStates: Object.fromEntries(
         Object.entries(state.folderStates || {}).map(([id, folderState]) => [
           id,
           {
             ...folderState,
-            selectedFilePaths: Array.from(folderState?.selectedFilePaths || new Set()),
-            expandedDirectoryPaths: Array.from(folderState?.expandedDirectoryPaths || new Set()),
+            selectedFilePaths: Array.from(folderState?.selectedFilePaths || new Set<string>()),
+            expandedDirectoryPaths: Array.from(
+              folderState?.expandedDirectoryPaths || new Set<string>()
+            ),
             lastAccessed: folderState?.lastAccessed || Date.now(),
           },
         ])
       ),
-      selectedFilePaths: Array.from(state.selectedFilePaths || new Set()),
-      expandedDirectoryPaths: Array.from(state.expandedDirectoryPaths || new Set()),
+      selectedFilePaths: Array.from(state.selectedFilePaths || new Set<string>()),
+      expandedDirectoryPaths: Array.from(state.expandedDirectoryPaths || new Set<string>()),
       includeFilters: state.includeFilters,
       excludeFilters: state.excludeFilters,
       useRegex: state.useRegex,
@@ -49,101 +85,102 @@ export const createPersistOptions = (): PersistOptions<FileExplorerState, Serial
       maxSelectionCount: state.maxSelectionCount,
       lastActiveTab: state.lastActiveTab ?? 'files',
     };
+    if (isDev) {
+      // console.log('[Partialize] Output SerializedState (with Arrays):', serialized);
+    }
+    return serialized;
   },
 
-  onRehydrateStorage: () => (persistedState) => {
-    if (isDev) {
-      console.log('Rehydrating storage, full persisted state:', persistedState);
+  migrate: (rawPersistedState, version) => {
+    if (isDev) console.log('[Migrate] Received raw state:', rawPersistedState, 'Version:', version);
+
+    if (rawPersistedState == null) {
+      if (isDev) console.log('[Migrate] No state (null or undefined), returning it as is.');
+      return rawPersistedState as unknown as SerializedState;
     }
 
-    // Important: Always provide a complete default state if nothing is persisted
-    if (!persistedState) {
-      if (isDev) {
-        console.log('No persisted state found, returning default state');
-      }
-      return {
-        currentFolderId: null,
-        folderStates: {},
-        ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      };
+    const wrapper = rawPersistedState as Partial<ZustandPersistWrapper<SerializedState>>;
+    const stateToProcess =
+      wrapper.state !== undefined ? wrapper.state : (rawPersistedState as SerializedState);
+
+    if (stateToProcess == null) {
+      if (isDev)
+        console.log('[Migrate] No actual state after unwrap (null/undefined), returning as is.');
+      return stateToProcess as unknown as SerializedState;
     }
 
-    try {
-      // If there's no current folder ID, clear selected files
-      if (!persistedState.currentFolderId) {
-        if (isDev) {
-          console.log('No current folder ID, clearing selected files');
-        }
-        return {
-          currentFolderId: null,
-          folderStates: {},
-          // Use persisted values for user settings if available, otherwise use defaults
-          includeFilters: persistedState.includeFilters || DEFAULT_STATE.includeFilters,
-          excludeFilters: persistedState.excludeFilters || DEFAULT_STATE.excludeFilters,
-          useRegex:
-            persistedState.useRegex !== undefined
-              ? persistedState.useRegex
-              : DEFAULT_STATE.useRegex,
-          includeProjectTree:
-            persistedState.includeProjectTree !== undefined
-              ? persistedState.includeProjectTree
-              : DEFAULT_STATE.includeProjectTree,
-          folderSummaryThreshold:
-            persistedState.folderSummaryThreshold !== undefined
-              ? persistedState.folderSummaryThreshold
-              : DEFAULT_STATE.folderSummaryThreshold,
-          maxSelectionCount: persistedState.maxSelectionCount || DEFAULT_STATE.maxSelectionCount,
-          lastActiveTab: persistedState.lastActiveTab ?? 'files',
-          selectedFilePaths: new Set<string>(),
-          expandedDirectoryPaths: new Set<string>(),
-        };
-      }
+    const serialized = stateToProcess as SerializedState;
+    if (isDev) console.log('[Migrate] Returning valid SerializedState:', serialized);
+    return serialized;
+  },
 
-      // Convert arrays back to Sets with type safety
-      const folderStates = Object.fromEntries(
-        Object.entries(persistedState.folderStates ?? {}).map(([key, folderState]) => [
-          key,
-          {
-            ...folderState,
-            selectedFilePaths: new Set(
-              Array.isArray(folderState?.selectedFilePaths) ? folderState.selectedFilePaths : []
-            ),
-            expandedDirectoryPaths: new Set(
-              Array.isArray(folderState?.expandedDirectoryPaths)
-                ? folderState.expandedDirectoryPaths
-                : []
-            ),
-          },
-        ])
+  merge: (persisted, current) => {
+    if (isDev)
+      console.log(
+        '[Merge] Persisted (SerializedState from migrate):',
+        persisted,
+        'Current (FileExplorerState from initial):',
+        current
       );
+    if (!persisted) {
+      if (isDev) console.log('[Merge] No persisted state, returning current initial state.');
+      return current;
+    }
 
-      return {
-        ...persistedState,
-        folderStates,
-        selectedFilePaths: new Set(
-          Array.isArray(persistedState.selectedFilePaths) ? persistedState.selectedFilePaths : []
-        ),
-        expandedDirectoryPaths: new Set(
-          Array.isArray(persistedState.expandedDirectoryPaths)
-            ? persistedState.expandedDirectoryPaths
-            : []
-        ),
-        lastActiveTab: persistedState.lastActiveTab ?? 'files',
-      };
-    } catch (error: unknown) {
-      if (isDev) {
-        console.error('Error rehydrating file explorer state:', error);
-        if (error instanceof Error) {
-          console.error('Stack trace:', error.stack);
-        }
+    const persistedSerialized = persisted as SerializedState;
+
+    const mergedState: FileExplorerState = {
+      ...current,
+      ...persistedSerialized,
+      selectedFilePaths: new Set(
+        Array.isArray(persistedSerialized.selectedFilePaths)
+          ? persistedSerialized.selectedFilePaths
+          : []
+      ),
+      expandedDirectoryPaths: new Set(
+        Array.isArray(persistedSerialized.expandedDirectoryPaths)
+          ? persistedSerialized.expandedDirectoryPaths
+          : []
+      ),
+      folderStates: Object.fromEntries(
+        Object.entries(persistedSerialized.folderStates ?? {}).map(([key, psFolderState]) => {
+          const currentFolderState = current.folderStates[key];
+          return [
+            key,
+            {
+              ...(currentFolderState ?? ({} as FolderState)),
+              ...psFolderState,
+              selectedFilePaths: new Set(
+                Array.isArray(psFolderState.selectedFilePaths)
+                  ? psFolderState.selectedFilePaths
+                  : []
+              ),
+              expandedDirectoryPaths: new Set(
+                Array.isArray(psFolderState.expandedDirectoryPaths)
+                  ? psFolderState.expandedDirectoryPaths
+                  : []
+              ),
+            },
+          ];
+        })
+      ),
+    };
+
+    // Ensure all folder states from `current` (initial) that were not in `persisted` are carried over.
+    // This ensures that if a folder existed only in initial state, it remains.
+    for (const key in current.folderStates) {
+      if (!mergedState.folderStates[key]) {
+        mergedState.folderStates[key] = current.folderStates[key] as FolderState;
       }
-      return {
-        currentFolderId: null,
-        folderStates: {},
-        ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      };
+    }
+
+    if (isDev) console.log('[Merge] Resulting merged FileExplorerState (with Sets):', mergedState);
+    return mergedState;
+  },
+
+  onRehydrateStorage: (state) => {
+    if (isDev) {
+      console.log('[onRehydrateStorage] Storage rehydrated. Final state in store:', state);
     }
   },
 });

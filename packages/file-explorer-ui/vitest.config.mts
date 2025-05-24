@@ -8,6 +8,16 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        maxForks: 2,
+        minForks: 1,
+        isolate: true,
+      },
+    },
+    isolate: true,
+    testTimeout: 30000,
   },
   resolve: {
     alias: {

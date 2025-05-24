@@ -1,7 +1,9 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useAdapters } from './adapters-context';
 
 // Batch size for progress updates
 const PROGRESS_BATCH_SIZE = 25;
@@ -13,7 +15,7 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
-export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | null) {
+export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -36,6 +38,7 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
     phase: 'counting',
   });
   const refreshTrigger = useRef(0);
+  const { fileSystemAdapter } = useAdapters();
 
   const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
     return [...nodes].sort((a, b) => {
@@ -75,12 +78,11 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
 
   const readFullTree = useCallback(
     async (
-      directoryHandle: FileSystemDirectoryHandle,
-      rootHandle: FileSystemDirectoryHandle,
+      directoryHandle: DirectoryHandle,
+      rootHandle: DirectoryHandle,
       parentPath = '',
       isRoot = true
     ): Promise<IFileNode[]> => {
-      const entries: IFileNode[] = [];
       const rootFolderId = rootHandle.name;
       const stats = { successCount: 0, failCount: 0 };
 
@@ -93,98 +95,91 @@ export function useFileTree(rootDirectoryHandle: FileSystemDirectoryHandle | nul
           phase: 'counting',
         });
 
-        let totalEntries = 0;
-        const countStack = [directoryHandle];
-
-        while (countStack.length > 0) {
-          const currentDir = countStack.pop();
-          if (!currentDir) continue;
-
-          for await (const [name, handle] of currentDir.entries()) {
-            const path = parentPath ? `${parentPath}/${name}` : name;
-            if (fileFilter.shouldIgnorePath(path)) continue;
-
-            totalEntries++; // Count both files and directories
-            if (handle.kind === 'directory') {
-              countStack.push(handle as FileSystemDirectoryHandle);
-            }
-          }
-        }
-
+        // Note: We can't easily count entries with the adapter pattern
+        // without reading them, so we'll estimate or read progressively
         progressRef.current = {
           loaded: 0,
-          total: totalEntries,
+          total: 1000, // Rough estimate, will adjust as we go
           batchCount: 0,
           currentPath: '',
           phase: 'loading',
         };
         setLoadingProgress({
           loaded: 0,
-          total: totalEntries,
+          total: 1000,
           phase: 'loading',
         });
       }
 
-      // Process entries
-      for await (const [name, handle] of directoryHandle.entries()) {
-        const path = parentPath ? `${parentPath}/${name}` : name;
-        if (fileFilter.shouldIgnorePath(path)) continue;
+      try {
+        // Use the adapter to read directory contents
+        const entries = await fileSystemAdapter.readDirectory(directoryHandle);
 
-        try {
-          if (handle.kind === 'file') {
-            await (handle as FileSystemFileHandle).getFile();
-            entries.push({
-              name,
-              path,
-              depth: path.split('/').length - 1,
-              type: 'file',
-              handle: handle as FileSystemFileHandle,
-              selectionState: 'unchecked',
-              rootFolderId,
-            });
-            stats.successCount++;
-            updateProgress(path);
-          } else if (handle.kind === 'directory') {
-            const children = await readFullTree(
-              handle as FileSystemDirectoryHandle,
-              rootHandle,
-              path,
-              false
-            );
-            entries.push({
-              name,
-              path,
-              depth: path.split('/').length - 1,
-              type: 'directory',
-              children: sortFileNodes(children),
-              handle: handle as FileSystemDirectoryHandle,
-              selectionState: 'unchecked',
-              rootFolderId,
-            });
-            updateProgress(path);
+        const processedEntries: IFileNode[] = [];
+
+        for (const entry of entries) {
+          const path = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+
+          if (fileFilter.shouldIgnorePath(path)) continue;
+
+          try {
+            if (entry.type === 'file') {
+              processedEntries.push({
+                ...entry,
+                path,
+                depth: path.split('/').length - 1,
+                selectionState: 'unchecked',
+                rootFolderId,
+              });
+              stats.successCount++;
+              updateProgress(path);
+            } else if (entry.type === 'directory') {
+              // For directories, we need to create a DirectoryHandle from the IFileNode
+              const dirHandle: DirectoryHandle = {
+                path,
+                name: entry.name,
+                kind: 'directory',
+                platform: directoryHandle.platform,
+                _internal: entry.handle,
+              };
+
+              const children = await readFullTree(dirHandle, rootHandle, path, false);
+              processedEntries.push({
+                ...entry,
+                path,
+                depth: path.split('/').length - 1,
+                children: sortFileNodes(children),
+                selectionState: 'unchecked',
+                rootFolderId,
+              });
+              updateProgress(path);
+            }
+          } catch (err) {
+            console.error(`Error processing ${path}:`, err);
+            stats.failCount++;
           }
-        } catch (err) {
-          console.error(`Error processing ${path}:`, err);
-          stats.failCount++;
         }
-      }
 
-      // Handle errors
-      if (stats.failCount > 0 && stats.successCount > 0) {
-        throw new PartialRefreshError(
-          `Partially refreshed file tree. ${stats.successCount} files processed successfully, ${stats.failCount} failed.`,
-          stats.successCount,
-          stats.failCount
-        );
-      }
+        // Handle errors
+        if (stats.failCount > 0 && stats.successCount > 0) {
+          throw new PartialRefreshError(
+            `Partially refreshed file tree. ${stats.successCount} files processed successfully, ${stats.failCount} failed.`,
+            stats.successCount,
+            stats.failCount
+          );
+        }
 
-      if (stats.failCount > 0 && stats.successCount === 0) {
-        throw new Error('Failed to refresh file tree. No files were processed successfully.');
-      }
+        if (stats.failCount > 0 && stats.successCount === 0) {
+          throw new Error('Failed to refresh file tree. No files were processed successfully.');
+        }
 
-      return sortFileNodes(entries);
+        return sortFileNodes(processedEntries);
+      } catch (err) {
+        console.error('Error reading directory:', err);
+        throw err;
+      }
     },
-    [sortFileNodes, updateProgress]
+    [sortFileNodes, updateProgress, fileSystemAdapter]
   );
 
   const loadTree = useCallback(async () => {

@@ -31,7 +31,9 @@
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
+    "@brainstrike/file-system": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {

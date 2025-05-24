@@ -1,9 +1,9 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { Button } from '@brainstrike/ui';
 import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
@@ -27,7 +27,7 @@ interface FileExplorerConfigProps {
 
 // Main Component
 const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, onFilterChange }) => {
-  const store = useFileExplorerStore();
+  const store = useFileExplorerStoreContext()();
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters: store.includeFilters,
