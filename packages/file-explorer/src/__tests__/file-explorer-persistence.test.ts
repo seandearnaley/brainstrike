@@ -194,6 +194,73 @@ describe('file-explorer-persistence', () => {
       );
       fromEntriesSpy.mockRestore(); // Restore original implementation
     });
+
+    it('Malformed folderStates should fall back to defaults and log error', () => {
+      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
+
+      const malformedFolderState = new Proxy(
+        {},
+        {
+          get(_target, prop) {
+            if (prop === 'selectedFilePaths' || prop === 'expandedDirectoryPaths') {
+              throw new Error('bad folder state');
+            }
+            return undefined;
+          },
+        }
+      );
+
+      const malformedPersistedState = {
+        currentFolderId: 'folder-proxy',
+        folderStates: { 'folder-proxy': malformedFolderState },
+      } as unknown as SerializedState;
+
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(malformedPersistedState);
+
+      expect(result).toEqual({
+        currentFolderId: null,
+        folderStates: {},
+        ...DEFAULT_STATE,
+        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
+      });
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Rehydrating storage, full persisted state:',
+        malformedPersistedState
+      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Error rehydrating file explorer state:',
+        expect.any(Error)
+      );
+    });
+
+    it('Missing lastActiveTab should default to "files" and log', () => {
+      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
+      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
+      const persistedState: Partial<SerializedState> = {
+        currentFolderId: 'folder-missing-tab',
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        folderStates: {},
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: true,
+        folderSummaryThreshold: 5,
+        maxSelectionCount: 100,
+      };
+      const result: FileExplorerState | null = (
+        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
+      )(persistedState as SerializedState);
+      expect(result?.lastActiveTab).toBe('files');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Rehydrating storage, full persisted state:',
+        persistedState
+      );
+    });
   });
 
   describe('onRehydrateStorage (isDev = false)', () => {
