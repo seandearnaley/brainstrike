@@ -24,11 +24,8 @@
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
-    "@brainstrike/fonts": "workspace:*",
     "@brainstrike/server-config": "workspace:*",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "dompurify": "^3.2.4",
     "lucide-react": "^0.483.0",

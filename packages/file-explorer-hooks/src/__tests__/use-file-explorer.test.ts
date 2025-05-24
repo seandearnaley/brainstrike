@@ -1,6 +1,7 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
-import { createFileNode } from '@brainstrike/utils/src/test/factories/file-node';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileContentLoading } from '../use-file-content-loading';
@@ -33,7 +34,13 @@ const mockHandleFileContentLoading = vi.fn();
 const mockClearFileContents = vi.fn();
 
 describe('useFileExplorer', () => {
-  const mockRootHandle = {} as FileSystemDirectoryHandle;
+  const mockRootHandle: DirectoryHandle = {
+    path: '/mock-root',
+    name: 'mock-root',
+    kind: 'directory',
+    platform: 'web',
+    _internal: {} as FileSystemDirectoryHandle,
+  };
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
   let onDisplayedFilePathsChange: ReturnType<typeof vi.fn>;
@@ -49,11 +56,38 @@ describe('useFileExplorer', () => {
     filteredTree = [initialFileTree[0] as IFileNode];
     mockApplyFileFilters.mockReturnValue(filteredTree);
 
-    vi.mocked(useFileExplorerStore).mockReturnValue({
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-    } as unknown as FileExplorerState);
+    // More complete mock for useFileExplorerStore
+    const mockStoreState: FileExplorerState = {
+      currentFolderId: null,
+      folderStates: {},
+      selectedFilePaths: new Set<string>(),
+      expandedDirectoryPaths: new Set<string>(),
+      includeFilters: [], // Explicitly for the test
+      excludeFilters: [], // Explicitly for the test
+      useRegex: false, // Explicitly for the test
+      includeProjectTree: true,
+      folderSummaryThreshold: 5,
+      maxSelectionCount: 10,
+      lastActiveTab: 'files',
+      setCurrentFolderId: vi.fn(),
+      hydrateFolderState: vi.fn(),
+      setSelectedFiles: vi.fn(),
+      addSelectedFile: vi.fn(),
+      removeSelectedFile: vi.fn(),
+      toggleSelectedFile: vi.fn(),
+      clearSelectedFiles: vi.fn(),
+      setExpandedPaths: vi.fn(),
+      toggleDirectoryExpansion: vi.fn(),
+      expandAllDirectories: vi.fn(),
+      collapseAllDirectories: vi.fn(),
+      setFilters: vi.fn(),
+      setUseRegex: vi.fn(),
+      setIncludeProjectTree: vi.fn(),
+      setFolderSummaryThreshold: vi.fn(),
+      setMaxSelectionCount: vi.fn(),
+      setLastActiveTab: vi.fn(),
+    };
+    vi.mocked(useFileExplorerStore).mockReturnValue(mockStoreState);
 
     mockSelectRootDirectory.mockResolvedValue(mockRootHandle);
 
@@ -62,7 +96,7 @@ describe('useFileExplorer', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-    } as ReturnType<typeof useFileSystem>);
+    });
 
     vi.mocked(useFileTree).mockReturnValue({
       fileTree: initialFileTree,
@@ -86,9 +120,9 @@ describe('useFileExplorer', () => {
   it('should select root directory', async () => {
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
-    let handle: FileSystemDirectoryHandle | null = null;
+    let handle: DirectoryHandle | null = null;
     await act(async () => {
-      handle = await result.current.handleRootDirectorySelect();
+      handle = await result.current.actions.handleRootDirectorySelect();
     });
 
     expect(mockSelectRootDirectory).toHaveBeenCalledTimes(1);
@@ -100,7 +134,7 @@ describe('useFileExplorer', () => {
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
     await act(async () => {
-      await result.current.loadFileContent('/file1.ts');
+      await result.current.actions.loadFileContent('/file1.ts');
     });
 
     expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
@@ -119,7 +153,7 @@ describe('useFileExplorer', () => {
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
     await act(async () => {
-      await result.current.refreshFileExplorer();
+      await result.current.actions.refreshFileExplorer();
     });
 
     expect(mockRefreshTree).toHaveBeenCalled();
@@ -131,13 +165,13 @@ describe('useFileExplorer', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
-    } as ReturnType<typeof useFileSystem>);
+    });
 
     const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
 
     expect(result.current.rootDirectoryHandle).toBeNull();
 
-    await expect(result.current.refreshFileExplorer()).rejects.toBeInstanceOf(Error);
+    await expect(result.current.actions.refreshFileExplorer()).rejects.toBeInstanceOf(Error);
     expect(mockRefreshTree).not.toHaveBeenCalled();
   });
 });

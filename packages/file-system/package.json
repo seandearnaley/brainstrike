@@ -1,0 +1,35 @@
+{
+  "name": "@brainstrike/file-system",
+  "version": "0.1.0",
+  "description": "Platform-aware file system adapters for web and desktop",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -b . && tsup",
+    "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@brainstrike/types": "workspace:*"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.1.1",
+    "jsdom": "^26.0.0",
+    "tsup": "^8.4.0",
+    "typescript": "^5",
+    "vitest": "^3.1.1"
+  }
+} 

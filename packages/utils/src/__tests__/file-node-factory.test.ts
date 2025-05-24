@@ -1,9 +1,11 @@
-import type { IFileNode } from '@brainstrike/types';
-import { describe, expect, it } from 'vitest';
 import {
+  createDirectoryNode,
+  createFileNode,
   createFileTreeFromStructure,
   createNestedDirectoryStructure,
-} from '../test/factories/file-node';
+} from '@brainstrike/test-utils';
+import type { IFileNode } from '@brainstrike/types';
+import { describe, expect, it } from 'vitest';
 
 const countFiles = (node: IFileNode): number => {
   if (node.type === 'file') {

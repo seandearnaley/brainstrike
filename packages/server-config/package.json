@@ -30,7 +30,6 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "@brainstrike/test-utils": "workspace:*",
     "@types/node": "^22.15.17"
   }
 }

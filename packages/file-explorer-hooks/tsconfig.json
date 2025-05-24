@@ -10,6 +10,7 @@
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
   "references": [
     { "path": "../file-explorer" },
+    { "path": "../file-system" },
     { "path": "../hooks" },
     { "path": "../types" },
     { "path": "../ui" },

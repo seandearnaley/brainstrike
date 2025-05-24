@@ -1,4 +1,3 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
 interface IFileTreeNodeProps {
@@ -45,7 +45,8 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     isLoading,
     folderId,
   }) => {
-    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = useFileExplorerStore();
+    const store = useFileExplorerStoreContext();
+    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = store();
     const [showSelectionDialog, setShowSelectionDialog] = useState(false);
 
     /**

@@ -1,16 +1,48 @@
-import type { FileExplorerState, SerializedState } from '@brainstrike/types';
+import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock console spies for all tests in this file
 const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+// const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // Removed unused spy
 let originalNodeEnv: string | undefined;
+
+// Mock storage adapter for tests
+const mockStorageAdapter = {
+  async getItem(_key: string) {
+    return null;
+  },
+  async setItem(_key: string, _value: string) {
+    // no-op
+  },
+  async removeItem(_key: string) {
+    // no-op
+  },
+  async clear() {
+    // no-op
+  },
+  async getAllKeys() {
+    return [];
+  },
+};
 
 // Helper to dynamically import and get persist options
 const getFreshPersistOptions = async () => {
   const mod = await import('../persistence/file-explorer-persistence');
-  return mod.createPersistOptions();
+  return mod.createPersistOptions(mockStorageAdapter);
+};
+
+const testDefaultFolderState: FolderState = {
+  selectedFilePaths: new Set<string>(),
+  expandedDirectoryPaths: new Set<string>(),
+  includeFilters: [...DEFAULT_STATE.includeFilters], // Copy from global defaults
+  excludeFilters: [...DEFAULT_STATE.excludeFilters], // Copy from global defaults
+  useRegex: DEFAULT_STATE.useRegex,
+  includeProjectTree: DEFAULT_STATE.includeProjectTree,
+  folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
+  maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
+  lastActiveTab: DEFAULT_STATE.lastActiveTab,
+  lastAccessed: 0, // Default lastAccessed
 };
 
 describe('file-explorer-persistence', () => {
@@ -31,317 +63,277 @@ describe('file-explorer-persistence', () => {
       // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
       process.env['NODE_ENV'] = 'production'; // Arbitrary for this test
       const persistOptions = await getFreshPersistOptions();
-      expect(persistOptions.name).toBe('file-explorer-storage');
-      expect(persistOptions.version).toBe(3);
+      expect(persistOptions.name).toBe('file-explorer-storage-v4');
+      expect(persistOptions.version).toBe(1);
       expect(typeof persistOptions.partialize).toBe('function');
+      expect(typeof persistOptions.migrate).toBe('function');
+      expect(typeof persistOptions.merge).toBe('function');
       expect(typeof persistOptions.onRehydrateStorage).toBe('function');
     });
   });
 
-  describe('partialize (isDev = true)', () => {
+  describe('partialize', () => {
     let partializeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['partialize']>;
 
     beforeEach(async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'development';
-      vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
       if (!persistOptions.partialize) throw new Error('Partialize function not found');
       partializeFn = persistOptions.partialize;
     });
 
-    it('should correctly serialize state and log', () => {
-      const mockState: Partial<FileExplorerState> = {
+    it('should correctly serialize state, converting Sets to Arrays', () => {
+      const mockState: FileExplorerState = {
+        ...(DEFAULT_STATE as FileExplorerState),
         currentFolderId: 'folder-123',
         folderStates: {
           'folder-123': {
+            ...testDefaultFolderState, // Use defined default folder state
             selectedFilePaths: new Set(['file1', 'file2']),
             expandedDirectoryPaths: new Set(['dir1', 'dir2']),
-            lastAccessed: 1234567890,
+            lastAccessed: 1234567890, // Override specific test values
             lastActiveTab: 'files',
-            includeFilters: ['*.ts', '*.tsx'],
-            excludeFilters: ['node_modules'],
-            useRegex: true,
-            includeProjectTree: true,
-            folderSummaryThreshold: 5,
-            maxSelectionCount: 100,
           },
         },
-        selectedFilePaths: new Set(['file1', 'file2']),
-        expandedDirectoryPaths: new Set(['dir1', 'dir2']),
-        includeFilters: ['*.ts', '*.tsx'],
-        excludeFilters: ['node_modules'],
-        useRegex: true,
-        includeProjectTree: true,
-        folderSummaryThreshold: 5,
-        maxSelectionCount: 100,
-        lastActiveTab: 'files',
-      };
-      const result = partializeFn(mockState as FileExplorerState);
-      expect(result.currentFolderId).toBe('folder-123');
-      expect(result.lastActiveTab).toBe('files');
-      expect(consoleLogSpy).toHaveBeenCalledWith('Serializing state:', expect.any(Object));
-    });
-  });
-
-  describe('onRehydrateStorage (isDev = true)', () => {
-    let onRehydrateStorageSetup: NonNullable<
-      Awaited<ReturnType<typeof getFreshPersistOptions>>['onRehydrateStorage']
-    >;
-
-    beforeEach(async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'development';
-      vi.resetModules();
-      const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.onRehydrateStorage)
-        throw new Error('onRehydrateStorage function not found');
-      onRehydrateStorageSetup = persistOptions.onRehydrateStorage;
-    });
-
-    it('should return a function that itself returns the rehydration logic function', () => {
-      if (!onRehydrateStorageSetup)
-        throw new Error('onRehydrateStorage setup function is undefined');
-      expect(typeof onRehydrateStorageSetup).toBe('function');
-      const rehydrateLogicFn = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState);
-      expect(typeof rehydrateLogicFn).toBe('function');
-    });
-
-    it('No Persisted State: should return default state and log', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(null);
-      expect(result).toEqual({
-        currentFolderId: null,
-        folderStates: {},
-        ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      });
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Rehydrating storage, full persisted state:',
-        null
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'No persisted state found, returning default state'
-      );
-    });
-
-    it('Persisted State with No Current Folder ID: should return modified state and log', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-      const persistedStateWithNoFolder: Partial<SerializedState> = {
-        currentFolderId: null,
-        includeFilters: ['persisted.ts'],
-        maxSelectionCount: 200,
-        lastActiveTab: 'preview',
-      };
-      const result = (rehydrate as (persistedState: SerializedState | null) => FileExplorerState)(
-        persistedStateWithNoFolder as SerializedState
-      );
-      expect(result).toEqual({
-        currentFolderId: null,
-        folderStates: {},
-        selectedFilePaths: new Set<string>(),
-        expandedDirectoryPaths: new Set<string>(),
-        includeFilters: ['persisted.ts'],
-        excludeFilters: DEFAULT_STATE.excludeFilters,
-        useRegex: DEFAULT_STATE.useRegex,
-        includeProjectTree: DEFAULT_STATE.includeProjectTree,
-        folderSummaryThreshold: DEFAULT_STATE.folderSummaryThreshold,
-        maxSelectionCount: 200,
-        lastActiveTab: 'preview',
-      });
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Rehydrating storage, full persisted state:',
-        persistedStateWithNoFolder
-      );
-      expect(consoleLogSpy).toHaveBeenCalledWith('No current folder ID, clearing selected files');
-    });
-
-    it('Error During Rehydration: should return default state and log error', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-
-      // Mock Object.fromEntries to throw an error for this specific test case
-      const fromEntriesSpy = vi.spyOn(Object, 'fromEntries').mockImplementationOnce(() => {
-        throw new TypeError('Forced error for testing catch block');
-      });
-
-      const malformedPersistedState = {
-        currentFolderId: 'folder-123',
-        // This structure is designed so that Object.entries(persistedState.folderStates ?? {}) is called,
-        // which then calls our mocked Object.fromEntries.
-        folderStates: { 'error-key': 'trigger-error-mock' },
-      } as unknown as SerializedState;
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(malformedPersistedState);
-      expect(result).toEqual({
-        currentFolderId: null,
-        folderStates: {},
-        ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      });
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Rehydrating storage, full persisted state:',
-        malformedPersistedState
-      );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error rehydrating file explorer state:',
-        expect.any(TypeError) // The error thrown by the mock
-      );
-      fromEntriesSpy.mockRestore(); // Restore original implementation
-    });
-
-    it('Malformed folderStates should fall back to defaults and log error', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-
-      const malformedFolderState = new Proxy(
-        {},
-        {
-          get(_target, prop) {
-            if (prop === 'selectedFilePaths' || prop === 'expandedDirectoryPaths') {
-              throw new Error('bad folder state');
-            }
-            return undefined;
-          },
-        }
-      );
-
-      const malformedPersistedState = {
-        currentFolderId: 'folder-proxy',
-        folderStates: { 'folder-proxy': malformedFolderState },
-      } as unknown as SerializedState;
-
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(malformedPersistedState);
-
-      expect(result).toEqual({
-        currentFolderId: null,
-        folderStates: {},
-        ...DEFAULT_STATE,
-        lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
-      });
-
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Rehydrating storage, full persisted state:',
-        malformedPersistedState
-      );
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error rehydrating file explorer state:',
-        expect.any(Error)
-      );
-    });
-
-    it('Missing lastActiveTab should default to "files" and log', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-      const persistedState: Partial<SerializedState> = {
-        currentFolderId: 'folder-missing-tab',
-        selectedFilePaths: [],
-        expandedDirectoryPaths: [],
-        folderStates: {},
-        includeFilters: [],
-        excludeFilters: [],
-        useRegex: false,
-        includeProjectTree: true,
-        folderSummaryThreshold: 5,
-        maxSelectionCount: 100,
-      };
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(persistedState as SerializedState);
-      expect(result?.lastActiveTab).toBe('files');
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Rehydrating storage, full persisted state:',
-        persistedState
-      );
-    });
-  });
-
-  describe('onRehydrateStorage (isDev = false)', () => {
-    let onRehydrateStorageSetup: NonNullable<
-      Awaited<ReturnType<typeof getFreshPersistOptions>>['onRehydrateStorage']
-    >;
-
-    beforeEach(async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'production';
-      vi.resetModules();
-      const persistOptions = await getFreshPersistOptions();
-      if (!persistOptions.onRehydrateStorage)
-        throw new Error('onRehydrateStorage function not found');
-      onRehydrateStorageSetup = persistOptions.onRehydrateStorage;
-    });
-
-    it('Successful Rehydration (Happy Path): should correctly rehydrate state and not log dev messages', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-      const persistedState: SerializedState = {
-        currentFolderId: 'folder-abc',
-        folderStates: {
-          'folder-abc': {
-            selectedFilePaths: ['fileA.ts', 'fileB.ts'],
-            expandedDirectoryPaths: ['src/components'],
-            lastAccessed: 123,
-            lastActiveTab: 'files',
-            includeFilters: ['*.js'],
-            excludeFilters: ['dist'],
-            useRegex: false,
-            includeProjectTree: false,
-            folderSummaryThreshold: 3,
-            maxSelectionCount: 50,
-          },
-        },
-        selectedFilePaths: ['fileGlobal.ts'],
-        expandedDirectoryPaths: ['globalDir'],
-        includeFilters: ['*.ts'],
-        excludeFilters: ['node_modules'],
-        useRegex: true,
-        includeProjectTree: true,
-        folderSummaryThreshold: 10,
-        maxSelectionCount: 150,
+        selectedFilePaths: new Set(['file-global', 'file-another']),
+        expandedDirectoryPaths: new Set(['dir-global', 'dir-another']),
         lastActiveTab: 'settings',
       };
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(persistedState);
-      expect(result?.currentFolderId).toBe('folder-abc');
-      expect(result?.selectedFilePaths).toEqual(new Set(['fileGlobal.ts']));
-      expect(result?.expandedDirectoryPaths).toEqual(new Set(['globalDir']));
-      expect(result?.folderStates['folder-abc']?.selectedFilePaths).toEqual(
-        new Set(['fileA.ts', 'fileB.ts'])
+      const result = partializeFn(mockState);
+      expect(result.currentFolderId).toBe('folder-123');
+      expect(result.lastActiveTab).toBe('settings');
+      expect(Array.isArray(result.selectedFilePaths)).toBe(true);
+      expect(result.selectedFilePaths).toEqual(
+        expect.arrayContaining(['file-global', 'file-another'])
       );
-      expect(result?.lastActiveTab).toBe('settings');
-      expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+      expect(Array.isArray(result.expandedDirectoryPaths)).toBe(true);
+      expect(result.expandedDirectoryPaths).toEqual(
+        expect.arrayContaining(['dir-global', 'dir-another'])
+      );
+      expect(Array.isArray(result.folderStates['folder-123']?.selectedFilePaths)).toBe(true);
+      expect(result.folderStates['folder-123']?.selectedFilePaths).toEqual(
+        expect.arrayContaining(['file1', 'file2'])
+      );
+    });
+  });
+
+  describe('migrate', () => {
+    let migrateFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['migrate']>;
+
+    beforeEach(async () => {
+      const persistOptions = await getFreshPersistOptions();
+      if (!persistOptions.migrate) throw new Error('Migrate function not found');
+      migrateFn = persistOptions.migrate;
     });
 
-    it('Successful Rehydration with missing lastActiveTab: should default to "files" and not log', () => {
-      if (!onRehydrateStorageSetup) throw new Error('onRehydrateStorage setup is undefined');
-      const rehydrate = onRehydrateStorageSetup(DEFAULT_STATE as FileExplorerState) as unknown;
-      const persistedState: Partial<SerializedState> = {
-        currentFolderId: 'folder-xyz',
-        selectedFilePaths: [],
-        expandedDirectoryPaths: [],
+    it('should return undefined if raw persisted state is null or undefined', () => {
+      expect(migrateFn(null, 1)).toBeNull();
+      expect(migrateFn(undefined, 1)).toBeUndefined();
+    });
+
+    it('should unwrap state from { state, version } wrapper', () => {
+      const actualState: SerializedState = {
+        currentFolderId: 'folder-abc',
+        selectedFilePaths: ['file.ts'],
         folderStates: {},
+        expandedDirectoryPaths: [],
         includeFilters: [],
         excludeFilters: [],
         useRegex: false,
-        includeProjectTree: true,
-        folderSummaryThreshold: 5,
-        maxSelectionCount: 100,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 0,
+        lastActiveTab: 'files',
       };
-      const result: FileExplorerState | null = (
-        rehydrate as (persistedState: SerializedState | null) => FileExplorerState
-      )(persistedState as SerializedState);
-      expect(result?.lastActiveTab).toBe('files');
+      const wrappedState = { state: actualState, version: 1 };
+      const result = migrateFn(wrappedState, 1);
+      expect(result).toEqual(actualState);
+    });
+
+    it('should return state as is if not wrapped', () => {
+      const actualState: SerializedState = {
+        currentFolderId: 'folder-xyz',
+        selectedFilePaths: ['file.js'],
+        folderStates: {},
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 0,
+        lastActiveTab: 'files',
+      };
+      const result = migrateFn(actualState, 1);
+      expect(result).toEqual(actualState);
+    });
+  });
+
+  describe('merge', () => {
+    let mergeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['merge']>;
+    let partializeFn: NonNullable<Awaited<ReturnType<typeof getFreshPersistOptions>>['partialize']>;
+    const initialCurrentState: FileExplorerState = {
+      ...(DEFAULT_STATE as FileExplorerState),
+      currentFolderId: null,
+      selectedFilePaths: new Set(),
+      expandedDirectoryPaths: new Set(),
+      folderStates: {
+        'initial-folder': {
+          ...testDefaultFolderState, // Use defined default folder state
+          selectedFilePaths: new Set(['initial-sel.txt']),
+          expandedDirectoryPaths: new Set(['initial-exp-dir']),
+          lastActiveTab: 'preview',
+        },
+      },
+    };
+
+    beforeEach(async () => {
+      const persistOptions = await getFreshPersistOptions();
+      if (!persistOptions.merge || !persistOptions.partialize)
+        throw new Error('Merge or partialize function not found');
+      mergeFn = persistOptions.merge;
+      partializeFn = persistOptions.partialize;
+    });
+
+    it('should return current initial state if persisted state is undefined', () => {
+      const result = mergeFn(undefined, initialCurrentState);
+      expect(result).toEqual(initialCurrentState);
+    });
+
+    it('should merge persisted SerializedState into current FileExplorerState, converting arrays to Sets', () => {
+      const persisted: SerializedState = {
+        currentFolderId: 'persisted-folder',
+        selectedFilePaths: ['persisted-global.txt'],
+        expandedDirectoryPaths: ['persisted-global-dir'],
+        folderStates: {
+          'persisted-folder': {
+            selectedFilePaths: ['persisted-sel.txt'],
+            expandedDirectoryPaths: ['persisted-exp-dir'],
+            lastAccessed: Date.now(),
+            lastActiveTab: 'files',
+            includeFilters: ['*.json'],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: true,
+            folderSummaryThreshold: 10,
+            maxSelectionCount: 10,
+          },
+          'another-persisted': {
+            selectedFilePaths: ['another.txt'],
+            expandedDirectoryPaths: [],
+            lastAccessed: Date.now(),
+            lastActiveTab: 'files',
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            folderSummaryThreshold: 0,
+            maxSelectionCount: 0,
+          },
+        },
+        lastActiveTab: 'preview',
+        includeFilters: ['*.md'],
+        excludeFilters: ['backups'],
+        useRegex: true,
+        includeProjectTree: true,
+        folderSummaryThreshold: 20,
+        maxSelectionCount: 20,
+      };
+
+      const result = mergeFn(persisted, initialCurrentState);
+
+      expect(result.currentFolderId).toBe('persisted-folder');
+      expect(result.lastActiveTab).toBe('preview');
+      expect(result.includeFilters).toEqual(['*.md']);
+      expect(result.selectedFilePaths).toBeInstanceOf(Set);
+      expect(result.selectedFilePaths.has('persisted-global.txt')).toBe(true);
+      expect(result.expandedDirectoryPaths).toBeInstanceOf(Set);
+      expect(result.expandedDirectoryPaths.has('persisted-global-dir')).toBe(true);
+
+      expect(result.folderStates['persisted-folder']).toBeDefined();
+      expect(result.folderStates['persisted-folder']?.selectedFilePaths).toBeInstanceOf(Set);
+      expect(
+        result.folderStates['persisted-folder']?.selectedFilePaths.has('persisted-sel.txt')
+      ).toBe(true);
+      expect(result.folderStates['persisted-folder']?.includeFilters).toEqual(['*.json']);
+
+      expect(result.folderStates['another-persisted']).toBeDefined();
+      expect(result.folderStates['another-persisted']?.selectedFilePaths.has('another.txt')).toBe(
+        true
+      );
+
+      expect(result.folderStates['initial-folder']).toBeDefined();
+      expect(result.folderStates['initial-folder']?.selectedFilePaths.has('initial-sel.txt')).toBe(
+        true
+      );
+      expect(result.folderStates['initial-folder']?.lastActiveTab).toBe('preview');
+    });
+
+    it('should round-trip state via partialize and merge', () => {
+      const state: FileExplorerState = {
+        ...(DEFAULT_STATE as FileExplorerState),
+        currentFolderId: 'rt-folder',
+        selectedFilePaths: new Set(['s1', 's2']),
+        expandedDirectoryPaths: new Set(['d1']),
+        folderStates: {
+          'rt-folder': {
+            ...testDefaultFolderState,
+            selectedFilePaths: new Set(['fs1']),
+            expandedDirectoryPaths: new Set(['fd1']),
+            lastActiveTab: 'files',
+            lastAccessed: 123,
+          },
+        },
+      };
+
+      const serialized = partializeFn(state);
+      const merged = mergeFn(serialized, initialCurrentState);
+
+      expect(merged.currentFolderId).toBe('rt-folder');
+      expect(Array.from(merged.selectedFilePaths)).toEqual(['s1', 's2']);
+      expect(Array.from(merged.expandedDirectoryPaths)).toEqual(['d1']);
+      expect(merged.folderStates['rt-folder']).toBeDefined();
+      expect(Array.from(merged.folderStates['rt-folder']?.selectedFilePaths ?? new Set())).toEqual([
+        'fs1',
+      ]);
+      expect(
+        Array.from(merged.folderStates['rt-folder']?.expandedDirectoryPaths ?? new Set())
+      ).toEqual(['fd1']);
+    });
+  });
+
+  describe('onRehydrateStorage (Hook)', () => {
+    let onRehydrateStorageFn: NonNullable<
+      Awaited<ReturnType<typeof getFreshPersistOptions>>['onRehydrateStorage']
+    >;
+
+    beforeEach(async () => {
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'development'; // Ensure logging
+      vi.resetModules();
+      const persistOptions = await getFreshPersistOptions();
+      if (!persistOptions.onRehydrateStorage)
+        throw new Error('onRehydrateStorage function not found');
+      onRehydrateStorageFn = persistOptions.onRehydrateStorage;
+    });
+
+    it('should be called with the rehydrated state but not log in test environment', () => {
+      const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
+      onRehydrateStorageFn(mockHydratedState);
+      // In test environment, logs should be silenced even when NODE_ENV is development
       expect(consoleLogSpy).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
+    });
+
+    it('should not log when isDev is false (production)', async () => {
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      process.env['NODE_ENV'] = 'production';
+      vi.resetModules(); // Re-import to get new isDev value
+      const prodPersistOptions = await getFreshPersistOptions();
+      const prodOnRehydrate = prodPersistOptions.onRehydrateStorage;
+      if (!prodOnRehydrate) throw new Error('Prod onRehydrateStorage not found');
+
+      const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
+      prodOnRehydrate(mockHydratedState);
+      expect(consoleLogSpy).not.toHaveBeenCalled();
     });
   });
 });

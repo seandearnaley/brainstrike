@@ -1,7 +1,7 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeNode from './file-tree-node';
 
 interface IFileTreeProps {
@@ -12,8 +12,9 @@ interface IFileTreeProps {
 }
 
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
+  const store = useFileExplorerStoreContext();
   const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
-    useFileExplorerStore();
+    store();
 
   // Use separate useEffect for onRender to avoid lint warnings
   useEffect(() => {
@@ -30,14 +31,14 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   const handleToggleFileSelection = useCallback(
     (path: string) => {
       const encodedPath = encodeFileSelection(folderId, path);
-      const isSelected = useFileExplorerStore.getState().selectedFilePaths.has(encodedPath);
+      const isSelected = store.getState().selectedFilePaths.has(encodedPath);
       if (isSelected) {
         removeSelectedFile(folderId, path);
       } else {
         addSelectedFile(folderId, path);
       }
     },
-    [folderId, addSelectedFile, removeSelectedFile]
+    [folderId, addSelectedFile, removeSelectedFile, store]
   );
 
   const renderFileTreeNode = useCallback(

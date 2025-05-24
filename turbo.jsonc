@@ -72,7 +72,9 @@
         "@brainstrike/server-config#dev",     // Run the 'dev' script from the @brainstrike/server-config package
         "@brainstrike/app-shell#dev",          // Run the 'dev' script from the @brainstrike/app-shell package
         "@brainstrike/fonts#dev",              // Run the 'dev' script from the @brainstrike/fonts package
-        "@brainstrike/file-explorer-ui#dev"    // Run the 'dev' script from the @brainstrike/file-explorer-ui package
+        "@brainstrike/file-explorer-ui#dev",   // Run the 'dev' script from the @brainstrike/file-explorer-ui package
+        "@brainstrike/file-system#dev",        // Run the 'dev' script from the @brainstrike/file-system package
+        "@brainstrike/storage#dev"             // Run the 'dev' script from the @brainstrike/storage package
       ]
     },
 

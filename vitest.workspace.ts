@@ -11,4 +11,8 @@ export default defineWorkspace([
   './packages/file-explorer-ui/vitest.config.mts',
   './packages/file-explorer-hooks/vitest.config.ts',
   './packages/file-explorer/package.json',
+  './packages/storage/vitest.config.ts',
+  './packages/file-system/vitest.config.ts',
+  './packages/app-shell/vitest.config.ts',
+  './packages/server-config/package.json',
 ]);

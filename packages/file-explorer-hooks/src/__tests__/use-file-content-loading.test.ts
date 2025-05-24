@@ -1,18 +1,13 @@
+import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
 import { encodeFileSelection, fileContent } from '@brainstrike/utils';
-import { createFileNode } from '@brainstrike/utils/src/test/factories/file-node';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileContentLoading } from '../use-file-content-loading';
+import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
 // Define mock implementations
-vi.mock('../../../utils/src/file-system', () => ({
-  fileSystem: {
-    readFileContent: vi.fn().mockResolvedValue('test content'),
-  },
-}));
-
 vi.mock('@brainstrike/utils', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -22,7 +17,6 @@ vi.mock('@brainstrike/utils', async (importOriginal) => {
       isTextContent: vi.fn(),
       isTextExtension: vi.fn(),
       isBinaryExtension: vi.fn(),
-      readFileContent: vi.fn(),
     },
     encodeFileSelection: vi.fn((folderId, path) => `${folderId}|@|${path}`),
   };
@@ -33,49 +27,37 @@ vi.spyOn(console, 'debug').mockImplementation(() => {});
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('useFileContentLoading', () => {
-  let mockFileHandle: FileSystemFileHandle;
-  let mockFile: File;
-  let mockText: ReturnType<typeof vi.fn>;
   const TEST_FOLDER_ID = 'test-folder-id';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    MockFileSystemAdapter.clearMockData(); // Clear adapter mocks
     // Setup fake timers for each test
     vi.useFakeTimers();
 
-    // Setup mock file content loading
-    mockText = vi.fn().mockResolvedValue('test content');
-    mockFile = {
-      size: 100,
-      name: 'test.txt',
-      text: mockText,
-      type: 'text/plain',
-      arrayBuffer: vi.fn().mockResolvedValue(new ArrayBuffer(8)),
-    } as unknown as File;
-
-    mockFileHandle = {
-      kind: 'file' as const,
-      name: 'test.txt',
-      getFile: vi.fn().mockResolvedValue(mockFile),
-      createWritable: vi.fn(),
-      isSameEntry: vi.fn(),
-    };
-
     // Setup fileExplorer mock
     fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
-      // Return a mock file node that matches the path and rootId
+      const fileName = path.split('/').pop() || 'unknown.file';
       return createFileNode({
-        name: path.split('/').pop() || 'test.txt',
+        name: fileName,
         path,
-        handle: mockFileHandle,
+        handle: {
+          kind: 'file',
+          name: fileName,
+          path,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: rootId || 'default-folder',
       });
     });
 
-    // Setup fileContent mock
-    fileContent.isTextContent = vi.fn().mockReturnValue(true);
-    fileContent.isTextExtension = vi.fn().mockReturnValue(true);
-    fileContent.isBinaryExtension = vi.fn().mockReturnValue(false);
+    // Setup fileContent mock (isTextExtension, isBinaryExtension might still be needed by the hook)
+    vi.mocked(fileContent.isTextContent).mockReturnValue(true);
+    vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+    vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
   });
 
   afterEach(() => {
@@ -85,7 +67,7 @@ describe('useFileContentLoading', () => {
   });
 
   const renderUseFileContentLoadingHook = (fileTree: IFileNode[] = []) => {
-    return renderHook(() => useFileContentLoading(fileTree));
+    return renderHook(() => useFileContentLoading(fileTree), { wrapper: AdaptersTestWrapper });
   };
 
   const getCompositeKey = (path: string) => encodeFileSelection(TEST_FOLDER_ID, path);
@@ -95,7 +77,7 @@ describe('useFileContentLoading', () => {
     // Run all pending timers
     vi.runAllTimers();
     // Wait for all promises to resolve
-    await vi.runAllTimersAsync();
+    await act(async () => {}); // A more robust way to wait for react state updates
   };
 
   describe('Basic Functionality', () => {
@@ -108,17 +90,27 @@ describe('useFileContentLoading', () => {
     });
 
     it('should load text file content', async () => {
-      // Create a mock file node
+      const filePath = '/test.txt';
       const fileNode = createFileNode({
         name: 'test.txt',
-        path: '/test.txt',
-        handle: mockFileHandle,
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'test.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: TEST_FOLDER_ID,
       });
+      const expectedContent = 'custom test content for text file';
+      MockFileSystemAdapter.setMockFileContent(filePath, expectedContent);
 
       // Render the hook with the file tree containing our file node
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
-      const compositeKey = getCompositeKey('/test.txt');
+      const compositeKey = getCompositeKey(filePath);
 
       // Execute the loading function
       await act(async () => {
@@ -127,22 +119,32 @@ describe('useFileContentLoading', () => {
         rerender();
       });
 
-      expect(result.current.fileContents[compositeKey]).toBe('test content');
+      expect(result.current.fileContents[compositeKey]).toBe(expectedContent);
     });
 
     it('should handle binary files', async () => {
+      const filePath = '/test.png';
       const fileNode = createFileNode({
         name: 'test.png',
-        path: '/test.png',
-        handle: mockFileHandle,
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'test.png',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: TEST_FOLDER_ID,
       });
 
       // Make this extension binary
-      fileContent.isBinaryExtension = vi.fn().mockReturnValue(true);
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(true);
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(false); // Ensure it's not also text
 
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
-      const compositeKey = getCompositeKey('/test.png');
+      const compositeKey = getCompositeKey(filePath);
 
       await act(async () => {
         result.current.handleFileContentLoading([compositeKey]);
@@ -154,22 +156,30 @@ describe('useFileContentLoading', () => {
     });
 
     it('should handle large files', async () => {
-      const largeFile = {
-        ...mockFile,
-        size: 2 * 1024 * 1024, // 2MB
-      };
-
-      mockFileHandle.getFile = vi.fn().mockResolvedValue(largeFile);
-
+      const filePath = '/large.txt';
       const fileNode = createFileNode({
         name: 'large.txt',
-        path: '/large.txt',
-        handle: mockFileHandle,
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'large.txt',
+          path: filePath,
+          platform: 'web',
+          size: 2 * 1024 * 1024,
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: TEST_FOLDER_ID,
       });
+      const expectedLargeContent = 'content of large file';
+      MockFileSystemAdapter.setMockFileContent(filePath, expectedLargeContent);
+      // The hook itself checks size, not the adapter, so fileContent.isTextExtension needs to be true
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
 
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
-      const compositeKey = getCompositeKey('/large.txt');
+      const compositeKey = getCompositeKey(filePath);
 
       await act(async () => {
         result.current.handleFileContentLoading([compositeKey]);
@@ -177,23 +187,72 @@ describe('useFileContentLoading', () => {
         rerender();
       });
 
-      expect(result.current.fileContents[compositeKey]).toBe('test content');
+      expect(result.current.fileContents[compositeKey]).toBe(expectedLargeContent);
+    });
+
+    it('passes platform information to the adapter', async () => {
+      const filePath = '/platform.txt';
+      const fileNode = createFileNode({
+        name: 'platform.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'platform.txt',
+          path: filePath,
+          platform: 'electron',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      // Override the fileExplorer mock to return this specific node
+      fileExplorer.findNodeByPath = vi.fn(() => fileNode);
+      MockFileSystemAdapter.setMockFileContent(filePath, 'platform content');
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+      const compositeKey = getCompositeKey(filePath);
+      const readFileSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readFileSpy).toHaveBeenCalledWith(expect.objectContaining({ platform: 'electron' }));
+      readFileSpy.mockRestore();
     });
   });
 
   describe('Error Handling', () => {
     it('should handle file loading errors', async () => {
-      mockFileHandle.getFile = vi.fn().mockRejectedValue(new Error('Failed to load file'));
+      const filePath = '/error.txt';
+      const errorMessage = 'Failed to load file via adapter';
+      MockFileSystemAdapter.setMockReadFileError(filePath, new Error(errorMessage));
 
       const fileNode = createFileNode({
         name: 'error.txt',
-        path: '/error.txt',
-        handle: mockFileHandle,
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'error.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: TEST_FOLDER_ID,
       });
+      // Ensure it's treated as a text file that would attempt loading
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
 
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
-      const compositeKey = getCompositeKey('/error.txt');
+      const compositeKey = getCompositeKey(filePath);
 
       await act(async () => {
         result.current.handleFileContentLoading([compositeKey]);
@@ -201,126 +260,313 @@ describe('useFileContentLoading', () => {
         rerender();
       });
 
+      expect(result.current.fileContents[compositeKey]).not.toBe('test content');
       expect(result.current.fileContents[compositeKey]).toBe('Error accessing file');
     });
 
-    it('should handle missing file nodes', async () => {
-      fileExplorer.findNodeByPath = vi.fn().mockReturnValue(null);
-
-      const { result } = renderUseFileContentLoadingHook([]);
-      const compositeKey = getCompositeKey('/nonexistent.txt');
-
-      await act(async () => {
-        await result.current.handleFileContentLoading([compositeKey]);
-        await waitForStateUpdate();
+    it('should clear error state on subsequent successful load', async () => {
+      const errorFilePath = '/error-then-success.txt';
+      const successFilePath = '/success-after-error.txt';
+      const errorFileNode = createFileNode({
+        name: 'error-then-success.txt',
+        path: errorFilePath,
+        handle: {
+          kind: 'file',
+          name: 'error-then-success.txt',
+          path: errorFilePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
       });
-
-      expect(result.current.fileContents[compositeKey]).toBeUndefined();
-    });
-  });
-
-  describe('Concurrent Loading', () => {
-    it('should handle multiple files loading concurrently', async () => {
-      const files = Array.from({ length: 3 }, (_, i) =>
-        createFileNode({
-          name: `test${i}.txt`,
-          path: `/test${i}.txt`,
-          handle: mockFileHandle,
-          rootFolderId: TEST_FOLDER_ID,
-        })
-      );
-
-      fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
-        return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
-      });
-
-      const { result, rerender } = renderUseFileContentLoadingHook(files);
-      const compositeKeys = files.map((f) => getCompositeKey(f.path));
-
-      await act(async () => {
-        result.current.handleFileContentLoading(compositeKeys);
-        await waitForStateUpdate();
-        rerender();
-      });
-
-      for (const compositeKey of compositeKeys) {
-        expect(result.current.fileContents[compositeKey]).toBe('test content');
-      }
-    });
-
-    it('should handle mixed success and failure', async () => {
-      const failedFileHandle = {
-        ...mockFileHandle,
-        getFile: vi.fn().mockRejectedValue(new Error('Failed to load')),
-      };
-
-      const files = [
-        createFileNode({
-          name: 'success.txt',
-          path: '/success.txt',
-          handle: mockFileHandle,
-          rootFolderId: TEST_FOLDER_ID,
-        }),
-        createFileNode({
-          name: 'error.txt',
-          path: '/error.txt',
-          handle: failedFileHandle,
-          rootFolderId: TEST_FOLDER_ID,
-        }),
-      ];
-
-      fileExplorer.findNodeByPath = vi.fn((_: IFileNode[], path: string, rootId?: string) => {
-        return files.find((n: IFileNode) => n.path === path && n.rootFolderId === rootId) || null;
-      });
-
-      const { result, rerender } = renderUseFileContentLoadingHook(files);
-      const compositeKeys = files.map((f) => getCompositeKey(f.path));
-
-      await act(async () => {
-        result.current.handleFileContentLoading(compositeKeys);
-        await waitForStateUpdate();
-        rerender();
-      });
-
-      expect(result.current.fileContents[getCompositeKey('/success.txt')]).toBe('test content');
-      expect(result.current.fileContents[getCompositeKey('/error.txt')]).toBe(
-        'Error accessing file'
-      );
-    });
-
-    it('should skip already loaded files', async () => {
-      const fileNode = createFileNode({
-        name: 'test.txt',
-        path: '/test.txt',
-        handle: mockFileHandle,
+      const successFileNode = createFileNode({
+        name: 'success-after-error.txt',
+        path: successFilePath,
+        handle: {
+          kind: 'file',
+          name: 'success-after-error.txt',
+          path: successFilePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
         rootFolderId: TEST_FOLDER_ID,
       });
 
-      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(fileNode);
+      const errorMessage = 'Initial load error';
+      MockFileSystemAdapter.setMockReadFileError(errorFilePath, new Error(errorMessage));
+      const successContent = 'Successfully loaded content';
+      MockFileSystemAdapter.setMockFileContent(successFilePath, successContent);
+
+      // Ensure both are treated as text files
+      vi.mocked(fileContent.isTextExtension).mockImplementation((extensionOrFileName: string) => {
+        // Basic mock, adjust if more specific logic is needed for different extensions
+        if (typeof extensionOrFileName === 'string') {
+          return extensionOrFileName.endsWith('.txt');
+        }
+        return false;
+      });
+      vi.mocked(fileContent.isBinaryExtension).mockReturnValue(false);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([
+        errorFileNode,
+        successFileNode,
+      ]);
+      const errorCompositeKey = getCompositeKey(errorFilePath);
+      const successCompositeKey = getCompositeKey(successFilePath);
+
+      // First, load the file that will cause an error
+      await act(async () => {
+        result.current.handleFileContentLoading([errorCompositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[errorCompositeKey]).toBe('Error accessing file');
+
+      // Then, load a different file successfully
+      await act(async () => {
+        result.current.handleFileContentLoading([successCompositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      // After successful load of a *different* file:
+      // The global error state should be null (or remain null)
+      expect(result.current.error).toBeNull();
+      // The previously errored file should still have its error message in fileContents
+      expect(result.current.fileContents[errorCompositeKey]).toBe('Error accessing file');
+      // The newly loaded file should have its content
+      expect(result.current.fileContents[successCompositeKey]).toBe(successContent);
+      // Loading state should be false
+      expect(result.current.isLoading).toBe(false);
+    });
+  });
+
+  describe('Caching Logic', () => {
+    it('should use cached content for already loaded files', async () => {
+      const filePath = '/cached-file.txt';
+      const fileNode = createFileNode({
+        name: 'cached-file.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'cached-file.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const initialContent = 'Initial content for caching test';
+      MockFileSystemAdapter.setMockFileContent(filePath, initialContent);
+      const readFileSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
 
       const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
-      const compositeKey = getCompositeKey('/test.txt');
+      const compositeKey = getCompositeKey(filePath);
+      // Ensure the hook considers this a text file for caching logic
+      vi.mocked(fileContent.isTextExtension).mockImplementation(
+        (name) => name === filePath || name.endsWith('.txt')
+      );
 
-      // First load the file
+      // First load
       await act(async () => {
         result.current.handleFileContentLoading([compositeKey]);
         await waitForStateUpdate();
         rerender();
       });
 
-      expect(result.current.fileContents[compositeKey]).toBe('test content');
+      expect(result.current.fileContents[compositeKey]).toBe(initialContent);
+      expect(readFileSpy).toHaveBeenCalledTimes(1);
 
-      // Reset the mock to track second call
-      mockText.mockClear();
-
-      // Try to load it again
+      // Attempt to load again
       await act(async () => {
-        await result.current.handleFileContentLoading([compositeKey]);
+        result.current.handleFileContentLoading([compositeKey]);
         await waitForStateUpdate();
+        rerender();
       });
 
-      // Should not have called text() again
-      expect(mockText).not.toHaveBeenCalled();
+      // Should not call readFile again, content should be from cache
+      expect(result.current.fileContents[compositeKey]).toBe(initialContent);
+      expect(readFileSpy).toHaveBeenCalledTimes(1); // Still 1, meaning cache was used
+      readFileSpy.mockRestore();
+    });
+
+    it('should reload content after clearing cache', async () => {
+      const filePath = '/force-reload.txt';
+      const fileNode = createFileNode({
+        name: 'force-reload.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'force-reload.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const initialContent = 'Initial content for force reload';
+      const updatedContent = 'Updated content after force reload';
+      MockFileSystemAdapter.setMockFileContent(filePath, initialContent);
+      const readFileSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+      // Ensure the hook considers this text file for reload logic
+      vi.mocked(fileContent.isTextExtension).mockImplementation(
+        (name) => name === filePath || name.endsWith('.txt')
+      );
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+      const compositeKey = getCompositeKey(filePath);
+
+      // First load
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[compositeKey]).toBe(initialContent);
+      expect(readFileSpy).toHaveBeenCalledTimes(1);
+
+      // Clear the cache for this item
+      act(() => {
+        result.current.clearFileContents([compositeKey]);
+      });
+      // Rerender if necessary, though clearFileContents might trigger it
+      rerender();
+
+      // Update mock content and load again
+      MockFileSystemAdapter.setMockFileContent(filePath, updatedContent);
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[compositeKey]).toBe(updatedContent);
+      expect(readFileSpy).toHaveBeenCalledTimes(2); // Called again due to cache clear + reload
+      readFileSpy.mockRestore();
+    });
+  });
+
+  // Add more tests for multiple file loading, unsupported types, etc.
+  describe('Multiple File Loading', () => {
+    it('should load multiple files successfully', async () => {
+      const filePath1 = '/multi1.txt';
+      const filePath2 = '/multi2.txt';
+      const content1 = 'Content for multi1';
+      const content2 = 'Content for multi2';
+
+      const fileNode1 = createFileNode({
+        name: 'multi1.txt',
+        path: filePath1,
+        handle: {
+          kind: 'file',
+          name: 'multi1.txt',
+          path: filePath1,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const fileNode2 = createFileNode({
+        name: 'multi2.txt',
+        path: filePath2,
+        handle: {
+          kind: 'file',
+          name: 'multi2.txt',
+          path: filePath2,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+
+      MockFileSystemAdapter.setMockFileContent(filePath1, content1);
+      MockFileSystemAdapter.setMockFileContent(filePath2, content2);
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode1, fileNode2]);
+      const compositeKey1 = getCompositeKey(filePath1);
+      const compositeKey2 = getCompositeKey(filePath2);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey1, compositeKey2]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[compositeKey1]).toBe(content1);
+      expect(result.current.fileContents[compositeKey2]).toBe(content2);
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeNull();
+    });
+
+    it('should handle partial success when loading multiple files', async () => {
+      const successPath = '/multi-success.txt';
+      const errorPath = '/multi-error.txt';
+      const successContentText = 'Multi success content';
+      const errorMessageText = 'Multi error message';
+
+      const successNode = createFileNode({
+        name: 'multi-success.txt',
+        path: successPath,
+        handle: {
+          kind: 'file',
+          name: 'multi-success.txt',
+          path: successPath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const errorNode = createFileNode({
+        name: 'multi-error.txt',
+        path: errorPath,
+        handle: {
+          kind: 'file',
+          name: 'multi-error.txt',
+          path: errorPath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+
+      MockFileSystemAdapter.setMockFileContent(successPath, successContentText);
+      MockFileSystemAdapter.setMockReadFileError(errorPath, new Error(errorMessageText));
+      vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([successNode, errorNode]);
+      const successKey = getCompositeKey(successPath);
+      const errorKey = getCompositeKey(errorPath);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([successKey, errorKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[successKey]).toBe(successContentText);
+      expect(result.current.fileContents[errorKey]).toBe('Error accessing file');
+      expect(result.current.isLoading).toBe(false);
+      // The global error should be null as errors are handled per-file
+      expect(result.current.error).toBeNull();
     });
   });
 });

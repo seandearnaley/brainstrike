@@ -1,4 +1,3 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { Button } from '@brainstrike/ui';
 import {
@@ -11,6 +10,7 @@ import {
 } from '@brainstrike/ui';
 import { fileExplorer } from '@brainstrike/utils';
 import { useCallback } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface FolderSelectionDialogProps {
   open: boolean;
@@ -29,7 +29,8 @@ export function FolderSelectionDialog({
   onConfirm,
   onToggleFileSelection,
 }: FolderSelectionDialogProps) {
-  const { selectedFilePaths, maxSelectionCount } = useFileExplorerStore();
+  const store = useFileExplorerStoreContext();
+  const { selectedFilePaths, maxSelectionCount } = store();
   const availableSlots = maxSelectionCount - selectedFilePaths.size;
   const willSelectAll = fileCount <= availableSlots;
 

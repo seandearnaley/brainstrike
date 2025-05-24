@@ -109,6 +109,6 @@ export const DEFAULT_STATE = {
   useRegex: false,
   includeProjectTree: true,
   folderSummaryThreshold: 5,
-  maxSelectionCount: 100,
+  maxSelectionCount: 10,
   lastActiveTab: 'files',
 } as const;
