@@ -87,8 +87,121 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/app-shell": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/file-explorer": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/file-explorer-hooks": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/file-explorer-ui": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/file-system": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/storage": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/server-config": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/test-utils": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/fonts": {
+      "entry": [
+        "src/index.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     }
-    // Add other packages/apps if they exist following the pattern above
   },
   // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
   "entry": [

@@ -29,8 +29,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@brainstrike/types": "workspace:*",
-    "react": "^19.1.0"
+    "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
     "@swc/core": "^1.11.20",
