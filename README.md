@@ -12,6 +12,10 @@ BrainStrike is a 2025-ready Turbo monorepo for building AI-powered productivity 
    ```bash
    pnpm dev --filter web
    ```
+3. **Run the desktop app**
+   ```bash
+   pnpm dev --filter desktop & pnpm start --filter desktop
+   ```
 
 ## Requirements
 - Node.js 22+ (see `.nvmrc`)
@@ -33,6 +37,7 @@ packages/
   file-explorer/       # Core file analysis logic
   file-explorer-hooks/ # Hooks for file explorer domain
   file-explorer-ui/    # UI for file explorer features
+  tailwind-config/      # Shared Tailwind CSS configuration
 ```
 
 ## Toolchain Highlights
@@ -56,6 +61,14 @@ pnpm lint --fix              # Auto-fix lint issues with Biome
 pnpm turbo run type-check    # Run TypeScript type checks
 pnpm format                  # Auto-format source files
 ```
+
+## Tailwind Config
+Use the shared Tailwind configuration for any package:
+
+```js
+module.exports = require('@brainstrike/tailwind-config');
+```
+
 
 ## Contributing
 - Follow [AGENTS.md](./AGENTS.md) for coding standards and workflow

@@ -1,3 +1,4 @@
+import type { StorageAdapter } from '@brainstrike/storage';
 /**
  * @vitest-environment happy-dom
  */
@@ -6,18 +7,8 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ThemeProvider, useTheme } from '../theme-provider';
 
-// Mock localStorage
-const mockLocalStorage = {
-  getItem: vi.fn().mockReturnValue(null),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn(),
-  key: vi.fn(),
-  length: 0,
-} as unknown as Storage;
-
-// Save original localStorage
-const originalLocalStorage = global.localStorage;
+// Mock storage adapter
+let mockStorageAdapter: StorageAdapter;
 
 // Mock classList
 const mockClassList = {
@@ -42,11 +33,14 @@ describe('ThemeProvider', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
 
-    // Replace localStorage with mock
-    Object.defineProperty(global, 'localStorage', {
-      value: mockLocalStorage,
-      writable: true,
-    });
+    // Create fresh mock storage adapter
+    mockStorageAdapter = {
+      getItem: vi.fn().mockResolvedValue(null),
+      setItem: vi.fn().mockResolvedValue(undefined),
+      removeItem: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+      getAllKeys: vi.fn().mockResolvedValue([]),
+    } as StorageAdapter;
 
     // Set the classList on the document element
     Object.defineProperty(document.documentElement, 'classList', {
@@ -70,37 +64,33 @@ describe('ThemeProvider', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.resetAllMocks();
-
-    // Restore original localStorage
-    Object.defineProperty(global, 'localStorage', {
-      value: originalLocalStorage,
-      writable: true,
-    });
   });
 
   // Default wrapper without explicit defaultTheme
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <ThemeProvider>{children}</ThemeProvider>
+    <ThemeProvider storageAdapter={mockStorageAdapter}>{children}</ThemeProvider>
   );
 
   it('provides default theme state', async () => {
-    (mockLocalStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const { result } = renderHook(() => useTheme(), { wrapper });
 
     // Wait for mounted state
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     expect(result.current.theme).toBe('system');
   });
 
-  it('loads theme from localStorage if available', async () => {
-    (mockLocalStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue('dark');
+  it('loads theme from storage if available', async () => {
+    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue('dark');
     const { result } = renderHook(() => useTheme(), { wrapper });
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     expect(result.current.theme).toBe('dark');
@@ -111,6 +101,7 @@ describe('ThemeProvider', () => {
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     act(() => {
@@ -118,7 +109,7 @@ describe('ThemeProvider', () => {
     });
 
     expect(result.current.theme).toBe('dark');
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('ui-theme', 'dark');
+    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('ui-theme', 'dark');
   });
 
   it('applies system theme when theme is set to system', async () => {
@@ -138,6 +129,7 @@ describe('ThemeProvider', () => {
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     act(() => {
@@ -146,6 +138,7 @@ describe('ThemeProvider', () => {
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     expect(mockClassList.remove).toHaveBeenCalledWith('light', 'dark');
@@ -164,14 +157,17 @@ describe('ThemeProvider', () => {
 
   it('handles custom defaultTheme prop', async () => {
     const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider defaultTheme="dark">{children}</ThemeProvider>
+      <ThemeProvider defaultTheme="dark" storageAdapter={mockStorageAdapter}>
+        {children}
+      </ThemeProvider>
     );
 
-    (mockLocalStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    (mockStorageAdapter.getItem as ReturnType<typeof vi.fn>).mockResolvedValue(null);
     const { result } = renderHook(() => useTheme(), { wrapper: customWrapper });
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     expect(result.current.theme).toBe('dark');
@@ -179,19 +175,22 @@ describe('ThemeProvider', () => {
 
   it('handles custom storageKey prop', async () => {
     const customWrapper = ({ children }: { children: ReactNode }) => (
-      <ThemeProvider storageKey="custom-theme-key">{children}</ThemeProvider>
+      <ThemeProvider storageKey="custom-theme-key" storageAdapter={mockStorageAdapter}>
+        {children}
+      </ThemeProvider>
     );
 
     const { result } = renderHook(() => useTheme(), { wrapper: customWrapper });
 
     await act(async () => {
       vi.runAllTimers();
+      await vi.runAllTicks();
     });
 
     act(() => {
       result.current.setTheme('light');
     });
 
-    expect(mockLocalStorage.setItem).toHaveBeenCalledWith('custom-theme-key', 'light');
+    expect(mockStorageAdapter.setItem).toHaveBeenCalledWith('custom-theme-key', 'light');
   });
 });
