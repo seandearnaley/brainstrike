@@ -4,7 +4,7 @@ import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { HashRouter, Route, Routes } from 'react-router-dom';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
@@ -28,14 +28,14 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
       <HelmetProvider>
-        <BrowserRouter>
+        <HashRouter>
           <Routes>
             <Route path="/" element={<RootLayoutContent />}>
               <Route index element={<HomePageContent />} />
               <Route path="settings" element={<SettingsPageContent />} />
             </Route>
           </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </HelmetProvider>
     </AdaptersProvider>
   </React.StrictMode>

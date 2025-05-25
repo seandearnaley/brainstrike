@@ -95,12 +95,19 @@ async function createWindow() {
     event.preventDefault();
   });
 
-  if (app.isPackaged) {
+  // Check if built renderer files exist
+  const rendererPath = path.join(__dirname, 'renderer/index.html');
+  const fs = require('node:fs');
+  const hasBuiltRenderer = fs.existsSync(rendererPath);
+
+  if (app.isPackaged || hasBuiltRenderer) {
     // Production: load built files
-    win.loadFile(path.join(__dirname, 'renderer/index.html'));
+    console.log('📦 Loading built renderer files');
+    win.loadFile(rendererPath);
   } else {
     // Development: connect to Vite dev server
-    const devPorts = [3001, 3002, 3003]; // Try 3001 first, then 3002
+    console.log('🔧 Development mode - connecting to Vite dev server');
+    const devPorts = [3000, 3001, 3002, 3003]; // Try 3000 first (web app default), then fallbacks
 
     for (const port of devPorts) {
       try {

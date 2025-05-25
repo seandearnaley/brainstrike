@@ -6,10 +6,34 @@ import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange }
 
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    const cwd = process.cwd();
+    // Dynamically import electron to avoid issues in browser/test environments
+    let dialog: any;
+    try {
+      const electron = await import('electron');
+      dialog = electron.dialog;
+    } catch {
+      throw new Error(
+        'Electron is not available - this adapter should only be used in the main process'
+      );
+    }
+
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select a folder to explore',
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      throw new Error('User cancelled directory selection');
+    }
+
+    const selectedPath = result.filePaths[0];
+    if (!selectedPath) {
+      throw new Error('No directory path selected');
+    }
+
     return {
-      path: cwd,
-      name: path.basename(cwd),
+      path: selectedPath,
+      name: path.basename(selectedPath),
       kind: 'directory',
       platform: 'electron',
     };
