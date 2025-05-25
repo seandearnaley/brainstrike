@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: __dirname,
+  base: './', // Use relative paths for Electron
   plugins: [react(), tailwindcss()],
   build: {
     outDir: 'dist/renderer',

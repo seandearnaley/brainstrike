@@ -446,6 +446,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^3.1.1
         version: 3.1.3(vitest@3.1.3)
+      electron:
+        specifier: ^36
+        version: 36.3.1
       jsdom:
         specifier: ^26.0.0
         version: 26.1.0
@@ -463,6 +466,9 @@ importers:
 
   packages/hooks:
     dependencies:
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -696,6 +702,9 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

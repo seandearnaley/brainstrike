@@ -5,13 +5,14 @@
  * It handles generating reports and exporting them in various formats.
  */
 
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
 interface UseReportManagerProps {
-  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateReportWithContent: () => Promise<string>;
   showToast: (props: {
     title: string;

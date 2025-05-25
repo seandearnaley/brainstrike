@@ -3,6 +3,7 @@ import type { DirectoryHandle } from './types';
 /**
  * Extracts the native FileSystemDirectoryHandle from an adapter DirectoryHandle
  * This is useful for hooks that need to work with the native File System Access API
+ * For non-web platforms (like Electron), this returns null as there's no native handle
  */
 export function extractNativeDirectoryHandle(
   handle: DirectoryHandle | null | undefined
@@ -15,17 +16,18 @@ export function extractNativeDirectoryHandle(
     return handle._internal as FileSystemDirectoryHandle;
   }
 
-  // For electron or other platforms, we might need different handling
-  // For now, throw an error to make it clear this is web-only
+  // For electron or other platforms, return null since there's no native handle
   // If platform is undefined, assume web for backward compatibility
   if (handle.platform === undefined) {
     console.warn('DirectoryHandle platform is undefined, assuming web platform');
     return handle._internal as FileSystemDirectoryHandle;
   }
 
-  throw new Error(
-    `extractNativeDirectoryHandle is only supported for web platform, got: ${handle.platform}`
+  // For non-web platforms, return null instead of throwing
+  console.warn(
+    `extractNativeDirectoryHandle called for ${handle.platform} platform, returning null. Consider using platform-agnostic file system operations instead.`
   );
+  return null;
 }
 
 /**

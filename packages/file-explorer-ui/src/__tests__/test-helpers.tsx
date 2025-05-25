@@ -4,14 +4,22 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { ReactNode } from 'react';
 import { FileExplorerProvider } from '../file-explorer-provider';
 
-// Create mock adapters for tests
-const testFileSystemAdapter = new MockFileSystemAdapter();
+// Create default mock adapters for tests
+const defaultTestFileSystemAdapter = new MockFileSystemAdapter();
 const testStorageAdapter = new MemoryStorageAdapter();
 
 // Wrapper component that provides the necessary context for tests
-export function FileExplorerTestWrapper({ children }: { children: ReactNode }) {
+export function FileExplorerTestWrapper({
+  children,
+  mockFileSystemAdapter,
+}: {
+  children: ReactNode;
+  mockFileSystemAdapter?: MockFileSystemAdapter;
+}) {
+  const fileSystemAdapter = mockFileSystemAdapter || defaultTestFileSystemAdapter;
+
   return (
-    <AdaptersProvider fileSystemAdapter={testFileSystemAdapter} storageAdapter={testStorageAdapter}>
+    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={testStorageAdapter}>
       <FileExplorerProvider storageAdapter={testStorageAdapter}>{children}</FileExplorerProvider>
     </AdaptersProvider>
   );

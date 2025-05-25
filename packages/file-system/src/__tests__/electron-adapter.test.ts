@@ -6,6 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
 import type { DirectoryHandle, FileHandle } from '../types';
 
+// Mock electron dialog
+vi.mock('electron', () => ({
+  dialog: {
+    showOpenDialog: vi.fn(),
+  },
+}));
+
 const originalCwd = process.cwd();
 
 describe('ElectronFileSystemAdapter', () => {
@@ -26,13 +33,53 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   it('should request directory access and return handle', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
     const handle = await adapter.requestDirectoryAccess();
     expect(handle.path).toBe(tempDir);
     expect(handle.kind).toBe('directory');
     expect(handle.platform).toBe('electron');
+    expect(dialog.showOpenDialog).toHaveBeenCalledWith({
+      properties: ['openDirectory'],
+      title: 'Select a folder to explore',
+    });
+  });
+
+  it('should throw error when user cancels directory selection', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: true,
+      filePaths: [],
+    });
+
+    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
+      'User cancelled directory selection'
+    );
+  });
+
+  it('should throw error when no paths are returned', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [],
+    });
+
+    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
+      'User cancelled directory selection'
+    );
   });
 
   it('should read directory contents', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
     fs.writeFileSync(path.join(tempDir, 'file.txt'), 'content');
     fs.mkdirSync(path.join(tempDir, 'sub'));
     const handle = await adapter.requestDirectoryAccess();
@@ -61,6 +108,12 @@ describe('ElectronFileSystemAdapter', () => {
   });
 
   it('should watch directory changes', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
     const handle = await adapter.requestDirectoryAccess();
     const callback = vi.fn();
     const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);

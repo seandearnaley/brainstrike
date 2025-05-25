@@ -1,10 +1,12 @@
-import { generateReport } from '@brainstrike/utils';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import { generateReport, generateReportFromAdapter } from '@brainstrike/utils';
 import { useCallback, useState } from 'react';
 
 interface UseReportGenerationProps {
   selectedFiles: Set<string>;
   fileContents: { [path: string]: string };
-  rootDirectoryHandle: FileSystemDirectoryHandle | undefined;
+  rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | undefined;
+  fileSystemAdapter?: FileSystemAdapter;
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
@@ -16,6 +18,7 @@ export function useReportGeneration({
   selectedFiles,
   fileContents,
   rootDirectoryHandle,
+  fileSystemAdapter,
   includeFilters,
   excludeFilters,
   useRegex,
@@ -31,10 +34,27 @@ export function useReportGeneration({
 
     setIsGenerating(true);
     try {
+      // Check if we have our adapter pattern (DirectoryHandle with platform property)
+      if (fileSystemAdapter && 'platform' in rootDirectoryHandle) {
+        // Use platform-agnostic version
+        return await generateReportFromAdapter(
+          selectedFiles,
+          fileContents,
+          fileSystemAdapter,
+          rootDirectoryHandle as DirectoryHandle,
+          includeFilters,
+          excludeFilters,
+          useRegex,
+          includeProjectTree,
+          folderSummaryThreshold
+        );
+      }
+
+      // Use original web-only version for backward compatibility
       return await generateReport(
         selectedFiles,
         fileContents,
-        rootDirectoryHandle,
+        rootDirectoryHandle as FileSystemDirectoryHandle,
         includeFilters,
         excludeFilters,
         useRegex,
@@ -48,6 +68,7 @@ export function useReportGeneration({
     selectedFiles,
     fileContents,
     rootDirectoryHandle,
+    fileSystemAdapter,
     includeFilters,
     excludeFilters,
     useRegex,

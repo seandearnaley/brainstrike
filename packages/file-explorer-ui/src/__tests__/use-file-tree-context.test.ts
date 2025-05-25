@@ -1,50 +1,17 @@
-import {
-  type DirectoryHandle,
-  type MockFileEntry,
-  MockFileSystemAdapter,
-} from '@brainstrike/file-system';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import type { ReactNode } from 'react';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useFileTree } from '../use-file-tree-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
-function createDirectoryHandleFromMockFS(fs: Record<string, MockFileEntry>): DirectoryHandle {
-  type MockEntry = MockFileEntry;
-
-  function createDirHandle(
-    name: string,
-    children: Record<string, MockEntry>
-  ): FileSystemDirectoryHandle {
-    return {
-      kind: 'directory',
-      name,
-      async *entries() {
-        for (const [childName, entry] of Object.entries(children)) {
-          if (entry.type === 'directory') {
-            yield [childName, createDirHandle(childName, entry.children ?? {})] as [
-              string,
-              FileSystemHandle,
-            ];
-          } else {
-            yield [childName, { kind: 'file', name: childName } as unknown as FileSystemHandle];
-          }
-        }
-      },
-    } as unknown as FileSystemDirectoryHandle;
-  }
-
-  const rootInternal = createDirHandle('mock-root', fs as Record<string, MockEntry>);
-
-  return {
-    path: 'mock-root',
-    name: 'mock-root',
-    kind: 'directory',
-    platform: 'web',
-    _internal: rootInternal,
-  };
-}
-
 describe('useFileTree (context version)', () => {
+  let mockAdapter: MockFileSystemAdapter;
+
+  beforeEach(() => {
+    mockAdapter = new MockFileSystemAdapter();
+  });
+
   it('initializes with empty state when handle is null', () => {
     const { result } = renderHook(() => useFileTree(null), { wrapper: FileExplorerTestWrapper });
 
@@ -55,10 +22,21 @@ describe('useFileTree (context version)', () => {
   });
 
   it('loads a simple directory structure', async () => {
+    // Set up the mock file system data
     const mockFS = MockFileSystemAdapter.createSimpleFileSystem();
-    const handle = createDirectoryHandleFromMockFS(mockFS);
+    mockAdapter.setMockFileSystem(mockFS);
 
-    const { result } = renderHook(() => useFileTree(handle), { wrapper: FileExplorerTestWrapper });
+    // Get a proper DirectoryHandle from the adapter
+    const handle = await mockAdapter.requestDirectoryAccess();
+
+    // Create a wrapper function that passes the mock adapter
+    const TestWrapper = ({ children }: { children: ReactNode }) => {
+      return FileExplorerTestWrapper({ children, mockFileSystemAdapter: mockAdapter });
+    };
+
+    const { result } = renderHook(() => useFileTree(handle), {
+      wrapper: TestWrapper,
+    });
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 

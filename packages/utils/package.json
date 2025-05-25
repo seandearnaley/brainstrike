@@ -33,6 +33,7 @@
   "dependencies": {
     "gpt-tokenizer": "^2.1.2",
     "@brainstrike/types": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "minimatch": "^10"
   },
   "devDependencies": {
