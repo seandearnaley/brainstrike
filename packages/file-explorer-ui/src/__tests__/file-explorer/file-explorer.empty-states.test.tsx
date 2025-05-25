@@ -56,6 +56,21 @@ vi.mock('../../use-file-tree-context', () => ({
 
 // Mock all dependencies at the module level
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: vi.fn(() => ({
+    fileSystemAdapter: {
+      readDirectory: vi.fn(() => Promise.resolve([])),
+      requestDirectoryAccess: vi.fn(),
+      readFile: vi.fn(),
+      exists: vi.fn(),
+    },
+    storageAdapter: {
+      getItem: vi.fn(),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      clear: vi.fn(),
+      getAllKeys: vi.fn(),
+    },
+  })),
   useFileSystem: vi.fn(() => ({
     selectRootDirectory: vi.fn(),
     rootDirectoryHandle: null,

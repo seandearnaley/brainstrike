@@ -1,10 +1,10 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
 import { useFileLoadingManager } from '@brainstrike/file-explorer-hooks';
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
