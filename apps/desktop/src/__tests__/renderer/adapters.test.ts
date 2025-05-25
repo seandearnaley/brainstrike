@@ -1,48 +1,10 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  ElectronRendererFileSystemAdapter,
+  ElectronRendererStorageAdapter,
+} from '../../renderer/adapters';
 import { mockElectronAPI } from '../setup';
-
-// Import the adapter classes from the main renderer file
-// We'll need to extract these into separate files for better testability
-class ElectronRendererFileSystemAdapter {
-  async requestDirectoryAccess() {
-    return window.electronAPI.fileSystem.requestDirectoryAccess();
-  }
-
-  async readDirectory(handle: DirectoryHandle) {
-    return window.electronAPI.fileSystem.readDirectory(handle);
-  }
-
-  async readFile(handle: FileHandle) {
-    return window.electronAPI.fileSystem.readFile(handle);
-  }
-
-  async exists(path: string) {
-    return window.electronAPI.fileSystem.exists(path);
-  }
-}
-
-class ElectronRendererStorageAdapter {
-  async getItem(key: string) {
-    return window.electronAPI.storage.getItem(key);
-  }
-
-  async setItem(key: string, value: string) {
-    return window.electronAPI.storage.setItem(key, value);
-  }
-
-  async removeItem(key: string) {
-    return window.electronAPI.storage.removeItem(key);
-  }
-
-  async clear() {
-    return window.electronAPI.storage.clear();
-  }
-
-  async getAllKeys() {
-    return window.electronAPI.storage.getAllKeys();
-  }
-}
 
 describe('ElectronRendererFileSystemAdapter', () => {
   let adapter: ElectronRendererFileSystemAdapter;
