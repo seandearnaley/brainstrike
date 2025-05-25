@@ -112,5 +112,7 @@ Thumbs.db
 # New pattern to ignore all tsup.config.bundled_*.mjs files in any directory
 **/tsup.config.bundled_*.mjs
 
-
 dist
+apps/desktop/release/
+apps/desktop/dist/
+apps/desktop/electron-storage.json

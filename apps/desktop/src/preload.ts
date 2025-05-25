@@ -1,5 +1,8 @@
-import { contextBridge, ipcRenderer } from 'electron';
+// Electron preload script - must use CommonJS syntax
+const { contextBridge, ipcRenderer } = require('electron');
+import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 
+// Expose storage APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
   storage: {
     getItem: (key: string) => ipcRenderer.invoke('storage:getItem', key),
@@ -8,10 +11,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clear: () => ipcRenderer.invoke('storage:clear'),
     getAllKeys: () => ipcRenderer.invoke('storage:getAllKeys'),
   },
-  fs: {
+  fileSystem: {
     requestDirectoryAccess: () => ipcRenderer.invoke('fs:requestDirectoryAccess'),
-    readDirectory: (handle: unknown) => ipcRenderer.invoke('fs:readDirectory', handle),
-    readFile: (handle: unknown) => ipcRenderer.invoke('fs:readFile', handle),
+    readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
+    readFile: (handle: FileHandle) => ipcRenderer.invoke('fs:readFile', handle),
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
   },
 });

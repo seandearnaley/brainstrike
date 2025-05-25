@@ -10,11 +10,21 @@ export default defineConfig({
   root: __dirname,
   plugins: [react(), tailwindcss()],
   build: {
-    outDir: 'dist',
+    outDir: 'dist/renderer',
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+      },
+    },
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
     },
   },
+  server: {
+    port: 3001, // Different port from web app to avoid conflicts
+  },
+  publicDir: 'public',
 });

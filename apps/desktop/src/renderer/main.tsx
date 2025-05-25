@@ -1,20 +1,42 @@
+import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '../renderer/styles.css';
+import { HelmetProvider } from 'react-helmet-async';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import './styles.css';
 
-function App() {
-  return (
-    <div className="flex items-center justify-center h-screen">
-      <h1 className="text-2xl font-bold">BrainStrike Desktop</h1>
-    </div>
-  );
+import HomePageContent from './components/home-page-content';
+// Import layout and page components from web app structure
+import RootLayoutContent from './components/root-layout-content';
+import SettingsPageContent from './components/settings/page-content';
+
+// Electron renderer adapters are defined in a separate module
+
+// Create renderer-specific adapters that use IPC
+const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
+const storageAdapter = new ElectronRendererStorageAdapter();
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Failed to find the root element with ID 'root'");
 }
 
-const rootEl = document.getElementById('root');
-if (!rootEl) throw new Error('Root element not found');
-
-ReactDOM.createRoot(rootEl).render(
+ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <App />
+    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+      <HelmetProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<RootLayoutContent />}>
+              <Route index element={<HomePageContent />} />
+              <Route path="settings" element={<SettingsPageContent />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </HelmetProvider>
+    </AdaptersProvider>
   </React.StrictMode>
 );
