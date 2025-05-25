@@ -8,9 +8,9 @@ This document outlines the security measures implemented in the BrainStrike Desk
 The application implements a comprehensive Content Security Policy that differs between development and production environments.
 
 ### Development CSP
-- Allows `unsafe-eval` for Vite Hot Module Replacement (HMR)
-- Permits connections to localhost for development server
+- Permits connections to localhost for the development server
 - Enables WebSocket connections for live reload
+- Allows `'unsafe-inline'` scripts to support Vite Hot Module Replacement (HMR)
 
 ### Production CSP
 - Stricter policy without `unsafe-eval`

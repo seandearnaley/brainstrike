@@ -135,7 +135,7 @@ window.electronAPI = {
     clear: () => Promise<void>
     getAllKeys: () => Promise<string[]>
   },
-  fs: {
+  fileSystem: {
     requestDirectoryAccess: () => Promise<DirectoryHandle>
     readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>
     readFile: (handle: FileHandle) => Promise<string>
