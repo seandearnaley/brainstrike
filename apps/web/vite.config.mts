@@ -11,9 +11,10 @@ function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
     buildStart() {
-      // Copy fonts from the fonts package to public directory
+      // Copy fonts from the fonts package to public and dist directories
       const fontsPackagePath = path.resolve(__dirname, '../../packages/fonts/src/inter');
       const publicFontsPath = path.resolve(__dirname, 'public/fonts/inter');
+      const distFontsPath = path.resolve(__dirname, 'dist/fonts/inter');
       
       // Create the public fonts directory if it doesn't exist
       if (!existsSync(path.resolve(__dirname, 'public/fonts'))) {
@@ -22,14 +23,19 @@ function copyFontsPlugin() {
       if (!existsSync(publicFontsPath)) {
         mkdirSync(publicFontsPath, { recursive: true });
       }
+      if (!existsSync(distFontsPath)) {
+        mkdirSync(distFontsPath, { recursive: true });
+      }
       
       // Copy font files
       const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
       fontFiles.forEach(file => {
         const src = path.join(fontsPackagePath, file);
-        const dest = path.join(publicFontsPath, file);
+        const destPublic = path.join(publicFontsPath, file);
+        const destDist = path.join(distFontsPath, file);
         if (existsSync(src)) {
-          copyFileSync(src, dest);
+          copyFileSync(src, destPublic);
+          copyFileSync(src, destDist);
           console.log(`Copied font: ${file}`);
         }
       });

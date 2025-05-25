@@ -12,6 +12,10 @@ BrainStrike is a 2025-ready Turbo monorepo for building AI-powered productivity 
    ```bash
    pnpm dev --filter web
    ```
+3. **Run the desktop app**
+   ```bash
+   pnpm dev --filter desktop & pnpm start --filter desktop
+   ```
 
 ## Requirements
 - Node.js 22+ (see `.nvmrc`)
