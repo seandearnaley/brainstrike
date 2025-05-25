@@ -89,7 +89,9 @@ describe('useFileSystem context hook', () => {
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toBe('Permission denied');
+    expect((thrown as Error).message).toBe(
+      'Permission denied: Unable to access the selected directory. Please check folder permissions and try again.'
+    );
   });
 
   it('returns null when user cancels directory selection', async () => {

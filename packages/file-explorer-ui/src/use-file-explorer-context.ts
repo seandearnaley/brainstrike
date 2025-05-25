@@ -140,11 +140,14 @@ export function useFileExplorer({
     if (contentError) return contentError;
     // If localFilterError is present, it's a string message from useFileFilters
     if (localFilterError) return new Error(localFilterError);
-    // coreExplorer.error could be an Error or a string (from its internal filterError)
+    // coreExplorer.error could be an Error, string, or null
     if (coreExplorer.error) {
-      return coreExplorer.error instanceof Error
-        ? coreExplorer.error
-        : new Error(String(coreExplorer.error));
+      // Check if it's an object before using instanceof
+      if (typeof coreExplorer.error === 'object' && coreExplorer.error instanceof Error) {
+        return coreExplorer.error; // It's an Error object
+      }
+      // If it's not an Error object, and it's truthy, it must be a string from coreExplorer.filterError
+      return new Error(String(coreExplorer.error));
     }
     return null;
   };

@@ -46,31 +46,43 @@ describe('ElectronFileSystemAdapter', () => {
     expect(dialog.showOpenDialog).toHaveBeenCalledWith({
       properties: ['openDirectory'],
       title: 'Select a folder to explore',
+      buttonLabel: 'Select Folder',
+      message: 'Choose a directory to explore with BrainStrike',
     });
   });
 
-  it('should throw error when user cancels directory selection', async () => {
+  it('should throw UserCancelledError when user cancels directory selection', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: true,
       filePaths: [],
     });
 
-    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
-      'User cancelled directory selection'
-    );
+    try {
+      await adapter.requestDirectoryAccess();
+      expect.fail('Expected error to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).name).toBe('UserCancelledError');
+      expect((error as Error).message).toBe('User cancelled directory selection');
+    }
   });
 
-  it('should throw error when no paths are returned', async () => {
+  it('should throw UserCancelledError when no paths are returned', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
       filePaths: [],
     });
 
-    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
-      'User cancelled directory selection'
-    );
+    try {
+      await adapter.requestDirectoryAccess();
+      expect.fail('Expected error to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).name).toBe('UserCancelledError');
+      expect((error as Error).message).toBe('User cancelled directory selection');
+    }
   });
 
   it('should read directory contents', async () => {

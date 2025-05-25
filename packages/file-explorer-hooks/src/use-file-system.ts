@@ -42,17 +42,50 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       return handle;
     } catch (error) {
       if (error instanceof Error) {
-        if (
-          error.message.includes('Permission denied') ||
-          error.message.includes('SecurityError')
-        ) {
-          throw new Error('Permission denied');
-        }
-        if (error.message.includes('AbortError') || error.message.includes('cancelled')) {
+        // Handle the new UserCancelledError specifically
+        if (error.name === 'UserCancelledError') {
+          // User cancelled - this is not an error, just return null
           return null;
         }
+
+        // Handle permission errors
+        if (
+          error.message.includes('Permission denied') ||
+          error.message.includes('SecurityError') ||
+          error.message.includes('Cannot access selected directory')
+        ) {
+          throw new Error('Permission denied: Unable to access the selected directory');
+        }
+
+        // Handle other cancellation scenarios (legacy support)
+        if (
+          error.message.includes('AbortError') ||
+          error.message.includes('cancelled') ||
+          error.message.includes('User cancelled')
+        ) {
+          return null;
+        }
+
+        // Handle dialog-specific errors
+        if (error.message.includes('Failed to open directory dialog')) {
+          throw new Error('Unable to open directory selection dialog. Please try again.');
+        }
+
+        // Handle file system access errors
+        if (error.message.includes('Failed to read directory')) {
+          throw new Error(
+            'Unable to read the selected directory. Please check permissions and try again.'
+          );
+        }
+
+        // Pass through other specific error messages as they are already user-friendly
+        throw error;
       }
-      throw error;
+
+      // Re-throw unknown errors with a generic message
+      throw new Error(
+        'An unexpected error occurred while selecting the directory. Please try again.'
+      );
     } finally {
       setIsAccessLoading(false);
     }

@@ -17,88 +17,136 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       );
     }
 
-    const result = await dialog.showOpenDialog({
-      properties: ['openDirectory'],
-      title: 'Select a folder to explore',
-    });
+    try {
+      const result = await dialog.showOpenDialog({
+        properties: ['openDirectory'],
+        title: 'Select a folder to explore',
+        // Add these properties to improve dialog behavior
+        buttonLabel: 'Select Folder',
+        message: 'Choose a directory to explore with BrainStrike',
+      });
 
-    if (result.canceled || result.filePaths.length === 0) {
-      throw new Error('User cancelled directory selection');
+      if (result.canceled || result.filePaths.length === 0) {
+        // Return a more specific error for user cancellation
+        const error = new Error('User cancelled directory selection');
+        error.name = 'UserCancelledError';
+        throw error;
+      }
+
+      const selectedPath = result.filePaths[0];
+      if (!selectedPath) {
+        throw new Error('No directory path selected');
+      }
+
+      // Validate that the selected path exists and is accessible
+      try {
+        const stats = await fsPromises.stat(selectedPath);
+        if (!stats.isDirectory()) {
+          throw new Error('Selected path is not a directory');
+        }
+      } catch (accessError) {
+        throw new Error(
+          `Cannot access selected directory: ${accessError instanceof Error ? accessError.message : 'Unknown error'}`
+        );
+      }
+
+      return {
+        path: selectedPath,
+        name: path.basename(selectedPath),
+        kind: 'directory',
+        platform: 'electron',
+      };
+    } catch (error) {
+      // Re-throw with better error handling
+      if (error instanceof Error) {
+        // Preserve user cancellation errors
+        if (error.name === 'UserCancelledError') {
+          throw error;
+        }
+        // Handle other dialog errors
+        throw new Error(`Failed to open directory dialog: ${error.message}`);
+      }
+      throw new Error('Unknown error occurred while opening directory dialog');
     }
-
-    const selectedPath = result.filePaths[0];
-    if (!selectedPath) {
-      throw new Error('No directory path selected');
-    }
-
-    return {
-      path: selectedPath,
-      name: path.basename(selectedPath),
-      kind: 'directory',
-      platform: 'electron',
-    };
   }
 
   async readDirectory(_handle: DirectoryHandle): Promise<IFileNode[]> {
-    const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
-    const result: IFileNode[] = [];
+    try {
+      const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
+      const result: IFileNode[] = [];
 
-    for (const entry of entries) {
-      const fullPath = path.join(_handle.path, entry.name);
-      const stat = await fsPromises.stat(fullPath);
-      if (entry.isDirectory()) {
-        result.push({
-          name: entry.name,
-          path: fullPath,
-          type: 'directory',
-          depth: 0,
-          selectionState: 'unchecked',
-          children: [],
-          rootFolderId: _handle.name,
-          isVisible: true,
-          handle: {
-            path: fullPath,
-            name: entry.name,
-            kind: 'directory',
-            platform: 'electron',
-          } as unknown as FileSystemDirectoryHandle,
-        });
-      } else {
-        result.push({
-          name: entry.name,
-          path: fullPath,
-          type: 'file',
-          depth: 0,
-          selectionState: 'unchecked',
-          rootFolderId: _handle.name,
-          isVisible: true,
-          size: stat.size,
-          lastModified: stat.mtimeMs,
-          handle: {
-            path: fullPath,
-            name: entry.name,
-            kind: 'file',
-            platform: 'electron',
-          } as unknown as FileSystemFileHandle,
-        });
+      for (const entry of entries) {
+        const fullPath = path.join(_handle.path, entry.name);
+        try {
+          const stat = await fsPromises.stat(fullPath);
+          if (entry.isDirectory()) {
+            result.push({
+              name: entry.name,
+              path: fullPath,
+              type: 'directory',
+              depth: 0,
+              selectionState: 'unchecked',
+              children: [],
+              rootFolderId: _handle.name,
+              isVisible: true,
+              handle: {
+                path: fullPath,
+                name: entry.name,
+                kind: 'directory',
+                platform: 'electron',
+              } as unknown as FileSystemDirectoryHandle,
+            });
+          } else {
+            result.push({
+              name: entry.name,
+              path: fullPath,
+              type: 'file',
+              depth: 0,
+              selectionState: 'unchecked',
+              rootFolderId: _handle.name,
+              isVisible: true,
+              size: stat.size,
+              lastModified: stat.mtimeMs,
+              handle: {
+                path: fullPath,
+                name: entry.name,
+                kind: 'file',
+                platform: 'electron',
+              } as unknown as FileSystemFileHandle,
+            });
+          }
+        } catch (statError) {
+          // Skip files that can't be accessed (permissions, etc.)
+          console.warn(`Could not access ${fullPath}:`, statError);
+        }
       }
+
+      return result.sort((a, b) => {
+        if (a.type !== b.type) {
+          return a.type === 'directory' ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to read directory: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
     }
-
-    return result.sort((a, b) => {
-      if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
   }
 
   async readFile(_handle: FileHandle): Promise<string> {
-    return fsPromises.readFile(_handle.path, 'utf8');
+    try {
+      return await fsPromises.readFile(_handle.path, 'utf-8');
+    } catch (error) {
+      throw new Error(
+        `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
-  async exists(_path: string): Promise<boolean> {
+  async exists(path: string): Promise<boolean> {
     try {
-      await fsPromises.access(_path);
+      await fsPromises.access(path);
       return true;
     } catch {
       return false;
@@ -106,24 +154,34 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   watchDirectory(
-    _handle: DirectoryHandle,
-    _callback: (changes: FileSystemChange[]) => void
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    const watcher = fs.watch(
-      _handle.path,
-      { recursive: true },
-      (eventType: string, filename: string | null) => {
-        if (!filename) return;
-        const fullPath = path.join(_handle.path, filename);
-        const existsNow = fs.existsSync(fullPath);
-        const kind: 'file' | 'directory' =
-          existsNow && fs.statSync(fullPath).isDirectory() ? 'directory' : 'file';
-        const type: FileSystemChange['type'] =
-          eventType === 'rename' ? (existsNow ? 'added' : 'removed') : 'modified';
-        _callback([{ type, path: fullPath, kind }]);
-      }
-    );
+    let watcher: fs.FSWatcher | null = null;
 
-    return () => watcher.close();
+    try {
+      watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
+        if (filename) {
+          const fullPath = path.join(handle.path, filename);
+          const change: FileSystemChange = {
+            type: eventType === 'rename' ? 'modified' : 'modified',
+            path: fullPath,
+            kind: 'file', // Default to file, could be enhanced to check actual type
+          };
+          callback([change]);
+        }
+      });
+
+      return () => {
+        if (watcher) {
+          watcher.close();
+          watcher = null;
+        }
+      };
+    } catch (error) {
+      console.warn('Failed to watch directory:', error);
+      // Return a no-op function if watching fails
+      return () => {};
+    }
   }
 }
