@@ -153,7 +153,7 @@ TypeScript ensures type safety. The root config sets up path aliases and referen
 - **JSX**: `react-jsx`.
 - **Output**: `declaration: true`, `declarationMap: true`, `sourceMap: true` (for libraries).
 - **Checks**: `skipLibCheck: true`.
-- **Paths**: Root `tsconfig.json` defines aliases (`@brainstrike/types`, `@/*`) for easy cross-package imports.
+ - **Paths**: Root `tsconfig.json` defines aliases (`@brainstrike/types`, `@web/*`, `@desktop/*`) for easy cross-package imports.
 - **Excludes**: `node_modules`, `dist`, `build`, test files.
 
 ### 5.3 Commit Messages (`commitlint.config.ts`)
@@ -246,7 +246,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 
 - **Monorepo Strategy**: Utilizes Turborepo and pnpm workspaces for managing dependencies and orchestrating builds/tests across multiple packages and applications efficiently.
 - **Frontend Architecture (`apps/web`)**: A standard Vite + React Single Page Application (SPA). State management solution (Context, Zustand, Redux?) should be documented if applicable. Component architecture likely follows standard React patterns.
-- **Shared Packages**: Core logic, UI elements, types, and utilities are extracted into `packages/*` to promote code reuse and maintainability. Path aliases (`@brainstrike/*`, `@/*`) simplify imports.
+ - **Shared Packages**: Core logic, UI elements, types, and utilities are extracted into `packages/*` to promote code reuse and maintainability. Path aliases (`@brainstrike/*`, `@web/*`, `@desktop/*`) simplify imports.
 - **Configuration Management**: Shared configurations (`packages/config`) ensure consistency in tooling (TypeScript, Biome) across the repository.
 - **Testing Strategy**:
   - **Unit/Integration**: Vitest is used for fast testing, colocated within `src/` or `__tests__` directories.

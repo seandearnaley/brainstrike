@@ -47,6 +47,7 @@
 			"@biomejs/biome",
 			"@swc/core",
 			"@tailwindcss/oxide",
+			"electron",
 			"esbuild"
 		]
 	},

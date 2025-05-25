@@ -24,7 +24,7 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-file-system', () => ({
+vi.mock('@web/hooks/use-file-system', () => ({
   useFileSystem: () => ({}),
 }));
 
@@ -46,20 +46,20 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
   };
 });
 
-vi.mock('@/hooks/use-file-explorer-settings', () => ({
+vi.mock('@web/hooks/use-file-explorer-settings', () => ({
   useFileExplorerSettings: () => ({}),
 }));
 
-vi.mock('@/hooks/use-report-manager', () => ({
+vi.mock('@web/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
 }));
 
-vi.mock('@/hooks/use-selection-manager', () => ({
+vi.mock('@web/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({}),
 }));
 
 // Mock UI components
-vi.mock('@/components/ui/button', () => ({
+vi.mock('@web/components/ui/button', () => ({
   Button: ({ children }: { children: React.ReactNode }) => (
     <button type="button">{children}</button>
   ),

@@ -14,8 +14,12 @@ BrainStrike is a 2025-ready Turbo monorepo for building AI-powered productivity 
    ```
 3. **Run the desktop app**
    ```bash
-   pnpm dev --filter desktop & pnpm start --filter desktop
-   ```
+ pnpm dev --filter desktop & pnpm start --filter desktop
+  ```
+
+The desktop app is an Electron wrapper around the web UI. Styling is shared via
+the same Tailwind configuration used by the web app.
+
 
 ## Requirements
 - Node.js 22+ (see `.nvmrc`)
@@ -40,6 +44,11 @@ packages/
   tailwind-config/      # Shared Tailwind CSS configuration
 ```
 
+### Desktop App
+
+`apps/desktop` contains an Electron wrapper around the web application. It uses
+the same React components and Tailwind styles via the shared configuration.
+
 ## Toolchain Highlights
 - **Vite** + **React 19** with **Tailwind CSS v4**
 - **Turborepo** orchestrates builds and tasks
@@ -63,10 +72,20 @@ pnpm format                  # Auto-format source files
 ```
 
 ## Tailwind Config
-Use the shared Tailwind configuration for any package:
+Use the shared Tailwind configuration for any package. Extend it and provide your
+own `content` globs:
 
 ```js
-module.exports = require('@brainstrike/tailwind-config');
+const base = require('@brainstrike/tailwind-config');
+
+module.exports = {
+  ...base,
+  content: [
+    './index.html',
+    './src/**/*.{js,ts,jsx,tsx}',
+    '../../packages/ui/src/**/*.{js,ts,jsx,tsx}',
+  ],
+};
 ```
 
 
