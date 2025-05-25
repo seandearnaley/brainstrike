@@ -96,6 +96,9 @@ importers:
       '@biomejs/biome':
         specifier: 1.9.4
         version: 1.9.4
+      '@brainstrike/tailwind-config':
+        specifier: workspace:*
+        version: link:../../packages/tailwind-config
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../../packages/test-utils
@@ -451,6 +454,8 @@ importers:
       vitest:
         specifier: ^3.1.1
         version: 3.1.3(@types/node@22.15.17)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.29.2)(terser@5.39.0)
+
+  packages/tailwind-config: {}
 
   packages/test-utils:
     dependencies:
