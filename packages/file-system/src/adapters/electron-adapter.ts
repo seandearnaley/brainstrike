@@ -7,7 +7,7 @@ import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange }
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     // Dynamically import electron to avoid issues in browser/test environments
-    let dialog: any;
+    let dialog: Electron.Dialog;
     try {
       const electron = await import('electron');
       dialog = electron.dialog;

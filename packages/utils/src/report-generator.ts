@@ -1,5 +1,5 @@
 // import type { IFileNode } from '@web/lib/file/types'; // Removed: Unused
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { readFullFileTree } from './file-system-utils';
 import { generateProjectTreeText } from './tree-generator';
 
@@ -169,8 +169,8 @@ async function readFullFileTreeFromAdapter(
           path: node.path,
           name: node.name,
           kind: 'directory',
-          platform: (node.handle as any).platform || 'web',
-          _internal: (node.handle as any)._internal,
+          platform: (node.handle as unknown as DirectoryHandle | FileHandle).platform || 'web',
+          _internal: (node.handle as unknown as DirectoryHandle | FileHandle)._internal,
         };
         const children = await readFullFileTreeFromAdapter(
           fileSystemAdapter,
