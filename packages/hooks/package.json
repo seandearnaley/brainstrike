@@ -36,6 +36,7 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "minimatch": "^10.0.1",
     "file-saver": "2.0.5",
     "@types/file-saver": "2.0.7"

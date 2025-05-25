@@ -4,10 +4,7 @@ import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
-import {
-  extractNativeDirectoryHandleAsNull,
-  extractNativeDirectoryHandleAsUndefined,
-} from '@brainstrike/file-system';
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
@@ -44,6 +41,7 @@ const FileExplorerMainPanel = lazy(() =>
 console.log('Core imports loaded successfully');
 
 const FileExplorer: React.FC = () => {
+  const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const {
     includeFilters,
@@ -114,7 +112,8 @@ const FileExplorer: React.FC = () => {
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,
     fileContents,
-    rootDirectoryHandle: extractNativeDirectoryHandleAsUndefined(rootDirectoryHandle),
+    rootDirectoryHandle: rootDirectoryHandle ?? undefined,
+    fileSystemAdapter,
     includeFilters,
     excludeFilters,
     useRegex,
@@ -123,7 +122,7 @@ const FileExplorer: React.FC = () => {
   });
 
   const { handleDownloadReport, handleCopyReport } = useReportManager({
-    rootDirectoryHandle: extractNativeDirectoryHandleAsNull(rootDirectoryHandle),
+    rootDirectoryHandle,
     generateReportWithContent,
     showToast,
     toast,

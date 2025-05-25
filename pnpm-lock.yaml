@@ -463,6 +463,9 @@ importers:
 
   packages/hooks:
     dependencies:
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -696,6 +699,9 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types

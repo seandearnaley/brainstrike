@@ -5,6 +5,7 @@
  * avoiding dependencies on the file-explorer-hooks package that uses the old global store.
  */
 
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
@@ -17,37 +18,8 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
-// Mock adapters context since we can't import the real one easily
-const mockFileSystemAdapter = {
-  async readDirectory(handle: DirectoryHandle) {
-    if (!handle._internal) {
-      throw new Error('No internal handle available');
-    }
-
-    const entries: Array<{ name: string; type: 'file' | 'directory'; handle?: FileSystemHandle }> =
-      [];
-
-    try {
-      // Use the File System Access API directly
-      for await (const [name, entryHandle] of (
-        handle._internal as FileSystemDirectoryHandle
-      ).entries()) {
-        entries.push({
-          name,
-          type: entryHandle.kind,
-          handle: entryHandle,
-        });
-      }
-    } catch (error) {
-      console.error('Error reading directory:', error);
-      throw error;
-    }
-
-    return entries;
-  },
-};
-
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
+  const { fileSystemAdapter } = useAdapters();
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -117,7 +89,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       }
 
       try {
-        const entries = await mockFileSystemAdapter.readDirectory(directoryHandle);
+        const entries = await fileSystemAdapter.readDirectory(directoryHandle);
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
@@ -128,18 +100,16 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
           try {
             if (entry.type === 'file') {
               processedEntries.push({
-                name: entry.name,
+                ...entry,
                 path,
-                type: 'file',
                 depth: path.split('/').length - 1,
                 selectionState: 'unchecked',
                 rootFolderId,
-                handle: entry.handle as FileSystemFileHandle,
               });
               updateProgress(path);
             } else if (entry.type === 'directory') {
               const dirHandle: DirectoryHandle = {
-                path,
+                path: entry.path,
                 name: entry.name,
                 kind: 'directory',
                 platform: directoryHandle.platform,
@@ -148,14 +118,12 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
               const children = await readFullTree(dirHandle, rootHandle, path, false);
               processedEntries.push({
-                name: entry.name,
+                ...entry,
                 path,
-                type: 'directory',
                 depth: path.split('/').length - 1,
                 children: sortFileNodes(children),
                 selectionState: 'unchecked',
                 rootFolderId,
-                handle: entry.handle as FileSystemDirectoryHandle,
               });
               updateProgress(path);
             }
@@ -170,7 +138,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         throw err;
       }
     },
-    [sortFileNodes, updateProgress]
+    [fileSystemAdapter, sortFileNodes, updateProgress]
   );
 
   const loadTree = useCallback(async () => {
