@@ -96,7 +96,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 }));
 
 // Mock other hooks
-vi.mock('@/hooks/use-file-tree-persistence', () => ({
+vi.mock('@web/hooks/use-file-tree-persistence', () => ({
   useFileTreePersistence: () => ({}),
 }));
 
@@ -121,7 +121,7 @@ vi.mock('@brainstrike/hooks', () => ({
   useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
 }));
 
-vi.mock('@/hooks/use-selection-manager', () => ({
+vi.mock('@web/hooks/use-selection-manager', () => ({
   useSelectionManager: () => ({
     selectedFilePaths: new Set(),
     handleSelectionChange: vi.fn(),
@@ -129,14 +129,14 @@ vi.mock('@/hooks/use-selection-manager', () => ({
 }));
 
 // Mock UI components
-vi.mock('@/components/ui/button', () => ({
+vi.mock('@web/components/ui/button', () => ({
   Button: ({ children }: { children: React.ReactNode }) => (
     <button type="button">{children}</button>
   ),
 }));
 
 // Mock error boundary
-vi.mock('@/components/custom/error-boundary', () => ({
+vi.mock('@web/components/custom/error-boundary', () => ({
   default: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -162,7 +162,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 // Mock main panel
-vi.mock('@/components/custom/file-explorer-main-panel', () => ({
+vi.mock('@web/components/custom/file-explorer-main-panel', () => ({
   default: () => <div data-testid="main-panel">Main Panel</div>,
 }));
 

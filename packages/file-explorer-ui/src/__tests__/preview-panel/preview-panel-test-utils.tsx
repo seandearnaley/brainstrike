@@ -46,7 +46,7 @@ afterEach(() => {
 });
 
 // Mock Accordion component
-vi.mock('@/components/ui/accordion', () => {
+vi.mock('@web/components/ui/accordion', () => {
   const AccordionRoot = ({ children }: { children: ReactNode }) => (
     <div data-testid="mock-accordion">{children}</div>
   );
