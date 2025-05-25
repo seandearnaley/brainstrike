@@ -11,12 +11,12 @@ export interface ElectronAPI {
     clear: () => Promise<void>;
     getAllKeys: () => Promise<string[]>;
   };
-  fs: {
-    requestDirectoryAccess: () => Promise<DirectoryHandle>;
-    readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
-    readFile: (handle: FileHandle) => Promise<string>;
-    exists: (path: string) => Promise<boolean>;
-  };
+        fileSystem: {
+        requestDirectoryAccess: () => Promise<DirectoryHandle>;
+        readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
+        readFile: (handle: FileHandle) => Promise<string>;
+        exists: (path: string) => Promise<boolean>;
+      };
 }
 
 declare global {
