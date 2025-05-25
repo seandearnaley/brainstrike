@@ -1,3 +1,5 @@
+import type { StorageAdapter } from '@brainstrike/storage';
+import { WebStorageAdapter } from '@brainstrike/storage';
 import * as React from 'react';
 
 type Theme = 'dark' | 'light' | 'system';
@@ -6,6 +8,7 @@ type ThemeProviderProps = {
   children: React.ReactNode;
   defaultTheme?: Theme;
   storageKey?: string;
+  storageAdapter?: StorageAdapter;
 };
 
 type ThemeProviderState = {
@@ -19,19 +22,24 @@ export function ThemeProvider({
   children,
   defaultTheme = 'system',
   storageKey = 'ui-theme',
+  storageAdapter = new WebStorageAdapter(),
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = React.useState<Theme>(defaultTheme);
   const [mounted, setMounted] = React.useState(false);
 
-  // Only access localStorage after component is mounted (client-side)
+  // Only access storage after component is mounted (client-side)
   React.useEffect(() => {
-    const savedTheme = localStorage.getItem(storageKey) as Theme;
-    if (savedTheme) {
-      setTheme(savedTheme);
+    async function loadTheme() {
+      const savedTheme = (await storageAdapter.getItem(storageKey)) as Theme | null;
+      if (savedTheme) {
+        setTheme(savedTheme);
+      }
+      setMounted(true);
     }
-    setMounted(true);
-  }, [storageKey]);
+
+    void loadTheme();
+  }, [storageAdapter, storageKey]);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
@@ -53,7 +61,7 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (theme: Theme) => {
-      localStorage.setItem(storageKey, theme);
+      void storageAdapter.setItem(storageKey, theme);
       setTheme(theme);
     },
   };

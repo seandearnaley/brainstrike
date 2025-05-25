@@ -10,12 +10,16 @@
     "types": [
       "vitest/globals",
       "@testing-library/jest-dom"
-    ]
+    ],
+    "paths": {
+      "@brainstrike/storage": ["../storage/src"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules"],
   "references": [
     // {"path": "../../packages/config"},
-    {"path": "../../packages/types"}
+    {"path": "../../packages/types"},
+    {"path": "../storage"}
   ]
-} 
+}
