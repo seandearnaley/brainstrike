@@ -1,62 +1,30 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "composite": true,
-    "incremental": true,
-    "allowImportingTsExtensions": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "jsx": "react-jsx",
+    "skipLibCheck": true,
+    "strict": true,
     "noEmit": true,
-    "outDir": "dist",
-    "paths": {
-      "@desktop/*": [
-        "./src/*"
-      ]
-    },
-    "types": []
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "exactOptionalPropertyTypes": false,
+    "types": ["node", "electron", "vite/client"]
   },
   "include": [
-    "src",
-    "vite.config.mts",
-    "vitest.config.ts",
-    "vitest.config.unit.ts",
-    "vitest.config.integration.ts",
-    "types/**/*.d.ts"
+    "src/**/*",
+    "types/**/*",
+    "index.html"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "build",
-    "coverage"
-  ],
-  "references": [
-    {
-      "path": "../../packages/app-shell"
-    },
-    {
-      "path": "../../packages/fonts"
-    },
-    {
-      "path": "../../packages/hooks"
-    },
-    {
-      "path": "../../packages/server-config"
-    },
-    {
-      "path": "../../packages/types"
-    },
-    {
-      "path": "../../packages/ui"
-    },
-    {
-      "path": "../../packages/utils"
-    },
-    {
-      "path": "../../packages/file-explorer"
-    },
-    {
-      "path": "../../packages/file-explorer-hooks"
-    },
-    {
-      "path": "../../packages/file-explorer-ui"
-    }
+    "dist"
   ]
 }

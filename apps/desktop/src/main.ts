@@ -1,25 +1,48 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import { BrowserWindow, app, ipcMain } from 'electron';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
     },
+    titleBarStyle: 'default',
+    show: false, // Don't show until ready
+  });
+
+  // Show window when ready to prevent visual flash
+  win.once('ready-to-show', () => {
+    win.show();
   });
 
   if (app.isPackaged) {
-    win.loadFile(path.join(__dirname, '../index.html'));
+    // In production, load the built renderer
+    win.loadFile(path.join(__dirname, 'renderer/index.html'));
   } else {
-    win.loadURL('http://localhost:3000');
+    // In development, load from Vite dev server
+    win.loadURL('http://localhost:3001');
+
+    // Open DevTools in development
+    win.webContents.openDevTools();
   }
+
+  return win;
 }
 
 app.whenReady().then(() => {
