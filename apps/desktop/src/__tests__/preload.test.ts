@@ -1,27 +1,71 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Mock Electron modules
-const mockContextBridge = {
-  exposeInMainWorld: vi.fn(),
-};
+// Mock Electron modules using vi.hoisted to handle CommonJS require
+const { mockContextBridge, mockIpcRenderer } = vi.hoisted(() => {
+  const mockContextBridge = {
+    exposeInMainWorld: vi.fn(),
+  };
 
-const mockIpcRenderer = {
-  invoke: vi.fn(),
-};
+  const mockIpcRenderer = {
+    invoke: vi.fn(),
+  };
 
+  // Mock the CommonJS require for electron
+  const { Module } = require('node:module');
+  const originalLoad = Module._load;
+  Module._load = (id: string, parent: NodeModule) => {
+    if (id === 'electron') {
+      return { contextBridge: mockContextBridge, ipcRenderer: mockIpcRenderer };
+    }
+    return originalLoad(id, parent);
+  };
+
+  return { mockContextBridge, mockIpcRenderer };
+});
+
+// Also mock the ES module import for completeness
 vi.mock('electron', () => ({
   contextBridge: mockContextBridge,
   ipcRenderer: mockIpcRenderer,
 }));
 
+let api: {
+  storage: {
+    getItem: (key: string) => unknown;
+    setItem: (key: string, value: string) => unknown;
+    removeItem: (key: string) => unknown;
+    clear: () => unknown;
+    getAllKeys: () => unknown;
+  };
+  fileSystem: {
+    requestDirectoryAccess: () => unknown;
+    readDirectory: (handle: DirectoryHandle) => unknown;
+    readFile: (handle: FileHandle) => unknown;
+    exists: (path: string) => unknown;
+  };
+};
+
 describe('Preload Script API Structure', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    mockContextBridge.exposeInMainWorld.mockClear();
+    mockIpcRenderer.invoke.mockClear();
+
+    // Import the preload script which should trigger the mocked contextBridge
+    await import('../preload.ts');
+
+    // Extract the API from the mock call
+    const mockCalls = mockContextBridge.exposeInMainWorld.mock.calls;
+    if (mockCalls.length > 0 && mockCalls[0]) {
+      api = mockCalls[0][1] as typeof api;
+    }
   });
 
-  it('should define the expected electronAPI structure', () => {
-    // Test the expected API structure without importing the actual file
+  it('should expose the expected electronAPI via contextBridge', () => {
+    expect(mockContextBridge.exposeInMainWorld).toHaveBeenCalledTimes(1);
+    const [key, exposed] = mockContextBridge.exposeInMainWorld.mock.calls[0] as [string, unknown];
+
     const expectedAPI = {
       storage: {
         getItem: expect.any(Function),
@@ -38,93 +82,56 @@ describe('Preload Script API Structure', () => {
       },
     };
 
-    // Simulate what the preload script should expose
-    const mockAPI = {
-      storage: {
-        getItem: (key: string) => mockIpcRenderer.invoke('storage:getItem', key),
-        setItem: (key: string, value: string) =>
-          mockIpcRenderer.invoke('storage:setItem', key, value),
-        removeItem: (key: string) => mockIpcRenderer.invoke('storage:removeItem', key),
-        clear: () => mockIpcRenderer.invoke('storage:clear'),
-        getAllKeys: () => mockIpcRenderer.invoke('storage:getAllKeys'),
-      },
-      fileSystem: {
-        requestDirectoryAccess: () => mockIpcRenderer.invoke('fs:requestDirectoryAccess'),
-        readDirectory: (handle: DirectoryHandle) =>
-          mockIpcRenderer.invoke('fs:readDirectory', handle),
-        readFile: (handle: FileHandle) => mockIpcRenderer.invoke('fs:readFile', handle),
-        exists: (path: string) => mockIpcRenderer.invoke('fs:exists', path),
-      },
-    };
-
-    expect(mockAPI).toMatchObject(expectedAPI);
+    expect(key).toBe('electronAPI');
+    expect(exposed).toMatchObject(expectedAPI);
   });
 
   it('should call correct IPC channels for storage operations', () => {
-    const mockAPI = {
-      storage: {
-        getItem: (key: string) => mockIpcRenderer.invoke('storage:getItem', key),
-        setItem: (key: string, value: string) =>
-          mockIpcRenderer.invoke('storage:setItem', key, value),
-        removeItem: (key: string) => mockIpcRenderer.invoke('storage:removeItem', key),
-        clear: () => mockIpcRenderer.invoke('storage:clear'),
-        getAllKeys: () => mockIpcRenderer.invoke('storage:getAllKeys'),
-      },
-    };
-
-    mockAPI.storage.getItem('test-key');
+    expect(api).toBeDefined();
+    api.storage.getItem('test-key');
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('storage:getItem', 'test-key');
 
-    mockAPI.storage.setItem('test-key', 'test-value');
+    api.storage.setItem('test-key', 'test-value');
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith(
       'storage:setItem',
       'test-key',
       'test-value'
     );
 
-    mockAPI.storage.removeItem('test-key');
+    api.storage.removeItem('test-key');
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('storage:removeItem', 'test-key');
 
-    mockAPI.storage.clear();
+    api.storage.clear();
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('storage:clear');
 
-    mockAPI.storage.getAllKeys();
+    api.storage.getAllKeys();
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('storage:getAllKeys');
   });
 
   it('should call correct IPC channels for file system operations', () => {
-    const mockAPI = {
-      fileSystem: {
-        requestDirectoryAccess: () => mockIpcRenderer.invoke('fs:requestDirectoryAccess'),
-        readDirectory: (handle: DirectoryHandle) =>
-          mockIpcRenderer.invoke('fs:readDirectory', handle),
-        readFile: (handle: FileHandle) => mockIpcRenderer.invoke('fs:readFile', handle),
-        exists: (path: string) => mockIpcRenderer.invoke('fs:exists', path),
-      },
-    };
-
-    mockAPI.fileSystem.requestDirectoryAccess();
+    expect(api).toBeDefined();
+    api.fileSystem.requestDirectoryAccess();
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('fs:requestDirectoryAccess');
 
-    const mockHandle = {
+    const mockHandle: DirectoryHandle = {
       path: '/test',
       name: 'test',
-      kind: 'directory' as const,
-      platform: 'electron' as const,
+      kind: 'directory',
+      platform: 'electron',
     };
-    mockAPI.fileSystem.readDirectory(mockHandle);
+    api.fileSystem.readDirectory(mockHandle);
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('fs:readDirectory', mockHandle);
 
-    const mockFileHandle = {
+    const mockFileHandle: FileHandle = {
       path: '/test/file.txt',
       name: 'file.txt',
-      kind: 'file' as const,
-      platform: 'electron' as const,
+      kind: 'file',
+      platform: 'electron',
     };
-    mockAPI.fileSystem.readFile(mockFileHandle);
+    api.fileSystem.readFile(mockFileHandle);
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('fs:readFile', mockFileHandle);
 
-    mockAPI.fileSystem.exists('/test/path');
+    api.fileSystem.exists('/test/path');
     expect(mockIpcRenderer.invoke).toHaveBeenCalledWith('fs:exists', '/test/path');
   });
 });
