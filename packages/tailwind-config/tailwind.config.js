@@ -1,14 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   darkMode: ["class"],
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-    // Explicitly reference the UI package's source files
-    "../../packages/ui/src/badge.tsx",
-    "../../packages/ui/src/**/*.tsx",
-    "../../packages/ui/src/**/*.{js,ts,jsx,tsx}",
-  ],
   // Safelist classes that might be used in UI components
   // but not detected by the content scanner
   safelist: [

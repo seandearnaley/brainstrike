@@ -5,7 +5,7 @@ import { PreviewPanel } from '../../preview-panel';
 import { createCompositeKey, render, uiTestProps, userEvent } from './preview-panel-test-utils';
 
 // Mock token-utils functions
-vi.mock('@/utils/token-utils', () => ({
+vi.mock('@web/utils/token-utils', () => ({
   countTokensAccurate: vi.fn((text) => Math.ceil(text.length / 3)), // Mock implementation
   countTokensHeuristic: vi.fn((text) => Math.ceil(text.length / 4)), // Mock implementation
   formatTokenCount: vi.fn((count) => {

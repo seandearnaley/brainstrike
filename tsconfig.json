@@ -11,7 +11,8 @@
       "@brainstrike/file-explorer-hooks": ["packages/file-explorer-hooks/src"],
       "@brainstrike/file-explorer-ui": ["packages/file-explorer-ui/src"],
       "@brainstrike/storage": ["packages/storage/src"],
-      "@/*": ["apps/web/src/*"]
+      "@web/*": ["apps/web/src/*"],
+      "@desktop/*": ["apps/desktop/src/*"]
     },
     "noEmit": true,
     "declaration": false,

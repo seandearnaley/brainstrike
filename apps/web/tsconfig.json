@@ -6,9 +6,9 @@
 		"allowImportingTsExtensions": true,
 		"noEmit": true,
 		"outDir": "dist",
-		"paths": {
-			"@/*": ["./src/*"]
-		},
+                "paths": {
+                        "@web/*": ["./src/*"]
+                },
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},
         "include": ["src", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts"],

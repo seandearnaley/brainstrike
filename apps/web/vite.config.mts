@@ -1,4 +1,5 @@
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
@@ -6,6 +7,8 @@ import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function copyFontsPlugin() {
   return {
