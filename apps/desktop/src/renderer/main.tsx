@@ -16,19 +16,19 @@ import SettingsPageContent from './components/settings/page-content';
 // Electron renderer adapters that use the preload API
 class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    return window.electronAPI.fs.requestDirectoryAccess();
+    return window.electronAPI.fileSystem.requestDirectoryAccess();
   }
 
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    return window.electronAPI.fs.readDirectory(handle);
+    return window.electronAPI.fileSystem.readDirectory(handle);
   }
 
   async readFile(handle: FileHandle): Promise<string> {
-    return window.electronAPI.fs.readFile(handle);
+    return window.electronAPI.fileSystem.readFile(handle);
   }
 
   async exists(path: string): Promise<boolean> {
-    return window.electronAPI.fs.exists(path);
+    return window.electronAPI.fileSystem.exists(path);
   }
 }
 
