@@ -1,49 +1,105 @@
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
 
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    // This would use electron's dialog API
-    // const { dialog } = require('electron');
-    // const result = await dialog.showOpenDialog({ properties: ['openDirectory'] });
-
-    // For now, placeholder implementation
-    throw new Error('Electron adapter not yet implemented - requires IPC setup');
+    const cwd = process.cwd();
+    return {
+      path: cwd,
+      name: path.basename(cwd),
+      kind: 'directory',
+      platform: 'electron',
+    };
   }
 
   async readDirectory(_handle: DirectoryHandle): Promise<IFileNode[]> {
-    // This would use Node.js fs APIs
-    // const fs = require('fs').promises;
-    // const path = require('path');
+    const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
+    const result: IFileNode[] = [];
 
-    // For now, placeholder implementation
-    throw new Error('Electron adapter not yet implemented - requires IPC setup');
+    for (const entry of entries) {
+      const fullPath = path.join(_handle.path, entry.name);
+      const stat = await fsPromises.stat(fullPath);
+      if (entry.isDirectory()) {
+        result.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'directory',
+          depth: 0,
+          selectionState: 'unchecked',
+          children: [],
+          rootFolderId: _handle.name,
+          isVisible: true,
+          handle: {
+            path: fullPath,
+            name: entry.name,
+            kind: 'directory',
+            platform: 'electron',
+          } as unknown as FileSystemDirectoryHandle,
+        });
+      } else {
+        result.push({
+          name: entry.name,
+          path: fullPath,
+          type: 'file',
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: _handle.name,
+          isVisible: true,
+          size: stat.size,
+          lastModified: stat.mtimeMs,
+          handle: {
+            path: fullPath,
+            name: entry.name,
+            kind: 'file',
+            platform: 'electron',
+          } as unknown as FileSystemFileHandle,
+        });
+      }
+    }
+
+    return result.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
   }
 
   async readFile(_handle: FileHandle): Promise<string> {
-    // This would use Node.js fs APIs
-    // const fs = require('fs').promises;
-
-    // For now, placeholder implementation
-    throw new Error('Electron adapter not yet implemented - requires IPC setup');
+    return fsPromises.readFile(_handle.path, 'utf8');
   }
 
   async exists(_path: string): Promise<boolean> {
-    // This would use Node.js fs APIs
-    // const fs = require('fs');
-
-    // For now, placeholder implementation
-    return false;
+    try {
+      await fsPromises.access(_path);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   watchDirectory(
     _handle: DirectoryHandle,
     _callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    // This would use Node.js fs.watch or chokidar
-    // const chokidar = require('chokidar');
+    const watcher = fs.watch(
+      _handle.path,
+      { recursive: true },
+      (eventType: string, filename: string | null) => {
+        if (!filename) return;
+        const fullPath = path.join(_handle.path, filename);
+        const existsNow = fs.existsSync(fullPath);
+        const kind: 'file' | 'directory' =
+          existsNow && fs.statSync(fullPath).isDirectory() ? 'directory' : 'file';
+        const type: FileSystemChange['type'] =
+          eventType === 'rename' ? (existsNow ? 'added' : 'removed') : 'modified';
+        _callback([{ type, path: fullPath, kind }]);
+      }
+    );
 
-    // For now, placeholder implementation
-    return () => {};
+    return () => watcher.close();
   }
 }

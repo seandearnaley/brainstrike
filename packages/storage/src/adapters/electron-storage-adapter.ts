@@ -1,56 +1,53 @@
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import path from 'node:path';
 import type { StorageAdapter } from '../types';
 
+/**
+ * Electron Storage Adapter
+ *
+ * Simple file based implementation used for testing in lieu of `electron-store`.
+ */
 export class ElectronStorageAdapter implements StorageAdapter {
-  // Note: This would require electron-store as a dependency
-  // and proper IPC setup for secure access from renderer process
+  private storePath: string;
+  private cache: Record<string, string> = {};
 
-  async getItem(_key: string): Promise<string | null> {
-    // This would use electron-store or IPC to main process
-    // const Store = require('electron-store');
-    // const store = new Store();
-    // return store.get(key) || null;
-
-    // Placeholder implementation
-    throw new Error('Electron storage adapter not yet implemented - requires electron-store setup');
+  constructor(storeFile = 'electron-storage.json') {
+    this.storePath = path.resolve(storeFile);
+    if (fs.existsSync(this.storePath)) {
+      try {
+        const data = fs.readFileSync(this.storePath, 'utf8');
+        this.cache = JSON.parse(data) as Record<string, string>;
+      } catch {
+        this.cache = {};
+      }
+    }
   }
 
-  async setItem(_key: string, _value: string): Promise<void> {
-    // This would use electron-store or IPC to main process
-    // const Store = require('electron-store');
-    // const store = new Store();
-    // store.set(key, value);
-
-    // Placeholder implementation
-    throw new Error('Electron storage adapter not yet implemented - requires electron-store setup');
+  private async persist() {
+    await fsPromises.writeFile(this.storePath, JSON.stringify(this.cache, null, 2), 'utf8');
   }
 
-  async removeItem(_key: string): Promise<void> {
-    // This would use electron-store or IPC to main process
-    // const Store = require('electron-store');
-    // const store = new Store();
-    // store.delete(key);
+  async getItem(key: string): Promise<string | null> {
+    return this.cache[key] ?? null;
+  }
 
-    // Placeholder implementation
-    throw new Error('Electron storage adapter not yet implemented - requires electron-store setup');
+  async setItem(key: string, value: string): Promise<void> {
+    this.cache[key] = value;
+    await this.persist();
+  }
+
+  async removeItem(key: string): Promise<void> {
+    delete this.cache[key];
+    await this.persist();
   }
 
   async clear(): Promise<void> {
-    // This would use electron-store or IPC to main process
-    // const Store = require('electron-store');
-    // const store = new Store();
-    // store.clear();
-
-    // Placeholder implementation
-    throw new Error('Electron storage adapter not yet implemented - requires electron-store setup');
+    this.cache = {};
+    await this.persist();
   }
 
   async getAllKeys(): Promise<string[]> {
-    // This would use electron-store or IPC to main process
-    // const Store = require('electron-store');
-    // const store = new Store();
-    // return Object.keys(store.store);
-
-    // Placeholder implementation
-    return [];
+    return Object.keys(this.cache);
   }
 }
