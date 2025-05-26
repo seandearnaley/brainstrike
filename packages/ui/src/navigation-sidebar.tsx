@@ -42,7 +42,8 @@ export function NavigationSidebar({
               onClick={() => onItemClick(item.path)}
               className={cn(
                 'p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors',
-                currentPath === item.path && 'bg-gray-200 dark:bg-gray-700'
+                currentPath === item.path && 'bg-gray-200 dark:bg-gray-700',
+                'cursor-pointer'
               )}
               title={item.name}
             >

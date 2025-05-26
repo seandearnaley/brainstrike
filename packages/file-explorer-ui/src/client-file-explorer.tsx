@@ -3,7 +3,7 @@ import { FileExplorerErrorBoundary, FileExplorerProvider } from '@brainstrike/fi
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
 import { ErrorFallback, LoadingFallback, UnsupportedFeature } from '@brainstrike/ui';
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
 
 // Lazy load the file explorer component with better error handling for Vite
 const FileExplorer = React.lazy(() => {
@@ -62,9 +62,9 @@ export default function ClientFileExplorer() {
     );
   }
 
-  // Create adapters for the web platform
-  const fileSystemAdapter = createFileSystemAdapter('web');
-  const storageAdapter = createStorageAdapter('web');
+  // Create adapters for the web platform, memoized to prevent re-creation on re-renders
+  const fileSystemAdapter = useMemo(() => createFileSystemAdapter('web'), []);
+  const storageAdapter = useMemo(() => createStorageAdapter('web'), []);
 
   return (
     <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
