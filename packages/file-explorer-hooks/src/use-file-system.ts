@@ -1,4 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import {
+  isAccessError,
+  isDialogError,
+  isPermissionError,
+  isUserCancelledError,
+} from '@brainstrike/file-system';
 import type { FileExplorerState } from '@brainstrike/types'; // Import the state type
 import { useState } from 'react';
 import { useAdapters } from './adapters-context';
@@ -41,22 +47,30 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       setCurrentFolderId(handle.name);
       return handle;
     } catch (error) {
+      // Handle user cancellation - not an error, just return null
+      if (isUserCancelledError(error)) {
+        return null;
+      }
+
+      // Handle permission errors with user-friendly messages
+      if (isPermissionError(error)) {
+        throw new Error('Permission denied: Unable to access the selected directory');
+      }
+
+      // Handle access errors (file/directory read/write issues)
+      if (isAccessError(error)) {
+        throw new Error(
+          'Unable to access the selected directory. Please check permissions and try again.'
+        );
+      }
+
+      // Handle dialog errors
+      if (isDialogError(error)) {
+        throw new Error('Unable to open directory selection dialog. Please try again.');
+      }
+
+      // Legacy error handling for backward compatibility
       if (error instanceof Error) {
-        // Handle the new UserCancelledError specifically
-        if (error.name === 'UserCancelledError') {
-          // User cancelled - this is not an error, just return null
-          return null;
-        }
-
-        // Handle permission errors
-        if (
-          error.message.includes('Permission denied') ||
-          error.message.includes('SecurityError') ||
-          error.message.includes('Cannot access selected directory')
-        ) {
-          throw new Error('Permission denied: Unable to access the selected directory');
-        }
-
         // Handle other cancellation scenarios (legacy support)
         if (
           error.message.includes('AbortError') ||
@@ -64,18 +78,6 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
           error.message.includes('User cancelled')
         ) {
           return null;
-        }
-
-        // Handle dialog-specific errors
-        if (error.message.includes('Failed to open directory dialog')) {
-          throw new Error('Unable to open directory selection dialog. Please try again.');
-        }
-
-        // Handle file system access errors
-        if (error.message.includes('Failed to read directory')) {
-          throw new Error(
-            'Unable to read the selected directory. Please check permissions and try again.'
-          );
         }
 
         // Pass through other specific error messages as they are already user-friendly

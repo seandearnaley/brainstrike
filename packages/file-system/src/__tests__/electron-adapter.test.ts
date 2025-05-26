@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
+import { UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle } from '../types';
 
 // Mock electron dialog
@@ -62,9 +63,8 @@ describe('ElectronFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
       expect.fail('Expected error to be thrown');
     } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).name).toBe('UserCancelledError');
-      expect((error as Error).message).toBe('User cancelled directory selection');
+      expect(error).toBeInstanceOf(UserCancelledError);
+      expect((error as UserCancelledError).message).toBe('User cancelled directory selection');
     }
   });
 
@@ -79,9 +79,8 @@ describe('ElectronFileSystemAdapter', () => {
       await adapter.requestDirectoryAccess();
       expect.fail('Expected error to be thrown');
     } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).name).toBe('UserCancelledError');
-      expect((error as Error).message).toBe('User cancelled directory selection');
+      expect(error).toBeInstanceOf(UserCancelledError);
+      expect((error as UserCancelledError).message).toBe('User cancelled directory selection');
     }
   });
 

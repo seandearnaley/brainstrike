@@ -2,9 +2,31 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
+import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
 
+/**
+ * File system adapter for Electron applications
+ *
+ * This adapter provides file system access using Node.js APIs within the Electron main process.
+ * It handles directory selection via Electron's dialog API and file operations using Node.js fs module.
+ *
+ * Key features:
+ * - Proper error handling with custom error types
+ * - User cancellation detection
+ * - Permission and access validation
+ * - File watching capabilities
+ */
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
+  /**
+   * Requests directory access from the user via Electron's dialog
+   *
+   * @returns Promise<DirectoryHandle> The selected directory handle
+   * @throws {UserCancelledError} When user cancels the dialog
+   * @throws {PermissionError} When access is denied due to permissions
+   * @throws {AccessError} When the selected path is invalid or inaccessible
+   * @throws {DialogError} When the dialog fails to open
+   */
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     // Dynamically import electron to avoid issues in browser/test environments
     let dialog: Electron.Dialog;
@@ -27,10 +49,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       });
 
       if (result.canceled || result.filePaths.length === 0) {
-        // Return a more specific error for user cancellation
-        const error = new Error('User cancelled directory selection');
-        error.name = 'UserCancelledError';
-        throw error;
+        throw new UserCancelledError(
+          'User cancelled directory selection',
+          this.requestDirectoryAccess
+        );
       }
 
       const selectedPath = result.filePaths[0];
@@ -42,11 +64,21 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       try {
         const stats = await fsPromises.stat(selectedPath);
         if (!stats.isDirectory()) {
-          throw new Error('Selected path is not a directory');
+          throw new AccessError(
+            'Selected path is not a directory',
+            selectedPath,
+            'access',
+            this.requestDirectoryAccess
+          );
         }
       } catch (accessError) {
-        throw new Error(
-          `Cannot access selected directory: ${accessError instanceof Error ? accessError.message : 'Unknown error'}`
+        if (accessError instanceof AccessError) {
+          throw accessError; // Re-throw our custom error
+        }
+        throw new PermissionError(
+          `Cannot access selected directory: ${accessError instanceof Error ? accessError.message : 'Unknown error'}`,
+          selectedPath,
+          this.requestDirectoryAccess
         );
       }
 
@@ -58,15 +90,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       };
     } catch (error) {
       // Re-throw with better error handling
-      if (error instanceof Error) {
-        // Preserve user cancellation errors
-        if (error.name === 'UserCancelledError') {
-          throw error;
-        }
-        // Handle other dialog errors
-        throw new Error(`Failed to open directory dialog: ${error.message}`);
+      if (
+        error instanceof UserCancelledError ||
+        error instanceof PermissionError ||
+        error instanceof AccessError
+      ) {
+        throw error; // Preserve our custom errors
       }
-      throw new Error('Unknown error occurred while opening directory dialog');
+      if (error instanceof Error) {
+        throw new DialogError(
+          `Failed to open directory dialog: ${error.message}`,
+          this.requestDirectoryAccess
+        );
+      }
+      throw new DialogError(
+        'Unknown error occurred while opening directory dialog',
+        this.requestDirectoryAccess
+      );
     }
   }
 
@@ -128,8 +168,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         return a.name.localeCompare(b.name);
       });
     } catch (error) {
-      throw new Error(
-        `Failed to read directory: ${error instanceof Error ? error.message : 'Unknown error'}`
+      throw new AccessError(
+        `Failed to read directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        _handle.path,
+        'read'
       );
     }
   }
@@ -138,8 +180,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     try {
       return await fsPromises.readFile(_handle.path, 'utf-8');
     } catch (error) {
-      throw new Error(
-        `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`
+      throw new AccessError(
+        `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        _handle.path,
+        'read'
       );
     }
   }
@@ -163,10 +207,28 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
         if (filename) {
           const fullPath = path.join(handle.path, filename);
+
+          // Determine the actual type of the changed item
+          let kind: 'file' | 'directory' = 'file';
+          try {
+            const stats = fs.statSync(fullPath);
+            kind = stats.isDirectory() ? 'directory' : 'file';
+          } catch {
+            // If we can't stat the file, it might have been deleted
+            // Default to 'file' for safety
+          }
+
+          // Map event types more accurately
+          let changeType: FileSystemChange['type'] = 'modified';
+          if (eventType === 'rename') {
+            // Check if the file still exists to determine if it was added or removed
+            changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
+          }
+
           const change: FileSystemChange = {
-            type: eventType === 'rename' ? 'modified' : 'modified',
+            type: changeType,
             path: fullPath,
-            kind: 'file', // Default to file, could be enhanced to check actual type
+            kind,
           };
           callback([change]);
         }
