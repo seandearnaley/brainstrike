@@ -142,9 +142,10 @@ export function useFileExplorer({
     if (localFilterError) return new Error(localFilterError);
     // coreExplorer.error could be an Error, string, or null
     if (coreExplorer.error) {
-      // Check if it's an object before using instanceof
-      if (typeof coreExplorer.error === 'object' && coreExplorer.error instanceof Error) {
-        return coreExplorer.error; // It's an Error object
+      // Check if it's an Error instance
+      const error = coreExplorer.error as unknown;
+      if (error instanceof Error) {
+        return error; // It's an Error object
       }
       // If it's not an Error object, and it's truthy, it must be a string from coreExplorer.filterError
       return new Error(String(coreExplorer.error));

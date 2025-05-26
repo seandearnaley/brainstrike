@@ -18,6 +18,32 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
+/**
+ * Calculates the new total estimate when the current loaded count exceeds the estimate.
+ * Ensures the total is always at least the loaded count, with some buffer.
+ */
+export function calculateDynamicTotal(currentTotal: number, loaded: number): number {
+  if (loaded <= currentTotal) {
+    return currentTotal;
+  }
+
+  // Ensure total is at least the loaded count plus a buffer
+  const bufferPercentage = 0.25; // 25% buffer
+  const minBuffer = 100;
+
+  const buffer = Math.max(Math.ceil(loaded * bufferPercentage), minBuffer);
+
+  return loaded + buffer;
+}
+
+/**
+ * Safely calculates percentage avoiding division by zero.
+ */
+export function calculateProgressPercentage(loaded: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.round((loaded / total) * 100);
+}
+
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const { fileSystemAdapter } = useAdapters();
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
@@ -34,11 +60,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     total: number;
     currentPath: string;
     phase: LoadingProgressState['phase'];
+    estimatedTotal: number;
   }>({
     loaded: 0,
     total: 0,
     currentPath: '',
     phase: 'counting',
+    estimatedTotal: 100,
   });
 
   const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
@@ -60,6 +88,12 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       progressRef.current.currentPath = path;
     }
 
+    // Dynamically adjust total if we exceed the current estimate
+    progressRef.current.total = calculateDynamicTotal(
+      progressRef.current.total,
+      progressRef.current.loaded
+    );
+
     setLoadingProgress({
       loaded: progressRef.current.loaded,
       total: progressRef.current.total,
@@ -80,10 +114,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       if (isRoot) {
         progressRef.current.phase = 'loading';
         progressRef.current.loaded = 0;
-        progressRef.current.total = 100; // Estimate
+        progressRef.current.total = progressRef.current.estimatedTotal;
         setLoadingProgress({
           loaded: 0,
-          total: 100,
+          total: progressRef.current.estimatedTotal,
           phase: 'loading',
         });
       }
@@ -93,42 +127,50 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
-          const path = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+          const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
-          if (fileFilter.shouldIgnorePath(path)) continue;
+          if (fileFilter.shouldIgnorePath(relativePath)) continue;
 
           try {
             if (entry.type === 'file') {
+              // For Electron, preserve the absolute path from the adapter
+              // For web, use the relative path for security/consistency
+              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+
               processedEntries.push({
                 ...entry,
-                path,
-                depth: path.split('/').length - 1,
+                path: finalPath,
+                depth: relativePath.split('/').length - 1,
                 selectionState: 'unchecked',
                 rootFolderId,
               });
-              updateProgress(path);
+              updateProgress(relativePath);
             } else if (entry.type === 'directory') {
+              // For Electron, preserve the absolute path from the adapter
+              // For web, use the relative path for security/consistency
+              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+
               const dirHandle: DirectoryHandle = {
-                path: entry.path,
+                path: finalPath,
                 name: entry.name,
                 kind: 'directory',
                 platform: directoryHandle.platform,
                 _internal: entry.handle,
               };
 
-              const children = await readFullTree(dirHandle, rootHandle, path, false);
+              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
               processedEntries.push({
                 ...entry,
-                path,
-                depth: path.split('/').length - 1,
+                path: finalPath,
+                depth: relativePath.split('/').length - 1,
                 children: sortFileNodes(children),
                 selectionState: 'unchecked',
                 rootFolderId,
               });
-              updateProgress(path);
+              updateProgress(relativePath);
             }
           } catch (err) {
-            console.error(`Error processing ${path}:`, err);
+            console.error(`Error processing ${relativePath}:`, err);
           }
         }
 

@@ -56,7 +56,7 @@ function setupSecurity() {
 
 async function createWindow() {
   const win = new BrowserWindow({
-    width: 1200,
+    width: 1536,
     height: 800,
     minWidth: 800,
     minHeight: 600,
@@ -107,7 +107,7 @@ async function createWindow() {
   } else {
     // Development: connect to Vite dev server
     console.log('🔧 Development mode - connecting to Vite dev server');
-    const devPorts = [3000, 3001, 3002, 3003]; // Try 3000 first (web app default), then fallbacks
+    const devPorts = [3001, 3002, 3003]; // Port 3000 is reserved for the web app
 
     for (const port of devPorts) {
       try {

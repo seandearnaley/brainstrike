@@ -171,6 +171,83 @@ describe('LoadingOverlay', () => {
     });
   });
 
+  describe('Progress meter calculation tests', () => {
+    it('should handle progress beyond initial estimate correctly', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 150,
+            total: 100, // This should not happen with the new logic, but testing edge case
+            phase: 'loading',
+          }}
+        />
+      );
+      // Should still display the numbers correctly even if they exceed 100%
+      expect(screen.getByText(/Processing files \(150\/100 - 150%\)/)).toBeInTheDocument();
+    });
+
+    it('should handle very large file counts', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 3168,
+            total: 5000,
+            phase: 'loading',
+          }}
+        />
+      );
+      // Should display correct percentage calculation
+      expect(screen.getByText(/Processing files \(3168\/5000 - 63%\)/)).toBeInTheDocument();
+    });
+
+    it('should handle zero total gracefully', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 5,
+            total: 0,
+            phase: 'loading',
+          }}
+        />
+      );
+      // Should show "Preparing..." when total is 0
+      expect(screen.getByText('Preparing...')).toBeInTheDocument();
+    });
+
+    it('should calculate percentage correctly for edge cases', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 99,
+            total: 100,
+            phase: 'loading',
+          }}
+        />
+      );
+      // Should display 99%
+      expect(screen.getByText(/Processing files \(99\/100 - 99%\)/)).toBeInTheDocument();
+    });
+
+    it('should handle exact completion correctly', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 1000,
+            total: 1000,
+            phase: 'loading',
+          }}
+        />
+      );
+      // Should display 100%
+      expect(screen.getByText(/Processing files \(1000\/1000 - 100%\)/)).toBeInTheDocument();
+    });
+  });
+
   describe('Additional coverage for new features', () => {
     it('should display last 2 path segments in progress message if path has multiple segments', () => {
       render(
@@ -206,6 +283,59 @@ describe('LoadingOverlay', () => {
       // Expect it to show "bar/baz" on a new line without truncation
       expect(screen.getByText(/Processing files \(2\/10 - 20%\)/)).toBeInTheDocument();
       expect(screen.getByText(/bar\/baz/)).toBeInTheDocument();
+    });
+  });
+
+  describe('Progress bar percentage calculations', () => {
+    it('should set progress bar to 0% during counting phase', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 10,
+            total: 100,
+            phase: 'counting',
+          }}
+        />
+      );
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveAttribute('data-progress', '0');
+    });
+
+    it('should calculate correct percentage for progressState', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 75,
+            total: 300,
+            phase: 'loading',
+          }}
+        />
+      );
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveAttribute('data-progress', '25'); // 75/300 = 25%
+    });
+
+    it('should fall back to progressLoaded/progressTotal when progressState is not provided', () => {
+      render(<LoadingOverlay isLoading={true} progressLoaded={40} progressTotal={200} />);
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveAttribute('data-progress', '20'); // 40/200 = 20%
+    });
+
+    it('should handle division by zero in progress calculation', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          progressState={{
+            loaded: 50,
+            total: 0,
+            phase: 'loading',
+          }}
+        />
+      );
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveAttribute('data-progress', '0');
     });
   });
 });
