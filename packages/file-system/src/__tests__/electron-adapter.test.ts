@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
+import { UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle } from '../types';
 
 // Mock electron dialog
@@ -46,31 +47,41 @@ describe('ElectronFileSystemAdapter', () => {
     expect(dialog.showOpenDialog).toHaveBeenCalledWith({
       properties: ['openDirectory'],
       title: 'Select a folder to explore',
+      buttonLabel: 'Select Folder',
+      message: 'Choose a directory to explore with BrainStrike',
     });
   });
 
-  it('should throw error when user cancels directory selection', async () => {
+  it('should throw UserCancelledError when user cancels directory selection', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: true,
       filePaths: [],
     });
 
-    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
-      'User cancelled directory selection'
-    );
+    try {
+      await adapter.requestDirectoryAccess();
+      expect.fail('Expected error to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UserCancelledError);
+      expect((error as UserCancelledError).message).toBe('User cancelled directory selection');
+    }
   });
 
-  it('should throw error when no paths are returned', async () => {
+  it('should throw UserCancelledError when no paths are returned', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
       filePaths: [],
     });
 
-    await expect(adapter.requestDirectoryAccess()).rejects.toThrow(
-      'User cancelled directory selection'
-    );
+    try {
+      await adapter.requestDirectoryAccess();
+      expect.fail('Expected error to be thrown');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UserCancelledError);
+      expect((error as UserCancelledError).message).toBe('User cancelled directory selection');
+    }
   });
 
   it('should read directory contents', async () => {
