@@ -5,8 +5,8 @@ import { defineConfig, devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
 import { getBaseUrl, DEFAULT_PORT } from "@brainstrike/server-config";
 
-// Default to Vite's dev server port
-const baseURL = process.env.BASE_URL || "http://localhost:5173";
+// Default to the server config port (3000) since that's where our dev server runs
+const baseURL = process.env.BASE_URL || getBaseUrl(DEFAULT_PORT);
 const serverURL = getBaseUrl(DEFAULT_PORT);
 
 // Make sure to log important info

@@ -54,13 +54,20 @@ export const createFolderStateActions = (
         lastActiveTab: newFolderState.lastActiveTab ?? 'files',
       });
     } else if (folderId) {
-      // Create new folder state (resetting current state fields)
+      // Create new folder state
       updatedFolderStates[folderId] = createNewFolderState();
+
+      // If we're switching from null (initial state) to a folder, preserve current selections
+      // This prevents losing selections when the folder ID is set for the first time
+      const shouldPreserveSelections = currentFolderId === null;
+
       set({
         currentFolderId: folderId,
         folderStates: updatedFolderStates,
-        selectedFilePaths: new Set<string>(),
-        expandedDirectoryPaths: new Set<string>(),
+        selectedFilePaths: shouldPreserveSelections ? state.selectedFilePaths : new Set<string>(),
+        expandedDirectoryPaths: shouldPreserveSelections
+          ? state.expandedDirectoryPaths
+          : new Set<string>(),
         // Reset potentially global settings to defaults? Or keep current? Let's keep current for now.
         // includeFilters: DEFAULT_STATE.includeFilters,
         // excludeFilters: DEFAULT_STATE.excludeFilters,
