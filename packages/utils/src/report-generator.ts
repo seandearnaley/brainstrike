@@ -1,4 +1,3 @@
-// import type { IFileNode } from '@web/lib/file/types'; // Removed: Unused
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { readFullFileTree } from './file-system-utils';
 import { generateProjectTreeText } from './tree-generator';

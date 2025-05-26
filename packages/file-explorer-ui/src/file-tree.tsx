@@ -11,6 +11,14 @@ interface IFileTreeProps {
   folderId: string;
 }
 
+/**
+ * @file FileTree.tsx
+ * @description Renders the file and folder structure.
+ * @param {IFileNode[]} fileTree - The array of IFileNode objects representing the file structure to render.
+ * @param {Set<string>} loadingFiles - A set of paths for files that are currently in a loading state.
+ * @param {(() => void) | undefined} onRender - An optional callback function that is triggered when the tree component renders (primarily for testing).
+ * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
+ */
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
   const store = useFileExplorerStoreContext();
   const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
