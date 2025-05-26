@@ -1,0 +1,80 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Navigation & State Preservation Architecture
+
+## Overview
+This project uses a **component mounting strategy** instead of React Router lazy loading to preserve critical file system state during navigation between app tabs.
+
+## Key Architecture Decision
+
+### ✅ Current Implementation (Component Mounting)
+Both [apps/web/src/app/root-layout-content.tsx](mdc:apps/web/src/app/root-layout-content.tsx) and [apps/desktop/src/renderer/components/root-layout-content.tsx](mdc:apps/desktop/src/renderer/components/root-layout-content.tsx) use:
+
+```tsx
+{/* Keep both components mounted to preserve state */}
+<div style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
+  <HomePageContent />
+</div>
+<div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+  <SettingsPageContent />
+</div>
+```
+
+### ❌ Why NOT Lazy Loading
+Lazy loading would cause component unmounting, which breaks:
+- **File System Access API handles** (web) - `FileSystemDirectoryHandle` objects become invalid
+- **File tree state** - Entire directory structure would need re-scanning
+- **User selections** - Selected files and expanded directories lost
+- **Loading progress** - File tree loading would restart from scratch
+
+## Critical State That Must Persist
+
+### File System Handles
+- **Web**: `FileSystemDirectoryHandle` objects stored in `DirectoryHandle._internal`
+- **Desktop**: File paths and directory access permissions
+- **Location**: [packages/file-system/src/types.ts](mdc:packages/file-system/src/types.ts)
+
+### Zustand State Persistence
+- **Store**: [packages/file-explorer/src/store.ts](mdc:packages/file-explorer/src/store.ts)
+- **Provider**: [packages/file-explorer-ui/src/file-explorer-provider.tsx](mdc:packages/file-explorer-ui/src/file-explorer-provider.tsx)
+- **Persistence**: [packages/file-explorer/src/persistence/file-explorer-persistence.ts](mdc:packages/file-explorer/src/persistence/file-explorer-persistence.ts)
+
+### File Tree Loading
+- **Hook**: [packages/file-explorer-hooks/src/use-file-tree.ts](mdc:packages/file-explorer-hooks/src/use-file-tree.ts)
+- **Behavior**: Reads entire directory structure recursively
+- **Performance**: Large directories can take significant time to scan
+
+## Benefits of Current Approach
+
+1. **Desktop-First Compatibility**: Identical behavior between desktop and web
+2. **Instant Navigation**: No loading states when switching tabs
+3. **State Preservation**: All user interactions preserved
+4. **Performance**: No re-scanning of file systems
+5. **Memory Efficiency**: Only 2 components, minimal overhead
+
+## Implementation Guidelines
+
+### ✅ DO
+- Keep navigation components always mounted
+- Use CSS `display` property for tab switching
+- Preserve file handles in component state
+- Maintain Zustand store across navigation
+
+### ❌ DON'T
+- Use React Router lazy loading for main app tabs
+- Unmount file explorer components during navigation
+- Clear file system state on tab switches
+- Implement "true" SPA routing that destroys component state
+
+## Testing Considerations
+- E2E tests verify state preservation: [apps/web/e2e/layout.spec.ts](mdc:apps/web/e2e/layout.spec.ts)
+- Integration tests ensure file handles survive: [packages/file-explorer-ui/src/__tests__/file-explorer-provider.integration.test.tsx](mdc:packages/file-explorer-ui/src/__tests__/file-explorer-provider.integration.test.tsx)
+
+## Future Considerations
+If more tabs are added, consider:
+- Lazy loading for non-critical tabs only
+- Selective state preservation strategies
+- Memory usage monitoring for large file trees

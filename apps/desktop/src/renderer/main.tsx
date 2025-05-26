@@ -4,14 +4,11 @@ import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
-import { HashRouter, Route, Routes } from 'react-router-dom';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
-import HomePageContent from './components/home-page-content';
-// Import layout and page components from web app structure
+// Import layout component
 import RootLayoutContent from './components/root-layout-content';
-import SettingsPageContent from './components/settings/page-content';
 
 // Electron renderer adapters are defined in a separate module
 
@@ -28,14 +25,7 @@ ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
       <HelmetProvider>
-        <HashRouter>
-          <Routes>
-            <Route path="/" element={<RootLayoutContent />}>
-              <Route index element={<HomePageContent />} />
-              <Route path="settings" element={<SettingsPageContent />} />
-            </Route>
-          </Routes>
-        </HashRouter>
+        <RootLayoutContent />
       </HelmetProvider>
     </AdaptersProvider>
   </React.StrictMode>

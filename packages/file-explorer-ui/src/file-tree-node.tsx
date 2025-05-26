@@ -84,7 +84,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       const { count } = fileExplorer.getFolderFileCount(node);
 
       const selectedCount = allFilePaths.filter((path) =>
-        isPathSelectedInFolder(selectedFilePaths, folderId, path)
+        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
       ).length;
       const isFullySelected = selectedCount === allFilePaths.length;
 
@@ -97,7 +97,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       if (!isFullySelected) {
         // For folders that are not fully selected (including intermediate state), complete the selection by selecting all unselected files
         const unselectedPaths = allFilePaths.filter(
-          (path) => !isPathSelectedInFolder(selectedFilePaths, folderId, path)
+          (path) => !(folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false)
         );
         const availableSlots = maxSelectionCount - selectedFilePaths.size;
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
@@ -176,7 +176,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
      */
     const checkboxState = useMemo(() => {
       if (node.type === 'file') {
-        return isPathSelectedInFolder(selectedFilePaths, folderId, node.path);
+        return folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path) : false;
       }
 
       const allFilePaths = getAllFilePaths(node);
@@ -185,7 +185,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       }
 
       const selectedCount = allFilePaths.filter((path) =>
-        isPathSelectedInFolder(selectedFilePaths, folderId, path)
+        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
       ).length;
       if (selectedCount === 0) {
         return false;
@@ -200,8 +200,8 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     const folderInfo = useMemo(() => {
       if (node.type !== 'directory') return null;
       const { count, isComplete } = fileExplorer.getFolderFileCount(node);
-      const selectedCount = getAllFilePaths(node).filter((path) =>
-        isPathSelectedInFolder(selectedFilePaths, folderId, path)
+      const selectedCount = getAllFilePaths(node).filter(
+        (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
       ).length;
       return { count, isComplete, selectedCount };
     }, [node, selectedFilePaths, getAllFilePaths, folderId]);
@@ -212,7 +212,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
         return (
-          !isPathSelectedInFolder(selectedFilePaths, folderId, node.path) &&
+          !(folderId && isPathSelectedInFolder(selectedFilePaths, folderId, node.path)) &&
           selectedFilePaths.size >= maxSelectionCount
         );
       }

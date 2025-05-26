@@ -16,6 +16,15 @@ vi.mock('@brainstrike/app-shell', () => ({
   })),
 }));
 
+// Mock the page components to avoid adapter dependencies
+vi.mock('../../../renderer/components/home-page-content', () => ({
+  default: () => <div data-testid="home-page-content">Home Page Content</div>,
+}));
+
+vi.mock('../../../renderer/components/settings/page-content', () => ({
+  default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
+}));
+
 describe('RootLayoutContent', () => {
   it('should render without crashing', () => {
     render(<RootLayoutContent />);
@@ -26,5 +35,11 @@ describe('RootLayoutContent', () => {
     render(<RootLayoutContent />);
     const appLayout = screen.getByTestId('app-layout');
     expect(appLayout).toBeInTheDocument();
+  });
+
+  it('should render home page content by default', () => {
+    render(<RootLayoutContent />);
+    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+    expect(screen.getByText('Home Page Content')).toBeInTheDocument();
   });
 });
