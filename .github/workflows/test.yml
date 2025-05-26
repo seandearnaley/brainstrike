@@ -151,6 +151,7 @@ jobs:
           files: ./coverage/lcov.info 
           fail_ci_if_error: false
           verbose: true
+          disable_search: true # Prevent Codecov from finding other coverage files
 
       - name: Upload test results
         if: always()
