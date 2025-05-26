@@ -3,6 +3,7 @@ import { Progress } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
 import { Loader2, RefreshCw } from 'lucide-react';
 import React from 'react';
+import { calculateProgressPercentage } from './use-file-tree-context';
 
 export interface LoadingProgressState {
   loaded: number;
@@ -89,9 +90,9 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       progressState?.phase === 'counting'
         ? 0
         : progressState
-          ? Math.round((progressState.loaded / progressState.total) * 100) || 0
+          ? calculateProgressPercentage(progressState.loaded, progressState.total)
           : progressTotal > 0
-            ? Math.round((progressLoaded / progressTotal) * 100)
+            ? calculateProgressPercentage(progressLoaded, progressTotal)
             : 0;
 
     return (

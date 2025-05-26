@@ -15,6 +15,32 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
+/**
+ * Calculates the new total estimate when the current loaded count exceeds the estimate.
+ * Ensures the total is always at least the loaded count, with some buffer.
+ */
+export function calculateDynamicTotal(currentTotal: number, loaded: number): number {
+  if (loaded <= currentTotal) {
+    return currentTotal;
+  }
+
+  // Ensure total is at least the loaded count plus a buffer
+  const bufferPercentage = 0.25; // 25% buffer
+  const minBuffer = 500; // Higher minimum for this implementation
+
+  const buffer = Math.max(Math.ceil(loaded * bufferPercentage), minBuffer);
+
+  return loaded + buffer;
+}
+
+/**
+ * Safely calculates percentage avoiding division by zero.
+ */
+export function calculateProgressPercentage(loaded: number, total: number): number {
+  if (total === 0) return 0;
+  return Math.round((loaded / total) * 100);
+}
+
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -30,12 +56,14 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     batchCount: number;
     currentPath: string;
     phase: LoadingProgressState['phase'];
+    estimatedTotal: number;
   }>({
     loaded: 0,
     total: 0,
     batchCount: 0,
     currentPath: '',
     phase: 'counting',
+    estimatedTotal: 1000,
   });
   const refreshTrigger = useRef(0);
   const { fileSystemAdapter } = useAdapters();
@@ -59,6 +87,12 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     if (path) {
       progressRef.current.currentPath = path;
     }
+
+    // Dynamically adjust total if we exceed the current estimate
+    progressRef.current.total = calculateDynamicTotal(
+      progressRef.current.total,
+      progressRef.current.loaded
+    );
 
     // Update UI when batch size reached or at 100%
     if (
@@ -99,14 +133,15 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         // without reading them, so we'll estimate or read progressively
         progressRef.current = {
           loaded: 0,
-          total: 1000, // Rough estimate, will adjust as we go
+          total: progressRef.current.estimatedTotal,
           batchCount: 0,
           currentPath: '',
           phase: 'loading',
+          estimatedTotal: progressRef.current.estimatedTotal,
         };
         setLoadingProgress({
           loaded: 0,
-          total: 1000,
+          total: progressRef.current.estimatedTotal,
           phase: 'loading',
         });
       }
@@ -204,6 +239,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       batchCount: 0,
       currentPath: '',
       phase: 'counting',
+      estimatedTotal: progressRef.current.estimatedTotal,
     };
     setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
 

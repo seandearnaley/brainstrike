@@ -56,7 +56,7 @@ function setupSecurity() {
 
 async function createWindow() {
   const win = new BrowserWindow({
-    width: 1200,
+    width: 1536,
     height: 800,
     minWidth: 800,
     minHeight: 600,

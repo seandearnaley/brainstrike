@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)",
+      "Bash(npm uninstall:*)",
+      "mcp__search1api-mcp__search",
+      "Bash(npm test:*)",
+      "Bash(node:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run lint)",
+      "Bash(pnpm run lint:*)"
+    ],
+    "deny": []
+  }
+}
