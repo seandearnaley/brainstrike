@@ -163,7 +163,8 @@ test.describe('Complete File Explorer Workflow', () => {
     await copyButton.click();
 
     // Wait for success toast (copy operation should show a success message)
-    await expect(page.getByText('The report has been copied to your clipboard.')).toBeVisible();
+    // Use first() to avoid strict mode violation when multiple elements have the same text
+    await expect(page.getByText('The report has been copied to your clipboard.').first()).toBeVisible();
 
     // Step 11: Test filter functionality
     const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
