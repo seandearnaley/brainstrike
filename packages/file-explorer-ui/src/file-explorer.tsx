@@ -230,11 +230,16 @@ const FileExplorer: React.FC = () => {
 
   useEffect(() => {
     if (rootDirectoryHandle) {
-      setCurrentFolderId(rootDirectoryHandle.name);
+      // Only set the folder ID if it's different from the current one
+      // This prevents clearing selections when the same directory is already selected
+      const currentState = store.getState();
+      if (currentState.currentFolderId !== rootDirectoryHandle.name) {
+        setCurrentFolderId(rootDirectoryHandle.name);
+      }
     } else {
       setCurrentFolderId(null);
     }
-  }, [rootDirectoryHandle, setCurrentFolderId]);
+  }, [rootDirectoryHandle, setCurrentFolderId, store]);
 
   const expandAll = useCallback(() => {
     if (fileTree && fileTree.length > 0) {
