@@ -27,6 +27,10 @@ const FileExplorer = React.lazy(() => {
 export default function ClientFileExplorer() {
   const [isSupported, setIsSupported] = useState(true);
 
+  // Create adapters for the web platform, memoized to prevent re-creation on re-renders
+  const fileSystemAdapter = useMemo(() => createFileSystemAdapter('web'), []);
+  const storageAdapter = useMemo(() => createStorageAdapter('web'), []);
+
   useEffect(() => {
     // Check if File System Access API is supported
     const checkSupport = () => {
@@ -61,10 +65,6 @@ export default function ClientFileExplorer() {
       />
     );
   }
-
-  // Create adapters for the web platform, memoized to prevent re-creation on re-renders
-  const fileSystemAdapter = useMemo(() => createFileSystemAdapter('web'), []);
-  const storageAdapter = useMemo(() => createStorageAdapter('web'), []);
 
   return (
     <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
