@@ -1,3 +1,0 @@
-This is a debug test file.
-If you can see this content in the desktop app preview panel, the file reading fix is working correctly!
-The path should now be absolute for Electron platform. 
