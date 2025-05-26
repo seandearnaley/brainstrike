@@ -39,17 +39,39 @@ export function useFileSystem() {
       return handle;
     } catch (error) {
       if (error instanceof Error) {
-        if (
-          error.message.includes('Permission denied') ||
-          error.message.includes('SecurityError')
-        ) {
-          throw new Error('Permission denied');
+        // Handle specific error types with user-friendly messages
+        if (error.message.includes('Permission denied')) {
+          throw new Error(
+            'Permission denied: Unable to access the selected directory. Please check folder permissions and try again.'
+          );
         }
-        if (error.message.includes('AbortError') || error.message.includes('cancelled')) {
-          return null;
+
+        if (error.message.includes('Unable to open directory selection dialog')) {
+          throw new Error('Could not open the folder selection dialog. Please try again.');
         }
+
+        if (error.message.includes('Failed to open directory dialog')) {
+          throw new Error('Could not open the folder selection dialog. Please try again.');
+        }
+
+        if (error.message.includes('Unable to read the selected directory')) {
+          throw new Error(
+            'Cannot read the selected directory. Please ensure you have proper access permissions.'
+          );
+        }
+
+        if (error.message.includes('Cannot access selected directory')) {
+          throw new Error(
+            'Cannot access the selected directory. Please ensure you have proper access permissions.'
+          );
+        }
+
+        // For any other errors, pass through the message as-is since it's already user-friendly
+        throw error;
       }
-      throw error;
+
+      // Fallback for non-Error objects
+      throw new Error('An unexpected error occurred while selecting the directory.');
     } finally {
       setIsAccessLoading(false);
     }
