@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // TODO: Replace with actual file system interaction mocks for web
-const MOCK_FILE_SYSTEM = false; // Set to true to enable mock file system interactions
+const MOCK_FILE_SYSTEM = true; // Set to true to enable mock file system interactions
 
 test.describe('File Explorer', () => {
   test.beforeEach(async ({ page }) => {
@@ -165,32 +165,53 @@ test.describe('File Explorer', () => {
     // beforeEach ensures the main layout, Context Explorer heading, and Download button are visible.
 
     if (MOCK_FILE_SYSTEM) {
-      // Simulate directory selection and file selections here
-      // This requires the File System Access API mock to be active and working.
-      console.warn('MOCK_FILE_SYSTEM is true. Skipping actual file interaction for report download test.');
-      // Example: Simulate selecting files and enabling the download button
-      // await page.getByRole('button', { name: 'Select Root Directory' }).click();
-      // Wait for FileFilterBar to appear after selecting root
-      // await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible();
-      // await page.getByRole('checkbox', { name: 'Select test.ts' }).check();
-      // await page.getByRole('checkbox', { name: 'Select test2.ts' }).check();
-      // await expect(page.getByText('Selected: 2 files')).toBeVisible(); // Adjust text based on actual output
-      // const downloadButton = page.getByRole('button', { name: 'Download Report' });
-      // await expect(downloadButton).toBeEnabled();
-      // const [download] = await Promise.all([
-      //   page.waitForEvent('download'),
-      //   downloadButton.click(),
-      // ]);
-      // expect(download.suggestedFilename()).toMatch(/report/i);
-    } else {
-      console.warn(
-        'MOCK_FILE_SYSTEM is false. The report download test may not fully execute without real file interactions or robust mocks.',
-      );
-    }
+      // Simulate directory selection by clicking the "Select Root" button.
+      // The mocked showDirectoryPicker from addInitScript will be used.
+      await page.getByRole('button', { name: 'Select Root' }).click();
 
-    // Check if the button exists and is initially disabled (as per previous test and beforeEach wait).
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeVisible();
-    // The button should be disabled initially as per the previous test
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
+      // Wait for the file tree to appear and the initial empty messages to disappear.
+      // The FileFilterBar appearing is a good sign the root directory has been processed.
+      await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText('No directory selected')).not.toBeVisible();
+
+      // Scope checkbox locators to the file tree
+      const fileTree = page.getByRole('tree', { name: 'File tree' });
+      const file1Checkbox = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
+      const file2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+      
+      await expect(file1Checkbox).toBeVisible();
+      await file1Checkbox.check();
+      await expect(file1Checkbox).toBeChecked();
+
+      await expect(file2Checkbox).toBeVisible();
+      await file2Checkbox.check();
+      await expect(file2Checkbox).toBeChecked();
+
+      // Verify the selection counter updates. The mock file system has 2 files + 1 nested, but we select 2 top-level.
+      // Max selection is 10 by default.
+      await expect(page.getByText('2/10')).toBeVisible();
+
+      const downloadButton = page.getByRole('button', { name: 'Download Report' });
+      await expect(downloadButton).toBeEnabled();
+
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        downloadButton.click(),
+      ]);
+      
+      // Check if the downloaded file name contains "report" (case-insensitive)
+      // The actual name might be report.txt, report.zip, etc. depending on implementation.
+      expect(download.suggestedFilename()).toMatch(/report/i);
+
+    } else {
+      // This block should ideally not be reached if MOCK_FILE_SYSTEM is true.
+      // If it is, the test for download functionality is effectively skipped.
+      console.warn(
+        'MOCK_FILE_SYSTEM is false. The report download test cannot fully execute without mock file interactions.',
+      );
+      // Fallback to checking the initial disabled state if mocks are off
+      await expect(page.getByRole('button', { name: 'Download Report' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
+    }
   });
 });
