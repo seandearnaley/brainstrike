@@ -3,7 +3,7 @@
 
 declare const __dirname: string | undefined;
 
-function resolveFontPath(relativePath: string): string {
+export function resolveFontPath(relativePath: string): string {
   // Node.js CommonJS environments don't support `import.meta.url`
   // so fall back to __dirname when available.
   if (typeof __dirname !== 'undefined') {
