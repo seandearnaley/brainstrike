@@ -65,6 +65,29 @@ test.describe('Complete File Explorer Workflow', () => {
 
       // @ts-expect-error
       window.showDirectoryPicker = async () => root;
+      
+      // Mock clipboard API for CI environments where it's not available
+      if (!navigator.clipboard) {
+        // @ts-expect-error
+        navigator.clipboard = {
+          writeText: async (text) => {
+            console.log('Clipboard mock: writeText called with:', text);
+            return Promise.resolve();
+          }
+        };
+      } else {
+        // Override existing clipboard to ensure it works in CI
+        const originalWriteText = navigator.clipboard.writeText;
+        navigator.clipboard.writeText = async (text) => {
+          try {
+            return await originalWriteText.call(navigator.clipboard, text);
+          } catch (error) {
+            // Fallback for CI environments
+            console.log('Clipboard fallback: writeText called with:', text);
+            return Promise.resolve();
+          }
+        };
+      }
       /* eslint-enable */
     });
 
