@@ -118,44 +118,52 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
-          const path = parentPath ? `${parentPath}/${entry.name}` : entry.name;
+          const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
-          if (fileFilter.shouldIgnorePath(path)) continue;
+          if (fileFilter.shouldIgnorePath(relativePath)) continue;
 
           try {
             if (entry.type === 'file') {
+              // For Electron, preserve the absolute path from the adapter
+              // For web, use the relative path for security/consistency
+              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+
               processedEntries.push({
                 ...entry,
-                path,
-                depth: path.split('/').length - 1,
+                path: finalPath,
+                depth: relativePath.split('/').length - 1,
                 selectionState: 'unchecked',
                 rootFolderId,
               });
               stats.successCount++;
-              updateProgress(path);
+              updateProgress(relativePath);
             } else if (entry.type === 'directory') {
+              // For Electron, preserve the absolute path from the adapter
+              // For web, use the relative path for security/consistency
+              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+
               // For directories, we need to create a DirectoryHandle from the IFileNode
               const dirHandle: DirectoryHandle = {
-                path,
+                path: finalPath,
                 name: entry.name,
                 kind: 'directory',
                 platform: directoryHandle.platform,
                 _internal: entry.handle,
               };
 
-              const children = await readFullTree(dirHandle, rootHandle, path, false);
+              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
               processedEntries.push({
                 ...entry,
-                path,
-                depth: path.split('/').length - 1,
+                path: finalPath,
+                depth: relativePath.split('/').length - 1,
                 children: sortFileNodes(children),
                 selectionState: 'unchecked',
                 rootFolderId,
               });
-              updateProgress(path);
+              updateProgress(relativePath);
             }
           } catch (err) {
-            console.error(`Error processing ${path}:`, err);
+            console.error(`Error processing ${relativePath}:`, err);
             stats.failCount++;
           }
         }

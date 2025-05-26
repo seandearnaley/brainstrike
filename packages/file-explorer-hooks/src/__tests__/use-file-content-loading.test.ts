@@ -190,6 +190,37 @@ describe('useFileContentLoading', () => {
       expect(result.current.fileContents[compositeKey]).toBe(expectedLargeContent);
     });
 
+    it('should handle absolute paths for electron platform', async () => {
+      const absolutePath = '/Users/test/project/src/main.tsx';
+      const fileNode = createFileNode({
+        name: 'main.tsx',
+        path: absolutePath, // Absolute path for Electron
+        handle: {
+          kind: 'file',
+          name: 'main.tsx',
+          path: absolutePath,
+          platform: 'electron',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const expectedContent = 'electron file content';
+      MockFileSystemAdapter.setMockFileContent(absolutePath, expectedContent);
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+      const compositeKey = getCompositeKey(absolutePath);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(result.current.fileContents[compositeKey]).toBe(expectedContent);
+    });
+
     it('passes platform information to the adapter', async () => {
       const filePath = '/platform.txt';
       const fileNode = createFileNode({
