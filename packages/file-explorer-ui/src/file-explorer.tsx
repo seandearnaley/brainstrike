@@ -40,6 +40,14 @@ const FileExplorerMainPanel = lazy(() =>
 // Log successful imports to help with debugging
 console.log('Core imports loaded successfully');
 
+/**
+ * @file FileExplorer.tsx
+ * @description The main orchestrator for the file explorer interface.
+ * This component brings together various hooks and UI components (FileTree, FilePreview, etc.)
+ * to provide the complete file exploration experience. It manages the overall state of the
+ * file explorer, including selected files, expanded folders, and interactions between
+ * different parts of the UI.
+ */
 const FileExplorer: React.FC = () => {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
