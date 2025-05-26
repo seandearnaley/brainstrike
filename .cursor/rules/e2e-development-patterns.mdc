@@ -1,0 +1,366 @@
+---
+description: Brainstrike E2E Development Patterns
+globs: 
+alwaysApply: false
+---
+# Brainstrike E2E Development Patterns
+
+## Applies To
+- **File Pattern**: `apps/web/e2e/**/*.spec.ts`, `apps/desktop/src/__tests__/integration/**/*.test.ts`
+- **When Working On**: File explorer e2e tests, settings page tests, navigation tests, theme tests
+- **Related Files**: File explorer components, settings components, Zustand stores
+
+## Overview
+Specific e2e development patterns for the brainstrike file explorer application, based on actual codebase structure and component behavior.
+
+## Brainstrike-Specific E2E Patterns
+
+### 1. Standard Test Setup for Brainstrike App
+```typescript
+// ✅ Brainstrike app test structure
+test.describe('File Explorer Feature', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    
+    // Wait for brainstrike app to load - these are the actual elements
+    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('should perform file explorer action', async ({ page }) => {
+    // Standard brainstrike test pattern
+  });
+});
+```
+
+### 2. Brainstrike Navigation Patterns
+```typescript
+// ✅ Navigate between main app sections
+await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+await page.getByRole('button', { name: 'Settings', exact: true }).click();
+
+// ✅ File explorer specific elements
+await page.getByRole('button', { name: 'Select Root' }).click();
+await page.getByText('0/10 selected').toBeVisible(); // File counter pattern
+await page.getByRole('button', { name: 'Download Report' }).click();
+await page.getByRole('button', { name: 'Copy Report' }).click();
+
+// ✅ Filter buttons (actual brainstrike filters)
+await page.getByRole('button', { name: 'Images' }).click();
+await page.getByRole('button', { name: 'Documents' }).click();
+await page.getByRole('button', { name: 'Code' }).click();
+await page.getByRole('button', { name: 'Archives' }).click();
+```
+
+### 3. Theme System Testing (Brainstrike-Specific)
+```typescript
+// ✅ Theme controls in Settings page
+await page.getByRole('button', { name: 'Settings', exact: true }).click();
+await expect(page.getByText('Theme', { exact: true })).toBeVisible();
+await page.getByRole('button', { name: 'Light' }).click();
+await page.getByRole('button', { name: 'Dark' }).click();
+await page.getByRole('button', { name: 'System' }).click();
+
+// ✅ Theme toggle in navigation
+const themeToggle = page.getByRole('button', { name: 'Toggle theme' });
+await themeToggle.click();
+
+// ✅ Verify theme applied to html element (brainstrike pattern)
+const htmlElement = page.locator('html');
+await expect(htmlElement).toHaveClass(/dark/);
+await expect(htmlElement).not.toHaveClass(/dark/);
+```
+
+### 4. File Explorer State Management
+```typescript
+// ✅ File selection patterns
+await page.getByRole('button', { name: 'Select Root' }).click();
+// Wait for file tree to load
+await expect(page.getByText('0/10 selected')).toBeVisible();
+
+// ✅ Filter state testing
+await page.getByRole('button', { name: 'Images' }).click();
+// Verify filter is applied (button state changes)
+await expect(page.getByRole('button', { name: 'Images' })).toHaveAttribute('data-state', 'on');
+
+// ✅ File explorer store state (via Zustand)
+// Test that selections persist across navigation
+await page.getByRole('button', { name: 'Settings' }).click();
+await page.getByRole('button', { name: 'Context Explorer' }).click();
+await expect(page.getByText('0/10 selected')).toBeVisible(); // State persisted
+```
+
+### 5. Brainstrike-Specific Timing Patterns
+```typescript
+// ✅ Theme changes need timing (discovered pattern)
+await page.getByRole('button', { name: 'Dark' }).click();
+await page.waitForTimeout(100); // Theme provider needs time to update DOM
+await expect(page.locator('html')).toHaveClass(/dark/);
+
+// ✅ File tree loading
+await page.getByRole('button', { name: 'Select Root' }).click();
+await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+
+// ✅ Navigation state updates
+await page.getByRole('button', { name: 'Settings' }).click();
+await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+```
+
+### 6. Known Brainstrike Issues & Workarounds
+
+#### Theme Toggle Limitation
+```typescript
+// ❌ Theme toggle has known limitation - doesn't handle system theme well
+// When theme is 'system', toggle sets to 'light' instead of detecting current state
+test('theme toggle workaround', async ({ page }) => {
+  // Set explicit theme state first to avoid system theme issues
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Light' }).click();
+  await page.waitForTimeout(100);
+  
+  // Now test toggle from known state
+  const themeToggle = page.getByRole('button', { name: 'Toggle theme' });
+  await themeToggle.click();
+  await page.waitForTimeout(100);
+  await expect(page.locator('html')).toHaveClass(/dark/);
+});
+```
+
+#### Page Reload Navigation Behavior
+```typescript
+// ✅ After reload, app always goes to Context Explorer (not Settings)
+test('reload behavior', async ({ page }) => {
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.reload();
+  
+  // Don't expect to be on Settings - app goes to Context Explorer
+  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+});
+```
+
+### 7. Brainstrike Component Testing Patterns
+
+#### File Explorer Filter Testing
+```typescript
+test('file type filters work correctly', async ({ page }) => {
+  // Test predefined filter buttons (actual brainstrike filters)
+  await page.getByRole('button', { name: 'Images' }).click();
+  await expect(page.getByRole('button', { name: 'Images' })).toHaveAttribute('data-state', 'on');
+  
+  // Test multiple filters
+  await page.getByRole('button', { name: 'Documents' }).click();
+  await expect(page.getByRole('button', { name: 'Documents' })).toHaveAttribute('data-state', 'on');
+  
+  // Clear filters
+  await page.getByRole('button', { name: 'Images' }).click();
+  await expect(page.getByRole('button', { name: 'Images' })).toHaveAttribute('data-state', 'off');
+});
+```
+
+#### File Selection Counter Testing
+```typescript
+test('file selection counter updates correctly', async ({ page }) => {
+  // Initial state
+  await expect(page.getByText('0/10 selected')).toBeVisible();
+  
+  // After selecting files (this would depend on actual file selection implementation)
+  // await selectFiles(page, 3);
+  // await expect(page.getByText('3/10 selected')).toBeVisible();
+});
+```
+
+### 8. Zustand Store Integration Testing
+```typescript
+// ✅ Test that Zustand store state persists across navigation
+test('file explorer state persists across navigation', async ({ page }) => {
+  // Set some state in file explorer
+  await page.getByRole('button', { name: 'Images' }).click();
+  
+  // Navigate away
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  
+  // Navigate back
+  await page.getByRole('button', { name: 'Context Explorer' }).click();
+  
+  // Verify state persisted
+  await expect(page.getByRole('button', { name: 'Images' })).toHaveAttribute('data-state', 'on');
+});
+```
+
+## Brainstrike-Specific Anti-Patterns
+
+### 1. Theme Testing Mistakes
+```typescript
+// ❌ Don't assume initial theme state
+await expect(page.locator('html')).not.toHaveClass(/dark/); // May fail if system is dark
+
+// ✅ Set explicit theme state first
+await page.getByRole('button', { name: 'Settings' }).click();
+await page.getByRole('button', { name: 'Light' }).click();
+await page.waitForTimeout(100);
+```
+
+### 2. Navigation Assumptions
+```typescript
+// ❌ Don't assume page stays after reload
+await page.reload();
+await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible(); // Fails
+
+// ✅ Know that reload goes to Context Explorer
+await page.reload();
+await expect(page.getByRole('heading', { name: 'Context Explorer' })).toBeVisible();
+```
+
+### 3. Text Selector Issues
+```typescript
+// ❌ Ambiguous text selectors (learned from theme test failures)
+await page.getByText('Theme'); // Matches multiple elements
+
+// ✅ Use exact match
+await page.getByText('Theme', { exact: true });
+```
+
+## Brainstrike Test Organization
+
+### 1. File Explorer Page Object (If Needed)
+```typescript
+// e2e/utils/file-explorer-page.ts
+export class FileExplorerPage {
+  constructor(private page: Page) {}
+  
+  async navigateToSettings() {
+    await this.page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(this.page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  }
+  
+  async applyFileFilter(filterName: 'Images' | 'Documents' | 'Code' | 'Archives') {
+    await this.page.getByRole('button', { name: filterName }).click();
+    await expect(this.page.getByRole('button', { name: filterName })).toHaveAttribute('data-state', 'on');
+  }
+  
+  async setTheme(theme: 'Light' | 'Dark' | 'System') {
+    await this.navigateToSettings();
+    await this.page.getByRole('button', { name: theme }).click();
+    await this.page.waitForTimeout(100); // Theme needs time to apply
+  }
+}
+```
+
+### 2. Brainstrike Test Helpers
+```typescript
+// e2e/utils/brainstrike-helpers.ts
+export async function waitForBrainstrikeAppLoad(page: Page) {
+  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+}
+
+export async function setKnownThemeState(page: Page, theme: 'Light' | 'Dark' = 'Light') {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: theme }).click();
+  await page.waitForTimeout(100);
+  await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
+}
+
+export async function verifyFileCounter(page: Page, selected: number, total: number = 10) {
+  await expect(page.getByText(`${selected}/${total} selected`)).toBeVisible();
+}
+```
+
+### 3. Brainstrike Test Data
+```typescript
+// e2e/fixtures/brainstrike-data.ts
+export const brainstrikeFilters = ['Images', 'Documents', 'Code', 'Archives'] as const;
+export const brainstrikeThemes = ['Light', 'Dark', 'System'] as const;
+export const brainstrikePages = ['Context Explorer', 'Settings'] as const;
+
+export const expectedElements = {
+  navigation: {
+    contextExplorer: 'Context Explorer',
+    settings: 'Settings',
+    themeToggle: 'Toggle theme'
+  },
+  fileExplorer: {
+    selectRoot: 'Select Root',
+    downloadReport: 'Download Report',
+    copyReport: 'Copy Report'
+  },
+  settings: {
+    themeLabel: 'Theme'
+  }
+};
+```
+
+## Brainstrike Test Configuration
+
+### Current Playwright Setup
+```typescript
+// apps/web/playwright.config.ts - actual brainstrike config
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: true,
+  forbidOnly: !!process.env.CI,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:3000', // Brainstrike web app
+    trace: 'on-first-retry',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:3000',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+## Existing Brainstrike Tests Reference
+
+### Current Test Files
+- [apps/web/e2e/file-explorer.spec.ts](mdc:apps/web/e2e/file-explorer.spec.ts) - Basic file explorer functionality
+- [apps/web/e2e/file-explorer-filters.spec.ts](mdc:apps/web/e2e/file-explorer-filters.spec.ts) - Filter button testing
+- [apps/web/e2e/theme-switching.spec.ts](mdc:apps/web/e2e/theme-switching.spec.ts) - Theme system testing (fixed)
+- [apps/web/e2e/layout.spec.ts](mdc:apps/web/e2e/layout.spec.ts) - Layout and navigation
+
+### Key Brainstrike Components to Test
+- File Explorer: [packages/file-explorer-ui/](mdc:packages/file-explorer-ui)
+- Theme Provider: [packages/ui/src/theme-provider.tsx](mdc:packages/ui/src/theme-provider.tsx)
+- Theme Toggle: [packages/ui/src/theme-toggle.tsx](mdc:packages/ui/src/theme-toggle.tsx)
+- File Explorer Store: [packages/file-explorer/src/](mdc:packages/file-explorer/src)
+- App Layout: [packages/app-shell/src/app-layout.tsx](mdc:packages/app-shell/src/app-layout.tsx)
+
+### Brainstrike-Specific Test Commands
+```bash
+# Run all e2e tests
+cd apps/web && npm run test:e2e
+
+# Run specific test file
+cd apps/web && npm run test:e2e -- --grep "Theme Switching"
+
+# Run tests in headed mode for debugging
+cd apps/web && npm run test:e2e -- --headed
+
+# Generate test report
+cd apps/web && npm run test:e2e -- --reporter=html
+```
+
+## Integration with Brainstrike Monorepo
+
+### Shared Packages Used in Tests
+- [packages/ui](mdc:packages/ui) - UI components and theme system
+- [packages/file-explorer](mdc:packages/file-explorer) - File explorer logic and stores
+- [packages/types](mdc:packages/types) - Shared TypeScript types
+- [packages/test-utils](mdc:packages/test-utils) - Test utilities and factories
+
+### Turborepo Integration
+- Tests run as part of `pnpm run test` from root
+- Cached test results for faster CI/CD
+- Parallel execution across packages
+- Dependency-aware test execution
