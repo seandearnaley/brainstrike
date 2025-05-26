@@ -1,6 +1,8 @@
 import { AppLayout, createAppConfig } from '@brainstrike/app-shell';
 import { Folder, Settings } from 'lucide-react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useState } from 'react';
+import HomePageContent from './home-page-content';
+import SettingsPageContent from './settings/page-content';
 
 const appConfig = createAppConfig({
   navigationItems: [
@@ -10,12 +12,29 @@ const appConfig = createAppConfig({
 });
 
 export default function RootLayoutContent() {
-  const { pathname } = useLocation();
+  const [activeTab, setActiveTab] = useState<'explorer' | 'settings'>('explorer');
+
+  const handleNavigationClick = (path: string) => {
+    if (path === '/') {
+      setActiveTab('explorer');
+    } else if (path === '/settings') {
+      setActiveTab('settings');
+    }
+  };
 
   return (
     <div className="h-screen">
-      <AppLayout config={appConfig} currentPath={pathname}>
-        <Outlet />
+      <AppLayout
+        config={appConfig}
+        currentPath={activeTab === 'explorer' ? '/' : '/settings'}
+        onNavigationClick={handleNavigationClick}
+      >
+        <div style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
+          <HomePageContent />
+        </div>
+        <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+          <SettingsPageContent />
+        </div>
       </AppLayout>
     </div>
   );

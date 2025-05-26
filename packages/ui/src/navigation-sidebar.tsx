@@ -11,6 +11,7 @@ export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement
   items: NavigationItem[];
   currentPath: string;
   children?: ReactNode;
+  onItemClick?: (path: string) => void;
 }
 
 export function NavigationSidebar({
@@ -18,6 +19,7 @@ export function NavigationSidebar({
   currentPath,
   children,
   className,
+  onItemClick,
   ...props
 }: NavigationSidebarProps): ReactElement {
   return (
@@ -30,6 +32,26 @@ export function NavigationSidebar({
     >
       {items.map((item) => {
         const Icon = item.icon;
+
+        // If onItemClick is provided, render as button instead of link
+        if (onItemClick) {
+          return (
+            <button
+              key={item.name}
+              type="button"
+              onClick={() => onItemClick(item.path)}
+              className={cn(
+                'p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors',
+                currentPath === item.path && 'bg-gray-200 dark:bg-gray-700'
+              )}
+              title={item.name}
+            >
+              <Icon className="w-6 h-6" />
+            </button>
+          );
+        }
+
+        // Default behavior: render as link
         return (
           <a
             key={item.name}

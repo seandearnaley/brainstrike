@@ -1,6 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
 
 interface MockAppLayoutProps {
@@ -10,6 +9,7 @@ interface MockAppLayoutProps {
     navigationItems: unknown[];
   };
   currentPath: string;
+  onNavigationClick?: (path: string) => void;
 }
 
 interface MockAppConfig {
@@ -36,15 +36,14 @@ vi.mock('@brainstrike/app-shell', () => ({
   }),
 }));
 
-// Mock react-router-dom
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual('react-router-dom');
-  return {
-    ...actual,
-    useLocation: () => ({ pathname: '/test-path' }),
-    Outlet: () => <div data-testid="outlet">Outlet Content</div>,
-  };
-});
+// Mock the page components
+vi.mock('../home-page-content', () => ({
+  default: () => <div data-testid="home-page-content">Home Page Content</div>,
+}));
+
+vi.mock('../settings/page-content', () => ({
+  default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
+}));
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
@@ -52,44 +51,24 @@ describe('RootLayoutContent', () => {
   });
 
   it('renders without crashing', () => {
-    render(
-      <MemoryRouter>
-        <RootLayoutContent />
-      </MemoryRouter>
-    );
-
+    render(<RootLayoutContent />);
     expect(screen.getByTestId('app-layout')).toBeInTheDocument();
   });
 
-  it('passes the correct current path to AppLayout', () => {
-    render(
-      <MemoryRouter>
-        <RootLayoutContent />
-      </MemoryRouter>
-    );
-
+  it('passes the correct initial current path to AppLayout', () => {
+    render(<RootLayoutContent />);
     const appLayout = screen.getByTestId('app-layout');
-    expect(appLayout).toHaveAttribute('data-current-path', '/test-path');
+    expect(appLayout).toHaveAttribute('data-current-path', '/');
   });
 
-  it('renders the outlet for child routes', () => {
-    render(
-      <MemoryRouter>
-        <RootLayoutContent />
-      </MemoryRouter>
-    );
-
-    expect(screen.getByTestId('outlet')).toBeInTheDocument();
-    expect(screen.getByText('Outlet Content')).toBeInTheDocument();
+  it('renders home page content by default', () => {
+    render(<RootLayoutContent />);
+    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+    expect(screen.getByText('Home Page Content')).toBeInTheDocument();
   });
 
   it('uses the correct app configuration', () => {
-    render(
-      <MemoryRouter>
-        <RootLayoutContent />
-      </MemoryRouter>
-    );
-
+    render(<RootLayoutContent />);
     expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
   });
 });
