@@ -166,6 +166,20 @@ describe('file-explorer-persistence', () => {
       const result = migrateFn(actualState, 1);
       expect(result).toEqual(actualState);
     });
+
+    it('should return wrapper unchanged when state is undefined', () => {
+      const wrapper = { state: undefined, version: 1 } as unknown as SerializedState;
+      const result = migrateFn(wrapper, 1);
+      expect(result).toEqual(wrapper);
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+    });
+
+    it('should handle object missing state property gracefully', () => {
+      const malformed = { version: 1 } as unknown as SerializedState;
+      const result = migrateFn(malformed as unknown as SerializedState, 1);
+      expect(result).toEqual(malformed as unknown as SerializedState);
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+    });
   });
 
   describe('merge', () => {
@@ -298,6 +312,78 @@ describe('file-explorer-persistence', () => {
       expect(
         Array.from(merged.folderStates['rt-folder']?.expandedDirectoryPaths ?? new Set())
       ).toEqual(['fd1']);
+    });
+
+    it('should retain folder states present only in the current state', () => {
+      const currentWithExtra: FileExplorerState = {
+        ...initialCurrentState,
+        folderStates: {
+          ...initialCurrentState.folderStates,
+          'extra-folder': {
+            ...testDefaultFolderState,
+            selectedFilePaths: new Set(['extra.txt']),
+            expandedDirectoryPaths: new Set(['extra-dir']),
+            lastActiveTab: 'files',
+          },
+        },
+      };
+
+      const persisted: SerializedState = {
+        currentFolderId: null,
+        folderStates: {},
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 0,
+        lastActiveTab: 'files',
+      };
+
+      const result = mergeFn(persisted, currentWithExtra);
+      expect(result.folderStates['extra-folder']).toBeDefined();
+      expect(
+        Array.from(result.folderStates['extra-folder']?.selectedFilePaths ?? new Set())
+      ).toEqual(['extra.txt']);
+      expect(result.folderStates['initial-folder']).toBeDefined();
+    });
+
+    it('should round-trip state via partialize and merge with multiple folders and empty sets', () => {
+      const state: FileExplorerState = {
+        ...(DEFAULT_STATE as FileExplorerState),
+        currentFolderId: 'one',
+        selectedFilePaths: new Set(),
+        expandedDirectoryPaths: new Set(),
+        folderStates: {
+          one: {
+            ...testDefaultFolderState,
+            selectedFilePaths: new Set(),
+            expandedDirectoryPaths: new Set(),
+            lastActiveTab: 'files',
+            lastAccessed: 1,
+          },
+          two: {
+            ...testDefaultFolderState,
+            selectedFilePaths: new Set(),
+            expandedDirectoryPaths: new Set(),
+            lastActiveTab: 'preview',
+            lastAccessed: 2,
+          },
+        },
+      };
+
+      const serialized = partializeFn(state);
+      const merged = mergeFn(serialized, initialCurrentState);
+
+      expect(Object.keys(merged.folderStates)).toEqual(expect.arrayContaining(['one', 'two']));
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      expect(Array.from(merged.folderStates['one']?.selectedFilePaths ?? new Set())).toEqual([]);
+      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
+      expect(Array.from(merged.folderStates['two']?.expandedDirectoryPaths ?? new Set())).toEqual(
+        []
+      );
     });
   });
 

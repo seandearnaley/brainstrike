@@ -1,5 +1,10 @@
+import {
+  type DirectoryHandle,
+  type MockFileEntry,
+  MockFileSystemAdapter,
+} from '@brainstrike/file-system';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { generateReport } from '../report-generator';
+import { generateReport, generateReportFromAdapter } from '../report-generator';
 
 describe('reportGenerator', () => {
   const mockFileContents = {
@@ -396,5 +401,97 @@ describe('reportGenerator', () => {
     expect(report).toContain('Input.tsx');
     expect(report).toContain('Header.tsx');
     expect(report).not.toContain('Button.test.tsx');
+  });
+});
+
+describe('generateReportFromAdapter', () => {
+  let adapter: MockFileSystemAdapter;
+  let rootHandle: DirectoryHandle;
+
+  const fileContents = {
+    'src/index.ts': 'export * from "./components";',
+    'src/components/Button.tsx': 'export const Button = () => <button>Click me</button>;',
+    'src/components/Input.tsx': 'export const Input = () => <input />;',
+  };
+
+  beforeEach(async () => {
+    const fs = MockFileSystemAdapter.createSimpleFileSystem();
+    fs.node_modules = {
+      name: 'node_modules',
+      type: 'directory',
+      children: {
+        pkg: {
+          name: 'pkg',
+          type: 'directory',
+          children: { 'index.js': { name: 'index.js', type: 'file', content: '//lib' } },
+        },
+      },
+    };
+    fs.dist = {
+      name: 'dist',
+      type: 'directory',
+      children: { 'bundle.js': { name: 'bundle.js', type: 'file', content: 'bundle' } },
+    };
+
+    // build deep nested structure to trigger depth limiting
+    fs.deep = { name: 'deep', type: 'directory', children: {} };
+    let current: Record<string, MockFileEntry> = fs.deep.children as Record<string, MockFileEntry>;
+    for (let i = 0; i < 31; i++) {
+      current[`dir${i}`] = { name: `dir${i}`, type: 'directory', children: {} };
+      current = current[`dir${i}`].children as Record<string, MockFileEntry>;
+    }
+    current['tooDeep.txt'] = { name: 'tooDeep.txt', type: 'file', content: 'deep' };
+
+    adapter = new MockFileSystemAdapter(fs);
+    rootHandle = await adapter.requestDirectoryAccess();
+  });
+
+  it('generates report and project tree from adapter', async () => {
+    const selected = new Set(['src/index.ts', 'src/components/Button.tsx']);
+
+    const report = await generateReportFromAdapter(
+      selected,
+      fileContents,
+      adapter,
+      rootHandle,
+      [],
+      [],
+      false,
+      true
+    );
+
+    expect(report.startsWith('<report>')).toBe(true);
+    expect(report.trim().endsWith('</report>')).toBe(true);
+    expect(report).toContain('<project_tree>');
+    expect(report).toContain('src/');
+    expect(report).toContain('components/');
+    expect(report).toContain('Button.tsx');
+    expect(report).toContain('Input.tsx');
+    expect(report).not.toContain('node_modules');
+    expect(report).not.toContain('dist/');
+    // deepest file should be truncated by depth limit
+    expect(report).not.toContain('tooDeep.txt');
+  });
+
+  it('handles adapter errors gracefully', async () => {
+    const spy = vi.spyOn(adapter, 'readDirectory');
+    spy.mockImplementationOnce(() => Promise.reject(new Error('fail')));
+
+    const selected = new Set(['src/index.ts']);
+    const report = await generateReportFromAdapter(
+      selected,
+      fileContents,
+      adapter,
+      rootHandle,
+      [],
+      [],
+      false,
+      true
+    );
+
+    expect(report).toContain('<report>');
+    expect(report).toContain('src/index.ts');
+
+    spy.mockRestore();
   });
 });
