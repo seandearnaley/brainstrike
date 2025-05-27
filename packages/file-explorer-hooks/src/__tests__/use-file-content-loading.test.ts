@@ -600,4 +600,238 @@ describe('useFileContentLoading', () => {
       expect(result.current.error).toBeNull();
     });
   });
+
+  describe('Edge Cases', () => {
+    it('stores error message for folder mismatch', async () => {
+      const filePath = '/mismatch.txt';
+      const fileNode = createFileNode({
+        name: 'mismatch.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'mismatch.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: 'other-folder-id',
+      });
+
+      const compositeKey = getCompositeKey(filePath);
+      fileExplorer.findNodeByPath = vi.fn(() => fileNode);
+      const readSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readSpy).not.toHaveBeenCalled();
+      expect(result.current.fileContents[compositeKey]).toBe(
+        `File not accessible - Folder mismatch. Expected: ${TEST_FOLDER_ID}, Found: other-folder-id`
+      );
+    });
+
+    it('skips loading when file tree is empty', async () => {
+      const compositeKey = getCompositeKey('/missing.txt');
+      const readSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+      const { result, rerender } = renderUseFileContentLoadingHook([]);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readSpy).not.toHaveBeenCalled();
+      expect(result.current.fileContents[compositeKey]).toBeUndefined();
+    });
+
+    it('skips loading when node remains missing after retry', async () => {
+      vi.mocked(fileExplorer.findNodeByPath).mockReturnValue(undefined as unknown as IFileNode);
+      const compositeKey = getCompositeKey('/still-missing.txt');
+      const readSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'readFile');
+      const dummyNode = createFileNode({
+        name: 'dummy.txt',
+        path: '/dummy.txt',
+        handle: {
+          kind: 'file',
+          name: 'dummy.txt',
+          path: '/dummy.txt',
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const { result, rerender } = renderUseFileContentLoadingHook([dummyNode]);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readSpy).not.toHaveBeenCalled();
+      expect(result.current.fileContents[compositeKey]).toBeUndefined();
+    });
+
+    it('records per-file error and keeps global error null when readFile throws', async () => {
+      const filePath = '/adapter-error.txt';
+      const fileNode = createFileNode({
+        name: 'adapter-error.txt',
+        path: filePath,
+        handle: {
+          kind: 'file',
+          name: 'adapter-error.txt',
+          path: filePath,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readFile')
+        .mockRejectedValue(new Error('boom'));
+
+      const { result, rerender } = renderUseFileContentLoadingHook([fileNode]);
+      const compositeKey = getCompositeKey(filePath);
+
+      await act(async () => {
+        result.current.handleFileContentLoading([compositeKey]);
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      expect(readSpy).toHaveBeenCalled();
+      expect(result.current.fileContents[compositeKey]).toBe('Error accessing file');
+      expect(result.current.error).toBeNull();
+    });
+
+    it('processes files in chunks when exceeding concurrency limit', async () => {
+      const total = 7; // greater than MAX_CONCURRENT_LOADS (5)
+      const filePaths = Array.from({ length: total }, (_, i) => `/chunk-${i}.txt`);
+      const fileNodes = filePaths.map((path) =>
+        createFileNode({
+          name: path.slice(1),
+          path,
+          handle: {
+            kind: 'file',
+            name: path.slice(1),
+            path,
+            platform: 'web',
+            getFile: vi.fn(),
+            createWritable: vi.fn(),
+            isSameEntry: vi.fn(),
+          } as FileSystemFileHandle,
+          rootFolderId: TEST_FOLDER_ID,
+        })
+      );
+
+      const compositeKeys = filePaths.map(getCompositeKey);
+      const active: { count: number; max: number } = { count: 0, max: 0 };
+      const resolvers: Array<() => void> = [];
+
+      vi.spyOn(MockFileSystemAdapter.prototype, 'readFile').mockImplementation(() => {
+        active.count += 1;
+        active.max = Math.max(active.max, active.count);
+        return new Promise<string>((resolve) => {
+          resolvers.push(() => {
+            active.count -= 1;
+            resolve('chunked');
+          });
+        });
+      });
+
+      const { result, rerender } = renderUseFileContentLoadingHook(fileNodes);
+
+      act(() => {
+        result.current.handleFileContentLoading(compositeKeys);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(active.max).toBe(5);
+      const first = resolvers.splice(0, 5);
+      for (const fn of first) {
+        fn();
+      }
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(active.count).toBe(2);
+      for (const fn of resolvers) {
+        fn();
+      }
+      await act(async () => {
+        await waitForStateUpdate();
+        rerender();
+      });
+
+      for (const key of compositeKeys) {
+        expect(result.current.fileContents[key]).toBe('chunked');
+      }
+    });
+
+    it('clearFileContents removes specified keys', async () => {
+      const path1 = '/clear1.txt';
+      const path2 = '/clear2.txt';
+      const node1 = createFileNode({
+        name: 'clear1.txt',
+        path: path1,
+        handle: {
+          kind: 'file',
+          name: 'clear1.txt',
+          path: path1,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      const node2 = createFileNode({
+        name: 'clear2.txt',
+        path: path2,
+        handle: {
+          kind: 'file',
+          name: 'clear2.txt',
+          path: path2,
+          platform: 'web',
+          getFile: vi.fn(),
+          createWritable: vi.fn(),
+          isSameEntry: vi.fn(),
+        } as FileSystemFileHandle,
+        rootFolderId: TEST_FOLDER_ID,
+      });
+      MockFileSystemAdapter.setMockFileContent(path1, 'one');
+      MockFileSystemAdapter.setMockFileContent(path2, 'two');
+
+      const { result, rerender } = renderUseFileContentLoadingHook([node1, node2]);
+      const key1 = getCompositeKey(path1);
+      const key2 = getCompositeKey(path2);
+
+      act(() => {
+        result.current.fileContents[key1] = 'one';
+        result.current.fileContents[key2] = 'two';
+      });
+
+      act(() => {
+        result.current.clearFileContents([key1]);
+      });
+      rerender();
+
+      expect(result.current.fileContents[key1]).toBeUndefined();
+      expect(result.current.fileContents[key2]).toBeDefined();
+    });
+  });
 });

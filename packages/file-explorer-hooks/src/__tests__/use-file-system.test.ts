@@ -1,4 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import {
+  AccessError,
+  DialogError,
+  PermissionError,
+  UserCancelledError,
+} from '@brainstrike/file-system';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystem } from '../use-file-system';
@@ -174,6 +180,114 @@ describe('useFileSystem', () => {
       });
 
       // Restore original method
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
+    it('returns null when UserCancelledError is thrown', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi
+        .fn()
+        .mockRejectedValue(new UserCancelledError('x'));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      let handle: DirectoryHandle | null = null;
+      await act(async () => {
+        handle = await result.current?.selectRootDirectory();
+      });
+      expect(handle).toBeNull();
+      expect(result.current?.isAccessLoading).toBe(false);
+
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
+    it('throws permission denied message for PermissionError', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi
+        .fn()
+        .mockRejectedValue(new PermissionError('msg'));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      await act(async () => {
+        await expect(result.current?.selectRootDirectory()).rejects.toThrow(
+          'Permission denied: Unable to access the selected directory'
+        );
+      });
+      expect(result.current?.isAccessLoading).toBe(false);
+
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
+    it('throws access error message for AccessError', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi
+        .fn()
+        .mockRejectedValue(new AccessError('msg', '/path', 'read'));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      await act(async () => {
+        await expect(result.current?.selectRootDirectory()).rejects.toThrow(
+          'Unable to access the selected directory. Please check permissions and try again.'
+        );
+      });
+      expect(result.current?.isAccessLoading).toBe(false);
+
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
+    it('throws dialog error message for DialogError', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi
+        .fn()
+        .mockRejectedValue(new DialogError('msg'));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      await act(async () => {
+        await expect(result.current?.selectRootDirectory()).rejects.toThrow(
+          'Unable to open directory selection dialog. Please try again.'
+        );
+      });
+      expect(result.current?.isAccessLoading).toBe(false);
+
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
+    });
+
+    it('throws generic error for non-Error rejections', async () => {
+      const originalRequestDirectoryAccess = MockFileSystemAdapter.prototype.requestDirectoryAccess;
+      MockFileSystemAdapter.prototype.requestDirectoryAccess = vi.fn().mockRejectedValue(42);
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+      expect(result.current).toBeDefined();
+
+      await act(async () => {
+        await expect(result.current?.selectRootDirectory()).rejects.toThrow(
+          'An unexpected error occurred while selecting the directory. Please try again.'
+        );
+      });
+      expect(result.current?.isAccessLoading).toBe(false);
+
       MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
     });
   });

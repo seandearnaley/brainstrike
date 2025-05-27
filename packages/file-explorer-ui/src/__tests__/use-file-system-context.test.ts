@@ -123,4 +123,183 @@ describe('useFileSystem context hook', () => {
 
     expect(result.current.fs.isAccessLoading).toBe(false);
   });
+
+  it('throws dialog open error for "Unable to open directory selection dialog"', async () => {
+    const error = new Error('Unable to open directory selection dialog');
+    let rejectFn: (e: unknown) => void = () => {};
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFn = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    let promise: Promise<DirectoryHandle | null> | undefined;
+    let thrown: unknown;
+    act(() => {
+      promise = result.current.fs.selectRootDirectory().catch((e) => {
+        thrown = e;
+        return null;
+      });
+    });
+
+    expect(result.current.fs.isAccessLoading).toBe(true);
+
+    act(() => {
+      rejectFn(error);
+    });
+
+    await promise;
+
+    expect(result.current.fs.isAccessLoading).toBe(false);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Could not open the folder selection dialog. Please try again.'
+    );
+  });
+
+  it('throws dialog open error for "Failed to open directory dialog"', async () => {
+    const error = new Error('Failed to open directory dialog');
+    let rejectFn: (e: unknown) => void = () => {};
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFn = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    let promise: Promise<DirectoryHandle | null> | undefined;
+    let thrown: unknown;
+    act(() => {
+      promise = result.current.fs.selectRootDirectory().catch((e) => {
+        thrown = e;
+        return null;
+      });
+    });
+
+    expect(result.current.fs.isAccessLoading).toBe(true);
+
+    act(() => {
+      rejectFn(error);
+    });
+
+    await promise;
+
+    expect(result.current.fs.isAccessLoading).toBe(false);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Could not open the folder selection dialog. Please try again.'
+    );
+  });
+
+  it('throws read error when unable to read directory', async () => {
+    const error = new Error('Unable to read the selected directory');
+    let rejectFn: (e: unknown) => void = () => {};
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFn = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    let promise: Promise<DirectoryHandle | null> | undefined;
+    let thrown: unknown;
+    act(() => {
+      promise = result.current.fs.selectRootDirectory().catch((e) => {
+        thrown = e;
+        return null;
+      });
+    });
+
+    expect(result.current.fs.isAccessLoading).toBe(true);
+
+    act(() => {
+      rejectFn(error);
+    });
+
+    await promise;
+
+    expect(result.current.fs.isAccessLoading).toBe(false);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Cannot read the selected directory. Please ensure you have proper access permissions.'
+    );
+  });
+
+  it('throws access error when directory cannot be accessed', async () => {
+    const error = new Error('Cannot access selected directory');
+    let rejectFn: (e: unknown) => void = () => {};
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFn = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    let promise: Promise<DirectoryHandle | null> | undefined;
+    let thrown: unknown;
+    act(() => {
+      promise = result.current.fs.selectRootDirectory().catch((e) => {
+        thrown = e;
+        return null;
+      });
+    });
+
+    expect(result.current.fs.isAccessLoading).toBe(true);
+
+    act(() => {
+      rejectFn(error);
+    });
+
+    await promise;
+
+    expect(result.current.fs.isAccessLoading).toBe(false);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'Cannot access the selected directory. Please ensure you have proper access permissions.'
+    );
+  });
+
+  it('handles non-Error rejections with a generic message', async () => {
+    let rejectFn: (e: unknown) => void = () => {};
+    vi.spyOn(MockFileSystemAdapter.prototype, 'requestDirectoryAccess').mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectFn = reject;
+        })
+    );
+
+    const { result } = renderHook(() => useExposed(), { wrapper: FileExplorerTestWrapper });
+
+    let promise: Promise<DirectoryHandle | null> | undefined;
+    let thrown: unknown;
+    act(() => {
+      promise = result.current.fs.selectRootDirectory().catch((e) => {
+        thrown = e;
+        return null;
+      });
+    });
+
+    expect(result.current.fs.isAccessLoading).toBe(true);
+
+    act(() => {
+      rejectFn('something went wrong');
+    });
+
+    await promise;
+
+    expect(result.current.fs.isAccessLoading).toBe(false);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe(
+      'An unexpected error occurred while selecting the directory. Please try again.'
+    );
+  });
 });

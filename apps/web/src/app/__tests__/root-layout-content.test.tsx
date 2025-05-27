@@ -1,6 +1,8 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
+
+let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
 interface MockAppLayoutProps {
   children: React.ReactNode;
@@ -21,12 +23,16 @@ interface MockAppConfig {
 
 // Mock the app-shell package
 vi.mock('@brainstrike/app-shell', () => ({
-  AppLayout: ({ children, config, currentPath }: MockAppLayoutProps) => (
-    <div data-testid="app-layout" data-current-path={currentPath}>
-      <div data-testid="app-config-title">{config.title}</div>
-      {children}
-    </div>
-  ),
+  AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
+    capturedOnNavigationClick = onNavigationClick;
+    return (
+      <div data-testid="app-layout" data-current-path={currentPath}>
+        <div data-testid="app-config-title">{config.title}</div>
+        <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
+        {children}
+      </div>
+    );
+  },
   createAppConfig: (config: Partial<MockAppConfig>) => ({
     title: 'BrainStrike.ai',
     description: 'Multi-app dashboard',
@@ -70,5 +76,33 @@ describe('RootLayoutContent', () => {
   it('uses the correct app configuration', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('app-config-title')).toHaveTextContent('BrainStrike.ai');
+  });
+
+  it('includes two navigation items in the configuration', () => {
+    render(<RootLayoutContent />);
+    expect(screen.getByTestId('navigation-items-count')).toHaveTextContent('2');
+  });
+
+  it('shows settings page when navigation callback is triggered', () => {
+    render(<RootLayoutContent />);
+    act(() => {
+      capturedOnNavigationClick?.('/settings');
+    });
+
+    expect(screen.getByTestId('settings-page-content')).toBeInTheDocument();
+    expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/settings');
+  });
+
+  it('toggles back to the explorer page', () => {
+    render(<RootLayoutContent />);
+    act(() => {
+      capturedOnNavigationClick?.('/settings');
+    });
+    act(() => {
+      capturedOnNavigationClick?.('/');
+    });
+
+    expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
+    expect(screen.getByTestId('app-layout')).toHaveAttribute('data-current-path', '/');
   });
 });
