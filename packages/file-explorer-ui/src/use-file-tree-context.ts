@@ -18,6 +18,20 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
+export interface CancellableFileTreeHook {
+  fileTree: IFileNode[];
+  isLoading: boolean;
+  error: Error | null;
+  refreshTree: () => Promise<void>;
+  loadingProgress: LoadingProgressState;
+  /** Whether the current operation can be cancelled */
+  cancellable: boolean;
+  /** Cancel the current loading operation */
+  cancelOperation: () => void;
+  /** Whether the operation is currently being cancelled */
+  isCancelling: boolean;
+}
+
 /**
  * Calculates the new total estimate when the current loaded count exceeds the estimate.
  * Ensures the total is always at least the loaded count, with some buffer.
@@ -44,10 +58,11 @@ export function calculateProgressPercentage(loaded: number, total: number): numb
   return Math.round((loaded / total) * 100);
 }
 
-export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
+export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
     loaded: 0,
@@ -68,6 +83,16 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     phase: 'counting',
     estimatedTotal: 100,
   });
+
+  // AbortController for cancelling operations
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const cancelOperation = useCallback(() => {
+    if (abortControllerRef.current && isLoading && !isCancelling) {
+      setIsCancelling(true);
+      abortControllerRef.current.abort();
+    }
+  }, [isLoading, isCancelling]);
 
   const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
     return [...nodes].sort((a, b) => {
@@ -107,7 +132,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       directoryHandle: DirectoryHandle,
       rootHandle: DirectoryHandle,
       parentPath = '',
-      isRoot = true
+      isRoot = true,
+      abortSignal?: AbortSignal
     ): Promise<IFileNode[]> => {
       const rootFolderId = rootHandle.name;
 
@@ -122,11 +148,21 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         });
       }
 
+      // Check for cancellation
+      if (abortSignal?.aborted) {
+        throw new Error('Operation was cancelled');
+      }
+
       try {
         const entries = await fileSystemAdapter.readDirectory(directoryHandle);
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
+          // Check for cancellation before processing each entry
+          if (abortSignal?.aborted) {
+            throw new Error('Operation was cancelled');
+          }
+
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;
@@ -158,7 +194,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
                 _internal: entry.handle,
               };
 
-              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
+              const children = await readFullTree(
+                dirHandle,
+                rootHandle,
+                relativePath,
+                false,
+                abortSignal
+              );
               processedEntries.push({
                 ...entry,
                 path: finalPath,
@@ -170,12 +212,20 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
               updateProgress(relativePath);
             }
           } catch (err) {
+            // If it's a cancellation error, re-throw it
+            if (err instanceof Error && err.message === 'Operation was cancelled') {
+              throw err;
+            }
             console.error(`Error processing ${relativePath}:`, err);
           }
         }
 
         return sortFileNodes(processedEntries);
       } catch (err) {
+        // If it's a cancellation error, re-throw it
+        if (err instanceof Error && err.message === 'Operation was cancelled') {
+          throw err;
+        }
         console.error('Error reading directory:', err);
         throw err;
       }
@@ -189,18 +239,41 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       return;
     }
 
+    // Create new AbortController for this operation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setIsLoading(true);
+    setIsCancelling(false);
     setError(null);
 
     try {
-      const tree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle);
-      setFileTree(tree);
+      const tree = await readFullTree(
+        rootDirectoryHandle,
+        rootDirectoryHandle,
+        '',
+        true,
+        abortController.signal
+      );
+
+      // Only update state if not cancelled
+      if (!abortController.signal.aborted) {
+        setFileTree(tree);
+      }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      setError(error);
-      setFileTree([]);
+
+      // Handle cancellation differently from other errors
+      if (error.message === 'Operation was cancelled') {
+        setFileTree([]); // Clear the tree on cancellation
+      } else {
+        setError(error);
+        setFileTree([]);
+      }
     } finally {
       setIsLoading(false);
+      setIsCancelling(false);
+      abortControllerRef.current = null;
     }
   }, [rootDirectoryHandle, readFullTree]);
 
@@ -218,5 +291,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     error,
     refreshTree,
     loadingProgress,
+    cancellable: isLoading && !isCancelling,
+    cancelOperation,
+    isCancelling,
   };
 }

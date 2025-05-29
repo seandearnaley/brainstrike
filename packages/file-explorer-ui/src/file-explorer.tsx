@@ -70,17 +70,20 @@ const FileExplorer: React.FC = () => {
   const {
     fileTree,
     handleRootDirectorySelect,
-    error: treeError,
+    isLoading,
+    error,
     fileContents,
     applyFileFilters,
     filterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
-    refreshFileExplorer,
-    isLoading,
-    isInitialLoad,
     loadFileContent,
+    refreshFileExplorer,
+    isInitialLoad,
     loadingProgress,
+    cancellable,
+    cancelOperation,
+    isCancelling,
   } = useFileExplorer({
     onDisplayedFilePathsChange: setDisplayedFiles,
   });
@@ -251,6 +254,15 @@ const FileExplorer: React.FC = () => {
     store.getState().collapseAllDirectories();
   }, [store]);
 
+  const handleCancelOperation = useCallback(() => {
+    cancelOperation();
+    showToast({
+      title: 'Operation Cancelled',
+      description: 'The file loading operation has been cancelled.',
+      variant: 'default',
+    });
+  }, [cancelOperation, showToast]);
+
   return (
     <FileExplorerErrorBoundary>
       <div className="@container/main flex flex-col h-full max-h-[calc(100vh-2rem)] overflow-hidden">
@@ -266,6 +278,9 @@ const FileExplorer: React.FC = () => {
                 phase: 'counting' as const,
               }
             }
+            cancellable={cancellable}
+            onCancel={handleCancelOperation}
+            isCancelling={isCancelling}
             className="z-50"
           />
           <div className="flex flex-1 flex-col overflow-hidden gap-4 md:flex-row">
@@ -287,7 +302,7 @@ const FileExplorer: React.FC = () => {
               <Suspense fallback={<LoadingFallback />}>
                 <FileExplorerSidebar
                   rootDirectoryHandle={rootDirectoryHandle}
-                  treeError={treeError}
+                  treeError={error}
                   filterError={filterErrorAsError}
                   includeFilters={includeFilters}
                   excludeFilters={excludeFilters}
