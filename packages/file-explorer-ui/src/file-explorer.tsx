@@ -81,6 +81,8 @@ const FileExplorer: React.FC = () => {
     isInitialLoad,
     loadFileContent,
     loadingProgress,
+    cancelLoading,
+    isCancelling,
   } = useFileExplorer({
     onDisplayedFilePathsChange: setDisplayedFiles,
   });
@@ -259,6 +261,8 @@ const FileExplorer: React.FC = () => {
           <LoadingOverlay
             isLoading={isLoading}
             isInitialLoad={isInitialLoad}
+            isCancelling={isCancelling}
+            onCancel={cancelLoading}
             progressState={
               loadingProgress ?? {
                 loaded: 0,

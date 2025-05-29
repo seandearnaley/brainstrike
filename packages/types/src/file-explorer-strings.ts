@@ -32,6 +32,7 @@ export const FileExplorerStrings = {
     selectingRoot: 'Selecting Root Directory...',
     generatingReport: 'Generating Report...',
     refreshing: 'Refreshing file tree...',
+    cancelling: 'Cancelling...',
   },
 
   prompts: {

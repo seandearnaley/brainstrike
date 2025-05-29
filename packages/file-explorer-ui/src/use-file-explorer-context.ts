@@ -37,6 +37,8 @@ interface UseFileExplorerReturn {
   isInitialLoad: boolean;
   clearFileContents: (compositeKeys: string[]) => void;
   loadingProgress: LoadingProgressState | null;
+  cancelLoading: () => void;
+  isCancelling: boolean;
 }
 
 export function useFileExplorer({
@@ -58,6 +60,8 @@ export function useFileExplorer({
     error: treeError,
     refreshTree,
     loadingProgress,
+    cancelLoading,
+    isCancelling,
   } = useFileTree(rootDirectoryHandle);
 
   const {
@@ -173,5 +177,7 @@ export function useFileExplorer({
     isInitialLoad: approximatedIsInitialLoad,
     clearFileContents,
     loadingProgress,
+    cancelLoading,
+    isCancelling,
   };
 }

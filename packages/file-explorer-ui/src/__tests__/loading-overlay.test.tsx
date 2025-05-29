@@ -1,6 +1,6 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { LoadingOverlay } from '../loading-overlay';
 
 describe('LoadingOverlay', () => {
@@ -337,5 +337,19 @@ describe('LoadingOverlay', () => {
       const progressBar = screen.getByTestId('progress-bar');
       expect(progressBar).toHaveAttribute('data-progress', '0');
     });
+  });
+
+  it('calls onCancel when cancel button is clicked', () => {
+    const handleCancel = vi.fn();
+    render(<LoadingOverlay isLoading={true} onCancel={handleCancel} />);
+    screen.getByRole('button', { name: /cancel/i }).click();
+    expect(handleCancel).toHaveBeenCalled();
+  });
+
+  it('shows cancelling message when isCancelling is true', () => {
+    render(<LoadingOverlay isLoading={true} isCancelling={true} />);
+    expect(
+      screen.getAllByText(FileExplorerStrings.loading.cancelling).length
+    ).toBeGreaterThan(0);
   });
 });

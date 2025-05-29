@@ -15,6 +15,8 @@ export interface LoadingProgressState {
 export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement> {
   isLoading: boolean;
   isInitialLoad?: boolean;
+  isCancelling?: boolean;
+  onCancel?: () => void;
   progressLoaded?: number;
   progressTotal?: number;
   progressState?: LoadingProgressState;
@@ -28,6 +30,8 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       className,
       isLoading,
       isInitialLoad = false,
+      isCancelling = false,
+      onCancel,
       progressLoaded = 0,
       progressTotal = 0,
       progressState,
@@ -40,6 +44,7 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
     if (!isLoading) return null;
 
     const getProgressMessage = () => {
+      if (isCancelling) return FileExplorerStrings.loading.cancelling;
       if (message) return message;
 
       if (isInitialLoad) {
@@ -77,6 +82,7 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
 
     const getProgressDescription = () => {
       if (description) return description;
+      if (isCancelling) return FileExplorerStrings.loading.cancelling;
       if (!progressState) {
         return FileExplorerStrings.prompts.waitForLoading;
       }
@@ -124,6 +130,19 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
           <div>
             <p className="whitespace-pre-line font-medium">{getProgressMessage()}</p>
             <p className="mt-1 text-sm opacity-75">{getProgressDescription()}</p>
+            {onCancel && !isCancelling && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="mt-3 text-sm underline opacity-80 hover:opacity-100"
+                aria-label="Cancel loading process"
+              >
+                Cancel
+              </button>
+            )}
+            {isCancelling && (
+              <p className="mt-3 text-sm opacity-75">{FileExplorerStrings.loading.cancelling}</p>
+            )}
           </div>
         </div>
       </div>
