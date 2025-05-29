@@ -1,7 +1,7 @@
 import { FileExplorerStrings } from '@brainstrike/types';
 import { Button, Progress, cn } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { calculateProgressPercentage } from './use-file-tree-context';
 
 export interface LoadingProgressState {
@@ -27,6 +27,125 @@ export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement
   isCancelling?: boolean;
 }
 
+// Custom hook for delay logic
+const useCancelButtonDelay = (isLoading: boolean, cancellable: boolean, isCancelling: boolean) => {
+  const [showCancelButton, setShowCancelButton] = useState(false);
+
+  useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
+
+    if (isLoading && cancellable && !isCancelling) {
+      timer = setTimeout(() => {
+        setShowCancelButton(true);
+      }, 2000);
+    } else {
+      setShowCancelButton(false);
+    }
+
+    return () => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [isLoading, cancellable, isCancelling]);
+
+  return showCancelButton;
+};
+
+// Custom hook for keyboard handling
+const useKeyboardCancellation = (
+  isLoading: boolean,
+  cancellable: boolean,
+  isCancelling: boolean,
+  onCancel?: () => void
+) => {
+  useEffect(() => {
+    if (!isLoading || !cancellable || isCancelling || !onCancel) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCancel();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isLoading, cancellable, onCancel, isCancelling]);
+};
+
+// Custom hook for message generation
+const useProgressMessage = (
+  isCancelling: boolean,
+  message?: string,
+  isInitialLoad?: boolean,
+  progressState?: LoadingProgressState
+) => {
+  return useMemo(() => {
+    if (isCancelling) {
+      return 'Cancelling operation...';
+    }
+
+    if (message) return message;
+
+    if (isInitialLoad) {
+      return FileExplorerStrings.loading.rootDirectory;
+    }
+
+    if (!progressState) {
+      return isInitialLoad
+        ? FileExplorerStrings.loading.rootDirectory
+        : FileExplorerStrings.loading.refreshing;
+    }
+
+    if (progressState.phase === 'counting') {
+      return 'Scanning directory structure...';
+    }
+
+    const { loaded, total, currentPath } = progressState;
+
+    if (total === 0) return 'Preparing...';
+
+    const percent = Math.round((loaded / total) * 100);
+    const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
+
+    if (currentPath) {
+      // Get the last 2 parts of the path for display
+      const parts = currentPath.split('/');
+      const displayPath = parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
+      return `${baseMsg}\n${displayPath}`;
+    }
+
+    return baseMsg;
+  }, [isCancelling, message, isInitialLoad, progressState]);
+};
+
+// Custom hook for description generation
+const useProgressDescription = (
+  isCancelling: boolean,
+  description?: string,
+  progressState?: LoadingProgressState
+) => {
+  return useMemo(() => {
+    if (isCancelling) {
+      return 'Please wait while the operation is safely cancelled...';
+    }
+
+    if (description) return description;
+    if (!progressState) {
+      return FileExplorerStrings.prompts.waitForLoading;
+    }
+    if (progressState.phase === 'counting') {
+      return 'This may take a moment for large directories';
+    }
+    return FileExplorerStrings.prompts.waitForLoading;
+  }, [isCancelling, description, progressState]);
+};
+
 export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayProps>(
   (
     {
@@ -45,44 +164,11 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
     },
     ref
   ) => {
-    const [showCancelButton, setShowCancelButton] = useState(false);
+    const showCancelButton = useCancelButtonDelay(isLoading, cancellable, isCancelling);
+    useKeyboardCancellation(isLoading, cancellable, isCancelling, onCancel);
 
-    // Show cancel button after 2 seconds to avoid accidental clicks on quick operations
-    useEffect(() => {
-      let timer: NodeJS.Timeout | undefined;
-
-      if (isLoading && cancellable && !isCancelling) {
-        timer = setTimeout(() => {
-          setShowCancelButton(true);
-        }, 2000);
-      } else {
-        setShowCancelButton(false);
-      }
-
-      return () => {
-        if (timer) {
-          clearTimeout(timer);
-        }
-      };
-    }, [isLoading, cancellable, isCancelling]);
-
-    // Handle keyboard shortcuts for cancellation
-    useEffect(() => {
-      if (!isLoading || !cancellable || isCancelling || !onCancel) {
-        return;
-      }
-      const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          onCancel();
-        }
-      };
-
-      document.addEventListener('keydown', handleKeyDown);
-      return () => {
-        document.removeEventListener('keydown', handleKeyDown);
-      };
-    }, [isLoading, cancellable, onCancel, isCancelling]);
+    const progressMessage = useProgressMessage(isCancelling, message, isInitialLoad, progressState);
+    const progressDescription = useProgressDescription(isCancelling, description, progressState);
 
     const handleCancel = useCallback(() => {
       if (onCancel && !isCancelling) {
@@ -90,71 +176,21 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       }
     }, [onCancel, isCancelling]);
 
+    const progressPercentage = useMemo(() => {
+      if (progressState?.phase === 'counting') return 0;
+
+      if (progressState) {
+        return calculateProgressPercentage(progressState.loaded, progressState.total);
+      }
+
+      if (progressTotal > 0) {
+        return calculateProgressPercentage(progressLoaded, progressTotal);
+      }
+
+      return 0;
+    }, [progressState, progressLoaded, progressTotal]);
+
     if (!isLoading) return null;
-
-    const getProgressMessage = () => {
-      if (isCancelling) {
-        return 'Cancelling operation...';
-      }
-
-      if (message) return message;
-
-      if (isInitialLoad) {
-        return FileExplorerStrings.loading.rootDirectory;
-      }
-
-      if (!progressState) {
-        return isInitialLoad
-          ? FileExplorerStrings.loading.rootDirectory
-          : FileExplorerStrings.loading.refreshing;
-      }
-
-      if (progressState.phase === 'counting') {
-        return 'Scanning directory structure...';
-      }
-
-      const loaded = progressState.loaded;
-      const total = progressState.total;
-      const currentPath = progressState.currentPath;
-
-      if (total === 0) return 'Preparing...';
-
-      const percent = Math.round((loaded / total) * 100);
-      const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
-
-      if (currentPath) {
-        // Get the last 2 parts of the path for display
-        const parts = currentPath.split('/');
-        const displayPath = parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
-        return `${baseMsg}\n${displayPath}`;
-      }
-
-      return baseMsg;
-    };
-
-    const getProgressDescription = () => {
-      if (isCancelling) {
-        return 'Please wait while the operation is safely cancelled...';
-      }
-
-      if (description) return description;
-      if (!progressState) {
-        return FileExplorerStrings.prompts.waitForLoading;
-      }
-      if (progressState.phase === 'counting') {
-        return 'This may take a moment for large directories';
-      }
-      return FileExplorerStrings.prompts.waitForLoading;
-    };
-
-    const progressPercentage =
-      progressState?.phase === 'counting'
-        ? 0
-        : progressState
-          ? calculateProgressPercentage(progressState.loaded, progressState.total)
-          : progressTotal > 0
-            ? calculateProgressPercentage(progressLoaded, progressTotal)
-            : 0;
 
     return (
       <div
@@ -185,8 +221,8 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
             />
           </div>
           <div>
-            <p className="whitespace-pre-line font-medium">{getProgressMessage()}</p>
-            <p className="mt-1 text-sm opacity-75">{getProgressDescription()}</p>
+            <p className="whitespace-pre-line font-medium">{progressMessage}</p>
+            <p className="mt-1 text-sm opacity-75">{progressDescription}</p>
           </div>
           {cancellable && (showCancelButton || isCancelling) && (
             <div className="mt-4">
