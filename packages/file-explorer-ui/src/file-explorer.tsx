@@ -37,9 +37,6 @@ const FileExplorerMainPanel = lazy(() =>
   }))
 );
 
-// Log successful imports to help with debugging
-console.log('Core imports loaded successfully');
-
 /**
  * @file FileExplorer.tsx
  * @description The main orchestrator for the file explorer interface.

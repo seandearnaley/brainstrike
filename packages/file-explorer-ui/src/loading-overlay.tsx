@@ -1,6 +1,5 @@
 import { FileExplorerStrings } from '@brainstrike/types';
-import { Button, Progress } from '@brainstrike/ui';
-import { cn } from '@brainstrike/ui';
+import { Button, Progress, cn } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 import { calculateProgressPercentage } from './use-file-tree-context';
@@ -67,23 +66,21 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       };
     }, [isLoading, cancellable, isCancelling]);
 
-    // Handle keyboard shortcuts
+    // Handle keyboard shortcuts for cancellation
     useEffect(() => {
+      if (!isLoading || !cancellable || isCancelling || !onCancel) {
+        return;
+      }
       const handleKeyDown = (event: KeyboardEvent) => {
-        if (event.key === 'Escape' && isLoading && cancellable && onCancel && !isCancelling) {
+        if (event.key === 'Escape') {
           event.preventDefault();
           onCancel();
         }
       };
 
-      if (isLoading && cancellable) {
-        document.addEventListener('keydown', handleKeyDown);
-      }
-
+      document.addEventListener('keydown', handleKeyDown);
       return () => {
-        if (isLoading && cancellable) {
-          document.removeEventListener('keydown', handleKeyDown);
-        }
+        document.removeEventListener('keydown', handleKeyDown);
       };
     }, [isLoading, cancellable, onCancel, isCancelling]);
 
