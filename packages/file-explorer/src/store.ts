@@ -15,6 +15,7 @@ import { type StateCreator, create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
+import { createCancellationActions } from './actions/cancellation-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSettingsActions } from './actions/settings-actions';
 import { createPersistOptions } from './persistence/file-explorer-persistence';
@@ -41,6 +42,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createFileSelectionActions(set, get),
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
+    ...createCancellationActions(set, get),
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

@@ -1,4 +1,5 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
@@ -45,6 +46,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const errorRef = useRef<Error | null>(null); // To access error in finally
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const { setLoadingCancellable, setCancelling, setCancelled } = useFileExplorerStore.getState();
+
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
     loaded: 0,
     total: 0,
@@ -114,9 +119,12 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     async (
       directoryHandle: DirectoryHandle,
       rootHandle: DirectoryHandle,
+      signal: AbortSignal, // Added signal
       parentPath = '',
       isRoot = true
     ): Promise<IFileNode[]> => {
+      if (signal.aborted) throw new Error('USER_CANCELLED'); // Check at the beginning
+
       const rootFolderId = rootHandle.name;
       const stats = { successCount: 0, failCount: 0 };
 
@@ -153,6 +161,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
+          if (signal.aborted) throw new Error('USER_CANCELLED'); // Check in loop
+
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;
@@ -186,7 +196,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
                 _internal: entry.handle,
               };
 
-              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
+              // Pass signal recursively
+              const children = await readFullTree(dirHandle, rootHandle, signal, relativePath, false);
               processedEntries.push({
                 ...entry,
                 path: finalPath,
@@ -231,8 +242,20 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       return;
     }
 
+    // Cancel any existing load
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setIsLoading(true);
     setError(null);
+    errorRef.current = null; // Reset error ref
+    setLoadingCancellable(true);
+    setCancelling(false);
+    setCancelled(false);
+
     progressRef.current = {
       loaded: 0,
       total: 0,
@@ -244,16 +267,35 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
 
     try {
-      const newTree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle);
-      setFileTree(newTree);
+      const newTree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle, controller.signal);
+      if (!controller.signal.aborted) {
+        setFileTree(newTree);
+      }
     } catch (err) {
-      console.error('Error loading file tree:', err);
-      setError(err instanceof Error ? err : new Error(String(err)));
-      throw err;
+      const currentError = err instanceof Error ? err : new Error(String(err));
+      errorRef.current = currentError; // Store error in ref
+      if (currentError.message === 'USER_CANCELLED') {
+        console.debug('File tree loading cancelled by user (useFileTree).');
+        // Do not call setError or clear fileTree if it's a cancellation during refresh
+        // Re-throw is expected by some consumers of this specific hook, so we'll allow it.
+        throw currentError;
+      } else {
+        console.error('Error loading file tree (useFileTree):', currentError);
+        setError(currentError);
+        // Unlike context hook, this one might be used where clearing tree is acceptable or expected for non-cancel errors.
+        // Or, re-throw the error to let consumer decide. Current behavior is to re-throw.
+        throw currentError;
+      }
     } finally {
       setIsLoading(false);
+      setLoadingCancellable(false);
+      setCancelling(false);
+      setCancelled(errorRef.current?.message === 'USER_CANCELLED');
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
     }
-  }, [rootDirectoryHandle, readFullTree]);
+  }, [rootDirectoryHandle, readFullTree, setLoadingCancellable, setCancelling, setCancelled]);
 
   // Reset loading state when root directory changes
   useEffect(() => {
@@ -266,14 +308,34 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const refreshTree = useCallback(async () => {
     if (!rootDirectoryHandle) return;
     refreshTrigger.current += 1;
+    // setError(null); // Clear previous non-cancellation errors before refresh
     await loadTree();
   }, [rootDirectoryHandle, loadTree]);
 
+  const cancelCurrentLoad = useCallback(() => {
+    if (abortControllerRef.current) {
+      setCancelling(true); // Indicate cancellation is in progress
+      abortControllerRef.current.abort();
+    }
+  }, [setCancelling]);
+
   useEffect(() => {
     loadTree().catch((err) => {
-      console.error('Error in initial tree load:', err);
+      // Catch errors from loadTree (like USER_CANCELLED or others) to prevent unhandled promise rejections
+      if (err.message === 'USER_CANCELLED') {
+        console.debug('Initial loadTree call cancelled.');
+      } else {
+        console.error('Error in initial tree load (useEffect):', err);
+      }
     });
-  }, [loadTree]);
+    // Cleanup on unmount
+    return () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+    };
+  }, [loadTree]); // loadTree dependency includes rootDirectoryHandle
 
   return {
     fileTree,
@@ -281,5 +343,6 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     error,
     refreshTree,
     loadingProgress,
+    cancelCurrentLoad, // Expose cancellation function
   };
 }

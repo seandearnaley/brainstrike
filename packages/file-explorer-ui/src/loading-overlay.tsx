@@ -20,6 +20,9 @@ export interface LoadingOverlayProps extends React.HTMLAttributes<HTMLDivElement
   progressState?: LoadingProgressState;
   message?: string;
   description?: string;
+  onCancel?: () => void;
+  isCancellable?: boolean;
+  isCancelling?: boolean;
 }
 
 export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayProps>(
@@ -33,6 +36,9 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
       progressState,
       message,
       description,
+      onCancel,
+      isCancellable = false,
+      isCancelling = false,
       ...props
     },
     ref
@@ -124,7 +130,21 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
           <div>
             <p className="whitespace-pre-line font-medium">{getProgressMessage()}</p>
             <p className="mt-1 text-sm opacity-75">{getProgressDescription()}</p>
+            {isCancelling && (
+              <p className="mt-2 text-sm text-yellow-600 dark:text-yellow-500">Cancelling, please wait...</p>
+            )}
           </div>
+          {isCancellable && !isCancelling && onCancel && (
+            <div className="mt-4">
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 text-sm font-medium text-primary rounded-md bg-background hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                aria-label="Cancel loading process"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );

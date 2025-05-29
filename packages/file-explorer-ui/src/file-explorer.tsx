@@ -61,6 +61,9 @@ const FileExplorer: React.FC = () => {
     setFilters,
     currentFolderId,
     setCurrentFolderId,
+    isCancellable, // Access from store
+    isCancelling,  // Access from store
+    isCancelled,   // Access from store
   } = store();
 
   // Local state for UI
@@ -81,6 +84,7 @@ const FileExplorer: React.FC = () => {
     isInitialLoad,
     loadFileContent,
     loadingProgress,
+    cancelCurrentLoad, // Destructure from useFileExplorer
   } = useFileExplorer({
     onDisplayedFilePathsChange: setDisplayedFiles,
   });
@@ -180,12 +184,22 @@ const FileExplorer: React.FC = () => {
     setIsRefreshing(true);
     try {
       await refreshFileExplorer();
-      showToast({
-        title: FileExplorerStrings.success.title,
-        description: FileExplorerStrings.success.refreshSuccess,
-      });
+      // Check isCancelled from the store AFTER the operation
+      if (!store.getState().isCancelled) {
+        showToast({
+          title: FileExplorerStrings.success.title,
+          description: FileExplorerStrings.success.refreshSuccess,
+        });
+      }
     } catch (error) {
-      handleRefreshError(error);
+      // The hook's loadTree should now catch 'USER_CANCELLED' and not re-throw.
+      // So, this catch block should ideally not receive cancellation errors.
+      // If it does for some other reason, we ensure not to show a generic error toast.
+      if ((error as Error)?.message !== 'USER_CANCELLED') {
+        handleRefreshError(error);
+      } else {
+        console.debug('Refresh was cancelled, toast suppressed in FileExplorer.tsx');
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -266,6 +280,9 @@ const FileExplorer: React.FC = () => {
                 phase: 'counting' as const,
               }
             }
+            isCancellable={isCancellable}
+            isCancelling={isCancelling}
+            onCancel={cancelCurrentLoad}
             className="z-50"
           />
           <div className="flex flex-1 flex-col overflow-hidden gap-4 md:flex-row">

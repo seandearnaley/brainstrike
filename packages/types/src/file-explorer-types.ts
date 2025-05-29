@@ -78,6 +78,11 @@ export interface FileExplorerState extends FileExplorerData {
   setExpandedPaths: (paths: ReadonlySet<string>) => void;
   toggleDirectoryExpansion: (path: string) => void;
 
+  // Cancellation states
+  isCancellable: boolean;
+  isCancelling: boolean;
+  isCancelled: boolean;
+
   // Filter actions
   setFilters: (include: readonly string[], exclude: readonly string[]) => void;
   setUseRegex: (useRegex: boolean) => void;
@@ -85,6 +90,12 @@ export interface FileExplorerState extends FileExplorerData {
   setFolderSummaryThreshold: (value: number) => void;
   setMaxSelectionCount: (count: number) => void;
   setLastActiveTab: (tab: string) => void;
+
+  // Cancellation actions
+  setLoadingCancellable: (value: boolean) => void;
+  setCancelling: (value: boolean) => void;
+  setCancelled: (value: boolean) => void;
+  cancelLoading: () => void;
 
   // New actions
   expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
@@ -111,4 +122,7 @@ export const DEFAULT_STATE = {
   folderSummaryThreshold: 5,
   maxSelectionCount: 10,
   lastActiveTab: 'files',
+  isCancellable: false,
+  isCancelling: false,
+  isCancelled: false,
 } as const;
