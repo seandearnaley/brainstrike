@@ -7,6 +7,7 @@
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { UserCancelledError } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -48,12 +49,15 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   const { fileSystemAdapter } = useAdapters();
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
     loaded: 0,
     total: 0,
     phase: 'counting',
   });
+
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const progressRef = useRef<{
     loaded: number;
@@ -109,6 +113,9 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       parentPath = '',
       isRoot = true
     ): Promise<IFileNode[]> => {
+      if (abortControllerRef.current?.signal.aborted) {
+        throw new UserCancelledError('Loading cancelled');
+      }
       const rootFolderId = rootHandle.name;
 
       if (isRoot) {
@@ -127,6 +134,9 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
+          if (abortControllerRef.current?.signal.aborted) {
+            throw new UserCancelledError('Loading cancelled');
+          }
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;
@@ -189,6 +199,9 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       return;
     }
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsCancelling(false);
     setIsLoading(true);
     setError(null);
 
@@ -197,16 +210,29 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       setFileTree(tree);
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      setError(error);
-      setFileTree([]);
+      if (error instanceof UserCancelledError) {
+        // do not update error or file tree
+      } else {
+        setError(error);
+        setFileTree([]);
+      }
+      abortControllerRef.current = null;
     } finally {
       setIsLoading(false);
+      setIsCancelling(false);
     }
   }, [rootDirectoryHandle, readFullTree]);
 
   const refreshTree = useCallback(async () => {
     await loadTree();
   }, [loadTree]);
+
+  const cancelLoading = useCallback(() => {
+    if (abortControllerRef.current) {
+      setIsCancelling(true);
+      abortControllerRef.current.abort();
+    }
+  }, []);
 
   useEffect(() => {
     loadTree();
@@ -218,5 +244,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     error,
     refreshTree,
     loadingProgress,
+    cancelLoading,
+    isCancelling,
   };
 }

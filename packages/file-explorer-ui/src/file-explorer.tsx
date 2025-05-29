@@ -81,6 +81,8 @@ const FileExplorer: React.FC = () => {
     isInitialLoad,
     loadFileContent,
     loadingProgress,
+    cancelLoading,
+    isCancelling,
   } = useFileExplorer({
     onDisplayedFilePathsChange: setDisplayedFiles,
   });
@@ -267,6 +269,8 @@ const FileExplorer: React.FC = () => {
               }
             }
             className="z-50"
+            onCancel={cancelLoading}
+            isCancelling={isCancelling}
           />
           <div className="flex flex-1 flex-col overflow-hidden gap-4 md:flex-row">
             <div className="w-full md:w-1/2 @container/sidebar flex flex-col overflow-hidden px-2">

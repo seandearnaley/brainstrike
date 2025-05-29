@@ -1,6 +1,6 @@
 import { FileExplorerStrings } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { LoadingOverlay } from '../loading-overlay';
 
 describe('LoadingOverlay', () => {
@@ -29,6 +29,19 @@ describe('LoadingOverlay', () => {
     const customMessage = 'Custom loading message';
     render(<LoadingOverlay isLoading={true} message={customMessage} />);
     expect(screen.getByText(customMessage)).toBeInTheDocument();
+  });
+
+  it('should call onCancel when cancel button is clicked', () => {
+    const onCancel = vi.fn();
+    render(<LoadingOverlay isLoading={true} onCancel={onCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it('should show cancelling message when isCancelling is true', () => {
+    render(<LoadingOverlay isLoading={true} onCancel={() => {}} isCancelling />);
+    expect(screen.queryByRole('button', { name: /cancel/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Cancelling.../i)).toBeInTheDocument();
   });
 
   it('should show progress when provided', () => {

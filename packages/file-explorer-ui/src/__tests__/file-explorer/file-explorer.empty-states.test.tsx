@@ -51,6 +51,8 @@ vi.mock('../../use-file-tree-context', () => ({
     error: null,
     refreshTree: vi.fn(),
     loadingProgress: { loaded: 0, total: 0, phase: 'counting' },
+    cancelLoading: vi.fn(),
+    isCancelling: false,
   })),
 }));
 
