@@ -1,7 +1,17 @@
 import { FileExplorerStrings } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LoadingOverlay } from '../loading-overlay';
+
+// Mock timers for testing delayed cancel button
+beforeEach(() => {
+  vi.useFakeTimers();
+});
+
+afterEach(() => {
+  vi.runOnlyPendingTimers();
+  vi.useRealTimers();
+});
 
 describe('LoadingOverlay', () => {
   it('should not render when isLoading is false', () => {
@@ -83,6 +93,171 @@ describe('LoadingOverlay', () => {
     expect(progressBar).toHaveAttribute('data-progress', '0');
     expect(progressBar.querySelector('div')).toHaveStyle({
       transform: 'translateX(-100%)',
+    });
+  });
+
+  describe('Cancellation functionality', () => {
+    it('should not show cancel button when cancellable is false', () => {
+      render(<LoadingOverlay isLoading={true} cancellable={false} />);
+
+      // Fast-forward past the 2-second delay
+      vi.advanceTimersByTime(3000);
+
+      expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
+    });
+
+    it('should show cancel button after 2 seconds when cancellable is true', async () => {
+      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={vi.fn()} />);
+
+      // Initially, cancel button should not be visible
+      expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
+
+      // Fast-forward past the 2-second delay and process React updates
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // After advancing timers, the cancel button should be visible immediately
+      expect(screen.getByText('Cancel')).toBeInTheDocument();
+    });
+
+    it('should call onCancel when cancel button is clicked', async () => {
+      const onCancel = vi.fn();
+      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={onCancel} />);
+
+      // Fast-forward to show cancel button and process React updates
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // After advancing timers, the cancel button should be visible immediately
+      expect(screen.getByText('Cancel')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Cancel'));
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('should show cancelling state when isCancelling is true', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          onCancel={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('Cancelling...')).toBeInTheDocument();
+      expect(screen.getByText('Cancelling operation...')).toBeInTheDocument();
+      expect(
+        screen.getByText('Please wait while the operation is safely cancelled...')
+      ).toBeInTheDocument();
+    });
+
+    it('should disable cancel button when isCancelling is true', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          onCancel={vi.fn()}
+        />
+      );
+
+      const cancelButton = screen.getByRole('button', { name: /cancelling operation/i });
+      expect(cancelButton).toBeDisabled();
+    });
+
+    it('should handle Escape key to cancel operation', async () => {
+      const onCancel = vi.fn();
+      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={onCancel} />);
+
+      // Simulate Escape key press
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(onCancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not handle Escape key when not cancellable', () => {
+      const onCancel = vi.fn();
+      render(<LoadingOverlay isLoading={true} cancellable={false} onCancel={onCancel} />);
+
+      // Simulate Escape key press
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('should not handle Escape key when isCancelling is true', () => {
+      const onCancel = vi.fn();
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          onCancel={onCancel}
+        />
+      );
+
+      // Simulate Escape key press
+      fireEvent.keyDown(document, { key: 'Escape' });
+
+      expect(onCancel).not.toHaveBeenCalled();
+    });
+
+    it('should show keyboard hint when cancel button is visible and not cancelling', async () => {
+      render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={vi.fn()} />);
+
+      // Fast-forward to show cancel button and process React updates
+      act(() => {
+        vi.advanceTimersByTime(2000);
+      });
+
+      // After advancing timers, both the cancel button and keyboard hint should be visible immediately
+      expect(screen.getByText('Press Escape to cancel')).toBeInTheDocument();
+    });
+
+    it('should not show keyboard hint when cancelling', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          onCancel={vi.fn()}
+        />
+      );
+
+      expect(screen.queryByText('Press Escape to cancel')).not.toBeInTheDocument();
+    });
+
+    it('should reset progress bar when cancelling', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          progressLoaded={50}
+          progressTotal={100}
+          onCancel={vi.fn()}
+        />
+      );
+
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveAttribute('data-progress', '0');
+    });
+
+    it('should add opacity to progress bar when cancelling', () => {
+      render(
+        <LoadingOverlay
+          isLoading={true}
+          cancellable={true}
+          isCancelling={true}
+          onCancel={vi.fn()}
+        />
+      );
+
+      const progressBar = screen.getByTestId('progress-bar');
+      expect(progressBar).toHaveClass('opacity-50');
     });
   });
 

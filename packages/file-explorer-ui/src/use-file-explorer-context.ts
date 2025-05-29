@@ -37,6 +37,12 @@ interface UseFileExplorerReturn {
   isInitialLoad: boolean;
   clearFileContents: (compositeKeys: string[]) => void;
   loadingProgress: LoadingProgressState | null;
+  /** Whether the current operation can be cancelled */
+  cancellable: boolean;
+  /** Cancel the current loading operation */
+  cancelOperation: () => void;
+  /** Whether the operation is currently being cancelled */
+  isCancelling: boolean;
 }
 
 export function useFileExplorer({
@@ -53,11 +59,14 @@ export function useFileExplorer({
   const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
 
   const {
-    fileTree: rawFileTree,
+    fileTree,
     isLoading: isTreeLoading,
     error: treeError,
     refreshTree,
     loadingProgress,
+    cancellable,
+    cancelOperation,
+    isCancelling,
   } = useFileTree(rootDirectoryHandle);
 
   const {
@@ -65,19 +74,19 @@ export function useFileExplorer({
     error: contentError,
     handleFileContentLoading,
     clearFileContents,
-  } = useFileContentLoading(rawFileTree);
+  } = useFileContentLoading(fileTree);
 
   const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
-  const [filteredTree, setFilteredTree] = useState<IFileNode[]>(rawFileTree);
+  const [filteredTree, setFilteredTree] = useState<IFileNode[]>(fileTree);
 
   useEffect(() => {
-    if (rawFileTree.length > 0) {
-      const filtered = applyFiltersUtil(rawFileTree, includeFilters, excludeFilters, useRegex);
+    if (fileTree.length > 0) {
+      const filtered = applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
       setFilteredTree(filtered);
     } else {
       setFilteredTree([]);
     }
-  }, [rawFileTree, includeFilters, excludeFilters, useRegex, applyFiltersUtil]);
+  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFiltersUtil]);
 
   const loadFileContent = useCallback(
     async (path: string) => {
@@ -104,7 +113,7 @@ export function useFileExplorer({
       currentUseRegex: boolean
     ) => {
       const filtered = applyFiltersUtil(
-        rawFileTree,
+        fileTree,
         currentIncludeFilters,
         currentExcludeFilters,
         currentUseRegex
@@ -112,7 +121,7 @@ export function useFileExplorer({
       setFilteredTree(filtered);
       return filtered;
     },
-    [applyFiltersUtil, rawFileTree]
+    [applyFiltersUtil, fileTree]
   );
 
   useEffect(() => {
@@ -173,5 +182,8 @@ export function useFileExplorer({
     isInitialLoad: approximatedIsInitialLoad,
     clearFileContents,
     loadingProgress,
+    cancellable,
+    cancelOperation,
+    isCancelling,
   };
 }

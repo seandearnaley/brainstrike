@@ -18,6 +18,20 @@ export interface LoadingProgressState {
   phase: 'counting' | 'loading';
 }
 
+export interface CancellableFileTreeHook {
+  fileTree: IFileNode[];
+  isLoading: boolean;
+  error: Error | null;
+  refreshTree: () => Promise<void>;
+  loadingProgress: LoadingProgressState;
+  /** Whether the current operation can be cancelled */
+  cancellable: boolean;
+  /** Cancel the current loading operation */
+  cancelOperation: () => void;
+  /** Whether the operation is currently being cancelled */
+  isCancelling: boolean;
+}
+
 /**
  * Calculates the new total estimate when the current loaded count exceeds the estimate.
  * Ensures the total is always at least the loaded count, with some buffer.
@@ -44,10 +58,38 @@ export function calculateProgressPercentage(loaded: number, total: number): numb
   return Math.round((loaded / total) * 100);
 }
 
-export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
+/**
+ * Determines the final path based on platform and entry information
+ */
+const getFinalPath = (
+  directoryHandle: DirectoryHandle,
+  entry: IFileNode,
+  relativePath: string
+): string => {
+  // For Electron, preserve the absolute path from the adapter
+  // For web, use the relative path for security/consistency
+  return directoryHandle.platform === 'electron' ? entry.path : relativePath;
+};
+
+/**
+ * Checks if an error is a cancellation error
+ */
+const isCancellationError = (error: unknown): boolean => {
+  return error instanceof Error && error.message === 'Operation was cancelled';
+};
+
+/**
+ * Safely converts any error to an Error instance
+ */
+const ensureError = (err: unknown): Error => {
+  return err instanceof Error ? err : new Error(String(err));
+};
+
+export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
     loaded: 0,
@@ -68,6 +110,16 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     phase: 'counting',
     estimatedTotal: 100,
   });
+
+  // AbortController for cancelling operations
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const cancelOperation = useCallback(() => {
+    if (abortControllerRef.current && isLoading && !isCancelling) {
+      setIsCancelling(true);
+      abortControllerRef.current.abort();
+    }
+  }, [isLoading, isCancelling]);
 
   const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
     return [...nodes].sort((a, b) => {
@@ -102,12 +154,66 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     });
   }, []);
 
+  const processFileEntry = useCallback(
+    (
+      entry: IFileNode,
+      relativePath: string,
+      directoryHandle: DirectoryHandle,
+      rootFolderId: string
+    ): IFileNode => {
+      const finalPath = getFinalPath(directoryHandle, entry, relativePath);
+
+      return {
+        ...entry,
+        path: finalPath,
+        depth: relativePath.split('/').length - 1,
+        selectionState: 'unchecked' as const,
+        rootFolderId,
+      };
+    },
+    []
+  );
+
+  const processDirectoryEntry = useCallback(
+    async (
+      entry: IFileNode,
+      relativePath: string,
+      directoryHandle: DirectoryHandle,
+      rootHandle: DirectoryHandle,
+      rootFolderId: string,
+      abortSignal?: AbortSignal
+    ): Promise<IFileNode> => {
+      const finalPath = getFinalPath(directoryHandle, entry, relativePath);
+
+      const dirHandle: DirectoryHandle = {
+        path: finalPath,
+        name: entry.name,
+        kind: 'directory',
+        platform: directoryHandle.platform,
+        _internal: entry.handle,
+      };
+
+      const children = await readFullTree(dirHandle, rootHandle, relativePath, false, abortSignal);
+
+      return {
+        ...entry,
+        path: finalPath,
+        depth: relativePath.split('/').length - 1,
+        children: sortFileNodes(children),
+        selectionState: 'unchecked' as const,
+        rootFolderId,
+      };
+    },
+    [sortFileNodes]
+  );
+
   const readFullTree = useCallback(
     async (
       directoryHandle: DirectoryHandle,
       rootHandle: DirectoryHandle,
       parentPath = '',
-      isRoot = true
+      isRoot = true,
+      abortSignal?: AbortSignal
     ): Promise<IFileNode[]> => {
       const rootFolderId = rootHandle.name;
 
@@ -122,65 +228,62 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         });
       }
 
+      // Check for cancellation
+      if (abortSignal?.aborted) {
+        throw new Error('Operation was cancelled');
+      }
+
       try {
         const entries = await fileSystemAdapter.readDirectory(directoryHandle);
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
+          // Check for cancellation before processing each entry
+          if (abortSignal?.aborted) {
+            throw new Error('Operation was cancelled');
+          }
+
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;
 
           try {
             if (entry.type === 'file') {
-              // For Electron, preserve the absolute path from the adapter
-              // For web, use the relative path for security/consistency
-              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
-
-              processedEntries.push({
-                ...entry,
-                path: finalPath,
-                depth: relativePath.split('/').length - 1,
-                selectionState: 'unchecked',
-                rootFolderId,
-              });
+              const fileNode = processFileEntry(entry, relativePath, directoryHandle, rootFolderId);
+              processedEntries.push(fileNode);
               updateProgress(relativePath);
             } else if (entry.type === 'directory') {
-              // For Electron, preserve the absolute path from the adapter
-              // For web, use the relative path for security/consistency
-              const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
-
-              const dirHandle: DirectoryHandle = {
-                path: finalPath,
-                name: entry.name,
-                kind: 'directory',
-                platform: directoryHandle.platform,
-                _internal: entry.handle,
-              };
-
-              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
-              processedEntries.push({
-                ...entry,
-                path: finalPath,
-                depth: relativePath.split('/').length - 1,
-                children: sortFileNodes(children),
-                selectionState: 'unchecked',
+              const dirNode = await processDirectoryEntry(
+                entry,
+                relativePath,
+                directoryHandle,
+                rootHandle,
                 rootFolderId,
-              });
+                abortSignal
+              );
+              processedEntries.push(dirNode);
               updateProgress(relativePath);
             }
           } catch (err) {
+            // If it's a cancellation error, re-throw it
+            if (isCancellationError(err)) {
+              throw err;
+            }
             console.error(`Error processing ${relativePath}:`, err);
           }
         }
 
         return sortFileNodes(processedEntries);
       } catch (err) {
+        // If it's a cancellation error, re-throw it
+        if (isCancellationError(err)) {
+          throw err;
+        }
         console.error('Error reading directory:', err);
         throw err;
       }
     },
-    [fileSystemAdapter, sortFileNodes, updateProgress]
+    [fileSystemAdapter, sortFileNodes, updateProgress, processFileEntry, processDirectoryEntry]
   );
 
   const loadTree = useCallback(async () => {
@@ -189,18 +292,41 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       return;
     }
 
+    // Create new AbortController for this operation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setIsLoading(true);
+    setIsCancelling(false);
     setError(null);
 
     try {
-      const tree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle);
-      setFileTree(tree);
+      const tree = await readFullTree(
+        rootDirectoryHandle,
+        rootDirectoryHandle,
+        '',
+        true,
+        abortController.signal
+      );
+
+      // Only update state if not cancelled
+      if (!abortController.signal.aborted) {
+        setFileTree(tree);
+      }
     } catch (err) {
-      const error = err instanceof Error ? err : new Error(String(err));
-      setError(error);
-      setFileTree([]);
+      const error = ensureError(err);
+
+      // Handle cancellation differently from other errors
+      if (isCancellationError(error)) {
+        setFileTree([]); // Clear the tree on cancellation
+      } else {
+        setError(error);
+        setFileTree([]);
+      }
     } finally {
       setIsLoading(false);
+      setIsCancelling(false);
+      abortControllerRef.current = null;
     }
   }, [rootDirectoryHandle, readFullTree]);
 
@@ -218,5 +344,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     error,
     refreshTree,
     loadingProgress,
+    cancellable: isLoading && !isCancelling,
+    cancelOperation,
+    isCancelling,
   };
 }

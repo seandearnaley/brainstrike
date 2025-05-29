@@ -118,6 +118,9 @@ describe('useFileExplorer (context)', () => {
       error: null,
       refreshTree: mockRefreshTree,
       loadingProgress: { loaded: 0, total: 0, phase: 'loading' },
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
