@@ -30,10 +30,10 @@ export default function RootLayoutContent() {
         onNavigationClick={handleNavigationClick}
       >
         {/* Keep both components mounted to preserve state */}
-        <div style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
+        <div className="h-full" style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
           <HomePageContent />
         </div>
-        <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+        <div className="h-full" style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
           <SettingsPageContent />
         </div>
       </AppLayout>

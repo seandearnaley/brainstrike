@@ -19,7 +19,7 @@ export function AppLayout({
           <ThemeToggle />
           {sidebarContent}
         </NavigationSidebar>
-        <main className="flex-1 overflow-auto p-4">{children}</main>
+        <main className="flex-1 overflow-auto p-4 h-full">{children}</main>
       </div>
       <Toaster />
     </ThemeProvider>
