@@ -29,10 +29,10 @@ export default function RootLayoutContent() {
         currentPath={activeTab === 'explorer' ? '/' : '/settings'}
         onNavigationClick={handleNavigationClick}
       >
-        <div style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
+        <div className="h-full" style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
           <HomePageContent />
         </div>
-        <div style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
+        <div className="h-full" style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
           <SettingsPageContent />
         </div>
       </AppLayout>
