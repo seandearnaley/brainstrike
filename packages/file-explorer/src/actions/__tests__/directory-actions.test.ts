@@ -14,6 +14,7 @@ describe('directory-actions', () => {
   const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
     currentFolderId: null,
     folderStates: {},
+    folderAccessOrder: [],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     includeFilters: [],
@@ -23,7 +24,6 @@ describe('directory-actions', () => {
     folderSummaryThreshold: 100,
     maxSelectionCount: 100,
     lastActiveTab: 'files',
-    folderAccessOrder: [],
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
     setSelectedFiles: vi.fn(),
