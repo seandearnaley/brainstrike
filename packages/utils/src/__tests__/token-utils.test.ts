@@ -6,6 +6,7 @@ import {
   estimateTokenCost,
   formatTokenCount,
 } from '../token-utils';
+import { __getTokenizerPromise, __resetTokenizerPromise } from '../tokenizer-loader';
 
 // Mock the gpt-tokenizer module
 vi.mock('gpt-tokenizer', async () => {
@@ -19,6 +20,7 @@ vi.mock('gpt-tokenizer', async () => {
 describe('Token Utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetTokenizerPromise();
   });
 
   describe('countTokensAccurate', () => {
@@ -33,6 +35,21 @@ describe('Token Utilities', () => {
       // Should return the length of the array from encode
       expect(result).toBe(10);
       expect(mockEncode).toHaveBeenCalledWith('Some test text');
+    });
+
+    it('should cache the tokenizer import across calls', async () => {
+      const gptTokenizer = await import('gpt-tokenizer');
+      const mockEncode = vi.fn().mockReturnValue([]);
+      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
+
+      expect(__getTokenizerPromise()).toBeNull();
+      await countTokensAccurate('First');
+      const firstPromise = __getTokenizerPromise();
+      expect(firstPromise).not.toBeNull();
+
+      await countTokensAccurate('Second');
+      const secondPromise = __getTokenizerPromise();
+      expect(secondPromise).toBe(firstPromise);
     });
   });
 
