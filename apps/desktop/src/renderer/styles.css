@@ -116,6 +116,41 @@
   font-display: swap;
 }
 
+/* Define animations for components like accordion */
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+/* Container utility with responsive sizing */
+.container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+}
+@media (min-width: 640px) {
+  .container {
+    max-width: none;
+  }
+}
+@media (min-width: 1400px) {
+  .container {
+    max-width: 1400px;
+  }
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme {
@@ -175,21 +210,5 @@
     to {
       height: 0;
     }
-  }
-}
-
-/* Using Tailwind's container utilities */
-.container {
-  margin-inline: auto;
-  padding-inline: 2rem;
-}
-@media (min-width: 640px) {
-  .container {
-    max-width: none;
-  }
-}
-@media (min-width: 1400px) {
-  .container {
-    max-width: 1400px;
   }
 }
