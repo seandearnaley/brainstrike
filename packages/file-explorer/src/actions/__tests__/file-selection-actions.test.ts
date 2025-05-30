@@ -38,6 +38,8 @@ describe('file-selection-actions', () => {
     removeSelectedFile: vi.fn(),
     toggleSelectedFile: vi.fn(),
     clearSelectedFiles: vi.fn(),
+    addMultipleSelectedFiles: vi.fn(),
+    removeMultipleSelectedFiles: vi.fn(),
     setExpandedPaths: vi.fn(),
     toggleDirectoryExpansion: vi.fn(),
     setFilters: vi.fn(),

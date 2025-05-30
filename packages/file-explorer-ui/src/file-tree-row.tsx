@@ -94,7 +94,12 @@ const FileTreeRow = memo<FileTreeRowProps>(
     style,
   }) => {
     const store = useFileExplorerStoreContext();
-    const { selectedFilePaths, maxSelectionCount } = store();
+    const {
+      selectedFilePaths,
+      maxSelectionCount,
+      addMultipleSelectedFiles,
+      removeMultipleSelectedFiles,
+    } = store();
 
     const handleNodeSelection = useCallback(() => {
       if (node.type !== 'directory') {
@@ -116,12 +121,12 @@ const FileTreeRow = memo<FileTreeRowProps>(
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
         // Call batch action to add multiple files
         if (pathsToSelect.length > 0) {
-          store().addMultipleSelectedFiles(folderId, pathsToSelect);
+          addMultipleSelectedFiles(folderId, pathsToSelect);
         }
       } else {
         // Call batch action to remove multiple files
         if (allFilePaths.length > 0) {
-          store().removeMultipleSelectedFiles(folderId, allFilePaths);
+          removeMultipleSelectedFiles(folderId, allFilePaths);
         }
       }
     }, [
@@ -130,7 +135,8 @@ const FileTreeRow = memo<FileTreeRowProps>(
       onToggleFileSelection, // Still needed for single file selection
       maxSelectionCount, // Needed for availableSlots
       folderId,
-      store, // store is now a dependency
+      addMultipleSelectedFiles, // action methods are now dependencies
+      removeMultipleSelectedFiles,
     ]);
 
     const handleExpansionClick = useCallback(
@@ -186,9 +192,11 @@ const FileTreeRow = memo<FileTreeRowProps>(
       if (node.type !== 'directory') return null;
       const { count, isComplete } = fileExplorer.getFolderFileCount(node);
       // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const selectedCount = fileExplorer.getAllFilePathsInDirectory(node).filter(
-        (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
-      ).length;
+      const selectedCount = fileExplorer
+        .getAllFilePathsInDirectory(node)
+        .filter(
+          (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
+        ).length;
       return { count, isComplete, selectedCount };
     }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
 

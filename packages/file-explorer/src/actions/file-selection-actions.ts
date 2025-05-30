@@ -17,7 +17,7 @@ export interface FileSelectionActions {
 
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,
-  get: GetState<FileExplorerState> // Changed _get to get
+  _get: GetState<FileExplorerState> // Changed back to _get to indicate unused parameter
 ): FileSelectionActions => ({
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => {
     // Ensure all files in the set are properly encoded composite keys
