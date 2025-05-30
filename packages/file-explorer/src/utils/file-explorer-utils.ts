@@ -39,7 +39,8 @@ export const cleanupOldFolderStates = (
   order: readonly string[]
 ): { folderStates: Record<string, FolderState>; order: string[] } => {
   const newStates = { ...folderStates };
-  const newOrder = [...order];
+  // Remove any ids from the order array that no longer exist in folderStates
+  let newOrder = order.filter((id) => newStates[id]);
 
   while (newOrder.length > MAX_FOLDER_STATES) {
     const oldestId = newOrder.shift();
@@ -47,6 +48,10 @@ export const cleanupOldFolderStates = (
       delete newStates[oldestId];
     }
   }
+
+  // After potentially deleting states due to the max limit, ensure order only
+  // contains ids that still exist
+  newOrder = newOrder.filter((id) => newStates[id]);
 
   return { folderStates: newStates, order: newOrder };
 };

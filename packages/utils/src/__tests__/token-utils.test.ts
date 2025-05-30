@@ -51,6 +51,37 @@ describe('Token Utilities', () => {
       const secondPromise = __getTokenizerPromise();
       expect(secondPromise).toBe(firstPromise);
     });
+
+    it('should retry loading the tokenizer if the import fails', async () => {
+      vi.doMock('gpt-tokenizer', () => {
+        throw new Error('load fail');
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const heuristicResult = await countTokensAccurate('abcd');
+      expect(heuristicResult).toBe(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to load gpt-tokenizer'),
+        expect.any(Error)
+      );
+      expect(__getTokenizerPromise()).toBeNull();
+
+      vi.doMock('gpt-tokenizer', async () => {
+        const actual = await vi.importActual('gpt-tokenizer');
+        return {
+          ...actual,
+          encode: vi.fn().mockReturnValue(Array(2).fill(0)),
+        };
+      });
+
+      warnSpy.mockClear();
+      const result = await countTokensAccurate('hi');
+      expect(result).toBe(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('Failed to load gpt-tokenizer'),
+        expect.any(Error)
+      );
+    });
   });
 
   describe('countTokensHeuristic', () => {

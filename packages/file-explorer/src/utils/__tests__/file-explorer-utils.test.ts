@@ -206,6 +206,44 @@ describe('file-explorer-utils', () => {
       expect(result.order.length).toBe(MAX_FOLDER_STATES);
       expect(result.order[0]).toBe('folder2');
     });
+
+    it('should remove ids from the order that have no matching folder state', () => {
+      // Arrange
+      const folderStates: Record<string, FolderState> = {
+        folder1: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 50,
+          lastActiveTab: 'files',
+          lastAccessed: 1000,
+        },
+        folder2: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 50,
+          lastActiveTab: 'files',
+          lastAccessed: 2000,
+        },
+      };
+      const order = ['folder1', 'orphan', 'folder2'];
+
+      // Act
+      const result = cleanupOldFolderStates(folderStates, order);
+
+      // Assert
+      expect(result.folderStates).toStrictEqual(folderStates);
+      expect(result.order).toEqual(['folder1', 'folder2']);
+    });
   });
 
   describe('createNewFolderState', () => {

@@ -12,7 +12,11 @@ export interface UseVirtualListReturn {
   totalHeight: number;
 }
 
-export function useVirtualList(itemCount: number, rowHeight: number): UseVirtualListReturn {
+export function useVirtualList(
+  itemCount: number,
+  rowHeight: number,
+  overscan = 0
+): UseVirtualListReturn {
   const containerRef = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState<VirtualRange>({ start: 0, end: 0 });
   const [offset, setOffset] = useState(0);
@@ -24,16 +28,18 @@ export function useVirtualList(itemCount: number, rowHeight: number): UseVirtual
     const handleScroll = () => {
       const scrollTop = container.scrollTop;
       const clientHeight = container.clientHeight;
-      const start = Math.floor(scrollTop / rowHeight);
-      const end = Math.min(itemCount - 1, Math.floor((scrollTop + clientHeight) / rowHeight));
+      const baseStart = Math.floor(scrollTop / rowHeight);
+      const baseEnd = Math.floor((scrollTop + clientHeight) / rowHeight);
+      const start = Math.max(0, baseStart - overscan);
+      const end = Math.min(itemCount - 1, baseEnd + overscan);
       setRange({ start, end });
-      setOffset(start * rowHeight);
+      setOffset(baseStart * rowHeight);
     };
 
     handleScroll();
     container.addEventListener('scroll', handleScroll);
     return () => container.removeEventListener('scroll', handleScroll);
-  }, [itemCount, rowHeight]);
+  }, [itemCount, rowHeight, overscan]);
 
   const totalHeight = itemCount * rowHeight;
 

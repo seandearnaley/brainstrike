@@ -71,7 +71,8 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   const { containerRef, range, offset, totalHeight } = useVirtualList(
     visibleNodes.length,
-    ROW_HEIGHT
+    ROW_HEIGHT,
+    3
   );
 
   const renderedRows = useMemo(
@@ -108,9 +109,13 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         className="file-tree relative"
         role="tree"
         aria-label="File tree"
-        style={{ height: totalHeight, position: 'relative' }}
+        style={{
+          height: totalHeight,
+          position: 'relative',
+          transform: `translateY(${offset}px)`,
+        }}
       >
-        <div style={{ transform: `translateY(${offset}px)` }}>{renderedRows}</div>
+        {renderedRows}
       </ul>
     </div>
   );
