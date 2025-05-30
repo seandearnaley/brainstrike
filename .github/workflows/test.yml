@@ -89,8 +89,21 @@ jobs:
           NODE_ENV: "production" # Type check against production build artifacts
 
       - name: Run Knip (detect unused code)
-        run: pnpm run knip -c knip.jsonc --max-issues 10 --cache
-        continue-on-error: true
+        run: |
+          # Run knip with consistent flags and capture output
+          OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
+          
+          # Display the output for CI logs
+          echo "$OUTPUT"
+          
+          # Check if there are any issues and fail if found
+          if echo "$OUTPUT" | grep -q "Unused"; then
+            echo "❌ Knip found unused code. Please review and clean up."
+            exit 1
+          else
+            echo "✅ No unused code detected!"
+          fi
+        continue-on-error: false
 
       - name: Run tests with coverage (Unit & Integration)
         run: pnpm run test:coverage

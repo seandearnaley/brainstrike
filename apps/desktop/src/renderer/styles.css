@@ -2,9 +2,11 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss";
-@import "@brainstrike/ui/globals.css";
-@import "@brainstrike/ui/styles.css"; /* Import the UI package's styles.css with the @source directive */
-@import "@brainstrike/file-explorer-ui/styles.css"; /* Ensure Tailwind scans file-explorer-ui components */
+
+/* Tell Tailwind to scan workspace packages for classes */
+@source "../../../packages/ui";
+@source "../../../packages/file-explorer-ui";
+@source "../../../packages/app-shell";
 
 @layer base {
   :root {
@@ -85,6 +87,15 @@
     color: hsl(var(--foreground));
     font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
       Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  }
+
+  /* Border color compatibility for Tailwind v4 */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: hsl(var(--border));
   }
 }
 
