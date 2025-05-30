@@ -410,4 +410,373 @@ describe('file-selection-actions', () => {
       expect(mockSet).toHaveBeenCalledWith({ selectedFilePaths: new Set() });
     });
   });
+
+  describe('addMultipleSelectedFiles', () => {
+    it('should add multiple files to selected files', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = ['file1.ts', 'file2.ts', 'file3.ts'];
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', pathsToAdd);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      expect(typeof updateFn).toBe('function');
+
+      // Call the update function with our mock state
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(4); // 1 existing + 3 new
+      expect(updatedState.selectedFilePaths?.has('folder1|@|existing.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(true);
+    });
+
+    it('should respect max selection count limit', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing1.ts', 'folder1|@|existing2.ts']),
+        maxSelectionCount: 4, // Only 2 more slots available
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = ['file1.ts', 'file2.ts', 'file3.ts', 'file4.ts']; // Trying to add 4, but only 2 slots
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', pathsToAdd);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(4); // Should stop at max limit
+      expect(updatedState.selectedFilePaths?.has('folder1|@|existing1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|existing2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
+      // These should not be added due to limit
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file4.ts')).toBe(false);
+    });
+
+    it('should not add files that are already selected', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = ['file1.ts', 'file3.ts', 'file2.ts']; // file1.ts and file2.ts already selected
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', pathsToAdd);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(3); // Only file3.ts should be added
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(true);
+    });
+
+    it('should handle empty paths array', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|existing.ts']),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', []);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(1); // Should remain unchanged
+      expect(updatedState.selectedFilePaths?.has('folder1|@|existing.ts')).toBe(true);
+    });
+
+    it('should handle case where max selection count is already reached', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
+        maxSelectionCount: 2, // Already at max
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = ['file3.ts', 'file4.ts'];
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', pathsToAdd);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(2); // Should remain unchanged
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file4.ts')).toBe(false);
+    });
+
+    it('should handle large batch operations efficiently', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToAdd = Array.from({ length: 500 }, (_, i) => `file${i}.ts`);
+
+      // Act
+      fileSelectionActions.addMultipleSelectedFiles('folder1', pathsToAdd);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(500);
+
+      // Verify a few random files were added
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file0.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file250.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file499.ts')).toBe(true);
+    });
+  });
+
+  describe('removeMultipleSelectedFiles', () => {
+    it('should remove multiple files from selected files', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set([
+          'folder1|@|file1.ts',
+          'folder1|@|file2.ts',
+          'folder1|@|file3.ts',
+          'folder1|@|file4.ts',
+          'folder1|@|file5.ts',
+        ]),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToRemove = ['file2.ts', 'file4.ts'];
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', pathsToRemove);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // Get the state update function
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      expect(typeof updateFn).toBe('function');
+
+      // Call the update function with our mock state
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(3); // 5 - 2 = 3
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file4.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file5.ts')).toBe(true);
+    });
+
+    it('should handle removing files that are not selected', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file3.ts']),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToRemove = ['file1.ts', 'file2.ts', 'file4.ts']; // file2.ts and file4.ts not selected
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', pathsToRemove);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(1); // Only file1.ts should be removed
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(true);
+    });
+
+    it('should handle empty paths array', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set(['folder1|@|file1.ts', 'folder1|@|file2.ts']),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', []);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(2); // Should remain unchanged
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(true);
+    });
+
+    it('should remove all files when all selected files are in the removal list', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set([
+          'folder1|@|file1.ts',
+          'folder1|@|file2.ts',
+          'folder1|@|file3.ts',
+        ]),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToRemove = ['file1.ts', 'file2.ts', 'file3.ts'];
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', pathsToRemove);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(0);
+    });
+
+    it('should handle large batch removal operations efficiently', () => {
+      // Arrange
+      const initialFiles = Array.from({ length: 1000 }, (_, i) => `folder1|@|file${i}.ts`);
+      const mockState = createMockState({
+        selectedFilePaths: new Set(initialFiles),
+        maxSelectionCount: 1000,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToRemove = Array.from({ length: 500 }, (_, i) => `file${i * 2}.ts`); // Remove every other file
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', pathsToRemove);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(500); // 1000 - 500 = 500
+
+      // Verify some files were removed and others remain
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file0.ts')).toBe(false); // Should be removed
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(true); // Should remain
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false); // Should be removed
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file3.ts')).toBe(true); // Should remain
+    });
+
+    it('should handle mixed folder IDs correctly', () => {
+      // Arrange
+      const mockState = createMockState({
+        selectedFilePaths: new Set([
+          'folder1|@|file1.ts',
+          'folder1|@|file2.ts',
+          'folder2|@|file1.ts',
+          'folder2|@|file2.ts',
+        ]),
+        maxSelectionCount: 10,
+      });
+      const get = vi.fn().mockReturnValue(mockState);
+      const fileSelectionActions = createFileSelectionActions(mockSet, get);
+      const pathsToRemove = ['file1.ts', 'file2.ts']; // Should only remove from folder1
+
+      // Act
+      fileSelectionActions.removeMultipleSelectedFiles('folder1', pathsToRemove);
+
+      // Assert
+      expect(mockSet).toHaveBeenCalledTimes(1);
+
+      // @ts-expect-error - TS struggles with mock call type narrowing
+      const updateFn = mockSet.mock.calls[0][0];
+      const updatedState = updateFn(mockState) as Partial<FileExplorerState>;
+
+      expect(updatedState).toBeDefined();
+      expect(updatedState.selectedFilePaths).toBeDefined();
+      expect(updatedState.selectedFilePaths?.size).toBe(2); // Only folder1 files should be removed
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file1.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder1|@|file2.ts')).toBe(false);
+      expect(updatedState.selectedFilePaths?.has('folder2|@|file1.ts')).toBe(true);
+      expect(updatedState.selectedFilePaths?.has('folder2|@|file2.ts')).toBe(true);
+    });
+  });
 });
