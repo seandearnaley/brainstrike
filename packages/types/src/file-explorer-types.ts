@@ -22,6 +22,7 @@ export interface SerializedFolderState {
 export interface SerializedState {
   currentFolderId: string | null;
   folderStates: Record<string, SerializedFolderState>;
+  folderAccessOrder: string[];
   selectedFilePaths: string[];
   expandedDirectoryPaths: string[];
   includeFilters: string[];
@@ -50,6 +51,7 @@ export interface FolderState {
 export interface FileExplorerData {
   currentFolderId: string | null;
   folderStates: Record<string, FolderState>;
+  folderAccessOrder: string[];
   selectedFilePaths: Set<string>;
   expandedDirectoryPaths: Set<string>;
   includeFilters: string[];
@@ -111,4 +113,5 @@ export const DEFAULT_STATE = {
   folderSummaryThreshold: 5,
   maxSelectionCount: 10,
   lastActiveTab: 'files',
+  folderAccessOrder: [] as string[],
 } as const;
