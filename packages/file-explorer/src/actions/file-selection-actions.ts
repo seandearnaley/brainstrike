@@ -11,11 +11,13 @@ export interface FileSelectionActions {
   removeSelectedFile: (folderId: string | null, path: string) => void;
   toggleSelectedFile: (folderId: string | null, path: string) => void;
   clearSelectedFiles: () => void;
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
 }
 
 export const createFileSelectionActions = (
   set: SetState<FileExplorerState>,
-  _get: GetState<FileExplorerState> // Marked as unused
+  get: GetState<FileExplorerState> // Changed _get to get
 ): FileSelectionActions => ({
   setSelectedFiles: (selectedFiles: ReadonlySet<string>) => {
     // Ensure all files in the set are properly encoded composite keys
@@ -69,5 +71,34 @@ export const createFileSelectionActions = (
 
   clearSelectedFiles: () => {
     set({ selectedFilePaths: new Set() });
+  },
+
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => {
+    set((state) => {
+      const newSelectedFiles = new Set(state.selectedFilePaths);
+      let currentSize = newSelectedFiles.size;
+      for (const path of paths) {
+        if (currentSize >= state.maxSelectionCount) {
+          break; // Stop if max selection count is reached
+        }
+        const compositeKey = encodeFileSelection(folderId, path);
+        if (!newSelectedFiles.has(compositeKey)) {
+          newSelectedFiles.add(compositeKey);
+          currentSize++;
+        }
+      }
+      return { selectedFilePaths: newSelectedFiles };
+    });
+  },
+
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => {
+    set((state) => {
+      const newSelectedFiles = new Set(state.selectedFilePaths);
+      for (const path of paths) {
+        const compositeKey = encodeFileSelection(folderId, path);
+        newSelectedFiles.delete(compositeKey);
+      }
+      return { selectedFilePaths: newSelectedFiles };
+    });
   },
 });
