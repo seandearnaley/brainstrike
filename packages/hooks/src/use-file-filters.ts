@@ -8,7 +8,10 @@ import { useCallback, useRef, useState } from 'react';
  * @returns applyFileFilters: function to filter a node tree, and filterError: error message if regex is invalid
  */
 export function useFileFilters() {
-  const regexCache = useRef<{ [pattern: string]: RegExp | null }>({});
+  const regexCache = useRef<{ include: RegExp[]; exclude: RegExp[] }>({
+    include: [],
+    exclude: [],
+  });
   const [filterError, setFilterError] = useState<string | null>(null);
 
   const applyFileFilters = useCallback(
@@ -19,37 +22,44 @@ export function useFileFilters() {
       useRegex = false
     ): IFileNode[] => {
       setFilterError(null);
-      regexCache.current = {};
+      regexCache.current = { include: [], exclude: [] };
 
       const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
       const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
 
       if (useRegex) {
-        for (const pattern of [...processedIncludeFilters, ...processedExcludeFilters]) {
+        const includeRegexes: RegExp[] = [];
+        for (const pattern of processedIncludeFilters) {
           try {
-            new RegExp(pattern);
+            includeRegexes.push(new RegExp(pattern));
           } catch (_) {
             setFilterError(`Invalid regex pattern: ${pattern}`);
             return [];
           }
         }
+
+        const excludeRegexes: RegExp[] = [];
+        for (const pattern of processedExcludeFilters) {
+          try {
+            excludeRegexes.push(new RegExp(pattern));
+          } catch (_) {
+            setFilterError(`Invalid regex pattern: ${pattern}`);
+            return [];
+          }
+        }
+
+        regexCache.current.include = includeRegexes;
+        regexCache.current.exclude = excludeRegexes;
       }
 
       const matchesInclude = (path: string): boolean => {
         if (processedIncludeFilters.length === 0) return true;
-        for (const pattern of processedIncludeFilters) {
-          if (useRegex) {
-            let regex = regexCache.current[pattern];
-            if (regex === undefined) {
-              try {
-                regex = new RegExp(pattern);
-                regexCache.current[pattern] = regex;
-              } catch {
-                continue;
-              }
-            }
-            if (regex?.test(path)) return true;
-          } else {
+        if (useRegex) {
+          for (const regex of regexCache.current.include) {
+            if (regex.test(path)) return true;
+          }
+        } else {
+          for (const pattern of processedIncludeFilters) {
             if (minimatch(path, pattern)) return true;
           }
         }
@@ -57,19 +67,12 @@ export function useFileFilters() {
       };
 
       const matchesExclude = (path: string): boolean => {
-        for (const pattern of processedExcludeFilters) {
-          if (useRegex) {
-            let regex = regexCache.current[pattern];
-            if (regex === undefined) {
-              try {
-                regex = new RegExp(pattern);
-                regexCache.current[pattern] = regex;
-              } catch {
-                continue;
-              }
-            }
-            if (regex?.test(path)) return true;
-          } else {
+        if (useRegex) {
+          for (const regex of regexCache.current.exclude) {
+            if (regex.test(path)) return true;
+          }
+        } else {
+          for (const pattern of processedExcludeFilters) {
             if (minimatch(path, pattern)) return true;
           }
         }
