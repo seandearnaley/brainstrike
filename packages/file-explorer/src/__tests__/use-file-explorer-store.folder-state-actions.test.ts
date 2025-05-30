@@ -195,6 +195,7 @@ describe('Folder State Actions', () => {
     store.setState((state: FileExplorerState) => ({
       ...state,
       folderStates,
+      folderAccessOrder: Object.keys(folderStates),
     }));
 
     expect(Object.keys(store.getState().folderStates).length).toBe(numFolders);

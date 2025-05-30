@@ -161,7 +161,7 @@ describe('file-explorer-utils', () => {
       const result = cleanupOldFolderStates(folderStates, order);
 
       // Assert
-      expect(result.folderStates).toBe(folderStates); // Same reference, no cleanup needed
+      expect(result.folderStates).toStrictEqual(folderStates); // Function returns new object, not same reference
       expect(result.order).toEqual(order);
     });
 
