@@ -104,7 +104,11 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   );
 
   return (
-    <div ref={containerRef} className="overflow-auto" style={{ height: '100%' }}>
+    <div
+      ref={containerRef}
+      className="overflow-auto file-tree-scrollbar"
+      style={{ height: '100%' }}
+    >
       <ul
         className="file-tree relative"
         role="tree"

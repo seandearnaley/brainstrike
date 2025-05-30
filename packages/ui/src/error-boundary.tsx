@@ -1,4 +1,4 @@
-import { Button } from '@brainstrike/ui';
+import { Button, ScrollArea } from '@brainstrike/ui';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { isDevEnv } from './lib/utils';
@@ -115,7 +115,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           {detailsVisible && details && (
             <div className="p-4 border-t bg-muted/20">
               <h3 className="font-semibold mb-2">Error Details</h3>
-              <div className="bg-muted p-2 rounded text-sm font-mono overflow-auto max-h-60">
+              <ScrollArea className="bg-muted p-2 rounded text-sm font-mono max-h-60">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -138,7 +138,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                     </pre>
                   </div>
                 )}
-              </div>
+              </ScrollArea>
             </div>
           )}
         </div>
