@@ -2,6 +2,10 @@
 
 React components for displaying and interacting with the file explorer state. These components build upon `@brainstrike/ui` and `@brainstrike/file-explorer` to render file trees, toolbars and related settings screens.
 
+## Virtualization
+
+The `FileTree` component uses a small in-house virtualization hook to render only the visible rows of very large trees. This dramatically improves performance when dealing with thousands of files.
+
 ## Installation
 
 This package is internal to the `@brainstrike` monorepo and is consumed via workspace linking.
