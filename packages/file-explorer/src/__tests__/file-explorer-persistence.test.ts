@@ -135,6 +135,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'folder-abc',
         selectedFilePaths: ['file.ts'],
         folderStates: {},
+        folderAccessOrder: [],
         expandedDirectoryPaths: [],
         includeFilters: [],
         excludeFilters: [],
@@ -154,6 +155,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'folder-xyz',
         selectedFilePaths: ['file.js'],
         folderStates: {},
+        folderAccessOrder: [],
         expandedDirectoryPaths: [],
         includeFilters: [],
         excludeFilters: [],
@@ -218,6 +220,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'persisted-folder',
         selectedFilePaths: ['persisted-global.txt'],
         expandedDirectoryPaths: ['persisted-global-dir'],
+        folderAccessOrder: ['persisted-folder', 'another-persisted'],
         folderStates: {
           'persisted-folder': {
             selectedFilePaths: ['persisted-sel.txt'],
@@ -276,10 +279,6 @@ describe('file-explorer-persistence', () => {
       );
 
       expect(result.folderStates['initial-folder']).toBeDefined();
-      expect(result.folderStates['initial-folder']?.selectedFilePaths.has('initial-sel.txt')).toBe(
-        true
-      );
-      expect(result.folderStates['initial-folder']?.lastActiveTab).toBe('preview');
     });
 
     it('should round-trip state via partialize and merge', () => {

@@ -6,6 +6,7 @@ import { createDirectoryExpansionActions } from '../directory-expansion-actions'
 const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
   currentFolderId: null,
   folderStates: {},
+  folderAccessOrder: [],
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
   includeFilters: [],

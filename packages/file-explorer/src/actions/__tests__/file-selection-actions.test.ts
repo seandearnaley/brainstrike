@@ -21,6 +21,7 @@ describe('file-selection-actions', () => {
   const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplorerState => ({
     currentFolderId: 'folder1',
     folderStates: {},
+    folderAccessOrder: [],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
     includeFilters: [],
