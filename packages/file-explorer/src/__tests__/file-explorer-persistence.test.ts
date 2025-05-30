@@ -330,6 +330,7 @@ describe('file-explorer-persistence', () => {
       const persisted: SerializedState = {
         currentFolderId: null,
         folderStates: {},
+        folderAccessOrder: [],
         selectedFilePaths: [],
         expandedDirectoryPaths: [],
         includeFilters: [],
