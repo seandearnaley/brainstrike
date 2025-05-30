@@ -183,6 +183,19 @@ const mockStore: FileExplorerState = {
   clearSelectedFiles: vi.fn(() => {
     mockStore.selectedFilePaths.clear();
   }),
+  addMultipleSelectedFiles: vi.fn((_folderId: string, paths: string[]) => {
+    for (const path of paths) {
+      mockStore.selectedFilePaths.add(path);
+      if (!mockFileContents[path]) {
+        mockLoadFileContent(path);
+      }
+    }
+  }),
+  removeMultipleSelectedFiles: vi.fn((_folderId: string, paths: string[]) => {
+    for (const path of paths) {
+      mockStore.selectedFilePaths.delete(path);
+    }
+  }),
   setExpandedPaths: vi.fn((paths: ReadonlySet<string>) => {
     mockStore.expandedDirectoryPaths = new Set(paths);
   }),

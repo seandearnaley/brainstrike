@@ -34,6 +34,54 @@ interface FileTreeRowProps {
 
 const ROW_HEIGHT = 28;
 
+// Custom comparison function for React.memo
+const areFileTreeRowPropsEqual = (
+  prevProps: FileTreeRowProps,
+  nextProps: FileTreeRowProps
+): boolean => {
+  // Compare style props (top and paddingLeft)
+  if (prevProps.style?.top !== nextProps.style?.top) {
+    return false;
+  }
+  if (prevProps.style?.paddingLeft !== nextProps.style?.paddingLeft) {
+    return false;
+  }
+
+  // Compare node prop (path)
+  // A shallow comparison of the node object itself is also an option if nodes are immutable.
+  // For now, comparing by path as it's a primary identifier for changes.
+  if (prevProps.node.path !== nextProps.node.path) {
+    return false;
+  }
+
+  // A more robust check for the node would be a shallow comparison,
+  // assuming node objects are replaced if their content changes.
+  // if (prevProps.node !== nextProps.node) { // Example of shallow comparison
+  //   return false;
+  // }
+
+  // Compare other primitive props
+  if (
+    prevProps.depth !== nextProps.depth ||
+    prevProps.isExpanded !== nextProps.isExpanded ||
+    prevProps.isLoading !== nextProps.isLoading ||
+    prevProps.folderId !== nextProps.folderId
+    // maxSelectionCount is not a direct prop of FileTreeRow, so not compared here.
+  ) {
+    return false;
+  }
+
+  // Compare callback props (reference equality)
+  if (
+    prevProps.onToggleDirectoryExpansion !== nextProps.onToggleDirectoryExpansion ||
+    prevProps.onToggleFileSelection !== nextProps.onToggleFileSelection
+  ) {
+    return false;
+  }
+
+  return true;
+};
+
 const FileTreeRow = memo<FileTreeRowProps>(
   ({
     node,
@@ -46,28 +94,20 @@ const FileTreeRow = memo<FileTreeRowProps>(
     style,
   }) => {
     const store = useFileExplorerStoreContext();
-    const { selectedFilePaths, maxSelectionCount } = store();
-
-    const getAllFilePaths = useCallback((dirNode: IFileNode): string[] => {
-      if (dirNode.type !== 'directory') return [];
-      return (
-        dirNode.children?.reduce((paths: string[], child: IFileNode) => {
-          if (child.type === 'file') {
-            paths.push(child.path);
-          } else if (child.type === 'directory') {
-            paths.push(...getAllFilePaths(child));
-          }
-          return paths;
-        }, []) ?? []
-      );
-    }, []);
+    const {
+      selectedFilePaths,
+      maxSelectionCount,
+      addMultipleSelectedFiles,
+      removeMultipleSelectedFiles,
+    } = store();
 
     const handleNodeSelection = useCallback(() => {
       if (node.type !== 'directory') {
         onToggleFileSelection(node.path);
         return;
       }
-      const allFilePaths = getAllFilePaths(node);
+      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
+      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) return;
       const selectedCount = allFilePaths.filter((path) =>
         folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
@@ -79,21 +119,24 @@ const FileTreeRow = memo<FileTreeRowProps>(
         );
         const availableSlots = maxSelectionCount - selectedFilePaths.size;
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
-        for (const path of pathsToSelect) {
-          onToggleFileSelection(path);
+        // Call batch action to add multiple files
+        if (pathsToSelect.length > 0) {
+          addMultipleSelectedFiles(folderId, pathsToSelect);
         }
       } else {
-        for (const path of allFilePaths) {
-          onToggleFileSelection(path);
+        // Call batch action to remove multiple files
+        if (allFilePaths.length > 0) {
+          removeMultipleSelectedFiles(folderId, allFilePaths);
         }
       }
     }, [
       node,
-      selectedFilePaths,
-      onToggleFileSelection,
-      maxSelectionCount,
-      getAllFilePaths,
+      selectedFilePaths, // Needed for selectedCount and availableSlots
+      onToggleFileSelection, // Still needed for single file selection
+      maxSelectionCount, // Needed for availableSlots
       folderId,
+      addMultipleSelectedFiles, // action methods are now dependencies
+      removeMultipleSelectedFiles,
     ]);
 
     const handleExpansionClick = useCallback(
@@ -131,7 +174,8 @@ const FileTreeRow = memo<FileTreeRowProps>(
       if (node.type === 'file') {
         return folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path) : false;
       }
-      const allFilePaths = getAllFilePaths(node);
+      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
+      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) {
         return false;
       }
@@ -142,16 +186,19 @@ const FileTreeRow = memo<FileTreeRowProps>(
         return false;
       }
       return selectedCount === allFilePaths.length ? true : 'indeterminate';
-    }, [node, selectedFilePaths, getAllFilePaths, folderId]);
+    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
 
     const folderInfo = useMemo(() => {
       if (node.type !== 'directory') return null;
       const { count, isComplete } = fileExplorer.getFolderFileCount(node);
-      const selectedCount = getAllFilePaths(node).filter(
-        (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
-      ).length;
+      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
+      const selectedCount = fileExplorer
+        .getAllFilePathsInDirectory(node)
+        .filter(
+          (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
+        ).length;
       return { count, isComplete, selectedCount };
-    }, [node, selectedFilePaths, getAllFilePaths, folderId]);
+    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
 
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
@@ -218,7 +265,8 @@ const FileTreeRow = memo<FileTreeRowProps>(
         )}
       </li>
     );
-  }
+  },
+  areFileTreeRowPropsEqual
 );
 
 FileTreeRow.displayName = 'FileTreeRow';
