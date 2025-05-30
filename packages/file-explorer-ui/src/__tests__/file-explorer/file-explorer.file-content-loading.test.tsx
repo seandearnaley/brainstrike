@@ -119,6 +119,7 @@ const mockStore: FileExplorerState = {
   // Data properties (align with FileExplorerData)
   currentFolderId: 'test', // Provide an initial value for tests
   folderStates: {},
+  folderAccessOrder: [],
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
   includeFilters: [],

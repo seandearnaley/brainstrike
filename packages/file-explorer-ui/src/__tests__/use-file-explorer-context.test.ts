@@ -73,6 +73,7 @@ describe('useFileExplorer (context)', () => {
     const storeState: FileExplorerState = {
       currentFolderId: null,
       folderStates: {},
+      folderAccessOrder: [],
       selectedFilePaths: new Set<string>(),
       expandedDirectoryPaths: new Set<string>(),
       includeFilters: [],
