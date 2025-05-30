@@ -195,6 +195,7 @@ describe('Folder State Actions', () => {
     store.setState((state: FileExplorerState) => ({
       ...state,
       folderStates,
+      folderAccessOrder: Object.keys(folderStates),
     }));
 
     expect(Object.keys(store.getState().folderStates).length).toBe(numFolders);
@@ -206,6 +207,7 @@ describe('Folder State Actions', () => {
     const finalFolderKeys = Object.keys(finalState.folderStates);
 
     expect(finalFolderKeys.length).toBe(MAX_FOLDER_STATES);
+    expect(finalState.folderAccessOrder.length).toBe(MAX_FOLDER_STATES);
 
     for (let i = 0; i < 5; i++) {
       expect(finalState.folderStates[`folder${i}`]).toBeUndefined();

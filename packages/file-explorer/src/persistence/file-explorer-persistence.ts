@@ -83,6 +83,7 @@ export const createPersistOptions = (
           },
         ])
       ),
+      folderAccessOrder: state.folderAccessOrder,
       selectedFilePaths: Array.from(state.selectedFilePaths || new Set<string>()),
       expandedDirectoryPaths: Array.from(state.expandedDirectoryPaths || new Set<string>()),
       includeFilters: state.includeFilters,
@@ -151,6 +152,9 @@ export const createPersistOptions = (
           ? persistedSerialized.expandedDirectoryPaths
           : []
       ),
+      folderAccessOrder: Array.isArray(persistedSerialized.folderAccessOrder)
+        ? persistedSerialized.folderAccessOrder
+        : [],
       folderStates: Object.fromEntries(
         Object.entries(persistedSerialized.folderStates ?? {}).map(([key, psFolderState]) => {
           const currentFolderState = current.folderStates[key];

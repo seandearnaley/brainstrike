@@ -32,6 +32,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     // Initialize/Override specific state parts as needed
     currentFolderId: null,
     folderStates: {},
+    folderAccessOrder: [],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
   };

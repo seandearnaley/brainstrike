@@ -135,6 +135,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'folder-abc',
         selectedFilePaths: ['file.ts'],
         folderStates: {},
+        folderAccessOrder: [],
         expandedDirectoryPaths: [],
         includeFilters: [],
         excludeFilters: [],
@@ -154,6 +155,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'folder-xyz',
         selectedFilePaths: ['file.js'],
         folderStates: {},
+        folderAccessOrder: [],
         expandedDirectoryPaths: [],
         includeFilters: [],
         excludeFilters: [],
@@ -218,6 +220,7 @@ describe('file-explorer-persistence', () => {
         currentFolderId: 'persisted-folder',
         selectedFilePaths: ['persisted-global.txt'],
         expandedDirectoryPaths: ['persisted-global-dir'],
+        folderAccessOrder: ['persisted-folder', 'another-persisted'],
         folderStates: {
           'persisted-folder': {
             selectedFilePaths: ['persisted-sel.txt'],
@@ -331,6 +334,7 @@ describe('file-explorer-persistence', () => {
       const persisted: SerializedState = {
         currentFolderId: null,
         folderStates: {},
+        folderAccessOrder: [],
         selectedFilePaths: [],
         expandedDirectoryPaths: [],
         includeFilters: [],

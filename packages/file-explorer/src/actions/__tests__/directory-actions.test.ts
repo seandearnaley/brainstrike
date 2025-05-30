@@ -23,6 +23,7 @@ describe('directory-actions', () => {
     folderSummaryThreshold: 100,
     maxSelectionCount: 100,
     lastActiveTab: 'files',
+    folderAccessOrder: [],
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
     setSelectedFiles: vi.fn(),
