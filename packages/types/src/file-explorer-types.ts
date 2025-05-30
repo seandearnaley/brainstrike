@@ -75,6 +75,8 @@ export interface FileExplorerState extends FileExplorerData {
   removeSelectedFile: (folderId: string, path: string) => void;
   toggleSelectedFile: (folderId: string, path: string) => void;
   clearSelectedFiles: () => void;
+  addMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
+  removeMultipleSelectedFiles: (folderId: string, paths: string[]) => void;
 
   // Directory expansion actions
   setExpandedPaths: (paths: ReadonlySet<string>) => void;
