@@ -4,6 +4,7 @@ import {
   cleanupOldFolderStates,
   createNewFolderState,
   saveFolderState,
+  updateFolderAccessOrder,
 } from '../utils/file-explorer-utils';
 
 type SetState<T> = UseBoundStore<StoreApi<T>>['setState'];
@@ -26,23 +27,30 @@ export const createFolderStateActions = (
     if (folderId === currentFolderId) return;
 
     let updatedFolderStates = { ...state.folderStates };
+    let updatedOrder = state.folderAccessOrder;
 
     // Save current folder state before switching
     if (currentFolderId) {
       updatedFolderStates = saveFolderState(state, currentFolderId);
+      updatedOrder = updateFolderAccessOrder(updatedOrder, currentFolderId);
     }
 
     // Clean up old folder states before potentially adding a new one
-    updatedFolderStates = cleanupOldFolderStates(updatedFolderStates);
+    ({ folderStates: updatedFolderStates, order: updatedOrder } = cleanupOldFolderStates(
+      updatedFolderStates,
+      updatedOrder
+    ));
 
     // Restore state for the new folderId or create/reset state
     const newFolderState = updatedFolderStates[folderId as string];
 
     if (folderId && newFolderState) {
       // Restore existing folder state
+      updatedOrder = updateFolderAccessOrder(updatedOrder, folderId);
       set({
         currentFolderId: folderId,
         folderStates: updatedFolderStates,
+        folderAccessOrder: updatedOrder,
         selectedFilePaths: new Set(newFolderState.selectedFilePaths),
         expandedDirectoryPaths: new Set(newFolderState.expandedDirectoryPaths),
         includeFilters: newFolderState.includeFilters,
@@ -56,9 +64,15 @@ export const createFolderStateActions = (
     } else if (folderId) {
       // Create new folder state (resetting current state fields)
       updatedFolderStates[folderId] = createNewFolderState();
+      updatedOrder = updateFolderAccessOrder(updatedOrder, folderId);
+      ({ folderStates: updatedFolderStates, order: updatedOrder } = cleanupOldFolderStates(
+        updatedFolderStates,
+        updatedOrder
+      ));
       set({
         currentFolderId: folderId,
         folderStates: updatedFolderStates,
+        folderAccessOrder: updatedOrder,
         selectedFilePaths: new Set<string>(),
         expandedDirectoryPaths: new Set<string>(),
         // Reset potentially global settings to defaults? Or keep current? Let's keep current for now.
@@ -75,6 +89,7 @@ export const createFolderStateActions = (
       set({
         currentFolderId: null,
         folderStates: updatedFolderStates, // Keep cleaned up states
+        folderAccessOrder: updatedOrder,
         selectedFilePaths: new Set<string>(),
         expandedDirectoryPaths: new Set<string>(),
         // Optionally reset other fields to default?
@@ -85,9 +100,14 @@ export const createFolderStateActions = (
   hydrateFolderState: (folderId: string) => {
     set((state) => {
       const folderState = state.folderStates[folderId];
-      if (!folderState) return {}; // Return empty object if no changes needed
+      if (!folderState) return {};
+
+      folderState.lastAccessed = Date.now();
+      const order = updateFolderAccessOrder(state.folderAccessOrder, folderId);
 
       return {
+        folderStates: { ...state.folderStates, [folderId]: folderState },
+        folderAccessOrder: order,
         selectedFilePaths: new Set(folderState.selectedFilePaths),
         expandedDirectoryPaths: new Set(folderState.expandedDirectoryPaths),
         includeFilters: folderState.includeFilters,

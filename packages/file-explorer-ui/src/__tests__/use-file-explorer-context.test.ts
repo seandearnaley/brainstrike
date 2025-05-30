@@ -82,6 +82,7 @@ describe('useFileExplorer (context)', () => {
       folderSummaryThreshold: 5,
       maxSelectionCount: 10,
       lastActiveTab: 'files',
+      folderAccessOrder: [],
       setCurrentFolderId: vi.fn(),
       hydrateFolderState: vi.fn(),
       setSelectedFiles: vi.fn(),

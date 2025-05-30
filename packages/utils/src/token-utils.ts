@@ -9,11 +9,12 @@
  * @param text - The text to count tokens for
  * @returns The number of tokens in the text
  */
+import { getTokenizer } from './tokenizer-loader';
+
 export async function countTokensAccurate(text: string): Promise<number> {
   try {
-    // We're dynamically importing to make this dependency optional
-    // This allows using the package without the dependency if not needed
-    const tokenizer = await import('gpt-tokenizer');
+    // Dynamically import on first use and cache the promise for subsequent calls
+    const tokenizer = await getTokenizer();
     return tokenizer.encode(text).length;
   } catch (_e) {
     // Fallback to heuristic method if the package is not available

@@ -6,6 +6,7 @@ import {
   estimateTokenCost,
   formatTokenCount,
 } from '../token-utils';
+import { __getTokenizerPromise, __resetTokenizerPromise } from '../tokenizer-loader';
 
 // Mock the gpt-tokenizer module
 vi.mock('gpt-tokenizer', async () => {
@@ -19,6 +20,7 @@ vi.mock('gpt-tokenizer', async () => {
 describe('Token Utilities', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetTokenizerPromise();
   });
 
   describe('countTokensAccurate', () => {
@@ -33,6 +35,52 @@ describe('Token Utilities', () => {
       // Should return the length of the array from encode
       expect(result).toBe(10);
       expect(mockEncode).toHaveBeenCalledWith('Some test text');
+    });
+
+    it('should cache the tokenizer import across calls', async () => {
+      const gptTokenizer = await import('gpt-tokenizer');
+      const mockEncode = vi.fn().mockReturnValue([]);
+      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
+
+      expect(__getTokenizerPromise()).toBeNull();
+      await countTokensAccurate('First');
+      const firstPromise = __getTokenizerPromise();
+      expect(firstPromise).not.toBeNull();
+
+      await countTokensAccurate('Second');
+      const secondPromise = __getTokenizerPromise();
+      expect(secondPromise).toBe(firstPromise);
+    });
+
+    it('should retry loading the tokenizer if the import fails', async () => {
+      vi.doMock('gpt-tokenizer', () => {
+        throw new Error('load fail');
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      const heuristicResult = await countTokensAccurate('abcd');
+      expect(heuristicResult).toBe(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to load gpt-tokenizer'),
+        expect.any(Error)
+      );
+      expect(__getTokenizerPromise()).toBeNull();
+
+      vi.doMock('gpt-tokenizer', async () => {
+        const actual = await vi.importActual('gpt-tokenizer');
+        return {
+          ...actual,
+          encode: vi.fn().mockReturnValue(Array(2).fill(0)),
+        };
+      });
+
+      warnSpy.mockClear();
+      const result = await countTokensAccurate('hi');
+      expect(result).toBe(2);
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('Failed to load gpt-tokenizer'),
+        expect.any(Error)
+      );
     });
   });
 

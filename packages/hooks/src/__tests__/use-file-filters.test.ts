@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { useFileFilters } from '../use-file-filters';
 
 // Helper to create file nodes
@@ -143,5 +143,25 @@ describe('useFileFilters', () => {
     });
     expect(result.current.filterError).toBeNull();
     expect(filtered).toMatchObject(mockTree);
+  });
+
+  it('compiles regex once for large trees', () => {
+    const { result } = renderHook(() => useFileFilters());
+
+    const largeChildren = Array.from({ length: 1000 }, (_, i) =>
+      fileNode(`file${i}.txt`, `root/file${i}.txt`)
+    );
+    const largeTree: IFileNode[] = [dirNode('root', 'root', largeChildren)];
+
+    const OriginalRegExp = RegExp;
+    const spy = vi.fn((pattern: string, flags?: string) => new OriginalRegExp(pattern, flags));
+    // @ts-expect-error override for test
+    globalThis.RegExp = spy as unknown as RegExpConstructor;
+
+    result.current.applyFileFilters(largeTree, ['^file\\d+\\.txt$'], [], true);
+
+    expect(spy).toHaveBeenCalledTimes(1);
+
+    globalThis.RegExp = OriginalRegExp;
   });
 });

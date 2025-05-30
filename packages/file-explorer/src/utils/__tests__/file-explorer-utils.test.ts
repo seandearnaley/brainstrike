@@ -22,6 +22,7 @@ describe('file-explorer-utils', () => {
         folderSummaryThreshold: 100,
         maxSelectionCount: 50,
         lastActiveTab: 'files',
+        folderAccessOrder: [],
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -86,6 +87,7 @@ describe('file-explorer-utils', () => {
         folderSummaryThreshold: 200,
         maxSelectionCount: 75,
         lastActiveTab: 'search',
+        folderAccessOrder: [],
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -153,19 +155,21 @@ describe('file-explorer-utils', () => {
           lastAccessed: 2000,
         },
       };
+      const order = ['folder1', 'folder2'];
 
       // Act
-      const result = cleanupOldFolderStates(folderStates);
+      const result = cleanupOldFolderStates(folderStates, order);
 
       // Assert
-      expect(result).toBe(folderStates); // Same reference, no cleanup needed
+      expect(result.folderStates).toStrictEqual(folderStates);
+      expect(result.order).toEqual(order);
     });
 
     it('should remove oldest folders when above max limit', () => {
       // Arrange
       const folderStates: Record<string, FolderState> = {};
+      const order: string[] = [];
 
-      // Create MAX_FOLDER_STATES + 2 folder states
       for (let i = 0; i < MAX_FOLDER_STATES + 2; i++) {
         folderStates[`folder${i}`] = {
           selectedFilePaths: new Set(),
@@ -179,27 +183,66 @@ describe('file-explorer-utils', () => {
           lastActiveTab: 'files',
           lastAccessed: i * 1000, // Increasing timestamps
         };
+        order.push(`folder${i}`);
       }
 
       // Act
-      const result = cleanupOldFolderStates(folderStates);
+      const result = cleanupOldFolderStates(folderStates, order);
 
       // Assert
-      expect(Object.keys(result).length).toBe(19); // Based on observation
+      expect(Object.keys(result.folderStates).length).toBe(MAX_FOLDER_STATES);
       // NOTE: Bracket notation with string literal is required for index signature access in TypeScript
       // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result['folder0']).toBeUndefined(); // Oldest should be removed
+      expect(result.folderStates['folder0']).toBeUndefined();
       // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result['folder1']).toBeUndefined(); // Second oldest should be removed
+      expect(result.folderStates['folder1']).toBeUndefined();
       // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result['folder2']).toBeUndefined(); // Third oldest should be removed
-      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result['folder3']).toBeDefined(); // Fourth oldest should remain
+      expect(result.folderStates['folder2']).toBeDefined();
 
-      // All newer folders should remain
-      for (let i = 3; i < MAX_FOLDER_STATES + 2; i++) {
-        expect(result[`folder${i}`]).toBeDefined();
+      for (let i = 2; i < MAX_FOLDER_STATES + 2; i++) {
+        expect(result.folderStates[`folder${i}`]).toBeDefined();
       }
+
+      expect(result.order.length).toBe(MAX_FOLDER_STATES);
+      expect(result.order[0]).toBe('folder2');
+    });
+
+    it('should remove ids from the order that have no matching folder state', () => {
+      // Arrange
+      const folderStates: Record<string, FolderState> = {
+        folder1: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 50,
+          lastActiveTab: 'files',
+          lastAccessed: 1000,
+        },
+        folder2: {
+          selectedFilePaths: new Set(),
+          expandedDirectoryPaths: new Set(),
+          includeFilters: [],
+          excludeFilters: [],
+          useRegex: false,
+          includeProjectTree: true,
+          folderSummaryThreshold: 100,
+          maxSelectionCount: 50,
+          lastActiveTab: 'files',
+          lastAccessed: 2000,
+        },
+      };
+      const order = ['folder1', 'orphan', 'folder2'];
+
+      // Act
+      const result = cleanupOldFolderStates(folderStates, order);
+
+      // Assert
+      expect(result.folderStates).toStrictEqual(folderStates);
+      expect(result.order).toEqual(['folder1', 'folder2']);
     });
   });
 

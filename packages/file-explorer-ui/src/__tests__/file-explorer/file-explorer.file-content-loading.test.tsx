@@ -128,6 +128,7 @@ const mockStore: FileExplorerState = {
   folderSummaryThreshold: 5,
   maxSelectionCount: 10,
   lastActiveTab: 'files',
+  folderAccessOrder: [],
 
   // Action properties (mocked functions)
   setCurrentFolderId: vi.fn((folderId: string | null) => {

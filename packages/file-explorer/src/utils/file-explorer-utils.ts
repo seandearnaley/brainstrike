@@ -27,33 +27,33 @@ export const saveFolderState = (
 };
 
 // Helper function to clean up old folder states
+
+export const updateFolderAccessOrder = (order: readonly string[], folderId: string): string[] => {
+  const newOrder = order.filter((id) => id !== folderId);
+  newOrder.push(folderId);
+  return newOrder;
+};
+
 export const cleanupOldFolderStates = (
-  folderStates: Record<string, FolderState>
-): Record<string, FolderState> => {
-  const folderEntries = Object.entries(folderStates);
-  if (folderEntries.length >= MAX_FOLDER_STATES) {
-    // Sort by lastAccessed (oldest first)
-    const sortedEntries = [...folderEntries].sort(
-      ([, a], [, b]) => (a.lastAccessed || 0) - (b.lastAccessed || 0)
-    );
+  folderStates: Record<string, FolderState>,
+  order: readonly string[]
+): { folderStates: Record<string, FolderState>; order: string[] } => {
+  const newStates = { ...folderStates };
+  // Remove any ids from the order array that no longer exist in folderStates
+  let newOrder = order.filter((id) => newStates[id]);
 
-    // Remove oldest entries until we're under the limit
-    const entriesToRemove = folderEntries.length - MAX_FOLDER_STATES + 1;
-    const newFolderStates = { ...folderStates };
-
-    // Only process entries that exist
-    for (let i = 0; i < entriesToRemove && i < sortedEntries.length; i++) {
-      const entry = sortedEntries[i];
-      if (entry) {
-        const [oldestFolderId] = entry;
-        delete newFolderStates[oldestFolderId];
-      }
+  while (newOrder.length > MAX_FOLDER_STATES) {
+    const oldestId = newOrder.shift();
+    if (oldestId) {
+      delete newStates[oldestId];
     }
-
-    return newFolderStates;
   }
 
-  return folderStates;
+  // After potentially deleting states due to the max limit, ensure order only
+  // contains ids that still exist
+  newOrder = newOrder.filter((id) => newStates[id]);
+
+  return { folderStates: newStates, order: newOrder };
 };
 
 // Helper function to create a new folder state
