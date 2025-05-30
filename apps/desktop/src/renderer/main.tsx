@@ -3,7 +3,6 @@ import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { HelmetProvider } from 'react-helmet-async';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
@@ -24,9 +23,7 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-      <HelmetProvider>
-        <RootLayoutContent />
-      </HelmetProvider>
+      <RootLayoutContent />
     </AdaptersProvider>
   </React.StrictMode>
 );

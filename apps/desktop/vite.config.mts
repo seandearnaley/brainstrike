@@ -24,6 +24,21 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src/renderer'),
     },
   },
+  optimizeDeps: {
+    // Exclude workspace packages from optimization as they are treated as external
+    exclude: [
+      '@brainstrike/types',
+      '@brainstrike/hooks',
+      '@brainstrike/ui',
+      '@brainstrike/utils',
+      '@brainstrike/file-explorer',
+      '@brainstrike/file-explorer-hooks',
+      '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-system',
+      '@brainstrike/storage',
+      '@brainstrike/app-shell'
+    ]
+  },
   server: {
     port: 3001, // Different port from web app to avoid conflicts
   },

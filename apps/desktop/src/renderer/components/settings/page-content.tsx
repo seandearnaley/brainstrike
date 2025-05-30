@@ -1,12 +1,8 @@
-import { Helmet } from 'react-helmet-async';
-
 export default function SettingsPageContent() {
   return (
     <>
-      <Helmet>
-        <title>BrainStrike Desktop - Settings</title>
-        <meta name="description" content="BrainStrike Desktop Settings" />
-      </Helmet>
+      <title>BrainStrike Desktop - Settings</title>
+      <meta name="description" content="BrainStrike Desktop Settings" />
       <div className="container mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">Settings</h1>
         <div className="space-y-6">

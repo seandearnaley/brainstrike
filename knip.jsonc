@@ -30,6 +30,25 @@
         "config": "tsconfig.json"
       }
     },
+    "apps/desktop": {
+      "entry": [
+        "src/main.ts", // Electron main process
+        "src/preload.ts", // Electron preload script
+        "src/renderer/main.tsx", // Renderer entry point
+        "vitest.setup.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "ignoreDependencies": [
+        "@brainstrike/ui" // Used in CSS imports which knip doesn't detect
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/ui": {
       "entry": [
         "src/index.ts"
@@ -197,6 +216,16 @@
         "src/index.ts"
       ],
       "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/tailwind-config": {
+      "entry": [
+        "index.js"
+      ],
+      "project": ["**/*.{js,ts}"],
       "ignore": [],
       "typescript": {
         "config": "tsconfig.json"

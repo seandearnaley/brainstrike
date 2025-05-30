@@ -29,12 +29,6 @@ Object.defineProperty(window, 'electronAPI', {
   writable: true,
 });
 
-// Mock react-helmet-async
-vi.mock('react-helmet-async', () => ({
-  Helmet: ({ children }: { children: React.ReactNode }) => children,
-  HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
-}));
-
 // Mock react-router-dom for components that use it
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
