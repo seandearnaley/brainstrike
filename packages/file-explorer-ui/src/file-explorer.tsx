@@ -262,7 +262,7 @@ const FileExplorer: React.FC = () => {
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="@container/main flex flex-col h-full max-h-[calc(100vh-2rem)] overflow-hidden">
+      <div className="@container/main flex flex-col h-full overflow-hidden">
         <FileExplorerHeader />
         <div className="flex-1 flex flex-col overflow-hidden">
           <LoadingOverlay
