@@ -69,11 +69,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
-  const { containerRef, range, offset, totalHeight } = useVirtualList(
-    visibleNodes.length,
-    ROW_HEIGHT,
-    3
-  );
+  const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, 3);
 
   const renderedRows = useMemo(
     () =>
@@ -104,15 +100,17 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   );
 
   return (
-    <div ref={containerRef} className="overflow-auto" style={{ height: '100%' }}>
+    <div
+      ref={containerRef}
+      className="overflow-y-auto h-full relative file-tree-scroll"
+      style={{ minHeight: 0 }}
+    >
       <ul
-        className="file-tree relative"
+        className="relative file-tree"
         role="tree"
         aria-label="File tree"
         style={{
           height: totalHeight,
-          position: 'relative',
-          transform: `translateY(${offset}px)`,
         }}
       >
         {renderedRows}

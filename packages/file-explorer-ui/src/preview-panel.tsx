@@ -331,8 +331,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
       const content = fileContents[compositeKey];
 
       return (
-        <div
-          className="h-[400px] overflow-y-scroll overscroll-contain pointer-events-auto scrollbar-thin scrollbar-thumb-rounded scrollbar-thumb-gray-400 dark:scrollbar-thumb-gray-600"
+        <ScrollArea
+          className="h-[400px] pointer-events-auto preview-panel-scrollbar"
           onWheel={(e) => e.stopPropagation()}
         >
           <pre className="whitespace-pre-wrap p-4 bg-gray-50 dark:bg-gray-900 rounded-md text-gray-900 dark:text-gray-50">
@@ -354,7 +354,7 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
               'No content available'
             )}
           </pre>
-        </div>
+        </ScrollArea>
       );
     },
     [fileContents, loadingFiles]

@@ -4,6 +4,7 @@ import {
   ErrorBoundary,
   type ErrorBoundaryProps,
   type ErrorBoundaryState,
+  ScrollArea,
   isDevEnv,
 } from '@brainstrike/ui';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
@@ -159,7 +160,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           {detailsVisible && details && (
             <div className="p-4 border-t bg-muted/20">
               <h3 className="font-semibold mb-2">Error Details</h3>
-              <div className="bg-muted p-2 rounded text-sm font-mono overflow-auto max-h-60">
+              <ScrollArea className="bg-muted p-2 rounded text-sm font-mono max-h-60">
                 <p>
                   <strong>Name:</strong> {error?.name}
                 </p>
@@ -182,7 +183,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
                     </pre>
                   </div>
                 )}
-              </div>
+              </ScrollArea>
             </div>
           )}
         </div>
