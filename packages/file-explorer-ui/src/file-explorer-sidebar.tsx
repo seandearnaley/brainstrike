@@ -162,7 +162,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
           <TabsList className="w-full shrink-0">
             <TabsTrigger value="files">Files</TabsTrigger>
           </TabsList>
-          <TabsContent value="files" className="flex-1 overflow-hidden p-2">
+          <TabsContent value="files" className="flex-1 overflow-hidden p-2 min-h-0">
             {quickFilteredTree && quickFilteredTree.length > 0 ? (
               <FileTree
                 fileTree={quickFilteredTree}
