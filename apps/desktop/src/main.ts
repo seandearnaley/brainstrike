@@ -1,8 +1,9 @@
-const path = require('node:path');
-const { ElectronFileSystemAdapter } = require('@brainstrike/file-system');
-const { ElectronStorageAdapter } = require('@brainstrike/storage');
-const { BrowserWindow, app, ipcMain, session } = require('electron');
+import fs from 'node:fs';
+import path from 'node:path';
+import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import { ElectronStorageAdapter } from '@brainstrike/storage';
+import { BrowserWindow, app, ipcMain, session } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 
 const fileSystem = new ElectronFileSystemAdapter();
@@ -97,7 +98,6 @@ async function createWindow() {
 
   // Check if built renderer files exist
   const rendererPath = path.join(__dirname, 'renderer/index.html');
-  const fs = require('node:fs');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
   if (app.isPackaged || hasBuiltRenderer) {

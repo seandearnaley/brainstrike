@@ -1,93 +1,28 @@
 import { test, expect } from '@playwright/test';
+import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 
 test.describe('File Explorer - Filter Functionality', () => {
   test.beforeEach(async ({ page }) => {
-    // Mock the File System Access API with a comprehensive file structure for filter testing
-    await page.addInitScript(() => {
-      /* eslint-disable */
-      class FileSystemFileHandle {
-        constructor(name) {
-          // @ts-expect-error
-          this.kind = 'file';
-          // @ts-expect-error
-          this.name = name;
-        }
-        async getFile() {
-          // @ts-expect-error
-          return new File(['test content'], this.name);
-        }
-      }
+    const tree: FileTree = {
+      'Button.tsx': null,
+      'Button.test.tsx': null,
+      'utils.ts': null,
+      'utils.test.ts': null,
+      'config.json': null,
+      'package.json': null,
+      'legacy.js': null,
+      'OldComponent.jsx': null,
+      my_custom_modules: {
+        'some-package': {
+          'index.js': null,
+        },
+      },
+      my_custom_coverage: {
+        'lcov.info': null,
+      },
+    };
 
-      class FileSystemDirectoryHandle {
-        constructor(name, entries) {
-          // @ts-expect-error
-          this.kind = 'directory';
-          // @ts-expect-error
-          this.name = name;
-          // @ts-expect-error
-          this._entries = entries;
-        }
-        async *entries() {
-          // @ts-expect-error
-          for (const [name, handle] of Object.entries(this._entries)) {
-            yield [name, handle];
-          }
-        }
-        async getDirectoryHandle(name) {
-          // @ts-expect-error
-          if (this._entries[name] && this._entries[name].kind === 'directory') {
-            // @ts-expect-error
-            return this._entries[name];
-          }
-          throw new Error('Directory not found');
-        }
-        async getFileHandle(name) {
-          // @ts-expect-error
-          if (this._entries[name] && this._entries[name].kind === 'file') {
-            // @ts-expect-error
-            return this._entries[name];
-          }
-          throw new Error('File not found');
-        }
-      }
-
-    // Build a comprehensive fake file tree for filter testing
-    const buttonFile = new FileSystemFileHandle('Button.tsx');
-    const buttonTestFile = new FileSystemFileHandle('Button.test.tsx');
-    const utilsFile = new FileSystemFileHandle('utils.ts');
-    const utilsTestFile = new FileSystemFileHandle('utils.test.ts');
-    const configFile = new FileSystemFileHandle('config.json');
-    const packageFile = new FileSystemFileHandle('package.json');
-    const jsFile = new FileSystemFileHandle('legacy.js');
-    const jsxFile = new FileSystemFileHandle('OldComponent.jsx');
-    
-    const myCustomModulesFolder = new FileSystemDirectoryHandle('my_custom_modules', {
-      'some-package': new FileSystemDirectoryHandle('some-package', {
-        'index.js': new FileSystemFileHandle('index.js'),
-      }),
-    });
-    
-    const myCustomCoverageFolder = new FileSystemDirectoryHandle('my_custom_coverage', {
-      'lcov.info': new FileSystemFileHandle('lcov.info'),
-    });
-
-    const root = new FileSystemDirectoryHandle('test-project', {
-      'Button.tsx': buttonFile,
-      'Button.test.tsx': buttonTestFile,
-      'utils.ts': utilsFile,
-      'utils.test.ts': utilsTestFile,
-      'config.json': configFile,
-      'package.json': packageFile,
-      'legacy.js': jsFile,
-      'OldComponent.jsx': jsxFile,
-      'my_custom_modules': myCustomModulesFolder,
-      'my_custom_coverage': myCustomCoverageFolder,
-    });
-
-      // @ts-expect-error
-      window.showDirectoryPicker = async () => root;
-      /* eslint-enable */
-    });
+    await mockBrowserApis(page, 'test-project', tree);
 
     await page.goto('/');
 
