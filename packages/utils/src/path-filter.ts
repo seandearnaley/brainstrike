@@ -14,7 +14,8 @@ export const fileFilter = {
    * Checks if a path should be ignored based on default patterns
    */
   shouldIgnorePath(path: string): boolean {
-    return DEFAULT_IGNORE_PATTERNS.some((pattern) => path.split('/').includes(pattern));
+    const normalizedPath = path.replace(/\\/g, '/');
+    return DEFAULT_IGNORE_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
   },
 
   /**
