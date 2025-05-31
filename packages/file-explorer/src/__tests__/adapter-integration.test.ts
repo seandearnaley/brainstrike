@@ -5,8 +5,8 @@ import type { IFileNode } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createFileExplorerStore } from '../store';
 
-// biome-ignore lint/complexity/useLiteralKeys: needed for testing
-const isDev = process.env['NODE_ENV'] !== 'production';
+const NODE_ENV_KEY = 'NODE_ENV';
+const isDev = process.env[NODE_ENV_KEY] !== 'production';
 
 describe('Adapter Integration', () => {
   let memoryStorage: MemoryStorageAdapter;

@@ -74,16 +74,16 @@ if (typeof window !== 'undefined') {
 // Mock TextDecoder/TextEncoder
 // This addresses the type compatibility issue with TextDecoder
 class MockTextDecoder {
-  // We're intentionally not using these parameters but need them for the interface
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  decode(_input?: ArrayBuffer | ArrayBufferView | null, _options?: { stream?: boolean }): string {
+  decode(input?: ArrayBuffer | ArrayBufferView | null, options?: { stream?: boolean }): string {
+    void input;
+    void options;
     return '';
   }
 }
 
 class MockTextEncoder {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  encode(_input?: string): Uint8Array {
+  encode(input?: string): Uint8Array {
+    void input;
     return new Uint8Array();
   }
 }

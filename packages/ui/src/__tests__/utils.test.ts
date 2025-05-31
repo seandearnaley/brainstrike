@@ -11,13 +11,12 @@ interface MutableImportMeta {
 
 // Save original environment values to restore after each test
 const originalImportMetaEnv = (import.meta as MutableImportMeta).env;
-// biome-ignore lint/complexity/useLiteralKeys: Index signature access required for NODE_ENV
-const originalNodeEnv = process.env['NODE_ENV'];
+const NODE_ENV_KEY = 'NODE_ENV';
+const originalNodeEnv = process.env[NODE_ENV_KEY];
 
 afterEach(() => {
   (import.meta as MutableImportMeta).env = originalImportMetaEnv;
-  // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for NODE_ENV
-  process.env['NODE_ENV'] = originalNodeEnv;
+  process.env[NODE_ENV_KEY] = originalNodeEnv;
 });
 
 describe('cn', () => {
@@ -33,21 +32,18 @@ describe('cn', () => {
 describe('isDevEnv', () => {
   it('returns true when NODE_ENV is development', () => {
     (import.meta as MutableImportMeta).env = { MODE: 'production' };
-    // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for NODE_ENV
-    process.env['NODE_ENV'] = 'development';
+    process.env[NODE_ENV_KEY] = 'development';
     expect(isDevEnv()).toBe(true);
   });
   it('uses NODE_ENV when import.meta.env is undefined', () => {
     (import.meta as MutableImportMeta).env = undefined;
-    // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for NODE_ENV
-    process.env['NODE_ENV'] = 'development';
+    process.env[NODE_ENV_KEY] = 'development';
     expect(isDevEnv()).toBe(true);
   });
 
   it('returns false when both env vars are not development', () => {
     (import.meta as MutableImportMeta).env = { MODE: 'production' };
-    // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for NODE_ENV
-    process.env['NODE_ENV'] = 'production';
+    process.env[NODE_ENV_KEY] = 'production';
     expect(isDevEnv()).toBe(false);
   });
 });

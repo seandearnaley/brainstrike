@@ -47,21 +47,21 @@ const testDefaultFolderState: FolderState = {
 
 describe('file-explorer-persistence', () => {
   beforeEach(() => {
-    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-    originalNodeEnv = process.env['NODE_ENV'];
+    const NODE_ENV_KEY = 'NODE_ENV';
+    originalNodeEnv = process.env[NODE_ENV_KEY];
     vi.clearAllMocks(); // Clear mocks for console spies
     vi.resetModules(); // Reset modules to ensure isDev is re-evaluated based on NODE_ENV
   });
 
   afterEach(() => {
-    // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-    process.env['NODE_ENV'] = originalNodeEnv;
+    const NODE_ENV_KEY = 'NODE_ENV';
+    process.env[NODE_ENV_KEY] = originalNodeEnv;
   });
 
   describe('createPersistOptions', () => {
     it('should create persist options with the correct configuration', async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'production'; // Arbitrary for this test
+      const NODE_ENV_KEY = 'NODE_ENV';
+      process.env[NODE_ENV_KEY] = 'production'; // Arbitrary for this test
       const persistOptions = await getFreshPersistOptions();
       expect(persistOptions.name).toBe('file-explorer-storage-v4');
       expect(persistOptions.version).toBe(1);
@@ -382,12 +382,14 @@ describe('file-explorer-persistence', () => {
       const merged = mergeFn(serialized, initialCurrentState);
 
       expect(Object.keys(merged.folderStates)).toEqual(expect.arrayContaining(['one', 'two']));
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      expect(Array.from(merged.folderStates['one']?.selectedFilePaths ?? new Set())).toEqual([]);
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      expect(Array.from(merged.folderStates['two']?.expandedDirectoryPaths ?? new Set())).toEqual(
+      const folderOneKey = 'one';
+      const folderTwoKey = 'two';
+      expect(Array.from(merged.folderStates[folderOneKey]?.selectedFilePaths ?? new Set())).toEqual(
         []
       );
+      expect(
+        Array.from(merged.folderStates[folderTwoKey]?.expandedDirectoryPaths ?? new Set())
+      ).toEqual([]);
     });
   });
 
@@ -397,8 +399,8 @@ describe('file-explorer-persistence', () => {
     >;
 
     beforeEach(async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'development'; // Ensure logging
+      const NODE_ENV_KEY = 'NODE_ENV';
+      process.env[NODE_ENV_KEY] = 'development'; // Ensure logging
       vi.resetModules();
       const persistOptions = await getFreshPersistOptions();
       if (!persistOptions.onRehydrateStorage)
@@ -414,8 +416,8 @@ describe('file-explorer-persistence', () => {
     });
 
     it('should not log when isDev is false (production)', async () => {
-      // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-      process.env['NODE_ENV'] = 'production';
+      const NODE_ENV_KEY = 'NODE_ENV';
+      process.env[NODE_ENV_KEY] = 'production';
       vi.resetModules(); // Re-import to get new isDev value
       const prodPersistOptions = await getFreshPersistOptions();
       const prodOnRehydrate = prodPersistOptions.onRehydrateStorage;
