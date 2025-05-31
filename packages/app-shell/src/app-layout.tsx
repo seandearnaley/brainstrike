@@ -1,10 +1,4 @@
-import {
-  NavigationSidebar,
-  ScrollArea,
-  ThemeProvider,
-  ThemeToggle,
-  Toaster,
-} from '@brainstrike/ui';
+import { NavigationSidebar, ThemeProvider, ThemeToggle, Toaster } from '@brainstrike/ui';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({
@@ -25,7 +19,7 @@ export function AppLayout({
           <ThemeToggle />
           {sidebarContent}
         </NavigationSidebar>
-        <ScrollArea className="flex-1 p-4 h-full">{children}</ScrollArea>
+        <main className="flex-1 p-4 h-full overflow-hidden">{children}</main>
       </div>
       <Toaster />
     </ThemeProvider>

@@ -3,7 +3,6 @@ import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import {
   Badge,
-  ScrollArea,
   Tabs,
   TabsContent,
   TabsList,
@@ -163,23 +162,17 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
           <TabsList className="w-full shrink-0">
             <TabsTrigger value="files">Files</TabsTrigger>
           </TabsList>
-          <TabsContent value="files" className="flex-1 overflow-hidden">
-            <ScrollArea className="h-full">
-              <div className="p-2">
-                {quickFilteredTree && quickFilteredTree.length > 0 ? (
-                  <FileTree
-                    fileTree={quickFilteredTree}
-                    loadingFiles={loadingFiles}
-                    onRender={onTreeRender || undefined}
-                    folderId={currentFolderId || ''}
-                  />
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    No matching files found
-                  </div>
-                )}
-              </div>
-            </ScrollArea>
+          <TabsContent value="files" className="flex-1 overflow-hidden p-2">
+            {quickFilteredTree && quickFilteredTree.length > 0 ? (
+              <FileTree
+                fileTree={quickFilteredTree}
+                loadingFiles={loadingFiles}
+                onRender={onTreeRender || undefined}
+                folderId={currentFolderId || ''}
+              />
+            ) : (
+              <div className="text-center text-muted-foreground py-8">No matching files found</div>
+            )}
           </TabsContent>
         </Tabs>
       )}
