@@ -8,17 +8,15 @@
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
-// eslint-disable-next-line no-undef -- process.env is available in Vite/Node environments
 
-// biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-const isDev = typeof process !== 'undefined' && process.env['NODE_ENV'] !== 'production';
+const NODE_ENV_KEY = 'NODE_ENV';
+const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
+const isDev = nodeEnv !== 'production';
 
 const isTest =
-  typeof process !== 'undefined' &&
-  // biome-ignore lint/complexity/useLiteralKeys: Required for TS 5.4+ compatibility (TS4111)
-  (process.env['NODE_ENV'] === 'test' ||
-    (typeof globalThis !== 'undefined' &&
-      ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis)));
+  nodeEnv === 'test' ||
+  (typeof globalThis !== 'undefined' &&
+    ('vitest' in globalThis || 'jest' in globalThis || '__vitest_worker__' in globalThis));
 const shouldLog = isDev && !isTest;
 
 type ZustandPersistWrapper<T> = { state?: T; version?: number };

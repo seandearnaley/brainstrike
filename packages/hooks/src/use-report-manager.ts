@@ -66,8 +66,12 @@ export const useReportManager = ({
         new Blob([report], { type: 'text/plain;charset=utf-8' }),
         FileExplorerStrings.fileNames.report
       );
+      showToast({
+        title: FileExplorerStrings.success.title,
+        description: FileExplorerStrings.success.reportDownloaded,
+      });
     }
-  }, [handleGenerateReport]);
+  }, [handleGenerateReport, showToast]);
 
   const handleCopyReport = useCallback(async () => {
     let reportToast: ReturnType<typeof toast> | undefined;

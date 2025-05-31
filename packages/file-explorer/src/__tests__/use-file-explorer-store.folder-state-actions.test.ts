@@ -95,8 +95,8 @@ describe('Folder State Actions', () => {
 
     const state = store.getState();
     expect(state.currentFolderId).toBe('newId');
-    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket access
-    const newState = state.folderStates['newId'];
+    const idKey = 'newId';
+    const newState = state.folderStates[idKey];
     expect(newState).toBeDefined();
     if (!newState) throw new Error('Expected folder state to be defined');
     expect(newState.selectedFilePaths.size).toBe(0);

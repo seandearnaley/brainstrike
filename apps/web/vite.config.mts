@@ -73,6 +73,7 @@ export default defineConfig({
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
     rollupOptions: {
+      external: ['electron'],
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules")) {

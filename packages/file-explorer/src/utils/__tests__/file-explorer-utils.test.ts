@@ -192,12 +192,12 @@ describe('file-explorer-utils', () => {
       // Assert
       expect(Object.keys(result.folderStates).length).toBe(MAX_FOLDER_STATES);
       // NOTE: Bracket notation with string literal is required for index signature access in TypeScript
-      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result.folderStates['folder0']).toBeUndefined();
-      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result.folderStates['folder1']).toBeUndefined();
-      // biome-ignore lint/complexity/useLiteralKeys: Index signature access required for dynamic keys
-      expect(result.folderStates['folder2']).toBeDefined();
+      const folder0Key = 'folder0';
+      const folder1Key = 'folder1';
+      const folder2Key = 'folder2';
+      expect(result.folderStates[folder0Key]).toBeUndefined();
+      expect(result.folderStates[folder1Key]).toBeUndefined();
+      expect(result.folderStates[folder2Key]).toBeDefined();
 
       for (let i = 2; i < MAX_FOLDER_STATES + 2; i++) {
         expect(result.folderStates[`folder${i}`]).toBeDefined();

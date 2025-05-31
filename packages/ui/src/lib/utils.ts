@@ -11,5 +11,6 @@ export function isDevEnv(): boolean {
   // Type definition in vite-env.d.ts
   // In Node environments (like tests), import.meta.env might be undefined,
   // so we fall back to process.env.NODE_ENV which is commonly set there.
-  return import.meta.env?.MODE === 'development' || process.env['NODE_ENV'] === 'development';
+  const envKey = 'NODE_ENV';
+  return import.meta.env?.MODE === 'development' || process.env[envKey] === 'development';
 }

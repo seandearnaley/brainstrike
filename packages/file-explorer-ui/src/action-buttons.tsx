@@ -27,6 +27,7 @@ export interface ActionButtonsProps {
   currentFolderId: string | null;
   setSelectedFiles: (files: Set<string>) => void;
   encodeFileSelection: (folderId: string, path: string) => string;
+  onSelectionLimitExceeded?: () => void;
   onDownloadReport: () => void;
   onCopyReport: () => void;
 }
@@ -38,6 +39,7 @@ export const ActionButtons = ({
   currentFolderId,
   setSelectedFiles,
   encodeFileSelection,
+  onSelectionLimitExceeded,
   onDownloadReport,
   onCopyReport,
 }: ActionButtonsProps) => {
@@ -48,8 +50,18 @@ export const ActionButtons = ({
       .slice(0, maxSelectionCount)
       .map((path) => encodeFileSelection(currentFolderId, path))
       .filter((v): v is string => typeof v === 'string'); // Guard: only strings
+    if (displayedFiles.size > maxSelectionCount && onSelectionLimitExceeded) {
+      onSelectionLimitExceeded();
+    }
     setSelectedFiles(new Set(filesToSelect));
-  }, [displayedFiles, setSelectedFiles, maxSelectionCount, currentFolderId, encodeFileSelection]);
+  }, [
+    displayedFiles,
+    setSelectedFiles,
+    maxSelectionCount,
+    currentFolderId,
+    encodeFileSelection,
+    onSelectionLimitExceeded,
+  ]);
 
   // Clears all selected files
   const handleDeselectAll = useCallback(() => {

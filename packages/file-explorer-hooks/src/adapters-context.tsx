@@ -1,6 +1,5 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React, { type ReactNode, createContext, useContext } from 'react';
 
 export interface AdaptersContextValue {

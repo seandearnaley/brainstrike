@@ -21,6 +21,21 @@ describe('fileFilter', () => {
       }
     });
 
+    it('should ignore Windows-style paths containing default patterns', () => {
+      const patterns = [
+        'foo\\node_modules\\bar',
+        '\\node_modules\\package.json',
+        'project\\.git\\config',
+        'project\\dist\\bundle.js',
+        'build\\index.html',
+        'some\\path\\.DS_Store',
+      ];
+
+      for (const path of patterns) {
+        expect(fileFilter.shouldIgnorePath(path)).toBe(true);
+      }
+    });
+
     it('should not ignore valid paths', () => {
       const validPaths = [
         'src/components/Button.tsx',

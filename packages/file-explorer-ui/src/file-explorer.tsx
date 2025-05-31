@@ -338,6 +338,7 @@ const FileExplorer: React.FC = () => {
               currentFolderId={currentFolderId}
               setSelectedFiles={handleSelectionChange}
               encodeFileSelection={encodeFileSelection}
+              onSelectionLimitExceeded={handleSelectionLimitError}
               onDownloadReport={handleDownloadReport}
               onCopyReport={handleCopyReport}
             />

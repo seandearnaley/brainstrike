@@ -31,9 +31,8 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   }, [onRender]);
 
   // Trigger onRender when fileTree changes (for test purposes)
-  // We intentionally include fileTree as a dependency for testing purposes
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fileTree is needed for test re-renders
   useEffect(() => {
+    void fileTree;
     onRender?.();
   }, [fileTree, onRender]);
 

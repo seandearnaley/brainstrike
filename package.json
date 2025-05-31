@@ -3,6 +3,7 @@
 	"version": "1.0.0",
 	"description": "Brainstrike.ai",
 	"main": "index.js",
+	"type": "module",
 	"engines": {
 		"node": ">=22"
 	},
@@ -20,7 +21,7 @@
 		"clean": "turbo run clean",
 		"type-check": "turbo run type-check",
 		"knip": "knip",
-		"coverage:merge": "mkdir -p .nyc_output && echo 'Starting coverage file search...' && find apps packages -type f -path '*/coverage/*' -name 'coverage-final.json' > coverage-files.txt && echo 'Search completed. Found:' && cat coverage-files.txt && node -e \"const fs=require('fs');const files=fs.readFileSync('coverage-files.txt','utf8').split('\\n').filter(Boolean);console.log('Found coverage files:', files.length);const merged={};files.forEach(f=>{if(fs.existsSync(f)){try{const content=JSON.parse(fs.readFileSync(f,'utf8'));console.log('Processing file:', f, 'with', Object.keys(content).length, 'entries');Object.assign(merged,content);console.log('Merged coverage from:', f);}catch(e){console.error('Error processing file:', f, e);}}});fs.writeFileSync('.nyc_output/coverage.json',JSON.stringify(merged));console.log('Merged coverage written to .nyc_output/coverage.json, with', Object.keys(merged).length, 'total entries');\" && rm coverage-files.txt",
+		"coverage:merge": "node scripts/merge-coverage.js",
 		"coverage:report": "nyc report --reporter=json --reporter=lcov --reporter=text --report-dir ./coverage"
 	},
 	"keywords": [],
@@ -38,7 +39,7 @@
 		"nyc": "^17.1.0",
 		"playwright": "^1.52.0",
 		"tsup": "^8.4.0",
-		"turbo": "^2.5.3",
+		"turbo": "^2.5.4",
 		"typescript": "^5.8.3",
 		"vitest": "^3.1.1"
 	},

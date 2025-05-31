@@ -12,6 +12,7 @@ export const FileExplorerStrings = {
     refreshSuccess: 'File tree refreshed successfully.',
     rootDirectorySelected: 'Successfully set the root directory.',
     reportCopied: 'The report has been copied to your clipboard.',
+    reportDownloaded: 'The report has been downloaded.',
   },
 
   error: {

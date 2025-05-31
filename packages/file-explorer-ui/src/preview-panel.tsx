@@ -90,6 +90,9 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
     direction: 'asc',
   });
 
+  // Cache token counts per file so we only compute them once
+  const tokenCacheRef = useRef<Map<string, number>>(new Map());
+
   // Use ref to track previous selectedFiles to detect changes
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
 
@@ -125,22 +128,21 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
       let tokenCount: number | undefined;
 
       if (fileContents[compositeKey]) {
-        // Calculate token count for text content
         const content = fileContents[compositeKey];
 
         // Skip token calculation for error messages and binary files
         if (!content.startsWith('File not accessible') && !content.startsWith('Binary file')) {
-          // Use faster heuristic for larger files (>100KB)
-          // We're using heuristic for all files to avoid Promise handling in a synchronous context
-          tokenCount = countTokensHeuristic(content);
+          if (!tokenCacheRef.current.has(compositeKey)) {
+            const count = countTokensHeuristic(content);
+            tokenCacheRef.current.set(compositeKey, count);
+          }
+          tokenCount = tokenCacheRef.current.get(compositeKey);
 
-          // Add to folder total
           if (typeof tokenCount === 'number') {
             groups[folderId].totalTokens += tokenCount;
           }
         }
 
-        // Calculate file size
         if (fileSizes && fileSizes[compositeKey] !== undefined) {
           fileSize = fileSizes[compositeKey];
         } else {

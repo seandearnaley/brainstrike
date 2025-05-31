@@ -9,10 +9,9 @@ import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
 // Define mock implementations
 vi.mock('@brainstrike/utils', async (importOriginal) => {
-  const actual = await importOriginal();
+  const actual: typeof import('@brainstrike/utils') = await importOriginal();
   return {
-    // biome-ignore lint/suspicious/noExplicitAny: no time
-    ...(actual as any),
+    ...actual,
     fileContent: {
       isTextContent: vi.fn(),
       isTextExtension: vi.fn(),

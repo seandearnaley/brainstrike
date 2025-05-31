@@ -16,6 +16,7 @@ function getProps(overrides: Partial<ActionButtonsProps> = {}): ActionButtonsPro
     currentFolderId: TEST_FOLDER_ID,
     setSelectedFiles: vi.fn(),
     encodeFileSelection: (folderId, path) => `${folderId}:${path}`,
+    onSelectionLimitExceeded: vi.fn(),
     onDownloadReport: vi.fn(),
     onCopyReport: vi.fn(),
     ...overrides,
@@ -88,6 +89,26 @@ describe('ActionButtons', () => {
       await user.click(selectButton);
       const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
       expect(props.setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
+    });
+
+    it('calls onSelectionLimitExceeded when selecting all exceeds limit', async () => {
+      const onSelectionLimitExceeded = vi.fn();
+      const setSelectedFiles = vi.fn();
+      const props = getProps({
+        displayedFiles: new Set(['file1.txt', 'file2.txt', 'file3.txt']),
+        maxSelectionCount: 2,
+        onSelectionLimitExceeded,
+        setSelectedFiles,
+      });
+      const user = userEvent.setup();
+      render(<ActionButtons {...props} />);
+      const selectButton = screen.getByRole('button', {
+        name: 'Select 2',
+      });
+      await user.click(selectButton);
+      const expectedSelection = new Set(['test-folder:file1.txt', 'test-folder:file2.txt']);
+      expect(setSelectedFiles).toHaveBeenCalledWith(expectedSelection);
+      expect(onSelectionLimitExceeded).toHaveBeenCalled();
     });
 
     it('should deselect all files when clicking "Deselect All"', async () => {

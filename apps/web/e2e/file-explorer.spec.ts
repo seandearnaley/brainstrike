@@ -1,76 +1,20 @@
 import { test, expect } from '@playwright/test';
+import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 
 // TODO: Replace with actual file system interaction mocks for web
 const MOCK_FILE_SYSTEM = true; // Set to true to enable mock file system interactions
 
 test.describe('File Explorer', () => {
   test.beforeEach(async ({ page }) => {
-    // Robustly mock the File System Access API for E2E/CI
-    await page.addInitScript(() => {
-      /* eslint-disable */
-      class FileSystemFileHandle {
-        constructor(name) {
-          // @ts-expect-error
-          this.kind = 'file';
-          // @ts-expect-error
-          this.name = name;
-        }
-        async getFile() {
-          // @ts-expect-error
-          return new File(['test content'], this.name);
-        }
-      }
+    const tree: FileTree = {
+      'test.ts': null,
+      'test2.ts': null,
+      folder1: {
+        'nested.txt': null,
+      },
+    };
 
-      class FileSystemDirectoryHandle {
-        constructor(name, entries) {
-          // @ts-expect-error
-          this.kind = 'directory';
-          // @ts-expect-error
-          this.name = name;
-          // @ts-expect-error
-          this._entries = entries;
-        }
-        async *entries() {
-          // @ts-expect-error
-          for (const [name, handle] of Object.entries(this._entries)) {
-            yield [name, handle];
-          }
-        }
-        async getDirectoryHandle(name) {
-          // @ts-expect-error
-          if (this._entries[name] && this._entries[name].kind === 'directory') {
-            // @ts-expect-error
-            return this._entries[name];
-          }
-          throw new Error('Directory not found');
-        }
-        async getFileHandle(name) {
-          // @ts-expect-error
-          if (this._entries[name] && this._entries[name].kind === 'file') {
-            // @ts-expect-error
-            return this._entries[name];
-          }
-          throw new Error('File not found');
-        }
-      }
-
-      // Build a fake file tree
-      const file1 = new FileSystemFileHandle('test.ts');
-      const file2 = new FileSystemFileHandle('test2.ts');
-      const folder1 = new FileSystemDirectoryHandle('folder1', {
-        'nested.txt': new FileSystemFileHandle('nested.txt'),
-      });
-      const root = new FileSystemDirectoryHandle('test-root', {
-        'test.ts': file1,
-        'test2.ts': file2,
-        'folder1': folder1,
-      });
-
-      // Patch showDirectoryPicker
-      // @ts-expect-error
-      window.showDirectoryPicker = async () => root;
-      /* eslint-enable */
-    });
+    await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
 

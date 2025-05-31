@@ -195,6 +195,11 @@ describe('useReportManager', () => {
     // Check the filename argument
     const filenameArgument = firstCallArgs?.[1];
     expect(filenameArgument).toBe(FileExplorerStrings.fileNames.report);
+    // Should show a success toast
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.success.title,
+      description: FileExplorerStrings.success.reportDownloaded,
+    });
   });
 
   it('should not download if report generation fails', async () => {
@@ -216,5 +221,7 @@ describe('useReportManager', () => {
 
     // Should not call saveAs if no report is generated
     expect(saveAs).not.toHaveBeenCalled();
+    // Should not show a success toast
+    expect(mockShowToast).not.toHaveBeenCalled();
   });
 });
