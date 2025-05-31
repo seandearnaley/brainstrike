@@ -64,7 +64,7 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: false, // Keep false for IPC to work
+      sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
