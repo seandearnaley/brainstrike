@@ -58,6 +58,7 @@ the same React components and Tailwind styles via the shared configuration.
 - **Vitest** & **Playwright** for testing
 - **React Router** and **react-helmet-async** for routing and head management
 - **Adapter Pattern** for the file explorer (storage & file system adapters enable web and Electron with in-memory/mocked options for tests)
+- **IDE Layout** components for building multi-panel workspaces (see [docs/ide-layout.md](docs/ide-layout.md))
 
 ## Common Commands
 ```bash
