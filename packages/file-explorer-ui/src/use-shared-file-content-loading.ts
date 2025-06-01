@@ -23,30 +23,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const loadingPathsRef = useRef(new Set<string>());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
 
-  const getNodeByPath = useCallback(
-    (folderId: string, path: string): IFileNode | null => {
-      const cached = nodeCacheRef.current.get(folderId)?.get(path);
-      if (cached) return cached;
-
-      const found = fileExplorer.findNodeByPath(fileTree, path, folderId);
-      if (found) {
-        let folderMap = nodeCacheRef.current.get(folderId);
-        if (!folderMap) {
-          folderMap = new Map<string, IFileNode>();
-          nodeCacheRef.current.set(folderId, folderMap);
-        }
-        folderMap.set(path, found);
-      }
-      return found;
-    },
-    [fileTree]
-  );
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
-  const { fileContents, setFileContent, selectedFilePaths } = store(
+  const { selectedFilePaths } = store(
     (s) => ({
-      fileContents: s.fileContents,
-      setFileContent: s.setFileContent,
       selectedFilePaths: s.selectedFilePaths,
     }),
     shallow
@@ -74,8 +54,14 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   const loadSingleFileContent = useCallback(
     async (compositeKey: string) => {
+      // Get fresh values from store to avoid dependency issues
+      const currentSetFileContent = store.getState().setFileContent;
+
       // Skip if already loading or loaded
-      if (loadingPathsRef.current.has(compositeKey) || compositeKey in fileContents) {
+      if (
+        loadingPathsRef.current.has(compositeKey) ||
+        compositeKey in store.getState().fileContents
+      ) {
         return;
       }
 
@@ -92,7 +78,19 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return;
       }
 
-      let fileNode = getNodeByPath(folderId, path);
+      // Use the cached node lookup directly instead of via callback
+      const cached = nodeCacheRef.current.get(folderId)?.get(path);
+      let fileNode = cached || fileExplorer.findNodeByPath(fileTree, path, folderId);
+
+      // Update cache if we found the node
+      if (fileNode && !cached) {
+        let folderMap = nodeCacheRef.current.get(folderId);
+        if (!folderMap) {
+          folderMap = new Map<string, IFileNode>();
+          nodeCacheRef.current.set(folderId, folderMap);
+        }
+        folderMap.set(path, fileNode);
+      }
 
       if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
         console.debug('Initial file node lookup:', {
@@ -112,7 +110,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Try to find the node again
-        fileNode = getNodeByPath(folderId, path);
+        fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
         if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
           console.debug('Retry file node lookup:', {
@@ -141,7 +139,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       if (fileNode.rootFolderId !== folderId) {
         const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
         console.error(error);
-        setFileContent(compositeKey, error);
+        currentSetFileContent(compositeKey, error);
         return;
       }
 
@@ -188,7 +186,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           if (!fileContent.isTextContent(content)) {
             throw new FileContentError('Binary file - preview not available', path, 'BINARY');
           }
-          setFileContent(compositeKey, content);
+          currentSetFileContent(compositeKey, content);
           return;
         }
 
@@ -196,10 +194,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         if (!fileContent.isTextContent(content)) {
           throw new FileContentError('Binary file - preview not available', path, 'BINARY');
         }
-        setFileContent(compositeKey, content);
+        currentSetFileContent(compositeKey, content);
       } catch (err) {
         if (err instanceof FileContentError) {
-          setFileContent(compositeKey, err.message);
+          currentSetFileContent(compositeKey, err.message);
         } else {
           console.error('Error loading file:', {
             error: err,
@@ -208,7 +206,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             folderId,
           });
           const error = new FileContentError('Error loading file content', path, 'LOADING_ERROR');
-          setFileContent(compositeKey, error.message);
+          currentSetFileContent(compositeKey, error.message);
         }
       } finally {
         loadingPathsRef.current.delete(compositeKey);
@@ -219,7 +217,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         });
       }
     },
-    [fileTree, fileContents, fileSystemAdapter, setFileContent, getNodeByPath]
+    [fileTree, fileSystemAdapter, store]
   );
 
   const handleFileContentLoading = useCallback(
@@ -249,15 +247,16 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   // Automatically load content for selected files
   useEffect(() => {
+    const currentFileContents = store.getState().fileContents;
     for (const compositeKey of selectedFilePaths) {
-      if (!fileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
+      if (!currentFileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
         loadSingleFileContent(compositeKey);
       }
     }
-  }, [selectedFilePaths, fileContents, loadSingleFileContent]);
+  }, [selectedFilePaths, loadSingleFileContent, store]);
 
   return {
-    fileContents,
+    fileContents: store.getState().fileContents,
     isLoading,
     error,
     loadingFiles,
