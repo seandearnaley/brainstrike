@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isDevEnv } from '../lib/utils';
 import type { LayoutElectronAPI } from '../types/electron';
 
 const STORAGE_KEY = 'panelLayout.v1';
-const SAVE_DEBOUNCE_MS = 100; // Debounce storage writes
+const SAVE_DEBOUNCE_MS = 250; // Debounce storage writes
+
+const statesEqual = (a: PanelPersistenceState | null, b: PanelPersistenceState): boolean => {
+  return (
+    !!a &&
+    a.sizes.length === b.sizes.length &&
+    a.sizes.every((v, i) => v === b.sizes[i]) &&
+    a.showConsole === b.showConsole &&
+    a.showLeftPanel === b.showLeftPanel &&
+    a.showRightPanel === b.showRightPanel
+  );
+};
 
 export interface PanelPersistenceState {
   sizes: number[];
@@ -20,6 +32,7 @@ export function usePanelPersistence(
   const hasLoadedFromElectron = useRef<boolean>(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const pendingStateRef = useRef<PanelPersistenceState | null>(null);
+  const lastSavedStateRef = useRef<PanelPersistenceState | null>(null);
 
   const [sizes, setSizes] = useState<number[]>(() => {
     try {
@@ -81,8 +94,21 @@ export function usePanelPersistence(
     }
   });
 
+  if (lastSavedStateRef.current === null) {
+    lastSavedStateRef.current = {
+      sizes,
+      showConsole,
+      showLeftPanel,
+      showRightPanel,
+    };
+  }
+
   // Debounced storage persistence
   const persistToStorage = useCallback((state: PanelPersistenceState) => {
+    if (statesEqual(lastSavedStateRef.current, state)) {
+      return;
+    }
+
     // Clear any existing timeout
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -114,9 +140,12 @@ export function usePanelPersistence(
           }
         }
       } catch (error) {
-        console.warn('Failed to save panel layout:', error);
+        if (isDevEnv()) {
+          console.warn('Failed to save panel layout:', error);
+        }
       }
 
+      lastSavedStateRef.current = pendingStateRef.current;
       pendingStateRef.current = null;
     }, SAVE_DEBOUNCE_MS);
   }, []);
@@ -179,7 +208,9 @@ export function usePanelPersistence(
           }
         }
       } catch (error) {
-        console.warn('Failed to load panel layout from Electron:', error);
+        if (isDevEnv()) {
+          console.warn('Failed to load panel layout from Electron:', error);
+        }
       }
     };
 

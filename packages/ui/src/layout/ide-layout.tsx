@@ -8,7 +8,7 @@ import {
 } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
-import { cn } from '../lib/utils';
+import { cn, isDevEnv } from '../lib/utils';
 import { NavigationSidebar } from '../navigation-sidebar';
 import type { NavigationItem } from '../navigation-sidebar';
 
@@ -77,7 +77,9 @@ export const IdeLayout = React.memo(function IdeLayout({
           }
         } catch (error) {
           // Ignore panel state errors in test environments
-          console.warn('Panel state operation failed:', error);
+          if (isDevEnv()) {
+            console.warn('Panel state operation failed:', error);
+          }
         }
       }, 0);
 
