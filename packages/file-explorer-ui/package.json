@@ -40,8 +40,7 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
-    "@tanstack/react-virtual": "^3.13.9"
+    "@brainstrike/utils": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {
