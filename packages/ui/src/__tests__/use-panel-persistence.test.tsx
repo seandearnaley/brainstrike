@@ -60,7 +60,7 @@ describe('usePanelPersistence', () => {
 
     // Advance timers to trigger the debounced save
     act(() => {
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(250);
     });
 
     // Now localStorage should have been called
@@ -88,7 +88,7 @@ describe('usePanelPersistence', () => {
 
     // Advance timers to trigger the debounced save
     act(() => {
-      vi.advanceTimersByTime(100);
+      vi.advanceTimersByTime(250);
     });
 
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
@@ -100,6 +100,22 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
+  });
+
+  it('should not persist when layout is unchanged', async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([20, 30], true);
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(localStorageMock.setItem).not.toHaveBeenCalled();
   });
 
   it('should handle invalid JSON in localStorage gracefully', () => {

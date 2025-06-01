@@ -1,5 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
@@ -88,5 +88,27 @@ describe('FileTree', () => {
   it('renders with empty file tree', () => {
     render(<FileTree {...defaultProps} fileTree={[]} />, { wrapper: FileExplorerTestWrapper });
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
+  });
+
+  it('only renders visible rows when scrolled', () => {
+    const bigTree = Array.from({ length: 50 }, (_, i) =>
+      createFileNode({ name: `file${i}.txt`, path: `file${i}.txt` })
+    );
+    render(<FileTree {...defaultProps} fileTree={bigTree} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    const container = screen.getByRole('tree', { name: 'File tree' })
+      .parentElement as HTMLDivElement;
+    Object.defineProperty(container, 'clientHeight', { value: 56 });
+
+    expect(container.querySelectorAll('li').length).toBeLessThan(bigTree.length);
+
+    act(() => {
+      container.scrollTop = 280;
+      fireEvent.scroll(container);
+    });
+
+    expect(screen.getByText('file10.txt')).toBeInTheDocument();
   });
 });
