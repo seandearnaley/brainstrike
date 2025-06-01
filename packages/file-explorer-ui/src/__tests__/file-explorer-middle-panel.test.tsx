@@ -31,15 +31,37 @@ describe('FileExplorerMiddlePanel', () => {
     vi.clearAllMocks();
 
     vi.mocked(useUnifiedFileExplorer).mockReturnValue({
+      fileTree: [],
       fileContents: {},
       loadingFiles: new Set<string>(),
-      rootDirectoryHandle: { name: 'root', kind: 'directory' } as FileSystemDirectoryHandle,
-    } as any);
+      loadFileContent: vi.fn(),
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      refreshFileExplorer: vi.fn(),
+      applyFileFilters: vi.fn().mockReturnValue([]),
+      filterError: null,
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+    });
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(),
       handleSelectionChange: vi.fn(),
-    } as any);
+      wouldExceedSelectionLimit: vi.fn(),
+    });
   });
 
   it('renders header and preview panel', async () => {

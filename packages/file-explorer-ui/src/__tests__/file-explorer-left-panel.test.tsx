@@ -76,7 +76,9 @@ describe('FileExplorerLeftPanel', () => {
     } as const;
 
     const mockStore = Object.assign(() => storeState, { getState: () => storeState });
-    vi.mocked(useFileExplorerStoreContext).mockReturnValue(mockStore as any);
+    vi.mocked(useFileExplorerStoreContext).mockReturnValue(
+      mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
+    );
 
     vi.mocked(useUnifiedFileExplorer).mockReturnValue({
       fileTree: [],
@@ -87,7 +89,13 @@ describe('FileExplorerLeftPanel', () => {
       loadingFiles: new Set<string>(),
       applyFileFilters: vi.fn(),
       filterError: null,
-      rootDirectoryHandle: { name: 'root', kind: 'directory' } as FileSystemDirectoryHandle,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
       isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
       refreshFileExplorer: vi.fn(),
       isInitialLoad: false,
@@ -95,12 +103,15 @@ describe('FileExplorerLeftPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
-    } as any);
+      loadFileContent: vi.fn(),
+      clearFileContents: vi.fn(),
+    });
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(),
       handleSelectionChange: vi.fn(),
-    } as any);
+      wouldExceedSelectionLimit: vi.fn(),
+    });
 
     vi.mocked(useQuickFilter).mockReturnValue({
       quickFilter: '',

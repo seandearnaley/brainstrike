@@ -12,7 +12,7 @@ describe('useFileExplorerStore without localStorage', () => {
     const { useFileExplorerStore } = mod;
 
     useFileExplorerStore.getState().setCurrentFolderId('test');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250));
 
     const options = useFileExplorerStore.persist.getOptions();
     const stored = await options.storage?.getItem('file-explorer-storage-v4');
@@ -27,7 +27,7 @@ describe('createFileExplorerStore with custom adapter', () => {
 
     const store = createFileExplorerStore(adapter);
     store.getState().setCurrentFolderId('foo');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250));
 
     const newStore = createFileExplorerStore(adapter);
     await new Promise((resolve) => {

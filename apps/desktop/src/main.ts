@@ -46,7 +46,9 @@ function setupSecurity() {
       }
     );
 
-    console.log('🔒 Development CSP configured');
+    if (isDevEnv()) {
+      console.log('🔒 Development CSP configured');
+    }
   } else {
     // Production CSP - more restrictive
     const prodCSP =
@@ -63,6 +65,12 @@ function setupSecurity() {
       }
     );
   }
+}
+
+// Inline isDevEnv utility to avoid ESM/CommonJS import conflicts
+function isDevEnv(): boolean {
+  const envKey = 'NODE_ENV';
+  return process.env[envKey] === 'development';
 }
 
 async function createWindow() {
@@ -112,20 +120,28 @@ async function createWindow() {
 
   if (app.isPackaged || hasBuiltRenderer) {
     // Production: load built files
-    console.log('📦 Loading built renderer files');
+    if (isDevEnv()) {
+      console.log('📦 Loading built renderer files');
+    }
     win.loadFile(rendererPath);
   } else {
     // Development: connect to Vite dev server
-    console.log('🔧 Development mode - connecting to Vite dev server');
+    if (isDevEnv()) {
+      console.log('🔧 Development mode - connecting to Vite dev server');
+    }
     const devPorts = [3001, 3002, 3003]; // Port 3000 is reserved for the web app
 
     for (const port of devPorts) {
       try {
         await win.loadURL(`http://localhost:${port}`);
-        console.log(`✅ Connected to Vite dev server on port ${port}`);
+        if (isDevEnv()) {
+          console.log(`✅ Connected to Vite dev server on port ${port}`);
+        }
         break;
       } catch (error) {
-        console.log(`❌ Failed to connect to port ${port}`);
+        if (isDevEnv()) {
+          console.log(`❌ Failed to connect to port ${port}`);
+        }
         if (port === devPorts[devPorts.length - 1]) {
           console.error('❌ Could not connect to any Vite dev server port');
           throw error;

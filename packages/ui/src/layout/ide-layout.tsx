@@ -58,8 +58,8 @@ export const IdeLayout = React.memo(function IdeLayout({
   useEffect(() => {
     const panel = leftPanelRef.current;
     if (panel) {
-      // Add a small delay to ensure panels are properly initialized
-      const timeoutId = setTimeout(() => {
+      // Use requestAnimationFrame for smoother updates once the panel is initialized
+      const frameId = requestAnimationFrame(() => {
         try {
           if (showLeftPanel) {
             if (panel.isCollapsed()) {
@@ -81,9 +81,9 @@ export const IdeLayout = React.memo(function IdeLayout({
             console.warn('Panel state operation failed:', error);
           }
         }
-      }, 0);
+      });
 
-      return () => clearTimeout(timeoutId);
+      return () => cancelAnimationFrame(frameId);
     }
     return undefined;
   }, [showLeftPanel]); // Removed sizes from dependency array

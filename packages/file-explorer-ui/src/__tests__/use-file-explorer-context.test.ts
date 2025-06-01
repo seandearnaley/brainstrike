@@ -1,4 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { StorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
@@ -164,8 +166,8 @@ describe('useFileExplorer (context)', () => {
       fileSystemAdapter: {
         readFile: vi.fn(),
         readDirectory: vi.fn(),
-      } as any,
-      storageAdapter: {} as any,
+      } as Partial<FileSystemAdapter> as FileSystemAdapter,
+      storageAdapter: {} as StorageAdapter,
     });
 
     onDisplayedFilePathsChange = vi.fn();

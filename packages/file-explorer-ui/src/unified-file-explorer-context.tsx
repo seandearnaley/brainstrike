@@ -3,7 +3,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { createContext, useContext, useMemo } from 'react';
 import { useFileExplorer } from './use-file-explorer-context';
 
-interface UnifiedFileExplorerContextType {
+export interface UnifiedFileExplorerContextType {
   fileTree: IFileNode[];
   fileContents: { [compositeKey: string]: string };
   loadingFiles: Set<string>;

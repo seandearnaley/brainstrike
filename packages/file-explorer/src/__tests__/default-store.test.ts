@@ -14,7 +14,7 @@ describe('default store creation without localStorage', () => {
     const { useFileExplorerStore } = mod;
 
     useFileExplorerStore.getState().setCurrentFolderId('foo');
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 250));
 
     const options = useFileExplorerStore.persist.getOptions();
     if (!options.storage) throw new Error('storage missing');

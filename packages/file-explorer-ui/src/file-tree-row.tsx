@@ -6,7 +6,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
+import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import {
   ChevronDown,
   ChevronRight,
@@ -104,41 +104,64 @@ const FileTreeRow = memo<FileTreeRowProps>(
       removeMultipleSelectedFiles,
     } = store();
 
+    const allFilePaths = useMemo(
+      () =>
+        node.type === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [node.path],
+      [node]
+    );
+
+    const folderInfo = useMemo(() => {
+      if (node.type !== 'directory') return null;
+      return fileExplorer.getFolderFileCount(node);
+    }, [node]);
+
+    const selectedCountInDir = useMemo(
+      () =>
+        allFilePaths.filter((path) =>
+          folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
+        ).length,
+      [allFilePaths, folderId, selectedFilePaths]
+    );
+
+    const isFileSelected = useMemo(
+      () =>
+        node.type === 'file'
+          ? folderId
+            ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
+            : false
+          : false,
+      [node.type, node.path, folderId, selectedFilePaths]
+    );
+
     const handleNodeSelection = useCallback(() => {
       if (node.type !== 'directory') {
         onToggleFileSelection(node.path);
         return;
       }
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) return;
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      const isFullySelected = selectedCount === allFilePaths.length;
+      const isFullySelected = selectedCountInDir === allFilePaths.length;
       if (!isFullySelected) {
         const unselectedPaths = allFilePaths.filter(
           (path) => !(folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false)
         );
         const availableSlots = maxSelectionCount - selectedFilePaths.size;
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
-        // Call batch action to add multiple files
         if (pathsToSelect.length > 0) {
           addMultipleSelectedFiles(folderId, pathsToSelect);
         }
-      } else {
-        // Call batch action to remove multiple files
-        if (allFilePaths.length > 0) {
-          removeMultipleSelectedFiles(folderId, allFilePaths);
-        }
+      } else if (allFilePaths.length > 0) {
+        removeMultipleSelectedFiles(folderId, allFilePaths);
       }
     }, [
-      node,
-      selectedFilePaths, // Needed for selectedCount and availableSlots
-      onToggleFileSelection, // Still needed for single file selection
-      maxSelectionCount, // Needed for availableSlots
+      node.type,
+      node.path,
+      allFilePaths,
+      selectedCountInDir,
+      selectedFilePaths,
+      onToggleFileSelection,
+      maxSelectionCount,
       folderId,
-      addMultipleSelectedFiles, // action methods are now dependencies
+      addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
     ]);
 
@@ -175,45 +198,32 @@ const FileTreeRow = memo<FileTreeRowProps>(
 
     const checkboxState = useMemo(() => {
       if (node.type === 'file') {
-        return folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path) : false;
+        return isFileSelected;
       }
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) {
         return false;
       }
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      if (selectedCount === 0) {
+      if (selectedCountInDir === 0) {
         return false;
       }
-      return selectedCount === allFilePaths.length ? true : 'indeterminate';
-    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
-
-    const folderInfo = useMemo(() => {
-      if (node.type !== 'directory') return null;
-      const { count, isComplete } = fileExplorer.getFolderFileCount(node);
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const selectedCount = fileExplorer
-        .getAllFilePathsInDirectory(node)
-        .filter(
-          (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
-        ).length;
-      return { count, isComplete, selectedCount };
-    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
+      return selectedCountInDir === allFilePaths.length ? true : 'indeterminate';
+    }, [node.type, isFileSelected, allFilePaths, selectedCountInDir]);
 
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
-        return (
-          !(folderId && isPathSelectedInFolder(selectedFilePaths, folderId, node.path)) &&
-          selectedFilePaths.size >= maxSelectionCount
-        );
+        return !isFileSelected && selectedFilePaths.size >= maxSelectionCount;
       }
       if (!folderInfo) return false;
-      const unselectedCount = folderInfo.count - folderInfo.selectedCount;
+      const unselectedCount = folderInfo.count - selectedCountInDir;
       return selectedFilePaths.size + unselectedCount > maxSelectionCount;
-    }, [node, selectedFilePaths, maxSelectionCount, folderInfo, folderId]);
+    }, [
+      node.type,
+      isFileSelected,
+      selectedFilePaths,
+      maxSelectionCount,
+      folderInfo,
+      selectedCountInDir,
+    ]);
 
     return (
       <li

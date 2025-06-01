@@ -85,7 +85,9 @@ describe('useFileSystem context hook', () => {
       rejectFn(error);
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
@@ -151,7 +153,9 @@ describe('useFileSystem context hook', () => {
       rejectFn(error);
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
@@ -187,7 +191,9 @@ describe('useFileSystem context hook', () => {
       rejectFn(error);
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
@@ -223,7 +229,9 @@ describe('useFileSystem context hook', () => {
       rejectFn(error);
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
@@ -259,7 +267,9 @@ describe('useFileSystem context hook', () => {
       rejectFn(error);
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
@@ -294,7 +304,9 @@ describe('useFileSystem context hook', () => {
       rejectFn('something went wrong');
     });
 
-    await promise;
+    await act(async () => {
+      await promise;
+    });
 
     expect(result.current.fs.isAccessLoading).toBe(false);
     expect(thrown).toBeInstanceOf(Error);
