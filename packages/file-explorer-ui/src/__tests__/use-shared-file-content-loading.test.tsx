@@ -3,7 +3,7 @@ import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection, fileExplorer } from '@brainstrike/utils';
+import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
@@ -96,5 +96,88 @@ describe('useSharedFileContentLoading - caching', () => {
     expect(findSpy).not.toHaveBeenCalled();
     expect(readSpy).toHaveBeenCalledTimes(2);
     expect(readSpy.mock.calls[1]?.[0]._internal).toBe(fileNode2.handle);
+  });
+});
+
+describe('useSharedFileContentLoading - error handling and loading state', () => {
+  it('records per-file error and keeps global error null when readFile throws', async () => {
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readFile').mockRejectedValue(new Error('boom'));
+
+    const fileNode = createFileNode({ path: '/error.txt', rootFolderId: 'root1' });
+    const compositeKey = encodeFileSelection('root1', '/error.txt');
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(result.current.fileContents[compositeKey]).toBe('Error accessing file');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('handles binary files based on extension', async () => {
+    const adapter = new MockFileSystemAdapter();
+    vi.spyOn(adapter, 'readFile').mockResolvedValue('binary');
+    vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(true);
+
+    const fileNode = createFileNode({ path: '/image.png', rootFolderId: 'root1' });
+    const compositeKey = encodeFileSelection('root1', '/image.png');
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(result.current.fileContents[compositeKey]).toBe('Binary file - preview not available');
+  });
+
+  it('updates loadingFiles for concurrent loads', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const resolvers: Array<() => void> = [];
+    vi.spyOn(adapter, 'readFile').mockImplementation(
+      () => new Promise<string>((resolve) => resolvers.push(() => resolve('done')))
+    );
+
+    const fileNode1 = createFileNode({ path: '/one.txt', rootFolderId: 'root1' });
+    const fileNode2 = createFileNode({ path: '/two.txt', rootFolderId: 'root1' });
+    const key1 = encodeFileSelection('root1', '/one.txt');
+    const key2 = encodeFileSelection('root1', '/two.txt');
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([fileNode1, fileNode2]), { wrapper });
+
+    act(() => {
+      result.current.handleFileContentLoading([key1, key2]);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.loadingFiles.has(key1)).toBe(true);
+    expect(result.current.loadingFiles.has(key2)).toBe(true);
+
+    // Resolve first file
+    resolvers.shift()?.();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.loadingFiles.has(key1)).toBe(false);
+    expect(result.current.loadingFiles.has(key2)).toBe(true);
+
+    // Resolve second file
+    resolvers.shift()?.();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.loadingFiles.size).toBe(0);
   });
 });

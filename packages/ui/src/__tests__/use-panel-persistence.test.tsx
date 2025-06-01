@@ -11,16 +11,26 @@ const localStorageMock = {
 
 Object.defineProperty(window, 'localStorage', {
   value: localStorageMock,
+  configurable: true,
 });
+
+const electronAPIMock = {
+  saveLayout: vi.fn().mockResolvedValue(undefined),
+  loadLayout: vi.fn().mockResolvedValue(undefined),
+};
 
 describe('usePanelPersistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Remove electronAPI by default
+    // Each test can set it as needed
+    (window as { electronAPI?: unknown }).electronAPI = undefined;
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    (window as { electronAPI?: unknown }).electronAPI = undefined;
   });
 
   it('should initialize with default values when no stored data', () => {
@@ -116,6 +126,59 @@ describe('usePanelPersistence', () => {
     });
 
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
+  });
+
+  it('should save layout via Electron API when available', async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    (window as { electronAPI?: typeof electronAPIMock }).electronAPI = electronAPIMock;
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([25, 35], false);
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await vi.runAllTicks();
+    });
+
+    expect(electronAPIMock.saveLayout).toHaveBeenCalledWith({
+      sizes: [25, 35],
+      showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
+    });
+    expect(localStorageMock.setItem).not.toHaveBeenCalled();
+  });
+
+  it('should load layout from Electron API on mount', async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    const stored = {
+      sizes: [30, 40],
+      showConsole: false,
+      showLeftPanel: false,
+      showRightPanel: true,
+    };
+    (window as { electronAPI?: typeof electronAPIMock }).electronAPI = {
+      ...electronAPIMock,
+      loadLayout: vi.fn().mockResolvedValue(stored),
+    };
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    await act(async () => {
+      vi.runAllTimers();
+      await vi.runAllTicks();
+    });
+
+    expect(
+      (window as { electronAPI?: typeof electronAPIMock }).electronAPI?.loadLayout
+    ).toHaveBeenCalled();
+    expect(result.current.sizes).toEqual([30, 40]);
+    expect(result.current.showConsole).toBe(false);
+    expect(result.current.showLeftPanel).toBe(false);
+    expect(result.current.showRightPanel).toBe(true);
   });
 
   it('should handle invalid JSON in localStorage gracefully', () => {

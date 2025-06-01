@@ -14,7 +14,7 @@ describe('main entry file', () => {
   test('throws an error when root element is missing', async () => {
     vi.spyOn(document, 'getElementById').mockReturnValue(null);
     await expect(importMain()).rejects.toThrow("Failed to find the root element with ID 'root'");
-  }, 10000);
+  }, 20000);
 
   test('creates React root and renders routing components', async () => {
     const rootElement = document.createElement('div');

@@ -1,11 +1,33 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 // Mock UI components that are lazy loaded or used within the panel
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   return {
     ...actual,
-    FileExplorerToolbar: () => <div data-testid="toolbar">Toolbar</div>,
+    FileExplorerToolbar: ({
+      onRefresh,
+      onDirectorySelect,
+      onFilterChange,
+    }: {
+      onRefresh: () => void;
+      onDirectorySelect: () => void;
+      onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
+    }) => (
+      <div data-testid="toolbar">
+        Toolbar
+        <button type="button" onClick={onRefresh}>
+          Refresh
+        </button>
+        <button type="button" onClick={onDirectorySelect}>
+          Select Directory
+        </button>
+        <button type="button" onClick={() => onFilterChange(['in'], ['ex'], true)}>
+          Apply Filters
+        </button>
+      </div>
+    ),
     FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
     FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     LoadingOverlay: () => null,
@@ -33,10 +55,10 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     useAdapters: vi.fn(() => ({ fileSystemAdapter: {}, storageAdapter: {} })),
     useToastManager: vi.fn(() => ({
       toast: vi.fn(),
-      showToast: vi.fn(),
+      showToast: showToastMock,
       handleRefreshError: vi.fn(),
       handleBrowserCompatibilityError: vi.fn(),
-      handleDirectorySelectError: vi.fn(),
+      handleDirectorySelectError: handleDirectorySelectErrorMock,
     })),
   };
 });
@@ -57,15 +79,24 @@ import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useUnifiedFileExplorer } from '../unified-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 
+let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
+let showToastMock: ReturnType<typeof vi.fn>;
+let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
+let setFiltersMock: ReturnType<typeof vi.fn>;
+let applyFileFiltersMock: ReturnType<typeof vi.fn>;
+let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
+let isFileSystemAccessSupportedMock: ReturnType<typeof vi.fn>;
+
 describe('FileExplorerLeftPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    setFiltersMock = vi.fn();
     const storeState = {
       includeFilters: [],
       excludeFilters: [],
       useRegex: false,
-      setFilters: vi.fn(),
+      setFilters: setFiltersMock,
       currentFolderId: 'root',
       setCurrentFolderId: vi.fn(),
       maxSelectionCount: 5,
@@ -80,14 +111,18 @@ describe('FileExplorerLeftPanel', () => {
       mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
     );
 
+    handleRootDirectorySelectMock = vi.fn();
+    applyFileFiltersMock = vi.fn();
+    refreshFileExplorerMock = vi.fn();
+    isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
     vi.mocked(useUnifiedFileExplorer).mockReturnValue({
       fileTree: [],
-      handleRootDirectorySelect: vi.fn(),
+      handleRootDirectorySelect: handleRootDirectorySelectMock,
       isLoading: false,
       error: null,
       fileContents: {},
       loadingFiles: new Set<string>(),
-      applyFileFilters: vi.fn(),
+      applyFileFilters: applyFileFiltersMock,
       filterError: null,
       rootDirectoryHandle: {
         path: '/root',
@@ -96,8 +131,8 @@ describe('FileExplorerLeftPanel', () => {
         platform: 'web' as const,
         _internal: {} as FileSystemDirectoryHandle,
       },
-      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
-      refreshFileExplorer: vi.fn(),
+      isFileSystemAccessSupported: isFileSystemAccessSupportedMock,
+      refreshFileExplorer: refreshFileExplorerMock,
       isInitialLoad: false,
       loadingProgress: null,
       cancellable: false,
@@ -119,6 +154,9 @@ describe('FileExplorerLeftPanel', () => {
       clearFilter: vi.fn(),
       filteredTree: [],
     });
+
+    showToastMock = vi.fn();
+    handleDirectorySelectErrorMock = vi.fn();
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
@@ -127,5 +165,36 @@ describe('FileExplorerLeftPanel', () => {
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+  });
+
+  it('triggers refresh and shows toast when refresh button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+
+    expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
+    expect(showToastMock).toHaveBeenCalled();
+  });
+
+  it('handles directory selection errors', async () => {
+    const user = userEvent.setup();
+    const error = new Error('fail');
+    handleRootDirectorySelectMock.mockRejectedValueOnce(error);
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    await user.click(screen.getByRole('button', { name: 'Select Directory' }));
+
+    expect(handleDirectorySelectErrorMock).toHaveBeenCalledWith(error);
+  });
+
+  it('updates filters when filter button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    await user.click(screen.getByRole('button', { name: 'Apply Filters' }));
+
+    expect(setFiltersMock).toHaveBeenCalledWith(['in'], ['ex']);
+    expect(applyFileFiltersMock).toHaveBeenCalledWith(['in'], ['ex'], true);
   });
 });
