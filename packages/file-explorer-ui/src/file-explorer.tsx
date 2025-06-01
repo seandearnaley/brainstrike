@@ -15,6 +15,7 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -58,7 +59,20 @@ const FileExplorer: React.FC = () => {
     setFilters,
     currentFolderId,
     setCurrentFolderId,
-  } = store();
+  } = store(
+    (s) => ({
+      includeFilters: s.includeFilters,
+      excludeFilters: s.excludeFilters,
+      useRegex: s.useRegex,
+      maxSelectionCount: s.maxSelectionCount,
+      includeProjectTree: s.includeProjectTree,
+      folderSummaryThreshold: s.folderSummaryThreshold,
+      setFilters: s.setFilters,
+      currentFolderId: s.currentFolderId,
+      setCurrentFolderId: s.setCurrentFolderId,
+    }),
+    shallow
+  );
 
   // Local state for UI
   const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());

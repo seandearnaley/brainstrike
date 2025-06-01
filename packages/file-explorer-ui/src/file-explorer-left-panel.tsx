@@ -10,6 +10,7 @@ import { LoadingFallback } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { useUnifiedFileExplorer } from './unified-file-explorer-context';
@@ -46,7 +47,20 @@ export const FileExplorerLeftPanel: React.FC = () => {
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
-  } = store();
+  } = store(
+    (s) => ({
+      includeFilters: s.includeFilters,
+      excludeFilters: s.excludeFilters,
+      useRegex: s.useRegex,
+      setFilters: s.setFilters,
+      currentFolderId: s.currentFolderId,
+      setCurrentFolderId: s.setCurrentFolderId,
+      maxSelectionCount: s.maxSelectionCount,
+      includeProjectTree: s.includeProjectTree,
+      folderSummaryThreshold: s.folderSummaryThreshold,
+    }),
+    shallow
+  );
 
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);

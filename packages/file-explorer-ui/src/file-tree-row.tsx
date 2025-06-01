@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface FileTreeRowProps {
@@ -102,7 +103,15 @@ const FileTreeRow = memo<FileTreeRowProps>(
       maxSelectionCount,
       addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
-    } = store();
+    } = store(
+      (s) => ({
+        selectedFilePaths: s.selectedFilePaths,
+        maxSelectionCount: s.maxSelectionCount,
+        addMultipleSelectedFiles: s.addMultipleSelectedFiles,
+        removeMultipleSelectedFiles: s.removeMultipleSelectedFiles,
+      }),
+      shallow
+    );
 
     const allFilePaths = useMemo(
       () =>

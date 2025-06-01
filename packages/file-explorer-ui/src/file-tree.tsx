@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useVirtualList } from './use-virtual-list';
@@ -23,7 +24,15 @@ interface IFileTreeProps {
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
   const store = useFileExplorerStoreContext();
   const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
-    store();
+    store(
+      (s) => ({
+        expandedDirectoryPaths: s.expandedDirectoryPaths,
+        toggleDirectoryExpansion: s.toggleDirectoryExpansion,
+        addSelectedFile: s.addSelectedFile,
+        removeSelectedFile: s.removeSelectedFile,
+      }),
+      shallow
+    );
 
   const handleToggleFileSelection = useCallback(
     (path: string) => {

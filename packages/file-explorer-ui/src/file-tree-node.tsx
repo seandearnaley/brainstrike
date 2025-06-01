@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
@@ -46,7 +47,14 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     folderId,
   }) => {
     const store = useFileExplorerStoreContext();
-    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = store();
+    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = store(
+      (s) => ({
+        selectedFilePaths: s.selectedFilePaths,
+        expandedDirectoryPaths: s.expandedDirectoryPaths,
+        maxSelectionCount: s.maxSelectionCount,
+      }),
+      shallow
+    );
     const [showSelectionDialog, setShowSelectionDialog] = useState(false);
 
     /**

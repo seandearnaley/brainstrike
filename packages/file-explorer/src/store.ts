@@ -11,8 +11,9 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
 import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
-import { type StateCreator, create } from 'zustand';
+import type { StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { createWithEqualityFn as create } from 'zustand/traditional';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
 import { createFileContentActions } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';

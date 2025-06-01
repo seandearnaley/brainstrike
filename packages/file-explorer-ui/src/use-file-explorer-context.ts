@@ -9,6 +9,7 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
@@ -50,7 +51,20 @@ export function useFileExplorer({
   onDisplayedFilePathsChange,
 }: UseFileExplorerProps): UseFileExplorerReturn {
   const store = useFileExplorerStoreContext();
-  const { includeFilters, excludeFilters, useRegex /*, setCurrentFolderId */ } = store();
+  const {
+    includeFilters,
+    excludeFilters,
+    useRegex,
+    /* setCurrentFolderId */
+  } = store(
+    (s) => ({
+      includeFilters: s.includeFilters,
+      excludeFilters: s.excludeFilters,
+      useRegex: s.useRegex,
+      // setCurrentFolderId: s.setCurrentFolderId, // commented intentionally
+    }),
+    shallow
+  );
 
   // Call the core hook with only the props it now accepts
   const coreExplorer = useCoreFileExplorer({
@@ -71,7 +85,9 @@ export function useFileExplorer({
   } = useFileTree(rootDirectoryHandle);
 
   // Use shared file contents from store
-  const { clearFileContents: storeClearFileContents } = store();
+  const { clearFileContents: storeClearFileContents } = store((s) => ({
+    clearFileContents: s.clearFileContents,
+  }));
 
   // Use the shared file content loading hook
   const {

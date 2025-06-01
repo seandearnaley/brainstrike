@@ -13,7 +13,7 @@ export function useFileSystem() {
   const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
   const [isAccessLoading, setIsAccessLoading] = useState(false);
   const store = useFileExplorerStoreContext();
-  const { setCurrentFolderId } = store();
+  const { setCurrentFolderId } = store((s) => ({ setCurrentFolderId: s.setCurrentFolderId }));
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
 

@@ -5,6 +5,7 @@ import { FileContentError } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
 import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface ImportMetaWithViteEnv {
@@ -23,7 +24,14 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
-  const { fileContents, setFileContent, selectedFilePaths } = store();
+  const { fileContents, setFileContent, selectedFilePaths } = store(
+    (s) => ({
+      fileContents: s.fileContents,
+      setFileContent: s.setFileContent,
+      selectedFilePaths: s.selectedFilePaths,
+    }),
+    shallow
+  );
 
   // Build a cache of path -> node keyed by folder ID whenever the file tree changes
   useEffect(() => {
