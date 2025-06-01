@@ -1,5 +1,5 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
-import { useFileLoadingManager } from '@brainstrike/file-explorer-hooks';
+
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
@@ -70,11 +70,11 @@ const FileExplorer: React.FC = () => {
     isLoading,
     error,
     fileContents,
+    loadingFiles,
     applyFileFilters,
     filterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
-    loadFileContent,
     refreshFileExplorer,
     isInitialLoad,
     loadingProgress,
@@ -110,12 +110,6 @@ const FileExplorer: React.FC = () => {
     filteredTree: quickFilteredTree,
     clearFilter,
   } = useQuickFilter(fileTree);
-
-  const { loadingFiles } = useFileLoadingManager({
-    selectedFilePaths,
-    fileContents,
-    loadFileContent,
-  });
 
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,

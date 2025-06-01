@@ -30,6 +30,7 @@ interface FileTreeRowProps {
   isLoading: boolean;
   folderId: string;
   style?: CSSProperties;
+  children?: React.ReactNode;
 }
 
 const ROW_HEIGHT = 28;
@@ -39,6 +40,7 @@ const areFileTreeRowPropsEqual = (
   prevProps: FileTreeRowProps,
   nextProps: FileTreeRowProps
 ): boolean => {
+  if (prevProps.children !== nextProps.children) return false;
   // Compare style props (top and paddingLeft)
   if (prevProps.style?.top !== nextProps.style?.top) {
     return false;
@@ -92,6 +94,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
     isLoading,
     folderId,
     style,
+    children,
   }) => {
     const store = useFileExplorerStoreContext();
     const {
@@ -214,55 +217,64 @@ const FileTreeRow = memo<FileTreeRowProps>(
 
     return (
       <li
-        className="list-none flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-        style={{ paddingLeft: depth * 24, height: ROW_HEIGHT, ...style }}
+        className="list-none"
+        role="treeitem"
+        aria-expanded={node.type === 'directory' ? isExpanded : undefined}
+        style={style}
       >
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center">
-                <Checkbox
-                  id={node.path}
-                  checked={checkboxState}
-                  disabled={wouldExceedLimit}
-                  className="mr-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!wouldExceedLimit) {
-                      handleNodeSelection();
-                    }
-                  }}
-                  aria-label={`Select ${node.name}`}
-                />
-              </div>
-            </TooltipTrigger>
-            {wouldExceedLimit && (
-              <TooltipContent>
-                <p>Cannot select more than {maxSelectionCount} files</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
-        </TooltipProvider>
-        {node.type === 'directory' && (
-          <button
-            type="button"
-            onClick={handleExpansionClick}
-            className="p-1 mr-1"
-            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
-          >
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
-          </button>
-        )}
-        {renderIcon()}
-        {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
-        <span className="ml-1">{node.name}</span>
-        {node.type === 'directory' && node.isDepthTruncated && (
-          <MoreHorizontalIcon className="ml-1 h-4 w-4 text-gray-500" />
-        )}
+        <div
+          className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          style={{ paddingLeft: depth * 16 }}
+        >
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex items-center">
+                  <Checkbox
+                    id={node.path}
+                    checked={checkboxState}
+                    disabled={wouldExceedLimit}
+                    className="mr-2"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!wouldExceedLimit) {
+                        handleNodeSelection();
+                      }
+                    }}
+                    aria-label={`Select ${node.name}`}
+                  />
+                </div>
+              </TooltipTrigger>
+              {wouldExceedLimit && (
+                <TooltipContent>
+                  <p>Cannot select more than {maxSelectionCount} files</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
+          {node.type === 'directory' && (
+            <button
+              type="button"
+              onClick={handleExpansionClick}
+              className="p-1 mr-1"
+              aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+            >
+              {isExpanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+          )}
+          {renderIcon()}
+          {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
+          <span className="ml-1">{node.name}</span>
+          {node.type === 'directory' && node.isDepthTruncated && (
+            <MoreHorizontalIcon className="ml-1 h-4 w-4 text-gray-500" />
+          )}
+        </div>
+        {/* Render children in a nested ul if they exist */}
+        {isExpanded && children && <ul className="">{children}</ul>}
       </li>
     );
   },

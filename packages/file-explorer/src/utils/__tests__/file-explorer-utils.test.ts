@@ -23,6 +23,7 @@ describe('file-explorer-utils', () => {
         maxSelectionCount: 50,
         lastActiveTab: 'files',
         folderAccessOrder: [],
+        fileContents: {},
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -88,6 +89,7 @@ describe('file-explorer-utils', () => {
         maxSelectionCount: 75,
         lastActiveTab: 'search',
         folderAccessOrder: [],
+        fileContents: {},
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),

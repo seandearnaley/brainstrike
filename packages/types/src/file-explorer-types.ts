@@ -61,6 +61,7 @@ export interface FileExplorerData {
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
+  fileContents: Record<string, string>;
 }
 
 // Store interface extends data with actions
@@ -93,6 +94,11 @@ export interface FileExplorerState extends FileExplorerData {
   // New actions
   expandAllDirectories: (fileTree: import('./file-system').IFileNode[]) => void;
   collapseAllDirectories: () => void;
+
+  // File content actions
+  setFileContent: (compositeKey: string, content: string) => void;
+  clearFileContents: (compositeKeys: string[]) => void;
+  clearAllFileContents: () => void;
 }
 
 // Constants
@@ -116,4 +122,5 @@ export const DEFAULT_STATE = {
   maxSelectionCount: 10,
   lastActiveTab: 'files',
   folderAccessOrder: [] as string[],
+  fileContents: {} as Record<string, string>,
 } as const;

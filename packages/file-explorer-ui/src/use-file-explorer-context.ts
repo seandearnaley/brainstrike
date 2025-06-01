@@ -4,7 +4,6 @@
  * This hook provides file explorer functionality using the context-based store.
  */
 
-import { useFileContentLoading } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
@@ -13,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
+import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
 interface UseFileExplorerProps {
   onDisplayedFilePathsChange: (displayedFilePaths: Set<string>) => void;
@@ -24,6 +24,7 @@ interface UseFileExplorerReturn {
   isLoading: boolean;
   error: Error | null;
   fileContents: { [path: string]: string };
+  loadingFiles: Set<string>;
   applyFileFilters: (
     includeFilters: string[],
     excludeFilters: string[],
@@ -69,12 +70,16 @@ export function useFileExplorer({
     isCancelling,
   } = useFileTree(rootDirectoryHandle);
 
+  // Use shared file contents from store
+  const { clearFileContents: storeClearFileContents } = store();
+
+  // Use the shared file content loading hook
   const {
     fileContents,
     error: contentError,
+    loadingFiles: contentLoadingFiles,
     handleFileContentLoading,
-    clearFileContents,
-  } = useFileContentLoading(fileTree);
+  } = useSharedFileContentLoading(fileTree);
 
   const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
   const [filteredTree, setFilteredTree] = useState<IFileNode[]>(fileTree);
@@ -89,8 +94,8 @@ export function useFileExplorer({
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFiltersUtil]);
 
   const loadFileContent = useCallback(
-    async (path: string) => {
-      await handleFileContentLoading([path]);
+    async (compositeKey: string) => {
+      await handleFileContentLoading([compositeKey]);
     },
     [handleFileContentLoading]
   );
@@ -171,6 +176,7 @@ export function useFileExplorer({
     isLoading: isTreeLoading || coreExplorer.isLoading,
     error: displayError,
     fileContents,
+    loadingFiles: contentLoadingFiles,
     applyFileFilters: wrappedApplyFileFilters,
     filterError:
       localFilterError ||
@@ -180,7 +186,7 @@ export function useFileExplorer({
     loadFileContent,
     refreshFileExplorer,
     isInitialLoad: approximatedIsInitialLoad,
-    clearFileContents,
+    clearFileContents: storeClearFileContents,
     loadingProgress,
     cancellable,
     cancelOperation,

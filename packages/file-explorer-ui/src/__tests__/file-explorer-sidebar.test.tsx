@@ -1,6 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { FileExplorerStrings } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
@@ -38,10 +37,6 @@ describe('FileExplorerSidebar', () => {
     rootDirectoryHandle: mockDirectoryHandle,
     treeError: null,
     filterError: null,
-    includeFilters: [],
-    excludeFilters: [],
-    useRegex: false,
-    quickFilter: '',
     quickFilteredTree: mockTreeData,
     loadingFiles: new Set<string>(),
     isLoading: false,
@@ -52,12 +47,6 @@ describe('FileExplorerSidebar', () => {
 
   it('renders with directory and files', () => {
     render(<FileExplorerSidebar {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
-
-    // Check for the directory status - use exact text from constants
-    expect(screen.getByText(FileExplorerStrings.status.currentDirectory)).toBeInTheDocument();
-
-    // Check that the files tab is present
-    expect(screen.getByRole('tab', { name: /files/i })).toBeInTheDocument();
 
     // Check that the file tree is rendered
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
@@ -115,48 +104,5 @@ describe('FileExplorerSidebar', () => {
     });
 
     expect(screen.getByText('No matching files found')).toBeInTheDocument();
-  });
-
-  it('displays include filters when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} includeFilters={['.ts', '.tsx']} />, {
-      wrapper: FileExplorerTestWrapper,
-    });
-
-    // Use getByText directly to find the filters
-    expect(screen.getByText('.ts')).toBeInTheDocument();
-    expect(screen.getByText('.tsx')).toBeInTheDocument();
-  });
-
-  it('displays exclude filters when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} excludeFilters={['.css', '.md']} />, {
-      wrapper: FileExplorerTestWrapper,
-    });
-
-    // Use getByText directly to find the filters
-    expect(screen.getByText('.css')).toBeInTheDocument();
-    expect(screen.getByText('.md')).toBeInTheDocument();
-  });
-
-  it('displays quick filter when provided', () => {
-    render(<FileExplorerSidebar {...defaultProps} quickFilter="component" />, {
-      wrapper: FileExplorerTestWrapper,
-    });
-
-    // Use getByText directly to find the filter
-    expect(screen.getByText('component')).toBeInTheDocument();
-  });
-
-  it('displays regex badge when useRegex is true', () => {
-    render(
-      <FileExplorerSidebar
-        {...defaultProps}
-        useRegex={true}
-        quickFilter="test" // Need to add a filter to make the regex badge appear
-      />,
-      { wrapper: FileExplorerTestWrapper }
-    );
-
-    // Use getByText directly to find the regex text
-    expect(screen.getByText('regex')).toBeInTheDocument();
   });
 });

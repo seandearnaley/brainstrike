@@ -26,29 +26,31 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   FileExplorer: () => <div data-testid="file-explorer">File Explorer Component</div>,
+  FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel">Left Panel</div>,
+  FileExplorerMiddlePanel: () => <div data-testid="file-explorer-middle-panel">Middle Panel</div>,
 }));
 
 describe('HomePageContent', () => {
   it('should render without crashing', () => {
     render(<HomePageContent />);
-    expect(screen.getByTestId('file-explorer')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-middle-panel')).toBeInTheDocument();
   });
 
   it('should set correct page title', () => {
     render(<HomePageContent />);
     // Note: In a real test environment, you might want to test the actual title
     // For now, we'll just ensure the component renders
-    expect(screen.getByTestId('file-explorer')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-middle-panel')).toBeInTheDocument();
   });
 
   it('should render loading fallback when suspended', () => {
     // This test would be more complex in a real scenario with actual Suspense
     render(<HomePageContent />);
-    expect(screen.getByTestId('file-explorer')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-middle-panel')).toBeInTheDocument();
   });
 
   it('should render DesktopFileExplorer component', () => {
     render(<HomePageContent />);
-    expect(screen.getByTestId('file-explorer')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-middle-panel')).toBeInTheDocument();
   });
 });

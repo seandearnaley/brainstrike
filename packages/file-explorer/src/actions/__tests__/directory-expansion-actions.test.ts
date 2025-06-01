@@ -15,6 +15,7 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   folderSummaryThreshold: 100,
   maxSelectionCount: 100,
   lastActiveTab: 'files',
+  fileContents: {},
   folderAccessOrder: [],
   setCurrentFolderId: vi.fn(),
   hydrateFolderState: vi.fn(),
@@ -35,6 +36,9 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   setLastActiveTab: vi.fn(),
   expandAllDirectories: vi.fn(),
   collapseAllDirectories: vi.fn(),
+  setFileContent: vi.fn(),
+  clearFileContents: vi.fn(),
+  clearAllFileContents: vi.fn(),
   ...overrides,
 });
 

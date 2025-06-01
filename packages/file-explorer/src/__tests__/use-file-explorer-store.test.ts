@@ -9,6 +9,7 @@ import { encodeFileSelection, isPathSelectedInFolder } from '@brainstrike/utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla'; // Use vanilla store for testing actions
 import { createDirectoryExpansionActions } from '../actions/directory-expansion-actions';
+import { createFileContentActions } from '../actions/file-content-actions';
 import { createFileSelectionActions } from '../actions/file-selection-actions';
 import { createFolderStateActions } from '../actions/folder-state-actions';
 import { createSettingsActions } from '../actions/settings-actions';
@@ -17,7 +18,8 @@ import { createSettingsActions } from '../actions/settings-actions';
 type TestActions = ReturnType<typeof createFolderStateActions> &
   ReturnType<typeof createFileSelectionActions> &
   ReturnType<typeof createDirectoryExpansionActions> &
-  ReturnType<typeof createSettingsActions>;
+  ReturnType<typeof createSettingsActions> &
+  ReturnType<typeof createFileContentActions>;
 
 import type { StoreApi } from 'zustand/vanilla'; // Import StoreApi
 
@@ -55,6 +57,9 @@ describe('useFileExplorerStore Actions Integration', () => {
     setLastActiveTab: vi.fn(),
     expandAllDirectories: vi.fn(),
     collapseAllDirectories: vi.fn(),
+    setFileContent: vi.fn(),
+    clearFileContents: vi.fn(),
+    clearAllFileContents: vi.fn(),
   });
 
   beforeEach(() => {
@@ -72,6 +77,10 @@ describe('useFileExplorerStore Actions Integration', () => {
       zustandStore.getState
     );
     const settingsActions = createSettingsActions(zustandStore.setState, zustandStore.getState);
+    const fileContentActions = createFileContentActions(
+      zustandStore.setState,
+      zustandStore.getState
+    );
 
     // Combine actions and add them to the store's state for the test setup
     const allActions = {
@@ -79,6 +88,7 @@ describe('useFileExplorerStore Actions Integration', () => {
       ...selectionActions,
       ...expansionActions,
       ...settingsActions,
+      ...fileContentActions,
     };
     zustandStore.setState(allActions);
 

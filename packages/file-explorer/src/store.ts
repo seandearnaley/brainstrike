@@ -14,6 +14,7 @@ import { DEFAULT_STATE } from '@brainstrike/types';
 import { type StateCreator, create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createDirectoryExpansionActions } from './actions/directory-expansion-actions';
+import { createFileContentActions } from './actions/file-content-actions';
 import { createFileSelectionActions } from './actions/file-selection-actions';
 import { createFolderStateActions } from './actions/folder-state-actions';
 import { createSettingsActions } from './actions/settings-actions';
@@ -42,6 +43,7 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createFileSelectionActions(set, get),
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
+    ...createFileContentActions(set, get),
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

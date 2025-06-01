@@ -3,11 +3,21 @@ import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
+import type { PanelPersistenceState } from '@brainstrike/ui';
 import { BrowserWindow, app, ipcMain, session } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
+import ElectronStore from 'electron-store';
 
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+
+interface StoreSchema {
+  panelLayout: {
+    v1: PanelPersistenceState;
+  };
+}
+
+const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>();
 
 // Type definitions for Electron's webRequest
 interface WebRequestDetails {
@@ -166,3 +176,22 @@ ipcMain.handle('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle)
   fileSystem.readFile(handle)
 );
 ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => fileSystem.exists(p));
+
+// Layout persistence IPC handlers
+ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
+  // TypeScript has issues with electron-store method resolution during build
+  // Using type assertion to access inherited Conf methods
+  (store as ElectronStore<StoreSchema> & { set: (key: string, value: unknown) => void }).set(
+    'panelLayout',
+    { v1: state }
+  );
+});
+
+ipcMain.handle('layout:load', async () => {
+  // TypeScript has issues with electron-store method resolution during build
+  // Using type assertion to access inherited Conf methods
+  const layout = (store as ElectronStore<StoreSchema> & { get: (key: string) => unknown }).get(
+    'panelLayout'
+  ) as StoreSchema['panelLayout'] | undefined;
+  return layout?.v1;
+});

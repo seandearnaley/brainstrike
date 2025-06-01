@@ -1,6 +1,7 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { PanelPersistenceState } from '@brainstrike/ui';
 
 // Expose storage APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -17,4 +18,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readFile: (handle: FileHandle) => ipcRenderer.invoke('fs:readFile', handle),
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
   },
+  // Panel layout persistence
+  saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),
+  loadLayout: () => ipcRenderer.invoke('layout:load'),
 });

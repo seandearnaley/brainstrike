@@ -22,3 +22,9 @@ export { default as FileExplorerErrorBoundary } from './file-explorer-error-boun
 export { default as ClientFileExplorer } from './client-file-explorer';
 export { default as FileExplorer } from './file-explorer';
 export * from './file-explorer-provider';
+export * from './file-content-context';
+export * from './unified-file-explorer-context';
+export * from './file-explorer-left-panel';
+export * from './file-explorer-middle-panel';
+export * from './use-file-system-context';
+export { useFileTree } from './use-file-tree-context';

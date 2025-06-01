@@ -62,8 +62,8 @@ describe('FileTreeRow', () => {
         wrapper: FileExplorerTestWrapper,
       });
 
-      const listItem = container.querySelector('li');
-      expect(listItem).toHaveStyle({ paddingLeft: '48px' }); // 2 * 24px
+      const innerDiv = container.querySelector('li > div');
+      expect(innerDiv).toHaveStyle({ paddingLeft: '32px' }); // 2 * 16px
     });
 
     it('applies custom style props', () => {

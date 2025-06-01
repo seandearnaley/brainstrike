@@ -24,6 +24,7 @@ describe('directory-actions', () => {
     folderSummaryThreshold: 100,
     maxSelectionCount: 100,
     lastActiveTab: 'files',
+    fileContents: {},
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
     setSelectedFiles: vi.fn(),
@@ -43,6 +44,9 @@ describe('directory-actions', () => {
     setLastActiveTab: vi.fn(),
     expandAllDirectories: vi.fn(),
     collapseAllDirectories: vi.fn(),
+    setFileContent: vi.fn(),
+    clearFileContents: vi.fn(),
+    clearAllFileContents: vi.fn(),
     ...overrides,
   });
 
