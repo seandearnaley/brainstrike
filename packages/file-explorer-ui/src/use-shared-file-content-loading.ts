@@ -20,9 +20,30 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [error, setError] = useState<Error | null>(null);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
+  const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const { fileContents, setFileContent, selectedFilePaths } = store();
+
+  // Build a cache of path -> node keyed by folder ID whenever the file tree changes
+  useEffect(() => {
+    const newCache = new Map<string, Map<string, IFileNode>>();
+
+    const populate = (nodes: IFileNode[]) => {
+      for (const node of nodes) {
+        const folderMap = newCache.get(node.rootFolderId) || new Map<string, IFileNode>();
+        folderMap.set(node.path, node);
+        newCache.set(node.rootFolderId, folderMap);
+
+        if (node.type === 'directory' && node.children) {
+          populate(node.children);
+        }
+      }
+    };
+
+    populate(fileTree);
+    nodeCacheRef.current = newCache;
+  }, [fileTree]);
 
   const loadSingleFileContent = useCallback(
     async (compositeKey: string) => {
@@ -44,7 +65,18 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return;
       }
 
-      let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
+      let fileNode =
+        nodeCacheRef.current.get(folderId)?.get(path) ||
+        fileExplorer.findNodeByPath(fileTree, path, folderId);
+
+      if (fileNode) {
+        let folderMap = nodeCacheRef.current.get(folderId);
+        if (!folderMap) {
+          folderMap = new Map<string, IFileNode>();
+          nodeCacheRef.current.set(folderId, folderMap);
+        }
+        folderMap.set(path, fileNode);
+      }
 
       if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
         console.debug('Initial file node lookup:', {
@@ -64,7 +96,18 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Try to find the node again
-        fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
+        fileNode =
+          nodeCacheRef.current.get(folderId)?.get(path) ||
+          fileExplorer.findNodeByPath(fileTree, path, folderId);
+
+        if (fileNode) {
+          let folderMap = nodeCacheRef.current.get(folderId);
+          if (!folderMap) {
+            folderMap = new Map<string, IFileNode>();
+            nodeCacheRef.current.set(folderId, folderMap);
+          }
+          folderMap.set(path, fileNode);
+        }
 
         if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
           console.debug('Retry file node lookup:', {
