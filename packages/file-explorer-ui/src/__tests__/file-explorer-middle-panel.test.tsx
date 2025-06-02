@@ -52,7 +52,7 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   return {
     ...actual,
     FileExplorerHeader: () => <div data-testid="header">Header</div>,
-    PreviewPanel: previewPanelMock,
+    VirtualizedPreviewPanel: previewPanelMock,
     FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });

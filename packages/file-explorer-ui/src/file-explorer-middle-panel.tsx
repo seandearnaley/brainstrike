@@ -8,10 +8,10 @@ import { Suspense, lazy } from 'react';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
-// Lazy load the preview panel component
+// Lazy load the virtualized preview panel component
 const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+    default: m.VirtualizedPreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
@@ -44,7 +44,7 @@ export const FileExplorerMiddlePanel: React.FC = () => {
       actionName: opts.actionName,
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match PreviewPanel expectation
+      // Adapt onUndo signature to match VirtualizedPreviewPanel expectation
       onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };
