@@ -6,12 +6,6 @@ import { decodeFileSelection, fileContent } from '@brainstrike/utils';
 import { useCallback, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 
-interface ImportMetaWithViteEnv {
-  readonly env: {
-    readonly DEV: boolean;
-  };
-}
-
 const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
 
 interface UseFileContentLoadingReturn {
@@ -54,17 +48,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-      if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
-        console.debug('Initial file node lookup:', {
-          compositeKey,
-          path,
-          folderId,
-          found: !!fileNode,
-          type: fileNode?.type,
-          hasHandle: fileNode?.handle !== undefined,
-          rootFolderId: fileNode?.rootFolderId,
-        });
-      }
+      // Debug logging removed to reduce console spam
 
       // If we can't find the node or don't have access to its handle, wait a bit and retry once
       if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
@@ -74,17 +58,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         // Try to find the node again
         fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
-        if ((import.meta as unknown as ImportMetaWithViteEnv).env.DEV) {
-          console.debug('Retry file node lookup:', {
-            compositeKey,
-            path,
-            folderId,
-            found: !!fileNode,
-            type: fileNode?.type,
-            hasHandle: fileNode?.handle !== undefined,
-            rootFolderId: fileNode?.rootFolderId,
-          });
-        }
+        // Debug logging removed to reduce console spam
 
         if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
           // Don't log as error since this is expected when loading persisted selections
