@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { isPathSelectedInFolder } from '@brainstrike/utils';
 import { fileExplorer } from '@brainstrike/utils';
 import {
@@ -233,32 +233,30 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     return (
       <li className="list-none">
         <div className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center">
-                  <Checkbox
-                    id={node.path}
-                    checked={checkboxState}
-                    disabled={wouldExceedLimit}
-                    className="mr-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!wouldExceedLimit) {
-                        handleNodeSelection();
-                      }
-                    }}
-                    aria-label={`Select ${node.name}`}
-                  />
-                </div>
-              </TooltipTrigger>
-              {wouldExceedLimit && (
-                <TooltipContent>
-                  <p>Cannot select more than {maxSelectionCount} files</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Checkbox
+                  id={node.path}
+                  checked={checkboxState}
+                  disabled={wouldExceedLimit}
+                  className="mr-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!wouldExceedLimit) {
+                      handleNodeSelection();
+                    }
+                  }}
+                  aria-label={`Select ${node.name}`}
+                />
+              </div>
+            </TooltipTrigger>
+            {wouldExceedLimit && (
+              <TooltipContent>
+                <p>Cannot select more than {maxSelectionCount} files</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
           {node.type === 'directory' && (
             <button
               type="button"

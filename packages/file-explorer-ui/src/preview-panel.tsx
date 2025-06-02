@@ -486,16 +486,14 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                             onClick={() => toggleExpand(file.compositeKey)}
                           >
                             <div className="flex items-center">
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="truncate text-left w-full">{file.path}</div>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="top" className="max-w-[300px]">
-                                    <p className="font-mono text-xs break-all">{file.path}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="truncate text-left w-full">{file.path}</div>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-[300px]">
+                                  <p className="font-mono text-xs break-all">{file.path}</p>
+                                </TooltipContent>
+                              </Tooltip>
                               {isLoading && (
                                 <Loader2
                                   data-testid="loading-spinner"
@@ -506,42 +504,38 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                           </TableCell>
                           <TableCell className="w-[90px]">{formatFileSize(file.size)}</TableCell>
                           <TableCell className="w-[90px]">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <div className="truncate text-left w-full">
-                                    {formatTokens(file.tokens)}
-                                  </div>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>
-                                    {file.tokens !== undefined
-                                      ? `~${file.tokens.toLocaleString()} tokens`
-                                      : 'Token count unavailable'}
-                                  </p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="truncate text-left w-full">
+                                  {formatTokens(file.tokens)}
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>
+                                  {file.tokens !== undefined
+                                    ? `~${file.tokens.toLocaleString()} tokens`
+                                    : 'Token count unavailable'}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                           <TableCell className="w-[80px]">
-                            <TooltipProvider>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="size-7"
-                                    onClick={() => handleRemoveFile(file.compositeKey)}
-                                    aria-label={`Remove ${file.path} from selection`}
-                                  >
-                                    <FileX2 className="size-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  <p>Remove from selection</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-7"
+                                  onClick={() => handleRemoveFile(file.compositeKey)}
+                                  aria-label={`Remove ${file.path} from selection`}
+                                >
+                                  <FileX2 className="size-3.5" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>Remove from selection</p>
+                              </TooltipContent>
+                            </Tooltip>
                           </TableCell>
                         </TableRow>
                         {isExpanded && (
@@ -619,10 +613,10 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
   }
 
   return (
-    <div className="@container/preview relative h-full flex flex-col w-full">
-      <div className="p-2 border-b flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <TooltipProvider>
+    <TooltipProvider>
+      <div className="@container/preview relative h-full flex flex-col w-full">
+        <div className="p-2 border-b flex items-center justify-between">
+          <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger tabIndex={-1}>
                 <Badge variant="outline" className="py-1.5">
@@ -641,76 +635,74 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                 </div>
               </TooltipContent>
             </Tooltip>
-          </TooltipProvider>
 
-          <div className="text-xs text-muted-foreground hidden @md/preview:block">
-            <span className="font-medium">{selectedFiles.size}</span> files selected |
-            <span className="font-medium"> {totalTokens.toLocaleString()}</span> tokens | Est. cost:{' '}
-            <span className="font-medium">${estimatedCost.toFixed(4)}</span>
+            <div className="text-xs text-muted-foreground hidden @md/preview:block">
+              <span className="font-medium">{selectedFiles.size}</span> files selected |
+              <span className="font-medium"> {totalTokens.toLocaleString()}</span> tokens | Est.
+              cost: <span className="font-medium">${estimatedCost.toFixed(4)}</span>
+            </div>
+
+            <div className="w-36 mx-4 hidden @md/preview:block">
+              <Progress
+                value={Math.min((totalTokens / 100000) * 100, 100)}
+                className="h-2"
+                aria-label="Token usage"
+              />
+            </div>
           </div>
 
-          <div className="w-36 mx-4 hidden @md/preview:block">
-            <Progress
-              value={Math.min((totalTokens / 100000) * 100, 100)}
-              className="h-2"
-              aria-label="Token usage"
-            />
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={expandAllFolders}
+              className="flex items-center gap-1"
+            >
+              <ArrowDown className="size-3.5" />
+              <span className="hidden @sm/preview:inline">Expand All</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={collapseAllFolders}
+              className="flex items-center gap-1"
+            >
+              <ArrowUp className="size-3.5" />
+              <span className="hidden @sm/preview:inline">Collapse All</span>
+            </Button>
           </div>
         </div>
+        <ScrollArea className="flex-1">
+          <div className="p-4">{folderGroups.map(renderFolderGroup)}</div>
+        </ScrollArea>
 
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={expandAllFolders}
-            className="flex items-center gap-1"
-          >
-            <ArrowDown className="size-3.5" />
-            <span className="hidden @sm/preview:inline">Expand All</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={collapseAllFolders}
-            className="flex items-center gap-1"
-          >
-            <ArrowUp className="size-3.5" />
-            <span className="hidden @sm/preview:inline">Collapse All</span>
-          </Button>
-        </div>
-      </div>
-      <ScrollArea className="flex-1">
-        <div className="p-4">{folderGroups.map(renderFolderGroup)}</div>
-      </ScrollArea>
+        {batchSelectedFiles.size > 0 &&
+          (() => {
+            // Calculate tokens for selected files
+            let selectedTokens = 0;
+            let tokensPercent = 0;
 
-      {batchSelectedFiles.size > 0 &&
-        (() => {
-          // Calculate tokens for selected files
-          let selectedTokens = 0;
-          let tokensPercent = 0;
-
-          for (const compositeKey of batchSelectedFiles) {
-            // Find the file in folder groups
-            for (const group of folderGroups) {
-              const file = group.files.find((f) => f.compositeKey === compositeKey);
-              selectedTokens += file?.tokens ?? 0;
+            for (const compositeKey of batchSelectedFiles) {
+              // Find the file in folder groups
+              for (const group of folderGroups) {
+                const file = group.files.find((f) => f.compositeKey === compositeKey);
+                selectedTokens += file?.tokens ?? 0;
+              }
             }
-          }
 
-          // Calculate percentage of total tokens
-          if (totalTokens > 0) {
-            tokensPercent = Math.round((selectedTokens / totalTokens) * 100);
-          }
+            // Calculate percentage of total tokens
+            if (totalTokens > 0) {
+              tokensPercent = Math.round((selectedTokens / totalTokens) * 100);
+            }
 
-          return (
-            <div className="absolute bottom-0 left-0 right-0 bg-muted/30 dark:bg-muted/30 border-t border-border p-2 flex items-center justify-between transition-all duration-200 ease-in-out animate-in slide-in-from-bottom-2">
-              <div className="flex items-center gap-2 ml-2">
-                <span className="text-sm font-medium">
-                  {batchSelectedFiles.size} item
-                  {batchSelectedFiles.size !== 1 ? 's' : ''} selected
-                </span>
+            return (
+              <div className="absolute bottom-0 left-0 right-0 bg-muted/30 dark:bg-muted/30 border-t border-border p-2 flex items-center justify-between transition-all duration-200 ease-in-out animate-in slide-in-from-bottom-2">
+                <div className="flex items-center gap-2 ml-2">
+                  <span className="text-sm font-medium">
+                    {batchSelectedFiles.size} item
+                    {batchSelectedFiles.size !== 1 ? 's' : ''} selected
+                  </span>
 
-                <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge variant="secondary" className="text-xs">
@@ -732,10 +724,8 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       </div>
                     </TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
-              </div>
-              <div className="flex gap-2 items-center">
-                <TooltipProvider>
+                </div>
+                <div className="flex gap-2 items-center">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Badge
@@ -761,20 +751,20 @@ export const PreviewPanel: React.FC<PreviewPanelProps> = ({
                       </div>
                     </TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={handleBatchRemove}
-                  className="flex items-center gap-1"
-                >
-                  <FileX2 className="size-3.5" />
-                  <span>Remove Selections</span>
-                </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={handleBatchRemove}
+                    className="flex items-center gap-1"
+                  >
+                    <FileX2 className="size-3.5" />
+                    <span>Remove Selections</span>
+                  </Button>
+                </div>
               </div>
-            </div>
-          );
-        })()}
-    </div>
+            );
+          })()}
+      </div>
+    </TooltipProvider>
   );
 };

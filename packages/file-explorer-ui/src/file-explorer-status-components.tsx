@@ -1,7 +1,7 @@
 import { FolderBadge } from '@brainstrike/file-explorer-ui';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { Badge, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
+import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type * as React from 'react';
 
 export const DirectoryStatus: React.FC<{
@@ -44,44 +44,42 @@ export const FilterStatus: React.FC<{
   if (!hasFilters) return null;
 
   return (
-    <TooltipProvider>
-      <div className="flex items-center gap-2 flex-wrap p-2 border-b">
-        {includeFilters.map((filter) => (
-          <FilterBadge
-            key={`include-${filter}`}
-            label={FileExplorerStrings.status.includeFilters}
-            value={filter}
-            variant="default"
-          />
-        ))}
-        {excludeFilters.map((filter) => (
-          <FilterBadge
-            key={`exclude-${filter}`}
-            label={FileExplorerStrings.status.excludeFilters}
-            value={filter}
-            variant="destructive"
-          />
-        ))}
-        {quickFilter && (
-          <FilterBadge
-            label={FileExplorerStrings.status.quickFilter}
-            value={quickFilter}
-            variant="outline"
-          />
-        )}
-        {useRegex && (
-          <Tooltip>
-            <TooltipTrigger>
-              <Badge variant="secondary" className="cursor-help">
-                regex
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{FileExplorerStrings.status.regexMode}</p>
-            </TooltipContent>
-          </Tooltip>
-        )}
-      </div>
-    </TooltipProvider>
+    <div className="flex items-center gap-2 flex-wrap p-2 border-b">
+      {includeFilters.map((filter) => (
+        <FilterBadge
+          key={`include-${filter}`}
+          label={FileExplorerStrings.status.includeFilters}
+          value={filter}
+          variant="default"
+        />
+      ))}
+      {excludeFilters.map((filter) => (
+        <FilterBadge
+          key={`exclude-${filter}`}
+          label={FileExplorerStrings.status.excludeFilters}
+          value={filter}
+          variant="destructive"
+        />
+      ))}
+      {quickFilter && (
+        <FilterBadge
+          label={FileExplorerStrings.status.quickFilter}
+          value={quickFilter}
+          variant="outline"
+        />
+      )}
+      {useRegex && (
+        <Tooltip>
+          <TooltipTrigger>
+            <Badge variant="secondary" className="cursor-help">
+              regex
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>{FileExplorerStrings.status.regexMode}</p>
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
   );
 };

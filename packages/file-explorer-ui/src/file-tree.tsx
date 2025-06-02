@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { TooltipProvider } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -107,19 +108,21 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   }, [onRender]);
 
   return (
-    <div
-      ref={containerRef}
-      className="overflow-y-auto h-full relative file-tree-scroll flex-1 min-h-0"
-    >
-      <ul
-        className="relative file-tree"
-        role="tree"
-        aria-label="File tree"
-        style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
+    <TooltipProvider>
+      <div
+        ref={containerRef}
+        className="overflow-y-auto h-full relative file-tree-scroll flex-1 min-h-0"
       >
-        {renderedRows}
-      </ul>
-    </div>
+        <ul
+          className="relative file-tree"
+          role="tree"
+          aria-label="File tree"
+          style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
+        >
+          {renderedRows}
+        </ul>
+      </div>
+    </TooltipProvider>
   );
 });
 

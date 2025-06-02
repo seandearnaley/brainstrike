@@ -1,5 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
+import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { DirectoryStatus, FilterStatus } from '../file-explorer-status-components';
@@ -26,12 +27,14 @@ describe('DirectoryStatus', () => {
 describe('FilterStatus', () => {
   it('shows badges for include, exclude, quick filter and regex mode', () => {
     render(
-      <FilterStatus
-        includeFilters={['*.ts']}
-        excludeFilters={['*.test.ts']}
-        quickFilter="bar"
-        useRegex={true}
-      />
+      <TooltipProvider>
+        <FilterStatus
+          includeFilters={['*.ts']}
+          excludeFilters={['*.test.ts']}
+          quickFilter="bar"
+          useRegex={true}
+        />
+      </TooltipProvider>
     );
     expect(screen.getByText('*.ts')).toBeInTheDocument();
     expect(screen.getByText('*.test.ts')).toBeInTheDocument();
@@ -41,7 +44,9 @@ describe('FilterStatus', () => {
 
   it('returns null when no filters are active', () => {
     const { container } = render(
-      <FilterStatus includeFilters={[]} excludeFilters={[]} quickFilter="" useRegex={false} />
+      <TooltipProvider>
+        <FilterStatus includeFilters={[]} excludeFilters={[]} quickFilter="" useRegex={false} />
+      </TooltipProvider>
     );
     expect(container.firstChild).toBeNull();
   });

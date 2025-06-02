@@ -6,7 +6,7 @@ import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { LoadingFallback } from '@brainstrike/ui';
+import { LoadingFallback, TooltipProvider } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
@@ -267,13 +267,15 @@ export const FileExplorerLeftPanel: React.FC = () => {
             onExpandAll={expandAll}
             onCollapseAll={collapseAll}
           />
-          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
-          <FilterStatus
-            includeFilters={includeFilters}
-            excludeFilters={excludeFilters}
-            useRegex={useRegex}
-            quickFilter={quickFilter}
-          />
+          <TooltipProvider>
+            <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
+            <FilterStatus
+              includeFilters={includeFilters}
+              excludeFilters={excludeFilters}
+              useRegex={useRegex}
+              quickFilter={quickFilter}
+            />
+          </TooltipProvider>
         </div>
 
         {/* Scrollable Middle Content */}
