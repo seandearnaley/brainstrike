@@ -126,14 +126,21 @@ describe('IdeLayout', () => {
   });
 
   it('calls saveLayout from layout callbacks', () => {
-    Object.assign(mockState, { showRightPanel: true });
+    // Set up state with visible panels to trigger layout handlers
+    Object.assign(mockState, {
+      showLeftPanel: true,
+      showRightPanel: true,
+      showConsole: true,
+    });
     renderLayout();
 
-    // handleHorizontalLayout from outer PanelGroup
+    // handleHorizontalLayout from outer PanelGroup with left panel and console visible
+    // Layout: [left, main+right, console] = [40, 50, 10]
     handlers.horizontal[0]?.([40, 50, 10]);
     expect(mockState.saveLayout).toHaveBeenCalledWith([40, 20, 10]);
 
-    // handleVerticalLayout from inner PanelGroup
+    // handleVerticalLayout from inner PanelGroup with right panel visible
+    // Layout: [main, right] = [60, 40]
     handlers.horizontal[1]?.([60, 40]);
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 40, 30]);
   });

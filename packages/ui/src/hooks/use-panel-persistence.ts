@@ -16,12 +16,74 @@ const statesEqual = (a: PanelPersistenceState | null, b: PanelPersistenceState):
   );
 };
 
+// Validate and normalize layout sizes to ensure they add up to 100%
+const validateAndNormalizeSizes = (sizes: number[]): number[] => {
+  if (!sizes || sizes.length === 0) return [];
+
+  // Filter out invalid values
+  const validSizes = sizes.map((size) => {
+    const num = typeof size === 'number' && !Number.isNaN(size) ? size : 0;
+    return Math.max(0, Math.min(100, num)); // Clamp between 0 and 100
+  });
+
+  const total = validSizes.reduce((sum, size) => sum + size, 0);
+
+  // If total is 0, return default equal distribution
+  if (total === 0) {
+    return validSizes.map(() => 100 / validSizes.length);
+  }
+
+  // Only normalize if total exceeds 100% (invalid state)
+  if (total > 100) {
+    return validSizes.map((size) => (size / total) * 100);
+  }
+
+  // For totals less than or equal to 100%, keep the original values
+  return validSizes;
+};
+
 export interface PanelPersistenceState {
   sizes: number[];
   showConsole: boolean;
   showLeftPanel: boolean;
   showRightPanel: boolean;
 }
+
+// Load initial state from storage with proper error handling
+const loadInitialState = (
+  defaultSizes: number[],
+  defaultShowConsole: boolean,
+  defaultShowLeftPanel: boolean,
+  defaultShowRightPanel: boolean
+): PanelPersistenceState => {
+  try {
+    if (typeof window !== 'undefined') {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as PanelPersistenceState;
+        if (parsed && typeof parsed === 'object') {
+          return {
+            sizes: validateAndNormalizeSizes(parsed.sizes || defaultSizes),
+            showConsole: parsed.showConsole ?? defaultShowConsole,
+            showLeftPanel: parsed.showLeftPanel ?? defaultShowLeftPanel,
+            showRightPanel: parsed.showRightPanel ?? defaultShowRightPanel,
+          };
+        }
+      }
+    }
+  } catch (error) {
+    if (isDevEnv()) {
+      console.warn('Failed to load panel layout from localStorage:', error);
+    }
+  }
+
+  return {
+    sizes: validateAndNormalizeSizes(defaultSizes),
+    showConsole: defaultShowConsole,
+    showLeftPanel: defaultShowLeftPanel,
+    showRightPanel: defaultShowRightPanel,
+  };
+};
 
 export function usePanelPersistence(
   defaultSizes: number[],
@@ -34,121 +96,56 @@ export function usePanelPersistence(
   const pendingStateRef = useRef<PanelPersistenceState | null>(null);
   const lastSavedStateRef = useRef<PanelPersistenceState | null>(null);
 
-  const [sizes, setSizes] = useState<number[]>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as PanelPersistenceState;
-          return parsed.sizes || defaultSizes;
-        }
-      }
-      return defaultSizes;
-    } catch {
-      return defaultSizes;
-    }
-  });
-
-  const [showConsole, setShowConsole] = useState<boolean>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as PanelPersistenceState;
-          return parsed.showConsole ?? defaultShowConsole;
-        }
-      }
-      return defaultShowConsole;
-    } catch {
-      return defaultShowConsole;
-    }
-  });
-
-  const [showLeftPanel, setShowLeftPanel] = useState<boolean>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as PanelPersistenceState;
-          return parsed.showLeftPanel ?? defaultShowLeftPanel;
-        }
-      }
-      return defaultShowLeftPanel;
-    } catch {
-      return defaultShowLeftPanel;
-    }
-  });
-
-  const [showRightPanel, setShowRightPanel] = useState<boolean>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as PanelPersistenceState;
-          return parsed.showRightPanel ?? defaultShowRightPanel;
-        }
-      }
-      return defaultShowRightPanel;
-    } catch {
-      return defaultShowRightPanel;
-    }
-  });
+  const [state, setState] = useState<PanelPersistenceState>(() =>
+    loadInitialState(defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel)
+  );
 
   if (lastSavedStateRef.current === null) {
-    lastSavedStateRef.current = {
-      sizes,
-      showConsole,
-      showLeftPanel,
-      showRightPanel,
-    };
+    lastSavedStateRef.current = state;
   }
 
-  // Debounced storage persistence
-  const persistToStorage = useCallback((state: PanelPersistenceState) => {
-    if (statesEqual(lastSavedStateRef.current, state)) {
-      return;
+  const executeSave = useCallback(async (stateToSave: PanelPersistenceState) => {
+    try {
+      const electronAPI = (window as { electronAPI?: LayoutElectronAPI }).electronAPI;
+      if (electronAPI?.saveLayout) {
+        await electronAPI.saveLayout(stateToSave);
+      } else if (typeof window !== 'undefined') {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+      }
+      lastSavedStateRef.current = stateToSave;
+    } catch (error) {
+      if (isDevEnv()) {
+        console.warn('Failed to save panel layout:', error);
+      }
     }
+  }, []);
 
-    // Clear any existing timeout
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    // Store the pending state
-    pendingStateRef.current = state;
-
-    // Set a new timeout
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (!pendingStateRef.current) return;
-
-      try {
-        // Check if we're in Electron environment
-        const electronAPI = (window as { electronAPI?: LayoutElectronAPI }).electronAPI;
-        if (electronAPI?.saveLayout) {
-          // For Electron, save asynchronously. Ensure it completes.
-          await electronAPI.saveLayout(pendingStateRef.current);
-        } else if (typeof window !== 'undefined') {
-          // For web, use requestIdleCallback to avoid blocking the UI
-          if ('requestIdleCallback' in window) {
-            window.requestIdleCallback(() => {
-              if (pendingStateRef.current) {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingStateRef.current));
-              }
-            });
-          } else {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(pendingStateRef.current));
-          }
-        }
-      } catch (error) {
-        if (isDevEnv()) {
-          console.warn('Failed to save panel layout:', error);
-        }
+  const persistToStorage = useCallback(
+    (newState: PanelPersistenceState) => {
+      if (pendingStateRef.current && statesEqual(pendingStateRef.current, newState)) {
+        return;
+      }
+      if (!pendingStateRef.current && statesEqual(lastSavedStateRef.current, newState)) {
+        return;
       }
 
-      lastSavedStateRef.current = pendingStateRef.current;
-      pendingStateRef.current = null;
-    }, SAVE_DEBOUNCE_MS);
-  }, []);
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = undefined;
+      }
+
+      pendingStateRef.current = newState;
+
+      saveTimeoutRef.current = setTimeout(() => {
+        if (pendingStateRef.current) {
+          executeSave(pendingStateRef.current);
+          pendingStateRef.current = null;
+        }
+        saveTimeoutRef.current = undefined;
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [executeSave]
+  );
 
   const saveLayout = useCallback(
     (
@@ -157,54 +154,46 @@ export function usePanelPersistence(
       newShowLeftPanel?: boolean,
       newShowRightPanel?: boolean
     ) => {
-      const updatedSizes = newSizes;
-      const updatedShowConsole = newShowConsole ?? showConsole;
-      const updatedShowLeftPanel = newShowLeftPanel ?? showLeftPanel;
-      const updatedShowRightPanel = newShowRightPanel ?? showRightPanel;
-
-      // Update all state immediately
-      setSizes(updatedSizes);
-      setShowConsole(updatedShowConsole);
-      setShowLeftPanel(updatedShowLeftPanel);
-      setShowRightPanel(updatedShowRightPanel);
-
-      const state: PanelPersistenceState = {
-        sizes: updatedSizes,
-        showConsole: updatedShowConsole,
-        showLeftPanel: updatedShowLeftPanel,
-        showRightPanel: updatedShowRightPanel,
+      const normalizedSizes = validateAndNormalizeSizes(newSizes);
+      const updatedState: PanelPersistenceState = {
+        sizes: normalizedSizes,
+        showConsole: newShowConsole ?? state.showConsole,
+        showLeftPanel: newShowLeftPanel ?? state.showLeftPanel,
+        showRightPanel: newShowRightPanel ?? state.showRightPanel,
       };
-
-      // Persist to storage with debouncing
-      persistToStorage(state);
+      setState(updatedState);
+      persistToStorage(updatedState);
     },
-    [showConsole, showLeftPanel, showRightPanel, persistToStorage]
+    [state, persistToStorage]
   );
 
   const toggleConsole = useCallback(() => {
-    saveLayout(sizes, !showConsole, showLeftPanel, showRightPanel);
-  }, [sizes, showConsole, showLeftPanel, showRightPanel, saveLayout]);
+    saveLayout(state.sizes, !state.showConsole, state.showLeftPanel, state.showRightPanel);
+  }, [state, saveLayout]);
 
   const toggleLeftPanel = useCallback(() => {
-    saveLayout(sizes, showConsole, !showLeftPanel, showRightPanel);
-  }, [sizes, showConsole, showLeftPanel, showRightPanel, saveLayout]);
+    saveLayout(state.sizes, state.showConsole, !state.showLeftPanel, state.showRightPanel);
+  }, [state, saveLayout]);
 
   const toggleRightPanel = useCallback(() => {
-    saveLayout(sizes, showConsole, showLeftPanel, !showRightPanel);
-  }, [sizes, showConsole, showLeftPanel, showRightPanel, saveLayout]);
+    saveLayout(state.sizes, state.showConsole, state.showLeftPanel, !state.showRightPanel);
+  }, [state, saveLayout]);
 
   useEffect(() => {
-    // Load layout from Electron store if available
     const loadElectronLayout = async () => {
       try {
         const electronAPI = (window as { electronAPI?: LayoutElectronAPI }).electronAPI;
         if (electronAPI?.loadLayout) {
           const stored = await electronAPI.loadLayout();
           if (stored) {
-            setSizes(stored.sizes || defaultSizes);
-            setShowConsole(stored.showConsole ?? defaultShowConsole);
-            setShowLeftPanel(stored.showLeftPanel ?? defaultShowLeftPanel);
-            setShowRightPanel(stored.showRightPanel ?? defaultShowRightPanel);
+            const electronState: PanelPersistenceState = {
+              sizes: validateAndNormalizeSizes(stored.sizes || defaultSizes),
+              showConsole: stored.showConsole ?? defaultShowConsole,
+              showLeftPanel: stored.showLeftPanel ?? defaultShowLeftPanel,
+              showRightPanel: stored.showRightPanel ?? defaultShowRightPanel,
+            };
+            setState(electronState);
+            lastSavedStateRef.current = electronState;
           }
         }
       } catch (error) {
@@ -220,20 +209,35 @@ export function usePanelPersistence(
     }
   }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    return () => {
+    const flushPendingSave = () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = undefined;
+      }
+      if (pendingStateRef.current) {
+        executeSave(pendingStateRef.current);
+        pendingStateRef.current = null;
       }
     };
-  }, []);
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', flushPendingSave);
+    }
+
+    return () => {
+      flushPendingSave();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', flushPendingSave);
+      }
+    };
+  }, [executeSave]);
 
   return {
-    sizes,
-    showConsole,
-    showLeftPanel,
-    showRightPanel,
+    sizes: state.sizes,
+    showConsole: state.showConsole,
+    showLeftPanel: state.showLeftPanel,
+    showRightPanel: state.showRightPanel,
     saveLayout,
     toggleConsole,
     toggleLeftPanel,

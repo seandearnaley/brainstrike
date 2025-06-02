@@ -54,6 +54,40 @@ export const IdeLayout = React.memo(function IdeLayout({
   const safeRightSize = typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 20;
   const safeConsoleSize = typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 30;
 
+  // Calculate layout sizes based on visible panels
+  const getHorizontalLayoutSizes = useCallback(() => {
+    const hasLeft = leftPanelContent && showLeftPanel;
+    const hasConsole = showConsole && consoleContent;
+
+    if (hasLeft && hasConsole) {
+      // All three sections: left, main+right, console
+      const mainSize = 100 - safeLeftSize - safeConsoleSize;
+      return [safeLeftSize, mainSize, safeConsoleSize];
+    }
+    if (hasLeft) {
+      // Left and main+right only
+      const mainSize = 100 - safeLeftSize;
+      return [safeLeftSize, mainSize];
+    }
+    if (hasConsole) {
+      // Main+right and console only
+      const mainSize = 100 - safeConsoleSize;
+      return [mainSize, safeConsoleSize];
+    }
+    // Main+right only
+    return [100];
+  }, [leftPanelContent, showLeftPanel, showConsole, consoleContent, safeLeftSize, safeConsoleSize]);
+
+  const getVerticalLayoutSizes = useCallback(() => {
+    if (rightPanelContent && showRightPanel) {
+      // Main and right panel
+      const mainSize = 100 - safeRightSize;
+      return [mainSize, safeRightSize];
+    }
+    // Main panel only
+    return [100];
+  }, [rightPanelContent, showRightPanel, safeRightSize]);
+
   // Effect to imperatively collapse/expand the left panel
   useEffect(() => {
     const panel = leftPanelRef.current;
@@ -65,11 +99,6 @@ export const IdeLayout = React.memo(function IdeLayout({
             if (panel.isCollapsed()) {
               panel.expand();
             }
-            // Optional: If expand doesn't restore to a good size, explicitly set it.
-            // const targetSize = sizes[0] || 25;
-            // if (panel.getSize() !== targetSize) {
-            // panel.resize(targetSize);
-            // }
           } else {
             if (panel.isExpanded()) {
               panel.collapse();
@@ -86,32 +115,59 @@ export const IdeLayout = React.memo(function IdeLayout({
       return () => cancelAnimationFrame(frameId);
     }
     return undefined;
-  }, [showLeftPanel]); // Removed sizes from dependency array
+  }, [showLeftPanel]);
 
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
-      // For horizontal layout: [left, middle+right, console]
-      // We need to preserve the right panel size within the middle+right section
-      if (newSizes.length >= 2 && newSizes[0] !== undefined && newSizes[2] !== undefined) {
-        saveLayout([newSizes[0], safeRightSize, newSizes[2]]);
+      // For horizontal layout, we need to map the new sizes back to our stored format
+      const hasLeft = leftPanelContent && showLeftPanel;
+      const hasConsole = showConsole && consoleContent;
+
+      if (hasLeft && hasConsole && newSizes.length >= 3) {
+        // [left, main+right, console] -> [left, right, console]
+        const leftSize = newSizes[0] ?? safeLeftSize;
+        const consoleSize = newSizes[2] ?? safeConsoleSize;
+        saveLayout([leftSize, safeRightSize, consoleSize]);
+      } else if (hasLeft && newSizes.length >= 2) {
+        // [left, main+right] -> [left, right, console]
+        const leftSize = newSizes[0] ?? safeLeftSize;
+        saveLayout([leftSize, safeRightSize, safeConsoleSize]);
+      } else if (hasConsole && newSizes.length >= 2) {
+        // [main+right, console] -> [left, right, console]
+        const consoleSize = newSizes[1] ?? safeConsoleSize;
+        saveLayout([safeLeftSize, safeRightSize, consoleSize]);
       }
+      // If only main panel is visible, no need to save layout changes
     },
-    [safeRightSize, saveLayout]
+    [
+      leftPanelContent,
+      showLeftPanel,
+      showConsole,
+      consoleContent,
+      safeLeftSize,
+      safeRightSize,
+      safeConsoleSize,
+      saveLayout,
+    ]
   );
 
   const handleVerticalLayout = useCallback(
     (newSizes: number[]) => {
-      // For vertical layout within main content: [middle, right]
-      if (newSizes.length >= 2 && newSizes[0] !== undefined && newSizes[1] !== undefined) {
-        saveLayout([safeLeftSize, newSizes[1], safeConsoleSize]);
+      // For vertical layout within main content: [main, right]
+      if (rightPanelContent && showRightPanel && newSizes.length >= 2) {
+        const rightSize = newSizes[1] ?? safeRightSize;
+        saveLayout([safeLeftSize, rightSize, safeConsoleSize]);
       }
     },
-    [safeLeftSize, safeConsoleSize, saveLayout]
+    [rightPanelContent, showRightPanel, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
   );
 
   const handleConsoleClose = () => {
     toggleConsole();
   };
+
+  const horizontalSizes = getHorizontalLayoutSizes();
+  const verticalSizes = getVerticalLayoutSizes();
 
   return (
     <div className={cn('h-screen flex', className)}>
@@ -128,22 +184,20 @@ export const IdeLayout = React.memo(function IdeLayout({
       <div className="flex-1 flex flex-col">
         <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
           {/* Left Panel - File Tree */}
-          {leftPanelContent && (
+          {leftPanelContent && showLeftPanel && (
             <>
               <Panel
                 ref={leftPanelRef}
                 id="left-panel"
                 order={1}
-                defaultSize={safeLeftSize}
+                defaultSize={horizontalSizes[0] ?? 25}
                 minSize={15}
+                maxSize={50}
                 collapsible
                 collapsedSize={0}
-                className={cn(
-                  'bg-background',
-                  !showLeftPanel && 'overflow-hidden !min-w-0 !w-0 !border-transparent'
-                )}
+                className="bg-background"
               >
-                <div className={cn('h-full', !showLeftPanel && 'hidden')}>
+                <div className="h-full">
                   <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
                     <div className="flex items-center gap-2">
                       <PanelLeft className="h-4 w-4" />
@@ -154,36 +208,36 @@ export const IdeLayout = React.memo(function IdeLayout({
                       size="icon"
                       className="h-6 w-6"
                       onClick={toggleLeftPanel}
-                      aria-label={showLeftPanel ? 'Hide explorer' : 'Show explorer'}
+                      aria-label="Hide explorer"
                     >
-                      {showLeftPanel ? (
-                        <ChevronLeft className="h-3 w-3" />
-                      ) : (
-                        <PanelLeft className="h-4 w-4" />
-                      )}
+                      <ChevronLeft className="h-3 w-3" />
                     </Button>
                   </div>
                   <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
                 </div>
               </Panel>
-              <PanelResizeHandle
-                className={cn(
-                  'w-1 bg-border hover:bg-border/80 transition-colors',
-                  !showLeftPanel && 'hidden'
-                )}
-              />
+              <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
             </>
           )}
 
           {/* Main Content Panel */}
-          <Panel id="main-panel" order={2} minSize={40}>
+          <Panel
+            id="main-panel"
+            order={2}
+            minSize={40}
+            defaultSize={
+              leftPanelContent && showLeftPanel
+                ? (horizontalSizes[1] ?? 75)
+                : (horizontalSizes[0] ?? 100)
+            }
+          >
             <PanelGroup direction="vertical">
               {/* Main Content */}
               <Panel
                 id="main-content-panel"
                 order={1}
-                defaultSize={showConsole ? 70 : 100}
-                minSize={showConsole ? 40 : 60}
+                defaultSize={showConsole && consoleContent ? 70 : 100}
+                minSize={showConsole && consoleContent ? 40 : 60}
               >
                 {rightPanelContent && showRightPanel ? (
                   <PanelGroup direction="horizontal" onLayout={handleVerticalLayout}>
@@ -191,7 +245,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     <Panel
                       id="middle-panel"
                       order={1}
-                      defaultSize={80 - safeRightSize}
+                      defaultSize={verticalSizes[0] ?? 80}
                       minSize={40}
                       className="bg-background"
                     >
@@ -204,7 +258,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     <Panel
                       id="right-panel"
                       order={2}
-                      defaultSize={safeRightSize}
+                      defaultSize={verticalSizes[1] ?? 20}
                       minSize={15}
                       maxSize={40}
                       collapsible
@@ -244,7 +298,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   <Panel
                     id="console-panel"
                     order={2}
-                    defaultSize={safeConsoleSize}
+                    defaultSize={30}
                     minSize={15}
                     maxSize={60}
                     collapsible
@@ -279,6 +333,47 @@ export const IdeLayout = React.memo(function IdeLayout({
               )}
             </PanelGroup>
           </Panel>
+
+          {/* Console Panel in horizontal layout (when no left panel) */}
+          {!leftPanelContent && showConsole && consoleContent && (
+            <>
+              <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
+              <Panel
+                id="console-panel-horizontal"
+                order={3}
+                defaultSize={horizontalSizes[1] ?? 30}
+                minSize={15}
+                maxSize={60}
+                collapsible
+                className="bg-background"
+              >
+                <div className="h-full border-t border-border">
+                  <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="h-4 w-4" />
+                      <span className="text-sm font-medium">Console</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={handleConsoleClose}
+                      aria-label="Close console"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">
+                    {consoleContent || (
+                      <div className="p-4 text-sm text-muted-foreground">
+                        Console output will appear here...
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Panel>
+            </>
+          )}
         </PanelGroup>
 
         {/* Floating Toggle Buttons */}

@@ -19,6 +19,19 @@ const electronAPIMock = {
   loadLayout: vi.fn().mockResolvedValue(undefined),
 };
 
+// Mock window.addEventListener and removeEventListener
+const mockAddEventListener = vi.fn();
+const mockRemoveEventListener = vi.fn();
+
+Object.defineProperty(window, 'addEventListener', {
+  value: mockAddEventListener,
+  configurable: true,
+});
+Object.defineProperty(window, 'removeEventListener', {
+  value: mockRemoveEventListener,
+  configurable: true,
+});
+
 describe('usePanelPersistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,6 +59,8 @@ describe('usePanelPersistence', () => {
     const storedData = {
       sizes: [25, 35],
       showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
     };
     localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
 
@@ -53,6 +68,51 @@ describe('usePanelPersistence', () => {
 
     expect(result.current.sizes).toEqual([25, 35]);
     expect(result.current.showConsole).toBe(false);
+  });
+
+  it('should normalize invalid sizes', () => {
+    const storedData = {
+      sizes: [60, 60], // Total 120%, should be normalized to 100%
+      showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
+    };
+    localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    // Should be normalized to [50, 50] (proportional to 100%)
+    expect(result.current.sizes).toEqual([50, 50]);
+  });
+
+  it('should not normalize sizes when total is less than 100%', () => {
+    const storedData = {
+      sizes: [25, 35], // Total 60%, should not normalize
+      showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
+    };
+    localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    // Should keep original values since they're valid
+    expect(result.current.sizes).toEqual([25, 35]);
+  });
+
+  it('should handle zero total sizes', () => {
+    const storedData = {
+      sizes: [0, 0], // Total 0%, should default to equal distribution
+      showConsole: false,
+      showLeftPanel: true,
+      showRightPanel: false,
+    };
+    localStorageMock.getItem.mockReturnValue(JSON.stringify(storedData));
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    // Should default to equal distribution [50, 50]
+    expect(result.current.sizes).toEqual([50, 50]);
   });
 
   it('should save layout to localStorage', async () => {
@@ -78,6 +138,35 @@ describe('usePanelPersistence', () => {
       'panelLayout.v1',
       JSON.stringify({
         sizes: [25, 35],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      })
+    );
+  });
+
+  it('should normalize sizes when saving layout if needed', async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([60, 60], false); // Total 120%, should be normalized
+    });
+
+    // State should be normalized immediately
+    expect(result.current.sizes).toEqual([50, 50]); // Normalized to 100%
+
+    // Advance timers to trigger the debounced save
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    // localStorage should receive normalized values
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'panelLayout.v1',
+      JSON.stringify({
+        sizes: [50, 50],
         showConsole: false,
         showLeftPanel: true,
         showRightPanel: false,
@@ -118,7 +207,7 @@ describe('usePanelPersistence', () => {
     const { result } = renderHook(() => usePanelPersistence([20, 30], true));
 
     act(() => {
-      result.current.saveLayout([20, 30], true);
+      result.current.saveLayout([20, 30], true, true, false);
     });
 
     act(() => {
@@ -128,9 +217,9 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
   });
 
-  it('should save layout via Electron API when available', async () => {
+  it('should save to Electron API when available', async () => {
+    (window as { electronAPI?: unknown }).electronAPI = electronAPIMock;
     localStorageMock.getItem.mockReturnValue(null);
-    (window as { electronAPI?: typeof electronAPIMock }).electronAPI = electronAPIMock;
 
     const { result } = renderHook(() => usePanelPersistence([20, 30], true));
 
@@ -138,9 +227,8 @@ describe('usePanelPersistence', () => {
       result.current.saveLayout([25, 35], false);
     });
 
-    await act(async () => {
+    act(() => {
       vi.advanceTimersByTime(250);
-      await vi.runAllTicks();
     });
 
     expect(electronAPIMock.saveLayout).toHaveBeenCalledWith({
@@ -152,42 +240,27 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
   });
 
-  it('should load layout from Electron API on mount', async () => {
-    localStorageMock.getItem.mockReturnValue(null);
-    const stored = {
+  it('should load from Electron API on mount', async () => {
+    const electronData = {
       sizes: [30, 40],
-      showConsole: false,
+      showConsole: true,
       showLeftPanel: false,
       showRightPanel: true,
     };
-    (window as { electronAPI?: typeof electronAPIMock }).electronAPI = {
-      ...electronAPIMock,
-      loadLayout: vi.fn().mockResolvedValue(stored),
-    };
+    electronAPIMock.loadLayout.mockResolvedValue(electronData);
+    (window as { electronAPI?: unknown }).electronAPI = electronAPIMock;
 
-    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+    const { result } = renderHook(() => usePanelPersistence([20, 30], false));
 
+    // Wait for the effect to run
     await act(async () => {
-      vi.runAllTimers();
-      await vi.runAllTicks();
+      await vi.runAllTimersAsync();
     });
 
-    expect(
-      (window as { electronAPI?: typeof electronAPIMock }).electronAPI?.loadLayout
-    ).toHaveBeenCalled();
     expect(result.current.sizes).toEqual([30, 40]);
-    expect(result.current.showConsole).toBe(false);
+    expect(result.current.showConsole).toBe(true);
     expect(result.current.showLeftPanel).toBe(false);
     expect(result.current.showRightPanel).toBe(true);
-  });
-
-  it('should handle invalid JSON in localStorage gracefully', () => {
-    localStorageMock.getItem.mockReturnValue('invalid json');
-
-    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
-
-    expect(result.current.sizes).toEqual([20, 30]);
-    expect(result.current.showConsole).toBe(true);
   });
 
   it('should handle localStorage errors gracefully', () => {
@@ -199,5 +272,63 @@ describe('usePanelPersistence', () => {
 
     expect(result.current.sizes).toEqual([20, 30]);
     expect(result.current.showConsole).toBe(true);
+  });
+
+  it('should handle invalid JSON in localStorage gracefully', () => {
+    localStorageMock.getItem.mockReturnValue('invalid json');
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    expect(result.current.sizes).toEqual([20, 30]);
+    expect(result.current.showConsole).toBe(true);
+  });
+
+  it('should save pending changes on beforeunload', () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    const { result, unmount } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([25, 35], false); // This creates a pending save
+    });
+
+    // Simulate beforeunload event
+    // The event listener should have been added by the hook
+    const beforeUnloadCallback = mockAddEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    )?.[1];
+
+    expect(beforeUnloadCallback).toBeDefined();
+
+    if (beforeUnloadCallback) {
+      act(() => {
+        beforeUnloadCallback();
+      });
+    }
+
+    // localStorage.setItem should have been called synchronously
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'panelLayout.v1',
+      JSON.stringify({
+        sizes: [25, 35],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      })
+    );
+
+    // Ensure timer is cleared
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Test unmount cleanup
+    act(() => {
+      unmount();
+    });
+    const removeListenerCall = mockRemoveEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    );
+    expect(removeListenerCall).toBeDefined();
+    if (removeListenerCall) {
+      expect(removeListenerCall[1]).toBe(beforeUnloadCallback);
+    }
   });
 });
