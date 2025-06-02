@@ -107,10 +107,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   }, [onRender]);
 
   return (
-    <div
-      ref={containerRef}
-      className="overflow-y-auto h-full relative file-tree-scroll flex-1 min-h-0"
-    >
+    <div ref={containerRef} className="h-full relative flex-1 min-h-0">
       <ul
         className="relative file-tree"
         role="tree"
