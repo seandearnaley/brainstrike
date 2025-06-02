@@ -47,7 +47,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
       {!rootDirectoryHandle ? (
         <NoFilesSelected />
       ) : (
-        <div className="p-2">
+        <div className="px-2 pt-2">
           {quickFilteredTree && quickFilteredTree.length > 0 ? (
             <FileTree
               fileTree={quickFilteredTree}

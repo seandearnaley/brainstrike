@@ -1,6 +1,6 @@
 import { AppLayout, createAppConfig } from '@brainstrike/app-shell';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { FileExplorerProvider, UnifiedFileExplorerProvider } from '@brainstrike/file-explorer-ui';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import { Folder, Settings } from 'lucide-react';
 import { useState } from 'react';
 import HomePageContent, { DesktopFileExplorerLeftPanel } from './home-page-content';
@@ -27,43 +27,41 @@ export default function RootLayoutContent() {
 
   return (
     <FileExplorerProvider storageAdapter={storageAdapter}>
-      <UnifiedFileExplorerProvider>
-        <AppLayout
-          config={appConfig}
-          currentPath={activeTab === 'explorer' ? '/' : '/settings'}
-          onNavigationClick={handleNavigationClick}
-          sidebarContent={activeTab === 'explorer' ? <DesktopFileExplorerLeftPanel /> : undefined}
-        >
-          <div className="h-full" style={{ position: 'relative', overflow: 'hidden' }}>
-            <div
-              className="h-full"
-              style={{
-                visibility: activeTab === 'explorer' ? 'visible' : 'hidden',
-                position: activeTab === 'explorer' ? 'relative' : 'absolute',
-                width: '100%',
-                height: '100%',
-                pointerEvents: activeTab === 'explorer' ? 'auto' : 'none',
-              }}
-            >
-              <HomePageContent />
-            </div>
-            <div
-              className="h-full"
-              style={{
-                visibility: activeTab === 'settings' ? 'visible' : 'hidden',
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: activeTab === 'settings' ? 'auto' : 'none',
-              }}
-            >
-              <SettingsPageContent />
-            </div>
+      <AppLayout
+        config={appConfig}
+        currentPath={activeTab === 'explorer' ? '/' : '/settings'}
+        onNavigationClick={handleNavigationClick}
+        sidebarContent={activeTab === 'explorer' ? <DesktopFileExplorerLeftPanel /> : undefined}
+      >
+        <div className="h-full" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div
+            className="h-full"
+            style={{
+              visibility: activeTab === 'explorer' ? 'visible' : 'hidden',
+              position: activeTab === 'explorer' ? 'relative' : 'absolute',
+              width: '100%',
+              height: '100%',
+              pointerEvents: activeTab === 'explorer' ? 'auto' : 'none',
+            }}
+          >
+            <HomePageContent />
           </div>
-        </AppLayout>
-      </UnifiedFileExplorerProvider>
+          <div
+            className="h-full"
+            style={{
+              visibility: activeTab === 'settings' ? 'visible' : 'hidden',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: activeTab === 'settings' ? 'auto' : 'none',
+            }}
+          >
+            <SettingsPageContent />
+          </div>
+        </div>
+      </AppLayout>
     </FileExplorerProvider>
   );
 }

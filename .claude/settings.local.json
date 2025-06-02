@@ -10,8 +10,27 @@
       "Bash(node:*)",
       "Bash(npm run type-check:*)",
       "Bash(npm run lint)",
-      "Bash(pnpm run lint:*)"
+      "Bash(pnpm run lint:*)",
+      "Bash(rg:*)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -A 10 -B 5 \"TooltipProvider.*children|return.*TooltipProvider\" /Users/seandearnaley/Documents/GitHub/brainstrike/packages/file-explorer-ui/src/file-tree.tsx)",
+      "Bash(grep:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(rm:*)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Tooltip\" --type tsx packages/file-explorer-ui/src/)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Tooltip\" packages/file-explorer-ui/src/ --glob \"*.tsx\")",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Checkbox\" --type tsx --type ts -A 3 -B 3)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Provider\" --type tsx --type ts)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Checkbox\" -A 3 -B 3)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Provider\")",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"Checkbox\" packages/file-explorer-ui/src/file-tree-row.tsx packages/file-explorer-ui/src/file-tree-node.tsx packages/file-explorer-ui/src/preview-panel.tsx)",
+      "Bash(pnpm run dev:web:*)",
+      "Bash(pnpm run dev:*)",
+      "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"p-2\" /Users/seandearnaley/Documents/GitHub/brainstrike/packages/file-explorer-ui/src/ --glob \"*.tsx\")",
+      "Bash(npm run test:e2e:*)",
+      "Bash(find:*)",
+      "Bash(npm run build:*)"
     ],
     "deny": []
-  }
+  },
+  "enableAllProjectMcpServers": false
 }

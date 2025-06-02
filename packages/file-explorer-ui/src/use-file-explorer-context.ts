@@ -145,23 +145,24 @@ export function useFileExplorer({
     [applyFiltersUtil, fileTree]
   );
 
-  useEffect(() => {
-    const collectVisiblePaths = (nodes: IFileNode[]): Set<string> => {
-      const paths = new Set<string>();
-      const collect = (innerNodes: IFileNode[]) => {
-        for (const node of innerNodes) {
-          if (node.type === 'file') {
-            paths.add(node.path);
-          } else if (node.type === 'directory' && node.children) {
-            collect(node.children);
-          }
+  const collectVisiblePaths = useCallback((nodes: IFileNode[]): Set<string> => {
+    const paths = new Set<string>();
+    const collect = (innerNodes: IFileNode[]) => {
+      for (const node of innerNodes) {
+        if (node.type === 'file') {
+          paths.add(node.path);
+        } else if (node.type === 'directory' && node.children) {
+          collect(node.children);
         }
-      };
-      collect(nodes);
-      return paths;
+      }
     };
+    collect(nodes);
+    return paths;
+  }, []);
+
+  useEffect(() => {
     onDisplayedFilePathsChange(collectVisiblePaths(filteredTree));
-  }, [filteredTree, onDisplayedFilePathsChange]);
+  }, [filteredTree, onDisplayedFilePathsChange, collectVisiblePaths]);
 
   // Construct the return object, carefully combining local state/logic with coreExplorer where needed.
   // This needs to satisfy UseFileExplorerReturn type.

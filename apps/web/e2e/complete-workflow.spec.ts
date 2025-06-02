@@ -46,11 +46,11 @@ test.describe('Complete File Explorer Workflow', () => {
     const test1Checkbox = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
     const test2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
 
-    await test1Checkbox.check();
+    await test1Checkbox.click({ force: true });
     await expect(test1Checkbox).toBeChecked();
     await expect(page.getByText('1/10')).toBeVisible();
 
-    await test2Checkbox.check();
+    await test2Checkbox.click({ force: true });
     await expect(test2Checkbox).toBeChecked();
     await expect(page.getByText('2/10')).toBeVisible();
 

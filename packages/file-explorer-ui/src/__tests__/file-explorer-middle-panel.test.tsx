@@ -57,8 +57,8 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   };
 });
 
-vi.mock('../unified-file-explorer-context', () => ({
-  useUnifiedFileExplorer: vi.fn(),
+vi.mock('../use-file-explorer-context', () => ({
+  useFileExplorer: vi.fn(),
 }));
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
@@ -68,7 +68,7 @@ vi.mock('@brainstrike/hooks', () => ({
 }));
 
 import { useUndoableAction } from '@brainstrike/hooks';
-import { useUnifiedFileExplorer } from '../unified-file-explorer-context';
+import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 
 let performUndoableActionMock: ReturnType<typeof vi.fn>;
@@ -78,7 +78,7 @@ describe('FileExplorerMiddlePanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    vi.mocked(useUnifiedFileExplorer).mockReturnValue({
+    vi.mocked(useFileExplorer).mockReturnValue({
       fileTree: [],
       fileContents: {},
       loadingFiles: new Set<string>(),

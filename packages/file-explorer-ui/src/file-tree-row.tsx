@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { Checkbox, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
+import { Checkbox } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import {
   ChevronDown,
@@ -239,30 +239,26 @@ const FileTreeRow = memo<FileTreeRowProps>(
           className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
           style={{ paddingLeft: depth * 16 }}
         >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center">
-                <Checkbox
-                  id={node.path}
-                  checked={checkboxState}
-                  disabled={wouldExceedLimit}
-                  className="mr-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!wouldExceedLimit) {
-                      handleNodeSelection();
-                    }
-                  }}
-                  aria-label={`Select ${node.name}`}
-                />
-              </div>
-            </TooltipTrigger>
-            {wouldExceedLimit && (
-              <TooltipContent>
-                <p>Cannot select more than {maxSelectionCount} files</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
+          <div
+            className="flex items-center"
+            title={
+              wouldExceedLimit ? `Cannot select more than ${maxSelectionCount} files` : undefined
+            }
+          >
+            <Checkbox
+              id={node.path}
+              checked={checkboxState}
+              disabled={wouldExceedLimit}
+              className="mr-2"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!wouldExceedLimit) {
+                  handleNodeSelection();
+                }
+              }}
+              aria-label={`Select ${node.name}`}
+            />
+          </div>
           {node.type === 'directory' && (
             <button
               type="button"

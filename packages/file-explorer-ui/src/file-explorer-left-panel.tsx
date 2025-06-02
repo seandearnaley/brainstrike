@@ -6,14 +6,14 @@ import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
-import { LoadingFallback, TooltipProvider } from '@brainstrike/ui';
+import { LoadingFallback } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
-import { useUnifiedFileExplorer } from './unified-file-explorer-context';
+import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 // Lazy load the sidebar component
@@ -82,7 +82,9 @@ export const FileExplorerLeftPanel: React.FC = () => {
     cancellable,
     cancelOperation,
     isCancelling,
-  } = useUnifiedFileExplorer();
+  } = useFileExplorer({
+    onDisplayedFilePathsChange: () => {}, // Empty callback since this component doesn't need to track displayed files
+  });
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => {}, // Will be handled by action buttons
@@ -267,15 +269,13 @@ export const FileExplorerLeftPanel: React.FC = () => {
             onExpandAll={expandAll}
             onCollapseAll={collapseAll}
           />
-          <TooltipProvider>
-            <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
-            <FilterStatus
-              includeFilters={includeFilters}
-              excludeFilters={excludeFilters}
-              useRegex={useRegex}
-              quickFilter={quickFilter}
-            />
-          </TooltipProvider>
+          <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
+          <FilterStatus
+            includeFilters={includeFilters}
+            excludeFilters={excludeFilters}
+            useRegex={useRegex}
+            quickFilter={quickFilter}
+          />
         </div>
 
         {/* Scrollable Middle Content */}

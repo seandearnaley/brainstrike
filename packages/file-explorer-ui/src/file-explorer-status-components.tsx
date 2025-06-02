@@ -9,7 +9,7 @@ export const DirectoryStatus: React.FC<{
 }> = ({ rootDirectoryHandle }) => {
   if (!rootDirectoryHandle) return null;
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground p-2 border-b">
+    <div className="flex items-center gap-2 text-sm text-muted-foreground px-2 py-2 border-b">
       <span>{FileExplorerStrings.status.currentDirectory}</span>
       <FolderBadge folderId={rootDirectoryHandle.name} />
     </div>
@@ -44,7 +44,7 @@ export const FilterStatus: React.FC<{
   if (!hasFilters) return null;
 
   return (
-    <div className="flex items-center gap-2 flex-wrap p-2 border-b">
+    <div className="flex items-center gap-2 flex-wrap px-2 py-2 border-b">
       {includeFilters.map((filter) => (
         <FilterBadge
           key={`include-${filter}`}

@@ -144,7 +144,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 )}
               >
                 <div className={cn('h-full', !showLeftPanel && 'hidden')}>
-                  <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+                  <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
                     <div className="flex items-center gap-2">
                       <PanelLeft className="h-4 w-4" />
                       <span className="text-sm font-medium">Explorer</span>

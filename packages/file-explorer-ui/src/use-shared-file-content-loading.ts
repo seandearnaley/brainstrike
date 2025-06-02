@@ -14,7 +14,7 @@ interface ImportMetaWithViteEnv {
   };
 }
 
-const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
+const MAX_CONCURRENT_LOADS = 20; // Increased concurrent file loads for better performance
 
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
@@ -232,9 +232,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           chunks.push(compositeKeys.slice(i, i + MAX_CONCURRENT_LOADS));
         }
 
-        for (const chunk of chunks) {
-          await Promise.all(chunk.map(loadSingleFileContent));
-        }
+        // Process all chunks concurrently for better performance
+        await Promise.all(chunks.map((chunk) => Promise.all(chunk.map(loadSingleFileContent))));
       } catch (err) {
         console.error('Error loading files:', err);
         setError(err as Error);
@@ -255,8 +254,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     }
   }, [selectedFilePaths, loadSingleFileContent, store]);
 
+  // Use zustand selector to get fileContents with proper memoization
+  const fileContents = store((state) => state.fileContents);
+
   return {
-    fileContents: store.getState().fileContents,
+    fileContents,
     isLoading,
     error,
     loadingFiles,

@@ -42,8 +42,8 @@ vi.mock('../file-explorer-provider', async (importOriginal) => {
     useFileExplorerStoreContext: vi.fn(),
   };
 });
-vi.mock('../unified-file-explorer-context', () => ({
-  useUnifiedFileExplorer: vi.fn(),
+vi.mock('../use-file-explorer-context', () => ({
+  useFileExplorer: vi.fn(),
 }));
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
@@ -76,7 +76,7 @@ import { FileExplorerTestWrapper } from './test-helpers';
 
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useUnifiedFileExplorer } from '../unified-file-explorer-context';
+import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 
 let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
@@ -115,7 +115,7 @@ describe('FileExplorerLeftPanel', () => {
     applyFileFiltersMock = vi.fn();
     refreshFileExplorerMock = vi.fn();
     isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
-    vi.mocked(useUnifiedFileExplorer).mockReturnValue({
+    vi.mocked(useFileExplorer).mockReturnValue({
       fileTree: [],
       handleRootDirectorySelect: handleRootDirectorySelectMock,
       isLoading: false,
