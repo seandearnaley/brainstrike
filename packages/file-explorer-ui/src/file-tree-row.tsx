@@ -28,7 +28,7 @@ interface FileTreeRowProps {
   children?: React.ReactNode;
 }
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 32;
 
 // Custom comparison function for React.memo
 const areFileTreeRowPropsEqual = (
@@ -236,11 +236,30 @@ const FileTreeRow = memo<FileTreeRowProps>(
         style={style}
       >
         <div
-          className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-          style={{ paddingLeft: depth * 16 }}
+          className="flex items-center py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          style={{ paddingLeft: depth * 24 + 8 }}
         >
+          {/* Chevron button with fixed width for consistent alignment */}
+          <div className="w-4 flex justify-center mr-2">
+            {node.type === 'directory' && (
+              <button
+                type="button"
+                onClick={handleExpansionClick}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded cursor-pointer transition-colors flex items-center justify-center"
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+              </button>
+            )}
+          </div>
+
+          {/* Checkbox with precise alignment */}
           <div
-            className="flex items-center"
+            className="flex items-center justify-center w-4 mr-2"
             title={
               wouldExceedLimit ? `Cannot select more than ${maxSelectionCount} files` : undefined
             }
@@ -249,7 +268,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
               id={node.path}
               checked={checkboxState}
               disabled={wouldExceedLimit}
-              className="mr-2"
+              className="h-4 w-4"
               onClick={(e) => {
                 e.stopPropagation();
                 if (!wouldExceedLimit) {
@@ -259,26 +278,20 @@ const FileTreeRow = memo<FileTreeRowProps>(
               aria-label={`Select ${node.name}`}
             />
           </div>
-          {node.type === 'directory' && (
-            <button
-              type="button"
-              onClick={handleExpansionClick}
-              className="p-1 mr-1"
-              aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
-            >
-              {isExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-            </button>
-          )}
-          {renderIcon()}
-          {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
-          <span className="ml-1">{node.name}</span>
-          {node.type === 'directory' && node.isDepthTruncated && (
-            <MoreHorizontalIcon className="ml-1 h-4 w-4 text-gray-500" />
-          )}
+
+          {/* File/folder icon with consistent sizing */}
+          <div className="flex items-center justify-center w-4 mr-2">{renderIcon()}</div>
+
+          {/* File/folder name and additional icons */}
+          <div className="flex items-center flex-1 min-w-0">
+            {node.isSymbolicLink && (
+              <Link2Icon className="mr-1.5 h-4 w-4 text-blue-500 flex-shrink-0" />
+            )}
+            <span className="truncate text-sm leading-4">{node.name}</span>
+            {node.type === 'directory' && node.isDepthTruncated && (
+              <MoreHorizontalIcon className="ml-1.5 h-4 w-4 text-gray-500 flex-shrink-0" />
+            )}
+          </div>
         </div>
         {/* Render children in a nested ul if they exist */}
         {isExpanded && children && <ul className="">{children}</ul>}
