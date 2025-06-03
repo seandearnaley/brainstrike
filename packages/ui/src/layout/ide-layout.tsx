@@ -54,29 +54,19 @@ export const IdeLayout = React.memo(function IdeLayout({
   const safeRightSize = typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 20;
   const safeConsoleSize = typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 30;
 
-  // Calculate layout sizes based on visible panels
+  // Calculate horizontal panel sizes for left and main sections
   const getHorizontalLayoutSizes = useCallback(() => {
     const hasLeft = leftPanelContent && showLeftPanel;
-    const hasConsole = showConsole && consoleContent;
-
-    if (hasLeft && hasConsole) {
-      // All three sections: left, main+right, console
-      const mainSize = 100 - safeLeftSize - safeConsoleSize;
-      return [safeLeftSize, mainSize, safeConsoleSize];
-    }
     if (hasLeft) {
-      // Left and main+right only
-      const mainSize = 100 - safeLeftSize;
-      return [safeLeftSize, mainSize];
+      // Clamp left panel size to its min/max bounds (15-50)
+      const leftSize = Math.max(15, Math.min(50, safeLeftSize));
+      // Main panel takes the rest of the width
+      const mainSize = 100 - leftSize;
+      return [leftSize, mainSize];
     }
-    if (hasConsole) {
-      // Main+right and console only
-      const mainSize = 100 - safeConsoleSize;
-      return [mainSize, safeConsoleSize];
-    }
-    // Main+right only
+    // Only main panel
     return [100];
-  }, [leftPanelContent, showLeftPanel, showConsole, consoleContent, safeLeftSize, safeConsoleSize]);
+  }, [leftPanelContent, showLeftPanel, safeLeftSize]);
 
   const getVerticalLayoutSizes = useCallback(() => {
     if (rightPanelContent && showRightPanel) {
@@ -119,25 +109,20 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
-      // For horizontal layout, we need to map the new sizes back to our stored format
+      // Map updated horizontal sizes back to persisted state
       const hasLeft = leftPanelContent && showLeftPanel;
       const hasConsole = showConsole && consoleContent;
 
+      // If console is open, the horizontal group may receive three segments [left, main+right, console]
       if (hasLeft && hasConsole && newSizes.length >= 3) {
-        // [left, main+right, console] -> [left, right, console]
         const leftSize = newSizes[0] ?? safeLeftSize;
         const consoleSize = newSizes[2] ?? safeConsoleSize;
         saveLayout([leftSize, safeRightSize, consoleSize]);
       } else if (hasLeft && newSizes.length >= 2) {
-        // [left, main+right] -> [left, right, console]
+        // Only left and main sections
         const leftSize = newSizes[0] ?? safeLeftSize;
         saveLayout([leftSize, safeRightSize, safeConsoleSize]);
-      } else if (hasConsole && newSizes.length >= 2) {
-        // [main+right, console] -> [left, right, console]
-        const consoleSize = newSizes[1] ?? safeConsoleSize;
-        saveLayout([safeLeftSize, safeRightSize, consoleSize]);
       }
-      // If only main panel is visible, no need to save layout changes
     },
     [
       leftPanelContent,
