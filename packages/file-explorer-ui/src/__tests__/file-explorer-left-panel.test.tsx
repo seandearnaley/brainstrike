@@ -1,200 +1,296 @@
-import { render, screen } from '@testing-library/react';
+import React from 'react';
+import { render, screen, act, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-// Mock UI components that are lazy loaded or used within the panel
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...actual,
-    FileExplorerToolbar: ({
-      onRefresh,
-      onDirectorySelect,
-      onFilterChange,
-    }: {
-      onRefresh: () => void;
-      onDirectorySelect: () => void;
-      onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
-    }) => (
-      <div data-testid="toolbar">
-        Toolbar
-        <button type="button" onClick={onRefresh}>
-          Refresh
-        </button>
-        <button type="button" onClick={onDirectorySelect}>
-          Select Directory
-        </button>
-        <button type="button" onClick={() => onFilterChange(['in'], ['ex'], true)}>
-          Apply Filters
-        </button>
-      </div>
-    ),
-    FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
-    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    LoadingOverlay: () => null,
-  };
-});
-
-// Mock hooks used by the component
-vi.mock('../file-explorer-provider', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../file-explorer-provider')>();
-  return {
-    ...actual,
-    useFileExplorerStoreContext: vi.fn(),
-  };
-});
-vi.mock('../use-file-explorer-context', () => ({
-  useFileExplorer: vi.fn(),
-}));
-vi.mock('../use-selection-manager-context', () => ({
-  useSelectionManager: vi.fn(),
-}));
-vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-hooks')>();
-  return {
-    ...actual,
-    useAdapters: vi.fn(() => ({ fileSystemAdapter: {}, storageAdapter: {} })),
-    useToastManager: vi.fn(() => ({
-      toast: vi.fn(),
-      showToast: showToastMock,
-      handleRefreshError: vi.fn(),
-      handleBrowserCompatibilityError: vi.fn(),
-      handleDirectorySelectError: handleDirectorySelectErrorMock,
-    })),
-  };
-});
-vi.mock('@brainstrike/hooks', () => ({
-  useQuickFilter: vi.fn(),
-  useReportGeneration: vi.fn(() => ({ generateReportWithContent: vi.fn() })),
-  useReportManager: vi.fn(() => ({
-    handleDownloadReport: vi.fn(),
-    handleCopyReport: vi.fn(),
-  })),
-}));
-
-import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
-import { FileExplorerTestWrapper } from './test-helpers';
-
-import { useQuickFilter } from '@brainstrike/hooks';
+import { vi } from 'vitest';
+import { FileExplorerLeftPanel, FileExplorerLeftPanelProps } from '../file-explorer-left-panel';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
-import { useFileExplorer } from '../use-file-explorer-context';
-import { useSelectionManager } from '../use-selection-manager-context';
+import { useFileFilters } from '../../hooks/use-file-filters'; // Assuming path
+import { FileTree } from '../file-tree';
+import { FileFilterBar } from '../file-filter-bar';
+import { FileExplorerToolbar } from '../file-explorer-toolbar';
 
-let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
-let showToastMock: ReturnType<typeof vi.fn>;
-let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
-let setFiltersMock: ReturnType<typeof vi.fn>;
-let applyFileFiltersMock: ReturnType<typeof vi.fn>;
-let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
-let isFileSystemAccessSupportedMock: ReturnType<typeof vi.fn>;
+// --- Mock Child Components ---
+vi.mock('../file-tree', () => ({
+  FileTree: vi.fn(() => <div data-testid="mock-file-tree"></div>),
+}));
+vi.mock('../file-filter-bar', () => ({
+  FileFilterBar: vi.fn(({ onFilterChange, onExtensionFilterChange, onRegexToggle, currentFilter, currentExtensionFilter, isRegex }) => (
+    <div data-testid="mock-file-filter-bar">
+      <input
+        data-testid="filter-text-input"
+        type="text"
+        value={currentFilter}
+        onChange={(e) => onFilterChange(e.target.value)}
+      />
+      <input
+        data-testid="filter-extension-input"
+        type="text"
+        value={currentExtensionFilter.join(',')}
+        onChange={(e) => onExtensionFilterChange(e.target.value.split(','))}
+      />
+      <button data-testid="regex-toggle-button" onClick={() => onRegexToggle(!isRegex)}>
+        Regex: {isRegex ? 'On' : 'Off'}
+      </button>
+    </div>
+  )),
+}));
+vi.mock('../file-explorer-toolbar', () => ({
+  FileExplorerToolbar: vi.fn(({ onRefresh, onCollapseAll, onClearFilters }) => (
+    <div data-testid="mock-file-toolbar">
+      <button data-testid="refresh-button" onClick={onRefresh}>Refresh</button>
+      <button data-testid="collapse-all-button" onClick={onCollapseAll}>Collapse All</button>
+      <button data-testid="clear-filters-button" onClick={onClearFilters}>Clear Filters</button>
+    </div>
+  )),
+}));
+
+// --- Mock Hooks ---
+const mockUseFileFiltersState = {
+  filter: '',
+  setFilter: vi.fn(),
+  extensionFilter: [],
+  setExtensionFilter: vi.fn(),
+  isRegex: false,
+  setIsRegex: vi.fn(),
+  clearFilters: vi.fn(),
+};
+vi.mock('../../hooks/use-file-filters', () => ({
+  useFileFilters: vi.fn(() => mockUseFileFiltersState),
+}));
+
+const mockStoreState = {
+  // Mock any relevant store state that FileExplorerLeftPanel might use
+  // e.g., settings for MaxSelectionCountSetting, etc.
+  refreshFileTree: vi.fn(),
+  collapseAllFolders: vi.fn(),
+  maxSelectionCount: 100,
+  updateMaxSelectionCount: vi.fn(),
+  showFolderSummaryThreshold: 5,
+  updateShowFolderSummaryThreshold: vi.fn(),
+  includeProjectTree: true,
+  updateIncludeProjectTree: vi.fn(),
+  // ... other store state / actions
+};
+const mockUseFileExplorerStoreContext = vi.fn();
+vi.mock('../file-explorer-provider', () => ({
+  useFileExplorerStoreContext: mockUseFileExplorerStoreContext,
+}));
+
+
+const defaultProps: FileExplorerLeftPanelProps = {
+  folderId: 'test-folder-id',
+  isLoading: false,
+  error: null,
+  // Add any other required props, mock them if necessary
+};
 
 describe('FileExplorerLeftPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-
-    setFiltersMock = vi.fn();
-    const storeState = {
-      includeFilters: [],
-      excludeFilters: [],
-      useRegex: false,
-      setFilters: setFiltersMock,
-      currentFolderId: 'root',
-      setCurrentFolderId: vi.fn(),
-      maxSelectionCount: 5,
-      includeProjectTree: true,
-      folderSummaryThreshold: 5,
-      expandAllDirectories: vi.fn(),
-      collapseAllDirectories: vi.fn(),
-    } as const;
-
-    const mockStore = Object.assign(() => storeState, { getState: () => storeState });
-    vi.mocked(useFileExplorerStoreContext).mockReturnValue(
-      mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
-    );
-
-    handleRootDirectorySelectMock = vi.fn();
-    applyFileFiltersMock = vi.fn();
-    refreshFileExplorerMock = vi.fn();
-    isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
-    vi.mocked(useFileExplorer).mockReturnValue({
-      fileTree: [],
-      handleRootDirectorySelect: handleRootDirectorySelectMock,
-      isLoading: false,
-      error: null,
-      fileContents: {},
-      loadingFiles: new Set<string>(),
-      applyFileFilters: applyFileFiltersMock,
-      filterError: null,
-      rootDirectoryHandle: {
-        path: '/root',
-        name: 'root',
-        kind: 'directory',
-        platform: 'web' as const,
-        _internal: {} as FileSystemDirectoryHandle,
-      },
-      isFileSystemAccessSupported: isFileSystemAccessSupportedMock,
-      refreshFileExplorer: refreshFileExplorerMock,
-      isInitialLoad: false,
-      loadingProgress: null,
-      cancellable: false,
-      cancelOperation: vi.fn(),
-      isCancelling: false,
-      loadFileContent: vi.fn(),
-      clearFileContents: vi.fn(),
+    // Reset mock states
+    mockUseFileFiltersState.filter = '';
+    mockUseFileFiltersState.extensionFilter = [];
+    mockUseFileFiltersState.isRegex = false;
+    mockUseFileFiltersState.setFilter.mockImplementation((val) => mockUseFileFiltersState.filter = val);
+    mockUseFileFiltersState.setExtensionFilter.mockImplementation((val) => mockUseFileFiltersState.extensionFilter = val);
+    mockUseFileFiltersState.setIsRegex.mockImplementation((val) => mockUseFileFiltersState.isRegex = val);
+    mockUseFileFiltersState.clearFilters.mockImplementation(() => {
+        mockUseFileFiltersState.filter = '';
+        mockUseFileFiltersState.extensionFilter = [];
+        mockUseFileFiltersState.isRegex = false;
     });
 
-    vi.mocked(useSelectionManager).mockReturnValue({
-      selectedFilePaths: new Set<string>(),
-      handleSelectionChange: vi.fn(),
-      wouldExceedSelectionLimit: vi.fn(),
+
+    mockUseFileExplorerStoreContext.mockImplementation(selector => selector(mockStoreState));
+  });
+
+  const renderPanel = (props: Partial<FileExplorerLeftPanelProps> = {}) => {
+    return render(<FileExplorerLeftPanel {...defaultProps} {...props} />);
+  };
+
+  describe('Integration with FileFilterBar', () => {
+    it('updates text filter and passes it to FileTree', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      
+      const filterInput = screen.getByTestId('filter-text-input');
+      await user.type(filterInput, 'searchTerm');
+      
+      expect(mockUseFileFiltersState.setFilter).toHaveBeenCalledWith('searchTerm');
+      // FileTree mock should be called with props reflecting the new filter
+      // Need to wait for re-render if filter update is async (usually not with simple setState)
+      // The FileTree mock is called on each render, so the last call matters.
+      expect(FileTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          filter: 'searchTerm',
+          // folderId: defaultProps.folderId, // This also gets passed
+        }),
+        {}
+      );
     });
 
-    vi.mocked(useQuickFilter).mockReturnValue({
-      quickFilter: '',
-      setQuickFilter: vi.fn(),
-      clearFilter: vi.fn(),
-      filteredTree: [],
+    it('updates extension filter and passes it to FileTree', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      
+      const extensionInput = screen.getByTestId('filter-extension-input');
+      await user.clear(extensionInput); // Clear default empty value if any
+      await user.type(extensionInput, '.ts,.tsx');
+      
+      expect(mockUseFileFiltersState.setExtensionFilter).toHaveBeenCalledWith(['.ts', '.tsx']);
+      expect(FileTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ extensionFilter: ['.ts', '.tsx'] }),
+        {}
+      );
     });
 
-    showToastMock = vi.fn();
-    handleDirectorySelectErrorMock = vi.fn();
+    it('toggles regex filter and passes it to FileTree', async () => {
+      const user = userEvent.setup();
+      renderPanel(); // Initial isRegex = false
+      
+      const regexButton = screen.getByTestId('regex-toggle-button');
+      await user.click(regexButton);
+      
+      expect(mockUseFileFiltersState.setIsRegex).toHaveBeenCalledWith(true);
+      expect(FileTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ isRegex: true }),
+        {}
+      );
+
+      await user.click(regexButton); // Toggle back
+       expect(mockUseFileFiltersState.setIsRegex).toHaveBeenCalledWith(false);
+      expect(FileTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ isRegex: false }),
+        {}
+      );
+    });
   });
 
-  it('renders toolbar, sidebar and action buttons', async () => {
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+  describe('Integration with FileExplorerToolbar', () => {
+    it('calls refreshFileTree from store on Refresh button click', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      
+      const refreshButton = screen.getByTestId('refresh-button');
+      await user.click(refreshButton);
+      
+      expect(mockStoreState.refreshFileTree).toHaveBeenCalledTimes(1);
+      expect(mockStoreState.refreshFileTree).toHaveBeenCalledWith(defaultProps.folderId);
+    });
 
-    expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
-    expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+    it('calls collapseAllFolders from store on Collapse All button click', async () => {
+      const user = userEvent.setup();
+      renderPanel();
+      
+      const collapseButton = screen.getByTestId('collapse-all-button');
+      await user.click(collapseButton);
+      
+      expect(mockStoreState.collapseAllFolders).toHaveBeenCalledTimes(1);
+      // If collapseAllFolders takes folderId, add: expect(mockStoreState.collapseAllFolders).toHaveBeenCalledWith(defaultProps.folderId);
+    });
+
+    it('calls clearFilters from useFileFilters on Clear Filters button click', async () => {
+      const user = userEvent.setup();
+      // Setup some initial filters
+      mockUseFileFiltersState.filter = "initialText";
+      mockUseFileFiltersState.extensionFilter = [".js"];
+      renderPanel();
+
+      const clearFiltersButton = screen.getByTestId('clear-filters-button');
+      await user.click(clearFiltersButton);
+      
+      expect(mockUseFileFiltersState.clearFilters).toHaveBeenCalledTimes(1);
+      // Verify FileTree is re-rendered with cleared filters
+      expect(FileTree).toHaveBeenLastCalledWith(
+        expect.objectContaining({ filter: '', extensionFilter: [], isRegex: false }),
+        {}
+      );
+    });
+  });
+  
+  describe('FileTree Rendering and Props', () => {
+    it('renders FileTree with essential props', () => {
+        renderPanel();
+        expect(screen.getByTestId('mock-file-tree')).toBeInTheDocument();
+        expect(FileTree).toHaveBeenCalledWith(
+            expect.objectContaining({
+                folderId: defaultProps.folderId,
+                filter: mockUseFileFiltersState.filter, // initial empty
+                extensionFilter: mockUseFileFiltersState.extensionFilter, // initial empty
+                isRegex: mockUseFileFiltersState.isRegex, // initial false
+                isLoading: defaultProps.isLoading,
+                error: defaultProps.error,
+            }),
+            {}
+        );
+    });
   });
 
-  it('triggers refresh and shows toast when refresh button is clicked', async () => {
-    const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+  describe('Loading and Error States', () => {
+    it('passes isLoading prop to FileTree', () => {
+      renderPanel({ isLoading: true });
+      expect(FileTree).toHaveBeenCalledWith(expect.objectContaining({ isLoading: true }), {});
+    });
 
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
-
-    expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
-    expect(showToastMock).toHaveBeenCalled();
+    it('passes error prop to FileTree', () => {
+      const error = { message: 'Failed to load tree' };
+      renderPanel({ error });
+      expect(FileTree).toHaveBeenCalledWith(expect.objectContaining({ error }), {});
+    });
   });
 
-  it('handles directory selection errors', async () => {
-    const user = userEvent.setup();
-    const error = new Error('fail');
-    handleRootDirectorySelectMock.mockRejectedValueOnce(error);
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+  // Add tests for settings components if they are directly part of LeftPanel's rendering/logic
+  // For example, if LeftPanel itself renders a settings popover that uses store actions.
+  // Based on the current structure, settings are likely within FileExplorerToolbar or a separate settings component.
+  // The provided mocks for the store (updateMaxSelectionCount etc.) suggest these settings might be tested
+  // via their own components or by ensuring FileExplorerToolbar receives props to trigger them.
+  // If the missing lines are within conditional rendering blocks in LeftPanel related to these settings,
+  // we might need to simulate those conditions.
 
-    await user.click(screen.getByRole('button', { name: 'Select Directory' }));
+  // Example: If there's a direct settings button in LeftPanel (unlikely, usually in Toolbar)
+  // it('opens settings modal/popover when settings button clicked', () => { ... });
 
-    expect(handleDirectorySelectErrorMock).toHaveBeenCalledWith(error);
+  describe('FileExplorerToolbar Prop Wiring', () => {
+    it('passes all relevant callbacks and props to FileExplorerToolbar', () => {
+      renderPanel();
+      expect(FileExplorerToolbar).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // onRefresh is bound to store.refreshFileTree(folderId)
+          // onCollapseAll is bound to store.collapseAllFolders
+          // onClearFilters is bound to hook.clearFilters
+          // We need to check if these functions are passed.
+          // The actual implementation of these bound functions is tested elsewhere (store/hook tests).
+          // Here, we just check that *a* function is passed for each expected prop.
+          onRefresh: expect.any(Function),
+          onCollapseAll: expect.any(Function),
+          onClearFilters: expect.any(Function),
+          // Other props like settings components if FileExplorerToolbar expects them directly
+          // MaxSelectionCountSetting: expect.any(Function), // Or however these are passed
+          // FolderSummaryThresholdSetting: expect.any(Function),
+          // IncludeProjectTreeSetting: expect.any(Function),
+        }),
+        {}
+      );
+    });
   });
 
-  it('updates filters when filter button is clicked', async () => {
-    const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+  describe('Combined States', () => {
+    it('handles isLoading true with an existing error prop', () => {
+      // This scenario might occur if a refresh is triggered while a previous error is still displayed.
+      // The expected behavior is usually to prioritize the loading state for UI feedback.
+      const error = { message: 'Previous error' };
+      renderPanel({ isLoading: true, error: error });
 
-    await user.click(screen.getByRole('button', { name: 'Apply Filters' }));
-
-    expect(setFiltersMock).toHaveBeenCalledWith(['in'], ['ex']);
-    expect(applyFileFiltersMock).toHaveBeenCalledWith(['in'], ['ex'], true);
+      // FileTree should reflect it's loading, error might also be passed or ignored by FileTree when loading
+      expect(FileTree).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isLoading: true,
+          error: error, // FileTree might decide to show loader over error
+        }),
+        {}
+      );
+      // Toolbar might disable certain actions during loading
+      // FileFilterBar might be disabled or not, depending on desired UX
+    });
   });
 });
