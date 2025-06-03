@@ -7,13 +7,25 @@ Welcome to the `brainstrike` monorepo! This guide is designed to help both human
 This is a Turborepo-powered monorepo using `pnpm` as the package manager. The structure is as follows:
 
 *   **`apps/`**: Contains deployable applications.
-    *   `web`: The Vite + React implementation of the web application.
+    *   `web` (`@brainstrike/web`): The Vite + React implementation of the web application.
+    *   `desktop` (`@brainstrike/desktop`): The Electron desktop application.
 *   **`packages/`**: Contains shared code, configuration, and UI components used by applications.
     *   `@brainstrike/ui`: Shared React UI components (based on shadcn/ui & Radix).
     *   `@brainstrike/hooks`: Reusable React hooks.
     *   `@brainstrike/utils`: Common utility functions.
     *   `@brainstrike/types`: Shared TypeScript types and interfaces.
-    *   `@brainstrike/config`: Shared configurations (e.g., `tsconfig.json` base, Biome).
+    *   `@brainstrike/config`: Shared configurations (e.g., Biome config).
+    *   `@brainstrike/tsconfig`: Shared TypeScript configurations (located in `packages/config/tsconfig`).
+    *   `@brainstrike/app-shell`: Application shell components and layouts.
+    *   `@brainstrike/file-explorer`: Core file explorer logic and state management.
+    *   `@brainstrike/file-explorer-ui`: File explorer UI components.
+    *   `@brainstrike/file-explorer-hooks`: File explorer specific React hooks.
+    *   `@brainstrike/file-system`: File system abstractions and adapters.
+    *   `@brainstrike/storage`: Storage abstractions and adapters.
+    *   `@brainstrike/fonts`: Shared font assets.
+    *   `@brainstrike/server-config`: Server configuration utilities.
+    *   `@brainstrike/tailwind-config`: Shared Tailwind CSS configuration.
+    *   `@brainstrike/test-utils`: Testing utilities and factories.
 
 Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in project documentation/onboarding) for detailed standards.
 
@@ -27,7 +39,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 *   **Running Development Servers/Tasks**: Use Turborepo to run scripts defined in `package.json` files.
     *   To run the dev server for the web app:
         ```bash
-        pnpm dev --filter web
+        pnpm dev --filter @brainstrike/web
         ```
     *   To run a specific script for a package (e.g., `build` for `@brainstrike/ui`):
         ```bash
@@ -38,7 +50,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
         ```bash
         pnpm add zod --filter @brainstrike/utils
         ```
-*   **Identifying Package Names**: Package names (e.g., `web`, `@brainstrike/ui`) are found in the `name` field of their respective `package.json` files.
+*   **Identifying Package Names**: Package names (e.g., `@brainstrike/web`, `@brainstrike/ui`) are found in the `name` field of their respective `package.json` files.
 *   **Creating New Packages**:
     1.  Create the new package directory under `apps/` or `packages/`.
     2.  Add a `package.json` with a unique `name` (e.g., `@brainstrike/new-feature`).
@@ -68,7 +80,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     These commands run Biome across the entire monorepo. Ensure your code is compliant before committing.
 *   **File & Directory Naming**:
     *   **General**: kebab-case for files and directories (e.g., `my-feature/`, `utility-functions.ts`).
-    *   **React Components**: PascalCase for component names (e.g., `UserProfile.tsx`), but kebab-case for filenames (`user-profile.tsx`).
+    *   **React Components**: kebab-case for filenames (e.g., `file-explorer.tsx`, `user-profile.tsx`), but PascalCase for component exports (e.g., `export function FileExplorer()`).
     *   **Custom Hooks**: `use-kebab-case.ts` for filenames (e.g., `use-data-fetcher.ts`), camelCase for exported hook functions (`export function useDataFetcher()`).
     *   (Refer to the fetched `filename-conventions` rule for full details.)
 *   **Commit Messages**: Follow Conventional Commits specification.
@@ -96,7 +108,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
             ```
             Or, for the `web` app's unit/integration tests:
             ```bash
-            pnpm test --filter web
+            pnpm test --filter @brainstrike/web
             ```
         *   From within a package's directory, you can often run its specific Vitest test script:
             ```bash
@@ -144,6 +156,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
 *   **Checklist**:
     *   All tests pass (`pnpm test`).
+    *   E2E tests pass (`pnpm test:e2e`).
     *   Code is linted and formatted (`pnpm lint --fix` and `pnpm format`).
     *   No type errors (`pnpm type-check`).
     *   PR description clearly explains the changes and reasoning.
@@ -161,5 +174,6 @@ Before pushing code or opening a PR, ensure:
 2.  **Formatting**: `pnpm format` (apply formatting).
 3.  **Type Checking**: `pnpm type-check` (resolve all TypeScript errors).
 4.  **Testing**: `pnpm test` (all tests should pass). For targeted tests, use filtering as described above.
+5.  **E2E Testing**: `pnpm test:e2e` (all E2E tests should pass for web app changes).
 
 By following these guidelines, we can maintain a high-quality, consistent, and efficient development workflow for the `brainstrike` project. 
