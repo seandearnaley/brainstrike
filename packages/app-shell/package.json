@@ -32,7 +32,9 @@
     "react": "^19"
   },
   "dependencies": {
-    "@brainstrike/ui": "workspace:*"
+    "@brainstrike/ui": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
+    "@brainstrike/file-explorer-ui": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {

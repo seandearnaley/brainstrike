@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
 
@@ -44,25 +45,66 @@ interface MockAppConfig {
 }
 
 // Mock the app-shell package
-vi.mock('@brainstrike/app-shell', () => ({
-  AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
-    capturedOnNavigationClick = onNavigationClick;
-    return (
-      <div data-testid="app-layout" data-current-path={currentPath}>
-        <div data-testid="app-config-title">{config.title}</div>
-        <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
-        {children}
-      </div>
-    );
-  },
-  createAppConfig: (config: Partial<MockAppConfig>) => ({
-    title: 'BrainStrike.ai',
-    description: 'Multi-app dashboard',
-    themeStorageKey: 'app-theme',
-    navigationItems: [],
-    ...config,
-  }),
-}));
+vi.mock('@brainstrike/app-shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
+  return {
+    ...actual,
+    AppLayout: ({ children, config, currentPath, onNavigationClick }: MockAppLayoutProps) => {
+      capturedOnNavigationClick = onNavigationClick;
+      return (
+        <div data-testid="app-layout" data-current-path={currentPath}>
+          <div data-testid="app-config-title">{config.title}</div>
+          <div data-testid="navigation-items-count">{config.navigationItems.length}</div>
+          {children}
+        </div>
+      );
+    },
+    createAppConfig: (config: Partial<MockAppConfig>) => ({
+      title: 'BrainStrike.ai',
+      description: 'Multi-app dashboard',
+      themeStorageKey: 'app-theme',
+      navigationItems: [],
+      ...config,
+    }),
+    RootLayoutContent: ({
+      sidebarContent,
+      homePageContent,
+      settingsPageContent,
+      navigationItems,
+    }: {
+      sidebarContent?: React.ReactNode;
+      homePageContent: React.ReactNode;
+      settingsPageContent: React.ReactNode;
+      navigationItems: unknown[];
+    }) => {
+      const [activeTab, setActiveTab] = React.useState<'explorer' | 'settings'>('explorer');
+
+      const handleNavigationClick = (path: string) => {
+        if (path === '/') {
+          setActiveTab('explorer');
+        } else if (path === '/settings') {
+          setActiveTab('settings');
+        }
+      };
+
+      capturedOnNavigationClick = handleNavigationClick;
+
+      return (
+        <div data-testid="file-explorer-provider">
+          <div
+            data-testid="app-layout"
+            data-current-path={activeTab === 'explorer' ? '/' : '/settings'}
+          >
+            <div data-testid="app-config-title">BrainStrike.ai</div>
+            <div data-testid="navigation-items-count">{navigationItems.length}</div>
+            {sidebarContent && <aside>{sidebarContent}</aside>}
+            <main>{activeTab === 'explorer' ? homePageContent : settingsPageContent}</main>
+          </div>
+        </div>
+      );
+    },
+  };
+});
 
 // Mock the page components
 vi.mock('../home-page-content', () => ({
