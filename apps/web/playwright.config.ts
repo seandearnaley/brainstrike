@@ -21,10 +21,11 @@ const config: PlaywrightTestConfig = {
 	retries: process.env.CI ? 2 : 0,
 	workers: process.env.CI ? 1 : undefined, // Use single worker in CI, default in local
 	timeout: 30000, // 30 seconds per test
-	reporter: [["html"], ["list"]],
+	reporter: [["html", { open: "never" }], ["list"]],
 	use: {
 		baseURL,
-		headless: !!process.env.CI, // Run headless in CI, non-headless in local dev
+		headless: true,
+		// headless: !!process.env.CI, // Run headless in CI, non-headless in local dev
 		trace: process.env.CI ? "on" : "on-first-retry",
 		screenshot: "only-on-failure",
 		video: "on-first-retry",

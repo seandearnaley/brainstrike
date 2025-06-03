@@ -41,9 +41,51 @@ Tests are configured in `playwright.config.ts` at the root of the web applicatio
 - Uses headless mode in CI and headed mode in local development
 - Captures screenshots on failures and videos on retries
 
+## Test Files
+
+### Core Application Tests
+- `layout.spec.ts` - Basic application layout and navigation tests
+- `file-explorer.spec.ts` - File explorer functionality tests
+- `file-explorer-filters.spec.ts` - File type filtering tests
+- `theme-switching.spec.ts` - Theme switching functionality tests
+- `complete-workflow.spec.ts` - End-to-end workflow tests
+
+### Layout Persistence Tests
+- `layout-persistence.spec.ts` - Comprehensive IDE layout persistence tests
+  - Panel visibility persistence across page reloads
+  - Panel resize persistence
+  - Complex layout state management
+  - Error handling and recovery scenarios
+- `layout-advanced.spec.ts` - Advanced layout scenarios and edge cases
+  - Performance testing for rapid operations
+  - Accessibility and keyboard navigation
+  - Viewport size handling
+  - Focus management
+
+### Test Utilities
+- `utils/layout-helpers.ts` - Helper functions for layout testing
+- `utils/mock-fs.ts` - File system mocking utilities
+
 ## Writing Tests
 
 Place your test files in this directory with the `.spec.ts` extension. See existing tests for examples.
+
+### Layout Testing Patterns
+
+When writing layout tests, use the helper utilities from `utils/layout-helpers.ts`:
+
+```typescript
+import { getPanelElements, waitForAppLoad, resetLayoutState } from './utils/layout-helpers';
+
+test('my layout test', async ({ page }) => {
+  await page.goto('/');
+  await waitForAppLoad(page);
+  await resetLayoutState(page);
+  
+  const elements = getPanelElements(page);
+  // Your test logic here
+});
+```
 
 ## CI Integration
 
