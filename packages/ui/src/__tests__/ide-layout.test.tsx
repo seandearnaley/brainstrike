@@ -8,6 +8,17 @@ const handlers: { horizontal: Array<(sizes: number[]) => void> } = {
   horizontal: [],
 };
 
+// Capture imperative panel handles so tests can assert on expand/collapse
+const panelHandles: Record<
+  string,
+  {
+    isCollapsed: Mock;
+    isExpanded: Mock;
+    expand: Mock;
+    collapse: Mock;
+  }
+> = {};
+
 // Mock react-resizable-panels with minimal implementation
 vi.mock('react-resizable-panels', () => {
   const React = require('react') as typeof import('react');
@@ -38,12 +49,21 @@ vi.mock('react-resizable-panels', () => {
   }
 
   const Panel = forwardRef<MockImperativeHandle, PanelProps>(({ children, ...props }, ref) => {
-    useImperativeHandle(ref, () => ({
-      isCollapsed: () => false,
-      isExpanded: () => true,
+    const handle = {
+      isCollapsed: vi.fn().mockReturnValue(false),
+      isExpanded: vi.fn().mockReturnValue(true),
       expand: vi.fn(),
       collapse: vi.fn(),
-    }));
+    } as {
+      isCollapsed: Mock;
+      isExpanded: Mock;
+      expand: Mock;
+      collapse: Mock;
+    };
+    useImperativeHandle(ref, () => handle);
+    if (props.id) {
+      panelHandles[String(props.id)] = handle;
+    }
     return (
       <div data-testid="panel" {...props}>
         {children}
@@ -143,5 +163,102 @@ describe('IdeLayout', () => {
     // Layout: [main, right] = [60, 40]
     handlers.horizontal[1]?.([60, 40]);
     expect(mockState.saveLayout).toHaveBeenCalledWith([25, 40, 30]);
+  });
+
+  it('ignores horizontal layout changes when left panel is missing', () => {
+    Object.assign(mockState, {
+      showConsole: true,
+      leftPanelContent: undefined,
+    });
+
+    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
+    usePanelPersistenceMock.mockReturnValue(mockState);
+
+    render(
+      <IdeLayout
+        navigationItems={navigationItems}
+        currentPath="/"
+        rightPanelContent={rightContent}
+        consoleContent={consoleContent}
+      >
+        <div>Main</div>
+      </IdeLayout>
+    );
+
+    expect(handlers.horizontal).toHaveLength(1);
+    handlers.horizontal[0]?.([70, 30]);
+    expect(mockState.saveLayout).not.toHaveBeenCalled();
+  });
+
+  it('persists left panel size when right panel is missing', () => {
+    Object.assign(mockState, {
+      showLeftPanel: true,
+      leftPanelContent: leftContent,
+      rightPanelContent: undefined,
+    });
+
+    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
+    usePanelPersistenceMock.mockReturnValue(mockState);
+
+    render(
+      <IdeLayout
+        navigationItems={navigationItems}
+        currentPath="/"
+        leftPanelContent={leftContent}
+        consoleContent={consoleContent}
+      >
+        <div>Main</div>
+      </IdeLayout>
+    );
+
+    handlers.horizontal[0]?.([45, 55]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith([45, 20, 30]);
+  });
+
+  it('expands left panel when showLeftPanel becomes true', () => {
+    vi.useFakeTimers();
+
+    Object.assign(mockState, { showLeftPanel: true });
+    const result = renderLayout();
+    const handle = panelHandles['left-panel'];
+    if (handle) {
+      handle.isCollapsed.mockReturnValue(true);
+    }
+
+    vi.runAllTimers();
+
+    if (handle) {
+      expect(handle.expand).toHaveBeenCalled();
+    }
+
+    result.unmount();
+    vi.useRealTimers();
+  });
+
+  it('toggles console visibility with buttons', () => {
+    const { rerender } = renderLayout();
+
+    // Show console via toggle button
+    fireEvent.click(screen.getByRole('button', { name: /Show console/i }));
+    expect(mockState.toggleConsole).toHaveBeenCalledTimes(1);
+
+    Object.assign(mockState, { showConsole: true });
+    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
+    usePanelPersistenceMock.mockReturnValue(mockState);
+    rerender(
+      <IdeLayout
+        navigationItems={navigationItems}
+        currentPath="/"
+        leftPanelContent={leftContent}
+        rightPanelContent={rightContent}
+        consoleContent={consoleContent}
+      >
+        <div>Main</div>
+      </IdeLayout>
+    );
+
+    expect(screen.getByLabelText('Close console')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Close console'));
+    expect(mockState.toggleConsole).toHaveBeenCalledTimes(2);
   });
 });
