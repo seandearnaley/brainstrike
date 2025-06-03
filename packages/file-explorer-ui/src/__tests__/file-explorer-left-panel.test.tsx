@@ -1,9 +1,30 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// biome-ignore lint/style/noVar: var required for hoisted mock assignment
+var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
+// biome-ignore lint/style/noVar: var required for hoisted mock assignment
+var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
+// biome-ignore lint/style/noVar: var required for hoisted mock assignment
+var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
+
 // Mock UI components that are lazy loaded or used within the panel
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+  FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
+  ActionButtonsMock = vi.fn(() => <div data-testid="actions">Actions</div>);
+  LoadingOverlayMock = vi.fn(
+    ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
+      <div data-testid="loading-overlay">
+        {cancellable && (
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    )
+  );
   return {
     ...actual,
     FileExplorerToolbar: ({
@@ -26,11 +47,18 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
         <button type="button" onClick={() => onFilterChange(['in'], ['ex'], true)}>
           Apply Filters
         </button>
+        <button type="button" onClick={() => onFilterChange([], [], false)}>
+          Clear Filters
+        </button>
+        <button type="button" onClick={() => onFilterChange(['foo'], ['bar', 'baz'], false)}>
+          Apply Complex
+        </button>
       </div>
     ),
-    FileExplorerSidebar: () => <div data-testid="sidebar">Sidebar</div>,
-    FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-    LoadingOverlay: () => null,
+    FileExplorerSidebar: FileExplorerSidebarMock,
+    FileExplorerErrorBoundary: actual.FileExplorerErrorBoundary,
+    LoadingOverlay: LoadingOverlayMock,
+    ActionButtons: ActionButtonsMock,
   };
 });
 
@@ -86,6 +114,7 @@ let setFiltersMock: ReturnType<typeof vi.fn>;
 let applyFileFiltersMock: ReturnType<typeof vi.fn>;
 let handleRootDirectorySelectMock: ReturnType<typeof vi.fn>;
 let isFileSystemAccessSupportedMock: ReturnType<typeof vi.fn>;
+let fileExplorerReturnValue: ReturnType<typeof useFileExplorer>;
 
 describe('FileExplorerLeftPanel', () => {
   beforeEach(() => {
@@ -115,7 +144,7 @@ describe('FileExplorerLeftPanel', () => {
     applyFileFiltersMock = vi.fn();
     refreshFileExplorerMock = vi.fn();
     isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
-    vi.mocked(useFileExplorer).mockReturnValue({
+    fileExplorerReturnValue = {
       fileTree: [],
       handleRootDirectorySelect: handleRootDirectorySelectMock,
       isLoading: false,
@@ -140,7 +169,8 @@ describe('FileExplorerLeftPanel', () => {
       isCancelling: false,
       loadFileContent: vi.fn(),
       clearFileContents: vi.fn(),
-    });
+    } as ReturnType<typeof useFileExplorer>;
+    vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(),
@@ -196,5 +226,54 @@ describe('FileExplorerLeftPanel', () => {
 
     expect(setFiltersMock).toHaveBeenCalledWith(['in'], ['ex']);
     expect(applyFileFiltersMock).toHaveBeenCalledWith(['in'], ['ex'], true);
+  });
+
+  it('displays error boundary when sidebar throws', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    FileExplorerSidebarMock?.mockImplementation(() => {
+      throw new Error('boom');
+    });
+
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    expect(await screen.findByText('Error')).toBeInTheDocument();
+    expect(screen.getByText('boom')).toBeInTheDocument();
+
+    FileExplorerSidebarMock?.mockImplementation(() => <div data-testid="sidebar">Sidebar</div>);
+  });
+
+  it('cancels loading and shows toast via overlay', async () => {
+    const cancelOperationMock = vi.fn();
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isLoading: true,
+      cancellable: true,
+      cancelOperation: cancelOperationMock,
+    });
+
+    const user = userEvent.setup();
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    await user.click(screen.getByText('Cancel'));
+
+    expect(cancelOperationMock).toHaveBeenCalled();
+    expect(showToastMock).toHaveBeenCalledWith({
+      title: 'Operation Cancelled',
+      description: 'The file loading operation has been cancelled.',
+      variant: 'default',
+    });
+  });
+
+  it('propagates filter changes with different values', async () => {
+    const user = userEvent.setup();
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    await user.click(screen.getByRole('button', { name: 'Clear Filters' }));
+    expect(setFiltersMock).toHaveBeenCalledWith([], []);
+    expect(applyFileFiltersMock).toHaveBeenCalledWith([], [], false);
+
+    await user.click(screen.getByRole('button', { name: 'Apply Complex' }));
+    expect(setFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz']);
+    expect(applyFileFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz'], false);
   });
 });

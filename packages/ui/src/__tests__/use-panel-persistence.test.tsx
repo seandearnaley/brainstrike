@@ -331,4 +331,137 @@ describe('usePanelPersistence', () => {
       expect(removeListenerCall[1]).toBe(beforeUnloadCallback);
     }
   });
+
+  it('warns when Electron save fails', async () => {
+    // biome-ignore lint/complexity/useLiteralKeys: node env key access
+    process.env['NODE_ENV'] = 'development';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    (window as { electronAPI?: unknown }).electronAPI = {
+      ...electronAPIMock,
+      saveLayout: vi.fn().mockRejectedValue(new Error('fail')),
+    };
+    localStorageMock.getItem.mockReturnValue(null);
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([25, 35], false);
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(250);
+      await vi.runAllTicks();
+    });
+
+    expect(warnSpy).toHaveBeenCalled();
+    expect(localStorageMock.setItem).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    // biome-ignore lint/complexity/useLiteralKeys: node env key access
+    process.env['NODE_ENV'] = 'test';
+  });
+
+  it('cleans up pending save on unmount', () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    const { result, unmount } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    act(() => {
+      result.current.saveLayout([25, 35], false);
+    });
+
+    const beforeUnloadCallback = mockAddEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    )?.[1];
+
+    expect(beforeUnloadCallback).toBeDefined();
+
+    act(() => {
+      unmount();
+    });
+
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'panelLayout.v1',
+      JSON.stringify({
+        sizes: [25, 35],
+        showConsole: false,
+        showLeftPanel: true,
+        showRightPanel: false,
+      })
+    );
+    expect(vi.getTimerCount()).toBe(0);
+    const removeCall = mockRemoveEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    );
+    expect(removeCall?.[1]).toBe(beforeUnloadCallback);
+  });
+
+  it('toggleLeftPanel persists updated state', () => {
+    localStorageMock.getItem.mockReturnValue(null);
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true, true, false));
+
+    act(() => {
+      result.current.toggleLeftPanel();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(result.current.showLeftPanel).toBe(false);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'panelLayout.v1',
+      JSON.stringify({
+        sizes: [20, 30],
+        showConsole: true,
+        showLeftPanel: false,
+        showRightPanel: false,
+      })
+    );
+  });
+
+  it('toggleRightPanel persists updated state', () => {
+    localStorageMock.getItem.mockReturnValue(null);
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], true, true, false));
+
+    act(() => {
+      result.current.toggleRightPanel();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(250);
+    });
+
+    expect(result.current.showRightPanel).toBe(true);
+    expect(localStorageMock.setItem).toHaveBeenCalledWith(
+      'panelLayout.v1',
+      JSON.stringify({
+        sizes: [20, 30],
+        showConsole: true,
+        showLeftPanel: true,
+        showRightPanel: true,
+      })
+    );
+  });
+
+  it('adds and removes beforeunload listener', () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    const { unmount } = renderHook(() => usePanelPersistence([20, 30], true));
+
+    const beforeUnloadCallback = mockAddEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    )?.[1];
+
+    expect(beforeUnloadCallback).toBeDefined();
+
+    act(() => {
+      unmount();
+    });
+
+    const removeCall = mockRemoveEventListener.mock.calls.find(
+      (call) => call[0] === 'beforeunload'
+    );
+    expect(removeCall?.[1]).toBe(beforeUnloadCallback);
+  });
 });

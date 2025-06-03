@@ -181,3 +181,113 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     expect(result.current.loadingFiles.size).toBe(0);
   });
 });
+
+describe('useSharedFileContentLoading - additional edge cases', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(false);
+  });
+  it('handles folder mismatch errors', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const readSpy = vi.spyOn(adapter, 'readFile').mockResolvedValue('content');
+
+    const fileNode = createFileNode({ path: '/mismatch.txt', rootFolderId: 'root2' });
+    const compositeKey = encodeFileSelection('root1', '/mismatch.txt');
+
+    vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(fileNode);
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([compositeKey]);
+      rerender();
+    });
+
+    expect(readSpy).not.toHaveBeenCalled();
+    expect(result.current.fileContents[compositeKey]).toMatch('Folder mismatch');
+  });
+
+  it('retries when handle is missing on first lookup', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const readSpy = vi.spyOn(adapter, 'readFile').mockResolvedValue('retry');
+
+    const withHandle = createFileNode({ path: '/retry.txt', rootFolderId: 'root1' });
+    const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };
+    const compositeKey = encodeFileSelection('root1', '/retry.txt');
+
+    const findSpy = vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(withHandle);
+
+    vi.useFakeTimers();
+
+    const wrapper = createWrapper(adapter);
+    const { result, rerender } = renderHook(() => useTestHook([withoutHandle]), { wrapper });
+
+    await act(async () => {
+      const promise = result.current.handleFileContentLoading([compositeKey]);
+      vi.advanceTimersByTime(100);
+      await promise;
+      rerender();
+    });
+
+    vi.useRealTimers();
+
+    expect(findSpy).toHaveBeenCalledTimes(1);
+    expect(readSpy).toHaveBeenCalledTimes(1);
+    expect(result.current.fileContents[compositeKey]).toBe('retry');
+  });
+
+  it('limits concurrent loading to MAX_CONCURRENT_LOADS', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const resolvers: Array<() => void> = [];
+    vi.spyOn(adapter, 'readFile').mockImplementation(
+      () => new Promise<string>((resolve) => resolvers.push(() => resolve('done')))
+    );
+
+    const MAX_CONCURRENT_LOADS = 20;
+    const total = MAX_CONCURRENT_LOADS + 5;
+    const nodes: IFileNode[] = [];
+    const keys: string[] = [];
+    for (let i = 0; i < total; i++) {
+      const node = createFileNode({ path: `/file${i}.txt`, rootFolderId: 'root1' });
+      nodes.push(node);
+      keys.push(encodeFileSelection('root1', node.path));
+    }
+
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook(nodes), { wrapper });
+
+    act(() => {
+      result.current.handleFileContentLoading(keys);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.loadingFiles.size).toBe(total);
+
+    while (resolvers.length) {
+      resolvers.shift()?.();
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    expect(result.current.loadingFiles.size).toBe(0);
+  });
+
+  it('handles empty input gracefully', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const wrapper = createWrapper(adapter);
+    const { result } = renderHook(() => useTestHook([]), { wrapper });
+
+    await act(async () => {
+      await result.current.handleFileContentLoading([]);
+    });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.loadingFiles.size).toBe(0);
+    expect(result.current.error).toBeNull();
+  });
+});
