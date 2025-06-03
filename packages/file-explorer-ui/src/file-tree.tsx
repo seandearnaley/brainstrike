@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useVirtualList } from './use-virtual-list';
@@ -23,18 +24,15 @@ interface IFileTreeProps {
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
   const store = useFileExplorerStoreContext();
   const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
-    store();
-
-  // Use separate useEffect for onRender to avoid lint warnings
-  useEffect(() => {
-    onRender?.();
-  }, [onRender]);
-
-  // Trigger onRender when fileTree changes (for test purposes)
-  useEffect(() => {
-    void fileTree;
-    onRender?.();
-  }, [fileTree, onRender]);
+    store(
+      (s) => ({
+        expandedDirectoryPaths: s.expandedDirectoryPaths,
+        toggleDirectoryExpansion: s.toggleDirectoryExpansion,
+        addSelectedFile: s.addSelectedFile,
+        removeSelectedFile: s.removeSelectedFile,
+      }),
+      shallow
+    );
 
   const handleToggleFileSelection = useCallback(
     (path: string) => {
@@ -68,7 +66,11 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
-  const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, 3);
+  const { containerRef, range, offset, totalHeight } = useVirtualList(
+    visibleNodes.length,
+    ROW_HEIGHT,
+    3
+  );
 
   const renderedRows = useMemo(
     () =>
@@ -82,9 +84,9 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
             isExpanded={expandedDirectoryPaths.has(node.path)}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(node.path)}
+            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
             folderId={folderId}
-            style={{ position: 'absolute', top: (range.start + index) * ROW_HEIGHT }}
+            style={{ position: 'absolute', top: (range.start + index) * ROW_HEIGHT - offset }}
           />
         )),
     [
@@ -95,22 +97,22 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
       handleToggleFileSelection,
       loadingFiles,
       folderId,
+      offset,
     ]
   );
 
+  // This effect will run if the onRender callback itself changes.
+  useEffect(() => {
+    onRender?.();
+  }, [onRender]);
+
   return (
-    <div
-      ref={containerRef}
-      className="overflow-y-auto h-full relative file-tree-scroll"
-      style={{ minHeight: 0 }}
-    >
+    <div ref={containerRef} className="h-full relative flex-1 min-h-0">
       <ul
         className="relative file-tree"
         role="tree"
         aria-label="File tree"
-        style={{
-          height: totalHeight,
-        }}
+        style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
       >
         {renderedRows}
       </ul>

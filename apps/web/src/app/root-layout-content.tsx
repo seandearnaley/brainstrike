@@ -1,7 +1,9 @@
 import { AppLayout, createAppConfig } from '@brainstrike/app-shell';
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import { Folder, Settings } from 'lucide-react';
 import { useState } from 'react';
-import HomePageContent from './home-page-content';
+import HomePageContent, { WebFileExplorerLeftPanel } from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
 const appConfig = createAppConfig({
@@ -13,6 +15,7 @@ const appConfig = createAppConfig({
 
 export default function RootLayoutContent() {
   const [activeTab, setActiveTab] = useState<'explorer' | 'settings'>('explorer');
+  const { storageAdapter } = useAdapters();
 
   const handleNavigationClick = (path: string) => {
     if (path === '/') {
@@ -23,20 +26,42 @@ export default function RootLayoutContent() {
   };
 
   return (
-    <div className="h-screen">
+    <FileExplorerProvider storageAdapter={storageAdapter}>
       <AppLayout
         config={appConfig}
         currentPath={activeTab === 'explorer' ? '/' : '/settings'}
         onNavigationClick={handleNavigationClick}
+        sidebarContent={activeTab === 'explorer' ? <WebFileExplorerLeftPanel /> : undefined}
       >
-        {/* Keep both components mounted to preserve state */}
-        <div className="h-full" style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}>
-          <HomePageContent />
-        </div>
-        <div className="h-full" style={{ display: activeTab === 'settings' ? 'block' : 'none' }}>
-          <SettingsPageContent />
+        <div className="h-full" style={{ position: 'relative', overflow: 'hidden' }}>
+          <div
+            className="h-full"
+            style={{
+              visibility: activeTab === 'explorer' ? 'visible' : 'hidden',
+              position: activeTab === 'explorer' ? 'relative' : 'absolute',
+              width: '100%',
+              height: '100%',
+              pointerEvents: activeTab === 'explorer' ? 'auto' : 'none',
+            }}
+          >
+            <HomePageContent />
+          </div>
+          <div
+            className="h-full"
+            style={{
+              visibility: activeTab === 'settings' ? 'visible' : 'hidden',
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: activeTab === 'settings' ? 'auto' : 'none',
+            }}
+          >
+            <SettingsPageContent />
+          </div>
         </div>
       </AppLayout>
-    </div>
+    </FileExplorerProvider>
   );
 }

@@ -1,4 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { StorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
@@ -14,11 +16,15 @@ vi.mock('../use-file-system-context', () => ({
 vi.mock('../use-file-tree-context', () => ({
   useFileTree: vi.fn(),
 }));
+vi.mock('../use-shared-file-content-loading', () => ({
+  useSharedFileContentLoading: vi.fn(),
+}));
 
 // Mocks for external hooks used inside the context hook
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileContentLoading: vi.fn(),
   useFileExplorer: vi.fn(),
+  useAdapters: vi.fn(),
 }));
 
 const mockApplyFileFilters = vi.fn();
@@ -34,6 +40,7 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
 });
 
 import {
+  useAdapters,
   useFileExplorer as useCoreFileExplorer,
   useFileContentLoading,
 } from '@brainstrike/file-explorer-hooks';
@@ -41,6 +48,7 @@ import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useFileSystem } from '../use-file-system-context';
 import { useFileTree } from '../use-file-tree-context';
+import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
 
 describe('useFileExplorer (context)', () => {
   const mockSelectRootDirectory = vi.fn();
@@ -83,6 +91,7 @@ describe('useFileExplorer (context)', () => {
       maxSelectionCount: 10,
       lastActiveTab: 'files',
       folderAccessOrder: [],
+      fileContents: {},
       setCurrentFolderId: vi.fn(),
       hydrateFolderState: vi.fn(),
       setSelectedFiles: vi.fn(),
@@ -102,6 +111,9 @@ describe('useFileExplorer (context)', () => {
       setFolderSummaryThreshold: vi.fn(),
       setMaxSelectionCount: vi.fn(),
       setLastActiveTab: vi.fn(),
+      setFileContent: vi.fn(),
+      clearFileContents: vi.fn(),
+      clearAllFileContents: vi.fn(),
     };
     const mockStore = vi.fn(() => storeState) as unknown as ReturnType<
       typeof useFileExplorerStoreContext
@@ -134,6 +146,14 @@ describe('useFileExplorer (context)', () => {
       clearFileContents: mockClearFileContents,
     });
 
+    vi.mocked(useSharedFileContentLoading).mockReturnValue({
+      fileContents: { '/file1.ts': 'content' },
+      isLoading: false,
+      error: null,
+      loadingFiles: new Set<string>(),
+      handleFileContentLoading: mockHandleFileContentLoading,
+    });
+
     const coreReturn = {
       isLoading: false,
       rootDirectoryHandle: rootHandle,
@@ -141,6 +161,14 @@ describe('useFileExplorer (context)', () => {
       filterError: null,
     } as unknown as ReturnType<typeof useCoreFileExplorer>;
     vi.mocked(useCoreFileExplorer).mockReturnValue(coreReturn);
+
+    vi.mocked(useAdapters).mockReturnValue({
+      fileSystemAdapter: {
+        readFile: vi.fn(),
+        readDirectory: vi.fn(),
+      } as Partial<FileSystemAdapter> as FileSystemAdapter,
+      storageAdapter: {} as StorageAdapter,
+    });
 
     onDisplayedFilePathsChange = vi.fn();
   });

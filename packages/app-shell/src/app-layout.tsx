@@ -1,4 +1,4 @@
-import { NavigationSidebar, ThemeProvider, ThemeToggle, Toaster } from '@brainstrike/ui';
+import { IdeLayout, ThemeProvider, ThemeToggle, Toaster, TooltipProvider } from '@brainstrike/ui';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({
@@ -8,20 +8,37 @@ export function AppLayout({
   sidebarContent,
   onNavigationClick,
 }: AppLayoutProps) {
+  // Only show console content on the explorer page (not on settings)
+  const isExplorerPage = currentPath === '/';
+
   return (
     <ThemeProvider defaultTheme="system" storageKey={config.themeStorageKey}>
-      <div className="flex h-screen">
-        <NavigationSidebar
-          items={config.navigationItems}
+      <TooltipProvider delayDuration={300} skipDelayDuration={100}>
+        <IdeLayout
+          navigationItems={config.navigationItems}
           currentPath={currentPath}
-          {...(onNavigationClick && { onItemClick: onNavigationClick })}
+          {...(onNavigationClick && { onNavigationClick })}
+          leftPanelContent={sidebarContent}
+          rightPanelContent={
+            sidebarContent ? (
+              <div className="p-4 text-sm text-muted-foreground">
+                Additional tools and panels will appear here...
+              </div>
+            ) : undefined
+          }
+          consoleContent={
+            isExplorerPage ? (
+              <div className="p-4 text-sm text-muted-foreground">
+                Console output will appear here...
+              </div>
+            ) : undefined
+          }
+          navigationChildren={<ThemeToggle />}
         >
-          <ThemeToggle />
-          {sidebarContent}
-        </NavigationSidebar>
-        <main className="flex-1 p-4 h-full overflow-hidden">{children}</main>
-      </div>
-      <Toaster />
+          <main className="p-4 h-full overflow-hidden">{children}</main>
+        </IdeLayout>
+        <Toaster />
+      </TooltipProvider>
     </ThemeProvider>
   );
 }

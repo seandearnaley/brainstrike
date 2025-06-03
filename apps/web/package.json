@@ -23,8 +23,11 @@
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/server-config": "workspace:*",
+    "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "dompurify": "^3.2.4",

@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { isPathSelectedInFolder } from '@brainstrike/utils';
 import { fileExplorer } from '@brainstrike/utils';
 import {
@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import type React from 'react';
 import { memo, useCallback, useMemo, useState } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { FolderSelectionDialog } from './folder-selection-dialog';
 
@@ -46,7 +47,14 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     folderId,
   }) => {
     const store = useFileExplorerStoreContext();
-    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = store();
+    const { selectedFilePaths, expandedDirectoryPaths, maxSelectionCount } = store(
+      (s) => ({
+        selectedFilePaths: s.selectedFilePaths,
+        expandedDirectoryPaths: s.expandedDirectoryPaths,
+        maxSelectionCount: s.maxSelectionCount,
+      }),
+      shallow
+    );
     const [showSelectionDialog, setShowSelectionDialog] = useState(false);
 
     /**
@@ -225,32 +233,30 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
     return (
       <li className="list-none">
         <div className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center">
-                  <Checkbox
-                    id={node.path}
-                    checked={checkboxState}
-                    disabled={wouldExceedLimit}
-                    className="mr-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!wouldExceedLimit) {
-                        handleNodeSelection();
-                      }
-                    }}
-                    aria-label={`Select ${node.name}`}
-                  />
-                </div>
-              </TooltipTrigger>
-              {wouldExceedLimit && (
-                <TooltipContent>
-                  <p>Cannot select more than {maxSelectionCount} files</p>
-                </TooltipContent>
-              )}
-            </Tooltip>
-          </TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="flex items-center">
+                <Checkbox
+                  id={node.path}
+                  checked={checkboxState}
+                  disabled={wouldExceedLimit}
+                  className="mr-2"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!wouldExceedLimit) {
+                      handleNodeSelection();
+                    }
+                  }}
+                  aria-label={`Select ${node.name}`}
+                />
+              </div>
+            </TooltipTrigger>
+            {wouldExceedLimit && (
+              <TooltipContent>
+                <p>Cannot select more than {maxSelectionCount} files</p>
+              </TooltipContent>
+            )}
+          </Tooltip>
           {node.type === 'directory' && (
             <button
               type="button"

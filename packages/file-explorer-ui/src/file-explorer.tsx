@@ -1,5 +1,5 @@
 import { useToastManager } from '@brainstrike/file-explorer-hooks';
-import { useFileLoadingManager } from '@brainstrike/file-explorer-hooks';
+
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
@@ -15,6 +15,7 @@ import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -33,7 +34,7 @@ const FileExplorerSidebar = lazy(() =>
 
 const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.PreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+    default: m.VirtualizedPreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
@@ -58,7 +59,20 @@ const FileExplorer: React.FC = () => {
     setFilters,
     currentFolderId,
     setCurrentFolderId,
-  } = store();
+  } = store(
+    (s) => ({
+      includeFilters: s.includeFilters,
+      excludeFilters: s.excludeFilters,
+      useRegex: s.useRegex,
+      maxSelectionCount: s.maxSelectionCount,
+      includeProjectTree: s.includeProjectTree,
+      folderSummaryThreshold: s.folderSummaryThreshold,
+      setFilters: s.setFilters,
+      currentFolderId: s.currentFolderId,
+      setCurrentFolderId: s.setCurrentFolderId,
+    }),
+    shallow
+  );
 
   // Local state for UI
   const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
@@ -70,11 +84,11 @@ const FileExplorer: React.FC = () => {
     isLoading,
     error,
     fileContents,
+    loadingFiles,
     applyFileFilters,
     filterError,
     rootDirectoryHandle,
     isFileSystemAccessSupported,
-    loadFileContent,
     refreshFileExplorer,
     isInitialLoad,
     loadingProgress,
@@ -111,12 +125,6 @@ const FileExplorer: React.FC = () => {
     clearFilter,
   } = useQuickFilter(fileTree);
 
-  const { loadingFiles } = useFileLoadingManager({
-    selectedFilePaths,
-    fileContents,
-    loadFileContent,
-  });
-
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,
     fileContents,
@@ -152,7 +160,7 @@ const FileExplorer: React.FC = () => {
       actionName: opts.actionName,
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match PreviewPanel expectation
+      // Adapt onUndo signature to match VirtualizedPreviewPanel expectation
       onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };

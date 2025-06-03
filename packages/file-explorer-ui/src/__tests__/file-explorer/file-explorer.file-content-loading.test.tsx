@@ -129,6 +129,7 @@ const mockStore: FileExplorerState = {
   maxSelectionCount: 10,
   lastActiveTab: 'files',
   folderAccessOrder: [],
+  fileContents: {},
 
   // Action properties (mocked functions)
   setCurrentFolderId: vi.fn((folderId: string | null) => {
@@ -230,6 +231,9 @@ const mockStore: FileExplorerState = {
   // Mock new actions as needed
   expandAllDirectories: vi.fn(),
   collapseAllDirectories: vi.fn(),
+  setFileContent: vi.fn(),
+  clearFileContents: vi.fn(),
+  clearAllFileContents: vi.fn(),
 };
 
 // Mock file content loading functionality

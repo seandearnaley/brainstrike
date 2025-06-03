@@ -2,6 +2,28 @@ import { act, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import RootLayoutContent from '../root-layout-content';
 
+// Mock the file-explorer-hooks
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: vi.fn(() => ({
+    storageAdapter: {
+      // Mock storage adapter
+      get: vi.fn(),
+      set: vi.fn(),
+      delete: vi.fn(),
+    },
+  })),
+}));
+
+// Mock the file-explorer-ui
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-explorer-provider">{children}</div>
+  ),
+  UnifiedFileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="unified-file-explorer-provider">{children}</div>
+  ),
+}));
+
 let capturedOnNavigationClick: ((path: string) => void) | undefined;
 
 interface MockAppLayoutProps {
@@ -45,6 +67,7 @@ vi.mock('@brainstrike/app-shell', () => ({
 // Mock the page components
 vi.mock('../home-page-content', () => ({
   default: () => <div data-testid="home-page-content">Home Page Content</div>,
+  WebFileExplorerLeftPanel: () => <div data-testid="web-file-explorer-left-panel">Left Panel</div>,
 }));
 
 vi.mock('../settings/page-content', () => ({

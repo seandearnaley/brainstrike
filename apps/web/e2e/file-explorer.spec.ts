@@ -28,7 +28,7 @@ test.describe('File Explorer', () => {
     // 3. Wait for FileExplorerSidebar (lazy) to load and show its initial empty state content
     await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
 
-    // 4. Wait for PreviewPanel/FileExplorerMainPanel (lazy) to load and show its initial empty state content
+    // 4. Wait for VirtualizedPreviewPanel/FileExplorerMainPanel (lazy) to load and show its initial empty state content
     await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
   });
 
@@ -40,7 +40,7 @@ test.describe('File Explorer', () => {
     // Verify the main call to action button (from FileExplorerToolbar)
     await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible();
 
-    // Verify content from PreviewPanel/FileExplorerMainPanel (initial state)
+    // Verify content from VirtualizedPreviewPanel/FileExplorerMainPanel (initial state)
     await expect(page.getByText('No files selected')).toBeVisible();
 
     // In the initial empty state (no root directory selected), the filter bar and its placeholder should NOT be visible.
@@ -124,11 +124,11 @@ test.describe('File Explorer', () => {
       const file2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
       
       await expect(file1Checkbox).toBeVisible();
-      await file1Checkbox.check();
+      await file1Checkbox.click({ force: true });
       await expect(file1Checkbox).toBeChecked();
 
       await expect(file2Checkbox).toBeVisible();
-      await file2Checkbox.check();
+      await file2Checkbox.click({ force: true });
       await expect(file2Checkbox).toBeChecked();
 
       // Verify the selection counter updates. The mock file system has 2 files + 1 nested, but we select 2 top-level.

@@ -37,7 +37,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
   onCollapseAll,
 }) => {
   return (
-    <div className="flex flex-col gap-2 p-2 border-b">
+    <div className="flex flex-col gap-2 px-2 py-2 border-b">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Button

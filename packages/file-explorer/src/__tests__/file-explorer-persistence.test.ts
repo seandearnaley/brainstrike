@@ -70,6 +70,46 @@ describe('file-explorer-persistence', () => {
       expect(typeof persistOptions.merge).toBe('function');
       expect(typeof persistOptions.onRehydrateStorage).toBe('function');
     });
+
+    it('debounces setItem calls before flushing to the adapter', async () => {
+      vi.useFakeTimers();
+      const setItemSpy = vi.fn();
+      const adapter = { ...mockStorageAdapter, setItem: setItemSpy };
+      const mod = await import('../persistence/file-explorer-persistence');
+      const persistOptions = mod.createPersistOptions(adapter);
+      const storage = persistOptions.storage as NonNullable<(typeof persistOptions)['storage']>;
+      const base: SerializedState = {
+        currentFolderId: null,
+        folderStates: {},
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 0,
+        lastActiveTab: 'files',
+      };
+      storage.setItem('foo', { state: base, version: 1 });
+      storage.setItem('foo', {
+        state: { ...base, lastActiveTab: 'preview' },
+        version: 1,
+      });
+
+      expect(setItemSpy).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(201);
+      vi.useRealTimers();
+
+      expect(setItemSpy).toHaveBeenCalledTimes(1);
+      const storedArg = setItemSpy.mock.calls[0]?.[1] as string;
+      expect(JSON.parse(storedArg)).toEqual({
+        state: { ...base, lastActiveTab: 'preview' },
+        version: 1,
+      });
+      vi.useRealTimers();
+    });
   });
 
   describe('partialize', () => {
@@ -113,6 +153,19 @@ describe('file-explorer-persistence', () => {
       expect(result.folderStates['folder-123']?.selectedFilePaths).toEqual(
         expect.arrayContaining(['file1', 'file2'])
       );
+    });
+
+    it('should omit volatile fields like fileContents from the serialized output', () => {
+      const mockState: FileExplorerState = {
+        ...(DEFAULT_STATE as FileExplorerState),
+        currentFolderId: 'folder-volatile',
+        fileContents: { 'some.ts': 'content' },
+        folderStates: {},
+      };
+
+      const result = partializeFn(mockState);
+
+      expect('fileContents' in (result as unknown as Record<string, unknown>)).toBe(false);
     });
   });
 
@@ -391,6 +444,51 @@ describe('file-explorer-persistence', () => {
         Array.from(merged.folderStates[folderTwoKey]?.expandedDirectoryPaths ?? new Set())
       ).toEqual([]);
     });
+
+    it('should handle unknown folder states from persisted data', () => {
+      const persisted: SerializedState = {
+        currentFolderId: null,
+        folderStates: {
+          unknown: {
+            selectedFilePaths: ['u.txt'],
+            expandedDirectoryPaths: [],
+            includeFilters: [],
+            excludeFilters: [],
+            useRegex: false,
+            includeProjectTree: false,
+            folderSummaryThreshold: 0,
+            maxSelectionCount: 0,
+            lastActiveTab: 'files',
+            lastAccessed: 1,
+            // extra property not in FolderState
+            extra: 'val' as unknown as never,
+          },
+        },
+        folderAccessOrder: [],
+        selectedFilePaths: [],
+        expandedDirectoryPaths: [],
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+        includeProjectTree: false,
+        folderSummaryThreshold: 0,
+        maxSelectionCount: 0,
+        lastActiveTab: 'files',
+      } as SerializedState;
+
+      const merged = mergeFn(persisted, initialCurrentState);
+
+      // biome-ignore lint/complexity/useLiteralKeys: index signature access
+      expect(merged.folderStates['unknown']).toBeDefined();
+      // biome-ignore lint/complexity/useLiteralKeys: index signature access
+      expect(Array.from((merged.folderStates['unknown'] as FolderState).selectedFilePaths)).toEqual(
+        ['u.txt']
+      );
+      // biome-ignore lint/complexity/useLiteralKeys: index signature access
+      expect((merged.folderStates['unknown'] as unknown as Record<string, unknown>)['extra']).toBe(
+        'val'
+      );
+    });
   });
 
   describe('onRehydrateStorage (Hook)', () => {
@@ -426,6 +524,42 @@ describe('file-explorer-persistence', () => {
       const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
       prodOnRehydrate(mockHydratedState);
       expect(consoleLogSpy).not.toHaveBeenCalled();
+    });
+
+    it('should log when in development and not running tests', async () => {
+      const NODE_ENV_KEY = 'NODE_ENV';
+      process.env[NODE_ENV_KEY] = 'development';
+      const g = globalThis as Record<string, unknown>;
+      // biome-ignore lint/complexity/useLiteralKeys: accessing dynamic properties
+      const vitestOrig = g['vitest'];
+      // biome-ignore lint/complexity/useLiteralKeys: accessing dynamic properties
+      const workerOrig = g['__vitest_worker__'];
+      // Attempt to remove vitest globals so isTest resolves to false
+      try {
+        // biome-ignore lint/performance/noDelete: test cleanup
+        // biome-ignore lint/complexity/useLiteralKeys: test cleanup
+        delete (g as Record<string, unknown>)['vitest'];
+        // biome-ignore lint/performance/noDelete: test cleanup
+        // biome-ignore lint/complexity/useLiteralKeys: test cleanup
+        delete (g as Record<string, unknown>)['__vitest_worker__'];
+        vi.resetModules();
+        const devOptions = await getFreshPersistOptions();
+        const devFn = devOptions.onRehydrateStorage as NonNullable<
+          (typeof devOptions)['onRehydrateStorage']
+        >;
+        const mockHydratedState = { currentFolderId: 'hydrated' } as unknown as FileExplorerState;
+        devFn(mockHydratedState);
+        expect(consoleLogSpy).toHaveBeenCalled();
+      } finally {
+        if (vitestOrig !== undefined) {
+          // biome-ignore lint/complexity/useLiteralKeys: dynamic assignment
+          g['vitest'] = vitestOrig;
+        }
+        if (workerOrig !== undefined) {
+          // biome-ignore lint/complexity/useLiteralKeys: dynamic assignment
+          g['__vitest_worker__'] = workerOrig;
+        }
+      }
     });
   });
 });

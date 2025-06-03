@@ -62,8 +62,8 @@ describe('FileTreeRow', () => {
         wrapper: FileExplorerTestWrapper,
       });
 
-      const listItem = container.querySelector('li');
-      expect(listItem).toHaveStyle({ paddingLeft: '48px' }); // 2 * 24px
+      const innerDiv = container.querySelector('li > div');
+      expect(innerDiv).toHaveStyle({ paddingLeft: '56px' }); // 2 * 24 + 8 = 56px
     });
 
     it('applies custom style props', () => {
@@ -269,7 +269,7 @@ describe('FileTreeRow', () => {
     it('exports ROW_HEIGHT constant', async () => {
       // Test that the ROW_HEIGHT export is available
       const { ROW_HEIGHT } = await import('../file-tree-row');
-      expect(ROW_HEIGHT).toBe(28);
+      expect(ROW_HEIGHT).toBe(32);
     });
   });
 });

@@ -1,4 +1,4 @@
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { readFullFileTree } from './file-system-utils';
 import { generateProjectTreeText } from './tree-generator';
 
@@ -164,16 +164,16 @@ async function readFullFileTreeFromAdapter(
         }
 
         // Recursively read subdirectory
-        const directoryHandle: DirectoryHandle = {
+        const childDirectoryHandle: DirectoryHandle = {
           path: node.path,
           name: node.name,
           kind: 'directory',
-          platform: (node.handle as unknown as DirectoryHandle | FileHandle).platform || 'web',
-          _internal: (node.handle as unknown as DirectoryHandle | FileHandle)._internal,
+          platform: directoryHandle.platform, // Use the same platform as the parent
+          _internal: node.handle, // The node.handle is the actual FileSystemDirectoryHandle
         };
         const children = await readFullFileTreeFromAdapter(
           fileSystemAdapter,
-          directoryHandle,
+          childDirectoryHandle,
           nodePath,
           depth + 1,
           rootFolderId,

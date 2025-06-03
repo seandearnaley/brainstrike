@@ -1,17 +1,14 @@
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
-import { FileExplorer } from '@brainstrike/file-explorer-ui';
+import { FileExplorerLeftPanel, FileExplorerMiddlePanel } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 
 // Desktop file explorer component
 function DesktopFileExplorer() {
-  const { storageAdapter } = useAdapters();
+  return <FileExplorerMiddlePanel />;
+}
 
-  return (
-    <FileExplorerProvider storageAdapter={storageAdapter}>
-      <FileExplorer />
-    </FileExplorerProvider>
-  );
+// Desktop file explorer left panel component
+function DesktopFileExplorerLeftPanel() {
+  return <FileExplorerLeftPanel />;
 }
 
 export default function HomePageContent() {
@@ -27,3 +24,5 @@ export default function HomePageContent() {
     </>
   );
 }
+
+export { DesktopFileExplorerLeftPanel };

@@ -128,3 +128,26 @@ export const fileExplorer = {
     return lines.join('\n');
   },
 };
+
+/**
+ * Create a memoized version of a function that takes a file node
+ */
+function memoizeByNode<T extends object, R>(fn: (arg: T) => R) {
+  const cache = new WeakMap<T, R>();
+  return (arg: T): R => {
+    const cached = cache.get(arg);
+    if (cached !== undefined) return cached;
+    const result = fn(arg);
+    cache.set(arg, result);
+    return result;
+  };
+}
+
+export const memoizedFileExplorer = {
+  getAllFilePathsInDirectory: memoizeByNode<IFileNode, string[]>(
+    fileExplorer.getAllFilePathsInDirectory.bind(fileExplorer)
+  ),
+  getFolderFileCount: memoizeByNode<IFileNode, { count: number; isComplete: boolean }>(
+    fileExplorer.getFolderFileCount.bind(fileExplorer)
+  ),
+};

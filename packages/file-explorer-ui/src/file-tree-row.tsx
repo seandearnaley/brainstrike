@@ -1,12 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import {
-  Checkbox,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@brainstrike/ui';
-import { fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
+import { Checkbox } from '@brainstrike/ui';
+import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import {
   ChevronDown,
   ChevronRight,
@@ -19,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
+import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface FileTreeRowProps {
@@ -30,15 +25,17 @@ interface FileTreeRowProps {
   isLoading: boolean;
   folderId: string;
   style?: CSSProperties;
+  children?: React.ReactNode;
 }
 
-const ROW_HEIGHT = 28;
+const ROW_HEIGHT = 32;
 
 // Custom comparison function for React.memo
 const areFileTreeRowPropsEqual = (
   prevProps: FileTreeRowProps,
   nextProps: FileTreeRowProps
 ): boolean => {
+  if (prevProps.children !== nextProps.children) return false;
   // Compare style props (top and paddingLeft)
   if (prevProps.style?.top !== nextProps.style?.top) {
     return false;
@@ -92,6 +89,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
     isLoading,
     folderId,
     style,
+    children,
   }) => {
     const store = useFileExplorerStoreContext();
     const {
@@ -99,43 +97,74 @@ const FileTreeRow = memo<FileTreeRowProps>(
       maxSelectionCount,
       addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
-    } = store();
+    } = store(
+      (s) => ({
+        selectedFilePaths: s.selectedFilePaths,
+        maxSelectionCount: s.maxSelectionCount,
+        addMultipleSelectedFiles: s.addMultipleSelectedFiles,
+        removeMultipleSelectedFiles: s.removeMultipleSelectedFiles,
+      }),
+      shallow
+    );
+
+    const allFilePaths = useMemo(
+      () =>
+        node.type === 'directory' ? fileExplorer.getAllFilePathsInDirectory(node) : [node.path],
+      [node]
+    );
+
+    const folderInfo = useMemo(() => {
+      if (node.type !== 'directory') return null;
+      return fileExplorer.getFolderFileCount(node);
+    }, [node]);
+
+    const selectedCountInDir = useMemo(
+      () =>
+        allFilePaths.filter((path) =>
+          folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
+        ).length,
+      [allFilePaths, folderId, selectedFilePaths]
+    );
+
+    const isFileSelected = useMemo(
+      () =>
+        node.type === 'file'
+          ? folderId
+            ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path)
+            : false
+          : false,
+      [node.type, node.path, folderId, selectedFilePaths]
+    );
 
     const handleNodeSelection = useCallback(() => {
       if (node.type !== 'directory') {
         onToggleFileSelection(node.path);
         return;
       }
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) return;
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      const isFullySelected = selectedCount === allFilePaths.length;
+      const isFullySelected = selectedCountInDir === allFilePaths.length;
       if (!isFullySelected) {
         const unselectedPaths = allFilePaths.filter(
           (path) => !(folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false)
         );
         const availableSlots = maxSelectionCount - selectedFilePaths.size;
         const pathsToSelect = unselectedPaths.slice(0, availableSlots);
-        // Call batch action to add multiple files
         if (pathsToSelect.length > 0) {
           addMultipleSelectedFiles(folderId, pathsToSelect);
         }
-      } else {
-        // Call batch action to remove multiple files
-        if (allFilePaths.length > 0) {
-          removeMultipleSelectedFiles(folderId, allFilePaths);
-        }
+      } else if (allFilePaths.length > 0) {
+        removeMultipleSelectedFiles(folderId, allFilePaths);
       }
     }, [
-      node,
-      selectedFilePaths, // Needed for selectedCount and availableSlots
-      onToggleFileSelection, // Still needed for single file selection
-      maxSelectionCount, // Needed for availableSlots
+      node.type,
+      node.path,
+      allFilePaths,
+      selectedCountInDir,
+      selectedFilePaths,
+      onToggleFileSelection,
+      maxSelectionCount,
       folderId,
-      addMultipleSelectedFiles, // action methods are now dependencies
+      addMultipleSelectedFiles,
       removeMultipleSelectedFiles,
     ]);
 
@@ -172,97 +201,100 @@ const FileTreeRow = memo<FileTreeRowProps>(
 
     const checkboxState = useMemo(() => {
       if (node.type === 'file') {
-        return folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path) : false;
+        return isFileSelected;
       }
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const allFilePaths = fileExplorer.getAllFilePathsInDirectory(node);
       if (allFilePaths.length === 0) {
         return false;
       }
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      if (selectedCount === 0) {
+      if (selectedCountInDir === 0) {
         return false;
       }
-      return selectedCount === allFilePaths.length ? true : 'indeterminate';
-    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
-
-    const folderInfo = useMemo(() => {
-      if (node.type !== 'directory') return null;
-      const { count, isComplete } = fileExplorer.getFolderFileCount(node);
-      // Replace local getAllFilePaths with fileExplorer.getAllFilePathsInDirectory
-      const selectedCount = fileExplorer
-        .getAllFilePathsInDirectory(node)
-        .filter(
-          (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
-        ).length;
-      return { count, isComplete, selectedCount };
-    }, [node, selectedFilePaths, folderId]); // getAllFilePaths removed from dependencies
+      return selectedCountInDir === allFilePaths.length ? true : 'indeterminate';
+    }, [node.type, isFileSelected, allFilePaths, selectedCountInDir]);
 
     const wouldExceedLimit = useMemo(() => {
       if (node.type === 'file') {
-        return (
-          !(folderId && isPathSelectedInFolder(selectedFilePaths, folderId, node.path)) &&
-          selectedFilePaths.size >= maxSelectionCount
-        );
+        return !isFileSelected && selectedFilePaths.size >= maxSelectionCount;
       }
       if (!folderInfo) return false;
-      const unselectedCount = folderInfo.count - folderInfo.selectedCount;
+      const unselectedCount = folderInfo.count - selectedCountInDir;
       return selectedFilePaths.size + unselectedCount > maxSelectionCount;
-    }, [node, selectedFilePaths, maxSelectionCount, folderInfo, folderId]);
+    }, [
+      node.type,
+      isFileSelected,
+      selectedFilePaths,
+      maxSelectionCount,
+      folderInfo,
+      selectedCountInDir,
+    ]);
 
     return (
       <li
-        className="list-none flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-        style={{ paddingLeft: depth * 24, height: ROW_HEIGHT, ...style }}
+        className="list-none"
+        role="treeitem"
+        aria-expanded={node.type === 'directory' ? isExpanded : undefined}
+        style={style}
       >
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center">
-                <Checkbox
-                  id={node.path}
-                  checked={checkboxState}
-                  disabled={wouldExceedLimit}
-                  className="mr-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!wouldExceedLimit) {
-                      handleNodeSelection();
-                    }
-                  }}
-                  aria-label={`Select ${node.name}`}
-                />
-              </div>
-            </TooltipTrigger>
-            {wouldExceedLimit && (
-              <TooltipContent>
-                <p>Cannot select more than {maxSelectionCount} files</p>
-              </TooltipContent>
+        <div
+          className="flex items-center py-1.5 px-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+          style={{ paddingLeft: depth * 24 + 8 }}
+        >
+          {/* Chevron button with fixed width for consistent alignment */}
+          <div className="w-4 flex justify-center mr-2">
+            {node.type === 'directory' && (
+              <button
+                type="button"
+                onClick={handleExpansionClick}
+                className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded cursor-pointer transition-colors flex items-center justify-center"
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+              >
+                {isExpanded ? (
+                  <ChevronDown className="h-3 w-3" />
+                ) : (
+                  <ChevronRight className="h-3 w-3" />
+                )}
+              </button>
             )}
-          </Tooltip>
-        </TooltipProvider>
-        {node.type === 'directory' && (
-          <button
-            type="button"
-            onClick={handleExpansionClick}
-            className="p-1 mr-1"
-            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+          </div>
+
+          {/* Checkbox with precise alignment */}
+          <div
+            className="flex items-center justify-center w-4 mr-2"
+            title={
+              wouldExceedLimit ? `Cannot select more than ${maxSelectionCount} files` : undefined
+            }
           >
-            {isExpanded ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
+            <Checkbox
+              id={node.path}
+              checked={checkboxState}
+              disabled={wouldExceedLimit}
+              className="h-4 w-4"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!wouldExceedLimit) {
+                  handleNodeSelection();
+                }
+              }}
+              aria-label={`Select ${node.name}`}
+            />
+          </div>
+
+          {/* File/folder icon with consistent sizing */}
+          <div className="flex items-center justify-center w-4 mr-2">{renderIcon()}</div>
+
+          {/* File/folder name and additional icons */}
+          <div className="flex items-center flex-1 min-w-0">
+            {node.isSymbolicLink && (
+              <Link2Icon className="mr-1.5 h-4 w-4 text-blue-500 flex-shrink-0" />
             )}
-          </button>
-        )}
-        {renderIcon()}
-        {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
-        <span className="ml-1">{node.name}</span>
-        {node.type === 'directory' && node.isDepthTruncated && (
-          <MoreHorizontalIcon className="ml-1 h-4 w-4 text-gray-500" />
-        )}
+            <span className="truncate text-sm leading-4">{node.name}</span>
+            {node.type === 'directory' && node.isDepthTruncated && (
+              <MoreHorizontalIcon className="ml-1.5 h-4 w-4 text-gray-500 flex-shrink-0" />
+            )}
+          </div>
+        </div>
+        {/* Render children in a nested ul if they exist */}
+        {isExpanded && children && <ul className="">{children}</ul>}
       </li>
     );
   },

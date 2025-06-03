@@ -1,6 +1,7 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { TooltipProvider } from '@brainstrike/ui';
 import type { ReactNode } from 'react';
 import { FileExplorerProvider } from '../file-explorer-provider';
 
@@ -19,8 +20,10 @@ export function FileExplorerTestWrapper({
   const fileSystemAdapter = mockFileSystemAdapter || defaultTestFileSystemAdapter;
 
   return (
-    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={testStorageAdapter}>
-      <FileExplorerProvider storageAdapter={testStorageAdapter}>{children}</FileExplorerProvider>
-    </AdaptersProvider>
+    <TooltipProvider>
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={testStorageAdapter}>
+        <FileExplorerProvider storageAdapter={testStorageAdapter}>{children}</FileExplorerProvider>
+      </AdaptersProvider>
+    </TooltipProvider>
   );
 }

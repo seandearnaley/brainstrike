@@ -81,3 +81,31 @@ The package includes the following components:
 And utility hooks:
 
 - useToast
+
+## IDE Layout & Panels
+
+`IdeLayout` creates an IDE-style workspace with optional left, right and console panels.
+Panel state can persist across sessions with the `usePanelPersistence` hook.
+
+```tsx
+import { IdeLayout } from "@brainstrike/ui";
+import { usePanelPersistence } from "@brainstrike/ui/hooks";
+
+function MyIde() {
+  const panel = usePanelPersistence([25, 20, 30]);
+
+  return (
+    <IdeLayout
+      navigationItems={[{ title: "Home", href: "/" }]}
+      currentPath="/"
+      leftPanelContent={<FileExplorer />}
+      rightPanelContent={<Tools />}
+      consoleContent={<Console />}
+    >
+      <Editor />
+    </IdeLayout>
+  );
+}
+```
+
+See [`docs/ide-layout.md`](../../docs/ide-layout.md) for a deeper overview.

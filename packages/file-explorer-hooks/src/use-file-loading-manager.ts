@@ -31,6 +31,8 @@ export const useFileLoadingManager = ({
 
       try {
         await loadFileContent(path);
+      } catch (error) {
+        console.error('Error loading file:', path, error);
       } finally {
         setLoadingFiles((prev) => {
           const newSet = new Set(prev);

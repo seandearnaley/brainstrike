@@ -30,6 +30,7 @@ describe('file-selection-actions', () => {
     folderSummaryThreshold: 100,
     maxSelectionCount: 100,
     lastActiveTab: 'files',
+    fileContents: {},
     folderAccessOrder: [],
     setCurrentFolderId: vi.fn(),
     hydrateFolderState: vi.fn(),
@@ -50,6 +51,9 @@ describe('file-selection-actions', () => {
     setLastActiveTab: vi.fn(),
     expandAllDirectories: vi.fn(),
     collapseAllDirectories: vi.fn(),
+    setFileContent: vi.fn(),
+    clearFileContents: vi.fn(),
+    clearAllFileContents: vi.fn(),
     ...overrides,
   });
 
