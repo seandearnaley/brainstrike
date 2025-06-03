@@ -19,6 +19,8 @@ export { default as MaxSelectionCountSetting } from './max-selection-count-setti
 export { default as UseRegexSetting } from './use-regex-setting';
 export { default as FileTree } from './file-tree';
 export { default as FileTreeNode } from './file-tree-node';
+export { default as OptimizedFileTree } from './optimized-file-tree';
+export { default as OptimizedFileTreeRow } from './optimized-file-tree-row';
 export { default as FileExplorerErrorBoundary } from './file-explorer-error-boundary';
 export { default as ClientFileExplorer } from './client-file-explorer';
 export { default as FileExplorer } from './file-explorer';

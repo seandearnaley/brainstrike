@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import type * as React from 'react';
-import FileTree from './file-tree';
+import OptimizedFileTree from './optimized-file-tree';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
@@ -49,7 +49,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
       ) : (
         <div className="px-3 pt-4">
           {quickFilteredTree && quickFilteredTree.length > 0 ? (
-            <FileTree
+            <OptimizedFileTree
               fileTree={quickFilteredTree}
               loadingFiles={loadingFiles}
               onRender={onTreeRender || undefined}
