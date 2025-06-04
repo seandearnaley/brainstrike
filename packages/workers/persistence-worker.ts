@@ -1,6 +1,5 @@
-import { MemoryStorageAdapter } from '../storage/src/adapters/memory-storage-adapter';
-import { WebStorageAdapter } from '../storage/src/adapters/web-storage-adapter';
-import type { StorageAdapter } from '../storage/src/types';
+import { MemoryStorageAdapter, WebStorageAdapter } from '@brainstrike/storage';
+import type { StorageAdapter } from '@brainstrike/storage';
 
 interface PersistMessage {
   name: string;

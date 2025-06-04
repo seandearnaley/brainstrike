@@ -29,6 +29,11 @@ let requestId = 0;
 const callbacks = new Map<number, { resolve: (n: number) => void; reject: (err: Error) => void }>();
 
 async function initWorker(): Promise<NodeWorker> {
+  // Only run in Node.js environment
+  if (typeof window !== 'undefined') {
+    throw new Error('Tokenizer worker only available in Node.js environment');
+  }
+
   // biome-ignore lint/complexity/useLiteralKeys: env access
   if (process.env['DISABLE_TOKEN_WORKER']) {
     throw new Error('Tokenizer worker disabled');
@@ -39,7 +44,7 @@ async function initWorker(): Promise<NodeWorker> {
       const { createRequire } = await import('node:module');
       const { Worker } = await import('node:worker_threads');
       const require = createRequire(import.meta.url);
-      const workerPath = new URL('../../workers/tokenizer-worker.js', import.meta.url);
+      const workerPath = new URL('../../workers/dist/tokenizer-worker.js', import.meta.url);
       const modulePath = require.resolve('gpt-tokenizer');
       tokenizerWorker = new Worker(workerPath, {
         workerData: { modulePath },

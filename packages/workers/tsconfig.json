@@ -7,14 +7,16 @@
     "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
-    "emitDeclarationOnly": true,
     "paths": {
       "@brainstrike/storage": ["../storage/src"]
     }
   },
-  "include": ["persistence-worker.ts"],
+  "include": ["*.ts"],
   "exclude": ["dist", "node_modules"],
   "references": [
-    { "path": "../storage" }
+    { "path": "../storage" },
+    { "path": "../types" },
+    { "path": "../file-system" },
+    { "path": "../utils" }
   ]
 }

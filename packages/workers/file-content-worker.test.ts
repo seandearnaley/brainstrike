@@ -14,8 +14,8 @@ function createRequest(path: string) {
     handle: {
       path: node.path,
       name: node.name,
-      kind: 'file',
-      platform: 'web',
+      kind: 'file' as const,
+      platform: 'web' as const,
       _internal: node.handle,
     },
   };

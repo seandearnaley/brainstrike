@@ -1,7 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
-import type { FileSystemChange } from '../types';
+
+interface FileSystemChange {
+  type: 'added' | 'removed' | 'modified';
+  path: string;
+  kind: 'file' | 'directory';
+}
 
 if (!parentPort) {
   throw new Error('parentPort is not available');
@@ -63,4 +68,4 @@ parentPort.on('message', (msg) => {
     flush();
     parentPort?.close();
   }
-});
+}); 

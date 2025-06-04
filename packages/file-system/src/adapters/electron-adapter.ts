@@ -201,70 +201,37 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    let WorkerThreads: typeof import('node:worker_threads');
+    // Workers disabled for now - complex to bundle in monorepo
+    // Always use main thread fs.watch
+    console.info('Using main-thread fs.watch (non-recursive) for directory watching');
+
+    // Simple fs.watch implementation
+    let watcher: fs.FSWatcher | null = null;
     try {
-      WorkerThreads = require('node:worker_threads') as typeof import('node:worker_threads');
-    } catch {
-      console.warn('worker_threads module is not available');
+      watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
+        if (!filename) return;
+        const fullPath = path.join(handle.path, filename);
+
+        let kind: FileSystemChange['kind'] = 'file';
+        try {
+          const stats = fs.statSync(fullPath);
+          kind = stats.isDirectory() ? 'directory' : 'file';
+        } catch {}
+
+        let changeType: FileSystemChange['type'] = 'modified';
+        if (eventType === 'rename') {
+          changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
+        }
+
+        callback([{ type: changeType, path: fullPath, kind }]);
+      });
+
+      return () => {
+        watcher?.close();
+      };
+    } catch (error) {
+      console.warn('Failed to watch directory:', error);
       return () => {};
     }
-
-    const { Worker } = WorkerThreads;
-    const workerPath = new URL('../workers/watch-worker.js', import.meta.url).pathname;
-
-    const startFsWatch = (): (() => void) => {
-      let watcher: fs.FSWatcher | null = null;
-      try {
-        watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
-          if (!filename) return;
-          const fullPath = path.join(handle.path, filename);
-
-          let kind: FileSystemChange['kind'] = 'file';
-          try {
-            const stats = fs.statSync(fullPath);
-            kind = stats.isDirectory() ? 'directory' : 'file';
-          } catch {}
-
-          let changeType: FileSystemChange['type'] = 'modified';
-          if (eventType === 'rename') {
-            changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
-          }
-
-          callback([{ type: changeType, path: fullPath, kind }]);
-        });
-
-        return () => {
-          watcher?.close();
-        };
-      } catch (error) {
-        console.warn('Failed to watch directory:', error);
-        return () => {};
-      }
-    };
-
-    if (!fs.existsSync(workerPath)) {
-      return startFsWatch();
-    }
-
-    const worker = new Worker(workerPath, {
-      workerData: handle.path,
-    });
-
-    worker.on('message', (data: unknown) => {
-      if (Array.isArray(data)) {
-        callback(data as FileSystemChange[]);
-      } else if (data && typeof data === 'object' && 'error' in data) {
-        console.warn('Watch worker error:', (data as { error: string }).error);
-      }
-    });
-
-    worker.on('error', (err: unknown) => {
-      console.warn('Watch worker failure:', err);
-    });
-
-    return () => {
-      worker.postMessage('close');
-      worker.unref();
-    };
   }
 }

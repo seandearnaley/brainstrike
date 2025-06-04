@@ -28,19 +28,8 @@ export const createPersistOptions = (
   let timer: ReturnType<typeof setTimeout> | null = null;
   const debounceMs = 200;
 
-  let worker: Worker | null = null;
-  if (typeof Worker !== 'undefined') {
-    try {
-      worker = new Worker(
-        new URL(import.meta.resolve('@brainstrike/workers/persistence-worker'), import.meta.url),
-        {
-          type: 'module',
-        }
-      );
-    } catch {
-      worker = null;
-    }
-  }
+  // Workers are disabled for now - they cause build issues in monorepo
+  // The persistence will use the fallback debounced approach
 
   const flush = async (name: string) => {
     const value = pendingValue;
@@ -75,10 +64,7 @@ export const createPersistOptions = (
         }
       },
       setItem: async (name: string, value: unknown) => {
-        if (worker) {
-          worker.postMessage({ name, value: JSON.stringify(value) });
-          return;
-        }
+        // Always use the non-worker path since workers are disabled
         pendingValue = value;
         if (timer) {
           clearTimeout(timer);
