@@ -211,6 +211,19 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/workers": {
+      "entry": [
+        "file-content-worker.ts"
+      ],
+      "project": ["*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/fonts": {
       "entry": [
         "src/index.ts"
@@ -267,7 +280,7 @@
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
-    "@vitejs/plugin-react", // Only used in Vite config
+    "@vitejs/plugin-react" // Only used in Vite config
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

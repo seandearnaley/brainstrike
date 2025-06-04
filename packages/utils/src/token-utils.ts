@@ -5,107 +5,15 @@
 /**
  * Accurately count tokens using OpenAI's tiktoken encoding
  * This provides exact counts for GPT-4 and a good approximation for Claude
+ * Note: Worker functionality has been removed, will fallback to heuristic
  *
  * @param text - The text to count tokens for
  * @returns The number of tokens in the text
  */
-type NodeWorker = import('node:worker_threads').Worker;
-
-interface WorkerRequest {
-  id: number;
-  method: 'countTokensAccurate' | 'calculateGroupTokens';
-  text?: string;
-  texts?: string[];
-}
-
-interface WorkerResponse {
-  id: number;
-  result?: number;
-  error?: string;
-}
-
-let tokenizerWorker: NodeWorker | null = null;
-let requestId = 0;
-const callbacks = new Map<number, { resolve: (n: number) => void; reject: (err: Error) => void }>();
-
-async function initWorker(): Promise<NodeWorker> {
-  // Only run in Node.js environment
-  if (typeof window !== 'undefined') {
-    throw new Error('Tokenizer worker only available in Node.js environment');
-  }
-
-  // biome-ignore lint/complexity/useLiteralKeys: env access
-  if (process.env['DISABLE_TOKEN_WORKER']) {
-    throw new Error('Tokenizer worker disabled');
-  }
-
-  if (!tokenizerWorker) {
-    try {
-      // Only import Node.js modules when not in browser environment
-      if (typeof window === 'undefined') {
-        const { createRequire } = await import('node:module');
-        const { Worker } = await import('node:worker_threads');
-        const require = createRequire(import.meta.url);
-        // Use package resolution instead of relative path
-        const workerPath = require.resolve('@brainstrike/workers/tokenizer-worker');
-        const modulePath = require.resolve('gpt-tokenizer');
-        tokenizerWorker = new Worker(workerPath, {
-          workerData: { modulePath },
-          type: 'module',
-        } as import('node:worker_threads').WorkerOptions & { type: 'module' });
-
-        tokenizerWorker.on('message', (msg: WorkerResponse) => {
-          const cb = callbacks.get(msg.id);
-          if (cb) {
-            callbacks.delete(msg.id);
-            if (msg.error) {
-              cb.reject(new Error(msg.error));
-            } else {
-              cb.resolve(msg.result ?? 0);
-            }
-          }
-        });
-
-        tokenizerWorker.on('error', (err) => {
-          console.warn('Tokenizer worker error', err);
-          tokenizerWorker?.terminate();
-          tokenizerWorker = null;
-        });
-
-        tokenizerWorker.on('exit', () => {
-          tokenizerWorker = null;
-        });
-      } else {
-        throw new Error('Tokenizer worker only available in Node.js environment');
-      }
-    } catch (e) {
-      tokenizerWorker = null;
-      throw e;
-    }
-  }
-
-  return tokenizerWorker;
-}
-
-async function runWorker(
-  method: WorkerRequest['method'],
-  payload: Omit<WorkerRequest, 'id' | 'method'>
-): Promise<number> {
-  const worker = await initWorker();
-  return new Promise((resolve, reject) => {
-    const id = requestId++;
-    callbacks.set(id, { resolve, reject });
-    worker.postMessage({ id, method, ...payload } satisfies WorkerRequest);
-  });
-}
 
 export async function countTokensAccurate(text: string): Promise<number> {
-  try {
-    return await runWorker('countTokensAccurate', { text });
-  } catch (_e) {
-    console.warn('Tokenizer worker unavailable, using heuristic estimate instead');
-    return countTokensHeuristic(text);
-  }
+  // Worker functionality removed, using heuristic estimate
+  return countTokensHeuristic(text);
 }
 
 /**
@@ -157,16 +65,9 @@ export function formatTokenCount(count: number): string {
  * @param useHeuristic - Whether to use the faster heuristic method
  * @returns Total token count for all texts
  */
-export async function calculateGroupTokens(texts: string[], useHeuristic = false): Promise<number> {
-  if (useHeuristic) {
-    return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
-  }
-  try {
-    return await runWorker('calculateGroupTokens', { texts });
-  } catch (_e) {
-    console.warn('Tokenizer worker unavailable, using heuristic estimate instead');
-    return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
-  }
+export async function calculateGroupTokens(texts: string[]): Promise<number> {
+  // Worker functionality removed, always using heuristic estimate
+  return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
 }
 
 /**

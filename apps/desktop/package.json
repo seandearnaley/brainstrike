@@ -34,7 +34,6 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "electron-store": "^10.0.1",
-    "lucide-react": "^0.483.0",
     "react": "^19",
     "react-dom": "^19"
   },
