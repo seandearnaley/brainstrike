@@ -299,6 +299,9 @@ importers:
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
+      react:
+        specifier: ^19
+        version: 19.1.0
     devDependencies:
       '@testing-library/jest-dom':
         specifier: ^6.6.3
@@ -315,9 +318,6 @@ importers:
       lucide-react:
         specifier: ^0.417.0
         version: 0.417.0(react@19.1.0)
-      react:
-        specifier: ^19.1.0
-        version: 19.1.0
       vitest:
         specifier: ^3.1.3
         version: 3.1.3(@types/debug@4.1.12)(@types/node@22.15.17)(@vitest/ui@3.1.3)(happy-dom@17.4.7)(jiti@2.4.2)(jsdom@24.1.3)(lightningcss@1.29.2)(terser@5.39.0)

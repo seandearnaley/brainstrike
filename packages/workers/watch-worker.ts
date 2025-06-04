@@ -36,7 +36,9 @@ function enqueue(change: FileSystemChange) {
 }
 
 try {
-  watcher = fs.watch(directory, { recursive: false }, (eventType, filename) => {
+  // Enable recursive watching on macOS which supports it natively
+  const recursive = process.platform === 'darwin';
+  watcher = fs.watch(directory, { recursive }, (eventType, filename) => {
     if (!filename) return;
     const fullPath = path.join(directory, filename);
 
