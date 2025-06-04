@@ -1,9 +1,13 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle, Platform } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
-import { FileContentError } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
-import { decodeFileSelection, fileContent } from '@brainstrike/utils';
+import { decodeFileSelection } from '@brainstrike/utils';
+import {
+  type FileContentWorker,
+  type FileReadRequest,
+  createFileContentWorker,
+} from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -16,9 +20,17 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
+  const workerRef = useRef<FileContentWorker | null>(null);
 
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
+
+  useEffect(() => {
+    workerRef.current = createFileContentWorker({
+      fileSystemAdapter,
+      concurrency: MAX_CONCURRENT_LOADS,
+    });
+  }, [fileSystemAdapter]);
   const { selectedFilePaths } = store(
     (s) => ({
       selectedFilePaths: s.selectedFilePaths,
@@ -46,9 +58,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     nodeCacheRef.current = newCache;
   }, [fileTree]);
 
-  const loadSingleFileContent = useCallback(
-    async (compositeKey: string) => {
-      // Get fresh values from store to avoid dependency issues
+  const prepareFileRead = useCallback(
+    async (compositeKey: string): Promise<FileReadRequest | null> => {
       const currentSetFileContent = store.getState().setFileContent;
 
       // Skip if already loading or loaded
@@ -56,7 +67,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         loadingPathsRef.current.has(compositeKey) ||
         compositeKey in store.getState().fileContents
       ) {
-        return;
+        return null;
       }
 
       const { folderId, path } = decodeFileSelection(compositeKey);
@@ -64,12 +75,12 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       // Skip loading if we don't have a valid folder ID
       if (!folderId) {
         console.debug('Skipping file load - no folder ID');
-        return;
+        return null;
       }
 
       // Skip loading if file tree is empty (no root directory selected yet)
       if (!fileTree.length) {
-        return;
+        return null;
       }
 
       // Use the cached node lookup directly instead of via callback
@@ -105,7 +116,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             type: fileNode?.type ?? 'not found',
             rootFolderId: fileNode?.rootFolderId ?? 'unknown',
           });
-          return;
+          return null;
         }
       }
 
@@ -114,100 +125,58 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
         console.error(error);
         currentSetFileContent(compositeKey, error);
-        return;
+        return null;
       }
 
       loadingPathsRef.current.add(compositeKey);
       setLoadingFiles((prev) => new Set(prev).add(compositeKey));
 
-      try {
-        // Create a FileHandle from the IFileNode
-        const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-        const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-        const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
+      // Create a FileHandle from the IFileNode
+      const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
+      const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
+      const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
 
-        const fileHandle: FileHandle = {
-          path: fileNode.path,
-          name: fileNode.name,
-          kind: 'file',
-          platform,
-          _internal: fileNode.handle,
-        };
+      const fileHandle: FileHandle = {
+        path: fileNode.path,
+        name: fileNode.name,
+        kind: 'file',
+        platform,
+        _internal: fileNode.handle,
+      };
 
-        let content: string;
-
-        try {
-          content = await fileSystemAdapter.readFile(fileHandle);
-        } catch (error) {
-          console.error('Error reading file:', {
-            error,
-            path,
-            folderId,
-            fileNode,
-          });
-          throw new FileContentError('Error accessing file', path, 'LOADING_ERROR');
-        }
-
-        const extension = fileExplorer.getFileExtension(path);
-
-        // Early return for known binary files
-        if (fileContent.isBinaryExtension(extension)) {
-          throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-        }
-
-        // Early return for known text files
-        if (fileContent.isTextExtension(extension)) {
-          if (!fileContent.isTextContent(content)) {
-            throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-          }
-          currentSetFileContent(compositeKey, content);
-          return;
-        }
-
-        // Handle unknown extensions
-        if (!fileContent.isTextContent(content)) {
-          throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-        }
-        currentSetFileContent(compositeKey, content);
-      } catch (err) {
-        if (err instanceof FileContentError) {
-          currentSetFileContent(compositeKey, err.message);
-        } else {
-          console.error('Error loading file:', {
-            error: err,
-            compositeKey,
-            path,
-            folderId,
-          });
-          const error = new FileContentError('Error loading file content', path, 'LOADING_ERROR');
-          currentSetFileContent(compositeKey, error.message);
-        }
-      } finally {
-        loadingPathsRef.current.delete(compositeKey);
-        setLoadingFiles((prev) => {
-          const newSet = new Set(prev);
-          newSet.delete(compositeKey);
-          return newSet;
-        });
-      }
+      return { compositeKey, handle: fileHandle, path };
     },
     [fileTree, fileSystemAdapter, store]
   );
 
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
+      if (!workerRef.current) return;
       setIsLoading(true);
       setError(null);
 
       try {
-        // Process files in chunks to avoid overwhelming the browser
-        const chunks = [];
-        for (let i = 0; i < compositeKeys.length; i += MAX_CONCURRENT_LOADS) {
-          chunks.push(compositeKeys.slice(i, i + MAX_CONCURRENT_LOADS));
+        const requests: FileReadRequest[] = [];
+        for (const key of compositeKeys) {
+          const req = await prepareFileRead(key);
+          if (req) requests.push(req);
         }
 
-        // Process all chunks concurrently for better performance
-        await Promise.all(chunks.map((chunk) => Promise.all(chunk.map(loadSingleFileContent))));
+        await workerRef
+          .current(requests, ({ key }) => {
+            loadingPathsRef.current.delete(key);
+            setLoadingFiles((prev) => {
+              const newSet = new Set(prev);
+              newSet.delete(key);
+              return newSet;
+            });
+          })
+          .then((results) => {
+            const setContent = store.getState().setFileContent;
+            for (const [k, value] of Object.entries(results)) {
+              setContent(k, value);
+            }
+          });
       } catch (err) {
         console.error('Error loading files:', err);
         setError(err as Error);
@@ -215,7 +184,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         setIsLoading(false);
       }
     },
-    [loadSingleFileContent]
+    [prepareFileRead, store]
   );
 
   // Automatically load content for selected files
@@ -223,10 +192,28 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     const currentFileContents = store.getState().fileContents;
     for (const compositeKey of selectedFilePaths) {
       if (!currentFileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
-        loadSingleFileContent(compositeKey);
+        prepareFileRead(compositeKey).then((req) => {
+          if (req && workerRef.current) {
+            workerRef
+              .current([req], ({ key }) => {
+                loadingPathsRef.current.delete(key);
+                setLoadingFiles((prev) => {
+                  const newSet = new Set(prev);
+                  newSet.delete(key);
+                  return newSet;
+                });
+              })
+              .then((results) => {
+                const setContent = store.getState().setFileContent;
+                for (const [k, value] of Object.entries(results)) {
+                  setContent(k, value);
+                }
+              });
+          }
+        });
       }
     }
-  }, [selectedFilePaths, loadSingleFileContent, store]);
+  }, [selectedFilePaths, prepareFileRead, store]);
 
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = store((state) => state.fileContents);

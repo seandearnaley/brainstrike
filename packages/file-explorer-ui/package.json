@@ -40,7 +40,8 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/workers": "workspace:*"
   },
   "license": "ISC",
   "devDependencies": {

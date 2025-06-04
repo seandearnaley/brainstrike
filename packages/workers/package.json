@@ -3,15 +3,24 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["persistence-worker.ts"],
+  "files": ["persistence-worker.ts", "file-content-worker.ts"],
   "exports": {
-    "./persistence-worker": "./persistence-worker.ts"
+    "./persistence-worker": "./persistence-worker.ts",
+    "./file-content-worker": "./file-content-worker.ts"
   },
   "scripts": {
     "build": "tsc -b .",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "typescript": "^5"
+    "@brainstrike/test-utils": "workspace:*",
+    "typescript": "^5",
+    "vitest": "^2"
   }
 }
