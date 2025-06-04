@@ -203,7 +203,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   ): () => void {
     // Workers disabled for now - complex to bundle in monorepo
     // Always use main thread fs.watch
-    console.info('Using main-thread fs.watch (non-recursive) for directory watching');
+    // Note: Using fs.watch (non-recursive) for directory watching
 
     // Simple fs.watch implementation
     let watcher: fs.FSWatcher | null = null;

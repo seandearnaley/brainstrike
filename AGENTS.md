@@ -175,6 +175,8 @@ Before pushing code or opening a PR, ensure the **entire** following command cha
 pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e
 ```
 
+**Important:** The `pnpm run build` command must succeed for every workspace in the monorepo. It runs with `--filter ./...` internally, building all packages and applications. If any workspace fails to build, the entire build step will fail.
+
 This comprehensive check includes:
 1.  **Dependency Installation**: `pnpm install` (ensures all dependencies are correctly installed).
 2.  **Building**: `pnpm run build` (ensures the entire monorepo builds successfully).

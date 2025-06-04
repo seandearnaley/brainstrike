@@ -26,6 +26,16 @@ the same Tailwind configuration used by the web app.
 - pnpm 10+
 - Each package.json declares `"engines": { "node": ">=22" }`
 
+### Environment Requirements
+
+#### Tokenizer Worker (Backend/Node.js)
+The `@brainstrike/utils` package includes a tokenizer worker for accurate token counting:
+- **Node.js 18+** with ESM support required
+- Automatically uses OpenAI's tiktoken encoding for GPT-4 accuracy
+- Falls back to heuristic estimation if worker is unavailable
+- Set `DISABLE_TOKEN_WORKER=1` to force heuristic mode
+- Note: The tokenizer worker is only available in Node.js environments, not browsers
+
 ## Repository Layout
 ```
 apps/

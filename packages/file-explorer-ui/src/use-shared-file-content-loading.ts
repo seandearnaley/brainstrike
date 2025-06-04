@@ -41,6 +41,11 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       fileSystemAdapter,
       concurrency: MAX_CONCURRENT_LOADS,
     });
+
+    return () => {
+      // Clean up the reference when adapter changes
+      workerRef.current = null;
+    };
   }, [fileSystemAdapter]);
   const { selectedFilePaths } = store(
     (s) => ({

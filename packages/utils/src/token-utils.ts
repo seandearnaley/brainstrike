@@ -41,37 +41,43 @@ async function initWorker(): Promise<NodeWorker> {
 
   if (!tokenizerWorker) {
     try {
-      const { createRequire } = await import('node:module');
-      const { Worker } = await import('node:worker_threads');
-      const require = createRequire(import.meta.url);
-      const workerPath = new URL('../../workers/dist/tokenizer-worker.js', import.meta.url);
-      const modulePath = require.resolve('gpt-tokenizer');
-      tokenizerWorker = new Worker(workerPath, {
-        workerData: { modulePath },
-        type: 'module',
-      } as import('node:worker_threads').WorkerOptions & { type: 'module' });
+      // Only import Node.js modules when not in browser environment
+      if (typeof window === 'undefined') {
+        const { createRequire } = await import('node:module');
+        const { Worker } = await import('node:worker_threads');
+        const require = createRequire(import.meta.url);
+        // Use package resolution instead of relative path
+        const workerPath = require.resolve('@brainstrike/workers/tokenizer-worker');
+        const modulePath = require.resolve('gpt-tokenizer');
+        tokenizerWorker = new Worker(workerPath, {
+          workerData: { modulePath },
+          type: 'module',
+        } as import('node:worker_threads').WorkerOptions & { type: 'module' });
 
-      tokenizerWorker.on('message', (msg: WorkerResponse) => {
-        const cb = callbacks.get(msg.id);
-        if (cb) {
-          callbacks.delete(msg.id);
-          if (msg.error) {
-            cb.reject(new Error(msg.error));
-          } else {
-            cb.resolve(msg.result ?? 0);
+        tokenizerWorker.on('message', (msg: WorkerResponse) => {
+          const cb = callbacks.get(msg.id);
+          if (cb) {
+            callbacks.delete(msg.id);
+            if (msg.error) {
+              cb.reject(new Error(msg.error));
+            } else {
+              cb.resolve(msg.result ?? 0);
+            }
           }
-        }
-      });
+        });
 
-      tokenizerWorker.on('error', (err) => {
-        console.warn('Tokenizer worker error', err);
-        tokenizerWorker?.terminate();
-        tokenizerWorker = null;
-      });
+        tokenizerWorker.on('error', (err) => {
+          console.warn('Tokenizer worker error', err);
+          tokenizerWorker?.terminate();
+          tokenizerWorker = null;
+        });
 
-      tokenizerWorker.on('exit', () => {
-        tokenizerWorker = null;
-      });
+        tokenizerWorker.on('exit', () => {
+          tokenizerWorker = null;
+        });
+      } else {
+        throw new Error('Tokenizer worker only available in Node.js environment');
+      }
     } catch (e) {
       tokenizerWorker = null;
       throw e;
