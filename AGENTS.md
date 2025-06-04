@@ -155,10 +155,10 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     Example: `feat(web): Add user profile page`
     If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
 *   **Checklist**:
-    *   All tests pass (`pnpm test`).
-    *   E2E tests pass (`pnpm test:e2e`).
-    *   Code is linted and formatted (`pnpm lint --fix` and `pnpm format`).
-    *   No type errors (`pnpm type-check`).
+    *   **Crucially, the entire following command chain must pass without errors:**
+        ```bash
+        pnpm install && pnpm run build && pnpm run lint && pnpm run type-check && pnpm run test && pnpm run test:e2e
+        ```
     *   PR description clearly explains the changes and reasoning.
     *   New functionality is covered by tests.
 
@@ -169,11 +169,20 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 
 ## Validating Changes (Summary)
 
-Before pushing code or opening a PR, ensure:
-1.  **Linting**: `pnpm lint --fix` (fix any reported issues).
-2.  **Formatting**: `pnpm format` (apply formatting).
-3.  **Type Checking**: `pnpm type-check` (resolve all TypeScript errors).
-4.  **Testing**: `pnpm test` (all tests should pass). For targeted tests, use filtering as described above.
-5.  **E2E Testing**: `pnpm test:e2e` (all E2E tests should pass for web app changes).
+Before pushing code or opening a PR, ensure the **entire** following command chain completes successfully:
+
+```bash
+pnpm install && pnpm run build && pnpm run lint && pnpm run type-check && pnpm run test && pnpm run test:e2e
+```
+
+This comprehensive check includes:
+1.  **Dependency Installation**: `pnpm install` (ensures all dependencies are correctly installed).
+2.  **Building**: `pnpm run build` (ensures the entire monorepo builds successfully).
+3.  **Linting**: `pnpm run lint` (fix any reported issues, `pnpm run lint --fix` can help).
+4.  **Type Checking**: `pnpm run type-check` (resolve all TypeScript errors).
+5.  **Unit & Integration Testing**: `pnpm run test` (all these tests should pass).
+6.  **End-to-End Testing**: `pnpm run test:e2e` (all E2E tests should pass, especially for web app changes).
+
+Only if this entire sequence is successful is the code considered ready for a Pull Request.
 
 By following these guidelines, we can maintain a high-quality, consistent, and efficient development workflow for the `brainstrike` project. 
