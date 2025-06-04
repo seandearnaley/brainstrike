@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "files": ["persistence-worker.ts", "file-content-worker.ts"],
+  "files": ["dist/**/*.js", "dist/**/*.d.ts"],
   "exports": {
-    "./persistence-worker": "./persistence-worker.ts",
-    "./file-content-worker": "./file-content-worker.ts"
+    "./persistence-worker": "./dist/persistence-worker.js",
+    "./file-content-worker": "./dist/file-content-worker.js",
+    "./tokenizer-worker": "./dist/tokenizer-worker.js",
+    "./watch-worker": "./dist/watch-worker.js"
   },
   "scripts": {
     "build": "tsc -b .",
+    "prepublishOnly": "pnpm run build",
     "type-check": "tsc --noEmit",
     "test": "vitest run"
   },

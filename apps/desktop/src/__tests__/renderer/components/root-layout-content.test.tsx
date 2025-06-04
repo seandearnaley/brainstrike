@@ -74,8 +74,7 @@ vi.mock('../../../renderer/components/settings/page-content', () => ({
 
 describe('RootLayoutContent', () => {
   it('should render without crashing', () => {
-    const { container } = render(<RootLayoutContent />);
-    console.log('Rendered HTML:', container.innerHTML);
+    render(<RootLayoutContent />);
     expect(screen.getByTestId('file-explorer-provider')).toBeInTheDocument();
   });
 

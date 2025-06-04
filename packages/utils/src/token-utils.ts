@@ -106,6 +106,17 @@ export async function countTokensAccurate(text: string): Promise<number> {
  * Estimate token count using the character heuristic (1 token ≈ 4 chars)
  * This is less accurate but much faster for very large inputs
  *
+ * Note: This is a rough approximation based on OpenAI's observation that
+ * on average, one token is about 4 characters in English text. The actual
+ * ratio varies significantly by language and content type:
+ * - English: ~4 chars/token
+ * - Code: ~3-4 chars/token
+ * - Chinese/Japanese: ~1-2 chars/token
+ * - URLs, base64: ~1 char/token
+ *
+ * Error margin: ±20-30% for typical English text, higher for other languages
+ * Reference: https://platform.openai.com/docs/guides/tokens
+ *
  * @param text - The text to estimate tokens for
  * @returns Estimated number of tokens in the text
  */

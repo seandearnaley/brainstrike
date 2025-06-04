@@ -157,7 +157,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 *   **Checklist**:
     *   **Crucially, the entire following command chain must pass without errors:**
         ```bash
-        pnpm install && pnpm run build && pnpm run lint && pnpm run type-check && pnpm run test && pnpm run test:e2e
+        pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e
         ```
     *   PR description clearly explains the changes and reasoning.
     *   New functionality is covered by tests.
@@ -172,7 +172,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 Before pushing code or opening a PR, ensure the **entire** following command chain completes successfully:
 
 ```bash
-pnpm install && pnpm run build && pnpm run lint && pnpm run type-check && pnpm run test && pnpm run test:e2e
+pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e
 ```
 
 This comprehensive check includes:

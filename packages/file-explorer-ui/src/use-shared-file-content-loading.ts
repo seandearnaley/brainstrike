@@ -12,7 +12,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-const MAX_CONCURRENT_LOADS = 20; // Increased concurrent file loads for better performance
+// Default concurrency based on hardware capabilities
+const getDefaultConcurrency = () => {
+  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) {
+    // Use number of CPU cores * 2 as a reasonable default
+    return Math.max(5, Math.min(50, navigator.hardwareConcurrency * 2));
+  }
+  return 20; // Fallback for environments without hardwareConcurrency
+};
+
+const MAX_CONCURRENT_LOADS = getDefaultConcurrency();
 
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
@@ -26,6 +35,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const store = useFileExplorerStoreContext();
 
   useEffect(() => {
+    // Note: createFileContentWorker returns a function, not a worker instance
+    // No cleanup needed as it doesn't create persistent resources
     workerRef.current = createFileContentWorker({
       fileSystemAdapter,
       concurrency: MAX_CONCURRENT_LOADS,

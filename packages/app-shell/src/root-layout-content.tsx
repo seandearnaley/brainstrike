@@ -1,6 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import type { NavigationItem } from './types';
@@ -21,13 +21,13 @@ export function RootLayoutContent({
   const [activeTab, setActiveTab] = useState<'explorer' | 'settings'>('explorer');
   const { storageAdapter } = useAdapters();
 
-  const handleNavigationClick = (path: string) => {
+  const handleNavigationClick = useCallback((path: string) => {
     if (path === '/') {
       setActiveTab('explorer');
     } else if (path === '/settings') {
       setActiveTab('settings');
     }
-  };
+  }, []);
 
   const appConfig = createAppConfig({ navigationItems });
 
