@@ -9,16 +9,90 @@
  * @param text - The text to count tokens for
  * @returns The number of tokens in the text
  */
-import { getTokenizer } from './tokenizer-loader';
+type NodeWorker = import('node:worker_threads').Worker;
+
+interface WorkerRequest {
+  id: number;
+  method: 'countTokensAccurate' | 'calculateGroupTokens';
+  text?: string;
+  texts?: string[];
+}
+
+interface WorkerResponse {
+  id: number;
+  result?: number;
+  error?: string;
+}
+
+let tokenizerWorker: NodeWorker | null = null;
+let requestId = 0;
+const callbacks = new Map<number, { resolve: (n: number) => void; reject: (err: Error) => void }>();
+
+async function initWorker(): Promise<NodeWorker> {
+  // biome-ignore lint/complexity/useLiteralKeys: env access
+  if (process.env['DISABLE_TOKEN_WORKER']) {
+    throw new Error('Tokenizer worker disabled');
+  }
+
+  if (!tokenizerWorker) {
+    try {
+      const { createRequire } = await import('node:module');
+      const { Worker } = await import('node:worker_threads');
+      const require = createRequire(import.meta.url);
+      const workerPath = new URL('../../workers/tokenizer-worker.js', import.meta.url);
+      const modulePath = require.resolve('gpt-tokenizer');
+      tokenizerWorker = new Worker(workerPath, {
+        workerData: { modulePath },
+        type: 'module',
+      } as import('node:worker_threads').WorkerOptions & { type: 'module' });
+
+      tokenizerWorker.on('message', (msg: WorkerResponse) => {
+        const cb = callbacks.get(msg.id);
+        if (cb) {
+          callbacks.delete(msg.id);
+          if (msg.error) {
+            cb.reject(new Error(msg.error));
+          } else {
+            cb.resolve(msg.result ?? 0);
+          }
+        }
+      });
+
+      tokenizerWorker.on('error', (err) => {
+        console.warn('Tokenizer worker error', err);
+        tokenizerWorker?.terminate();
+        tokenizerWorker = null;
+      });
+
+      tokenizerWorker.on('exit', () => {
+        tokenizerWorker = null;
+      });
+    } catch (e) {
+      tokenizerWorker = null;
+      throw e;
+    }
+  }
+
+  return tokenizerWorker;
+}
+
+async function runWorker(
+  method: WorkerRequest['method'],
+  payload: Omit<WorkerRequest, 'id' | 'method'>
+): Promise<number> {
+  const worker = await initWorker();
+  return new Promise((resolve, reject) => {
+    const id = requestId++;
+    callbacks.set(id, { resolve, reject });
+    worker.postMessage({ id, method, ...payload } satisfies WorkerRequest);
+  });
+}
 
 export async function countTokensAccurate(text: string): Promise<number> {
   try {
-    // Dynamically import on first use and cache the promise for subsequent calls
-    const tokenizer = await getTokenizer();
-    return tokenizer.encode(text).length;
+    return await runWorker('countTokensAccurate', { text });
   } catch (_e) {
-    // Fallback to heuristic method if the package is not available
-    console.warn('gpt-tokenizer not available, using heuristic estimate instead');
+    console.warn('Tokenizer worker unavailable, using heuristic estimate instead');
     return countTokensHeuristic(text);
   }
 }
@@ -65,12 +139,12 @@ export async function calculateGroupTokens(texts: string[], useHeuristic = false
   if (useHeuristic) {
     return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
   }
-
-  let total = 0;
-  for (const text of texts) {
-    total += await countTokensAccurate(text);
+  try {
+    return await runWorker('calculateGroupTokens', { texts });
+  } catch (_e) {
+    console.warn('Tokenizer worker unavailable, using heuristic estimate instead');
+    return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
   }
-  return total;
 }
 
 /**

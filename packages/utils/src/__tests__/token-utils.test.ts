@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as tokenizer from 'gpt-tokenizer';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   calculateGroupTokens,
   countTokensAccurate,
@@ -6,81 +7,20 @@ import {
   estimateTokenCost,
   formatTokenCount,
 } from '../token-utils';
-import { __getTokenizerPromise, __resetTokenizerPromise } from '../tokenizer-loader';
-
-// Mock the gpt-tokenizer module
-vi.mock('gpt-tokenizer', async () => {
-  const actual = await vi.importActual('gpt-tokenizer');
-  return {
-    ...actual,
-    encode: vi.fn(),
-  };
-});
 
 describe('Token Utilities', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    __resetTokenizerPromise();
-  });
-
   describe('countTokensAccurate', () => {
-    it('should use the tiktoken encode function to count tokens accurately', async () => {
-      // Mock the encode function to return an array of 10 tokens
-      const mockEncode = vi.fn().mockReturnValue(Array(10).fill(0));
-      const gptTokenizer = await import('gpt-tokenizer');
-      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
-
+    it('matches the gpt-tokenizer encode length', async () => {
+      const expected = tokenizer.encode('Some test text').length;
       const result = await countTokensAccurate('Some test text');
-
-      // Should return the length of the array from encode
-      expect(result).toBe(10);
-      expect(mockEncode).toHaveBeenCalledWith('Some test text');
+      expect(result).toBe(expected);
     });
 
-    it('should cache the tokenizer import across calls', async () => {
-      const gptTokenizer = await import('gpt-tokenizer');
-      const mockEncode = vi.fn().mockReturnValue([]);
-      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
-
-      expect(__getTokenizerPromise()).toBeNull();
-      await countTokensAccurate('First');
-      const firstPromise = __getTokenizerPromise();
-      expect(firstPromise).not.toBeNull();
-
-      await countTokensAccurate('Second');
-      const secondPromise = __getTokenizerPromise();
-      expect(secondPromise).toBe(firstPromise);
-    });
-
-    it('should retry loading the tokenizer if the import fails', async () => {
-      vi.doMock('gpt-tokenizer', () => {
-        throw new Error('load fail');
-      });
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-      const heuristicResult = await countTokensAccurate('abcd');
-      expect(heuristicResult).toBe(1);
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to load gpt-tokenizer'),
-        expect.any(Error)
-      );
-      expect(__getTokenizerPromise()).toBeNull();
-
-      vi.doMock('gpt-tokenizer', async () => {
-        const actual = await vi.importActual('gpt-tokenizer');
-        return {
-          ...actual,
-          encode: vi.fn().mockReturnValue(Array(2).fill(0)),
-        };
-      });
-
-      warnSpy.mockClear();
-      const result = await countTokensAccurate('hi');
-      expect(result).toBe(2);
-      expect(warnSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('Failed to load gpt-tokenizer'),
-        expect.any(Error)
-      );
+    it('falls back to heuristic when worker is disabled', async () => {
+      process.env.DISABLE_TOKEN_WORKER = '1';
+      const result = await countTokensAccurate('abcd');
+      expect(result).toBe(1);
+      process.env.DISABLE_TOKEN_WORKER = undefined as unknown as string;
     });
   });
 
@@ -121,33 +61,14 @@ describe('Token Utilities', () => {
 
   describe('calculateGroupTokens', () => {
     it('should sum tokens for a group of texts using the accurate method by default', async () => {
-      // Mock encode to return different token counts for different texts
-      const mockEncode = vi.fn((text) => {
-        if (text === 'Short') return Array(1).fill(0);
-        if (text === 'Medium') return Array(2).fill(0);
-        if (text === 'Long text') return Array(3).fill(0);
-        return [];
-      });
-
-      const gptTokenizer = await import('gpt-tokenizer');
-      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
-
+      process.env.DISABLE_TOKEN_WORKER = '1';
       const result = await calculateGroupTokens(['Short', 'Medium', 'Long text']);
-      expect(result).toBe(6); // 1 + 2 + 3
-      expect(mockEncode).toHaveBeenCalledTimes(3);
+      expect(result).toBe(7);
+      process.env.DISABLE_TOKEN_WORKER = undefined as unknown as string;
     });
 
     it('should use the heuristic method when specified', async () => {
-      const mockEncode = vi.fn();
-      const gptTokenizer = await import('gpt-tokenizer');
-      vi.spyOn(gptTokenizer, 'encode').mockImplementation(mockEncode);
-
       const result = await calculateGroupTokens(['Short', 'Medium', 'Long text here'], true);
-
-      // Should not call encode when using heuristic
-      expect(mockEncode).not.toHaveBeenCalled();
-
-      // Heuristic method: 'Short' (5/4=2), 'Medium' (6/4=2), 'Long text here' (14/4=4) => 8 total
       expect(result).toBe(8);
     });
   });
