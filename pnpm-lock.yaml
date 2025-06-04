@@ -81,9 +81,6 @@ importers:
       electron-store:
         specifier: ^10.0.1
         version: 10.0.1
-      lucide-react:
-        specifier: ^0.483.0
-        version: 0.483.0(react@19.1.0)
       react:
         specifier: ^19
         version: 19.1.0
@@ -175,9 +172,6 @@ importers:
       dompurify:
         specifier: ^3.2.4
         version: 3.2.5
-      lucide-react:
-        specifier: ^0.483.0
-        version: 0.483.0(react@19.1.0)
       monaco-editor:
         specifier: ^0.52.2
         version: 0.52.2
@@ -782,9 +776,6 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system
-      '@brainstrike/storage':
-        specifier: workspace:*
-        version: link:../storage
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
