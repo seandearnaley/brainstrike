@@ -201,49 +201,70 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    let watcher: fs.FSWatcher | null = null;
-
+    let WorkerThreads: typeof import('node:worker_threads');
     try {
-      watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
-        if (filename) {
+      WorkerThreads = require('node:worker_threads') as typeof import('node:worker_threads');
+    } catch {
+      console.warn('worker_threads module is not available');
+      return () => {};
+    }
+
+    const { Worker } = WorkerThreads;
+    const workerPath = new URL('../workers/watch-worker.js', import.meta.url).pathname;
+
+    const startFsWatch = (): (() => void) => {
+      let watcher: fs.FSWatcher | null = null;
+      try {
+        watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
+          if (!filename) return;
           const fullPath = path.join(handle.path, filename);
 
-          // Determine the actual type of the changed item
-          let kind: 'file' | 'directory' = 'file';
+          let kind: FileSystemChange['kind'] = 'file';
           try {
             const stats = fs.statSync(fullPath);
             kind = stats.isDirectory() ? 'directory' : 'file';
-          } catch {
-            // If we can't stat the file, it might have been deleted
-            // Default to 'file' for safety
-          }
+          } catch {}
 
-          // Map event types more accurately
           let changeType: FileSystemChange['type'] = 'modified';
           if (eventType === 'rename') {
-            // Check if the file still exists to determine if it was added or removed
             changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
           }
 
-          const change: FileSystemChange = {
-            type: changeType,
-            path: fullPath,
-            kind,
-          };
-          callback([change]);
-        }
-      });
+          callback([{ type: changeType, path: fullPath, kind }]);
+        });
 
-      return () => {
-        if (watcher) {
-          watcher.close();
-          watcher = null;
-        }
-      };
-    } catch (error) {
-      console.warn('Failed to watch directory:', error);
-      // Return a no-op function if watching fails
-      return () => {};
+        return () => {
+          watcher?.close();
+        };
+      } catch (error) {
+        console.warn('Failed to watch directory:', error);
+        return () => {};
+      }
+    };
+
+    if (!fs.existsSync(workerPath)) {
+      return startFsWatch();
     }
+
+    const worker = new Worker(workerPath, {
+      workerData: handle.path,
+    });
+
+    worker.on('message', (data: unknown) => {
+      if (Array.isArray(data)) {
+        callback(data as FileSystemChange[]);
+      } else if (data && typeof data === 'object' && 'error' in data) {
+        console.warn('Watch worker error:', (data as { error: string }).error);
+      }
+    });
+
+    worker.on('error', (err: unknown) => {
+      console.warn('Watch worker failure:', err);
+    });
+
+    return () => {
+      worker.postMessage('close');
+      worker.unref();
+    };
   }
 }
