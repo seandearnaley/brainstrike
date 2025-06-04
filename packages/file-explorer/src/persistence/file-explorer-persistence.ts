@@ -28,6 +28,20 @@ export const createPersistOptions = (
   let timer: ReturnType<typeof setTimeout> | null = null;
   const debounceMs = 200;
 
+  let worker: Worker | null = null;
+  if (typeof Worker !== 'undefined') {
+    try {
+      worker = new Worker(
+        new URL(import.meta.resolve('@brainstrike/workers/persistence-worker'), import.meta.url),
+        {
+          type: 'module',
+        }
+      );
+    } catch {
+      worker = null;
+    }
+  }
+
   const flush = async (name: string) => {
     const value = pendingValue;
     pendingValue = undefined;
@@ -61,6 +75,10 @@ export const createPersistOptions = (
         }
       },
       setItem: async (name: string, value: unknown) => {
+        if (worker) {
+          worker.postMessage({ name, value: JSON.stringify(value) });
+          return;
+        }
         pendingValue = value;
         if (timer) {
           clearTimeout(timer);

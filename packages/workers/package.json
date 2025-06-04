@@ -1,0 +1,17 @@
+{
+  "name": "@brainstrike/workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": ["persistence-worker.ts"],
+  "exports": {
+    "./persistence-worker": "./persistence-worker.ts"
+  },
+  "scripts": {
+    "build": "tsc -b .",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
