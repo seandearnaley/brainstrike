@@ -5,9 +5,13 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
 // Mock the ThemeSettings component
-vi.mock('@brainstrike/ui', () => ({
-  ThemeSettings: vi.fn(() => <div data-testid="theme-settings-mock">Theme Settings Mock</div>),
-}));
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...actual,
+    ThemeSettings: vi.fn(() => <div data-testid="theme-settings-mock">Theme Settings Mock</div>),
+  };
+});
 
 describe('SettingsPageContent', () => {
   beforeEach(() => {

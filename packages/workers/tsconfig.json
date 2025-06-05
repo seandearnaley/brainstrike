@@ -1,0 +1,22 @@
+{
+  "extends": "../../packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "rootDir": "./",
+    "outDir": "./dist",
+    "declaration": true,
+    "paths": {
+      "@brainstrike/storage": ["../storage/src"]
+    }
+  },
+  "include": ["*.ts", "!*.test.ts"],
+  "exclude": ["dist", "node_modules"],
+  "references": [
+    { "path": "../storage" },
+    { "path": "../types" },
+    { "path": "../file-system" },
+    { "path": "../utils" }
+  ]
+}

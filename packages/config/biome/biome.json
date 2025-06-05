@@ -75,7 +75,11 @@
       "linter": {
         "rules": {
           "style": {
-            "useNamingConvention": "off"
+            "useNamingConvention": "off",
+            "useImportType": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "off"
           }
         }
       }

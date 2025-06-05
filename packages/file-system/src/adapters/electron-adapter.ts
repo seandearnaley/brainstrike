@@ -201,48 +201,36 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    let watcher: fs.FSWatcher | null = null;
+    // Workers disabled for now - complex to bundle in monorepo
+    // Always use main thread fs.watch
+    // Note: Using fs.watch (non-recursive) for directory watching
 
+    // Simple fs.watch implementation
+    let watcher: fs.FSWatcher | null = null;
     try {
       watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
-        if (filename) {
-          const fullPath = path.join(handle.path, filename);
+        if (!filename) return;
+        const fullPath = path.join(handle.path, filename);
 
-          // Determine the actual type of the changed item
-          let kind: 'file' | 'directory' = 'file';
-          try {
-            const stats = fs.statSync(fullPath);
-            kind = stats.isDirectory() ? 'directory' : 'file';
-          } catch {
-            // If we can't stat the file, it might have been deleted
-            // Default to 'file' for safety
-          }
+        let kind: FileSystemChange['kind'] = 'file';
+        try {
+          const stats = fs.statSync(fullPath);
+          kind = stats.isDirectory() ? 'directory' : 'file';
+        } catch {}
 
-          // Map event types more accurately
-          let changeType: FileSystemChange['type'] = 'modified';
-          if (eventType === 'rename') {
-            // Check if the file still exists to determine if it was added or removed
-            changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
-          }
-
-          const change: FileSystemChange = {
-            type: changeType,
-            path: fullPath,
-            kind,
-          };
-          callback([change]);
+        let changeType: FileSystemChange['type'] = 'modified';
+        if (eventType === 'rename') {
+          changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
         }
+
+        callback([{ type: changeType, path: fullPath, kind }]);
       });
 
       return () => {
-        if (watcher) {
-          watcher.close();
-          watcher = null;
-        }
+        watcher?.close();
       };
     } catch (error) {
       console.warn('Failed to watch directory:', error);
-      // Return a no-op function if watching fails
       return () => {};
     }
   }

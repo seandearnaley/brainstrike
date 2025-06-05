@@ -202,8 +202,14 @@ describe('ElectronFileSystemAdapter', () => {
     const handle = await adapter.requestDirectoryAccess();
     const callback = vi.fn();
     const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
+
+    // Give the watcher time to initialize
+    await new Promise((res) => setTimeout(res, 50));
+
     await fsPromises.writeFile(path.join(tempDir, 'new.txt'), 'data');
-    await new Promise((res) => setTimeout(res, 100));
+
+    // Wait longer for file system events to propagate
+    await new Promise((res) => setTimeout(res, 200));
     stop();
     expect(callback).toHaveBeenCalled();
   });

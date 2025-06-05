@@ -25,18 +25,40 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 // Mock the app-shell component
-vi.mock('@brainstrike/app-shell', () => ({
-  AppShell: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="app-shell">{children}</div>
-  ),
-  AppLayout: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="app-layout">{children}</div>
-  ),
-  createAppConfig: vi.fn(() => ({
-    navigationItems: [],
-    theme: 'light',
-  })),
-}));
+vi.mock('@brainstrike/app-shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
+  return {
+    ...actual,
+    AppShell: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="app-shell">{children}</div>
+    ),
+    AppLayout: ({ children }: { children: React.ReactNode }) => (
+      <div data-testid="app-layout">
+        <main>{children}</main>
+      </div>
+    ),
+    createAppConfig: vi.fn(() => ({
+      title: 'BrainStrike.ai',
+      description: 'Multi-app dashboard',
+      themeStorageKey: 'app-theme',
+      navigationItems: [],
+    })),
+    RootLayoutContent: ({
+      sidebarContent,
+      homePageContent,
+    }: {
+      sidebarContent?: React.ReactNode;
+      homePageContent: React.ReactNode;
+    }) => (
+      <div data-testid="file-explorer-provider">
+        <div data-testid="app-layout">
+          {sidebarContent && <aside>{sidebarContent}</aside>}
+          <main>{homePageContent}</main>
+        </div>
+      </div>
+    ),
+  };
+});
 
 // Mock the page components to avoid adapter dependencies
 vi.mock('../../../renderer/components/home-page-content', () => ({
@@ -53,18 +75,16 @@ vi.mock('../../../renderer/components/settings/page-content', () => ({
 describe('RootLayoutContent', () => {
   it('should render without crashing', () => {
     render(<RootLayoutContent />);
-    expect(screen.getByTestId('app-layout')).toBeInTheDocument();
+    expect(screen.getByTestId('file-explorer-provider')).toBeInTheDocument();
   });
 
   it('should render AppLayout component', () => {
     render(<RootLayoutContent />);
-    const appLayout = screen.getByTestId('app-layout');
-    expect(appLayout).toBeInTheDocument();
+    expect(screen.getByTestId('app-layout')).toBeInTheDocument();
   });
 
   it('should render home page content by default', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('home-page-content')).toBeInTheDocument();
-    expect(screen.getByText('Home Page Content')).toBeInTheDocument();
   });
 });

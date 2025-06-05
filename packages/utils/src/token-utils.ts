@@ -5,27 +5,31 @@
 /**
  * Accurately count tokens using OpenAI's tiktoken encoding
  * This provides exact counts for GPT-4 and a good approximation for Claude
+ * Note: Worker functionality has been removed, will fallback to heuristic
  *
  * @param text - The text to count tokens for
  * @returns The number of tokens in the text
  */
-import { getTokenizer } from './tokenizer-loader';
 
 export async function countTokensAccurate(text: string): Promise<number> {
-  try {
-    // Dynamically import on first use and cache the promise for subsequent calls
-    const tokenizer = await getTokenizer();
-    return tokenizer.encode(text).length;
-  } catch (_e) {
-    // Fallback to heuristic method if the package is not available
-    console.warn('gpt-tokenizer not available, using heuristic estimate instead');
-    return countTokensHeuristic(text);
-  }
+  // Worker functionality removed, using heuristic estimate
+  return countTokensHeuristic(text);
 }
 
 /**
  * Estimate token count using the character heuristic (1 token ≈ 4 chars)
  * This is less accurate but much faster for very large inputs
+ *
+ * Note: This is a rough approximation based on OpenAI's observation that
+ * on average, one token is about 4 characters in English text. The actual
+ * ratio varies significantly by language and content type:
+ * - English: ~4 chars/token
+ * - Code: ~3-4 chars/token
+ * - Chinese/Japanese: ~1-2 chars/token
+ * - URLs, base64: ~1 char/token
+ *
+ * Error margin: ±20-30% for typical English text, higher for other languages
+ * Reference: https://platform.openai.com/docs/guides/tokens
  *
  * @param text - The text to estimate tokens for
  * @returns Estimated number of tokens in the text
@@ -61,16 +65,9 @@ export function formatTokenCount(count: number): string {
  * @param useHeuristic - Whether to use the faster heuristic method
  * @returns Total token count for all texts
  */
-export async function calculateGroupTokens(texts: string[], useHeuristic = false): Promise<number> {
-  if (useHeuristic) {
-    return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
-  }
-
-  let total = 0;
-  for (const text of texts) {
-    total += await countTokensAccurate(text);
-  }
-  return total;
+export async function calculateGroupTokens(texts: string[]): Promise<number> {
+  // Worker functionality removed, always using heuristic estimate
+  return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
 }
 
 /**

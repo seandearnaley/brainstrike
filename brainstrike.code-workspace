@@ -1,0 +1,48 @@
+{
+  "folders": [
+    {
+      "name": "Root",
+      "path": "."
+    },
+    {
+      "name": "App Shell",
+      "path": "./packages/app-shell"
+    },
+    {
+      "name": "Web App",
+      "path": "./apps/web"
+    },
+    {
+      "name": "Desktop App", 
+      "path": "./apps/desktop"
+    },
+    {
+      "name": "UI Components",
+      "path": "./packages/ui"
+    },
+    {
+      "name": "File Explorer",
+      "path": "./packages/file-explorer"
+    },
+    {
+      "name": "File Explorer UI",
+      "path": "./packages/file-explorer-ui"
+    },
+    {
+      "name": "File Explorer Hooks",
+      "path": "./packages/file-explorer-hooks"
+    }
+  ],
+  "settings": {
+    "typescript.preferences.includePackageJsonAutoImports": "on",
+    "typescript.enablePromptUseWorkspaceTsdk": true,
+    "typescript.workspaceSymbols.scope": "allOpenProjects",
+    "typescript.tsdk": "node_modules/typescript/lib"
+  },
+  "extensions": {
+    "recommendations": [
+      "biomejs.biome",
+      "ms-vscode.vscode-typescript-next"
+    ]
+  }
+} 

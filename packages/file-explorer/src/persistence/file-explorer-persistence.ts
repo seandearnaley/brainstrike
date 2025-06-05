@@ -26,7 +26,11 @@ export const createPersistOptions = (
 ): PersistOptions<FileExplorerState, SerializedState> => {
   let pendingValue: unknown;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let currentStoreName = '';
   const debounceMs = 200;
+
+  // Workers are disabled for now - they cause build issues in monorepo
+  // The persistence will use the fallback debounced approach
 
   const flush = async (name: string) => {
     const value = pendingValue;
@@ -41,6 +45,20 @@ export const createPersistOptions = (
       }
     }
   };
+
+  // Add beforeunload handler to flush pending values
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+      if (pendingValue !== undefined && currentStoreName) {
+        // Attempt synchronous flush on tab close
+        try {
+          localStorage.setItem(currentStoreName, JSON.stringify(pendingValue));
+        } catch {
+          // Ignore errors during beforeunload
+        }
+      }
+    });
+  }
 
   return {
     name: 'file-explorer-storage-v4',
@@ -61,7 +79,9 @@ export const createPersistOptions = (
         }
       },
       setItem: async (name: string, value: unknown) => {
+        // Always use the non-worker path since workers are disabled
         pendingValue = value;
+        currentStoreName = name;
         if (timer) {
           clearTimeout(timer);
         }
