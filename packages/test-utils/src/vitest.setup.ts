@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { beforeEach, expect, vi } from 'vitest';
+import { beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
 // Configure React 19 test environment
@@ -9,23 +9,9 @@ beforeEach(() => {
   resetStore();
 });
 
-// Add custom matchers
-expect.extend({
-  toBeInTheDocument(received) {
-    const pass = Boolean(received);
-    if (pass) {
-      return {
-        message: () => `expected ${received} not to be in the document`,
-        pass: true,
-      };
-    }
-
-    return {
-      message: () => `expected ${received} to be in the document`,
-      pass: false,
-    };
-  },
-});
+// The import '@testing-library/jest-dom' at the top should handle extending expect.
+// The custom expect.extend for toBeInTheDocument has been removed as it's redundant
+// and potentially conflicting.
 
 if (typeof window !== 'undefined') {
   // Mock window.matchMedia

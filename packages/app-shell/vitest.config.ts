@@ -1,4 +1,5 @@
 /// <reference types="vitest" />
+/// <reference types="@testing-library/jest-dom" />
 import { defineConfig } from 'vitest/config';
 import path from 'node:path';
 
@@ -20,7 +21,7 @@ export default defineConfig({
         '**/vitest.config.ts',
         '**/src/types.ts', // Type definitions only
         '**/src/index.ts', // Re-export file
-        '**/src/app-layout.tsx', // Simple wrapper component
+        // '**/src/app-layout.tsx', // Simple wrapper component -- Commenting out for coverage
         '**/src/page-wrapper.tsx', // Simple wrapper component
       ],
       thresholds: {
@@ -34,6 +35,7 @@ export default defineConfig({
   resolve: {
     alias: {
       electron: path.resolve(__dirname, '../storage/__mocks__/electron.ts'),
+      '@brainstrike/storage': path.resolve(__dirname, '../storage/dist'),
     },
   },
 });

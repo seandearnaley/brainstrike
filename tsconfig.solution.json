@@ -38,6 +38,9 @@
       "path": "packages/file-explorer-ui"
     },
     {
+      "path": "packages/workers"
+    },
+    {
       "path": "apps/web"
     },
     {
