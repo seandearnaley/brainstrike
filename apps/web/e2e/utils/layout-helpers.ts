@@ -63,6 +63,13 @@ export async function resetLayoutState(page: Page): Promise<void> {
 }
 
 /**
+ * Clear file explorer settings from localStorage
+ */
+export async function resetFileExplorerSettings(page: Page): Promise<void> {
+  await page.evaluate(() => localStorage.removeItem('fileExplorerSettings'));
+}
+
+/**
  * Get the current dimensions of a panel
  */
 export async function getPanelDimensions(panel: Locator): Promise<{ width: number; height: number }> {

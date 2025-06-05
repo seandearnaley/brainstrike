@@ -99,6 +99,10 @@ module.exports = {
 };
 ```
 
+## Configuration
+
+See [docs/file-explorer-settings.md](docs/file-explorer-settings.md) for available file explorer settings.
+
 
 ## Contributing
 - Follow [AGENTS.md](./AGENTS.md) for coding standards and workflow

@@ -4,7 +4,7 @@
   This separation helps reduce complexity in the main FileExplorer.test.tsx file.
 */
 
-import { useFileExplorerSettings, useFileSystem } from '@brainstrike/file-explorer-hooks';
+import { useFileSystem } from '@brainstrike/file-explorer-hooks';
 import { useFileExplorer } from '@brainstrike/file-explorer-hooks';
 import { createFileNode } from '@brainstrike/test-utils'; // Changed import path
 import type { FileExplorerState, IFileNode } from '@brainstrike/types'; // Import necessary types
@@ -39,7 +39,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
       handleDirectorySelectError: vi.fn(),
       handleSelectionLimitError: vi.fn(),
     })),
-    useFileExplorerSettings: vi.fn(),
   };
 });
 const {
@@ -265,19 +264,6 @@ const mockFileExplorer = {
   onDisplayedFilePathsChange: vi.fn(),
 };
 
-// Mock implementation for useFileExplorerSettings
-const mockSettings = {
-  settings: {
-    maxSelectionCount: 10,
-    includeFilters: [],
-    excludeFilters: [],
-    useRegex: false,
-    includeProjectTree: true,
-    folderSummaryThreshold: 3,
-  },
-  updateSettings: vi.fn(),
-};
-
 // "File Content Loading" test suite, extracted from FileExplorer.test.tsx
 describe('File Content Loading', () => {
   beforeEach(() => {
@@ -308,12 +294,6 @@ describe('File Content Loading', () => {
       fileTree: mockFilteredTree,
       loadFileContent: mockLoadFileContent,
       fileContents: mockFileContents,
-    });
-
-    // Setup useFileExplorerSettings mock correctly in beforeEach
-    (useFileExplorerSettings as ReturnType<typeof vi.fn>).mockReturnValue({
-      settings: mockSettings.settings,
-      updateSettings: mockSettings.updateSettings,
     });
 
     // Setup useQuickFilter mock correctly in beforeEach

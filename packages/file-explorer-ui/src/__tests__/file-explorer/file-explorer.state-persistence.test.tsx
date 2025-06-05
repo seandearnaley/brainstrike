@@ -14,7 +14,6 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     ...actual,
     useFileExplorer: () => ({}),
     useToastManager: () => ({}),
-    useFileExplorerSettings: () => ({}),
     useFileLoadingManager: () => ({}),
     useSelectionManager: () => ({
       selectedFilePaths: new Set(),
@@ -45,10 +44,6 @@ vi.mock('@brainstrike/hooks', async (importOriginal) => {
     useReportGeneration: () => ({}),
   };
 });
-
-vi.mock('@web/hooks/use-file-explorer-settings', () => ({
-  useFileExplorerSettings: () => ({}),
-}));
 
 vi.mock('@web/hooks/use-report-manager', () => ({
   useReportManager: () => ({}),
