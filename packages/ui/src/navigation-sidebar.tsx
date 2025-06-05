@@ -1,4 +1,4 @@
-import type { ComponentType, ReactElement, ReactNode } from 'react';
+import React, { type ComponentType, type ReactElement, type ReactNode } from 'react';
 import { cn } from './lib/utils';
 
 export interface NavigationItem {
@@ -14,7 +14,7 @@ export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement
   onItemClick?: (path: string) => void;
 }
 
-export function NavigationSidebar({
+const NavigationSidebar = React.memo(function NavigationSidebar({
   items,
   currentPath,
   children,
@@ -70,4 +70,7 @@ export function NavigationSidebar({
       {children ? <div className="mt-auto">{children}</div> : null}
     </aside>
   );
-}
+});
+NavigationSidebar.displayName = 'NavigationSidebar';
+
+export { NavigationSidebar };
