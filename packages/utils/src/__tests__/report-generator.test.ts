@@ -1,5 +1,8 @@
 import {
   type DirectoryHandle,
+  type FileHandle,
+  type FileSystemAdapter,
+  type IFileNode,
   type MockFileEntry,
   MockFileSystemAdapter,
 } from '@brainstrike/file-system';
@@ -493,5 +496,127 @@ describe('generateReportFromAdapter', () => {
     expect(report).toContain('src/index.ts');
 
     spy.mockRestore();
+  });
+
+  it('flags symlinks, depth truncation, and ignores standard paths', async () => {
+    // Minimal helper functions to create file and directory nodes
+    const dirNode = (path: string, name?: string): MockFileEntry => ({
+      name: name ?? (path.split('/').pop() || ''),
+      type: 'directory',
+      children: {},
+    });
+
+    const fileNode = (path: string): MockFileEntry => ({
+      name: path.split('/').pop() || '',
+      type: 'file',
+      content: '',
+    });
+
+    // Build custom structure with a symlink-like entry and deep nesting
+    const makeDirHandle = (path: string): DirectoryHandle => ({
+      path,
+      name: path.split('/').pop() || path,
+      kind: 'directory',
+      platform: 'web',
+    });
+    const makeFileHandle = (path: string): FileHandle => ({
+      path,
+      name: path.split('/').pop() || path,
+      kind: 'file',
+      platform: 'web',
+    });
+
+    const dirNodeFull = (path: string, name?: string): IFileNode => ({
+      name: name ?? (path.split('/').pop() || ''),
+      path,
+      type: 'directory',
+      handle: makeDirHandle(path),
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: 'root',
+    });
+    const fileNodeFull = (path: string): IFileNode => ({
+      name: path.split('/').pop() || '',
+      path,
+      type: 'file',
+      handle: makeFileHandle(path),
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: 'root',
+    });
+
+    const structure: Record<string, IFileNode[]> = {};
+    structure.root = [
+      dirNodeFull('root/dir'),
+      dirNodeFull('root/deep'),
+      dirNodeFull('root', 'root-link'),
+      dirNodeFull('root/node_modules'),
+      dirNodeFull('root/.git'),
+    ];
+    structure['root/dir'] = [fileNodeFull('root/dir/file.txt')];
+
+    // deep directory chain
+    let prevPath = 'root/deep';
+    for (let i = 0; i < 31; i++) {
+      const currentPath = `${prevPath}/dir${i}`;
+      structure[prevPath] = [dirNodeFull(currentPath)];
+      prevPath = currentPath;
+    }
+    structure[prevPath] = [fileNodeFull(`${prevPath}/end.txt`)];
+
+    structure['root/node_modules'] = [fileNodeFull('root/node_modules/ignored.js')];
+    structure['root/.git'] = [fileNodeFull('root/.git/HEAD')];
+
+    class SimpleAdapter implements FileSystemAdapter {
+      constructor(private readonly map: Record<string, IFileNode[]>) {}
+      async requestDirectoryAccess(): Promise<DirectoryHandle> {
+        return { path: 'root', name: 'root', kind: 'directory', platform: 'web' };
+      }
+      async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+        return this.map[handle.path] || [];
+      }
+      async readFile(): Promise<string> {
+        return '';
+      }
+      async exists(): Promise<boolean> {
+        return false;
+      }
+    }
+
+    const customAdapter = new SimpleAdapter(structure);
+    const customRoot = await customAdapter.requestDirectoryAccess();
+
+    // Capture the file tree passed to generateProjectTreeText
+    const treeModule = await import('../tree-generator');
+    let captured: import('@brainstrike/types').IFileNode[] = [];
+    const treeSpy = vi.spyOn(treeModule, 'generateProjectTreeText').mockImplementation((nodes) => {
+      captured = nodes;
+      return '';
+    });
+
+    await generateReportFromAdapter(new Set(), {}, customAdapter, customRoot, [], [], false, true);
+
+    treeSpy.mockRestore();
+
+    // Ensure ignored directories were skipped
+    expect(captured.some((n) => n.name === 'node_modules')).toBe(false);
+    expect(captured.some((n) => n.name === '.git')).toBe(false);
+
+    // Check symbolic link flag
+    const linkNode = captured.find((n) => n.name === 'root-link');
+    expect(linkNode?.isSymbolicLink).toBe(true);
+
+    // Traverse deep chain to verify depth truncation flag
+    function findNode(nodes: IFileNode[] | undefined, target: string): IFileNode | undefined {
+      if (!nodes) return undefined;
+      for (const node of nodes) {
+        if (node.name === target) return node;
+        const found = findNode(node.children, target);
+        if (found) return found;
+      }
+      return undefined;
+    }
+    const truncated = findNode(captured, 'dir28');
+    expect(truncated?.isDepthTruncated).toBe(true);
   });
 });

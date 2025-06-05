@@ -15,5 +15,7 @@ export default defineWorkspace([
   './packages/file-system/vitest.config.ts',
   './packages/app-shell/vitest.config.ts',
   './packages/fonts/vitest.config.ts',
+  './packages/config/vitest.config.ts',
+  './packages/tailwind-config/vitest.config.ts',
   './packages/server-config/package.json',
 ]);

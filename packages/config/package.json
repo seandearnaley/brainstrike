@@ -14,9 +14,10 @@
 		"./tsconfig/*": "./tsconfig/*"
 	},
 	"scripts": {
-		"clean": "rm -rf dist .tsbuildinfo",
-		"lint": "pnpm run --dir=../.. lint"
-	},
+        "clean": "rm -rf dist .tsbuildinfo",
+        "lint": "pnpm run --dir=../.. lint",
+        "test": "vitest run"
+        },
 	"dependencies": {},
         "devDependencies": {
                 "typescript": "^5.8.3"
