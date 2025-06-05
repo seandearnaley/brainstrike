@@ -32,7 +32,7 @@ const useCancelButtonDelay = (isLoading: boolean, cancellable: boolean, isCancel
   const [showCancelButton, setShowCancelButton] = useState(false);
 
   useEffect(() => {
-    let timer: NodeJS.Timeout | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
 
     if (isLoading && cancellable && !isCancelling) {
       timer = setTimeout(() => {

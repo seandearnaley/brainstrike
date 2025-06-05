@@ -455,6 +455,9 @@ importers:
       '@testing-library/user-event':
         specifier: ^14
         version: 14.6.1(@testing-library/dom@10.4.0)
+      '@types/node':
+        specifier: ^22
+        version: 22.15.17
       '@types/react':
         specifier: ^19
         version: 19.1.3

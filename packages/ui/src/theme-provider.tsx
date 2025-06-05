@@ -22,16 +22,18 @@ export function ThemeProvider({
   children,
   defaultTheme = 'system',
   storageKey = 'ui-theme',
-  storageAdapter = new WebStorageAdapter(),
+  storageAdapter,
   ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = React.useState<Theme>(defaultTheme);
   const [mounted, setMounted] = React.useState(false);
 
+  const adapter = React.useMemo(() => storageAdapter ?? new WebStorageAdapter(), [storageAdapter]);
+
   // Only access storage after component is mounted (client-side)
   React.useEffect(() => {
     async function loadTheme() {
-      const savedTheme = (await storageAdapter.getItem(storageKey)) as Theme | null;
+      const savedTheme = (await adapter.getItem(storageKey)) as Theme | null;
       if (savedTheme) {
         setTheme(savedTheme);
       }
@@ -39,7 +41,7 @@ export function ThemeProvider({
     }
 
     void loadTheme();
-  }, [storageAdapter, storageKey]);
+  }, [adapter, storageKey]);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
@@ -58,13 +60,21 @@ export function ThemeProvider({
     root.classList.add(theme);
   }, [theme]);
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      void storageAdapter.setItem(storageKey, theme);
-      setTheme(theme);
+  const setAndStoreTheme = React.useCallback(
+    (newTheme: Theme) => {
+      void adapter.setItem(storageKey, newTheme);
+      setTheme(newTheme);
     },
-  };
+    [adapter, storageKey]
+  );
+
+  const value = React.useMemo(
+    () => ({
+      theme,
+      setTheme: setAndStoreTheme,
+    }),
+    [theme, setAndStoreTheme]
+  );
 
   // Prevent flash of incorrect theme
   if (!mounted) {

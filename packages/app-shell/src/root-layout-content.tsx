@@ -1,6 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
-import { type ReactNode, useCallback, useState } from 'react';
+import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import type { NavigationItem } from './types';
@@ -29,7 +29,7 @@ export function RootLayoutContent({
     }
   }, []);
 
-  const appConfig = createAppConfig({ navigationItems });
+  const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
 
   return (
     <FileExplorerProvider storageAdapter={storageAdapter}>

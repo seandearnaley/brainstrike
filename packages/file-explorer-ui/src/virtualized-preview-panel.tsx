@@ -1,7 +1,10 @@
-import { Badge, Button, Checkbox, Progress, ScrollArea } from '@brainstrike/ui';
+import { Badge, Button, Checkbox, Progress } from '@brainstrike/ui';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, FileIcon, FileX2, Folder, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, FileX2 } from 'lucide-react';
 import { memo, useCallback, useMemo, useRef, useState } from 'react';
+import FileDetailPanel from './file-detail-panel';
+import FileRow from './file-row';
+import FolderHeaderRow from './folder-header-row';
 
 interface VirtualizedPreviewPanelProps {
   selectedFiles: Set<string>;
@@ -52,25 +55,6 @@ function formatTokenCount(tokens: number): string {
   if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
   return `${(tokens / 1000000).toFixed(1)}M`;
 }
-
-const getFolderColor = (folderId: string) => {
-  // Simple hash-based color generation
-  let hash = 0;
-  for (let i = 0; i < folderId.length; i++) {
-    hash = folderId.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hue = Math.abs(hash % 360);
-  return {
-    light: {
-      bg: `hsl(${hue}, 40%, 95%)`,
-      text: `hsl(${hue}, 60%, 30%)`,
-    },
-    dark: {
-      bg: `hsl(${hue}, 30%, 15%)`,
-      text: `hsl(${hue}, 40%, 80%)`,
-    },
-  };
-};
 
 export const VirtualizedPreviewPanel = memo<VirtualizedPreviewPanelProps>(
   ({
@@ -476,167 +460,3 @@ export const VirtualizedPreviewPanel = memo<VirtualizedPreviewPanelProps>(
 );
 
 VirtualizedPreviewPanel.displayName = 'VirtualizedPreviewPanel';
-
-// Folder header component
-interface FolderHeaderRowProps {
-  item: FolderHeaderItem;
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
-}
-
-const FolderHeaderRow = memo<FolderHeaderRowProps>(({ item, isCollapsed, onToggleCollapse }) => {
-  const colors = getFolderColor(item.folderId);
-
-  return (
-    <button
-      type="button"
-      className="w-full h-full flex items-center gap-3 px-4 py-3 text-left hover:opacity-80 transition-opacity"
-      style={{
-        backgroundColor: colors.light.bg,
-        color: colors.light.text,
-      }}
-      onClick={onToggleCollapse}
-    >
-      <style>
-        {`
-          :global(.dark) [data-folder-id="${item.folderId}"] {
-            background-color: ${colors.dark.bg} !important;
-            color: ${colors.dark.text} !important;
-          }
-        `}
-      </style>
-      <div className="flex items-center gap-2">
-        {isCollapsed ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />}
-        <Folder className="h-4 w-4" />
-      </div>
-      <span className="flex-1 truncate font-medium">{item.folderId}</span>
-      <div className="flex items-center gap-2 text-xs opacity-80">
-        <span>{item.fileCount} files</span>
-        {item.totalTokens > 0 && (
-          <Badge variant="secondary" className="text-xs">
-            {formatTokenCount(item.totalTokens)}
-          </Badge>
-        )}
-      </div>
-    </button>
-  );
-});
-
-FolderHeaderRow.displayName = 'FolderHeaderRow';
-
-// File row component
-interface FileRowProps {
-  item: FileItem;
-  isSelected: boolean;
-  isLoading: boolean;
-  onToggleSelection: (checked: boolean) => void;
-  onRemove: () => void;
-  onShowDetail: () => void;
-  formatFileSize: (bytes?: number) => string;
-}
-
-const FileRow = memo<FileRowProps>(
-  ({ item, isSelected, isLoading, onToggleSelection, onRemove, onShowDetail, formatFileSize }) => {
-    return (
-      <div className="w-full h-full flex items-center gap-3 px-4 py-2 hover:bg-muted/50 border-b border-border/50">
-        <Checkbox
-          checked={isSelected}
-          onCheckedChange={(checked) => onToggleSelection(checked === true)}
-          className="flex-shrink-0"
-        />
-
-        <FileIcon className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-
-        <button
-          type="button"
-          className="flex-1 min-w-0 text-left hover:text-primary transition-colors"
-          onClick={onShowDetail}
-        >
-          <div className="truncate font-mono text-sm" title={item.path}>
-            {item.path}
-          </div>
-        </button>
-
-        <div className="flex items-center gap-3 flex-shrink-0 text-xs text-muted-foreground">
-          {isLoading && <Loader2 className="h-3 w-3 animate-spin" data-testid="loading-spinner" />}
-          <span className="min-w-[60px] text-right">{formatFileSize(item.size)}</span>
-          <span className="min-w-[50px] text-right">
-            {item.tokens ? formatTokenCount(item.tokens) : 'N/A'}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={onRemove}
-            title="Remove from selection"
-          >
-            <FileX2 className="h-3 w-3" />
-          </Button>
-        </div>
-      </div>
-    );
-  }
-);
-
-FileRow.displayName = 'FileRow';
-
-// File detail panel component
-interface FileDetailPanelProps {
-  compositeKey: string;
-  fileContents: { [compositeKey: string]: string };
-  loadingFiles: Set<string>;
-  onClose: () => void;
-  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-}
-
-const FileDetailPanel = memo<FileDetailPanelProps>(
-  ({ compositeKey, fileContents, loadingFiles, onClose, decodeFileSelection }) => {
-    const { path } = decodeFileSelection(compositeKey);
-    const content = fileContents[compositeKey];
-    const isLoading = loadingFiles.has(compositeKey);
-
-    return (
-      <div className="w-96 border-l border-border flex flex-col bg-background">
-        <div className="p-3 border-b flex items-center justify-between">
-          <div className="min-w-0 flex-1">
-            <h3 className="font-medium truncate" title={path}>
-              {path}
-            </h3>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} className="flex-shrink-0">
-            <FileX2 className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <ScrollArea className="flex-1">
-          <div className="p-4">
-            {isLoading ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading...
-              </div>
-            ) : content ? (
-              <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto">
-                {content.startsWith('File not accessible') ? (
-                  <div className="text-amber-600 dark:text-amber-400">
-                    <p>{content}</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      To access this file, please open the folder again using the folder selection
-                      dialog.
-                    </p>
-                  </div>
-                ) : (
-                  content
-                )}
-              </pre>
-            ) : (
-              <div className="text-muted-foreground">No content available</div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-    );
-  }
-);
-
-FileDetailPanel.displayName = 'FileDetailPanel';
