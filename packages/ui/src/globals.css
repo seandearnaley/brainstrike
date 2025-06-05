@@ -112,4 +112,33 @@
   ::file-selector-button {
     border-color: hsl(var(--border));
   }
+
+  /* Global scrollbar styling */
+  body {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground)) hsl(var(--muted));
+  }
+
+  body::-webkit-scrollbar {
+    width: 8px;
+    height: 8px; /* For horizontal scrollbars */
+  }
+
+  body::-webkit-scrollbar-track {
+    background: hsl(var(--muted));
+    border-radius: 4px;
+  }
+
+  body::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground));
+    border-radius: 4px;
+  }
+
+  body::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--accent-foreground));
+  }
+
+  body::-webkit-scrollbar-corner {
+    background: hsl(var(--muted)); /* Or transparent */
+  }
 }
