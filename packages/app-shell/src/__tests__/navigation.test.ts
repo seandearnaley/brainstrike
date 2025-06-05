@@ -1,4 +1,3 @@
-/// <reference types="vitest/globals" />
 import { Folder, Settings } from 'lucide-react';
 import { navigationItems } from '../navigation';
 

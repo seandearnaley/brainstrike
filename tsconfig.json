@@ -21,16 +21,19 @@
     "declarationMap": false,
     "incremental": false
   },
-  "include": [],
+  "include": ["**/*.ts", "**/*.tsx"],
   "exclude": ["node_modules", ".turbo", "dist"],
   "references": [
-    {"path": "./apps/web"},
-    {"path": "./packages/hooks"},
     {"path": "./packages/types"},
-    {"path": "./packages/ui"},
     {"path": "./packages/utils"},
+    {"path": "./packages/hooks"},
+    {"path": "./packages/ui"},
+    {"path": "./packages/fonts"},
+    {"path": "./packages/app-shell"},
+    {"path": "./packages/file-explorer"},
     {"path": "./packages/file-explorer-hooks"},
     {"path": "./packages/file-explorer-ui"},
-    {"path": "./packages/storage"}
+    {"path": "./packages/storage"},
+    {"path": "./apps/web"}
   ]
 }

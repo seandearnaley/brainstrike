@@ -1,8 +1,5 @@
-import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { fireEvent, render, screen } from '@testing-library/react';
-/// <reference types="@testing-library/jest-dom" />
-import React from 'react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
@@ -38,6 +35,9 @@ vi.mock('../app-layout', () => ({
       </button>
       <button type="button" onClick={() => onNavigationClick('/settings')}>
         Settings
+      </button>
+      <button type="button" onClick={() => onNavigationClick('/unknown')}>
+        Unknown
       </button>
       <div>Current Path: {currentPath}</div>
       {config.navigationItems.map((item: NavigationItem) => (
@@ -116,6 +116,26 @@ describe('RootLayoutContent', () => {
     expect(screen.queryByTestId('settings-page')).not.toBeVisible();
     expect(screen.getByTestId('sidebar-content')).toBeVisible();
     expect(screen.getByText('Current Path: /')).toBeInTheDocument();
+  });
+
+  it('should not change tab for an unknown navigation path', () => {
+    render(
+      <RootLayoutContent
+        navigationItems={mockNavigationItems}
+        homePageContent={<MockHomePage />}
+        settingsPageContent={<MockSettingsPage />}
+        sidebarContent={<MockSidebar />}
+      />
+    );
+    expect(screen.getByTestId('home-page')).toBeVisible();
+    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Unknown'));
+
+    expect(screen.getByTestId('home-page')).toBeVisible();
+    expect(screen.queryByTestId('settings-page')).not.toBeVisible();
+    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
+    expect(screen.getByTestId('sidebar-content')).toBeVisible();
   });
 
   it('should not show sidebar content when on settings page', () => {
