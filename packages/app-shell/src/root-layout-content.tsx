@@ -52,11 +52,10 @@ export function RootLayoutContent({
           <div
             className="h-full"
             style={{
-              visibility: activeTab === 'explorer' ? 'visible' : 'hidden',
-              position: activeTab === 'explorer' ? 'relative' : 'absolute',
+              display: activeTab === 'explorer' ? 'block' : 'none',
+              position: 'relative',
               width: '100%',
               height: '100%',
-              pointerEvents: activeTab === 'explorer' ? 'auto' : 'none',
             }}
           >
             {homePageContent}
@@ -64,13 +63,10 @@ export function RootLayoutContent({
           <div
             className="h-full"
             style={{
-              visibility: activeTab === 'settings' ? 'visible' : 'hidden',
-              position: 'absolute',
-              top: 0,
-              left: 0,
+              display: activeTab === 'settings' ? 'block' : 'none',
+              position: 'relative',
               width: '100%',
               height: '100%',
-              pointerEvents: activeTab === 'settings' ? 'auto' : 'none',
             }}
           >
             {settingsPageContent}

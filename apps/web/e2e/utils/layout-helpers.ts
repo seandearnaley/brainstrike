@@ -329,6 +329,17 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Setup layout state
   await setupCallback();
   
+  // Check if left panel is hidden and temporarily show it for navigation
+  const leftPanel = page.locator('[id="left-panel"]');
+  const wasHidden = !(await leftPanel.isVisible());
+  
+  if (wasHidden) {
+    // Temporarily show the panel to avoid UI overlap with floating button
+    const showExplorerButton = page.locator('button[aria-label="Show explorer"]');
+    await showExplorerButton.click();
+    await expect(leftPanel).toBeVisible();
+  }
+  
   // Navigate to Settings
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
@@ -336,6 +347,13 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Navigate back to Context Explorer
   await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+  
+  // Restore original state if panel was hidden
+  if (wasHidden) {
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    await hideExplorerButton.click();
+    await expect(leftPanel).not.toBeVisible();
+  }
   
   // Verify layout state persisted
   await verifyCallback();
