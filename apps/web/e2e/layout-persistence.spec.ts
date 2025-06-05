@@ -339,9 +339,6 @@ test.describe('IDE Layout Persistence', () => {
       const viewportSize = page.viewportSize();
       if (!viewportSize) throw new Error('Viewport size not available');
       
-      // Get initial width
-      const initialWidth = await leftPanel.evaluate(el => el.getBoundingClientRect().width);
-      
       // Try to resize panel to very small size (should be constrained to minimum)
       const resizeHandle = page.locator('[data-panel-resize-handle-enabled="true"]').first();
       const handleBox = await resizeHandle.boundingBox();
