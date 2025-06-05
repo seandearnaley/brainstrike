@@ -65,6 +65,8 @@ export const FileExplorerLeftPanel: React.FC = () => {
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const handleDisplayedFilesChange = useCallback(() => {}, []);
+
   const {
     fileTree,
     handleRootDirectorySelect,
@@ -83,7 +85,7 @@ export const FileExplorerLeftPanel: React.FC = () => {
     cancelOperation,
     isCancelling,
   } = useFileExplorer({
-    onDisplayedFilePathsChange: () => {}, // Empty callback since this component doesn't need to track displayed files
+    onDisplayedFilePathsChange: handleDisplayedFilesChange,
   });
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({

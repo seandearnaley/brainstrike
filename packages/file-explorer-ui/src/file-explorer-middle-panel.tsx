@@ -4,7 +4,7 @@ import { useUndoableAction } from '@brainstrike/hooks';
 import { LoadingFallback } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useCallback } from 'react';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -20,8 +20,10 @@ const FileExplorerMainPanel = lazy(() =>
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanel: React.FC = () => {
+  const handleDisplayedFilesChange = useCallback(() => {}, []);
+
   const { fileContents, loadingFiles, rootDirectoryHandle } = useFileExplorer({
-    onDisplayedFilePathsChange: () => {}, // Empty callback since this component doesn't need to track displayed files
+    onDisplayedFilePathsChange: handleDisplayedFilesChange,
   });
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
