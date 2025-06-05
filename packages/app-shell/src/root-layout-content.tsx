@@ -37,7 +37,16 @@ export function RootLayoutContent({
         config={appConfig}
         currentPath={activeTab === 'explorer' ? '/' : '/settings'}
         onNavigationClick={handleNavigationClick}
-        sidebarContent={activeTab === 'explorer' ? sidebarContent : undefined}
+        sidebarContent={
+          sidebarContent && (
+            <div
+              className="h-full w-full"
+              style={{ display: activeTab === 'explorer' ? 'block' : 'none' }}
+            >
+              {sidebarContent}
+            </div>
+          )
+        }
       >
         <div className="h-full" style={{ position: 'relative', overflow: 'hidden' }}>
           <div

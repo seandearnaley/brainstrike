@@ -75,7 +75,7 @@ describe('RootLayoutContent', () => {
     );
     expect(screen.getByTestId('home-page')).toBeVisible();
     expect(screen.queryByTestId('settings-page')).not.toBeVisible();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
+    expect(screen.getByTestId('sidebar-mock')).toBeVisible();
     expect(screen.getByText('Current Path: /')).toBeInTheDocument();
   });
 
@@ -93,7 +93,7 @@ describe('RootLayoutContent', () => {
 
     expect(screen.queryByTestId('home-page')).not.toBeVisible();
     expect(screen.getByTestId('settings-page')).toBeVisible();
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-mock')).not.toBeVisible();
     expect(screen.getByText('Current Path: /settings')).toBeInTheDocument();
   });
 
@@ -114,7 +114,7 @@ describe('RootLayoutContent', () => {
 
     expect(screen.getByTestId('home-page')).toBeVisible();
     expect(screen.queryByTestId('settings-page')).not.toBeVisible();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
+    expect(screen.getByTestId('sidebar-mock')).toBeVisible();
     expect(screen.getByText('Current Path: /')).toBeInTheDocument();
   });
 
@@ -135,7 +135,7 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('home-page')).toBeVisible();
     expect(screen.queryByTestId('settings-page')).not.toBeVisible();
     expect(screen.getByText('Current Path: /')).toBeInTheDocument();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
+    expect(screen.getByTestId('sidebar-mock')).toBeVisible();
   });
 
   it('should not show sidebar content when on settings page', () => {
@@ -148,7 +148,7 @@ describe('RootLayoutContent', () => {
       />
     );
     fireEvent.click(screen.getByText('Settings'));
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar-mock')).not.toBeVisible();
   });
 
   it('should show sidebar content when on explorer page', () => {
@@ -161,11 +161,11 @@ describe('RootLayoutContent', () => {
       />
     );
     // Default is explorer page
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
+    expect(screen.getByTestId('sidebar-mock')).toBeVisible();
     // Navigate to settings and back
     fireEvent.click(screen.getByText('Settings'));
     fireEvent.click(screen.getByText('Home'));
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
+    expect(screen.getByTestId('sidebar-mock')).toBeVisible();
   });
 
   it('should pass correct navigationItems to AppLayout', () => {
