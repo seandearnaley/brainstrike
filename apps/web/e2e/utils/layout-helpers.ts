@@ -240,9 +240,6 @@ export async function testPanelSizeConstraints(
   const viewportSize = page.viewportSize();
   if (!viewportSize) throw new Error('Viewport size not available');
 
-  // Get initial dimensions
-  const initialDimensions = await getPanelDimensions(panel);
-
   // Test minimum size constraint - use moderate resize to avoid collapse
   await resizePanel(page, resizeHandle, -200); // Moderate reduction
   
@@ -310,7 +307,7 @@ export async function verifyDefaultLayout(page: Page): Promise<void> {
 export async function testKeyboardNavigation(
   page: Page,
   button: Locator,
-  panel: Locator,
+  _panel: Locator,
   key: 'Enter' | 'Space' = 'Enter'
 ): Promise<void> {
   await button.focus();
