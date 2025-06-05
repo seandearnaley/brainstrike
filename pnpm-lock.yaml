@@ -290,6 +290,9 @@ importers:
       '@brainstrike/file-explorer-ui':
         specifier: workspace:*
         version: link:../file-explorer-ui
+      '@brainstrike/storage':
+        specifier: workspace:*
+        version: link:../storage
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui

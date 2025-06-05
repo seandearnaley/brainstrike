@@ -10,7 +10,8 @@
     "baseUrl": ".",
     "paths": {
       "@brainstrike/file-explorer-hooks": ["../file-explorer-hooks/src"],
-      "@brainstrike/file-explorer-ui": ["../file-explorer-ui/src"]
+      "@brainstrike/file-explorer-ui": ["../file-explorer-ui/src"],
+      "@brainstrike/storage": ["../storage/src"]
     }
   },
   "include": ["src/**/*"],
@@ -19,6 +20,7 @@
     { "path": "../types" },
     { "path": "../ui" },
     { "path": "../file-explorer-hooks" },
-    { "path": "../file-explorer-ui" }
+    { "path": "../file-explorer-ui" },
+    { "path": "../storage" }
   ]
 }

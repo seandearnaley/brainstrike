@@ -35,6 +35,7 @@ export default defineConfig({
   resolve: {
     alias: {
       electron: path.resolve(__dirname, '../storage/__mocks__/electron.ts'),
+      '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
     },
   },
 });
