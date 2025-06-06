@@ -108,4 +108,37 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(fileTree.getByText('test2.ts')).toBeVisible();
     // Note: folder1 directory may still be visible as it's not a file with an extension
   });
-}); 
+
+  test('should select and deselect all visible files using the Select All button', async ({ page }) => {
+    // Select root directory
+    await page.getByRole('button', { name: 'Select Root' }).click();
+
+    // Wait for file tree to load
+    const fileTree = page.getByRole('tree', { name: 'File tree' });
+    await expect(fileTree).toBeVisible();
+
+    // Ensure Select All button is enabled
+    const selectAllButton = page.getByRole('button', { name: 'Select All' });
+    await expect(selectAllButton).toBeEnabled();
+
+    // Click Select All
+    await selectAllButton.click();
+
+    const fileCheckbox1 = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
+    const fileCheckbox2 = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+
+    await expect(fileCheckbox1).toBeChecked();
+    await expect(fileCheckbox2).toBeChecked();
+
+    await expect(page.getByText('2/10')).toBeVisible();
+
+    // Button should now say Deselect All
+    const deselectAllButton = page.getByRole('button', { name: 'Deselect All' });
+    await expect(deselectAllButton).toBeEnabled();
+    await deselectAllButton.click();
+
+    await expect(fileCheckbox1).not.toBeChecked();
+    await expect(fileCheckbox2).not.toBeChecked();
+    await expect(page.getByText('0/10')).toBeVisible();
+  });
+});
