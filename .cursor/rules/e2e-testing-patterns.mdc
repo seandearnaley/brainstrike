@@ -1,0 +1,190 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# E2E Testing Patterns and Gotchas
+
+This document captures critical lessons learned while developing E2E tests for the Brainstrike file explorer, particularly around directory expansion and tree interaction patterns.
+
+## 🚨 Critical Directory Expansion Issue
+
+### The Problem
+**Individual directory expansion via chevron clicks does NOT work reliably in E2E tests**, despite working perfectly in manual testing.
+
+### What We Tried (All Failed)
+```typescript
+// ❌ THESE APPROACHES ALL FAIL:
+
+// 1. Clicking folder text
+await fileTree.getByText('folder1').click();
+
+// 2. Clicking first button in row
+const expandButton = folder1Row.locator('button').first();
+await expandButton.click();
+
+// 3. Using exact aria-label
+const expandButton = folder1Row.locator('button[aria-label="Expand folder1 directory"]');
+await expandButton.click();
+
+// 4. Double-clicking folder
+await folder1Row.getByText('folder1').dblclick();
+
+// 5. Using treeitem role
+const folder1Row = fileTree.locator('[role="treeitem"]').filter({ hasText: 'folder1' });
+const expandButton = folder1Row.locator('button').first();
+await expandButton.click();
+```
+
+### ✅ The Working Solution
+The ONLY reliable pattern for accessing nested files in E2E tests:
+
+```typescript
+// 1. Apply a filter first
+const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+await filterInput.fill('Button'); // Filter for the nested file you want
+await page.waitForTimeout(200);
+
+// 2. Use "Expand All" button
+await page.getByRole('button', { name: 'Expand All' }).click();
+
+// 3. Now nested files are accessible
+await expect(fileTree.getByText('Button.tsx')).toBeVisible();
+
+// 4. Clear filter if needed
+await filterInput.fill('');
+await page.waitForTimeout(200);
+```
+
+### Why This Works
+- The tree component's expansion logic appears to be tied to the filtering system
+- "Expand All" reliably expands the entire filtered tree structure
+- Individual chevron clicks may have timing/state issues in the test environment
+- This pattern is proven in [quick-filter.spec.ts](mdc:apps/web/e2e/quick-filter.spec.ts)
+
+## 📁 Mock File System Requirements
+
+### Working Mock Structure
+Use the exact structure from [quick-filter.spec.ts](mdc:apps/web/e2e/quick-filter.spec.ts):
+
+```typescript
+const tree: FileTree = {
+  src: {
+    components: {
+      'Button.tsx': null,
+      'Input.tsx': null,
+    },
+    utils: {
+      'helpers.ts': null,
+    },
+    'index.ts': null,
+  },
+  'test.ts': null,
+  'test2.ts': null,
+  'README.md': null,
+};
+```
+
+### ❌ Problematic Structures
+Simple nested structures like this often fail:
+```typescript
+// This structure causes expansion issues
+const tree: FileTree = {
+  'test.ts': null,
+  folder1: {
+    'nested.txt': null,
+  },
+};
+```
+
+## 🧪 Test Patterns That Work
+
+### Complete Workflow Test Pattern
+See [complete-workflow.spec.ts](mdc:apps/web/e2e/complete-workflow.spec.ts) for the full pattern:
+
+1. **Initial State Verification**
+2. **Root Directory Selection**
+3. **File Tree Loading**
+4. **Manual File Selection** (root level)
+5. **Nested File Access** (using filter + Expand All)
+6. **Report Generation Testing**
+7. **Filter Functionality Testing**
+
+### Select All/Deselect All Pattern
+```typescript
+// Use flexible assertions for counts
+await expect(page.getByText('0/10')).not.toBeVisible(); // Something selected
+// Rather than exact counts like:
+// await expect(page.getByText('3/10')).toBeVisible(); // Brittle
+```
+
+## 🔧 Mock File System Setup
+
+### Required Options
+```typescript
+await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
+```
+
+### File Tree Structure
+- Use realistic directory names (`src`, `components`, `utils`)
+- Include multiple file types (`.tsx`, `.ts`, `.md`)
+- Ensure sufficient depth for expansion testing
+
+## ⚠️ Known Limitations
+
+### Non-Standard User Flow
+The current E2E pattern (filter → expand all) is **not** the typical user workflow:
+- Real users click individual chevrons to expand directories
+- The filter + expand all pattern may indicate underlying issues with the tree component
+- This might be a necessary workaround due to virtual tree rendering or timing issues
+
+### Potential Root Causes
+1. **Virtual Tree Rendering**: The tree component may use virtualization that affects expansion timing
+2. **React State Updates**: Expansion state changes might not be immediately reflected in the DOM
+3. **Event Handling**: Click events on chevrons might not propagate correctly in test environment
+4. **Mock File System**: The mock might not perfectly simulate async directory reading
+
+## 🎯 Recommendations for Future Development
+
+### For E2E Tests
+1. **Always use the filter + expand all pattern** for nested file access
+2. **Test individual chevron expansion separately** if needed for user experience validation
+3. **Use flexible assertions** for dynamic counts
+4. **Follow the proven patterns** from working tests
+
+### For Component Development
+1. **Investigate why individual expansion fails in tests** - this might indicate real UX issues
+2. **Consider adding data-testid attributes** to expansion controls for more reliable testing
+3. **Ensure expansion state is properly reflected in DOM** for test visibility
+
+### Test File Organization
+- Keep working patterns in [complete-workflow.spec.ts](mdc:apps/web/e2e/complete-workflow.spec.ts)
+- Use [quick-filter.spec.ts](mdc:apps/web/e2e/quick-filter.spec.ts) as reference for expansion patterns
+- Document any new expansion workarounds in this file
+
+## 🔍 Debugging Tips
+
+### When Expansion Fails
+1. **Check the mock file structure** - use proven working structures
+2. **Verify button existence** with debugging:
+   ```typescript
+   console.log('Button count:', await folder1Row.locator('button').count());
+   console.log('Button aria-label:', await button.getAttribute('aria-label'));
+   ```
+3. **Try the filter + expand all pattern** before attempting individual expansion
+4. **Check timing** - add longer waits after clicks
+
+### DOM Inspection
+The expand button structure looks like:
+```html
+<button aria-label="Expand folder1 directory" class="...">
+  <svg class="lucide lucide-chevron-right">...</svg>
+</button>
+```
+
+## 📚 Reference Files
+- [complete-workflow.spec.ts](mdc:apps/web/e2e/complete-workflow.spec.ts) - Main comprehensive test
+- [quick-filter.spec.ts](mdc:apps/web/e2e/quick-filter.spec.ts) - Working expansion pattern
+- [mock-fs.ts](mdc:apps/web/e2e/utils/mock-fs.ts) - Mock file system utilities
+- [layout-helpers.ts](mdc:apps/web/e2e/utils/layout-helpers.ts) - Test helper functions
+
