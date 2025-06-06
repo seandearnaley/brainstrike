@@ -82,8 +82,6 @@ vi.mock('../hooks/use-panel-persistence', () => ({
   usePanelPersistence: vi.fn(),
 }));
 
-const navigationItems: never[] = [];
-
 describe('IdeLayout', () => {
   const leftContent = <div>Left Content</div>;
   const rightContent = <div>Right Content</div>;
@@ -92,8 +90,6 @@ describe('IdeLayout', () => {
   const renderLayout = () =>
     render(
       <IdeLayout
-        navigationItems={navigationItems}
-        currentPath="/"
         leftPanelContent={leftContent}
         rightPanelContent={rightContent}
         consoleContent={consoleContent}
@@ -175,12 +171,7 @@ describe('IdeLayout', () => {
     usePanelPersistenceMock.mockReturnValue(mockState);
 
     render(
-      <IdeLayout
-        navigationItems={navigationItems}
-        currentPath="/"
-        rightPanelContent={rightContent}
-        consoleContent={consoleContent}
-      >
+      <IdeLayout rightPanelContent={rightContent} consoleContent={consoleContent}>
         <div>Main</div>
       </IdeLayout>
     );
@@ -201,12 +192,7 @@ describe('IdeLayout', () => {
     usePanelPersistenceMock.mockReturnValue(mockState);
 
     render(
-      <IdeLayout
-        navigationItems={navigationItems}
-        currentPath="/"
-        leftPanelContent={leftContent}
-        consoleContent={consoleContent}
-      >
+      <IdeLayout leftPanelContent={leftContent} consoleContent={consoleContent}>
         <div>Main</div>
       </IdeLayout>
     );
@@ -247,8 +233,6 @@ describe('IdeLayout', () => {
     usePanelPersistenceMock.mockReturnValue(mockState);
     rerender(
       <IdeLayout
-        navigationItems={navigationItems}
-        currentPath="/"
         leftPanelContent={leftContent}
         rightPanelContent={rightContent}
         consoleContent={consoleContent}

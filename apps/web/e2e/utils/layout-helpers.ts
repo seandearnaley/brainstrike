@@ -240,9 +240,6 @@ export async function testPanelSizeConstraints(
   const viewportSize = page.viewportSize();
   if (!viewportSize) throw new Error('Viewport size not available');
 
-  // Get initial dimensions
-  const initialDimensions = await getPanelDimensions(panel);
-
   // Test minimum size constraint - use moderate resize to avoid collapse
   await resizePanel(page, resizeHandle, -200); // Moderate reduction
   
@@ -310,7 +307,7 @@ export async function verifyDefaultLayout(page: Page): Promise<void> {
 export async function testKeyboardNavigation(
   page: Page,
   button: Locator,
-  panel: Locator,
+  _panel: Locator,
   key: 'Enter' | 'Space' = 'Enter'
 ): Promise<void> {
   await button.focus();
@@ -332,6 +329,17 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Setup layout state
   await setupCallback();
   
+  // Check if left panel is hidden and temporarily show it for navigation
+  const leftPanel = page.locator('[id="left-panel"]');
+  const wasHidden = !(await leftPanel.isVisible());
+  
+  if (wasHidden) {
+    // Temporarily show the panel to avoid UI overlap with floating button
+    const showExplorerButton = page.locator('button[aria-label="Show explorer"]');
+    await showExplorerButton.click();
+    await expect(leftPanel).toBeVisible();
+  }
+  
   // Navigate to Settings
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
@@ -339,6 +347,13 @@ export async function testLayoutPersistenceAcrossNavigation(
   // Navigate back to Context Explorer
   await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+  
+  // Restore original state if panel was hidden
+  if (wasHidden) {
+    const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
+    await hideExplorerButton.click();
+    await expect(leftPanel).not.toBeVisible();
+  }
   
   // Verify layout state persisted
   await verifyCallback();

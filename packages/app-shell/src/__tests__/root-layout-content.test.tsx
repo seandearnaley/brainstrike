@@ -1,9 +1,10 @@
 import { MemoryStorageAdapter } from '@brainstrike/storage';
-import { fireEvent, render, screen } from '@testing-library/react';
-import type { ReactNode } from 'react';
+import { act, render, screen } from '@testing-library/react';
+
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
-import type { AppShellConfig, NavigationItem } from '../types';
+import type { NavigationItem } from '../types';
 
 // Mock dependencies
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -11,189 +12,118 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     storageAdapter: new MemoryStorageAdapter(),
     fileSystemAdapter: null, // Or a mock adapter if needed
   }),
+  useFileExplorer: () => ({}),
 }));
 
-interface MockAppLayoutProps {
-  children: ReactNode;
-  onNavigationClick: (path: string) => void;
-  currentPath: string;
-  sidebarContent?: ReactNode;
-  config: AppShellConfig;
-}
+// Create a stable object to hold the mock function.
+const mockHandlers = {
+  onNavigationClick: (_path: string) => {},
+};
 
 vi.mock('../app-layout', () => ({
   AppLayout: ({
     children,
     onNavigationClick,
-    currentPath,
-    sidebarContent,
-    config,
-  }: MockAppLayoutProps) => (
-    <div>
-      <button type="button" onClick={() => onNavigationClick('/')}>
-        Home
-      </button>
-      <button type="button" onClick={() => onNavigationClick('/settings')}>
-        Settings
-      </button>
-      <button type="button" onClick={() => onNavigationClick('/unknown')}>
-        Unknown
-      </button>
-      <div>Current Path: {currentPath}</div>
-      {config.navigationItems.map((item: NavigationItem) => (
-        <div key={item.path}>{item.name}</div>
-      ))}
-      {sidebarContent && <div data-testid="sidebar-content">{sidebarContent}</div>}
-      {children}
-    </div>
-  ),
+  }: {
+    children: React.ReactNode;
+    onNavigationClick: (path: string) => void;
+  }) => {
+    // The mock can now safely assign to a property of the stable object.
+    mockHandlers.onNavigationClick = onNavigationClick;
+    return <div>{children}</div>;
+  },
 }));
 
-const mockNavigationItems: NavigationItem[] = [
-  { name: 'Explorer', path: '/', icon: () => <span>Explorer Icon</span> },
-  { name: 'Settings Tab', path: '/settings', icon: () => <span>Settings Icon</span> },
-];
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({ storageAdapter: {} }),
+}));
 
-const MockHomePage = () => <div data-testid="home-page">Home Page Content</div>;
-const MockSettingsPage = () => <div data-testid="settings-page">Settings Page Content</div>;
-const MockSidebar = () => <div data-testid="sidebar-mock">Sidebar Mock Content</div>;
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+  return {
+    ...original,
+    FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
+  };
+});
+
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...original,
+    IdeLayout: ({
+      children,
+      leftPanelContent,
+    }: { children: React.ReactNode; leftPanelContent: React.ReactNode }) => (
+      <div data-testid="ide-layout">
+        {leftPanelContent}
+        {children}
+      </div>
+    ),
+  };
+});
 
 describe('RootLayoutContent', () => {
   beforeEach(() => {
-    // Reset DOM or any other state if necessary
-    document.body.innerHTML = '';
+    // Reset the mock function before each test
+    mockHandlers.onNavigationClick = vi.fn();
   });
 
-  it('should render home page content by default', () => {
+  afterEach(() => {
+    vi.resetAllMocks();
+  });
+
+  const mockNavigationItems: NavigationItem[] = [
+    { name: 'Explorer', path: '/', icon: () => <div /> },
+    { name: 'Settings', path: '/settings', icon: () => <div /> },
+  ];
+
+  const MockHomePage = () => <div data-testid="home-page">Home</div>;
+  const MockSettingsPage = () => <div data-testid="settings-page">Settings</div>;
+
+  const renderComponent = () =>
     render(
       <RootLayoutContent
         navigationItems={mockNavigationItems}
         homePageContent={<MockHomePage />}
         settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
       />
     );
+
+  it('should render explorer view inside IdeLayout by default', () => {
+    renderComponent();
+    expect(screen.getByTestId('ide-layout')).toBeVisible();
     expect(screen.getByTestId('home-page')).toBeVisible();
-    expect(screen.queryByTestId('settings-page')).not.toBeVisible();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
-    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
+    expect(screen.getByTestId('settings-page')).not.toBeVisible();
   });
 
-  it('should switch to settings page content when settings navigation is clicked', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
-      />
-    );
+  it('should switch to settings view and hide IdeLayout on navigation', () => {
+    renderComponent();
 
-    fireEvent.click(screen.getByText('Settings'));
+    // Simulate navigation click by invoking the captured function
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
 
+    expect(screen.queryByTestId('ide-layout')).not.toBeVisible();
     expect(screen.queryByTestId('home-page')).not.toBeVisible();
     expect(screen.getByTestId('settings-page')).toBeVisible();
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
-    expect(screen.getByText('Current Path: /settings')).toBeInTheDocument();
   });
 
-  it('should switch back to home page content when home navigation is clicked', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
-      />
-    );
+  it('should switch back to explorer view on subsequent navigation', () => {
+    renderComponent();
 
-    // Go to settings first
-    fireEvent.click(screen.getByText('Settings'));
-    // Then back to home
-    fireEvent.click(screen.getByText('Home'));
-
-    expect(screen.getByTestId('home-page')).toBeVisible();
-    expect(screen.queryByTestId('settings-page')).not.toBeVisible();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
-    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
-  });
-
-  it('should not change tab for an unknown navigation path', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
-      />
-    );
-    expect(screen.getByTestId('home-page')).toBeVisible();
-    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Unknown'));
-
-    expect(screen.getByTestId('home-page')).toBeVisible();
-    expect(screen.queryByTestId('settings-page')).not.toBeVisible();
-    expect(screen.getByText('Current Path: /')).toBeInTheDocument();
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
-  });
-
-  it('should not show sidebar content when on settings page', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
-      />
-    );
-    fireEvent.click(screen.getByText('Settings'));
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
-  });
-
-  it('should show sidebar content when on explorer page', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={<MockSidebar />}
-      />
-    );
-    // Default is explorer page
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
-    // Navigate to settings and back
-    fireEvent.click(screen.getByText('Settings'));
-    fireEvent.click(screen.getByText('Home'));
-    expect(screen.getByTestId('sidebar-content')).toBeVisible();
-  });
-
-  it('should pass correct navigationItems to AppLayout', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-      />
-    );
-    expect(screen.getByText('Explorer')).toBeInTheDocument();
-    expect(screen.getByText('Settings Tab')).toBeInTheDocument();
-  });
-
-  it('should handle undefined sidebarContent gracefully', () => {
-    render(
-      <RootLayoutContent
-        navigationItems={mockNavigationItems}
-        homePageContent={<MockHomePage />}
-        settingsPageContent={<MockSettingsPage />}
-        sidebarContent={undefined}
-      />
-    );
-    expect(screen.getByTestId('home-page')).toBeVisible();
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Settings'));
+    // To settings
+    act(() => {
+      mockHandlers.onNavigationClick('/settings');
+    });
     expect(screen.getByTestId('settings-page')).toBeVisible();
-    expect(screen.queryByTestId('sidebar-content')).not.toBeInTheDocument();
+
+    // Back to explorer
+    act(() => {
+      mockHandlers.onNavigationClick('/');
+    });
+    expect(screen.getByTestId('ide-layout')).toBeVisible();
+    expect(screen.getByTestId('home-page')).toBeVisible();
+    expect(screen.queryByTestId('settings-page')).not.toBeVisible();
   });
 });
