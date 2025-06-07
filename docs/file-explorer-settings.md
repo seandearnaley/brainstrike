@@ -20,7 +20,7 @@ When enabled, treat filter patterns as regular expressions instead of globs. Def
 Show the entire project tree in the explorer. If disabled, only the selected folder is displayed. Default: **true**.
 
 ### `folderSummaryThreshold`
-Number of files in a folder before the explorer collapses them into a summary row. Default: **5**.
+Number of files in a folder before the **project tree in the generated report** collapses them into a summary row. This setting does **not** affect the file explorer UI. Default: **5**.
 
 ## Storage Key
 All of these settings persist across sessions using the `fileExplorerSettings` key in localStorage.

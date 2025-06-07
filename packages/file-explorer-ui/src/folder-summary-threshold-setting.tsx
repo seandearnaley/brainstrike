@@ -21,7 +21,8 @@ const FolderSummaryThresholdSetting: React.FC<FolderSummaryThresholdSettingProps
       className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
     />
     <p className="text-sm text-muted-foreground">
-      Number of files to show before summarizing folder contents (0 to show all)
+      Number of files shown in each folder of the <strong>report&apos;s project tree</strong> before
+      the rest are summarized. Set to 0 to show all.
     </p>
   </div>
 );

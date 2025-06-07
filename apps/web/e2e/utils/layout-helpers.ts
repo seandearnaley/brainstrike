@@ -58,7 +58,10 @@ export async function resetLayoutState(page: Page): Promise<void> {
   await page.evaluate(() => {
     localStorage.removeItem('panelLayout.v1');
   });
-  await page.reload();
+  // Wait for the page to finish navigating before continuing. Using
+  // `networkidle` helps avoid flaky reload errors in CI where the
+  // default navigation wait can resolve too early.
+  await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
 }
 
@@ -147,7 +150,7 @@ export async function verifyPersistenceAfterReload(
   shouldBeVisible: boolean,
   dimensions?: { width?: number; height?: number }
 ): Promise<void> {
-  await page.reload();
+  await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
   
   if (shouldBeVisible) {
