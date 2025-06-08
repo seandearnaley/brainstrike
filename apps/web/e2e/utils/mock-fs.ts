@@ -1,6 +1,8 @@
 import type { Page } from '@playwright/test';
 
-export type FileTree = Record<string, FileTree | null>;
+export interface FileTree {
+  [key: string]: FileTree | null;
+}
 
 interface Options {
   clipboard?: boolean;
@@ -38,7 +40,6 @@ export async function mockBrowserApis(
           this.name = node.name;
         }
         async getFile() {
-          // @ts-expect-error
           return new File([this.node._content], this.node.name);
         }
         async createWritable() {
@@ -59,7 +60,7 @@ export async function mockBrowserApis(
                 ArrayBuffer.isView(chunk)
               ) {
                 const buf = chunk instanceof ArrayBuffer ? chunk : chunk.buffer;
-                data += new TextDecoder().decode(buf);
+                data += new TextDecoder().decode(buf as ArrayBuffer);
                 return;
               }
               if (typeof chunk === 'object' && chunk?.type === 'write') {
@@ -74,7 +75,7 @@ export async function mockBrowserApis(
                 ) {
                   const buf =
                     value instanceof ArrayBuffer ? value : value.buffer;
-                  data += new TextDecoder().decode(buf);
+                  data += new TextDecoder().decode(buf as ArrayBuffer);
                 }
                 return;
               }
