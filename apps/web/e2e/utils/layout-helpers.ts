@@ -9,6 +9,8 @@ export interface PanelElements {
   leftPanel: Locator;
   rightPanel: Locator;
   consolePanel: Locator;
+  mainContentPanel: Locator;
+  middlePanel: Locator;
   hideExplorerButton: Locator;
   showExplorerButton: Locator;
   showConsoleButton: Locator;
@@ -22,9 +24,11 @@ export interface PanelElements {
  */
 export function getPanelElements(page: Page): PanelElements {
   return {
-    leftPanel: page.locator('[id="left-panel"]'),
-    rightPanel: page.locator('[id="right-panel"]'),
-    consolePanel: page.locator('[id="console-panel"], [id="console-panel-horizontal"]'),
+    leftPanel: page.locator('[data-panel-id="left-panel"]'),
+    rightPanel: page.locator('[data-panel-id="right-panel"]'),
+    consolePanel: page.locator('[data-panel-id="console-panel"]'),
+    mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
+    middlePanel: page.locator('[data-panel-id="middle-panel"]'),
     hideExplorerButton: page.locator('button[aria-label="Hide explorer"]'),
     showExplorerButton: page.locator('button[aria-label="Show explorer"]'),
     showConsoleButton: page.locator('button[aria-label="Show console"]'),
@@ -110,18 +114,16 @@ export async function resizePanel(
  * Get the first (left panel) resize handle
  */
 export function getLeftPanelResizeHandle(page: Page): Locator {
-  // Look for the vertical resize handle (between left panel and main content)
-  // react-resizable-panels uses data attributes, not CSS classes
-  return page.locator('[data-panel-resize-handle-enabled="true"]').first();
+  // The left panel's resize handle is the first one in the horizontal group
+  return page.locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]').first();
 }
 
 /**
  * Get the last (console panel) resize handle
  */
 export function getConsolePanelResizeHandle(page: Page): Locator {
-  // Look for the horizontal resize handle (above console panel)
-  // react-resizable-panels uses data attributes, not CSS classes
-  return page.locator('[data-panel-resize-handle-enabled="true"]').last();
+  // The console panel's resize handle is in the vertical group
+  return page.locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]').first();
 }
 
 /**
@@ -333,7 +335,7 @@ export async function testLayoutPersistenceAcrossNavigation(
   await setupCallback();
   
   // Check if left panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[id="left-panel"]');
+  const leftPanel = page.locator('[data-panel-id="left-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
   
   if (wasHidden) {

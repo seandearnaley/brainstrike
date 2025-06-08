@@ -109,14 +109,18 @@ test.describe('Application Layout', () => {
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {
+      await getPanelElements(page).showConsoleButton.click();
+      await getPanelElements(page).showRightPanelButton.click();
       // Verify all main layout containers exist
-      await expect(page.locator('[id="left-panel"]')).toBeAttached();
-      await expect(page.locator('[id="main-panel"]')).toBeAttached();
-      await expect(page.locator('[id="main-content-panel"]')).toBeAttached();
-      
+      await expect(page.locator('[data-panel-id="left-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="right-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="main-content-panel"]')).toBeAttached();
+      await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
+
       // Verify panel group structure using correct data attributes
-      // There can be multiple panel groups: horizontal main, vertical main content, and potentially right panel horizontal
-      await expect(page.locator('[data-panel-group]')).toHaveCount(3); // Main horizontal, main vertical, and potentially right panel
+      // Expecting two panel groups: one horizontal (outer) and one vertical (inner for main/console)
+      await expect(page.locator('[data-panel-group]')).toHaveCount(2);
     });
   });
 });

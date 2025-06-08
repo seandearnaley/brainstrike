@@ -212,7 +212,7 @@ describe('VirtualizedPreviewPanel', () => {
     await user.click(screen.getByText('a.txt'));
     expect(screen.getByText('content')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '' }));
+    await user.click(screen.getByRole('button', { name: 'Close file detail panel' }));
     expect(screen.queryByText('content')).not.toBeInTheDocument();
   });
 

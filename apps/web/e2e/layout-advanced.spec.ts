@@ -51,17 +51,14 @@ test.describe('Advanced IDE Layout', () => {
 
     test('should resize console panel height', async ({ page }) => {
       const elements = getPanelElements(page);
-      
-      // Show console first
       await elements.showConsoleButton.click();
       await expect(elements.consolePanel).toBeVisible();
-      
+
       const resizeHandle = getConsolePanelResizeHandle(page);
       const initialDimensions = await getPanelDimensions(elements.consolePanel);
-      
-      // Resize console taller
+
       await resizePanel(page, resizeHandle, 0, -50);
-      
+
       const newDimensions = await getPanelDimensions(elements.consolePanel);
       expect(newDimensions.height).toBeGreaterThan(initialDimensions.height);
     });

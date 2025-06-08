@@ -40,7 +40,7 @@ test.describe('File Preview', () => {
     await expect(heading).toBeVisible();
     await expect(page.getByText('test content')).toBeVisible();
 
-    const hideButton = page.getByRole('button', { name: 'Hide panel' });
+    const hideButton = page.getByRole('button', { name: 'Close file detail panel' });
     await expect(hideButton).toBeVisible();
     await hideButton.click();
 

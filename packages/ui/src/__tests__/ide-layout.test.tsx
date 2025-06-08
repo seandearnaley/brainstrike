@@ -3,12 +3,14 @@ import { type Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
 import { IdeLayout } from '../layout/ide-layout';
 
-// Capture layout handlers from mocked PanelGroup components
-const handlers: { horizontal: Array<(sizes: number[]) => void> } = {
+const handlers: {
+  horizontal: Array<(sizes: number[]) => void>;
+  vertical: Array<(sizes: number[]) => void>;
+} = {
   horizontal: [],
+  vertical: [],
 };
 
-// Capture imperative panel handles so tests can assert on expand/collapse
 const panelHandles: Record<
   string,
   {
@@ -19,7 +21,6 @@ const panelHandles: Record<
   }
 > = {};
 
-// Mock react-resizable-panels with minimal implementation
 vi.mock('react-resizable-panels', () => {
   const React = require('react') as typeof import('react');
   const { forwardRef, useImperativeHandle } = React;
@@ -31,8 +32,12 @@ vi.mock('react-resizable-panels', () => {
   }
 
   const PanelGroup = ({ direction, onLayout, children }: PanelGroupProps) => {
-    if (direction === 'horizontal' && typeof onLayout === 'function') {
-      handlers.horizontal.push(onLayout);
+    if (typeof onLayout === 'function') {
+      if (direction === 'horizontal') {
+        handlers.horizontal.push(onLayout);
+      } else if (direction === 'vertical') {
+        handlers.vertical.push(onLayout);
+      }
     }
     return <div data-testid={`panel-group-${direction}`}>{children}</div>;
   };
@@ -87,17 +92,6 @@ describe('IdeLayout', () => {
   const rightContent = <div>Right Content</div>;
   const consoleContent = <div>Console Content</div>;
 
-  const renderLayout = () =>
-    render(
-      <IdeLayout
-        leftPanelContent={leftContent}
-        rightPanelContent={rightContent}
-        consoleContent={consoleContent}
-      >
-        <div>Main</div>
-      </IdeLayout>
-    );
-
   let mockState: {
     saveLayout: Mock;
     toggleConsole: Mock;
@@ -106,7 +100,8 @@ describe('IdeLayout', () => {
   } & Record<string, unknown>;
 
   beforeEach(() => {
-    handlers.horizontal.length = 0;
+    handlers.horizontal = [];
+    handlers.vertical = [];
     vi.clearAllMocks();
 
     mockState = {
@@ -124,14 +119,22 @@ describe('IdeLayout', () => {
     usePanelPersistenceMock.mockReturnValue(mockState);
   });
 
-  it('renders toggle buttons and calls toggle handlers', () => {
-    renderLayout();
+  const renderDefaultLayout = () => {
+    return render(
+      <IdeLayout
+        leftPanelContent={leftContent}
+        rightPanelContent={rightContent}
+        consoleContent={consoleContent}
+      >
+        <div>Main Content</div>
+      </IdeLayout>
+    );
+  };
 
-    const leftToggleButtons = screen.getAllByRole('button', {
-      name: /Show explorer/i,
-    });
-    const leftToggle = leftToggleButtons[leftToggleButtons.length - 1];
-    if (leftToggle) fireEvent.click(leftToggle);
+  it('renders toggle buttons and calls toggle handlers', () => {
+    renderDefaultLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: /Show explorer/i }));
     expect(mockState.toggleLeftPanel).toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /Show right panel/i }));
@@ -142,70 +145,58 @@ describe('IdeLayout', () => {
   });
 
   it('calls saveLayout from layout callbacks', () => {
-    // Set up state with visible panels to trigger layout handlers
     Object.assign(mockState, {
       showLeftPanel: true,
       showRightPanel: true,
       showConsole: true,
     });
-    renderLayout();
+    renderDefaultLayout();
 
-    // handleHorizontalLayout from outer PanelGroup with left panel and console visible
-    // Layout: [left, main+right, console] = [40, 50, 10]
-    handlers.horizontal[0]?.([40, 50, 10]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([40, 20, 10]);
+    // Horizontal layout change [left, middle, right]
+    handlers.horizontal[0]?.([40, 40, 20]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith([40, 20, 30]);
 
-    // handleVerticalLayout from inner PanelGroup with right panel visible
-    // Layout: [main, right] = [60, 40]
-    handlers.horizontal[1]?.([60, 40]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 40, 30]);
+    // Vertical layout change within middle panel [main, console]
+    handlers.vertical[0]?.([60, 40]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 40]);
   });
 
-  it('ignores horizontal layout changes when left panel is missing', () => {
+  it('handles layout changes when left panel is missing', () => {
     Object.assign(mockState, {
+      showRightPanel: true,
       showConsole: true,
-      leftPanelContent: undefined,
     });
+    render(
+      <IdeLayout rightPanelContent={rightContent} consoleContent={consoleContent}>
+        <div>Main Content</div>
+      </IdeLayout>
+    );
 
-    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
-    usePanelPersistenceMock.mockReturnValue(mockState);
+    // Horizontal layout change [middle, right]
+    handlers.horizontal[0]?.([70, 30]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 30, 30]);
+  });
+
+  it('persists right panel size when left panel is missing', () => {
+    Object.assign(mockState, {
+      showRightPanel: true,
+    });
 
     render(
       <IdeLayout rightPanelContent={rightContent} consoleContent={consoleContent}>
-        <div>Main</div>
+        <div>Main Content</div>
       </IdeLayout>
     );
 
-    expect(handlers.horizontal).toHaveLength(1);
-    handlers.horizontal[0]?.([70, 30]);
-    expect(mockState.saveLayout).not.toHaveBeenCalled();
-  });
-
-  it('persists left panel size when right panel is missing', () => {
-    Object.assign(mockState, {
-      showLeftPanel: true,
-      leftPanelContent: leftContent,
-      rightPanelContent: undefined,
-    });
-
-    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
-    usePanelPersistenceMock.mockReturnValue(mockState);
-
-    render(
-      <IdeLayout leftPanelContent={leftContent} consoleContent={consoleContent}>
-        <div>Main</div>
-      </IdeLayout>
-    );
-
-    handlers.horizontal[0]?.([45, 55]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([45, 20, 30]);
+    handlers.horizontal[0]?.([65, 35]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 35, 30]);
   });
 
   it('expands left panel when showLeftPanel becomes true', () => {
     vi.useFakeTimers();
-
     Object.assign(mockState, { showLeftPanel: true });
-    const result = renderLayout();
+    const { unmount } = renderDefaultLayout();
+
     const handle = panelHandles['left-panel'];
     if (handle) {
       handle.isCollapsed.mockReturnValue(true);
@@ -216,28 +207,24 @@ describe('IdeLayout', () => {
     if (handle) {
       expect(handle.expand).toHaveBeenCalled();
     }
-
-    result.unmount();
+    unmount();
     vi.useRealTimers();
   });
 
   it('toggles console visibility with buttons', () => {
-    const { rerender } = renderLayout();
+    const { rerender } = renderDefaultLayout();
 
-    // Show console via toggle button
     fireEvent.click(screen.getByRole('button', { name: /Show console/i }));
     expect(mockState.toggleConsole).toHaveBeenCalledTimes(1);
 
     Object.assign(mockState, { showConsole: true });
-    const usePanelPersistenceMock = panelPersistence.usePanelPersistence as unknown as Mock;
-    usePanelPersistenceMock.mockReturnValue(mockState);
     rerender(
       <IdeLayout
         leftPanelContent={leftContent}
         rightPanelContent={rightContent}
         consoleContent={consoleContent}
       >
-        <div>Main</div>
+        <div>Main Content</div>
       </IdeLayout>
     );
 
