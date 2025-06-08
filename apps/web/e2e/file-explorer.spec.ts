@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { HomePage } from './page-objects/home-page';
+import { FileExplorerPage } from './page-objects/file-explorer-page';
 
 // TODO: Replace with actual file system interaction mocks for web
 const MOCK_FILE_SYSTEM = true; // Set to true to enable mock file system interactions
@@ -16,43 +18,33 @@ test.describe('File Explorer', () => {
 
     await mockBrowserApis(page, 'test-root', tree);
 
-    await page.goto('/');
+    const home = new HomePage(page);
+    const explorer = new FileExplorerPage(page);
 
-    // 1. Wait for main layout and correct active tab/heading
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).not.toBeVisible();
+    await home.goto();
+    await home.expectLoaded();
 
-    // 2. Wait for the non-lazy FileExplorerToolbar to be ready (e.g., "Select Root" button)
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
-
-    // 3. Wait for FileExplorerSidebar (lazy) to load and show its initial empty state content
-    await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
-
-    // 4. Wait for VirtualizedPreviewPanel/FileExplorerMainPanel (lazy) to load and show its initial empty state content
-    await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
+    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
+    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
+    await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
   });
 
   test('should show initial empty state', async ({ page }) => {
-    // beforeEach has already waited for the key initial elements and texts from both sidebar and main panel.
+    const explorer = new FileExplorerPage(page);
 
-    // Verify content from FileExplorerSidebar (initial state)
-    await expect(page.getByText('No directory selected')).toBeVisible();
-    // Verify the main call to action button (from FileExplorerToolbar)
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible();
+    await expect(explorer.noDirectoryText).toBeVisible();
+    await expect(explorer.selectRootButton).toBeVisible();
+    await expect(explorer.noFilesText).toBeVisible();
 
-    // Verify content from VirtualizedPreviewPanel/FileExplorerMainPanel (initial state)
-    await expect(page.getByText('No files selected')).toBeVisible();
-
-    // In the initial empty state (no root directory selected), the filter bar and its placeholder should NOT be visible.
-    await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).not.toBeVisible();
+    await expect(explorer.filterInput).not.toBeVisible();
   });
 
   test('should show file explorer configuration options', async ({ page }) => {
-    // The "Open settings" button is in FileExplorerToolbar and should be visible initially.
-    const settingsButton = page.getByRole('button', { name: 'Open settings' });
-    await expect(settingsButton).toBeVisible();
-    await expect(settingsButton).toBeEnabled();
-    await settingsButton.click();
+    const explorer = new FileExplorerPage(page);
+
+    await expect(explorer.openSettingsButton).toBeVisible();
+    await expect(explorer.openSettingsButton).toBeEnabled();
+    await explorer.openSettingsButton.click();
 
     // Wait for the configuration dialog to appear and check its title
     // The dialog is a PopoverContent which renders a <dialog> element
@@ -87,11 +79,12 @@ test.describe('File Explorer', () => {
     // beforeEach ensures key components are loaded.
     // ActionButtons are lazy-loaded but should be present in the footer.
     // We should wait for one of its known buttons to ensure the component itself is loaded.
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeVisible({timeout: 10000});
+    const explorer = new FileExplorerPage(page);
 
-    await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Copy Report' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Copy Report' })).toBeDisabled();
+    await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10000 });
+    await expect(explorer.downloadReportButton).toBeDisabled();
+    await expect(explorer.copyReportButton).toBeVisible();
+    await expect(explorer.copyReportButton).toBeDisabled();
     // "Undo Last Action" button does not exist in ActionButtons.tsx
     // await expect(page.getByRole('button', { name: 'Undo Last Action' })).toBeVisible();
     // await expect(page.getByRole('button', { name: 'Undo Last Action' })).toBeDisabled();
@@ -109,19 +102,15 @@ test.describe('File Explorer', () => {
     // beforeEach ensures the main layout, Context Explorer heading, and Download button are visible.
 
     if (MOCK_FILE_SYSTEM) {
-      // Simulate directory selection by clicking the "Select Root" button.
-      // The mocked showDirectoryPicker from addInitScript will be used.
-      await page.getByRole('button', { name: 'Select Root' }).click();
+      const explorer = new FileExplorerPage(page);
 
-      // Wait for the file tree to appear and the initial empty messages to disappear.
-      // The FileFilterBar appearing is a good sign the root directory has been processed.
-      await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
-      await expect(page.getByText('No directory selected')).not.toBeVisible();
+      await explorer.selectRoot();
 
-      // Scope checkbox locators to the file tree
-      const fileTree = page.getByRole('tree', { name: 'File tree' });
-      const file1Checkbox = fileTree.getByRole('checkbox', { name: 'Select test.ts' });
-      const file2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+      await expect(explorer.noDirectoryText).not.toBeVisible();
+
+      const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
+      const file2Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
       
       await expect(file1Checkbox).toBeVisible();
       await file1Checkbox.click({ force: true });
@@ -135,12 +124,11 @@ test.describe('File Explorer', () => {
       // Max selection is 10 by default.
       await expect(page.getByText('2/10')).toBeVisible();
 
-      const downloadButton = page.getByRole('button', { name: 'Download Report' });
-      await expect(downloadButton).toBeEnabled();
+      await expect(explorer.downloadReportButton).toBeEnabled();
 
       const [download] = await Promise.all([
         page.waitForEvent('download'),
-        downloadButton.click(),
+        explorer.downloadReportButton.click(),
       ]);
       
       // Check if the downloaded file name contains "report" (case-insensitive)
@@ -154,8 +142,9 @@ test.describe('File Explorer', () => {
         'MOCK_FILE_SYSTEM is false. The report download test cannot fully execute without mock file interactions.',
       );
       // Fallback to checking the initial disabled state if mocks are off
-      await expect(page.getByRole('button', { name: 'Download Report' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
+      const explorer = new FileExplorerPage(page);
+      await expect(explorer.downloadReportButton).toBeVisible();
+      await expect(explorer.downloadReportButton).toBeDisabled();
     }
   });
 });

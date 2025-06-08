@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 import { resetFileExplorerSettings } from './utils/layout-helpers';
+import { HomePage } from './page-objects/home-page';
+import { FileExplorerPage } from './page-objects/file-explorer-page';
 
 test.describe('File Explorer Settings', () => {
   test.beforeEach(async ({ page }) => {
@@ -9,19 +11,18 @@ test.describe('File Explorer Settings', () => {
     };
 
     await mockBrowserApis(page, 'test-root', tree);
-    await page.goto('/');
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true }),
-    ).toBeVisible();
+    const home = new HomePage(page);
+    await home.goto();
+    await home.expectLoaded();
     await resetFileExplorerSettings(page);
     await page.reload();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true }),
-    ).toBeVisible();
+    await home.expectLoaded();
   });
 
   test('should persist updated max selection count', async ({ page }) => {
-    await page.getByRole('button', { name: 'Open settings' }).click();
+    const home = new HomePage(page);
+    const explorer = new FileExplorerPage(page);
+    await explorer.openSettingsButton.click();
 
     const dialog = page.locator('dialog[aria-labelledby="config-title"]');
     await expect(dialog).toBeVisible();
@@ -31,11 +32,9 @@ test.describe('File Explorer Settings', () => {
     await dialog.getByRole('button', { name: 'Apply Settings' }).click();
 
     await page.reload();
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true }),
-    ).toBeVisible();
+    await home.expectLoaded();
 
-    await page.getByRole('button', { name: 'Open settings' }).click();
+    await explorer.openSettingsButton.click();
     await expect(dialog).toBeVisible();
     await expect(dialog.getByLabel('Max Selection Count')).toHaveValue('5');
   });

@@ -2,7 +2,6 @@ import { test, expect } from '@playwright/test';
 import {
   getPanelElements,
   waitForAppLoad,
-  resetLayoutState,
   getPanelDimensions,
   resizePanel,
   getLeftPanelResizeHandle,
@@ -16,12 +15,15 @@ import {
   verifyDefaultLayout,
   testLayoutPersistenceAcrossNavigation,
 } from './utils/layout-helpers';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Advanced IDE Layout', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppLoad(page);
-    await resetLayoutState(page);
+    await resetAppState(page);
+    await page.reload();
+    await waitForAppLoad(page);
   });
 
   test.describe('Panel Resize Functionality', () => {

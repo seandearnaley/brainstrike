@@ -1,19 +1,16 @@
 import { test, expect } from '@playwright/test';
+import { resetAppState } from './utils/app-state';
 
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    
+
     // Wait for brainstrike app to load
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     
     // Clear any existing layout state to start fresh
-    await page.evaluate(() => {
-      localStorage.removeItem('panelLayout.v1');
-    });
-    
-    // Reload to apply clean state
+    await resetAppState(page);
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
   });

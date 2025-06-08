@@ -24,6 +24,6 @@
     "@brainstrike/test-utils": "workspace:*",
     "rimraf": "^6",
     "typescript": "^5",
-    "vitest": "^2"
+    "vitest": "^3"
   }
 }

@@ -79,7 +79,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
   - **Vitest `^3.1.1`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.workspace.ts`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/vitest.workspace.ts:0:0-0:0))
-  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/tests/`)
+  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/tests/`). See [docs/e2e-guidelines.md](docs/e2e-guidelines.md) for unified rules.
   - **NYC `^17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
   - **Biome `^1.9.4`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/biome.json:0:0-0:0), [`packages/config/biome/biome.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/packages/config/biome/biome.json:0:0-0:0))

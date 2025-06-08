@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Refresh Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -10,13 +11,15 @@ test.describe('Refresh Workflow', () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
+    await resetAppState(page);
+    await page.reload();
 
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
   });
 
   test('should refresh file tree and show toast', async ({ page }) => {
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
 
     const fileTree = page.getByRole('tree', { name: 'File tree' });
     await expect(fileTree.getByText('old-file.ts')).toBeVisible();
@@ -47,7 +50,7 @@ test.describe('Refresh Workflow', () => {
     });
 
     // Trigger refresh
-    await page.getByRole('button', { name: 'Refresh' }).click();
+    await page.getByTestId('refresh-button').click();
 
     // Loading overlay should appear
     await expect(page.getByRole('alert')).toBeVisible();

@@ -43,7 +43,8 @@
         "**/*.test.{ts,tsx}"
       ],
       "ignoreDependencies": [
-        "@brainstrike/ui" // Used in CSS imports which knip doesn't detect
+        "@brainstrike/ui", // Used in CSS imports which knip doesn't detect
+        "electron-builder-squirrel-windows" // Required peer dependency for electron-builder Windows builds
       ],
       "typescript": {
         "config": "tsconfig.json"

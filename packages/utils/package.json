@@ -31,19 +31,19 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "gpt-tokenizer": "^2.1.2",
+    "gpt-tokenizer": "^3.0.0",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "minimatch": "^10"
   },
   "devDependencies": {
-    "@swc/core": "^1.11.20",
-    "@types/node": "^20.11.0",
+    "@swc/core": "^1.11.31",
+    "@types/node": "^22.15.30",
     "@brainstrike/test-utils": "workspace:*",
-    "tsup": "^8.0.1",
-    "typescript": "^5.3.3",
-    "vitest": "^3.1.1",
-    "rimraf": "^5.0.7"
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.2",
+    "rimraf": "^6.0.1"
   },
   "publishConfig": {
     "access": "public"

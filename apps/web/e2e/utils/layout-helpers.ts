@@ -43,7 +43,7 @@ export async function waitForAppLoad(page: Page): Promise<void> {
   // Try to wait for Select Root button, but don't fail if it's not there
   // (it might not be visible in all test scenarios)
   try {
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 5000 });
   } catch (error) {
     // If Select Root button is not found, just ensure the main content is loaded
     await page.waitForTimeout(1000);

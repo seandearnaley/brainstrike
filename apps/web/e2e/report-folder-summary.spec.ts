@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Report Folder Summary Threshold', () => {
   test.beforeEach(async ({ page }) => {
@@ -20,16 +21,18 @@ test.describe('Report Folder Summary Threshold', () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
+    await resetAppState(page);
+    await page.reload();
 
     // Wait for the app to load completely
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible();
+    await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });
 
   test('should respect folderSummaryThreshold when generating reports', async ({ page }) => {
     // Select root directory
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
 
     // Wait for file tree to load
     await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible();
@@ -73,7 +76,7 @@ test.describe('Report Folder Summary Threshold', () => {
     expect(content1).not.toContain('file6.ts');
 
     // Change threshold to 2
-    await page.getByRole('button', { name: 'Open settings' }).click();
+    await page.getByTestId('settings-button').click();
     const dialog = page.locator('dialog[aria-labelledby="config-title"]');
     await expect(dialog).toBeVisible();
 

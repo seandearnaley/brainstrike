@@ -46,6 +46,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
                 'cursor-pointer'
               )}
               title={item.name}
+              aria-label={item.name}
             >
               <Icon className="w-6 h-6" />
             </button>

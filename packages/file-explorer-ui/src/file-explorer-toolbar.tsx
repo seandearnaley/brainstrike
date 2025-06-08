@@ -43,6 +43,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
           <Button
             variant="outline"
             size="sm"
+            data-testid="select-root-button"
             onClick={onDirectorySelect}
             disabled={isLoading && !isRefreshing}
           >
@@ -52,6 +53,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
           <Button
             variant="outline"
             size="sm"
+            data-testid="refresh-button"
             onClick={onRefresh}
             disabled={isLoading || isRefreshing}
           >
@@ -61,6 +63,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
           <Button
             variant="outline"
             size="sm"
+            data-testid="expand-all-button"
             onClick={onExpandAll}
             disabled={isLoading || isRefreshing}
           >
@@ -70,6 +73,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = ({
           <Button
             variant="outline"
             size="sm"
+            data-testid="collapse-all-button"
             onClick={onCollapseAll}
             disabled={isLoading || isRefreshing}
           >

@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { Folder, Settings } from 'lucide-react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { type NavigationItem, NavigationSidebar } from '../navigation-sidebar';
 
 const items: NavigationItem[] = [
@@ -54,5 +54,13 @@ describe('NavigationSidebar', () => {
       'py-4',
       'space-y-4'
     );
+  });
+
+  it('applies aria-label to buttons when onItemClick is provided', () => {
+    const handleClick = vi.fn();
+    render(<NavigationSidebar items={items} currentPath="/" onItemClick={handleClick} />);
+
+    const button = screen.getByRole('button', { name: 'Context Explorer' });
+    expect(button).toHaveAttribute('aria-label', 'Context Explorer');
   });
 });
