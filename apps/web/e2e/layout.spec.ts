@@ -1,54 +1,53 @@
 import { test, expect } from '@playwright/test';
-import { 
-  getPanelElements, 
-  waitForAppLoad, 
+import {
+  getPanelElements,
+  waitForAppLoad,
   verifyDefaultLayout,
-  togglePanelVisibility 
+  togglePanelVisibility,
 } from './utils/layout-helpers';
+import { HomePage } from './page-objects/home-page';
 
 test.describe('Application Layout', () => {
   test('should render the main layout correctly', async ({ page }) => {
-    await page.goto('/');
-    
+    const home = new HomePage(page);
+    await home.goto();
+
     // Ensure the main content area is visible
     await expect(page.locator('main')).toBeVisible();
-    
+
     // Verify the page title is for Context Explorer by default and visible
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(home.contextExplorerHeading).toBeVisible();
     // Ensure the Settings H1 is in the DOM but not visible
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).not.toBeVisible();
+    await expect(home.settingsHeading).not.toBeVisible();
   });
 
   test('should have working sidebar navigation', async ({ page }) => {
-    await page.goto('/');
-    
-    // More specific locators for each button
-    const contextExplorerButton = page.locator('aside button[title="Context Explorer"]');
-    const settingsButton = page.locator('aside button[title="Settings"]');
+    const home = new HomePage(page);
+    await home.goto();
 
     // Ensure both buttons are present initially
-    await expect(contextExplorerButton).toBeVisible();
-    await expect(settingsButton).toBeVisible();
+    await expect(home.contextExplorerNavButton).toBeVisible();
+    await expect(home.settingsNavButton).toBeVisible();
 
     // Initial state: Context Explorer is active, Settings is not
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).not.toBeVisible();
+    await expect(home.contextExplorerHeading).toBeVisible();
+    await expect(home.settingsHeading).not.toBeVisible();
 
     // Ensure Settings button is enabled, then click
-    await expect(settingsButton).toBeEnabled({ timeout: 10000 }); // Added timeout for stability check
-    await settingsButton.click();
+    await expect(home.settingsNavButton).toBeEnabled({ timeout: 10000 });
+    await home.settingsNavButton.click();
 
     // Verify the Settings page content is visible and Context Explorer is not
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).not.toBeVisible();
+    await expect(home.settingsHeading).toBeVisible();
+    await expect(home.contextExplorerHeading).not.toBeVisible();
 
     // Ensure Context Explorer button is enabled, then click to navigate back
-    await expect(contextExplorerButton).toBeEnabled({ timeout: 10000 }); // Added timeout for stability check
-    await contextExplorerButton.click();
+    await expect(home.contextExplorerNavButton).toBeEnabled({ timeout: 10000 });
+    await home.contextExplorerNavButton.click();
 
     // Verify Context Explorer is active again
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Settings', exact: true })).not.toBeVisible();
+    await expect(home.contextExplorerHeading).toBeVisible();
+    await expect(home.settingsHeading).not.toBeVisible();
   });
 
   test.describe('Panel Layout Basics', () => {

@@ -6,7 +6,7 @@ test.describe('Theme Switching', () => {
     
     // Wait for the main layout to load
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
   });
 
   test('should switch themes via settings page and persist across navigation', async ({ page }) => {

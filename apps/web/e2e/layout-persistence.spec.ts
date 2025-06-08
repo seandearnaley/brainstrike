@@ -6,7 +6,7 @@ test.describe('IDE Layout Persistence', () => {
     
     // Wait for brainstrike app to load
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     
     // Clear any existing layout state to start fresh
     await page.evaluate(() => {

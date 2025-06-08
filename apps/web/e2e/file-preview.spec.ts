@@ -14,13 +14,13 @@ test.describe('File Preview', () => {
     await expect(
       page.getByRole('heading', { name: 'Context Explorer', exact: true }),
     ).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({
+    await expect(page.getByTestId('select-root-button')).toBeVisible({
       timeout: 10000,
     });
   });
 
   test('should show and hide file detail panel', async ({ page }) => {
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
 
     const fileTree = page.getByRole('tree', { name: 'File tree' });
     await expect(fileTree).toBeVisible();

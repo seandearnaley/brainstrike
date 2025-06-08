@@ -27,11 +27,11 @@ test.describe('File Explorer - Filter Functionality', () => {
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
 
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
     
     await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('No directory selected')).not.toBeVisible();

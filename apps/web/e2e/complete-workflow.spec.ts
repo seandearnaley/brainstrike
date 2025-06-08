@@ -25,7 +25,7 @@ test.describe('Complete File Explorer Workflow', () => {
 
     // Wait for the app to load completely
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible();
+    await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });
 
@@ -37,7 +37,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(page.getByRole('button', { name: 'Select All' })).toBeDisabled();
 
     // Step 2: Select root directory
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
 
     // Step 3: Wait for file tree to load
     await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible();
@@ -75,7 +75,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await page.waitForTimeout(200);
     
     // Then expand all
-    await page.getByRole('button', { name: 'Expand All' }).click();
+    await page.getByTestId('expand-all-button').click();
     
     // Verify nested file is now visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
@@ -134,7 +134,7 @@ test.describe('Complete File Explorer Workflow', () => {
 
   test('should select and deselect all visible files using the Select All button', async ({ page }) => {
     // Select root directory
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await page.getByTestId('select-root-button').click();
 
     // Wait for file tree to load
     const fileTree = page.getByRole('tree', { name: 'File tree' });

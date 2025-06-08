@@ -118,7 +118,13 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" aria-label="Open settings" className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Open settings"
+          data-testid="settings-button"
+          className="flex gap-2"
+        >
           <Settings className="size-4" data-testid="settings-icon" />
           <span className="hidden md:inline">Settings</span>
         </Button>

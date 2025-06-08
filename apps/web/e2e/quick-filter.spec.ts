@@ -22,8 +22,8 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await page.goto('/');
 
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Select Root' })).toBeVisible({ timeout: 10000 });
-    await page.getByRole('button', { name: 'Select Root' }).click();
+    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
+    await page.getByTestId('select-root-button').click();
 
     await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
@@ -35,7 +35,7 @@ test.describe('Quick Filter and Tree Expansion', () => {
 
     await filterInput.fill('Button');
     await page.waitForTimeout(200);
-    await page.getByRole('button', { name: 'Expand All' }).click();
+    await page.getByTestId('expand-all-button').click();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toHaveCount(0);
     await expect(fileTree.getByText('helpers.ts')).toHaveCount(0);
@@ -44,13 +44,13 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await filterInput.fill('');
     await page.waitForTimeout(200);
 
-    const expandAll = page.getByRole('button', { name: 'Expand All' });
+    const expandAll = page.getByTestId('expand-all-button');
     await expandAll.click();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('helpers.ts')).toBeVisible();
 
-    const collapseAll = page.getByRole('button', { name: 'Collapse All' });
+    const collapseAll = page.getByTestId('collapse-all-button');
     await collapseAll.click();
     await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).not.toBeVisible();
