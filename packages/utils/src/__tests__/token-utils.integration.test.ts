@@ -1,4 +1,4 @@
-import * as tokenizer from 'gpt-tokenizer';
+import { encode } from 'gpt-tokenizer/encoding/cl100k_base';
 import { describe, expect, it } from 'vitest';
 import { countTokensAccurate, countTokensHeuristic } from '../token-utils';
 
@@ -34,8 +34,8 @@ describe('Token Utilities Integration', () => {
       // Document that real tokenizer would give different results
       // Real tokenizer: ~11 tokens for this URL
       // Heuristic: ~12 tokens (48 chars / 4)
-      const realTokenCount = tokenizer.encode(url).length;
-      console.log(`URL token counts - Real: ${realTokenCount}, Heuristic: ${urlHeuristic}`);
+      const actualTokens = encode(url).length;
+      console.log(`URL token counts - Actual: ${actualTokens}, Heuristic: ${urlHeuristic}`);
     });
   });
 });
