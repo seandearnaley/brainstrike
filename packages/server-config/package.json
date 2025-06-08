@@ -30,6 +30,6 @@
   },
   "license": "ISC",
   "devDependencies": {
-    "@types/node": "^22.15.17"
+    "@types/node": "^22.15.30"
   }
 }

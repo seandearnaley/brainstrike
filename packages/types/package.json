@@ -27,9 +27,9 @@
 		"test:coverage": "vitest run --coverage"
 	},
         "devDependencies": {
-        "@swc/core": "^1.11.20",
+        "@swc/core": "^1.11.31",
         "typescript": "^5.8.3",
-                "vitest": "^3.1.1"
+                "vitest": "^3.2.2"
         },
         "license": "ISC",
         "turbo": {
