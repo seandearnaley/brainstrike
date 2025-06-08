@@ -248,7 +248,7 @@ test.describe('Advanced IDE Layout', () => {
   });
 
   test.describe('Accessibility and Usability', () => {
-    test.skip('should maintain focus management during panel operations', async ({ page }) => {
+    test('should maintain focus management during panel operations', async ({ page }) => {
       const elements = getPanelElements(page);
       await elements.hideExplorerButton.click();
       await expect(elements.leftPanel).not.toBeVisible();

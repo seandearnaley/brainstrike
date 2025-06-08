@@ -25,6 +25,14 @@ export const IdeLayout = React.memo(function IdeLayout({
   consoleContent,
   className,
 }: IdeLayoutProps) {
+  const leftPanelRef = useRef<ImperativePanelHandle>(null);
+  const rightPanelRef = useRef<ImperativePanelHandle>(null);
+
+  // Add refs for focus management
+  const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
+  const hideRightPanelButtonRef = useRef<HTMLButtonElement>(null);
+  const hideConsoleButtonRef = useRef<HTMLButtonElement>(null);
+
   const {
     sizes,
     showConsole,
@@ -36,12 +44,36 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleRightPanel,
   } = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
 
-  const leftPanelRef = useRef<ImperativePanelHandle>(null);
-  const rightPanelRef = useRef<ImperativePanelHandle>(null);
+  const [safeLeftSize, safeRightSize, safeConsoleSize] = [
+    typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) ? sizes[0] : 25,
+    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 20,
+    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 30,
+  ];
 
-  const safeLeftSize = typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) ? sizes[0] : 25;
-  const safeRightSize = typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 20;
-  const safeConsoleSize = typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 30;
+  // Focus management functions
+  const handleShowLeftPanel = useCallback(() => {
+    toggleLeftPanel();
+    // Focus the hide button after the panel is shown
+    setTimeout(() => {
+      hideExplorerButtonRef.current?.focus();
+    }, 100);
+  }, [toggleLeftPanel]);
+
+  const handleShowRightPanel = useCallback(() => {
+    toggleRightPanel();
+    // Focus the hide button after the panel is shown
+    setTimeout(() => {
+      hideRightPanelButtonRef.current?.focus();
+    }, 100);
+  }, [toggleRightPanel]);
+
+  const handleShowConsole = useCallback(() => {
+    toggleConsole();
+    // Focus the hide button after the console is shown
+    setTimeout(() => {
+      hideConsoleButtonRef.current?.focus();
+    }, 100);
+  }, [toggleConsole]);
 
   useEffect(() => {
     const panel = leftPanelRef.current;
@@ -153,7 +185,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={toggleLeftPanel}
+              onClick={handleShowLeftPanel}
               aria-label="Show explorer"
             >
               <ChevronRight className="h-4 w-4" />
@@ -185,6 +217,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     className="h-6 w-6"
                     onClick={toggleLeftPanel}
                     aria-label="Hide explorer"
+                    ref={hideExplorerButtonRef}
                   >
                     <ChevronLeft className="h-4 w-4" />
                   </Button>
@@ -208,7 +241,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   variant="ghost"
                   size="sm"
                   className="h-6"
-                  onClick={toggleConsole}
+                  onClick={handleShowConsole}
                   aria-label="Show console"
                 >
                   <Terminal className="h-4 w-4" />
@@ -240,6 +273,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                         className="h-6 w-6"
                         onClick={handleConsoleClose}
                         aria-label="Close console"
+                        ref={hideConsoleButtonRef}
                       >
                         <X className="h-4 w-4" />
                       </Button>
@@ -258,7 +292,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={toggleRightPanel}
+              onClick={handleShowRightPanel}
               aria-label="Show right panel"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -291,6 +325,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     className="h-6 w-6"
                     onClick={toggleRightPanel}
                     aria-label="Hide panel"
+                    ref={hideRightPanelButtonRef}
                   >
                     <ChevronRight className="h-4 w-4" />
                   </Button>
