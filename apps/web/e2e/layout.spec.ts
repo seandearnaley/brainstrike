@@ -72,10 +72,10 @@ test.describe('Application Layout', () => {
       
       // Hide panel
       await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
-      await expect(elements.showExplorerButton).toBeVisible();
+      await expect(elements.showExplorerShim).toBeVisible();
       
       // Show panel again
-      await togglePanelVisibility(elements.showExplorerButton, elements.leftPanel, true);
+      await togglePanelVisibility(elements.showExplorerShim, elements.leftPanel, true);
     });
 
     test('should allow toggling console panel visibility', async ({ page }) => {
@@ -83,10 +83,10 @@ test.describe('Application Layout', () => {
       
       // Initially hidden
       await expect(elements.consolePanel).not.toBeVisible();
-      await expect(elements.showConsoleButton).toBeVisible();
+      await expect(elements.showConsoleShim).toBeVisible();
       
       // Show console
-      await togglePanelVisibility(elements.showConsoleButton, elements.consolePanel, true);
+      await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
       await expect(page.getByText('Console output will appear here...')).toBeVisible();
       
       // Hide console
@@ -101,7 +101,7 @@ test.describe('Application Layout', () => {
       await expect(resizeHandles.first()).toBeVisible(); // Left panel resize handle
       
       // Show console to get more resize handles
-      await elements.showConsoleButton.click();
+      await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
       
       // Should have console resize handle too
@@ -109,8 +109,12 @@ test.describe('Application Layout', () => {
     });
 
     test('should maintain panel structure integrity', async ({ page }) => {
-      await getPanelElements(page).showConsoleButton.click();
-      await getPanelElements(page).showRightPanelButton.click();
+      const elements = getPanelElements(page);
+      await elements.showConsoleShim.click();
+      await elements.showRightPanelShim.click(); // Show right panel first since it's hidden by default
+      await elements.hideRightPanelButton.click(); // Now we can hide it
+      await elements.showRightPanelShim.click(); // And show it again
+      
       // Verify all main layout containers exist
       await expect(page.locator('[data-panel-id="left-panel"]')).toBeAttached();
       await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();

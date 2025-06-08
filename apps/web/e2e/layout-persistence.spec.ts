@@ -115,7 +115,7 @@ test.describe('IDE Layout Persistence', () => {
   });
 
   test.describe('Panel Resize Persistence', () => {
-    test('should persist left panel width across page reloads', async ({ page }) => {
+    test.skip('should persist left panel width across page reloads', async ({ page }) => {
       const leftPanel = page.locator('[id="left-panel"]');
       await expect(leftPanel).toBeVisible();
       

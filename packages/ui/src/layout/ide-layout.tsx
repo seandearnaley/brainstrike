@@ -34,7 +34,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,
-  } = usePanelPersistence([25, 20, 30], false, !!leftPanelContent, false);
+  } = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
 
   const leftPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
@@ -147,6 +147,19 @@ export const IdeLayout = React.memo(function IdeLayout({
   return (
     <div className={cn('h-full flex-1 flex flex-col', className)}>
       <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
+        {!showLeftPanel && leftPanelContent && (
+          <div className="flex items-center justify-center p-2 border-r border-border bg-muted/30">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={toggleLeftPanel}
+              aria-label="Show explorer"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
         {leftPanelContent && showLeftPanel && (
           <>
             <Panel
@@ -173,7 +186,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     onClick={toggleLeftPanel}
                     aria-label="Hide explorer"
                   >
-                    <ChevronLeft className="h-3 w-3" />
+                    <ChevronLeft className="h-4 w-4" />
                   </Button>
                 </div>
                 <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
@@ -189,6 +202,20 @@ export const IdeLayout = React.memo(function IdeLayout({
               <div className="h-full">{children}</div>
             </Panel>
 
+            {!showConsole && consoleContent && (
+              <div className="flex items-center justify-center py-1 border-t border-border bg-muted/30">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6"
+                  onClick={toggleConsole}
+                  aria-label="Show console"
+                >
+                  <Terminal className="h-4 w-4" />
+                  <span className="ml-2 text-xs">Show Console</span>
+                </Button>
+              </div>
+            )}
             {showConsole && consoleContent && (
               <>
                 <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
@@ -214,7 +241,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                         onClick={handleConsoleClose}
                         aria-label="Close console"
                       >
-                        <X className="h-3 w-3" />
+                        <X className="h-4 w-4" />
                       </Button>
                     </div>
                     <div className="h-[calc(100%-2.5rem)] overflow-hidden">{consoleContent}</div>
@@ -234,11 +261,10 @@ export const IdeLayout = React.memo(function IdeLayout({
               onClick={toggleRightPanel}
               aria-label="Show right panel"
             >
-              <ChevronRight className="h-3 w-3" />
+              <ChevronLeft className="h-4 w-4" />
             </Button>
           </div>
         )}
-
         {rightPanelContent && showRightPanel && (
           <>
             <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
@@ -266,7 +292,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     onClick={toggleRightPanel}
                     aria-label="Hide panel"
                   >
-                    <ChevronRight className="h-3 w-3" />
+                    <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
                 <div className="h-[calc(100%-2.5rem)] overflow-hidden">{rightPanelContent}</div>
@@ -277,28 +303,8 @@ export const IdeLayout = React.memo(function IdeLayout({
       </PanelGroup>
 
       <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2">
-        <Button
-          aria-label="Show console"
-          className="cursor-pointer border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 w-10 shadow-lg"
-          onClick={toggleConsole}
-        >
-          <Terminal className="h-4 w-4" />
-        </Button>
+        {/* Floating buttons can be placed here if needed in the future */}
       </div>
-
-      {leftPanelContent && !showLeftPanel && (
-        <div className="absolute left-4 top-4 z-50">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={toggleLeftPanel}
-            className="shadow-lg"
-            aria-label="Show explorer"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
     </div>
   );
 });
