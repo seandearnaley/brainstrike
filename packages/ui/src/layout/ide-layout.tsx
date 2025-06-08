@@ -52,11 +52,21 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   // Focus management functions
   const handleShowLeftPanel = useCallback(() => {
+    if (leftPanelRef.current) {
+      leftPanelRef.current.expand();
+    }
     toggleLeftPanel();
     // Focus the hide button after the panel is shown
     setTimeout(() => {
       hideExplorerButtonRef.current?.focus();
     }, 100);
+  }, [toggleLeftPanel]);
+
+  const handleHideLeftPanel = useCallback(() => {
+    if (leftPanelRef.current) {
+      leftPanelRef.current.collapse();
+    }
+    toggleLeftPanel();
   }, [toggleLeftPanel]);
 
   const handleShowRightPanel = useCallback(() => {
@@ -192,7 +202,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             </Button>
           </div>
         )}
-        {leftPanelContent && showLeftPanel && (
+        {leftPanelContent && (
           <>
             <Panel
               ref={leftPanelRef}
@@ -215,7 +225,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     variant="ghost"
                     size="icon"
                     className="h-6 w-6"
-                    onClick={toggleLeftPanel}
+                    onClick={handleHideLeftPanel}
                     aria-label="Hide explorer"
                     ref={hideExplorerButtonRef}
                   >
