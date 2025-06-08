@@ -41,7 +41,7 @@ export const FileRow = memo<FileRowProps>(function FileRow({
 
       <button
         type="button"
-        className="flex-1 min-w-0 text-left hover:text-primary transition-colors"
+        className="flex-1 min-w-0 text-left hover:text-primary transition-colors cursor-pointer"
         onClick={onShowDetail}
       >
         <div className="truncate font-mono text-sm" title={item.path}>
