@@ -2,6 +2,8 @@
 
 This directory contains end-to-end tests using Playwright for the Brainstrike web application.
 
+For general Playwright guidelines see [docs/e2e-guidelines.md](../../docs/e2e-guidelines.md).
+
 ## Running Tests
 
 We've simplified the testing approach to make it easier to run tests in different environments:
