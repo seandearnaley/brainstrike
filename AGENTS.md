@@ -155,9 +155,9 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     Example: `feat(web): Add user profile page`
     If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
 *   **Checklist**:
-    *   **Crucially, the entire following command chain must pass without errors:**
+    *   **Crucially, run the following command to validate your changes:**
         ```bash
-        pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e
+        pnpm run check
         ```
     *   PR description clearly explains the changes and reasoning.
     *   New functionality is covered by tests.
@@ -169,21 +169,21 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 
 ## Validating Changes (Summary)
 
-Before pushing code or opening a PR, ensure the **entire** following command chain completes successfully:
+Before pushing code or opening a PR, ensure the following command completes successfully:
 
 ```bash
-pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e
+pnpm run check
 ```
 
 **Important:** The `pnpm run build` command must succeed for every workspace in the monorepo. It runs with `--filter ./...` internally, building all packages and applications. If any workspace fails to build, the entire build step will fail.
 
-This comprehensive check includes:
-1.  **Dependency Installation**: `pnpm install` (ensures all dependencies are correctly installed).
-2.  **Building**: `pnpm run build` (ensures the entire monorepo builds successfully).
-3.  **Linting**: `pnpm run lint` (fix any reported issues, `pnpm run lint --fix` can help).
-4.  **Type Checking**: `pnpm run type-check` (resolve all TypeScript errors).
-5.  **Unit & Integration Testing**: `pnpm run test` (all these tests should pass).
-6.  **End-to-End Testing**: `pnpm run test:e2e` (all E2E tests should pass, especially for web app changes).
+The `check` script runs the following steps sequentially:
+1.  **Dependency Installation**: `pnpm install` ensures all dependencies are correctly installed.
+2.  **Building**: `pnpm run build` builds the entire monorepo.
+3.  **Linting**: `pnpm run lint` (use `pnpm run lint --fix` to auto-fix issues).
+4.  **Type Checking**: `pnpm run type-check` resolves TypeScript errors.
+5.  **Unit & Integration Testing**: `pnpm run test` runs all unit and integration tests.
+6.  **End-to-End Testing**: `pnpm run test:e2e` executes Playwright E2E tests.
 
 Only if this entire sequence is successful is the code considered ready for a Pull Request.
 

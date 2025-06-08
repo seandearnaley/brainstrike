@@ -11,8 +11,11 @@ import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
+import { cn } from '@brainstrike/ui';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
+import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -292,35 +295,78 @@ const FileExplorer: React.FC = () => {
             <div className="w-full md:w-1/2 @container/sidebar flex flex-col overflow-hidden px-2">
               <FileExplorerToolbar
                 onDirectorySelect={handleDirectorySelect}
-                onRefresh={handleRefresh}
                 onFilterChange={handleFilterChange}
                 filterError={filterError}
                 quickFilter={quickFilter}
                 setQuickFilter={setQuickFilter}
                 clearQuickFilter={clearFilter}
                 isLoading={isLoading}
-                isRefreshing={isRefreshing}
                 rootDirectoryHandle={rootDirectoryHandle}
-                onExpandAll={expandAll}
-                onCollapseAll={collapseAll}
               />
-              <Suspense fallback={<LoadingFallback />}>
-                <FileExplorerSidebar
-                  rootDirectoryHandle={rootDirectoryHandle}
-                  treeError={error}
-                  filterError={filterErrorAsError}
-                  includeFilters={includeFilters}
-                  excludeFilters={excludeFilters}
-                  useRegex={useRegex}
-                  quickFilter={quickFilter}
-                  quickFilteredTree={quickFilteredTree}
-                  loadingFiles={loadingFiles}
-                  isLoading={isLoading}
-                  isInitialLoad={isInitialLoad}
-                  currentFolderId={currentFolderId}
-                  onTreeRender={handleTreeRender}
-                />
-              </Suspense>
+              <div className="flex-1 relative">
+                {/* Fixed buttons overlay - outside scrollable area */}
+                {rootDirectoryHandle && (
+                  <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                      data-testid="refresh-button-small"
+                      onClick={handleRefresh}
+                      disabled={isLoading || isRefreshing}
+                      title="Refresh"
+                      aria-label="Refresh"
+                    >
+                      <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                      data-testid="expand-all-button-small"
+                      onClick={expandAll}
+                      disabled={isLoading || isRefreshing}
+                      title="Expand All"
+                      aria-label="Expand All"
+                    >
+                      <ChevronsDown className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                      data-testid="collapse-all-button-small"
+                      onClick={collapseAll}
+                      disabled={isLoading || isRefreshing}
+                      title="Collapse All"
+                      aria-label="Collapse All"
+                    >
+                      <ChevronsUp className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+
+                {/* Scrollable content */}
+                <div className="overflow-y-auto h-full">
+                  <Suspense fallback={<LoadingFallback />}>
+                    <FileExplorerSidebar
+                      rootDirectoryHandle={rootDirectoryHandle}
+                      treeError={error}
+                      filterError={filterErrorAsError}
+                      includeFilters={includeFilters}
+                      excludeFilters={excludeFilters}
+                      useRegex={useRegex}
+                      quickFilter={quickFilter}
+                      quickFilteredTree={quickFilteredTree}
+                      loadingFiles={loadingFiles}
+                      isLoading={isLoading}
+                      isInitialLoad={isInitialLoad}
+                      currentFolderId={currentFolderId}
+                      onTreeRender={handleTreeRender}
+                    />
+                  </Suspense>
+                </div>
+              </div>
             </div>
             <div className="w-full md:w-1/2 @container/content flex flex-col overflow-hidden border-t md:border-t-0 md:border-l px-2 bg-card/50">
               <Suspense fallback={<LoadingFallback />}>

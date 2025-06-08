@@ -55,6 +55,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Run checks
+        run: pnpm run check
         # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
 
       - name: Verify package links (Optional Sanity Check)
@@ -75,18 +78,7 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
-      - name: Run Biome checks (Lint & Format)
-        run: pnpm run lint # Fails build on issues
 
-      - name: Build all packages
-        run: pnpm run build
-        env:
-          NODE_ENV: "production" # Ensure builds are production builds
-
-      - name: Type check
-        run: pnpm run type-check
-        env:
-          NODE_ENV: "production" # Type check against production build artifacts
 
       - name: Run Knip (detect unused code)
         run: |

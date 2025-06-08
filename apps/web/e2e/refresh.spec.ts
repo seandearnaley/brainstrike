@@ -40,17 +40,14 @@ test.describe('Refresh Workflow', () => {
         }
       };
 
-      root._entries['new-file.ts'] = {
-        kind: 'file',
-        name: 'new-file.ts',
-        async getFile() {
-          return new File(['test content'], 'new-file.ts');
-        },
-      };
+      const handle = await root.getFileHandle('new-file.ts', { create: true });
+      const writable = await handle.createWritable();
+      await writable.write('test content');
+      await writable.close();
     });
 
     // Trigger refresh
-    await page.getByTestId('refresh-button').click();
+    await page.getByTestId('refresh-button-small').click();
 
     // Loading overlay should appear
     await expect(page.getByRole('alert')).toBeVisible();

@@ -28,19 +28,14 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   return {
     ...actual,
     FileExplorerToolbar: ({
-      onRefresh,
       onDirectorySelect,
       onFilterChange,
     }: {
-      onRefresh: () => void;
       onDirectorySelect: () => void;
       onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
     }) => (
       <div data-testid="toolbar">
         Toolbar
-        <button type="button" onClick={onRefresh}>
-          Refresh
-        </button>
         <button type="button" onClick={onDirectorySelect}>
           Select Directory
         </button>
@@ -201,7 +196,8 @@ describe('FileExplorerLeftPanel', () => {
     const user = userEvent.setup();
     render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
 
-    await user.click(screen.getByRole('button', { name: 'Refresh' }));
+    // Click the refresh button which is now rendered by FileExplorerLeftPanel itself
+    await user.click(screen.getByTestId('refresh-button-small'));
 
     expect(refreshFileExplorerMock).toHaveBeenCalledTimes(1);
     expect(showToastMock).toHaveBeenCalled();
