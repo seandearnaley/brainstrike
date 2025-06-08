@@ -1,3 +1,5 @@
+import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import {
   NavigationSidebar,
   ThemeProvider,
@@ -5,8 +7,6 @@ import {
   Toaster,
   TooltipProvider,
 } from '@brainstrike/ui';
-import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
