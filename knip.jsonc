@@ -270,6 +270,7 @@
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
     "@monaco-editor/react",
+    "electron-builder-squirrel-windows",
     "monaco-editor",
     "dompurify",
     "@babel/core",
