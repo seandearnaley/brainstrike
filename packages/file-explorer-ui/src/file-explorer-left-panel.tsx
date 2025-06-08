@@ -9,6 +9,7 @@ import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
 import { Button } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -284,42 +285,60 @@ export const FileExplorerLeftPanel: React.FC = () => {
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
             <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                data-testid="refresh-button-small"
-                onClick={handleRefresh}
-                disabled={isLoading || isRefreshing}
-                title="Refresh"
-                aria-label="Refresh"
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                data-testid="expand-all-button-small"
-                onClick={expandAll}
-                disabled={isLoading || isRefreshing}
-                title="Expand All"
-                aria-label="Expand All"
-              >
-                <ChevronsDown className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
-                data-testid="collapse-all-button-small"
-                onClick={collapseAll}
-                disabled={isLoading || isRefreshing}
-                title="Collapse All"
-                aria-label="Collapse All"
-              >
-                <ChevronsUp className="h-3.5 w-3.5" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="refresh-button-small"
+                    onClick={handleRefresh}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Refresh"
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Refresh file tree</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="expand-all-button-small"
+                    onClick={expandAll}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Expand All"
+                  >
+                    <ChevronsDown className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Expand all directories</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="collapse-all-button-small"
+                    onClick={collapseAll}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Collapse All"
+                  >
+                    <ChevronsUp className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Collapse all directories</p>
+                </TooltipContent>
+              </Tooltip>
             </div>
           )}
 
