@@ -107,12 +107,11 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-browsers-v1-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-browsers-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-playwright-browsers-v1-
+            ${{ runner.os }}-playwright-browsers-v2-
 
-      - name: Install Playwright browsers and dependencies (if cache missed)
-        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
+      - name: Install Playwright browsers and dependencies
         run: cd apps/web && pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
