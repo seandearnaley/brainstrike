@@ -112,7 +112,17 @@ jobs:
             ${{ runner.os }}-playwright-browsers-v2-
 
       - name: Install Playwright browsers and dependencies
-        run: cd apps/web && pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps
+
+      - name: List Playwright browser cache (debug)
+        run: ls -R ~/.cache/ms-playwright || true
+
+      - name: Verify Playwright installation
+        run: |
+          echo "Checking Playwright installation..."
+          pnpm exec playwright --version
+          echo "Checking available browsers..."
+          pnpm exec playwright install --dry-run || true
 
       - name: Run E2E tests with coverage
         run: |
