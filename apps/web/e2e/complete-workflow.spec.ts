@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Complete File Explorer Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -22,6 +23,8 @@ test.describe('Complete File Explorer Workflow', () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
+    await resetAppState(page);
+    await page.reload();
 
     // Wait for the app to load completely
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();

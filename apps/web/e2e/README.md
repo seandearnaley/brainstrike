@@ -72,15 +72,18 @@ Place your test files in this directory with the `.spec.ts` extension. See exist
 
 ### Layout Testing Patterns
 
-When writing layout tests, use the helper utilities from `utils/layout-helpers.ts`:
+When writing layout tests, use the helper utilities from `utils`. The `resetAppState` helper ensures localStorage is cleared before tests:
 
 ```typescript
-import { getPanelElements, waitForAppLoad, resetLayoutState } from './utils/layout-helpers';
+import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { resetAppState } from './utils/app-state';
 
 test('my layout test', async ({ page }) => {
   await page.goto('/');
   await waitForAppLoad(page);
-  await resetLayoutState(page);
+  await resetAppState(page);
+  await page.reload();
+  await waitForAppLoad(page);
   
   const elements = getPanelElements(page);
   // Your test logic here

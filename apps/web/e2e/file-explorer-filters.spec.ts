@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { resetAppState } from './utils/app-state';
 
 test.describe('File Explorer - Filter Functionality', () => {
   test.beforeEach(async ({ page }) => {
@@ -25,6 +26,8 @@ test.describe('File Explorer - Filter Functionality', () => {
     await mockBrowserApis(page, 'test-project', tree);
 
     await page.goto('/');
+    await resetAppState(page);
+    await page.reload();
 
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });

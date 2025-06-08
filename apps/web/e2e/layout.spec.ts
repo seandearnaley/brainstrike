@@ -6,6 +6,7 @@ import {
   togglePanelVisibility,
 } from './utils/layout-helpers';
 import { HomePage } from './page-objects/home-page';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Application Layout', () => {
   test('should render the main layout correctly', async ({ page }) => {
@@ -53,6 +54,9 @@ test.describe('Application Layout', () => {
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
       await page.goto('/');
+      await waitForAppLoad(page);
+      await resetAppState(page);
+      await page.reload();
       await waitForAppLoad(page);
     });
 

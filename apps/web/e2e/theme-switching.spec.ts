@@ -1,9 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { resetAppState } from './utils/app-state';
 
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    
+    await resetAppState(page);
+    await page.reload();
+
     // Wait for the main layout to load
     await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });

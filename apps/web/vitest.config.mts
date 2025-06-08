@@ -12,7 +12,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/**/__tests__/**/*.{test,spec}.{ts,tsx}'],
+    include: [
+      'src/**/__tests__/**/*.{test,spec}.{ts,tsx}',
+      'e2e/utils/**/__tests__/**/*.{test,spec,vitest}.{ts,tsx}',
+    ],
     exclude: ['node_modules', 'dist'],
   },
   resolve: {
