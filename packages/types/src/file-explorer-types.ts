@@ -13,6 +13,10 @@ export interface SerializedFolderState {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  /**
+   * Number of files displayed before summarizing a folder in the generated
+   * report's project tree. Does not affect the file explorer UI.
+   */
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
@@ -29,6 +33,10 @@ export interface SerializedState {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  /**
+   * Number of files displayed before summarizing a folder in the generated
+   * report's project tree. Does not affect the file explorer UI.
+   */
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
@@ -41,6 +49,10 @@ export interface FolderState {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  /**
+   * Number of files displayed before summarizing a folder in the generated
+   * report's project tree. Does not affect the file explorer UI.
+   */
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
@@ -58,6 +70,10 @@ export interface FileExplorerData {
   excludeFilters: string[];
   useRegex: boolean;
   includeProjectTree: boolean;
+  /**
+   * Number of files displayed before summarizing a folder in the generated
+   * report's project tree. Does not affect the file explorer UI.
+   */
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
@@ -118,6 +134,7 @@ export const DEFAULT_STATE = {
   ] as string[],
   useRegex: false,
   includeProjectTree: true,
+  // Used only when generating reports
   folderSummaryThreshold: 5,
   maxSelectionCount: 10,
   lastActiveTab: 'files',
