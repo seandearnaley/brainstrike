@@ -36,7 +36,9 @@ test.describe('Complete File Explorer Workflow', () => {
     // Step 1: Verify initial state
     await expect(page.getByText('0/10')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Copy Report' })).toBeDisabled();
+    // Handle both "Copy Report" and "Copy" text due to responsive design
+    const copyButton = page.locator('button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))').first();
+    await expect(copyButton).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Select All' })).toBeDisabled();
 
     // Step 2: Select root directory
@@ -67,7 +69,7 @@ test.describe('Complete File Explorer Workflow', () => {
 
     // Step 6: Verify action buttons are now enabled
     await expect(page.getByRole('button', { name: 'Download Report' })).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Copy Report' })).toBeEnabled();
+    await expect(copyButton).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Select All' })).toBeEnabled();
 
     // Step 7: Use the EXACT working pattern from quick-filter.spec.ts
@@ -78,7 +80,7 @@ test.describe('Complete File Explorer Workflow', () => {
     await page.waitForTimeout(200);
     
     // Then expand all
-    await page.getByTestId('expand-all-button').click();
+    await page.getByTestId('expand-all-button-small').click();
     
     // Verify nested file is now visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
@@ -106,7 +108,6 @@ test.describe('Complete File Explorer Workflow', () => {
     expect(download.suggestedFilename()).toMatch(/report/i);
 
     // Step 10: Test copy to clipboard functionality
-    const copyButton = page.getByRole('button', { name: 'Copy Report' });
     await expect(copyButton).toBeEnabled();
     await copyButton.click();
 

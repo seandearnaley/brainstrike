@@ -38,7 +38,7 @@ test.describe('Quick Filter and Tree Expansion', () => {
 
     await filterInput.fill('Button');
     await page.waitForTimeout(200);
-    await page.getByTestId('expand-all-button').click();
+    await page.getByTestId('expand-all-button-small').click();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toHaveCount(0);
     await expect(fileTree.getByText('helpers.ts')).toHaveCount(0);
@@ -47,13 +47,13 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await filterInput.fill('');
     await page.waitForTimeout(200);
 
-    const expandAll = page.getByTestId('expand-all-button');
+    const expandAll = page.getByTestId('expand-all-button-small');
     await expandAll.click();
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('helpers.ts')).toBeVisible();
 
-    const collapseAll = page.getByTestId('collapse-all-button');
+    const collapseAll = page.getByTestId('collapse-all-button-small');
     await collapseAll.click();
     await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).not.toBeVisible();

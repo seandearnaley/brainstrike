@@ -80,6 +80,7 @@ pnpm turbo run lint          # Lint the codebase with Biome
 pnpm lint --fix              # Auto-fix lint issues with Biome
 pnpm turbo run type-check    # Run TypeScript type checks
 pnpm format                  # Auto-format source files
+pnpm run check               # Full lint/build/test validation
 ```
 
 ## Tailwind Config
@@ -107,7 +108,7 @@ See [docs/file-explorer-settings.md](docs/file-explorer-settings.md) for availab
 ## Contributing
 - Follow [AGENTS.md](./AGENTS.md) for coding standards and workflow
 - Use Conventional Commits for commit messages
-- Ensure `pnpm lint --fix`, `pnpm format`, `pnpm type-check` and `pnpm test` all succeed
+- Validate changes by running `pnpm run check`
 - See [`onboarding.md`](./onboarding.md) and [`monorepo-docs.md`](./monorepo-docs.md) for deep technical guides
 
 The file explorer relies on `@brainstrike/storage` and `@brainstrike/file-system` packages which implement a platform-aware adapter pattern. Web, in-memory, and mock adapters enable browser usage, isolated tests, and pave the way for an Electron desktop app.

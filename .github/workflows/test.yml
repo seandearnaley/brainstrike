@@ -55,6 +55,31 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Cache Playwright browsers
+        id: playwright-browsers-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-browsers-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-browsers-v2-
+
+      - name: Install Playwright browsers and dependencies
+        run: pnpm exec playwright install --with-deps
+
+      - name: List Playwright browser cache (debug)
+        run: ls -R ~/.cache/ms-playwright || true
+
+      - name: Verify Playwright installation
+        run: |
+          echo "Checking Playwright installation..."
+          pnpm exec playwright --version
+          echo "Checking available browsers..."
+          pnpm exec playwright install --dry-run || true
+
+      - name: Run checks
+        run: pnpm run check
         # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
 
       - name: Verify package links (Optional Sanity Check)
@@ -75,18 +100,7 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
-      - name: Run Biome checks (Lint & Format)
-        run: pnpm run lint # Fails build on issues
 
-      - name: Build all packages
-        run: pnpm run build
-        env:
-          NODE_ENV: "production" # Ensure builds are production builds
-
-      - name: Type check
-        run: pnpm run type-check
-        env:
-          NODE_ENV: "production" # Type check against production build artifacts
 
       - name: Run Knip (detect unused code)
         run: |
@@ -109,19 +123,6 @@ jobs:
         run: pnpm run test:coverage
         env:
           NODE_ENV: "test" # Important: Tests (especially using React Testing Library's act) need non-production NODE_ENV
-
-      - name: Cache Playwright browsers
-        id: playwright-browsers-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-browsers-v1-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-browsers-v1-
-
-      - name: Install Playwright browsers and dependencies (if cache missed)
-        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: cd apps/web && pnpm exec playwright install --with-deps chromium
 
       - name: Run E2E tests with coverage
         run: |

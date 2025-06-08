@@ -23,7 +23,9 @@
       // Turborepo caches these directories/files.
       "outputs": [
         "dist/**"
-      ]
+      ],
+      // Only show logs from cache misses and errors
+      "outputLogs": "new-only"
     },
 
     // --- Test Task --- //
@@ -31,7 +33,9 @@
       // Ensures the package is built before tests are run.
       "dependsOn": ["build"],
       // Specifies the output artifacts of the test task (e.g., coverage reports).
-      "outputs": ["coverage/**", "test-results/**"]
+      "outputs": ["coverage/**", "test-results/**"],
+      // Only show logs from cache misses and errors
+      "outputLogs": "new-only"
     },
 
     // --- Lint Task --- //
@@ -49,7 +53,9 @@
       // Type checking doesn't produce persistent artifacts to cache, only console output.
       // Caching might still be useful if inputs haven't changed, but often set to false or relies on inputs.
       // For now, let's keep default cache=true but no outputs.
-      "outputs": []
+      "outputs": [],
+      // Only show logs from cache misses and errors
+      "outputLogs": "new-only"
     },
 
     // --- Development Task --- //
@@ -93,7 +99,9 @@
       // Ensures the package is built before coverage tests are run.
       "dependsOn": ["build"],
       // Coverage output artifacts (e.g., coverage reports).
-      "outputs": ["coverage/**", "test-results/**"]
+      "outputs": ["coverage/**", "test-results/**"],
+      // Only show logs from cache misses and errors
+      "outputLogs": "new-only"
     },
 
     // --- Coverage Merge Task --- //

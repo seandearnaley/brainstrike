@@ -3,9 +3,6 @@ import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 import { HomePage } from './page-objects/home-page';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 
-// TODO: Replace with actual file system interaction mocks for web
-const MOCK_FILE_SYSTEM = true; // Set to true to enable mock file system interactions
-
 test.describe('File Explorer', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
@@ -101,50 +98,37 @@ test.describe('File Explorer', () => {
   test('should allow downloading a report with multiple file selections', async ({ page }) => {
     // beforeEach ensures the main layout, Context Explorer heading, and Download button are visible.
 
-    if (MOCK_FILE_SYSTEM) {
-      const explorer = new FileExplorerPage(page);
+    const explorer = new FileExplorerPage(page);
 
-      await explorer.selectRoot();
+    await explorer.selectRoot();
 
-      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
-      await expect(explorer.noDirectoryText).not.toBeVisible();
+    await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+    await expect(explorer.noDirectoryText).not.toBeVisible();
 
-      const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
-      const file2Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
-      
-      await expect(file1Checkbox).toBeVisible();
-      await file1Checkbox.click({ force: true });
-      await expect(file1Checkbox).toBeChecked();
+    const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
+    const file2Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
 
-      await expect(file2Checkbox).toBeVisible();
-      await file2Checkbox.click({ force: true });
-      await expect(file2Checkbox).toBeChecked();
+    await expect(file1Checkbox).toBeVisible();
+    await file1Checkbox.click({ force: true });
+    await expect(file1Checkbox).toBeChecked();
 
-      // Verify the selection counter updates. The mock file system has 2 files + 1 nested, but we select 2 top-level.
-      // Max selection is 10 by default.
-      await expect(page.getByText('2/10')).toBeVisible();
+    await expect(file2Checkbox).toBeVisible();
+    await file2Checkbox.click({ force: true });
+    await expect(file2Checkbox).toBeChecked();
 
-      await expect(explorer.downloadReportButton).toBeEnabled();
+    // Verify the selection counter updates. The mock file system has 2 files + 1 nested, but we select 2 top-level.
+    // Max selection is 10 by default.
+    await expect(page.getByText('2/10')).toBeVisible();
 
-      const [download] = await Promise.all([
-        page.waitForEvent('download'),
-        explorer.downloadReportButton.click(),
-      ]);
-      
-      // Check if the downloaded file name contains "report" (case-insensitive)
-      // The actual name might be report.txt, report.zip, etc. depending on implementation.
-      expect(download.suggestedFilename()).toMatch(/report/i);
+    await expect(explorer.downloadReportButton).toBeEnabled();
 
-    } else {
-      // This block should ideally not be reached if MOCK_FILE_SYSTEM is true.
-      // If it is, the test for download functionality is effectively skipped.
-      console.warn(
-        'MOCK_FILE_SYSTEM is false. The report download test cannot fully execute without mock file interactions.',
-      );
-      // Fallback to checking the initial disabled state if mocks are off
-      const explorer = new FileExplorerPage(page);
-      await expect(explorer.downloadReportButton).toBeVisible();
-      await expect(explorer.downloadReportButton).toBeDisabled();
-    }
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      explorer.downloadReportButton.click(),
+    ]);
+
+    // Check if the downloaded file name contains "report" (case-insensitive)
+    // The actual name might be report.txt, report.zip, etc. depending on implementation.
+    expect(download.suggestedFilename()).toMatch(/report/i);
   });
 });

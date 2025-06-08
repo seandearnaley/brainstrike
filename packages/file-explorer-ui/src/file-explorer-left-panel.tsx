@@ -7,7 +7,11 @@ import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
+import { cn } from '@brainstrike/ui';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
+import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { shallow } from 'zustand/shallow';
@@ -259,17 +263,13 @@ export const FileExplorerLeftPanel: React.FC = () => {
         <div className="shrink-0">
           <FileExplorerToolbar
             onDirectorySelect={handleDirectorySelect}
-            onRefresh={handleRefresh}
             onFilterChange={handleFilterChange}
             filterError={filterError}
             quickFilter={quickFilter}
             setQuickFilter={setQuickFilter}
             clearQuickFilter={clearFilter}
             isLoading={isLoading}
-            isRefreshing={isRefreshing}
             rootDirectoryHandle={rootDirectoryHandle}
-            onExpandAll={expandAll}
-            onCollapseAll={collapseAll}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus
@@ -281,20 +281,83 @@ export const FileExplorerLeftPanel: React.FC = () => {
         </div>
 
         {/* Scrollable Middle Content */}
-        <div className="overflow-y-auto min-h-0">
-          <Suspense fallback={<LoadingFallback />}>
-            <FileExplorerSidebar
-              rootDirectoryHandle={rootDirectoryHandle}
-              treeError={error}
-              filterError={filterErrorAsError}
-              quickFilteredTree={quickFilteredTree}
-              loadingFiles={loadingFiles}
-              isLoading={isLoading}
-              isInitialLoad={isInitialLoad}
-              currentFolderId={currentFolderId}
-              onTreeRender={handleTreeRender}
-            />
-          </Suspense>
+        <div className="relative flex-1 min-h-0">
+          {/* Fixed buttons overlay - outside scrollable area */}
+          {rootDirectoryHandle && (
+            <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="refresh-button-small"
+                    onClick={handleRefresh}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Refresh"
+                  >
+                    <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Refresh file tree</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="expand-all-button-small"
+                    onClick={expandAll}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Expand All"
+                  >
+                    <ChevronsDown className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Expand all directories</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 bg-background/80 backdrop-blur-sm shadow-sm"
+                    data-testid="collapse-all-button-small"
+                    onClick={collapseAll}
+                    disabled={isLoading || isRefreshing}
+                    aria-label="Collapse All"
+                  >
+                    <ChevronsUp className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Collapse all directories</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          )}
+
+          {/* Scrollable content */}
+          <div className="overflow-y-auto h-full">
+            <Suspense fallback={<LoadingFallback />}>
+              <FileExplorerSidebar
+                rootDirectoryHandle={rootDirectoryHandle}
+                treeError={error}
+                filterError={filterErrorAsError}
+                quickFilteredTree={quickFilteredTree}
+                loadingFiles={loadingFiles}
+                isLoading={isLoading}
+                isInitialLoad={isInitialLoad}
+                currentFolderId={currentFolderId}
+                onTreeRender={handleTreeRender}
+              />
+            </Suspense>
+          </div>
         </div>
 
         {/* Fixed Footer */}
