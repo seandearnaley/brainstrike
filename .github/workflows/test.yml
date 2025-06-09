@@ -77,10 +77,7 @@ jobs:
           echo "Checking available browsers..."
           pnpm exec playwright install --dry-run || true
 
-      # Run ReviewDog checks first on PRs (non-blocking)
-      # These will post comments but won't fail the build
-      
-      # Run Biome with ReviewDog (only on PRs)
+      # Run Biome with ReviewDog first (only on PRs)
       - name: Run Biome with ReviewDog
         if: github.event_name == 'pull_request'
         uses: mongolyy/reviewdog-action-biome@v1
@@ -91,16 +88,38 @@ jobs:
           workdir: .
         continue-on-error: true
 
-      # Setup ReviewDog for knip (only on PRs)
-      - name: Setup ReviewDog
-        if: github.event_name == 'pull_request' && always()
+      # Now run the full checks (this may fail the build)
+      - name: Run checks
+        run: pnpm run check
+        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
+
+      - name: Verify package links (Optional Sanity Check)
+        run: |
+          echo "Verifying package links..."
+          pnpm list -r --depth 0
+          echo "Checking for workspace:* dependencies..."
+          grep -r "workspace:" --include="package.json" . || true # Allow no workspace deps
+
+      - name: Verify types package structure (Optional Sanity Check)
+        run: |
+          echo "Types package structure:"
+          ls -la packages/types/
+          echo "Types package tsconfig.json:"
+          cat packages/types/tsconfig.json
+
+      - name: Audit dependencies
+        run: pnpm audit --prod
+        continue-on-error: true
+
+      # Run knip with ReviewDog after build (only on PRs)
+      - name: Setup ReviewDog for knip
+        if: github.event_name == 'pull_request'
         uses: reviewdog/action-setup@v1
         with:
           reviewdog_version: latest
 
-      # Run knip with ReviewDog on PRs
       - name: Run knip with ReviewDog
-        if: github.event_name == 'pull_request' && always()
+        if: github.event_name == 'pull_request'
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -158,29 +177,6 @@ jobs:
           
           # Clean up
           rm -f knip-output.json knip-errors.txt
-
-      # Now run the full checks (this may fail the build)
-      - name: Run checks
-        run: pnpm run check
-        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
-
-      - name: Verify package links (Optional Sanity Check)
-        run: |
-          echo "Verifying package links..."
-          pnpm list -r --depth 0
-          echo "Checking for workspace:* dependencies..."
-          grep -r "workspace:" --include="package.json" . || true # Allow no workspace deps
-
-      - name: Verify types package structure (Optional Sanity Check)
-        run: |
-          echo "Types package structure:"
-          ls -la packages/types/
-          echo "Types package tsconfig.json:"
-          cat packages/types/tsconfig.json
-
-      - name: Audit dependencies
-        run: pnpm audit --prod
-        continue-on-error: true
 
       - name: Run tests with coverage (Unit & Integration)
         run: pnpm run test:coverage
