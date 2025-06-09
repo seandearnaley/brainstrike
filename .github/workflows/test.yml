@@ -104,25 +104,51 @@ jobs:
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Run knip and format output for ReviewDog
-          pnpm run knip -c knip.jsonc --reporter json 2>&1 | \
-          jq -r '
-            .issues[] | 
-            {
-              file: .file,
-              line: (.line // 1),
-              col: (.col // 1),
-              severity: (if .severity == "error" then "error" else "warning" end),
-              message: "\(.type): \(.symbol // "file") is unused"
-            } | 
-            "\(.file):\(.line):\(.col): \(.severity): \(.message)"
-          ' 2>/dev/null | \
-          reviewdog -efm="%f:%l:%c: %t%*[^:]: %m" \
-                     -name="knip" \
-                     -reporter=github-pr-review \
-                     -filter-mode=nofilter \
-                     -fail-on-error=false \
-                     -level=warning || true
+          # Run knip and capture output properly
+          echo "Running knip analysis..."
+          
+          # Run knip and save JSON output to a file
+          if pnpm run knip -c knip.jsonc --reporter json > knip-output.json 2>knip-errors.txt; then
+            echo "✅ Knip completed successfully"
+          else
+            echo "⚠️ Knip found issues or encountered errors"
+            # Show any stderr output for debugging
+            if [ -s knip-errors.txt ]; then
+              echo "Knip stderr:"
+              cat knip-errors.txt
+            fi
+          fi
+          
+          # Check if we have valid JSON output
+          if [ -s knip-output.json ] && jq empty knip-output.json 2>/dev/null; then
+            echo "Processing knip JSON output..."
+            
+            # Format for ReviewDog
+            jq -r '
+              .issues[]? | 
+              {
+                file: .file,
+                line: (.line // 1),
+                col: (.col // 1),
+                severity: (if .severity == "error" then "error" else "warning" end),
+                message: "\(.type): \(.symbol // "file") is unused"
+              } | 
+              "\(.file):\(.line):\(.col): \(.severity): \(.message)"
+            ' knip-output.json | \
+            reviewdog -efm="%f:%l:%c: %t%*[^:]: %m" \
+                       -name="knip" \
+                       -reporter=github-pr-review \
+                       -filter-mode=nofilter \
+                       -fail-on-error=false \
+                       -level=warning
+          else
+            echo "❌ No valid JSON output from knip - skipping ReviewDog processing"
+            echo "knip-output.json contents:"
+            cat knip-output.json || echo "File doesn't exist"
+          fi
+          
+          # Clean up
+          rm -f knip-output.json knip-errors.txt
 
       # Now run the full checks (this may fail the build)
       - name: Run checks
