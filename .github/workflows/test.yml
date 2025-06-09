@@ -123,18 +123,27 @@ jobs:
           if [ -s knip-output.json ] && jq empty knip-output.json 2>/dev/null; then
             echo "Processing knip JSON output..."
             
-            # Format for ReviewDog
-            jq -r '
-              .issues[]? | 
-              {
-                file: .file,
-                line: (.line // 1),
-                col: (.col // 1),
-                severity: (if .severity == "error" then "error" else "warning" end),
-                message: "\(.type): \(.symbol // "file") is unused"
-              } | 
-              "\(.file):\(.line):\(.col): \(.severity): \(.message)"
-            ' knip-output.json | \
+            # Format for ReviewDog - handle both unused files and issues
+            {
+              # Process unused files
+              jq -r '
+                .files[]? | 
+                "\(.):\(1):\(1): warning: Unused file"
+              ' knip-output.json
+              
+              # Process other issues  
+              jq -r '
+                .issues[]? | 
+                {
+                  file: .file,
+                  line: (.line // 1),
+                  col: (.col // 1),
+                  severity: (if .severity == "error" then "error" else "warning" end),
+                  message: "\(.type): \(.symbol // "file") is unused"
+                } | 
+                "\(.file):\(.line):\(.col): \(.severity): \(.message)"
+              ' knip-output.json
+            } | \
             reviewdog -efm="%f:%l:%c: %t%*[^:]: %m" \
                        -name="knip" \
                        -reporter=github-pr-review \
