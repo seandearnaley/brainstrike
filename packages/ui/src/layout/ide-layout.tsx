@@ -207,6 +207,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             <Panel
               ref={leftPanelRef}
               id="left-panel"
+              data-panel-id="left-panel"
               order={1}
               defaultSize={safeLeftSize}
               minSize={15}
@@ -239,9 +240,15 @@ export const IdeLayout = React.memo(function IdeLayout({
           </>
         )}
 
-        <Panel id="middle-panel" order={2} minSize={30}>
+        <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
           <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
-            <Panel id="main-content-panel" order={1} minSize={30} className="bg-background">
+            <Panel
+              id="main-content-panel"
+              data-panel-id="main-content-panel"
+              order={1}
+              minSize={30}
+              className="bg-background"
+            >
               <div className="h-full">{children}</div>
             </Panel>
 
@@ -264,6 +271,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
                 <Panel
                   id="console-panel"
+                  data-panel-id="console-panel"
                   order={2}
                   defaultSize={safeConsoleSize}
                   minSize={15}
@@ -315,6 +323,7 @@ export const IdeLayout = React.memo(function IdeLayout({
             <Panel
               ref={rightPanelRef}
               id="right-panel"
+              data-panel-id="right-panel"
               order={3}
               defaultSize={safeRightSize}
               minSize={15}

@@ -74,8 +74,6 @@ test.describe('Advanced IDE Layout', () => {
 
   test.describe('Complex Layout Scenarios', () => {
     test('should handle multiple simultaneous panel operations', async ({ page }) => {
-      const elements = getPanelElements(page);
-
       // Setup complex layout
       const layoutState = await setupComplexLayout(page);
 
