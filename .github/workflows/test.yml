@@ -126,15 +126,15 @@ jobs:
 
       - name: Run E2E tests with coverage
         run: |
-          if lsof -ti:3000 >/dev/null; then
-            echo "Port 3000 is in use. Attempting to kill process(es)..."
-            lsof -ti:3000 | xargs -r kill -9
+          if lsof -ti:8080 >/dev/null; then
+            echo "Port 8080 is in use. Attempting to kill process(es)..."
+            lsof -ti:8080 | xargs -r kill -9
           fi
           pnpm run test:e2e
         env:
           NODE_ENV: "test" # E2E server and tests might also benefit from NODE_ENV=test
-          PORT: "3000"
-          BASE_URL: "http://127.0.0.1:3000"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
 
       - name: Process coverage reports
         if: always()

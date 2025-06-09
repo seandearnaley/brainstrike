@@ -124,7 +124,7 @@ async function createWindow() {
     if (isDevEnv()) {
       console.log('🔧 Development mode - connecting to Vite dev server');
     }
-    const devPorts = [3001, 3002, 3003]; // Port 3000 is reserved for the web app
+    const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
 
     for (const port of devPorts) {
       try {
