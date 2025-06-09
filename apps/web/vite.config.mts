@@ -47,6 +47,10 @@ function copyFontsPlugin() {
 }
 
 export default defineConfig({
+  server: {
+    port: 8080,
+    host: true,
+  },
   plugins: [
     react(),
     tailwindcss(),

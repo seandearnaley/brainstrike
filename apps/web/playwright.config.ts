@@ -8,7 +8,7 @@ import { getBaseUrl, DEFAULT_PORT } from "@brainstrike/server-config";
 const baseUrlEnv = 'BASE_URL';
 const ciEnv = 'CI';
 
-// Default to the server config port (3000) since that's where our dev server runs
+// Default to the server config port (8080) since that's where our dev server runs
 const baseURL = process.env[baseUrlEnv] || getBaseUrl(DEFAULT_PORT);
 const serverURL = getBaseUrl(DEFAULT_PORT);
 
