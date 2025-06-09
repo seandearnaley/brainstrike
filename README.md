@@ -32,63 +32,119 @@ BrainStrike aims to revolutionize productivity by providing intelligent tools th
 Our monorepo is structured to support multiple applications and shared libraries efficiently.
 
 ```mermaid
-graph TD;
-    A[Monorepo Root] --> APPS;
-    A --> PACKAGES;
-
-    subgraph APPS
-        WEB[apps/web]
-        DESKTOP[apps/desktop]
+%%{
+  init: {
+    'theme': 'base',
+    'fontFamily': 'Inter, sans-serif',
+    'themeVariables': {
+      'primaryColor': '#ffffff',
+      'primaryTextColor': '#111827',
+      'primaryBorderColor': '#d1d5db',
+      'lineColor': '#6b7280',
+      'secondaryColor': '#f3f4f6',
+      'tertiaryColor': '#e5e7eb'
+    }
+  }
+}%%
+graph LR
+    %% Root Node
+    subgraph "Monorepo"
+        direction LR
+        A((Root)):::rootStyle
     end
 
-    subgraph PACKAGES
-        UI[packages/ui]
-        HOOKS[packages/hooks]
-        UTILS[packages/utils]
-        TYPES[packages/types]
-        CONFIG[packages/config]
-        STORAGE[packages/storage]
-        FILESYS[packages/file-system]
-        FEXPLORE[packages/file-explorer]
-        FEXPLORE_HOOKS[packages/file-explorer-hooks]
-        FEXPLORE_UI[packages/file-explorer-ui]
-        TAILWIND[packages/tailwind-config]
-        SERVER_CONFIG[packages/server-config]
-        FONTS[packages/fonts]
+    %% Application Nodes
+    subgraph " "
+      direction TB
+      APPS_LABEL[Applications]:::subgraphLabel
+      subgraph " "
+        WEB[apps/web]:::appStyle
+        DESKTOP[apps/desktop]:::appStyle
+      end
     end
 
-    WEB --> UI;
-    WEB --> HOOKS;
-    WEB --> UTILS;
-    WEB --> TYPES;
-    WEB --> FEXPLORE_HOOKS;
-    WEB --> FEXPLORE_UI;
-    WEB --> SERVER_CONFIG;
+
+    %% Package Nodes
+    subgraph " "
+      direction LR
+      PACKAGES_LABEL[Packages]:::subgraphLabel
+        subgraph "UI & Hooks"
+            direction TB
+            UI[packages/ui]:::uiStyle
+            HOOKS[packages/hooks]:::uiStyle
+        end
+
+        subgraph "File System"
+            direction TB
+            FEXPLORE_UI[packages/file-explorer-ui]:::featureStyle
+            FEXPLORE_HOOKS[packages/file-explorer-hooks]:::featureStyle
+            FEXPLORE[packages/file-explorer]:::featureStyle
+            FILESYS[packages/file-system]:::coreStyle
+            STORAGE[packages/storage]:::coreStyle
+        end
+
+        subgraph "Core & Config"
+            direction TB
+            UTILS[packages/utils]:::coreStyle
+            TYPES[packages/types]:::coreStyle
+            SERVER_CONFIG[packages/server-config]:::configStyle
+            TAILWIND[packages/tailwind-config]:::configStyle
+            FONTS[packages/fonts]:::configStyle
+            CONFIG[packages/config]:::configStyle
+        end
+    end
 
 
-    DESKTOP --> WEB;
-    DESKTOP --> UTILS;
-
-    FEXPLORE_UI --> UI;
-    FEXPLORE_UI --> FEXPLORE_HOOKS;
-    FEXPLORE_UI --> TYPES;
-    FEXPLORE_UI --> UTILS;
+    %% Define Connections
+    A --> APPS_LABEL
+    A --> PACKAGES_LABEL
 
 
-    FEXPLORE_HOOKS --> FEXPLORE;
-    FEXPLORE_HOOKS --> TYPES;
-    FEXPLORE_HOOKS --> UTILS;
-    FEXPLORE_HOOKS --> STORAGE;
-    FEXPLORE_HOOKS --> FILESYS;
+    %% App Dependencies
+    WEB --> UI
+    WEB --> HOOKS
+    WEB --> UTILS
+    WEB --> TYPES
+    WEB --> FEXPLORE_UI
+    WEB --> SERVER_CONFIG
+
+    DESKTOP --> WEB
+    DESKTOP --> UTILS
 
 
-    FEXPLORE --> TYPES;
-    FEXPLORE --> UTILS;
+    %% Package Dependencies
+    UI --> TAILWIND
+    UI --> FONTS
+    UI --> TYPES
 
-    UTILS --> TYPES;
+    FEXPLORE_UI --> UI
+    FEXPLORE_UI --> FEXPLORE_HOOKS
+    FEXPLORE_UI --> TYPES
+    FEXPLORE_UI --> UTILS
 
-    UI --> TAILWIND;
-    UI --> FONTS;
+    FEXPLORE_HOOKS --> FEXPLORE
+    FEXPLORE_HOOKS --> TYPES
+    FEXPLORE_HOOKS --> UTILS
+    FEXPLORE_HOOKS --> STORAGE
+    FEXPLORE_HOOKS --> FILESYS
+
+    FEXPLORE --> TYPES
+    FEXPLORE --> UTILS
+    UTILS --> TYPES
+
+
+    %% Define Styles
+    classDef rootStyle fill:#be185d,stroke:#9d174d,color:#ffffff,font-weight:bold
+    classDef appStyle fill:#4f46e5,stroke:#3730a3,color:#ffffff,font-weight:bold,stroke-width:2px
+    classDef uiStyle fill:#16a34a,stroke:#14532d,color:#ffffff
+    classDef featureStyle fill:#c026d3,stroke:#86198f,color:#ffffff
+    classDef coreStyle fill:#d97706,stroke:#9a3412,color:#ffffff
+    classDef configStyle fill:#64748b,stroke:#475569,color:#ffffff
+    classDef subgraphLabel fill:#ffffff,stroke:#ffffff,color:#000000,font-weight:bold,font-size:18px
+
+    %% Make label nodes invisible
+    style APPS_LABEL stroke-width:0
+    style PACKAGES_LABEL stroke-width:0
 ```
 
 ### Repository Layout
