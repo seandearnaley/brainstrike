@@ -91,6 +91,9 @@ jobs:
       # Now run the full checks (this may fail the build)
       - name: Run checks
         run: pnpm run check
+        # On PRs, continue even if checks fail so ReviewDog can report issues
+        # On main branch pushes, fail immediately if there are issues
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
 
       - name: Verify package links (Optional Sanity Check)
