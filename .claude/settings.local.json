@@ -33,7 +33,8 @@
       "Bash(pnpm run:*)",
       "mcp__ide__getDiagnostics",
       "Bash(pnpm test:*)",
-      "Bash(pnpm build:*)"
+      "Bash(pnpm build:*)",
+      "Bash(pnpm playwright test:*)"
     ],
     "deny": []
   },
