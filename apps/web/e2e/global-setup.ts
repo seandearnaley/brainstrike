@@ -13,35 +13,7 @@ function log(message: string, level: "info" | "error" = "info") {
 
 // Function to check if dev server is running and get its port
 async function findRunningDevServer(): Promise<number | null> {
-	// First check Vite's default port 5173
-	try {
-		log("Checking Vite port 5173 first...");
-		const response = await fetch("http://localhost:5173", {
-			method: "GET",
-			signal: AbortSignal.timeout(3000),
-		});
-
-		log(`Response from 5173: status=${response.status}`);
-
-		const html = await response.text();
-		log(`Got HTML content from port 5173, length=${html.length}`);
-
-		const isVite = html.includes("vite") || html.includes("data-vite");
-		const isBrainstrike = html.includes("brainstrike-web");
-
-		log(
-			`Markers on port 5173: isVite=${isVite}, isBrainstrike=${isBrainstrike}`,
-		);
-
-		if (response.ok && (isVite || isBrainstrike)) {
-			log("Found Vite dev server running on port 5173");
-			return 5173;
-		}
-	} catch (error) {
-		log(`Port 5173 not available: ${error}`, "error");
-	}
-
-	// Then check the configured ports from server.ts
+	// Check the configured ports from server.ts
 	const portsToCheck = getPortsToCheck();
 	log("Starting server detection for configured ports...");
 
@@ -91,12 +63,7 @@ async function globalSetup() {
 		if (!process.env[ciEnv]) {
 			const runningPort = await findRunningDevServer();
 			if (runningPort) {
-				// If port is 5173, use exact string for Vite
-				if (runningPort === 5173) {
-					process.env[baseUrlEnv] = "http://localhost:5173";
-				} else {
-					process.env[baseUrlEnv] = getBaseUrl(runningPort);
-				}
+				process.env[baseUrlEnv] = getBaseUrl(runningPort);
 				log(`Using existing dev server at ${process.env[baseUrlEnv]}`);
 			} else {
 				log(
@@ -104,8 +71,7 @@ async function globalSetup() {
 					"error",
 				);
 				// Don't throw error - let the webServer config handle it
-				process.env[baseUrlEnv] = "http://localhost:5173"; // Default to Vite port
-				log(`Defaulting to ${process.env[baseUrlEnv]}`);
+				// No need to set a default - let playwright.config.ts handle it
 			}
 		} else {
 			log("Running in CI environment, skipping server detection");
