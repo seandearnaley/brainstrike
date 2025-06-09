@@ -41,7 +41,13 @@ export const getPortsToCheck = () =>
 
 // Web and Desktop specific port checkers
 export const getWebPortsToCheck = () =>
-  Array.from({ length: WEB_PORT_RANGE.end - WEB_PORT_RANGE.start + 1 }, (_, i) => WEB_PORT_RANGE.start + i);
+  Array.from(
+    { length: WEB_PORT_RANGE.end - WEB_PORT_RANGE.start + 1 },
+    (_, i) => WEB_PORT_RANGE.start + i
+  );
 
 export const getDesktopPortsToCheck = () =>
-  Array.from({ length: DESKTOP_PORT_RANGE.end - DESKTOP_PORT_RANGE.start + 1 }, (_, i) => DESKTOP_PORT_RANGE.start + i);
+  Array.from(
+    { length: DESKTOP_PORT_RANGE.end - DESKTOP_PORT_RANGE.start + 1 },
+    (_, i) => DESKTOP_PORT_RANGE.start + i
+  );
