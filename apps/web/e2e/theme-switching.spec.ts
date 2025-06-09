@@ -113,7 +113,6 @@ test.describe('Theme Switching', () => {
     // The actual theme applied will depend on the system preference
     // We can't control the system preference in the test, but we can verify
     // that the system option is selectable and doesn't cause errors
-    const htmlElement = page.locator('html');
     
     // Navigate to verify no errors occurred
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
