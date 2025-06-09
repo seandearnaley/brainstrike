@@ -1,5 +1,9 @@
 import { getBaseUrl, getPortsToCheck } from "@brainstrike/server-config";
 
+// Environment variable names
+const ciEnv = 'CI';
+const baseUrlEnv = 'BASE_URL';
+
 // Helper to log messages during server detection
 function log(message: string, level: "info" | "error" = "info") {
 	const timestamp = new Date().toISOString();
@@ -79,29 +83,29 @@ async function findRunningDevServer(): Promise<number | null> {
 
 async function globalSetup() {
 	log("Starting global setup...");
-	log(`CI environment: ${process.env.CI ? "true" : "false"}`);
+	log(`CI environment: ${process.env[ciEnv] ? "true" : "false"}`);
 	log(`Current working directory: ${process.cwd()}`);
 
 	try {
 		// Only try to find running server if we're not in CI
-		if (!process.env.CI) {
+		if (!process.env[ciEnv]) {
 			const runningPort = await findRunningDevServer();
 			if (runningPort) {
 				// If port is 5173, use exact string for Vite
 				if (runningPort === 5173) {
-					process.env.BASE_URL = "http://localhost:5173";
+					process.env[baseUrlEnv] = "http://localhost:5173";
 				} else {
-					process.env.BASE_URL = getBaseUrl(runningPort);
+					process.env[baseUrlEnv] = getBaseUrl(runningPort);
 				}
-				log(`Using existing dev server at ${process.env.BASE_URL}`);
+				log(`Using existing dev server at ${process.env[baseUrlEnv]}`);
 			} else {
 				log(
 					"No development server found. Will use the one configured in webServer",
 					"error",
 				);
 				// Don't throw error - let the webServer config handle it
-				process.env.BASE_URL = "http://localhost:5173"; // Default to Vite port
-				log(`Defaulting to ${process.env.BASE_URL}`);
+				process.env[baseUrlEnv] = "http://localhost:5173"; // Default to Vite port
+				log(`Defaulting to ${process.env[baseUrlEnv]}`);
 			}
 		} else {
 			log("Running in CI environment, skipping server detection");

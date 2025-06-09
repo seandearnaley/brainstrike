@@ -10,6 +10,7 @@ describe('resetAppState', () => {
     await resetAppState(page);
 
     expect(evaluate).toHaveBeenCalledTimes(1);
-    expect(typeof evaluate.mock.calls[0][0]).toBe('function');
+    expect(evaluate.mock.calls[0]).toBeDefined();
+    expect(typeof evaluate.mock.calls[0]?.[0]).toBe('function');
   });
 });
