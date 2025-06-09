@@ -46,8 +46,8 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   const [safeLeftSize, safeRightSize, safeConsoleSize] = [
     typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) ? sizes[0] : 25,
-    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 20,
-    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 30,
+    typeof sizes[1] === 'number' && !Number.isNaN(sizes[1]) ? sizes[1] : 55,
+    typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 20,
   ];
 
   // Focus management functions
@@ -318,7 +318,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               order={3}
               defaultSize={safeRightSize}
               minSize={15}
-              maxSize={40}
+              maxSize={60}
               collapsible
               collapsedSize={0}
               className="bg-background"
