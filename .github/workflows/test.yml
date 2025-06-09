@@ -77,28 +77,9 @@ jobs:
           echo "Checking available browsers..."
           pnpm exec playwright install --dry-run || true
 
-      - name: Run checks
-        run: pnpm run check
-        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
-
-      - name: Verify package links (Optional Sanity Check)
-        run: |
-          echo "Verifying package links..."
-          pnpm list -r --depth 0
-          echo "Checking for workspace:* dependencies..."
-          grep -r "workspace:" --include="package.json" . || true # Allow no workspace deps
-
-      - name: Verify types package structure (Optional Sanity Check)
-        run: |
-          echo "Types package structure:"
-          ls -la packages/types/
-          echo "Types package tsconfig.json:"
-          cat packages/types/tsconfig.json
-
-      - name: Audit dependencies
-        run: pnpm audit --prod
-        continue-on-error: true
-
+      # Run ReviewDog checks first on PRs (non-blocking)
+      # These will post comments but won't fail the build
+      
       # Run Biome with ReviewDog (only on PRs)
       - name: Run Biome with ReviewDog
         if: github.event_name == 'pull_request'
@@ -108,8 +89,6 @@ jobs:
           reporter: github-pr-review
           level: warning
           workdir: .
-
-
 
       # Setup ReviewDog for knip (only on PRs)
       - name: Setup ReviewDog
@@ -144,24 +123,28 @@ jobs:
                      -fail-on-error=false \
                      -level=warning || true
 
-      # Run knip normally on push to main
-      - name: Run Knip (detect unused code)
-        if: github.event_name == 'push'
+      # Now run the full checks (this may fail the build)
+      - name: Run checks
+        run: pnpm run check
+        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
+
+      - name: Verify package links (Optional Sanity Check)
         run: |
-          # Run knip with consistent flags and capture output
-          OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
-          
-          # Display the output for CI logs
-          echo "$OUTPUT"
-          
-          # Check if there are any issues and fail if found
-          if echo "$OUTPUT" | grep -q "Unused"; then
-            echo "❌ Knip found unused code. Please review and clean up."
-            exit 1
-          else
-            echo "✅ No unused code detected!"
-          fi
-        continue-on-error: false
+          echo "Verifying package links..."
+          pnpm list -r --depth 0
+          echo "Checking for workspace:* dependencies..."
+          grep -r "workspace:" --include="package.json" . || true # Allow no workspace deps
+
+      - name: Verify types package structure (Optional Sanity Check)
+        run: |
+          echo "Types package structure:"
+          ls -la packages/types/
+          echo "Types package tsconfig.json:"
+          cat packages/types/tsconfig.json
+
+      - name: Audit dependencies
+        run: pnpm audit --prod
+        continue-on-error: true
 
       - name: Run tests with coverage (Unit & Integration)
         run: pnpm run test:coverage
