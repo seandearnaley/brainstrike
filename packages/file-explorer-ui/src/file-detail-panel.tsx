@@ -29,7 +29,13 @@ export const FileDetailPanel = memo<FileDetailPanelProps>(function FileDetailPan
             {path}
           </h3>
         </div>
-        <Button variant="ghost" size="icon" onClick={onClose} className="flex-shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onClose}
+          className="flex-shrink-0"
+          title="Close file detail panel"
+        >
           <FileX2 className="h-4 w-4" />
         </Button>
       </div>

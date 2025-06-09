@@ -4,6 +4,7 @@ import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
+import { isDevEnv } from '@brainstrike/utils';
 import { BrowserWindow, app, ipcMain, session } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import ElectronStore from 'electron-store';
@@ -65,12 +66,6 @@ function setupSecurity() {
       }
     );
   }
-}
-
-// Inline isDevEnv utility to avoid ESM/CommonJS import conflicts
-function isDevEnv(): boolean {
-  const envKey = 'NODE_ENV';
-  return process.env[envKey] === 'development';
 }
 
 async function createWindow() {

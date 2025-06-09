@@ -1,7 +1,7 @@
 import { Button, ScrollArea } from '@brainstrike/ui';
+import { isDevEnv } from '@brainstrike/utils';
 import { AlertTriangle, ArrowLeft, Bug, RefreshCw, X } from 'lucide-react';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
-import { isDevEnv } from './lib/utils';
 
 export interface ErrorBoundaryProps {
   children: ReactNode;

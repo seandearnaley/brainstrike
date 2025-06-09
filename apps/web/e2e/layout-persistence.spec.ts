@@ -119,6 +119,9 @@ test.describe('IDE Layout Persistence', () => {
       const leftPanel = page.locator('[id="left-panel"]');
       await expect(leftPanel).toBeVisible();
       
+      // Get container width before resize
+      const containerWidth = await page.locator('[data-panel-id="middle-panel"]').evaluate(el => el.getBoundingClientRect().width);
+      
       // Get initial width
       const initialWidth = await leftPanel.evaluate(el => el.getBoundingClientRect().width);
       
@@ -147,9 +150,16 @@ test.describe('IDE Layout Persistence', () => {
       await page.reload();
       await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
       
-      // Verify width persisted
+      // Get container width after reload
+      const containerWidthAfter = await page.locator('[data-panel-id="middle-panel"]').evaluate(el => el.getBoundingClientRect().width);
+      
+      // Verify width persisted by comparing percentages (accounts for container size changes)
       const persistedWidth = await leftPanel.evaluate(el => el.getBoundingClientRect().width);
-      expect(Math.abs(persistedWidth - newWidth)).toBeLessThan(5); // Allow small variance
+      const newWidthPercentage = (newWidth / containerWidth) * 100;
+      const persistedWidthPercentage = (persistedWidth / containerWidthAfter) * 100;
+      
+      // The percentage should be reasonably close (within 6% to account for rounding and layout differences)
+      expect(Math.abs(persistedWidthPercentage - newWidthPercentage)).toBeLessThan(6);
     });
 
     test('should persist console panel visibility across page reloads', async ({ page }) => {

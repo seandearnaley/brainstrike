@@ -333,9 +333,12 @@ describe('usePanelPersistence', () => {
   });
 
   it('warns when Electron save fails', async () => {
-    // biome-ignore lint/complexity/useLiteralKeys: node env key access
-    process.env['NODE_ENV'] = 'development';
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Mock isDevEnv to return true for this test
+    const utilsModule = await import('@brainstrike/utils');
+    const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(true);
+
     (window as { electronAPI?: unknown }).electronAPI = {
       ...electronAPIMock,
       saveLayout: vi.fn().mockRejectedValue(new Error('fail')),
@@ -357,8 +360,7 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
-    // biome-ignore lint/complexity/useLiteralKeys: node env key access
-    process.env['NODE_ENV'] = 'test';
+    isDevEnvSpy.mockRestore();
   });
 
   it('cleans up pending save on unmount', () => {

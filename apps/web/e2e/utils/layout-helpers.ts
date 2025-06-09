@@ -1,20 +1,21 @@
-import type { Page, Locator } from '@playwright/test';
-import { expect } from '@playwright/test';
+import { type Page, expect } from '@playwright/test';
 
 /**
  * Layout test utilities for IDE panel testing
  */
 
 export interface PanelElements {
-  leftPanel: Locator;
-  rightPanel: Locator;
-  consolePanel: Locator;
-  hideExplorerButton: Locator;
-  showExplorerButton: Locator;
-  showConsoleButton: Locator;
-  hideConsoleButton: Locator;
-  showRightPanelButton: Locator;
-  hideRightPanelButton: Locator;
+  leftPanel: ReturnType<Page['locator']>;
+  rightPanel: ReturnType<Page['locator']>;
+  consolePanel: ReturnType<Page['locator']>;
+  mainContentPanel: ReturnType<Page['locator']>;
+  middlePanel: ReturnType<Page['locator']>;
+  hideExplorerButton: ReturnType<Page['locator']>;
+  hideRightPanelButton: ReturnType<Page['locator']>;
+  hideConsoleButton: ReturnType<Page['locator']>;
+  showExplorerShim: ReturnType<Page['locator']>;
+  showRightPanelShim: ReturnType<Page['locator']>;
+  showConsoleShim: ReturnType<Page['locator']>;
 }
 
 /**
@@ -22,33 +23,41 @@ export interface PanelElements {
  */
 export function getPanelElements(page: Page): PanelElements {
   return {
-    leftPanel: page.locator('[id="left-panel"]'),
-    rightPanel: page.locator('[id="right-panel"]'),
-    consolePanel: page.locator('[id="console-panel"], [id="console-panel-horizontal"]'),
+    // Main panels
+    leftPanel: page.locator('[data-panel-id="left-panel"]'),
+    rightPanel: page.locator('[data-panel-id="right-panel"]'),
+    consolePanel: page.locator('[data-panel-id="console-panel"]'),
+    mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
+    middlePanel: page.locator('[data-panel-id="middle-panel"]'),
+
+    // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('button[aria-label="Hide explorer"]'),
-    showExplorerButton: page.locator('button[aria-label="Show explorer"]'),
-    showConsoleButton: page.locator('button[aria-label="Show console"]'),
-    hideConsoleButton: page.locator('button[aria-label="Close console"]'),
-    showRightPanelButton: page.locator('button[aria-label="Show right panel"]'),
     hideRightPanelButton: page.locator('button[aria-label="Hide panel"]'),
+    hideConsoleButton: page.locator('button[aria-label="Close console"]'),
+
+    // Show shims (when panels are closed)
+    showExplorerShim: page.locator('button[aria-label="Show explorer"]'),
+    showRightPanelShim: page.locator('button[aria-label="Show right panel"]'),
+    showConsoleShim: page.locator('button[aria-label="Show console"]'),
   };
 }
 
 /**
- * Wait for the brainstrike app to fully load
+ * Waits for the main application content to be ready.
+ * This is useful to ensure tests don't start before the UI is fully initialized.
  */
-export async function waitForAppLoad(page: Page): Promise<void> {
-  await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-  
-  // Try to wait for Select Root button, but don't fail if it's not there
-  // (it might not be visible in all test scenarios)
-  try {
-    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 5000 });
-  } catch (error) {
-    // If Select Root button is not found, just ensure the main content is loaded
-    await page.waitForTimeout(1000);
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-  }
+export async function waitForAppLoad(page: Page, timeout = 10000) {
+  await expect(page.locator('body')).not.toBeEmpty({ timeout });
+  // Wait for the main layout structure to be present, regardless of panel visibility
+  await page.waitForSelector('[data-panel-id="middle-panel"]', {
+    state: 'attached',
+    timeout,
+  });
+  // Also ensure the main content panel is present
+  await page.waitForSelector('[data-panel-id="main-content-panel"]', {
+    state: 'attached',
+    timeout,
+  });
 }
 
 /**
@@ -75,7 +84,7 @@ export async function resetFileExplorerSettings(page: Page): Promise<void> {
 /**
  * Get the current dimensions of a panel
  */
-export async function getPanelDimensions(panel: Locator): Promise<{ width: number; height: number }> {
+export async function getPanelDimensions(panel: ReturnType<Page['locator']>): Promise<{ width: number; height: number }> {
   return await panel.evaluate(el => {
     const rect = el.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
@@ -87,7 +96,7 @@ export async function getPanelDimensions(panel: Locator): Promise<{ width: numbe
  */
 export async function resizePanel(
   page: Page,
-  resizeHandle: Locator,
+  resizeHandle: ReturnType<Page['locator']>,
   deltaX: number,
   deltaY: number = 0
 ): Promise<void> {
@@ -109,32 +118,33 @@ export async function resizePanel(
 /**
  * Get the first (left panel) resize handle
  */
-export function getLeftPanelResizeHandle(page: Page): Locator {
-  // Look for the vertical resize handle (between left panel and main content)
-  // react-resizable-panels uses data attributes, not CSS classes
-  return page.locator('[data-panel-resize-handle-enabled="true"]').first();
+export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
+  // The left panel's resize handle is the first one in the horizontal group
+  return page.locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]').first();
 }
 
 /**
  * Get the last (console panel) resize handle
  */
-export function getConsolePanelResizeHandle(page: Page): Locator {
-  // Look for the horizontal resize handle (above console panel)
-  // react-resizable-panels uses data attributes, not CSS classes
-  return page.locator('[data-panel-resize-handle-enabled="true"]').last();
+export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
+  // The console panel's resize handle is in the vertical group
+  return page.locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]').first();
 }
 
 /**
- * Toggle panel visibility and verify the state change
+ * Toggles a panel's visibility and verifies its state.
+ * @param button - The Playwright locator for the button that triggers the toggle.
+ * @param panel - The Playwright locator for the panel being toggled.
+ * @param isVisibleAfterToggle - The expected visibility state of the panel after the action.
  */
 export async function togglePanelVisibility(
-  toggleButton: Locator,
-  panel: Locator,
-  expectedVisible: boolean
-): Promise<void> {
-  await toggleButton.click();
-  
-  if (expectedVisible) {
+  button: ReturnType<Page['locator']>,
+  panel: ReturnType<Page['locator']>,
+  isVisibleAfterToggle: boolean
+) {
+  await expect(button).toBeVisible();
+  await button.click();
+  if (isVisibleAfterToggle) {
     await expect(panel).toBeVisible();
   } else {
     await expect(panel).not.toBeVisible();
@@ -146,7 +156,7 @@ export async function togglePanelVisibility(
  */
 export async function verifyPersistenceAfterReload(
   page: Page,
-  panel: Locator,
+  panel: ReturnType<Page['locator']>,
   shouldBeVisible: boolean,
   dimensions?: { width?: number; height?: number }
 ): Promise<void> {
@@ -186,7 +196,7 @@ export async function setupComplexLayout(page: Page): Promise<{
   await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
   
   // Show console
-  await togglePanelVisibility(elements.showConsoleButton, elements.consolePanel, true);
+  await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
   
   // Get console dimensions
   const consoleDimensions = await getPanelDimensions(elements.consolePanel);
@@ -207,13 +217,14 @@ export async function verifyComplexLayout(
     leftPanelHidden: boolean;
     consoleVisible: boolean;
     consoleDimensions?: { width: number; height: number };
+    rightPanelHidden?: boolean;
   }
 ): Promise<void> {
   const elements = getPanelElements(page);
   
   if (expectedState.leftPanelHidden) {
     await expect(elements.leftPanel).not.toBeVisible();
-    await expect(elements.showExplorerButton).toBeVisible();
+    await expect(elements.showExplorerShim).toBeVisible();
   } else {
     await expect(elements.leftPanel).toBeVisible();
   }
@@ -228,6 +239,17 @@ export async function verifyComplexLayout(
   } else {
     await expect(elements.consolePanel).not.toBeVisible();
   }
+
+  // Right panel visibility logic
+  if (expectedState.rightPanelHidden === false) {
+    // Explicitly set to be visible
+    await expect(elements.rightPanel).toBeVisible();
+    await expect(elements.hideRightPanelButton).toBeVisible();
+  } else {
+    // Default behavior or explicitly hidden
+    await expect(elements.rightPanel).not.toBeVisible();
+    await expect(elements.showRightPanelShim).toBeVisible();
+  }
 }
 
 /**
@@ -235,8 +257,8 @@ export async function verifyComplexLayout(
  */
 export async function testPanelSizeConstraints(
   page: Page,
-  panel: Locator,
-  resizeHandle: Locator,
+  panel: ReturnType<Page['locator']>,
+  resizeHandle: ReturnType<Page['locator']>,
   minPercentage: number,
   maxPercentage: number
 ): Promise<void> {
@@ -290,18 +312,41 @@ export async function clearAllStorage(page: Page): Promise<void> {
   });
 }
 
+interface DefaultLayoutState {
+  leftPanelHidden?: boolean;
+  rightPanelHidden?: boolean;
+  consoleHidden?: boolean;
+}
+
 /**
- * Verify default layout state
+ * Verifies the default state of the layout.
+ * This function can be customized to check for different default configurations.
  */
-export async function verifyDefaultLayout(page: Page): Promise<void> {
+export async function verifyDefaultLayout(page: Page, expectedState: DefaultLayoutState = {}) {
   const elements = getPanelElements(page);
-  
+
   // Left panel should be visible by default
-  await expect(elements.leftPanel).toBeVisible();
-  
+  if (expectedState.leftPanelHidden) {
+    await expect(elements.leftPanel).not.toBeVisible();
+    await expect(elements.showExplorerShim).toBeVisible();
+  } else {
+    await expect(elements.leftPanel).toBeVisible();
+  }
+
+  // Right panel should be hidden by default
+  if (expectedState.rightPanelHidden === false) {
+    // Explicitly set to be visible
+    await expect(elements.rightPanel).toBeVisible();
+    await expect(elements.hideRightPanelButton).toBeVisible();
+  } else {
+    // Default behavior or explicitly hidden
+    await expect(elements.rightPanel).not.toBeVisible();
+    await expect(elements.showRightPanelShim).toBeVisible();
+  }
+
   // Console should be hidden by default
   await expect(elements.consolePanel).not.toBeVisible();
-  await expect(elements.showConsoleButton).toBeVisible();
+  await expect(elements.showConsoleShim).toBeVisible();
 }
 
 /**
@@ -309,8 +354,8 @@ export async function verifyDefaultLayout(page: Page): Promise<void> {
  */
 export async function testKeyboardNavigation(
   page: Page,
-  button: Locator,
-  _panel: Locator,
+  button: ReturnType<Page['locator']>,
+  _panel: ReturnType<Page['locator']>,
   key: 'Enter' | 'Space' = 'Enter'
 ): Promise<void> {
   await button.focus();
@@ -333,7 +378,7 @@ export async function testLayoutPersistenceAcrossNavigation(
   await setupCallback();
   
   // Check if left panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[id="left-panel"]');
+  const leftPanel = page.locator('[data-panel-id="left-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
   
   if (wasHidden) {

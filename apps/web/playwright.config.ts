@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import path from "node:path";
 /// <reference types="vitest" />
-import { defineConfig, devices } from "@playwright/test";
+import { devices } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
 import { getBaseUrl, DEFAULT_PORT } from "@brainstrike/server-config";
 

@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import { type AppShellConfig, type NavigationItem } from '../types';
@@ -29,6 +30,19 @@ vi.mock('@brainstrike/ui', () => ({
     </div>
   ),
   ThemeToggle: () => <div data-testid="theme-toggle" />,
+  ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
+    override render() {
+      return <div data-testid="error-boundary">{this.props.children}</div>;
+    }
+  },
+}));
+
+// Mock the file-explorer-hooks package
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({
+    storageAdapter: {},
+    fileSystemAdapter: {},
+  }),
 }));
 
 const mockConfig: AppShellConfig = {
