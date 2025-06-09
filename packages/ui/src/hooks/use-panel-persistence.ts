@@ -1,5 +1,5 @@
+import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isDevEnv } from '../lib/utils';
 import type { LayoutElectronAPI } from '../types/electron';
 
 const STORAGE_KEY = 'panelLayout.v1';

@@ -1,3 +1,4 @@
+import { isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
 import React, { useCallback, useEffect, useRef } from 'react';
 import {
@@ -8,7 +9,7 @@ import {
 } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
-import { cn, isDevEnv } from '../lib/utils';
+import { cn } from '../lib/utils';
 
 export interface IdeLayoutProps {
   children: React.ReactNode;

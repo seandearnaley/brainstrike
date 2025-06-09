@@ -5,8 +5,8 @@ import {
   type ErrorBoundaryProps,
   type ErrorBoundaryState,
   ScrollArea,
-  isDevEnv,
 } from '@brainstrike/ui';
+import { isDevEnv } from '@brainstrike/utils';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
 
 /**

@@ -41,7 +41,7 @@ vi.mock('../button', () => ({
 }));
 
 // Mock utility functions
-vi.mock('./lib/utils', () => ({
+vi.mock('@brainstrike/utils', () => ({
   isDevEnv: vi.fn(() => false),
 }));
 

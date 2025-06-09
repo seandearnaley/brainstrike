@@ -2,7 +2,8 @@ import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
-import { ErrorFallback, LoadingFallback, UnsupportedFeature, isDevEnv } from '@brainstrike/ui';
+import { ErrorFallback, LoadingFallback, UnsupportedFeature } from '@brainstrike/ui';
+import { isDevEnv } from '@brainstrike/utils';
 import React, { Suspense, useState, useEffect, useMemo } from 'react';
 
 // Lazy load the file explorer component with better error handling for Vite

@@ -20,6 +20,7 @@
   "references": [
     // {"path": "../../packages/config"},
     {"path": "../../packages/types"},
-    {"path": "../storage"}
+    {"path": "../storage"},
+    {"path": "../utils"}
   ]
 }
