@@ -66,8 +66,8 @@ graph TD;
     WEB --> SERVER_CONFIG;
 
 
-    DESKTOP --> WEB; # Electron wraps the web app
-    DESKTOP --> UTILS; # Potentially for main process utilities
+    DESKTOP --> WEB;
+    DESKTOP --> UTILS;
 
     FEXPLORE_UI --> UI;
     FEXPLORE_UI --> FEXPLORE_HOOKS;
@@ -85,13 +85,10 @@ graph TD;
     FEXPLORE --> TYPES;
     FEXPLORE --> UTILS;
 
-    UTILS --> TYPES; # Utils might use shared types
+    UTILS --> TYPES;
 
-    UI --> TAILWIND; # UI uses shared tailwind config
-    UI --> FONTS; # UI uses shared fonts
-
-    # Implied dependencies via monorepo structure (e.g., all can use config)
-    # but diagram focuses on primary functional dependencies.
+    UI --> TAILWIND;
+    UI --> FONTS;
 ```
 
 ### Repository Layout
@@ -168,15 +165,15 @@ graph LR;
     subgraph Adapters_FileSystem[File System Adapters]
         direction TB
         FS_Node[NodeFSAdapter]
-        FS_Web[WebFSAdapter (e.g., via API)]
-        FS_Mem[InMemoryFSAdapter (for tests)]
+        FS_Web[WebFSAdapter e.g., via API]
+        FS_Mem[InMemoryFSAdapter for tests]
     end
 
     subgraph Adapters_Storage[Storage Adapters]
         direction TB
-        S_Local[LocalStorageAdapter (Web)]
-        S_Electron[ElectronStoreAdapter (Desktop)]
-        S_Mem[InMemoryStorageAdapter (for tests)]
+        S_Local[LocalStorageAdapter Web]
+        S_Electron[ElectronStoreAdapter Desktop]
+        S_Mem[InMemoryStorageAdapter for tests]
     end
 
     FXH --> FS;
@@ -190,7 +187,7 @@ graph LR;
     S --> S_Electron;
     S --> S_Mem;
 
-    APPS[Applications (Web/Desktop)] --> FXH;
+    APPS[Applications Web/Desktop] --> FXH;
     TESTS[Tests] --> FXH;
 
     style FS_Node fill:#D4E6F1,stroke:#2E86C1
@@ -200,10 +197,6 @@ graph LR;
     style S_Local fill:#D1F2EB,stroke:#1ABC9C
     style S_Electron fill:#D1F2EB,stroke:#1ABC9C
     style S_Mem fill:#D1F2EB,stroke:#1ABC9C
-
-    click FS_Node "https://github.com/your-repo/blob/main/packages/file-system/src/adapters/node-fs-adapter.ts" _blank "Node.js File System Adapter"
-    click S_Local "https://github.com/your-repo/blob/main/packages/storage/src/adapters/local-storage-adapter.ts" _blank "Web Local Storage Adapter"
-    %% Note: Replace your-repo and paths with actual links if possible, otherwise remove click handlers
 ```
 This diagram illustrates how the `file-explorer-hooks` (representing the core logic consuming these abstractions) interact with `packages/file-system` and `packages/storage`. These packages, in turn, delegate operations to specific adapters based on the runtime environment (Node.js for desktop/CLI, Web APIs for browsers, or in-memory versions for testing). This keeps the core logic decoupled from the underlying platform specifics.
 
