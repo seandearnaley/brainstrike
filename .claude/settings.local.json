@@ -28,7 +28,10 @@
       "Bash(/Users/seandearnaley/.claude/local/node_modules/@anthropic-ai/claude-code/vendor/ripgrep/arm64-darwin/rg -n \"p-2\" /Users/seandearnaley/Documents/GitHub/brainstrike/packages/file-explorer-ui/src/ --glob \"*.tsx\")",
       "Bash(npm run test:e2e:*)",
       "Bash(find:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(pnpm install:*)",
+      "Bash(pnpm run:*)",
+      "mcp__ide__getDiagnostics"
     ],
     "deny": []
   },

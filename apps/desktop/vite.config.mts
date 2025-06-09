@@ -41,7 +41,7 @@ export default defineConfig({
     ]
   },
   server: {
-    port: 3001, // Different port from web app to avoid conflicts
+    port: 8081, // Different port from web app to avoid conflicts
   },
   publicDir: 'public',
 });
