@@ -1,6 +1,6 @@
+import { Helmet } from 'react-helmet-async';
 import { FileExplorerLeftPanel, FileExplorerMiddlePanel } from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
-import { Helmet } from 'react-helmet-async';
 
 // Web file explorer component
 function WebFileExplorer() {
