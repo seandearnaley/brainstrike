@@ -101,6 +101,12 @@ test.describe('Panel State Preservation', () => {
     await expect(page.getByText('test content')).toBeVisible();
     
     // Verify we can still interact with the file tree
+    // First select test2.ts to make its button available
+    const test2Checkbox = fileTreeAfterToggle.getByRole('checkbox', { name: 'Select test2.ts' });
+    await test2Checkbox.click({ force: true });
+    await expect(test2Checkbox).toBeChecked();
+    
+    // Now click on the file button to show it in the preview panel
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
     await test2FileButton.click();
     
@@ -155,6 +161,12 @@ test.describe('Panel State Preservation', () => {
     }
     
     // Final verification that everything still works
+    // First select test2.ts to make its button available
+    const test2Checkbox = fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+    await test2Checkbox.click({ force: true });
+    await expect(test2Checkbox).toBeChecked();
+    
+    // Now click on the file button to show it in the preview panel
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
     await test2FileButton.click();
     await expect(page.getByRole('heading', { name: 'test2.ts' })).toBeVisible();
