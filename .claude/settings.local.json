@@ -34,7 +34,9 @@
       "mcp__ide__getDiagnostics",
       "Bash(pnpm test:*)",
       "Bash(pnpm build:*)",
-      "Bash(pnpm playwright test:*)"
+      "Bash(pnpm playwright test:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:biomejs.dev)"
     ],
     "deny": []
   },

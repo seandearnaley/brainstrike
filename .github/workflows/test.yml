@@ -12,6 +12,7 @@ permissions:
   contents: read
   pull-requests: write
   security-events: write # For Snyk & dependency scanning
+  checks: write # For ReviewDog
 
 jobs:
   test:
@@ -98,9 +99,54 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
+      # Run Biome with ReviewDog (only on PRs)
+      - name: Run Biome with ReviewDog
+        if: github.event_name == 'pull_request'
+        uses: mongolyy/reviewdog-action-biome@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-pr-review
+          level: warning
+          workdir: .
 
 
+
+      # Setup ReviewDog for knip (only on PRs)
+      - name: Setup ReviewDog
+        if: github.event_name == 'pull_request'
+        uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      # Run knip with ReviewDog on PRs
+      - name: Run knip with ReviewDog
+        if: github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Run knip and format output for ReviewDog
+          pnpm run knip -c knip.jsonc --reporter json 2>&1 | \
+          jq -r '
+            .issues[] | 
+            {
+              file: .file,
+              line: (.line // 1),
+              col: (.col // 1),
+              severity: (if .severity == "error" then "error" else "warning" end),
+              message: "\(.type): \(.symbol // "file") is unused"
+            } | 
+            "\(.file):\(.line):\(.col): \(.severity): \(.message)"
+          ' 2>/dev/null | \
+          reviewdog -efm="%f:%l:%c: %t%*[^:]: %m" \
+                     -name="knip" \
+                     -reporter=github-pr-review \
+                     -filter-mode=nofilter \
+                     -fail-on-error=false \
+                     -level=warning || true
+
+      # Run knip normally on push to main
       - name: Run Knip (detect unused code)
+        if: github.event_name == 'push'
         run: |
           # Run knip with consistent flags and capture output
           OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
