@@ -88,12 +88,6 @@ jobs:
           workdir: .
           fail_level: none
 
-      # Now run the full checks (this may fail the build)
-      - name: Run checks
-        run: pnpm run check
-        continue-on-error: ${{ github.event_name == 'pull_request' }}
-        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
-
       - name: Verify package links (Optional Sanity Check)
         run: |
           echo "Verifying package links..."
@@ -112,15 +106,21 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
+      # Now run the full checks (this may fail the build)
+      - name: Run checks
+        run: pnpm run check
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
+
       # Run knip with ReviewDog after build (only on PRs)
       - name: Setup ReviewDog for knip
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && always()
         uses: reviewdog/action-setup@v1
         with:
           reviewdog_version: latest
 
       - name: Run knip with ReviewDog
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && always()
         env:
           REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
