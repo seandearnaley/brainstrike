@@ -8,6 +8,7 @@
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
+import { createDebouncedStorage } from './debounced-storage';
 
 const NODE_ENV_KEY = 'NODE_ENV';
 const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
@@ -24,41 +25,10 @@ type ZustandPersistWrapper<T> = { state?: T; version?: number };
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  let pendingValue: unknown;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let currentStoreName = '';
-  const debounceMs = 200;
-
-  // Workers are disabled for now - they cause build issues in monorepo
-  // The persistence will use the fallback debounced approach
-
-  const flush = async (name: string) => {
-    const value = pendingValue;
-    pendingValue = undefined;
-    timer = null;
-    if (value === undefined) return;
-    try {
-      await storageAdapter.setItem(name, JSON.stringify(value));
-    } catch (error) {
-      if (shouldLog) {
-        console.error('Error setting item in storage:', error);
-      }
-    }
-  };
-
-  // Add beforeunload handler to flush pending values
-  if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', () => {
-      if (pendingValue !== undefined && currentStoreName) {
-        // Attempt synchronous flush on tab close
-        try {
-          localStorage.setItem(currentStoreName, JSON.stringify(pendingValue));
-        } catch {
-          // Ignore errors during beforeunload
-        }
-      }
-    });
-  }
+  const debounced = createDebouncedStorage(storageAdapter, {
+    debounceMs: 200,
+    flushOnBeforeUnload: true,
+  });
 
   return {
     name: 'file-explorer-storage-v4',
@@ -79,17 +49,13 @@ export const createPersistOptions = (
         }
       },
       setItem: async (name: string, value: unknown) => {
-        // Always use the non-worker path since workers are disabled
-        pendingValue = value;
-        currentStoreName = name;
-        if (timer) {
-          clearTimeout(timer);
+        try {
+          await debounced.setItem(name, JSON.stringify(value));
+        } catch (error) {
+          if (shouldLog) {
+            console.error('Error setting item in storage:', error);
+          }
         }
-        return new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            flush(name).then(resolve);
-          }, debounceMs);
-        });
       },
       removeItem: async (name: string) => {
         try {
