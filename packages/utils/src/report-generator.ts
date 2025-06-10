@@ -12,13 +12,23 @@ export async function generateReportFromAdapter(
   excludeFilters: string[],
   useRegex: boolean,
   includeProjectTree: boolean,
-  folderSummaryThreshold = 5
+  folderSummaryThreshold = 5,
+  onProgress?: (path: string) => void
 ): Promise<string> {
   let projectTreeText = '';
 
   if (includeProjectTree) {
     // Read the full file tree recursively using our adapter
-    const fullFileTree = await readFullFileTreeFromAdapter(fileSystemAdapter, rootDirectoryHandle);
+    const fullFileTree = await readFullFileTreeFromAdapter(
+      fileSystemAdapter,
+      rootDirectoryHandle,
+      '',
+      0,
+      rootDirectoryHandle.name,
+      new Set(),
+      30,
+      onProgress
+    );
     // Generate project tree text
     projectTreeText = generateProjectTreeText(
       fullFileTree,
@@ -103,7 +113,8 @@ async function readFullFileTreeFromAdapter(
   depth = 0,
   rootFolderId = directoryHandle.name,
   visitedPaths: Set<string> = new Set(),
-  maxDepth = 30
+  maxDepth = 30,
+  onProgress?: (path: string) => void
 ): Promise<import('@brainstrike/types').IFileNode[]> {
   const entries: import('@brainstrike/types').IFileNode[] = [];
   const currentPath = parentPath || directoryHandle.path;
@@ -121,6 +132,7 @@ async function readFullFileTreeFromAdapter(
 
     for (const node of directoryContents) {
       const nodePath = node.path;
+      onProgress?.(nodePath);
 
       // Skip ignored paths (using simple check for common patterns)
       if (shouldIgnorePath(nodePath)) continue;
@@ -178,7 +190,8 @@ async function readFullFileTreeFromAdapter(
           depth + 1,
           rootFolderId,
           newVisitedPaths,
-          maxDepth
+          maxDepth,
+          onProgress
         );
 
         entries.push({

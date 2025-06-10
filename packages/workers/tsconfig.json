@@ -7,12 +7,13 @@
     "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
+    "types": ["node"],
     "paths": {
       "@brainstrike/storage": ["../storage/src"]
     }
   },
-  "include": ["*.ts", "!*.test.ts"],
-  "exclude": ["dist", "node_modules"],
+  "include": ["*.ts"],
+  "exclude": ["dist", "node_modules", "*.test.ts"],
   "references": [
     { "path": "../storage" },
     { "path": "../types" },

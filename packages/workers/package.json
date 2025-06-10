@@ -7,6 +7,7 @@
   "files": ["dist/**/*.js", "dist/**/*.d.ts"],
   "exports": {
     "./file-content-worker": "./dist/file-content-worker.js"
+    ,"./report-generator-worker": "./dist/report-generator-worker.js"
   },
   "scripts": {
     "clean": "rimraf dist",
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "^22",
     "rimraf": "^6",
     "typescript": "^5",
     "vitest": "^3"
