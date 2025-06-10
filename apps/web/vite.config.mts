@@ -107,6 +107,9 @@ export default defineConfig({
       '@brainstrike/file-explorer'
     ]
   },
+  worker: {
+    format: 'es'
+  },
   test: {
     globals: true,
     environment: "happy-dom",

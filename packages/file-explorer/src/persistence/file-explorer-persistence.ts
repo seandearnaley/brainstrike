@@ -9,6 +9,14 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
 
+let persistWorker: Worker | null = null;
+
+export function startPersistenceWorker() {
+  if (typeof window !== 'undefined' && typeof Worker !== 'undefined' && !persistWorker) {
+    persistWorker = new Worker(new URL('./persist-worker.ts', import.meta.url), { type: 'module' });
+  }
+}
+
 const NODE_ENV_KEY = 'NODE_ENV';
 const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
 const isDev = nodeEnv !== 'production';
@@ -29,14 +37,17 @@ export const createPersistOptions = (
   let currentStoreName = '';
   const debounceMs = 200;
 
-  // Workers are disabled for now - they cause build issues in monorepo
-  // The persistence will use the fallback debounced approach
+  startPersistenceWorker();
 
   const flush = async (name: string) => {
     const value = pendingValue;
     pendingValue = undefined;
     timer = null;
     if (value === undefined) return;
+    if (persistWorker) {
+      persistWorker.postMessage({ type: 'set', name, value });
+      return;
+    }
     try {
       await storageAdapter.setItem(name, JSON.stringify(value));
     } catch (error) {
@@ -79,7 +90,6 @@ export const createPersistOptions = (
         }
       },
       setItem: async (name: string, value: unknown) => {
-        // Always use the non-worker path since workers are disabled
         pendingValue = value;
         currentStoreName = name;
         if (timer) {
@@ -92,6 +102,10 @@ export const createPersistOptions = (
         });
       },
       removeItem: async (name: string) => {
+        if (persistWorker) {
+          persistWorker.postMessage({ type: 'remove', name });
+          return;
+        }
         try {
           await storageAdapter.removeItem(name);
         } catch (error) {

@@ -3,6 +3,7 @@ import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { startPersistenceWorker } from '../../../../packages/file-explorer/src';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
@@ -14,6 +15,7 @@ import RootLayoutContent from './components/root-layout-content';
 // Create renderer-specific adapters that use IPC
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
+startPersistenceWorker();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

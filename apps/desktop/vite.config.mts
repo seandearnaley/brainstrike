@@ -23,6 +23,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
+      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
     },
   },
   optimizeDeps: {
@@ -39,6 +40,9 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell'
     ]
+  },
+  worker: {
+    format: 'es'
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts

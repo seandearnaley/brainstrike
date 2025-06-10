@@ -16,7 +16,10 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "types": ["node", "electron", "vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    "types": ["node", "electron", "vite/client", "vitest/globals", "@testing-library/jest-dom"],
+    "paths": {
+      "@brainstrike/file-explorer": ["../../packages/file-explorer/src"]
+    }
   },
   "include": [
     "src/**/*",

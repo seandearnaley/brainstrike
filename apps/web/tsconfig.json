@@ -7,7 +7,8 @@
 		"emitDeclarationOnly": true,
 		"outDir": "dist",
                 "paths": {
-                        "@web/*": ["./src/*"]
+                        "@web/*": ["./src/*"],
+                        "@brainstrike/file-explorer": ["../../packages/file-explorer/src"]
                 },
 		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
 	},

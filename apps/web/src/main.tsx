@@ -4,6 +4,7 @@ import { createStorageAdapter } from '@brainstrike/storage';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
+import { startPersistenceWorker } from '../../../packages/file-explorer/src';
 // Import global CSS
 import './app/globals.css';
 
@@ -13,6 +14,7 @@ import RootLayoutContent from './app/root-layout-content';
 // Create web adapters
 const fileSystemAdapter = createFileSystemAdapter('web');
 const storageAdapter = createStorageAdapter('web');
+startPersistenceWorker();
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

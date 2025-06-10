@@ -110,6 +110,34 @@ describe('file-explorer-persistence', () => {
       });
       vi.useRealTimers();
     });
+
+    it('uses a Web Worker when available', async () => {
+      vi.useFakeTimers();
+      const postMessage = vi.fn();
+      const WorkerMock = vi.fn(() => ({ postMessage }));
+      (globalThis as any).Worker = WorkerMock;
+      (globalThis as any).window = { addEventListener: vi.fn() };
+
+      const adapter = { ...mockStorageAdapter, setItem: vi.fn() };
+      const mod = await import('../persistence/file-explorer-persistence');
+      const persistOptions = mod.createPersistOptions(adapter);
+      const storage = persistOptions.storage as NonNullable<(typeof persistOptions)['storage']>;
+
+      storage.setItem('foo', { state: {} as SerializedState, version: 1 });
+      await vi.advanceTimersByTimeAsync(201);
+
+      expect(WorkerMock).toHaveBeenCalled();
+      expect(postMessage).toHaveBeenCalledWith({
+        type: 'set',
+        name: 'foo',
+        value: { state: {}, version: 1 },
+      });
+      expect(adapter.setItem).not.toHaveBeenCalled();
+      vi.useRealTimers();
+      // cleanup
+      (globalThis as any).Worker = undefined;
+      (globalThis as any).window = undefined;
+    });
   });
 
   describe('partialize', () => {
