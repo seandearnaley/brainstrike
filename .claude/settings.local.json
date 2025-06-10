@@ -34,7 +34,12 @@
       "mcp__ide__getDiagnostics",
       "Bash(pnpm test:*)",
       "Bash(pnpm build:*)",
-      "Bash(pnpm playwright test:*)"
+      "Bash(pnpm playwright test:*)",
+      "Bash(true)",
+      "Bash(pnpm -w run type-check)",
+      "Bash(pnpm check:*)",
+      "Bash(pnpm -w run check)",
+      "Bash(pnpm -w run lint)"
     ],
     "deny": []
   },

@@ -1,0 +1,27 @@
+{
+  "name": "@brainstrike/platform-utils",
+  "version": "0.1.0",
+  "description": "Platform detection utilities",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -b . && tsup",
+    "dev": "tsup --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5",
+    "vitest": "^3.2.2"
+  }
+}
