@@ -15,60 +15,113 @@ export function getFileExtension(filename: string): string {
   return filename.slice(lastDotIndex + 1).toLowerCase();
 }
 
+const textFileExtensions = new Set([
+  'txt',
+  'md',
+  'markdown',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'json',
+  'html',
+  'htm',
+  'css',
+  'scss',
+  'less',
+  'xml',
+  'svg',
+  'yml',
+  'yaml',
+  'toml',
+  'ini',
+  'cfg',
+  'conf',
+  'sh',
+  'bash',
+  'py',
+  'rb',
+  'php',
+  'java',
+  'c',
+  'cpp',
+  'h',
+  'hpp',
+  'cs',
+  'go',
+  'rs',
+  'swift',
+  'kt',
+  'pl',
+  'sql',
+  'graphql',
+  'gql',
+  'tsx',
+  'jsx',
+  'vue',
+  'svelte',
+]);
+
+const binaryFileExtensions = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'bmp',
+  'ico',
+  'webp',
+  'tiff',
+  'psd',
+  'mp3',
+  'wav',
+  'ogg',
+  'mp4',
+  'avi',
+  'mov',
+  'wmv',
+  'flv',
+  'webm',
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'zip',
+  'rar',
+  'tar',
+  'gz',
+  '7z',
+  'exe',
+  'dll',
+  'so',
+  'dylib',
+  'ttf',
+  'otf',
+  'woff',
+  'woff2',
+  'eot',
+]);
+
+export function isTextExtension(extension: string): boolean {
+  const ext = extension.toLowerCase().replace(/^\./, '');
+  return textFileExtensions.has(ext);
+}
+
+export function isBinaryExtension(extension: string): boolean {
+  const ext = extension.toLowerCase().replace(/^\./, '');
+  return binaryFileExtensions.has(ext);
+}
+
 /**
  * Checks if a file is a text file based on its extension
  * @param filename The filename to check
  * @returns True if the file is likely a text file
  */
 export function isTextFile(filename: string): boolean {
-  const textFileExtensions = [
-    'txt',
-    'md',
-    'markdown',
-    'js',
-    'jsx',
-    'ts',
-    'tsx',
-    'json',
-    'html',
-    'htm',
-    'css',
-    'scss',
-    'less',
-    'xml',
-    'svg',
-    'yml',
-    'yaml',
-    'toml',
-    'ini',
-    'cfg',
-    'conf',
-    'sh',
-    'bash',
-    'py',
-    'rb',
-    'php',
-    'java',
-    'c',
-    'cpp',
-    'h',
-    'hpp',
-    'cs',
-    'go',
-    'rs',
-    'swift',
-    'kt',
-    'pl',
-    'sql',
-    'graphql',
-    'gql',
-    'tsx',
-    'jsx',
-    'vue',
-    'svelte',
-  ];
   const ext = getFileExtension(filename);
-  return textFileExtensions.indexOf(ext) !== -1;
+  return isTextExtension(ext);
 }
 
 /**
@@ -77,49 +130,8 @@ export function isTextFile(filename: string): boolean {
  * @returns True if the file is likely a binary file
  */
 export function isBinaryFile(filename: string): boolean {
-  const binaryFileExtensions = [
-    'jpg',
-    'jpeg',
-    'png',
-    'gif',
-    'bmp',
-    'ico',
-    'webp',
-    'tiff',
-    'psd',
-    'mp3',
-    'wav',
-    'ogg',
-    'mp4',
-    'avi',
-    'mov',
-    'wmv',
-    'flv',
-    'webm',
-    'pdf',
-    'doc',
-    'docx',
-    'xls',
-    'xlsx',
-    'ppt',
-    'pptx',
-    'zip',
-    'rar',
-    'tar',
-    'gz',
-    '7z',
-    'exe',
-    'dll',
-    'so',
-    'dylib',
-    'ttf',
-    'otf',
-    'woff',
-    'woff2',
-    'eot',
-  ];
   const ext = getFileExtension(filename);
-  return binaryFileExtensions.indexOf(ext) !== -1;
+  return isBinaryExtension(ext);
 }
 
 /**

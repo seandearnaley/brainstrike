@@ -1,4 +1,7 @@
-import { BINARY_FILE_EXTENSIONS, TEXT_FILE_EXTENSIONS } from '@brainstrike/types';
+import {
+  isBinaryExtension as checkBinaryExtension,
+  isTextExtension as checkTextExtension,
+} from './file-utils';
 
 /**
  * Maximum file size in bytes that we'll attempt to load (1MB)
@@ -35,16 +38,14 @@ export const fileContent = {
    * Checks if a file extension is known to be binary
    */
   isBinaryExtension(extension: string): boolean {
-    const ext = extension.toLowerCase();
-    return BINARY_FILE_EXTENSIONS.includes(ext.startsWith('.') ? ext : `.${ext}`);
+    return checkBinaryExtension(extension);
   },
 
   /**
    * Checks if a file extension is known to be text
    */
   isTextExtension(extension: string): boolean {
-    const ext = extension.toLowerCase();
-    return TEXT_FILE_EXTENSIONS.includes(ext.startsWith('.') ? ext : `.${ext}`);
+    return checkTextExtension(extension);
   },
 
   /**
