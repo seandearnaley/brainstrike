@@ -1,6 +1,11 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
-import { fileContent, fileExplorer } from '@brainstrike/utils';
+import {
+  fileContent,
+  fileExplorer,
+  isBinaryExtension,
+  isTextExtension,
+} from '@brainstrike/utils';
 
 export interface FileReadRequest {
   compositeKey: string;
@@ -72,11 +77,11 @@ export function createFileContentWorker({
 
     const extension = fileExplorer.getFileExtension(req.path);
 
-    if (fileContent.isBinaryExtension(extension)) {
+    if (isBinaryExtension(extension)) {
       throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
     }
 
-    if (fileContent.isTextExtension(extension)) {
+    if (isTextExtension(extension)) {
       if (!fileContent.isTextContent(content)) {
         throw new FileContentError('Binary file - preview not available', req.path, 'BINARY');
       }
