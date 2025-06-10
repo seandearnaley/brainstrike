@@ -18,6 +18,20 @@ export default defineConfig({
         main: path.resolve(__dirname, 'index.html'),
       },
       external: ['electron'],
+      output: {
+        manualChunks: (id) => {
+          if (id.includes("node_modules")) {
+            // Group vendor dependencies
+            return "vendor";
+          }
+          // Keep workers in separate chunks
+          if (id.includes('.worker.')) {
+            return "worker";
+          }
+          // Explicitly return undefined for other modules to keep them in the default chunk
+          return undefined;
+        },
+      },
     },
   },
   resolve: {
