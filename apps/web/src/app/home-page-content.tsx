@@ -1,5 +1,11 @@
-import { FileExplorerLeftPanel, FileExplorerMiddlePanel } from '@brainstrike/file-explorer-ui';
-import { Suspense } from 'react';
+import { Suspense, lazy } from 'react';
+
+const FileExplorerMiddlePanel = lazy(async () =>
+  import('@brainstrike/file-explorer-ui').then((m) => ({ default: m.FileExplorerMiddlePanel }))
+);
+const FileExplorerLeftPanel = lazy(async () =>
+  import('@brainstrike/file-explorer-ui').then((m) => ({ default: m.FileExplorerLeftPanel }))
+);
 import { Helmet } from 'react-helmet-async';
 
 // Web file explorer component

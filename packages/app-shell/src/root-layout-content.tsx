@@ -1,6 +1,9 @@
-import { FileExplorerLeftPanel } from '@brainstrike/file-explorer-ui';
 import { IdeLayout } from '@brainstrike/ui';
-import { useMemo, useState } from 'react';
+import { Suspense, lazy, useMemo, useState } from 'react';
+
+const FileExplorerLeftPanel = lazy(async () =>
+  import('@brainstrike/file-explorer-ui').then((m) => ({ default: m.FileExplorerLeftPanel }))
+);
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import type { NavigationItem } from './types';
@@ -22,7 +25,16 @@ export function RootLayoutContent({
     setActiveTab(tab);
   };
 
-  const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
+  const sidebarContent = useMemo(
+    () => (
+      <Suspense
+        fallback={<div className="flex items-center justify-center h-full">Loading...</div>}
+      >
+        <FileExplorerLeftPanel />
+      </Suspense>
+    ),
+    []
+  );
 
   return (
     <AppLayout
