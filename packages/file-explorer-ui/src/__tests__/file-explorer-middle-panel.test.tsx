@@ -63,11 +63,11 @@ vi.mock('../use-file-explorer-context', () => ({
 vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
-vi.mock('@brainstrike/hooks', () => ({
+vi.mock('@brainstrike/hooks/use-undoable-action', () => ({
   useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
 }));
 
-import { useUndoableAction } from '@brainstrike/hooks';
+import { useUndoableAction } from '@brainstrike/hooks/use-undoable-action';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 

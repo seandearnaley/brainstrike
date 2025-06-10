@@ -13,6 +13,41 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./use-debounced-value": {
+      "types": "./dist/use-debounced-value.d.ts",
+      "import": "./dist/use-debounced-value.mjs",
+      "require": "./dist/use-debounced-value.js"
+    },
+    "./use-undoable-action": {
+      "types": "./dist/use-undoable-action.d.ts",
+      "import": "./dist/use-undoable-action.mjs",
+      "require": "./dist/use-undoable-action.js"
+    },
+    "./use-quick-filter": {
+      "types": "./dist/use-quick-filter.d.ts",
+      "import": "./dist/use-quick-filter.mjs",
+      "require": "./dist/use-quick-filter.js"
+    },
+    "./use-file-filters": {
+      "types": "./dist/use-file-filters.d.ts",
+      "import": "./dist/use-file-filters.mjs",
+      "require": "./dist/use-file-filters.js"
+    },
+    "./use-loading-manager": {
+      "types": "./dist/use-loading-manager.d.ts",
+      "import": "./dist/use-loading-manager.mjs",
+      "require": "./dist/use-loading-manager.js"
+    },
+    "./use-report-manager": {
+      "types": "./dist/use-report-manager.d.ts",
+      "import": "./dist/use-report-manager.mjs",
+      "require": "./dist/use-report-manager.js"
+    },
+    "./use-report-generation": {
+      "types": "./dist/use-report-generation.d.ts",
+      "import": "./dist/use-report-generation.mjs",
+      "require": "./dist/use-report-generation.js"
     }
   },
   "sideEffects": false,
@@ -21,8 +56,8 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc --project tsconfig.json && tsup src/index.ts --format esm,cjs --outDir dist",
-    "dev": "tsup src/index.ts --format esm,cjs --watch",
+    "build": "rm -rf dist && tsc --project tsconfig.json && tsup src/*.ts --format esm,cjs --outDir dist",
+    "dev": "tsup src/*.ts --format esm,cjs --watch",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit",

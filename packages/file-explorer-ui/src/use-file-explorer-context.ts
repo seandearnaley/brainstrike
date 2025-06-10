@@ -6,7 +6,7 @@
 
 import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useFileFilters } from '@brainstrike/hooks';
+import { useFileFilters } from '@brainstrike/hooks/use-file-filters';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect, useState } from 'react';
 import { shallow } from 'zustand/shallow';

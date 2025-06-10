@@ -17,8 +17,8 @@ vi.mock('../use-file-content-loading', () => ({ useFileContentLoading: vi.fn() }
 // Define mockApplyFileFilters *before* it's used in the subsequent mock
 const mockApplyFileFilters = vi.fn();
 
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
+vi.mock('@brainstrike/hooks/use-file-filters', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/hooks/use-file-filters')>();
   return {
     ...original,
     useFileFilters: vi.fn(() => ({

@@ -1,5 +1,5 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
-import { useFileFilters } from '@brainstrike/hooks';
+import { useFileFilters } from '@brainstrike/hooks/use-file-filters';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect } from 'react';
 import { useFileContentLoading } from './use-file-content-loading';

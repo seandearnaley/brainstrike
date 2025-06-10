@@ -32,13 +32,15 @@ const { mockUseQuickFilter, mockUseReportGeneration } = vi.hoisted(() => ({
   mockUseReportGeneration: vi.fn(() => ({})),
 }));
 
-vi.mock('@brainstrike/hooks', () => ({
+vi.mock('@brainstrike/hooks/use-quick-filter', () => ({
   useQuickFilter: mockUseQuickFilter,
+}));
+vi.mock('@brainstrike/hooks/use-report-generation', () => ({
   useReportGeneration: mockUseReportGeneration,
 }));
 
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/hooks')>();
+vi.mock('@brainstrike/hooks/use-report-generation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/hooks/use-report-generation')>();
   return {
     ...actual,
     useReportGeneration: () => ({}),

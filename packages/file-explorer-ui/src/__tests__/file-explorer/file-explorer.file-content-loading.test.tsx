@@ -76,17 +76,21 @@ const {
     mockUseUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
   };
 });
-vi.mock('@brainstrike/hooks', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/hooks')>();
-  return {
-    ...original,
-    useUndoableAction: mockUseUndoableAction,
-    useQuickFilter: mockUseQuickFilter,
-    useReportGeneration: mockUseReportGeneration,
-    useReportManager: mockUseReportManager,
-    useFileFilters: mockUseFileFilters,
-  };
-});
+vi.mock('@brainstrike/hooks/use-undoable-action', () => ({
+  useUndoableAction: mockUseUndoableAction,
+}));
+vi.mock('@brainstrike/hooks/use-quick-filter', () => ({
+  useQuickFilter: mockUseQuickFilter,
+}));
+vi.mock('@brainstrike/hooks/use-report-generation', () => ({
+  useReportGeneration: mockUseReportGeneration,
+}));
+vi.mock('@brainstrike/hooks/use-report-manager', () => ({
+  useReportManager: mockUseReportManager,
+}));
+vi.mock('@brainstrike/hooks/use-file-filters', () => ({
+  useFileFilters: mockUseFileFilters,
+}));
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const originalModule = await importOriginal<typeof import('@brainstrike/ui')>();
   return {

@@ -85,9 +85,13 @@ vi.mock('@brainstrike/file-explorer-hooks', async (importOriginal) => {
     })),
   };
 });
-vi.mock('@brainstrike/hooks', () => ({
+vi.mock('@brainstrike/hooks/use-quick-filter', () => ({
   useQuickFilter: vi.fn(),
+}));
+vi.mock('@brainstrike/hooks/use-report-generation', () => ({
   useReportGeneration: vi.fn(() => ({ generateReportWithContent: vi.fn() })),
+}));
+vi.mock('@brainstrike/hooks/use-report-manager', () => ({
   useReportManager: vi.fn(() => ({
     handleDownloadReport: vi.fn(),
     handleCopyReport: vi.fn(),
@@ -97,7 +101,7 @@ vi.mock('@brainstrike/hooks', () => ({
 import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
 
-import { useQuickFilter } from '@brainstrike/hooks';
+import { useQuickFilter } from '@brainstrike/hooks/use-quick-filter';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';

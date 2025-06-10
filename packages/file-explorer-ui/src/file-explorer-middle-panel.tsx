@@ -1,6 +1,6 @@
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
-import { useUndoableAction } from '@brainstrike/hooks';
+import { useUndoableAction } from '@brainstrike/hooks/use-undoable-action';
 import { LoadingFallback } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';

@@ -101,10 +101,16 @@ vi.mock('@web/hooks/use-file-tree-persistence', () => ({
   useFileTreePersistence: () => ({}),
 }));
 
-vi.mock('@brainstrike/hooks', () => ({
+vi.mock('@brainstrike/hooks/use-report-generation', () => ({
   useReportGeneration: vi.fn(() => ({})),
+}));
+vi.mock('@brainstrike/hooks/use-report-manager', () => ({
   useReportManager: vi.fn(() => ({})),
+}));
+vi.mock('@brainstrike/hooks/use-debounced-value', () => ({
   useDebouncedValue: vi.fn((value: unknown) => value),
+}));
+vi.mock('@brainstrike/hooks/use-quick-filter', () => ({
   useQuickFilter: vi.fn(() => ({
     includeFilters: [],
     excludeFilters: [],
@@ -115,10 +121,14 @@ vi.mock('@brainstrike/hooks', () => ({
     setUseRegex: vi.fn(),
     setQuickFilter: vi.fn(),
   })),
+}));
+vi.mock('@brainstrike/hooks/use-file-filters', () => ({
   useFileFilters: vi.fn(() => ({
     applyFileFilters: vi.fn(),
     filterError: null,
   })),
+}));
+vi.mock('@brainstrike/hooks/use-undoable-action', () => ({
   useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
 }));
 

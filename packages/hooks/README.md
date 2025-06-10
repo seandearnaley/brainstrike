@@ -12,7 +12,7 @@ pnpm add @brainstrike/hooks
 ## Usage
 
 ```tsx
-import { useDebouncedValue } from "@brainstrike/hooks";
+import { useDebouncedValue } from "@brainstrike/hooks/use-debounced-value";
 
 function MyComponent() {
   const [value, setValue] = useState("");
@@ -35,7 +35,7 @@ function MyComponent() {
 ### `useUndoableAction`
 
 ```tsx
-import { useUndoableAction } from "@brainstrike/hooks";
+import { useUndoableAction } from "@brainstrike/hooks/use-undoable-action";
 
 function DeleteButton({ file }: { file: string }) {
   const { performUndoableAction } = useUndoableAction<string>();
