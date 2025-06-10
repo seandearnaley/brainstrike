@@ -39,7 +39,8 @@
       "Bash(pnpm -w run type-check)",
       "Bash(pnpm check:*)",
       "Bash(pnpm -w run check)",
-      "Bash(pnpm -w run lint)"
+      "Bash(pnpm -w run lint)",
+      "Bash(pnpm -w run build)"
     ],
     "deny": []
   },
