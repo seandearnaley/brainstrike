@@ -5,8 +5,11 @@
     "paths": {
       "@brainstrike/types": ["packages/types/src"],
       "@brainstrike/hooks": ["packages/hooks/src"],
+      "@brainstrike/hooks/*": ["packages/hooks/src/*"],
       "@brainstrike/ui": ["packages/ui/src"],
+      "@brainstrike/ui/*": ["packages/ui/src/*"],
       "@brainstrike/utils": ["packages/utils/src"],
+      "@brainstrike/utils/*": ["packages/utils/src/*"],
       "@brainstrike/file-explorer": ["packages/file-explorer/src"],
       "@brainstrike/file-explorer-hooks": ["packages/file-explorer-hooks/src"],
       "@brainstrike/file-explorer-ui": ["packages/file-explorer-ui/src"],

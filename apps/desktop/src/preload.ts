@@ -1,7 +1,7 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer } = require('electron');
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { PanelPersistenceState } from '@brainstrike/ui/hooks/use-panel-persistence';
 
 // Expose storage APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {

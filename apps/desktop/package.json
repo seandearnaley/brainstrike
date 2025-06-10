@@ -13,7 +13,7 @@
     "dev:main": "tsc src/main.ts --outDir dist --target es2022 --module commonjs --moduleResolution node --allowSyntheticDefaultImports --esModuleInterop --skipLibCheck && tsc src/preload.ts --outDir dist --target es2022 --module commonjs --moduleResolution node --allowSyntheticDefaultImports --esModuleInterop --skipLibCheck",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
-    "build:main": "tsc src/main.ts --outDir dist --target es2022 --module commonjs --moduleResolution node --allowSyntheticDefaultImports --esModuleInterop --skipLibCheck --moduleDetection force && tsc src/preload.ts --outDir dist --target es2022 --module commonjs --moduleResolution node --allowSyntheticDefaultImports --esModuleInterop --skipLibCheck --moduleDetection force",
+    "build:main": "tsc --project tsconfig.json",
     "start": "electron . --no-sandbox",
     "start:dev": "npm run dev:main && electron . --no-sandbox",
     "pack": "npm run build && electron-builder --dir",

@@ -31,7 +31,11 @@
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
-    "./icons/*": "./icons/*"
+    "./icons/*": "./icons/*",
+    "./*": {
+      "import": "./dist/*.js",
+      "types": "./dist/*.d.ts"
+    }
   },
   "keywords": [],
   "author": "",
