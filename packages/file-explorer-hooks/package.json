@@ -27,6 +27,7 @@
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

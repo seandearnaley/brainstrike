@@ -1,5 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
-import type { FileHandle, Platform } from '@brainstrike/file-system';
+import type { FileHandle } from '@brainstrike/file-system';
+import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';
 import { decodeFileSelection } from '@brainstrike/utils';

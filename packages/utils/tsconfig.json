@@ -13,6 +13,7 @@
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
   "references": [
-    { "path": "../types" }
+    { "path": "../types" },
+    { "path": "../file-system" }
   ]
 } 

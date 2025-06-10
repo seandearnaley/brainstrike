@@ -1,4 +1,5 @@
-import type { FileHandle, Platform } from '@brainstrike/file-system';
+import type { FileHandle } from '@brainstrike/file-system';
+import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
 import { fileExplorer } from '@brainstrike/utils';

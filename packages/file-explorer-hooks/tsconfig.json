@@ -12,6 +12,7 @@
     { "path": "../file-explorer" },
     { "path": "../file-system" },
     { "path": "../hooks" },
+    { "path": "../platform-utils" },
     { "path": "../types" },
     { "path": "../ui" },
     { "path": "../utils" }
