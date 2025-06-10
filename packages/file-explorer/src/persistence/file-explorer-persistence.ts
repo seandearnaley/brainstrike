@@ -8,7 +8,7 @@
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
 import type { PersistOptions } from 'zustand/middleware';
-import { createDebouncedStorage } from './debounced-storage';
+import { WorkerStorage } from './worker-storage';
 
 const NODE_ENV_KEY = 'NODE_ENV';
 const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
@@ -25,10 +25,74 @@ type ZustandPersistWrapper<T> = { state?: T; version?: number };
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  const debounced = createDebouncedStorage(storageAdapter, {
-    debounceMs: 200,
-    flushOnBeforeUnload: true,
-  });
+  let pendingValue: unknown;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let currentStoreName = '';
+  const debounceMs = 200;
+
+  // Initialize Web Worker for background state persistence
+  let workerStorage: WorkerStorage | null = null;
+  let useWorker = false;
+
+  // Only use Web Worker in browser environment (not in tests, SSR, or Electron)
+  const isElectron =
+    typeof window !== 'undefined' &&
+    (window as { process?: { type?: string } }).process?.type === 'renderer';
+  if (typeof window !== 'undefined' && !isTest && !isElectron) {
+    try {
+      workerStorage = new WorkerStorage();
+      useWorker = workerStorage.isWorkerAvailable;
+      if (shouldLog && useWorker) {
+        console.log('[Persistence] Web Worker enabled for background state persistence');
+      }
+    } catch (error) {
+      if (shouldLog) {
+        console.warn(
+          '[Persistence] Failed to initialize Web Worker, falling back to debounced approach:',
+          error
+        );
+      }
+    }
+  }
+
+  const flush = async (name: string) => {
+    const value = pendingValue;
+    pendingValue = undefined;
+    timer = null;
+    if (value === undefined) return;
+    try {
+      await storageAdapter.setItem(name, JSON.stringify(value));
+    } catch (error) {
+      if (shouldLog) {
+        console.error('Error setting item in storage:', error);
+      }
+    }
+  };
+
+  // Add beforeunload handler to flush pending values and cleanup worker
+  if (typeof window !== 'undefined') {
+    const handleBeforeUnload = () => {
+      // Handle pending debounced writes
+      if (pendingValue !== undefined && currentStoreName) {
+        // Attempt synchronous flush on tab close
+        try {
+          localStorage.setItem(currentStoreName, JSON.stringify(pendingValue));
+        } catch {
+          // Ignore errors during beforeunload
+        }
+      }
+
+      // Cleanup worker
+      if (workerStorage) {
+        workerStorage.destroy();
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    // Also cleanup on page hide (for mobile Safari, etc.)
+    window.addEventListener('pagehide', handleBeforeUnload);
+  }
 
   return {
     name: 'file-explorer-storage-v4',
@@ -37,24 +101,57 @@ export const createPersistOptions = (
     // Use the provided storage adapter instead of default localStorage
     storage: {
       getItem: async (name: string) => {
-        try {
-          const value = await storageAdapter.getItem(name);
-          // console.log('[Persist] getItem value:', value ? JSON.parse(value) : null);
-          return value ? JSON.parse(value) : null;
-        } catch (error) {
-          if (shouldLog) {
-            console.error('Error getting item from storage:', error);
+        if (useWorker && workerStorage) {
+          // Use Web Worker for background deserialization
+          try {
+            const value = await workerStorage.getItem(name);
+            return value ? JSON.parse(value) : null;
+          } catch (error) {
+            if (shouldLog) {
+              console.error('Worker getItem failed, falling back to main thread:', error);
+            }
+            // Fallback to main thread approach
+            const value = await storageAdapter.getItem(name);
+            return value ? JSON.parse(value) : null;
           }
-          return null;
+        } else {
+          // Use main thread approach
+          try {
+            const value = await storageAdapter.getItem(name);
+            // console.log('[Persist] getItem value:', value ? JSON.parse(value) : null);
+            return value ? JSON.parse(value) : null;
+          } catch (error) {
+            if (shouldLog) {
+              console.error('Error getting item from storage:', error);
+            }
+            return null;
+          }
         }
       },
       setItem: async (name: string, value: unknown) => {
-        try {
-          await debounced.setItem(name, JSON.stringify(value));
-        } catch (error) {
-          if (shouldLog) {
-            console.error('Error setting item in storage:', error);
+        if (useWorker && workerStorage) {
+          // Use Web Worker for background serialization and storage
+          try {
+            await workerStorage.setItem(name, JSON.stringify(value));
+          } catch (error) {
+            if (shouldLog) {
+              console.error('Worker setItem failed, falling back to main thread:', error);
+            }
+            // Fallback to main thread approach
+            await storageAdapter.setItem(name, JSON.stringify(value));
           }
+        } else {
+          // Use debounced main thread approach
+          pendingValue = value;
+          currentStoreName = name;
+          if (timer) {
+            clearTimeout(timer);
+          }
+          return new Promise<void>((resolve) => {
+            timer = setTimeout(() => {
+              flush(name).then(resolve);
+            }, debounceMs);
+          });
         }
       },
       removeItem: async (name: string) => {
