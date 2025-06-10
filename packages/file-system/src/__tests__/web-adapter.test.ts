@@ -98,6 +98,42 @@ describe('WebFileSystemAdapter', () => {
       expect(entriesList[1].lastModified).toBe(file.lastModified);
     });
 
+    it('streams directory entries', async () => {
+      const file = createFile('file.txt', 'hello', 123);
+      const fileHandle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn().mockResolvedValue(file),
+      } as unknown as FileSystemFileHandle;
+      const subHandle = {
+        kind: 'directory',
+        name: 'sub',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      async function* entries() {
+        yield ['sub', subHandle] as [string, FileSystemDirectoryHandle];
+        yield ['file.txt', fileHandle] as [string, FileSystemFileHandle];
+      }
+      const dirHandle = {
+        name: 'root',
+        kind: 'directory',
+        entries,
+      } as unknown as FileSystemDirectoryHandle;
+      const handle: DirectoryHandle = {
+        path: 'root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web',
+        _internal: dirHandle,
+      };
+
+      const names: string[] = [];
+      for await (const entry of adapter.readDirectoryStream(handle)) {
+        names.push(entry.name);
+      }
+      expect(names.sort()).toEqual(['file.txt', 'sub']);
+    });
+
     it('propagates errors from entries()', async () => {
       const dirHandle = {
         name: 'bad',

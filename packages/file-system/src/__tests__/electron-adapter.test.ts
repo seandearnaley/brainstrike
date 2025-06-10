@@ -149,6 +149,24 @@ describe('ElectronFileSystemAdapter', () => {
     expect(entries.map((e) => e.name).sort()).toEqual(['file.txt', 'sub']);
   });
 
+  it('should stream directory contents', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
+    fs.writeFileSync(path.join(tempDir, 'file.txt'), 'content');
+    fs.mkdirSync(path.join(tempDir, 'sub'));
+    const handle = await adapter.requestDirectoryAccess();
+
+    const names: string[] = [];
+    for await (const entry of adapter.readDirectoryStream(handle)) {
+      names.push(entry.name);
+    }
+    expect(names.sort()).toEqual(['file.txt', 'sub']);
+  });
+
   it('should read file content', async () => {
     const filePath = path.join(tempDir, 'file.txt');
     fs.writeFileSync(filePath, 'hello');

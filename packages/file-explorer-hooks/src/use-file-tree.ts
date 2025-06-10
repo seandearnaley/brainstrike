@@ -147,12 +147,18 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       }
 
       try {
-        // Use the adapter to read directory contents
-        const entries = await fileSystemAdapter.readDirectory(directoryHandle);
-
         const processedEntries: IFileNode[] = [];
 
-        for (const entry of entries) {
+        async function* stream() {
+          if (fileSystemAdapter.readDirectoryStream) {
+            yield* fileSystemAdapter.readDirectoryStream(directoryHandle);
+          } else {
+            const all = await fileSystemAdapter.readDirectory(directoryHandle);
+            for (const e of all) yield e;
+          }
+        }
+
+        for await (const entry of stream()) {
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;

@@ -575,6 +575,10 @@ describe('generateReportFromAdapter', () => {
       async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
         return this.map[handle.path] || [];
       }
+      async *readDirectoryStream(handle: DirectoryHandle): AsyncGenerator<IFileNode, void, void> {
+        const all = await this.readDirectory(handle);
+        for (const e of all) yield e;
+      }
       async readFile(): Promise<string> {
         return '';
       }

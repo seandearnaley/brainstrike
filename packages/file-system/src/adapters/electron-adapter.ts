@@ -176,6 +176,69 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     }
   }
 
+  async *readDirectoryStream(handle: DirectoryHandle): AsyncGenerator<IFileNode, void, void> {
+    try {
+      const dirents = await fsPromises.readdir(handle.path, { withFileTypes: true });
+      const sorted = dirents.sort((a, b) => {
+        if (a.isDirectory() !== b.isDirectory()) {
+          return a.isDirectory() ? -1 : 1;
+        }
+        return a.name.localeCompare(b.name);
+      });
+
+      for (const entry of sorted) {
+        const fullPath = path.join(handle.path, entry.name);
+        try {
+          const stat = await fsPromises.stat(fullPath);
+          if (entry.isDirectory()) {
+            yield {
+              name: entry.name,
+              path: fullPath,
+              type: 'directory',
+              depth: 0,
+              selectionState: 'unchecked',
+              children: [],
+              rootFolderId: handle.name,
+              isVisible: true,
+              handle: {
+                path: fullPath,
+                name: entry.name,
+                kind: 'directory',
+                platform: 'electron',
+              } as unknown as FileSystemDirectoryHandle,
+            };
+          } else {
+            yield {
+              name: entry.name,
+              path: fullPath,
+              type: 'file',
+              depth: 0,
+              selectionState: 'unchecked',
+              rootFolderId: handle.name,
+              isVisible: true,
+              size: stat.size,
+              lastModified: stat.mtimeMs,
+              handle: {
+                path: fullPath,
+                name: entry.name,
+                kind: 'file',
+                platform: 'electron',
+              } as unknown as FileSystemFileHandle,
+            };
+          }
+        } catch (statError) {
+          console.warn(`Could not access ${fullPath}:`, statError);
+        }
+      }
+    } catch (error) {
+      throw new AccessError(
+        `Failed to read directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        handle.path,
+        'read'
+      );
+    }
+  }
+
   async readFile(_handle: FileHandle): Promise<string> {
     try {
       return await fsPromises.readFile(_handle.path, 'utf-8');

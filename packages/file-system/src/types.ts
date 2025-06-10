@@ -12,6 +12,11 @@ export interface FileSystemAdapter {
   readDirectory(handle: DirectoryHandle): Promise<IFileNode[]>;
 
   /**
+   * Stream directory contents incrementally
+   */
+  readDirectoryStream?(handle: DirectoryHandle): AsyncGenerator<IFileNode, void, void>;
+
+  /**
    * Read file contents
    */
   readFile(handle: FileHandle): Promise<string>;

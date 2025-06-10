@@ -141,6 +141,27 @@ describe('MockFileSystemAdapter', () => {
       expect(entries.map((e) => e.name)).toContain('README.md');
     });
 
+    it('should stream root directory contents', async () => {
+      await adapter.requestDirectoryAccess();
+
+      const handle = {
+        path: 'mock-root',
+        name: 'mock-root',
+        kind: 'directory' as const,
+        platform: 'web' as const,
+      };
+
+      const names: string[] = [];
+      for await (const entry of adapter.readDirectoryStream(handle)) {
+        names.push(entry.name);
+      }
+
+      expect(names).toHaveLength(3);
+      expect(names).toContain('src');
+      expect(names).toContain('package.json');
+      expect(names).toContain('README.md');
+    });
+
     it('should read subdirectory contents', async () => {
       await adapter.requestDirectoryAccess();
 

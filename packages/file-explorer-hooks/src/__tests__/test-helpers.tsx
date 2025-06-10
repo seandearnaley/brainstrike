@@ -61,6 +61,13 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     return [];
   }
 
+  async *readDirectoryStream(handle: DirectoryHandle): AsyncGenerator<IFileNode, void, void> {
+    const entries = await this.readDirectory(handle);
+    for (const entry of entries) {
+      yield entry;
+    }
+  }
+
   async readFile(handle: FileHandle): Promise<string> {
     const path = handle.path || handle.name;
 

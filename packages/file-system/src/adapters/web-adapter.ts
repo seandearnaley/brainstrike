@@ -86,6 +86,40 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     });
   }
 
+  async *readDirectoryStream(handle: DirectoryHandle): AsyncGenerator<IFileNode, void, void> {
+    const dirHandle = handle._internal as FileSystemDirectoryHandle;
+    for await (const [name, entryHandle] of dirHandle.entries()) {
+      if (entryHandle.kind === 'directory') {
+        yield {
+          name,
+          path: `${handle.path}/${name}`,
+          type: 'directory',
+          handle: entryHandle as FileSystemDirectoryHandle,
+          depth: 0,
+          selectionState: 'unchecked',
+          children: [],
+          rootFolderId: handle.name,
+          isVisible: true,
+        };
+      } else {
+        const fileHandle = entryHandle as FileSystemFileHandle;
+        const file = await fileHandle.getFile();
+        yield {
+          name,
+          path: `${handle.path}/${name}`,
+          type: 'file',
+          handle: fileHandle,
+          depth: 0,
+          selectionState: 'unchecked',
+          rootFolderId: handle.name,
+          isVisible: true,
+          size: file.size,
+          lastModified: file.lastModified,
+        };
+      }
+    }
+  }
+
   async readFile(handle: FileHandle): Promise<string> {
     const fileHandle = handle._internal as FileSystemFileHandle;
     const file = await fileHandle.getFile();
