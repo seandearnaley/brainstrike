@@ -1,7 +1,8 @@
+import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronStorageAdapter } from '../adapters/electron-storage-adapter';
 import { WebStorageAdapter } from '../adapters/web-storage-adapter';
-import { createStorageAdapter, detectPlatform } from '../factory';
+import { createStorageAdapter } from '../factory';
 
 describe('Storage Factory', () => {
   describe('createStorageAdapter', () => {

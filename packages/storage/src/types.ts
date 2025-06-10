@@ -32,5 +32,3 @@ export interface PersistConfig<TState> {
   partialize?: (state: TState) => Partial<TState>;
   onRehydrateStorage?: () => (state?: TState) => void;
 }
-
-export type Platform = 'web' | 'electron';
