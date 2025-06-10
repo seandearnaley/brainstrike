@@ -1,15 +1,18 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
+import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AdaptersProvider } from '../adapters-context';
 import { useFileContentLoading } from '../use-file-content-loading';
 import { useFileExplorer } from '../use-file-explorer';
 import { useFileSystem } from '../use-file-system';
 import { useFileTree } from '../use-file-tree';
 
-vi.mock('@brainstrike/file-explorer', () => ({ useFileExplorerStore: vi.fn() }));
 vi.mock('../use-file-system', () => ({ useFileSystem: vi.fn() }));
 vi.mock('../use-file-tree', () => ({ useFileTree: vi.fn() }));
 vi.mock('../use-file-content-loading', () => ({ useFileContentLoading: vi.fn() }));
@@ -44,6 +47,8 @@ describe('useFileExplorer', () => {
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
   let onDisplayedFilePathsChange: ReturnType<typeof vi.fn>;
+  let store: ReturnType<typeof createFileExplorerStore>;
+  let wrapper: ({ children }: { children: React.ReactNode }) => JSX.Element;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -56,7 +61,6 @@ describe('useFileExplorer', () => {
     filteredTree = [initialFileTree[0] as IFileNode];
     mockApplyFileFilters.mockReturnValue(filteredTree);
 
-    // More complete mock for useFileExplorerStore
     const mockStoreState: FileExplorerState = {
       currentFolderId: null,
       folderStates: {},
@@ -87,7 +91,6 @@ describe('useFileExplorer', () => {
       setMaxSelectionCount: vi.fn(),
       setLastActiveTab: vi.fn(),
     };
-    vi.mocked(useFileExplorerStore).mockReturnValue(mockStoreState);
 
     mockSelectRootDirectory.mockResolvedValue(mockRootHandle);
 
@@ -114,11 +117,27 @@ describe('useFileExplorer', () => {
       clearFileContents: mockClearFileContents,
     });
 
+    const storage = createMemoryStorageAdapter();
+    store = createFileExplorerStore(storage);
+    store.setState(mockStoreState);
+    wrapper = ({ children }: { children: React.ReactNode }) =>
+      React.createElement(
+        AdaptersProvider,
+        {
+          fileSystemAdapter: new MockFileSystemAdapter(),
+          storageAdapter: storage,
+          fileExplorerStore: store,
+        },
+        children
+      );
+
     onDisplayedFilePathsChange = vi.fn();
   });
 
   it('should select root directory', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }), {
+      wrapper,
+    });
 
     let handle: DirectoryHandle | null = null;
     await act(async () => {
@@ -131,7 +150,9 @@ describe('useFileExplorer', () => {
   });
 
   it('should load file content', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }), {
+      wrapper,
+    });
 
     await act(async () => {
       await result.current.actions.loadFileContent('/file1.ts');
@@ -142,7 +163,7 @@ describe('useFileExplorer', () => {
   });
 
   it('should apply filters and update displayed files', () => {
-    renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }), { wrapper });
 
     expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, [], [], false);
 
@@ -150,7 +171,9 @@ describe('useFileExplorer', () => {
   });
 
   it('should refresh file explorer', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }), {
+      wrapper,
+    });
 
     await act(async () => {
       await result.current.actions.refreshFileExplorer();
@@ -167,7 +190,9 @@ describe('useFileExplorer', () => {
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
     });
 
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }), {
+      wrapper,
+    });
 
     expect(result.current.rootDirectoryHandle).toBeNull();
 

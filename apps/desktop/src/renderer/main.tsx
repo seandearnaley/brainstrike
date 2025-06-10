@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
@@ -14,6 +15,7 @@ import RootLayoutContent from './components/root-layout-content';
 // Create renderer-specific adapters that use IPC
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
+const fileExplorerStore = createFileExplorerStore(storageAdapter);
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -22,7 +24,11 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+    <AdaptersProvider
+      fileSystemAdapter={fileSystemAdapter}
+      storageAdapter={storageAdapter}
+      fileExplorerStore={fileExplorerStore}
+    >
       <RootLayoutContent />
     </AdaptersProvider>
   </React.StrictMode>

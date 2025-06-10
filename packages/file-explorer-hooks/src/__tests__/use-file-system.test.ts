@@ -10,14 +10,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystem } from '../use-file-system';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
-// Mock the useFileExplorerStore
 const mockSetCurrentFolderId = vi.fn();
-vi.mock('@brainstrike/file-explorer', () => ({
-  useFileExplorerStore: vi.fn(() => ({
-    setCurrentFolderId: mockSetCurrentFolderId,
-    currentFolderId: 'test-folder-id',
-  })),
-}));
 
 describe('useFileSystem', () => {
   beforeEach(() => {

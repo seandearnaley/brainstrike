@@ -10,12 +10,12 @@ import {
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
-  const { storageAdapter } = useAdapters();
+  const { fileExplorerStore } = useAdapters();
 
   return (
     <ThemeProvider defaultTheme="system" storageKey={config.themeStorageKey}>
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
-        <FileExplorerProvider storageAdapter={storageAdapter}>
+        <FileExplorerProvider store={fileExplorerStore}>
           <div className="h-screen flex">
             <NavigationSidebar
               items={config.navigationItems}

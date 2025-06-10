@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
@@ -13,6 +14,7 @@ import RootLayoutContent from './app/root-layout-content';
 // Create web adapters
 const fileSystemAdapter = createFileSystemAdapter('web');
 const storageAdapter = createStorageAdapter('web');
+const fileExplorerStore = createFileExplorerStore(storageAdapter);
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -22,7 +24,11 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HelmetProvider>
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+      <AdaptersProvider
+        fileSystemAdapter={fileSystemAdapter}
+        storageAdapter={storageAdapter}
+        fileExplorerStore={fileExplorerStore}
+      >
         <RootLayoutContent />
       </AdaptersProvider>
     </HelmetProvider>

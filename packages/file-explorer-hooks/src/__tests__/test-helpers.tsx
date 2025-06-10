@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
@@ -83,11 +84,16 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 // Create mock adapters for tests
 const mockFileSystemAdapter = new MockFileSystemAdapter();
 const mockStorageAdapter = createStorageAdapter('web');
+const testStore = createFileExplorerStore(mockStorageAdapter);
 
 // Wrapper component that provides the necessary context for tests
 export function AdaptersTestWrapper({ children }: { children: ReactNode }) {
   return (
-    <AdaptersProvider fileSystemAdapter={mockFileSystemAdapter} storageAdapter={mockStorageAdapter}>
+    <AdaptersProvider
+      fileSystemAdapter={mockFileSystemAdapter}
+      storageAdapter={mockStorageAdapter}
+      fileExplorerStore={testStore}
+    >
       {children}
     </AdaptersProvider>
   );

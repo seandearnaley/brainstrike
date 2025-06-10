@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary, FileExplorerProvider } from '@brainstrike/file-explorer-ui';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
@@ -35,6 +36,7 @@ export default function ClientFileExplorer() {
   // Create adapters for the web platform, memoized to prevent re-creation on re-renders
   const fileSystemAdapter = useMemo(() => createFileSystemAdapter('web'), []);
   const storageAdapter = useMemo(() => createStorageAdapter('web'), []);
+  const store = useMemo(() => createFileExplorerStore(storageAdapter), [storageAdapter]);
 
   useEffect(() => {
     // Check if File System Access API is supported
@@ -72,8 +74,12 @@ export default function ClientFileExplorer() {
   }
 
   return (
-    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-      <FileExplorerProvider storageAdapter={storageAdapter}>
+    <AdaptersProvider
+      fileSystemAdapter={fileSystemAdapter}
+      storageAdapter={storageAdapter}
+      fileExplorerStore={store}
+    >
+      <FileExplorerProvider store={store}>
         <FileExplorerErrorBoundary>
           <Suspense fallback={<LoadingFallback message="Loading File Explorer..." />}>
             <FileExplorer />

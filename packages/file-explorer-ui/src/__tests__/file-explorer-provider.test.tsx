@@ -7,8 +7,9 @@ import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explo
 
 // Utility wrapper for provider
 function wrapper(storage: MemoryStorageAdapter) {
+  const store = fileExplorer.createFileExplorerStore(storage);
   return ({ children }: { children: ReactNode }) => (
-    <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+    <FileExplorerProvider store={store}>{children}</FileExplorerProvider>
   );
 }
 
@@ -19,20 +20,16 @@ describe('FileExplorerProvider', () => {
     }).toThrow('useFileExplorerStoreContext must be used within a FileExplorerProvider');
   });
 
-  it('provides store instance with the supplied storage adapter', () => {
+  it('provides store instance from props', () => {
     const storage = new MemoryStorageAdapter();
-
-    // Create a dummy store using the real factory so it matches expected type
-    const dummyStore = fileExplorer.createFileExplorerStore(new MemoryStorageAdapter());
-    const spy = vi.spyOn(fileExplorer, 'createFileExplorerStore').mockReturnValue(dummyStore);
+    const store = fileExplorer.createFileExplorerStore(storage);
 
     const { result } = renderHook(() => useFileExplorerStoreContext(), {
-      wrapper: wrapper(storage),
+      wrapper: ({ children }) => (
+        <FileExplorerProvider store={store}>{children}</FileExplorerProvider>
+      ),
     });
 
-    expect(spy).toHaveBeenCalledWith(storage);
-    expect(result.current).toBe(dummyStore);
-
-    spy.mockRestore();
+    expect(result.current).toBe(store);
   });
 });

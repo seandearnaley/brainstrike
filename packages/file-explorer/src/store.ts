@@ -8,7 +8,6 @@
  */
 
 import type { StorageAdapter } from '@brainstrike/storage';
-import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
 import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
 import type { StateCreator } from 'zustand';
@@ -58,38 +57,5 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
 export function createFileExplorerStore(storageAdapter: StorageAdapter) {
   return create<FileExplorerState>()(persist(stateCreator, createPersistOptions(storageAdapter)));
 }
-
-// Default store instance for backward compatibility
-// This will be deprecated once all consumers use the factory
-
-let defaultPersistStorageAdapter: StorageAdapter;
-
-if (typeof localStorage !== 'undefined') {
-  defaultPersistStorageAdapter = {
-    async getItem(key: string) {
-      return localStorage.getItem(key);
-    },
-    async setItem(key: string, value: string) {
-      localStorage.setItem(key, value);
-    },
-    async removeItem(key: string) {
-      localStorage.removeItem(key);
-    },
-    async clear() {
-      localStorage.clear();
-    },
-    async getAllKeys() {
-      return Object.keys(localStorage);
-    },
-  };
-} else {
-  // Fallback for Node.js environments (like tests) where localStorage is not available
-  // Using MemoryStorageAdapter ensures it behaves like a storage but doesn't persist anywhere problematic
-  defaultPersistStorageAdapter = new MemoryStorageAdapter();
-}
-
-export const useFileExplorerStore = create<FileExplorerState>()(
-  persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
-);
 
 export { stateCreator };

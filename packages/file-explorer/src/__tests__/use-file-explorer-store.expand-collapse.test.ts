@@ -1,7 +1,8 @@
+import { createMemoryStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types'; // Import defaults
-import { beforeEach, describe, expect, test } from 'vitest'; // Added imports
-import { useFileExplorerStore } from '../store';
+import { beforeEach, describe, expect, test } from 'vitest';
+import { createFileExplorerStore } from '../store';
 
 // A simple file tree for testing
 const sampleFileTree: IFileNode[] = [
@@ -67,26 +68,26 @@ const sampleFileTree: IFileNode[] = [
 ];
 
 describe('FileExplorerStore expand/collapse functionality', () => {
-  // Reset the store state before each test
+  let store: ReturnType<typeof createFileExplorerStore>;
+
   beforeEach(() => {
-    // Reset store state before each test
-    useFileExplorerStore.setState({
-      ...DEFAULT_STATE, // Use imported defaults
-      // Ensure lastActiveTab has a default
+    store = createFileExplorerStore(createMemoryStorageAdapter());
+    store.setState({
+      ...DEFAULT_STATE,
       lastActiveTab: DEFAULT_STATE.lastActiveTab ?? 'files',
       currentFolderId: null,
-      folderStates: {}, // Reset folder states
+      folderStates: {},
       selectedFilePaths: new Set<string>(),
       expandedDirectoryPaths: new Set<string>(),
-    }); // Simply set the desired state properties, don't replace
+    });
   });
 
   test('expandAllDirectories adds all directory paths from file tree', () => {
     // Ensure initial state is empty
-    expect(useFileExplorerStore.getState().expandedDirectoryPaths.size).toBe(0);
+    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
 
-    useFileExplorerStore.getState().expandAllDirectories(sampleFileTree);
-    const expanded = useFileExplorerStore.getState().expandedDirectoryPaths;
+    store.getState().expandAllDirectories(sampleFileTree);
+    const expanded = store.getState().expandedDirectoryPaths;
 
     // Expect 'src', 'src/components', and 'src/utils' to be expanded, but not files
     expect(expanded.has('src')).toBe(true);
@@ -98,11 +99,11 @@ describe('FileExplorerStore expand/collapse functionality', () => {
   });
 
   test('collapseAllDirectories resets expanded directory paths', () => {
-    useFileExplorerStore.getState().expandAllDirectories(sampleFileTree);
-    expect(useFileExplorerStore.getState().expandedDirectoryPaths.size).toBeGreaterThan(0);
+    store.getState().expandAllDirectories(sampleFileTree);
+    expect(store.getState().expandedDirectoryPaths.size).toBeGreaterThan(0);
 
     // Collapse directories
-    useFileExplorerStore.getState().collapseAllDirectories();
-    expect(useFileExplorerStore.getState().expandedDirectoryPaths.size).toBe(0);
+    store.getState().collapseAllDirectories();
+    expect(store.getState().expandedDirectoryPaths.size).toBe(0);
   });
 });

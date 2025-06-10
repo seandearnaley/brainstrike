@@ -14,9 +14,11 @@ pnpm add @brainstrike/file-explorer
 ## Usage
 
 ```ts
-import { useFileExplorerStore } from "@brainstrike/file-explorer";
+import { createFileExplorerStore } from "@brainstrike/file-explorer";
+import { createMemoryStorageAdapter } from "@brainstrike/storage";
 
-const { expandedDirectoryPaths, expandDirectory } = useFileExplorerStore();
+const store = createFileExplorerStore(createMemoryStorageAdapter());
+const { expandedDirectoryPaths, expandDirectory } = store.getState();
 
 expandDirectory("/src/components");
 ```

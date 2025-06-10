@@ -15,15 +15,15 @@ This package is internal to the `@brainstrike` monorepo and is typically consume
 ## Usage
 
 ```tsx
-import { useFileSystem, useSelectionManager } from '@brainstrike/file-explorer-hooks';
-import { useFileExplorerStore } from '@brainstrike/file-explorer'; // Assuming the store is also used
+import { useFileSystem, useSelectionManager, useAdapters } from '@brainstrike/file-explorer-hooks';
 
 function MyFileExplorerComponent() {
   const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => console.warn('Selection limit reached!'),
   });
-  const { maxSelectionCount } = useFileExplorerStore(); // Example from store
+  const { fileExplorerStore } = useAdapters();
+  const { maxSelectionCount } = fileExplorerStore.getState();
 
   // ... component logic ...
 

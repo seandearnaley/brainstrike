@@ -1,7 +1,7 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
 import { useCallback, useEffect } from 'react';
+import { useAdapters } from './adapters-context';
 import { useFileContentLoading } from './use-file-content-loading';
 import { useFileSystem } from './use-file-system';
 import { useFileTree } from './use-file-tree';
@@ -11,16 +11,8 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams) {
-  const store = useFileExplorerStore();
-  const {
-    // currentFolderId, // Commented out if not immediately used
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    setCurrentFolderId,
-    // setFilters,       // Commented out if not immediately used
-    // setUseRegex,      // Commented out if not immediately used
-  } = store;
+  const { fileExplorerStore } = useAdapters();
+  const { includeFilters, excludeFilters, useRegex, setCurrentFolderId } = fileExplorerStore();
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     setCurrentFolderId,

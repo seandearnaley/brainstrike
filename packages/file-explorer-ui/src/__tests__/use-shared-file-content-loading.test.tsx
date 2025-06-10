@@ -1,3 +1,4 @@
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
@@ -17,10 +18,15 @@ function useTestHook(fileTree: IFileNode[]) {
 
 function createWrapper(adapter: MockFileSystemAdapter) {
   const storage = new MemoryStorageAdapter();
+  const store = createFileExplorerStore(storage);
   return function Wrapper({ children }: { children: React.ReactNode }) {
     return (
-      <AdaptersProvider fileSystemAdapter={adapter} storageAdapter={storage}>
-        <FileExplorerProvider storageAdapter={storage}>{children}</FileExplorerProvider>
+      <AdaptersProvider
+        fileSystemAdapter={adapter}
+        storageAdapter={storage}
+        fileExplorerStore={store}
+      >
+        <FileExplorerProvider store={store}>{children}</FileExplorerProvider>
       </AdaptersProvider>
     );
   };

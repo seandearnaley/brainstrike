@@ -1,4 +1,3 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionManager } from '../use-selection-manager';
@@ -12,7 +11,6 @@ describe('useSelectionManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     initialSelectedPaths = new Set(['file1', 'file2']);
-    // Remove mockReturnValue for useFileExplorerStore as it's not directly used by this hook
   });
 
   it('returns the current selected file paths', () => {
