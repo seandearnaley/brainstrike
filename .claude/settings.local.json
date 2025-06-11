@@ -43,7 +43,8 @@
       "Bash(pnpm -w run build)",
       "Bash(pnpm -w run test)",
       "Bash(pnpm --filter @brainstrike/platform-utils run test)",
-      "Bash(npm run test:*)"
+      "Bash(npm run test:*)",
+      "Bash(cp:*)"
     ],
     "deny": []
   },

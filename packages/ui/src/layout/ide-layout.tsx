@@ -284,7 +284,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
                       <div className="flex items-center gap-2">
                         <Terminal className="h-4 w-4" />
-                        <span className="text-sm font-medium">Console</span>
+                        <span className="text-sm font-medium">File Editor</span>
                       </div>
                       <Button
                         variant="ghost"
