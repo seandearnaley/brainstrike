@@ -42,18 +42,18 @@
     "@types/file-saver": "2.0.7"
   },
   "devDependencies": {
-    "@swc/core": "^1.11.31",
+    "@swc/core": "^1.12.0",
     "@testing-library/react": "^16.3.0",
-    "@types/node": "^22.15.30",
-    "@types/react": "^19.1.6",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.7",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.5.1",
-    "@vitest/coverage-v8": "^3.2.2",
+    "@vitejs/plugin-react": "^4.5.2",
+    "@vitest/coverage-v8": "^3.2.3",
     "jsdom": "^26.1.0",
     "@brainstrike/test-utils": "workspace:*",
     "tsup": "^8.5.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.2"
+    "vitest": "^3.2.3"
   },
   "peerDependencies": {
     "react": "^19.0.0",
