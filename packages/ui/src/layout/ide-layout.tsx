@@ -28,6 +28,7 @@ export const IdeLayout = React.memo(function IdeLayout({
 }: IdeLayoutProps) {
   const leftPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
+  const consolePanelRef = useRef<ImperativePanelHandle>(null);
 
   // Add refs for focus management
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
@@ -79,6 +80,9 @@ export const IdeLayout = React.memo(function IdeLayout({
   }, [toggleRightPanel]);
 
   const handleShowConsole = useCallback(() => {
+    if (consolePanelRef.current) {
+      consolePanelRef.current.expand();
+    }
     toggleConsole();
     // Focus the hide button after the console is shown
     setTimeout(() => {
@@ -136,6 +140,31 @@ export const IdeLayout = React.memo(function IdeLayout({
     return undefined;
   }, [showRightPanel]);
 
+  useEffect(() => {
+    const panel = consolePanelRef.current;
+    if (panel) {
+      const frameId = requestAnimationFrame(() => {
+        try {
+          if (showConsole) {
+            if (panel.isCollapsed()) {
+              panel.expand();
+            }
+          } else {
+            if (panel.isExpanded()) {
+              panel.collapse();
+            }
+          }
+        } catch (error) {
+          if (isDevEnv()) {
+            console.warn('Console panel state operation failed:', error);
+          }
+        }
+      });
+      return () => cancelAnimationFrame(frameId);
+    }
+    return undefined;
+  }, [showConsole]);
+
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
       const hasLeft = leftPanelContent && showLeftPanel;
@@ -183,9 +212,12 @@ export const IdeLayout = React.memo(function IdeLayout({
     [showConsole, consoleContent, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
   );
 
-  const handleConsoleClose = () => {
+  const handleConsoleClose = useCallback(() => {
+    if (consolePanelRef.current) {
+      consolePanelRef.current.collapse();
+    }
     toggleConsole();
-  };
+  }, [toggleConsole]);
 
   return (
     <div className={cn('h-full flex-1 flex flex-col', className)}>
@@ -263,14 +295,15 @@ export const IdeLayout = React.memo(function IdeLayout({
                   aria-label="Show console"
                 >
                   <Terminal className="h-4 w-4" />
-                  <span className="ml-2 text-xs">Show Console</span>
+                  <span className="ml-2 text-xs">Show File Editor</span>
                 </Button>
               </div>
             )}
-            {showConsole && consoleContent && (
+            {consoleContent && (
               <>
                 <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
                 <Panel
+                  ref={consolePanelRef}
                   id="console-panel"
                   data-panel-id="console-panel"
                   order={2}
@@ -278,6 +311,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   minSize={15}
                   maxSize={80}
                   collapsible
+                  collapsedSize={0}
                   className="bg-background"
                 >
                   <div className="h-full border-t border-border">

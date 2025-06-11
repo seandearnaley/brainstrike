@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+const TAB_STATE_STORAGE_KEY = 'fileEditorTabs.v1';
 
 export interface FileTab {
   id: string;
@@ -7,6 +9,39 @@ export interface FileTab {
   isLoading: boolean;
   error?: string | undefined;
 }
+
+interface TabState {
+  tabs: FileTab[];
+  activeTabId: string | null;
+}
+
+// Helper functions for localStorage
+const saveTabState = (state: TabState): void => {
+  try {
+    localStorage.setItem(TAB_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn('Failed to save tab state:', error);
+  }
+};
+
+const loadTabState = (): TabState | null => {
+  try {
+    const saved = localStorage.getItem(TAB_STATE_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved) as TabState;
+      // Reset loading states and errors when restoring
+      const cleanedTabs = parsed.tabs.map((tab) => ({
+        ...tab,
+        isLoading: false,
+        error: undefined as string | undefined,
+      }));
+      return { ...parsed, tabs: cleanedTabs };
+    }
+  } catch (error) {
+    console.warn('Failed to load tab state:', error);
+  }
+  return null;
+};
 
 export interface UseTabManagerReturn {
   tabs: FileTab[];
@@ -21,8 +56,21 @@ export interface UseTabManagerReturn {
 }
 
 export function useTabManager(): UseTabManagerReturn {
-  const [tabs, setTabs] = useState<FileTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  // Initialize state from localStorage
+  const [tabs, setTabs] = useState<FileTab[]>(() => {
+    const saved = loadTabState();
+    return saved?.tabs || [];
+  });
+  const [activeTabId, setActiveTabId] = useState<string | null>(() => {
+    const saved = loadTabState();
+    return saved?.activeTabId || null;
+  });
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    const state: TabState = { tabs, activeTabId };
+    saveTabState(state);
+  }, [tabs, activeTabId]);
 
   const openTab = useCallback((path: string, compositeKey: string) => {
     setTabs((prevTabs) => {
