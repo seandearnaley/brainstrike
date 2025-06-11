@@ -85,9 +85,10 @@ test.describe('Application Layout', () => {
       await expect(elements.consolePanel).not.toBeVisible();
       await expect(elements.showConsoleShim).toBeVisible();
       
-      // Show console
+      // Show console (now tabbed file editor)
       await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
-      await expect(page.getByText('Console output will appear here...')).toBeVisible();
+      await expect(page.getByText('No files open')).toBeVisible();
+      await expect(page.getByText('Click on a file in the preview panel to open it here')).toBeVisible();
       
       // Hide console
       await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);

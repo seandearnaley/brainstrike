@@ -63,8 +63,9 @@ test.describe('IDE Layout Persistence', () => {
       // Verify console is now visible
       await expect(consolePanel).toBeVisible();
       
-      // Verify console content
-      await expect(page.getByText('Console output will appear here...')).toBeVisible();
+      // Verify console content (now tabbed file editor)
+      await expect(page.getByText('No files open')).toBeVisible();
+      await expect(page.getByText('Click on a file in the preview panel to open it here')).toBeVisible();
       
       // Reload page
       await page.reload();
