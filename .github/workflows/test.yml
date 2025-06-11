@@ -76,9 +76,14 @@ jobs:
           echo "Checking available browsers..."
           pnpm exec playwright install --dry-run || true
 
-      - name: Run checks
-        run: pnpm run check
-        # PREREQUISITE: Ensure @codecov/vite-plugin is a devDependency in apps/web/package.json
+      - name: Lint
+        run: pnpm run lint
+        
+      - name: Type check
+        run: pnpm run type-check
+        
+      - name: Build
+        run: pnpm run build
 
       - name: Verify package links (Optional Sanity Check)
         run: |
