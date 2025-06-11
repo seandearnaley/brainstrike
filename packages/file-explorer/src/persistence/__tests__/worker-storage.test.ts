@@ -33,7 +33,7 @@ global.Blob = class MockBlob {
     public content: unknown[],
     public options?: { type?: string }
   ) {}
-} as any;
+} as unknown as typeof Blob;
 
 // Mock localStorage
 const mockLocalStorage = {
@@ -48,24 +48,38 @@ const mockLocalStorage = {
   clear: vi.fn(() => {
     mockLocalStorage.data.clear();
   }),
+  length: 0,
+  key: vi.fn(() => null),
 };
 
 // Add localStorage to global
-(global as any).localStorage = mockLocalStorage;
+(global as unknown as { localStorage: typeof mockLocalStorage }).localStorage = mockLocalStorage;
 
 // Mock ErrorEvent
 class MockErrorEvent extends Event {
   constructor(
     type: string,
-    public init?: { message?: string; error?: any }
+    public init?: { message?: string; error?: Error }
   ) {
     super(type);
   }
   get message() {
     return this.init?.message || '';
   }
+  get colno() {
+    return 0;
+  }
+  get error() {
+    return this.init?.error || null;
+  }
+  get filename() {
+    return '';
+  }
+  get lineno() {
+    return 0;
+  }
 }
-(global as any).ErrorEvent = MockErrorEvent;
+(global as unknown as { ErrorEvent: typeof MockErrorEvent }).ErrorEvent = MockErrorEvent;
 
 describe('WorkerStorage', () => {
   let originalWorker: typeof Worker | undefined;
@@ -76,7 +90,7 @@ describe('WorkerStorage', () => {
     mockLocalStorage.data.clear();
 
     // Save original Worker if it exists
-    originalWorker = (global as any).Worker;
+    originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
 
     // Create mock worker instance
     mockWorker = new MockWorker();
@@ -107,7 +121,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should not initialize worker when Worker is undefined', () => {
-      vi.stubGlobal('Worker', undefined as any);
+      vi.stubGlobal('Worker', undefined);
 
       const storage = new WorkerStorage();
 
@@ -198,17 +212,20 @@ describe('WorkerStorage', () => {
       }, 10);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
       const result = await storage.getItem('fallback-key');
 
-      expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
       expect(result).toBe('fallback-value');
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
+      expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
 
       consoleSpy.mockRestore();
     });
 
-    it('should handle null results correctly', async () => {
+    it('should return null when key does not exist', async () => {
       const storage = new WorkerStorage();
 
+      // Simulate worker response with null result
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -223,15 +240,28 @@ describe('WorkerStorage', () => {
         }
       }, 10);
 
-      const result = await storage.getItem('non-existent');
+      const result = await storage.getItem('non-existent-key');
+
       expect(result).toBeNull();
+    });
+
+    it('should handle worker not available', async () => {
+      vi.stubGlobal('Worker', undefined);
+      const storage = new WorkerStorage();
+
+      const result = await storage.getItem('test-key');
+
+      expect(result).toBeNull();
+      expect(mockLocalStorage.getItem).toHaveBeenCalledWith('test-key');
     });
   });
 
   describe('setItem', () => {
     it('should send save message to worker', async () => {
       const storage = new WorkerStorage();
+      const testData = { foo: 'bar' };
 
+      // Simulate worker response
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -246,19 +276,21 @@ describe('WorkerStorage', () => {
         }
       }, 10);
 
-      await storage.setItem('test-key', 'test-value');
+      await storage.setItem('test-key', JSON.stringify(testData));
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
         type: 'save',
         key: 'test-key',
-        value: 'test-value',
+        value: JSON.stringify(testData),
       });
     });
 
     it('should fallback to localStorage when worker fails', async () => {
       const storage = new WorkerStorage();
+      const testValue = 'test-value';
 
+      // Simulate worker error response
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -274,12 +306,23 @@ describe('WorkerStorage', () => {
       }, 10);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await storage.setItem('fallback-key', 'fallback-value');
 
+      await storage.setItem('fallback-key', testValue);
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('fallback-key', testValue);
       expect(consoleSpy).toHaveBeenCalledWith('Worker setItem failed:', expect.any(Error));
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('fallback-key', 'fallback-value');
 
       consoleSpy.mockRestore();
+    });
+
+    it('should handle worker not available', async () => {
+      vi.stubGlobal('Worker', undefined);
+      const storage = new WorkerStorage();
+      const testValue = 'test-value';
+
+      await storage.setItem('test-key', testValue);
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('test-key', testValue);
     });
   });
 
@@ -287,6 +330,7 @@ describe('WorkerStorage', () => {
     it('should send remove message to worker', async () => {
       const storage = new WorkerStorage();
 
+      // Simulate worker response
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -313,6 +357,7 @@ describe('WorkerStorage', () => {
     it('should fallback to localStorage when worker fails', async () => {
       const storage = new WorkerStorage();
 
+      // Simulate worker error response
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -328,12 +373,22 @@ describe('WorkerStorage', () => {
       }, 10);
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await storage.removeItem('test-key');
 
+      await storage.removeItem('fallback-key');
+
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('fallback-key');
       expect(consoleSpy).toHaveBeenCalledWith('Worker removeItem failed:', expect.any(Error));
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('test-key');
 
       consoleSpy.mockRestore();
+    });
+
+    it('should handle worker not available', async () => {
+      vi.stubGlobal('Worker', undefined);
+      const storage = new WorkerStorage();
+
+      await storage.removeItem('test-key');
+
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('test-key');
     });
   });
 
@@ -347,7 +402,9 @@ describe('WorkerStorage', () => {
 
       // Trigger worker error before any response
       if (mockWorker.onerror) {
-        mockWorker.onerror(new MockErrorEvent('error', { message: 'Worker crashed' }) as any);
+        mockWorker.onerror(
+          new MockErrorEvent('error', { message: 'Worker crashed' }) as unknown as ErrorEvent
+        );
       }
 
       // Should fall back to localStorage and return null for non-existent key
@@ -447,7 +504,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should handle destroy when worker is not available', () => {
-      vi.stubGlobal('Worker', undefined as any);
+      vi.stubGlobal('Worker', undefined);
       const storage = new WorkerStorage();
 
       // Should not throw
@@ -523,7 +580,7 @@ describe('WorkerStorage', () => {
     });
 
     it('should reject when worker is not available', async () => {
-      vi.stubGlobal('Worker', undefined as any);
+      vi.stubGlobal('Worker', undefined);
       const storage = new WorkerStorage();
 
       // Since the worker is not available, it should fall back to localStorage
