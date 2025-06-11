@@ -1,5 +1,6 @@
 import { createFileNode } from '@brainstrike/test-utils';
 import { fileContent } from '@brainstrike/utils';
+import * as utils from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileContentWorker } from './file-content-worker';
 import { MockFileSystemAdapter } from './test-helpers';
@@ -45,7 +46,7 @@ describe('file-content-worker', () => {
     const adapter = new MockFileSystemAdapter();
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });
     const req = createRequest('/image.png');
-    vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(true);
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(true);
 
     const results = await worker([req]);
     expect(results[req.compositeKey]).toMatch('Binary file');
@@ -56,8 +57,8 @@ describe('file-content-worker', () => {
     const worker = createFileContentWorker({ fileSystemAdapter: adapter });
     const req = createRequest('/unknown.bin');
     MockFileSystemAdapter.setMockFileContent('/unknown.bin', 'binary');
-    vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(false);
-    vi.spyOn(fileContent, 'isTextExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(false);
     vi.spyOn(fileContent, 'isTextContent').mockReturnValue(false);
 
     const results = await worker([req]);

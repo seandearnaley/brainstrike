@@ -54,5 +54,3 @@ export interface FileSystemChange {
   path: string;
   kind: 'file' | 'directory';
 }
-
-export type Platform = 'web' | 'electron';

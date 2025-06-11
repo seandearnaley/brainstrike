@@ -38,6 +38,6 @@
   "license": "ISC",
   "devDependencies": {
     "tsup": "^8",
-    "@types/node": "^22"
+    "@types/node": "^24"
   }
 }

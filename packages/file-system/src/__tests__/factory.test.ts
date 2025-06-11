@@ -1,7 +1,8 @@
+import { detectPlatform } from '@brainstrike/platform-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
 import { WebFileSystemAdapter } from '../adapters/web-adapter';
-import { createFileSystemAdapter, detectPlatform } from '../factory';
+import { createFileSystemAdapter } from '../factory';
 
 describe('File System Factory', () => {
   describe('createFileSystemAdapter', () => {
