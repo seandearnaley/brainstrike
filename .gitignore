@@ -101,6 +101,7 @@ storybook-static
 *.sublime-project
 *.sublime-workspace
 .idea
+.claude
 
 # System files
 .DS_Store

@@ -37,8 +37,8 @@ describe('useTabManager', () => {
     it('should initialize from localStorage when data exists', () => {
       const savedState = {
         tabs: [
-          { id: 'file1', path: '/src/index.ts', content: 'test content', isLoading: true },
-          { id: 'file2', path: '/src/app.ts', content: null, isLoading: false },
+          { id: 'file1', path: '/src/index.ts' },
+          { id: 'file2', path: '/src/app.ts' },
         ],
         activeTabId: 'file1',
       };
@@ -46,10 +46,10 @@ describe('useTabManager', () => {
 
       const { result } = renderHook(() => useTabManager());
 
-      // Loading states should be reset on restoration
+      // Content and loading states should be initialized to defaults
       expect(result.current.tabs).toEqual([
-        { id: 'file1', path: '/src/index.ts', content: 'test content', isLoading: false },
-        { id: 'file2', path: '/src/app.ts', content: null, isLoading: false },
+        { id: 'file1', path: '/src/index.ts', content: null, isLoading: false, error: undefined },
+        { id: 'file2', path: '/src/app.ts', content: null, isLoading: false, error: undefined },
       ]);
       expect(result.current.activeTabId).toBe('file1');
     });
@@ -334,12 +334,17 @@ describe('useTabManager', () => {
   });
 
   describe('localStorage persistence', () => {
-    it('should save state to localStorage on changes', () => {
+    it('should save state to localStorage on changes (throttled)', async () => {
       localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
         result.current.openTab('/src/index.ts', 'file1');
+      });
+
+      // Wait for throttled save to trigger
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
       });
 
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
@@ -349,8 +354,6 @@ describe('useTabManager', () => {
             {
               id: 'file1',
               path: '/src/index.ts',
-              content: null,
-              isLoading: true,
             },
           ],
           activeTabId: 'file1',
@@ -358,7 +361,7 @@ describe('useTabManager', () => {
       );
     });
 
-    it('should handle localStorage errors gracefully', () => {
+    it('should handle localStorage errors gracefully', async () => {
       localStorageMock.getItem.mockReturnValue(null);
       localStorageMock.setItem.mockImplementation(() => {
         throw new Error('Storage quota exceeded');
@@ -370,6 +373,11 @@ describe('useTabManager', () => {
 
       act(() => {
         result.current.openTab('/src/index.ts', 'file1');
+      });
+
+      // Wait for throttled save to trigger
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
       });
 
       expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to save tab state:', expect.any(Error));

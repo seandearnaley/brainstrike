@@ -1,7 +1,2 @@
-declare global {
-  interface Window {
-    __openFileInTab?: ((compositeKey: string) => void) | undefined;
-  }
-}
-
+// File left intentionally empty - global window extensions moved to React context patterns
 export {};

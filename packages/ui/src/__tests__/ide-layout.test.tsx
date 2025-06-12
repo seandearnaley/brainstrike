@@ -144,7 +144,7 @@ describe('IdeLayout', () => {
     fireEvent.click(screen.getByRole('button', { name: /Show right panel/i }));
     expect(mockState.toggleRightPanel).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show console/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
     expect(mockState.toggleConsole).toHaveBeenCalled();
   });
 
@@ -218,7 +218,7 @@ describe('IdeLayout', () => {
   it('toggles console visibility with buttons', () => {
     const { rerender } = renderDefaultLayout();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show console/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
     expect(mockState.toggleConsole).toHaveBeenCalledTimes(1);
 
     Object.assign(mockState, { showConsole: true });
@@ -232,8 +232,8 @@ describe('IdeLayout', () => {
       </IdeLayout>
     );
 
-    expect(screen.getByLabelText('Close console')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('Close console'));
+    expect(screen.getByLabelText('Close File Editor')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Close File Editor'));
     expect(mockState.toggleConsole).toHaveBeenCalledTimes(2);
   });
 
@@ -270,7 +270,7 @@ describe('IdeLayout', () => {
 
     const handle = panelHandles['console-panel'];
 
-    fireEvent.click(screen.getByLabelText('Close console'));
+    fireEvent.click(screen.getByLabelText('Close File Editor'));
 
     if (handle) {
       expect(handle.collapse).toHaveBeenCalled();
@@ -283,7 +283,7 @@ describe('IdeLayout', () => {
 
     const handle = panelHandles['console-panel'];
 
-    fireEvent.click(screen.getByRole('button', { name: /Show console/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
 
     if (handle) {
       expect(handle.expand).toHaveBeenCalled();

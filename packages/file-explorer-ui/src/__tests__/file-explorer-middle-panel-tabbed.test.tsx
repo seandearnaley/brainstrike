@@ -40,38 +40,50 @@ vi.mock('../virtualized-preview-panel-tabbed', () => ({
   )),
 }));
 
-// Set up global function mock
-declare global {
-  interface Window {
-    __openFileInTab?: (compositeKey: string) => void;
-  }
-}
+// Mock the useIdeFileEditor hook
+vi.mock('@brainstrike/ui', async () => {
+  const actual = await vi.importActual('@brainstrike/ui');
+  return {
+    ...actual,
+    useIdeFileEditor: vi.fn(() => ({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn(),
+    })),
+  };
+});
+
+// Test wrapper
+const TestWrapper: React.FC<{
+  children: React.ReactNode;
+}> = ({ children }) => <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>;
 
 describe('FileExplorerMiddlePanelTabbed', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
   let useSelectionManager: typeof import('../use-selection-manager-context').useSelectionManager;
   let useUndoableAction: typeof import('@brainstrike/hooks').useUndoableAction;
+  let useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
     const selectionManagerModule = await import('../use-selection-manager-context');
     const hooksModule = await import('@brainstrike/hooks');
+    const uiModule = await import('@brainstrike/ui');
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
     useSelectionManager = selectionManagerModule.useSelectionManager;
     useUndoableAction = hooksModule.useUndoableAction;
+    useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
-    window.__openFileInTab = undefined;
   });
 
   it('should render the component structure', () => {
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     expect(screen.getByTestId('file-explorer-header')).toBeInTheDocument();
@@ -88,45 +100,33 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     });
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     expect(screen.getByText('Selected files: 3')).toBeInTheDocument();
   });
 
-  it('should handle file clicks when __openFileInTab is available', async () => {
+  it('should handle file clicks with context provider', async () => {
     const user = userEvent.setup();
     const mockOpenFileInTab = vi.fn();
-    window.__openFileInTab = mockOpenFileInTab;
+
+    vi.mocked(useIdeFileEditor).mockReturnValue({
+      openFileInTab: mockOpenFileInTab,
+      registerOpenFileInTab: vi.fn(),
+    });
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     const openButton = screen.getByText('Open file1');
     await user.click(openButton);
 
     expect(mockOpenFileInTab).toHaveBeenCalledWith('file1');
-  });
-
-  it('should handle file clicks when __openFileInTab is not available', async () => {
-    const user = userEvent.setup();
-    window.__openFileInTab = undefined;
-
-    render(
-      <FileExplorerTestWrapper>
-        <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
-    );
-
-    const openButton = screen.getByText('Open file1');
-
-    // Should not throw an error
-    await user.click(openButton);
   });
 
   it('should pass file contents and loading state to preview panel', async () => {
@@ -161,9 +161,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
@@ -188,9 +188,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
@@ -204,9 +204,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
@@ -230,9 +230,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
 
     render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     // Get the performUndoableAction passed to preview panel
@@ -264,9 +264,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
   it('should have proper container structure', () => {
     const { container } = render(
-      <FileExplorerTestWrapper>
+      <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
-      </FileExplorerTestWrapper>
+      </TestWrapper>
     );
 
     // Check for the main container
@@ -294,9 +294,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     // The error boundary should catch this and render an error UI instead of crashing
     try {
       render(
-        <FileExplorerTestWrapper>
+        <TestWrapper>
           <FileExplorerMiddlePanelTabbed />
-        </FileExplorerTestWrapper>
+        </TestWrapper>
       );
       // If we get here, the error boundary caught the error successfully
     } catch (error) {

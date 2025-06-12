@@ -1,6 +1,7 @@
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
+import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback } from 'react';
@@ -13,10 +14,8 @@ import { VirtualizedPreviewPanelTabbed } from './virtualized-preview-panel-tabbe
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanelTabbed: React.FC = () => {
-  const handleDisplayedFilesChange = useCallback(() => {}, []);
-
   const { fileContents, loadingFiles } = useFileExplorer({
-    onDisplayedFilePathsChange: handleDisplayedFilesChange,
+    onDisplayedFilePathsChange: () => {}, // No-op for tabbed panel
   });
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
@@ -44,13 +43,17 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
     });
   };
 
+  const { openFileInTab } = useIdeFileEditor();
+
   // Handle file clicks to open in tabs
-  const handleFileClick = useCallback((compositeKey: string) => {
-    // Use the global function exposed by TabbedFileEditorPanel
-    if (window.__openFileInTab) {
-      window.__openFileInTab(compositeKey);
-    }
-  }, []);
+  const handleFileClick = useCallback(
+    (compositeKey: string) => {
+      if (openFileInTab) {
+        openFileInTab(compositeKey);
+      }
+    },
+    [openFileInTab]
+  );
 
   return (
     <FileExplorerErrorBoundary>

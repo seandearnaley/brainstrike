@@ -15,27 +15,55 @@ interface TabState {
   activeTabId: string | null;
 }
 
+// Minimal interface for persisted tab data (excludes content and error to reduce payload size)
+interface PersistedTabData {
+  id: string;
+  path: string;
+}
+
+interface PersistedTabState {
+  tabs: PersistedTabData[];
+  activeTabId: string | null;
+}
+
 // Helper functions for localStorage
-const saveTabState = (state: TabState): void => {
-  try {
-    localStorage.setItem(TAB_STATE_STORAGE_KEY, JSON.stringify(state));
-  } catch (error) {
-    console.warn('Failed to save tab state:', error);
-  }
-};
+const saveTabStateThrottled = (() => {
+  let timeoutId: NodeJS.Timeout | null = null;
+
+  return (state: TabState): void => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    timeoutId = setTimeout(() => {
+      try {
+        // Strip content and error to reduce payload size
+        const persistedState: PersistedTabState = {
+          tabs: state.tabs.map((tab) => ({ id: tab.id, path: tab.path })),
+          activeTabId: state.activeTabId,
+        };
+        localStorage.setItem(TAB_STATE_STORAGE_KEY, JSON.stringify(persistedState));
+      } catch (error) {
+        console.warn('Failed to save tab state:', error);
+      }
+    }, 500); // 500ms throttle
+  };
+})();
 
 const loadTabState = (): TabState | null => {
   try {
     const saved = localStorage.getItem(TAB_STATE_STORAGE_KEY);
     if (saved) {
-      const parsed = JSON.parse(saved) as TabState;
-      // Reset loading states and errors when restoring
-      const cleanedTabs = parsed.tabs.map((tab) => ({
-        ...tab,
+      const parsed = JSON.parse(saved) as PersistedTabState;
+      // Reconstruct full tab objects with default runtime-only properties
+      const fullTabs: FileTab[] = parsed.tabs.map((persistedTab) => ({
+        id: persistedTab.id,
+        path: persistedTab.path,
+        content: null,
         isLoading: false,
         error: undefined as string | undefined,
       }));
-      return { ...parsed, tabs: cleanedTabs };
+      return { tabs: fullTabs, activeTabId: parsed.activeTabId };
     }
   } catch (error) {
     console.warn('Failed to load tab state:', error);
@@ -66,10 +94,10 @@ export function useTabManager(): UseTabManagerReturn {
     return saved?.activeTabId || null;
   });
 
-  // Save state to localStorage whenever it changes
+  // Save state to localStorage whenever it changes (throttled)
   useEffect(() => {
     const state: TabState = { tabs, activeTabId };
-    saveTabState(state);
+    saveTabStateThrottled(state);
   }, [tabs, activeTabId]);
 
   const openTab = useCallback((path: string, compositeKey: string) => {

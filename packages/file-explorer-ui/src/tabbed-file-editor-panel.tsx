@@ -1,3 +1,4 @@
+import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect } from 'react';
 import { useTabManager } from './hooks/use-tab-manager';
@@ -10,6 +11,7 @@ export interface TabbedFileEditorPanelProps {
 
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
+    const { registerOpenFileInTab } = useIdeFileEditor();
     const { fileContents, loadingFiles, loadFileContent } = useFileExplorer({
       onDisplayedFilePathsChange: () => {},
     });
@@ -65,13 +67,10 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
       [openTab, loadingFiles, fileContents, loadFileContent]
     );
 
-    // Expose the open function globally for other components to use
+    // Register the openFileInTab function with the IDE layout context
     useEffect(() => {
-      window.__openFileInTab = handleOpenFileInTab;
-      return () => {
-        window.__openFileInTab = undefined;
-      };
-    }, [handleOpenFileInTab]);
+      registerOpenFileInTab(handleOpenFileInTab);
+    }, [registerOpenFileInTab, handleOpenFileInTab]);
 
     return (
       <div className={className}>

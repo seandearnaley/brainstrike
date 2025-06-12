@@ -33,12 +33,12 @@ export function getPanelElements(page: Page): PanelElements {
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('button[aria-label="Hide explorer"]'),
     hideRightPanelButton: page.locator('button[aria-label="Hide panel"]'),
-    hideConsoleButton: page.locator('button[aria-label="Close console"]'),
+    hideConsoleButton: page.locator('button[aria-label="Close File Editor"]'),
 
     // Show shims (when panels are closed)
     showExplorerShim: page.locator('button[aria-label="Show explorer"]'),
     showRightPanelShim: page.locator('button[aria-label="Show right panel"]'),
-    showConsoleShim: page.locator('button[aria-label="Show console"]'),
+    showConsoleShim: page.locator('button[aria-label="Show File Editor"]'),
   };
 }
 

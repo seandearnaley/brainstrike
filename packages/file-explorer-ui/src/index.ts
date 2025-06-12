@@ -38,3 +38,4 @@ export { useFileTree } from './use-file-tree-context';
 export * from './tabbed-file-editor';
 export * from './tabbed-file-editor-panel';
 export * from './hooks/use-tab-manager';
+export * from './contexts/file-editor-context';

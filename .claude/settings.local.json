@@ -48,7 +48,8 @@
       "Bash(pnpm exec playwright:*)",
       "Bash(npx biome check:*)",
       "Bash(npx biome format:*)",
-      "Bash(pnpm -w run format)"
+      "Bash(pnpm -w run format)",
+      "Bash(npx playwright test:*)"
     ],
     "deny": []
   },

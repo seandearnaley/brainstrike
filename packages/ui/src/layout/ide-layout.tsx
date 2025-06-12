@@ -1,6 +1,6 @@
 import { isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, createContext, useContext, useMemo } from 'react';
 import {
   type ImperativePanelHandle,
   Panel,
@@ -10,6 +10,19 @@ import {
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { cn } from '../lib/utils';
+
+// Context for sharing file editor functionality between main content and console
+interface FileEditorContextValue {
+  openFileInTab: ((compositeKey: string) => void) | undefined;
+  registerOpenFileInTab: (fn: (compositeKey: string) => void) => void;
+}
+
+const IdeFileEditorContext = createContext<FileEditorContextValue>({
+  openFileInTab: undefined,
+  registerOpenFileInTab: () => {},
+});
+
+export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
 
 export interface IdeLayoutProps {
   children: React.ReactNode;
@@ -29,6 +42,22 @@ export const IdeLayout = React.memo(function IdeLayout({
   const leftPanelRef = useRef<ImperativePanelHandle>(null);
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
   const consolePanelRef = useRef<ImperativePanelHandle>(null);
+
+  // State for managing the file editor functionality
+  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
+    ((compositeKey: string) => void) | null
+  >(null);
+
+  // Create the context value
+  const fileEditorContextValue = useMemo(
+    () => ({
+      openFileInTab: openFileInTabFn || undefined,
+      registerOpenFileInTab: (fn: (compositeKey: string) => void) => {
+        setOpenFileInTabFn(() => fn);
+      },
+    }),
+    [openFileInTabFn]
+  );
 
   // Add refs for focus management
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
@@ -91,6 +120,7 @@ export const IdeLayout = React.memo(function IdeLayout({
   }, [toggleConsole]);
 
   useEffect(() => {
+    if (!leftPanelContent) return;
     const panel = leftPanelRef.current;
     if (panel) {
       const frameId = requestAnimationFrame(() => {
@@ -113,9 +143,10 @@ export const IdeLayout = React.memo(function IdeLayout({
       return () => cancelAnimationFrame(frameId);
     }
     return undefined;
-  }, [showLeftPanel]);
+  }, [showLeftPanel, leftPanelContent]);
 
   useEffect(() => {
+    if (!rightPanelContent) return;
     const panel = rightPanelRef.current;
     if (panel) {
       const frameId = requestAnimationFrame(() => {
@@ -138,9 +169,10 @@ export const IdeLayout = React.memo(function IdeLayout({
       return () => cancelAnimationFrame(frameId);
     }
     return undefined;
-  }, [showRightPanel]);
+  }, [showRightPanel, rightPanelContent]);
 
   useEffect(() => {
+    if (!consoleContent) return;
     const panel = consolePanelRef.current;
     if (panel) {
       const frameId = requestAnimationFrame(() => {
@@ -163,7 +195,7 @@ export const IdeLayout = React.memo(function IdeLayout({
       return () => cancelAnimationFrame(frameId);
     }
     return undefined;
-  }, [showConsole]);
+  }, [showConsole, consoleContent]);
 
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
@@ -220,180 +252,182 @@ export const IdeLayout = React.memo(function IdeLayout({
   }, [toggleConsole]);
 
   return (
-    <div className={cn('h-full flex-1 flex flex-col', className)}>
-      <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
-        {!showLeftPanel && leftPanelContent && (
-          <div className="flex items-center justify-center p-2 border-r border-border bg-muted/30">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={handleShowLeftPanel}
-              aria-label="Show explorer"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-        {leftPanelContent && (
-          <>
-            <Panel
-              ref={leftPanelRef}
-              id="left-panel"
-              data-panel-id="left-panel"
-              order={1}
-              defaultSize={safeLeftSize}
-              minSize={15}
-              maxSize={50}
-              collapsible
-              collapsedSize={0}
-              className="bg-background"
-            >
-              <div className="h-full">
-                <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
-                  <div className="flex items-center gap-2">
-                    <PanelLeft className="h-4 w-4" />
-                    <span className="text-sm font-medium">Explorer</span>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={handleHideLeftPanel}
-                    aria-label="Hide explorer"
-                    ref={hideExplorerButtonRef}
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
-              </div>
-            </Panel>
-            <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
-          </>
-        )}
-
-        <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
-          <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
-            <Panel
-              id="main-content-panel"
-              data-panel-id="main-content-panel"
-              order={1}
-              minSize={30}
-              className="bg-background"
-            >
-              <div className="h-full">{children}</div>
-            </Panel>
-
-            {!showConsole && consoleContent && (
-              <div className="flex items-center justify-center py-1 border-t border-border bg-muted/30">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6"
-                  onClick={handleShowConsole}
-                  aria-label="Show console"
-                >
-                  <Terminal className="h-4 w-4" />
-                  <span className="ml-2 text-xs">Show File Editor</span>
-                </Button>
-              </div>
-            )}
-            {consoleContent && (
-              <>
-                <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
-                <Panel
-                  ref={consolePanelRef}
-                  id="console-panel"
-                  data-panel-id="console-panel"
-                  order={2}
-                  defaultSize={safeConsoleSize}
-                  minSize={15}
-                  maxSize={80}
-                  collapsible
-                  collapsedSize={0}
-                  className="bg-background"
-                >
-                  <div className="h-full border-t border-border">
-                    <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
-                      <div className="flex items-center gap-2">
-                        <Terminal className="h-4 w-4" />
-                        <span className="text-sm font-medium">File Editor</span>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={handleConsoleClose}
-                        aria-label="Close console"
-                        ref={hideConsoleButtonRef}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
+    <IdeFileEditorContext.Provider value={fileEditorContextValue}>
+      <div className={cn('h-full flex-1 flex flex-col', className)}>
+        <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
+          {!showLeftPanel && leftPanelContent && (
+            <div className="flex items-center justify-center p-2 border-r border-border bg-muted/30">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleShowLeftPanel}
+                aria-label="Show explorer"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          {leftPanelContent && (
+            <>
+              <Panel
+                ref={leftPanelRef}
+                id="left-panel"
+                data-panel-id="left-panel"
+                order={1}
+                defaultSize={safeLeftSize}
+                minSize={15}
+                maxSize={50}
+                collapsible
+                collapsedSize={0}
+                className="bg-background"
+              >
+                <div className="h-full">
+                  <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <PanelLeft className="h-4 w-4" />
+                      <span className="text-sm font-medium">Explorer</span>
                     </div>
-                    <div className="h-[calc(100%-2.5rem)] overflow-hidden">{consoleContent}</div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={handleHideLeftPanel}
+                      aria-label="Hide explorer"
+                      ref={hideExplorerButtonRef}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
                   </div>
-                </Panel>
-              </>
-            )}
-          </PanelGroup>
-        </Panel>
+                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
+                </div>
+              </Panel>
+              <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
+            </>
+          )}
 
-        {!showRightPanel && rightPanelContent && (
-          <div className="flex items-center justify-center p-2 border-l border-border bg-muted/30">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={handleShowRightPanel}
-              aria-label="Show right panel"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-          </div>
-        )}
-        {rightPanelContent && showRightPanel && (
-          <>
-            <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
-            <Panel
-              ref={rightPanelRef}
-              id="right-panel"
-              data-panel-id="right-panel"
-              order={3}
-              defaultSize={safeRightSize}
-              minSize={15}
-              maxSize={60}
-              collapsible
-              collapsedSize={0}
-              className="bg-background"
-            >
-              <div className="h-full border-l border-border">
-                <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
-                  <div className="flex items-center gap-2">
-                    <PanelRight className="h-4 w-4" />
-                    <span className="text-sm font-medium">Panel</span>
-                  </div>
+          <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
+            <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
+              <Panel
+                id="main-content-panel"
+                data-panel-id="main-content-panel"
+                order={1}
+                minSize={30}
+                className="bg-background"
+              >
+                <div className="h-full">{children}</div>
+              </Panel>
+
+              {!showConsole && consoleContent && (
+                <div className="flex items-center justify-center py-1 border-t border-border bg-muted/30">
                   <Button
                     variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={toggleRightPanel}
-                    aria-label="Hide panel"
-                    ref={hideRightPanelButtonRef}
+                    size="sm"
+                    className="h-6"
+                    onClick={handleShowConsole}
+                    aria-label="Show File Editor"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <Terminal className="h-4 w-4" />
+                    <span className="ml-2 text-xs">Show File Editor</span>
                   </Button>
                 </div>
-                <div className="h-[calc(100%-2.5rem)] overflow-hidden">{rightPanelContent}</div>
-              </div>
-            </Panel>
-          </>
-        )}
-      </PanelGroup>
+              )}
+              {consoleContent && (
+                <>
+                  <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
+                  <Panel
+                    ref={consolePanelRef}
+                    id="console-panel"
+                    data-panel-id="console-panel"
+                    order={2}
+                    defaultSize={safeConsoleSize}
+                    minSize={15}
+                    maxSize={80}
+                    collapsible
+                    collapsedSize={0}
+                    className="bg-background"
+                  >
+                    <div className="h-full border-t border-border">
+                      <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <Terminal className="h-4 w-4" />
+                          <span className="text-sm font-medium">File Editor</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-6 w-6"
+                          onClick={handleConsoleClose}
+                          aria-label="Close File Editor"
+                          ref={hideConsoleButtonRef}
+                        >
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="h-[calc(100%-2.5rem)] overflow-hidden">{consoleContent}</div>
+                    </div>
+                  </Panel>
+                </>
+              )}
+            </PanelGroup>
+          </Panel>
 
-      <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2">
-        {/* Floating buttons can be placed here if needed in the future */}
+          {!showRightPanel && rightPanelContent && (
+            <div className="flex items-center justify-center p-2 border-l border-border bg-muted/30">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleShowRightPanel}
+                aria-label="Show right panel"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
+          {rightPanelContent && showRightPanel && (
+            <>
+              <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
+              <Panel
+                ref={rightPanelRef}
+                id="right-panel"
+                data-panel-id="right-panel"
+                order={3}
+                defaultSize={safeRightSize}
+                minSize={15}
+                maxSize={60}
+                collapsible
+                collapsedSize={0}
+                className="bg-background"
+              >
+                <div className="h-full border-l border-border">
+                  <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+                    <div className="flex items-center gap-2">
+                      <PanelRight className="h-4 w-4" />
+                      <span className="text-sm font-medium">Panel</span>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={toggleRightPanel}
+                      aria-label="Hide panel"
+                      ref={hideRightPanelButtonRef}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{rightPanelContent}</div>
+                </div>
+              </Panel>
+            </>
+          )}
+        </PanelGroup>
+
+        <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2">
+          {/* Floating buttons can be placed here if needed in the future */}
+        </div>
       </div>
-    </div>
+    </IdeFileEditorContext.Provider>
   );
 });
