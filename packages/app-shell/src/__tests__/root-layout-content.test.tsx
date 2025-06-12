@@ -43,6 +43,9 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   return {
     ...original,
     FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
+    TabbedFileEditorPanel: ({ className }: { className?: string }) => (
+      <div data-testid="tabbed-file-editor-panel" className={className} />
+    ),
   };
 });
 
@@ -53,10 +56,16 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
     IdeLayout: ({
       children,
       leftPanelContent,
-    }: { children: React.ReactNode; leftPanelContent: React.ReactNode }) => (
+      consoleContent,
+    }: {
+      children: React.ReactNode;
+      leftPanelContent: React.ReactNode;
+      consoleContent?: React.ReactNode;
+    }) => (
       <div data-testid="ide-layout">
         {leftPanelContent}
         {children}
+        {consoleContent && <div data-testid="ide-console-content">{consoleContent}</div>}
       </div>
     ),
   };
@@ -125,5 +134,19 @@ describe('RootLayoutContent', () => {
     expect(screen.getByTestId('ide-layout')).toBeVisible();
     expect(screen.getByTestId('home-page')).toBeVisible();
     expect(screen.queryByTestId('settings-page')).not.toBeVisible();
+  });
+
+  it('should render the tabbed file editor panel in console content', () => {
+    renderComponent();
+
+    expect(screen.getByTestId('ide-console-content')).toBeInTheDocument();
+    expect(screen.getByTestId('tabbed-file-editor-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('tabbed-file-editor-panel')).toHaveClass('h-full');
+  });
+
+  it('should provide correct sidebar content to IDE layout', () => {
+    renderComponent();
+
+    expect(screen.getByTestId('file-explorer-left-panel')).toBeInTheDocument();
   });
 });

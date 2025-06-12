@@ -37,6 +37,7 @@ export type { PanelPersistenceState } from './hooks/use-panel-persistence';
 
 // Export layout components
 export * from './layout';
+export { useIdeFileEditor } from './layout/ide-layout';
 
 // Export types
 export * from './types';

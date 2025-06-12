@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 import { resetAppState } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad, getPanelElements, togglePanelVisibility } from './utils/layout-helpers';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 
 test.describe('Navigation Panel State Preservation', () => {
@@ -111,10 +111,15 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(packageCheckbox).toBeChecked();
     await expect(page.getByText('4/10')).toBeVisible();
 
-    // Step 4: Click on a file to show it in preview
+    // Step 4: Show console panel and click on a file to open it in tabbed editor
+    const elements = getPanelElements(page);
+    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
+
     const buttonFile = page.getByRole('button', { name: 'Button.tsx' });
     await buttonFile.click();
-    await expect(page.getByRole('heading', { name: 'Button.tsx' })).toBeVisible();
+    // File should open in a tab in the tabbed file editor (look specifically in console panel)
+    const tab = elements.consolePanel.getByRole('button', { name: /Button\.tsx/ }).first();
+    await expect(tab).toBeVisible();
 
     // Step 5: Store the current state for verification
     // Get scroll position of the file tree (if scrollable)
@@ -164,8 +169,8 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(packageCheckbox).toBeChecked();
     await expect(page.getByText('4/10')).toBeVisible();
 
-    // 8e. Verify preview panel still shows the selected file
-    await expect(page.getByRole('heading', { name: 'Button.tsx' })).toBeVisible();
+    // 8e. Verify tab still shows the selected file
+    await expect(tab).toBeVisible();
 
     // 8f. Verify scroll position is preserved (if applicable)
     const newScrollTop = await fileTree.evaluate(el => el.scrollTop);
@@ -197,10 +202,13 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(packageCheckbox).not.toBeChecked();
     await expect(page.getByText('3/10')).toBeVisible();
 
-    // Select a new file for preview
+    // Select a new file to open in tabbed editor
     const inputFile = page.getByRole('button', { name: 'Input.tsx' });
     await inputFile.click();
-    await expect(page.getByRole('heading', { name: 'Input.tsx' })).toBeVisible();
+    // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
+    const panelElements = getPanelElements(page);
+    const inputTab = panelElements.consolePanel.getByRole('button', { name: /Input\.tsx/ }).first();
+    await expect(inputTab).toBeVisible();
   });
 
   test('should preserve filter state when toggling navigation panel', async ({ page }) => {

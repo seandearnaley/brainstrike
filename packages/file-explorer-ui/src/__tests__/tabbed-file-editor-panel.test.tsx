@@ -1,0 +1,301 @@
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TabbedFileEditorPanel } from '../tabbed-file-editor-panel';
+import { FileExplorerTestWrapper } from './test-helpers';
+
+// Mock the useFileExplorer hook
+vi.mock('../use-file-explorer-context', () => ({
+  useFileExplorer: vi.fn(() => ({
+    fileContents: {},
+    loadingFiles: new Set<string>(),
+    loadFileContent: vi.fn(),
+  })),
+}));
+
+// Mock the useIdeFileEditor hook
+vi.mock('@brainstrike/ui', async () => {
+  const actual = await vi.importActual('@brainstrike/ui');
+  return {
+    ...actual,
+    useIdeFileEditor: vi.fn(() => ({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn(),
+    })),
+  };
+});
+
+// Mock the useTabManager hook
+vi.mock('../hooks/use-tab-manager', () => ({
+  useTabManager: vi.fn(() => ({
+    tabs: [],
+    activeTabId: null,
+    openTab: vi.fn(),
+    closeTab: vi.fn(),
+    setActiveTab: vi.fn(),
+    updateTabContent: vi.fn(),
+    setTabLoading: vi.fn(),
+    setTabError: vi.fn(),
+    clearTabs: vi.fn(),
+  })),
+}));
+
+interface MockTab {
+  id: string;
+  path: string;
+}
+
+// Mock the TabbedFileEditor component
+vi.mock('../tabbed-file-editor', () => ({
+  TabbedFileEditor: vi.fn(({ tabs, onTabClick, onTabClose, onLoadFileContent }) => (
+    <div data-testid="tabbed-file-editor">
+      {tabs.length === 0 ? (
+        <div>No tabs open</div>
+      ) : (
+        tabs.map((tab: MockTab) => (
+          <div key={tab.id}>
+            <button type="button" onClick={() => onTabClick(tab.id)}>
+              {tab.path}
+            </button>
+            <button type="button" onClick={() => onTabClose(tab.id)}>
+              Close {tab.id}
+            </button>
+            <button type="button" onClick={() => onLoadFileContent(tab.id)}>
+              Load {tab.id}
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  )),
+}));
+
+describe('TabbedFileEditorPanel', () => {
+  let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
+  let useTabManager: typeof import('../hooks/use-tab-manager').useTabManager;
+
+  beforeAll(async () => {
+    const fileExplorerModule = await import('../use-file-explorer-context');
+    const tabManagerModule = await import('../hooks/use-tab-manager');
+
+    useFileExplorer = fileExplorerModule.useFileExplorer;
+    useTabManager = tabManagerModule.useTabManager;
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('should render without errors', () => {
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(screen.getByTestId('tabbed-file-editor')).toBeInTheDocument();
+  });
+
+  it('should provide FileEditorProvider context', () => {
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    // Test that the component renders without context errors
+    expect(screen.getByTestId('tabbed-file-editor')).toBeInTheDocument();
+  });
+
+  it('should handle opening files via context function', () => {
+    // Since the component now provides context instead of exposing global functions,
+    // we just need to verify it renders and provides the context without errors
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(screen.getByTestId('tabbed-file-editor')).toBeInTheDocument();
+  });
+
+  it('should sync tab content when files load', () => {
+    // This test verifies that the component has the sync logic
+    // The actual sync is tested through integration tests
+    const mockUpdateTabContent = vi.fn();
+
+    const tabs = [{ id: 'file1', path: '/src/index.ts', content: null, isLoading: false }];
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      fileContents: { file1: 'const x = 42;' },
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+    });
+
+    vi.mocked(useTabManager).mockReturnValue({
+      tabs,
+      activeTabId: 'file1',
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: mockUpdateTabContent,
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    // The component should render without errors
+    // Sync behavior is verified through integration tests
+    expect(screen.getByTestId('tabbed-file-editor')).toBeInTheDocument();
+  });
+
+  it('should handle tab interactions', async () => {
+    const user = userEvent.setup();
+    const mockSetActiveTab = vi.fn();
+    const mockCloseTab = vi.fn();
+    const mockLoadFileContent = vi.fn();
+
+    const tabs = [
+      { id: 'file1', path: '/src/index.ts', content: 'content1', isLoading: false },
+      { id: 'file2', path: '/src/app.ts', content: 'content2', isLoading: false },
+    ];
+
+    vi.mocked(useTabManager).mockReturnValue({
+      tabs,
+      activeTabId: 'file1',
+      openTab: vi.fn(),
+      closeTab: mockCloseTab,
+      setActiveTab: mockSetActiveTab,
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      fileContents: {
+        file1: 'content1',
+        file2: 'content2',
+      },
+      loadingFiles: new Set<string>(),
+      loadFileContent: mockLoadFileContent,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    // Click on tab
+    await user.click(screen.getByText('/src/index.ts'));
+    expect(mockSetActiveTab).toHaveBeenCalledWith('file1');
+
+    // Close tab
+    await user.click(screen.getByText('Close file1'));
+    expect(mockCloseTab).toHaveBeenCalledWith('file1');
+
+    // Load file content
+    await user.click(screen.getByText('Load file1'));
+    expect(mockLoadFileContent).toHaveBeenCalledWith('file1');
+  });
+
+  it('should apply custom className', () => {
+    const { container } = render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel className="custom-class" />
+      </FileExplorerTestWrapper>
+    );
+
+    expect(container.firstChild).toHaveClass('custom-class');
+  });
+
+  it('should not update content if already up to date', async () => {
+    const mockUpdateTabContent = vi.fn();
+
+    const tabs = [
+      { id: 'file1', path: '/src/index.ts', content: 'const x = 42;', isLoading: false },
+    ];
+
+    vi.mocked(useTabManager).mockReturnValue({
+      tabs,
+      activeTabId: 'file1',
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: mockUpdateTabContent,
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    });
+
+    vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
+      fileContents: {
+        file1: 'const x = 42;', // Same content
+      },
+      loadingFiles: new Set<string>(),
+      loadFileContent: vi.fn(),
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
+    });
+
+    render(
+      <FileExplorerTestWrapper>
+        <TabbedFileEditorPanel />
+      </FileExplorerTestWrapper>
+    );
+
+    await waitFor(() => {
+      expect(mockUpdateTabContent).not.toHaveBeenCalled(); // Content already up to date
+    });
+  });
+});

@@ -1,9 +1,12 @@
-import { FileExplorerLeftPanel, FileExplorerMiddlePanel } from '@brainstrike/file-explorer-ui';
+import {
+  FileExplorerLeftPanel,
+  FileExplorerMiddlePanelTabbed,
+} from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 
 // Desktop file explorer component
 function DesktopFileExplorer() {
-  return <FileExplorerMiddlePanel />;
+  return <FileExplorerMiddlePanelTabbed />;
 }
 
 // Desktop file explorer left panel component
