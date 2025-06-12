@@ -5,6 +5,7 @@ const TAB_STATE_STORAGE_KEY = 'fileEditorTabs.v1';
 export interface FileTab {
   id: string;
   path: string;
+  compositeKey: string;
   content: string | null;
   isLoading: boolean;
   error?: string | undefined;
@@ -19,6 +20,7 @@ interface TabState {
 interface PersistedTabData {
   id: string;
   path: string;
+  compositeKey: string;
 }
 
 interface PersistedTabState {
@@ -39,7 +41,11 @@ const saveTabStateThrottled = (() => {
       try {
         // Strip content and error to reduce payload size
         const persistedState: PersistedTabState = {
-          tabs: state.tabs.map((tab) => ({ id: tab.id, path: tab.path })),
+          tabs: state.tabs.map((tab) => ({
+            id: tab.id,
+            path: tab.path,
+            compositeKey: tab.compositeKey,
+          })),
           activeTabId: state.activeTabId,
         };
         localStorage.setItem(TAB_STATE_STORAGE_KEY, JSON.stringify(persistedState));
@@ -59,6 +65,7 @@ const loadTabState = (): TabState | null => {
       const fullTabs: FileTab[] = parsed.tabs.map((persistedTab) => ({
         id: persistedTab.id,
         path: persistedTab.path,
+        compositeKey: persistedTab.compositeKey,
         content: null,
         isLoading: false,
         error: undefined as string | undefined,
@@ -74,7 +81,7 @@ const loadTabState = (): TabState | null => {
 export interface UseTabManagerReturn {
   tabs: FileTab[];
   activeTabId: string | null;
-  openTab: (path: string, compositeKey: string) => void;
+  openTab: (path: string, tabId: string, compositeKey: string) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   updateTabContent: (tabId: string, content: string) => void;
@@ -100,25 +107,26 @@ export function useTabManager(): UseTabManagerReturn {
     saveTabStateThrottled(state);
   }, [tabs, activeTabId]);
 
-  const openTab = useCallback((path: string, compositeKey: string) => {
+  const openTab = useCallback((path: string, tabId: string, compositeKey: string) => {
     setTabs((prevTabs) => {
       // Check if tab already exists
-      const existingTab = prevTabs.find((tab) => tab.id === compositeKey);
+      const existingTab = prevTabs.find((tab) => tab.id === tabId);
       if (existingTab) {
-        setActiveTabId(compositeKey);
+        setActiveTabId(tabId);
         return prevTabs;
       }
 
       // Create new tab
       const newTab: FileTab = {
-        id: compositeKey,
+        id: tabId,
         path,
+        compositeKey,
         content: null,
         isLoading: true,
       };
 
       const newTabs = [...prevTabs, newTab];
-      setActiveTabId(compositeKey);
+      setActiveTabId(tabId);
       return newTabs;
     });
   }, []);

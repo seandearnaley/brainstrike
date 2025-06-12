@@ -25,6 +25,7 @@ export interface StorageRequest {
   operation: 'setItem' | 'getItem' | 'removeItem';
   key: string;
   value?: string;
+  opId?: number;
 }
 
 export interface StorageResponse {
@@ -42,6 +43,7 @@ export class WorkerStorage {
     string,
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >();
+  private activeSaveOps = new Map<string, number>();
 
   constructor() {
     this.initializeWorker();
@@ -74,13 +76,15 @@ export class WorkerStorage {
                   }
                   // Perform heavy JSON serialization in worker
                   const serialized = JSON.stringify(value);
+                  const opId = Date.now();
                   // Send serialized data back to main thread for storage
                   self.postMessage({ 
                     id, 
                     type: 'storage_request', 
                     operation: 'setItem',
                     key: key,
-                    value: serialized
+                    value: serialized,
+                    opId: opId
                   });
                   return; // Don't send success yet, wait for main thread response
                 }
@@ -179,13 +183,28 @@ export class WorkerStorage {
   }
 
   private async handleStorageRequest(data: StorageRequest) {
-    const { id, operation, key, value } = data;
+    const { id, operation, key, value, opId } = data;
 
     try {
       switch (operation) {
         case 'setItem': {
           if (value !== undefined) {
-            localStorage.setItem(key, value);
+            // Race condition mitigation: only save if this is the newest operation
+            const lastOp = this.activeSaveOps.get(key) ?? 0;
+            if (opId && opId < lastOp) {
+              // A newer save operation has already started, so we discard this one.
+              this.worker?.postMessage({ id, type: 'storage_response', operation, success: true });
+              return;
+            }
+            if (opId) {
+              this.activeSaveOps.set(key, opId);
+            }
+            // Swallow quota exceptions
+            try {
+              localStorage.setItem(key, value);
+            } catch (e) {
+              console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+            }
           }
           this.worker?.postMessage({
             id,
@@ -196,7 +215,12 @@ export class WorkerStorage {
           break;
         }
         case 'getItem': {
-          const rawValue = localStorage.getItem(key);
+          let rawValue = null;
+          try {
+            rawValue = localStorage.getItem(key);
+          } catch (e) {
+            console.warn(`Failed to getItem from localStorage for key "${key}":`, e);
+          }
           this.worker?.postMessage({
             id,
             type: 'storage_response',
@@ -206,7 +230,11 @@ export class WorkerStorage {
           break;
         }
         case 'removeItem': {
-          localStorage.removeItem(key);
+          try {
+            localStorage.removeItem(key);
+          } catch (e) {
+            console.warn(`Failed to removeItem from localStorage for key "${key}":`, e);
+          }
           this.worker?.postMessage({
             id,
             type: 'storage_response',
@@ -216,14 +244,16 @@ export class WorkerStorage {
           break;
         }
         default:
-          throw new Error(`Unknown storage operation: ${operation}`);
+          // Should be unreachable
+          break;
       }
     } catch (error) {
-      // Send error back to worker
       this.worker?.postMessage({
         id,
-        type: 'error',
-        error: error instanceof Error ? error.message : 'Storage operation failed',
+        type: 'storage_response',
+        operation,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
       });
     }
   }

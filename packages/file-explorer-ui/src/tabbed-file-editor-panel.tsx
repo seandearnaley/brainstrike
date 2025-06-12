@@ -12,7 +12,7 @@ export interface TabbedFileEditorPanelProps {
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
     const { registerOpenFileInTab } = useIdeFileEditor();
-    const { fileContents, loadingFiles, loadFileContent } = useFileExplorer({
+    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer({
       onDisplayedFilePathsChange: () => {},
     });
 
@@ -46,7 +46,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     // Sync tab content with file contents when they load
     useEffect(() => {
       for (const tab of tabs) {
-        const content = fileContents[tab.id];
+        const content = fileContents[tab.compositeKey];
         if (content && tab.content !== content) {
           updateTabContent(tab.id, content);
         }
@@ -58,14 +58,16 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     const handleOpenFileInTab = useCallback(
       (compositeKey: string) => {
         const { path } = decodeFileSelection(compositeKey);
-        openTab(path, compositeKey);
+        // Create a more unique ID by prepending the root directory name
+        const uniqueTabId = `${rootDirectoryHandle?.name ?? 'default'}:${compositeKey}`;
+        openTab(path, uniqueTabId, compositeKey);
 
         // Load content if not already loaded or loading
         if (!fileContents[compositeKey] && !loadingFiles.has(compositeKey)) {
           loadFileContent(compositeKey);
         }
       },
-      [openTab, loadFileContent] // Remove fileContents and loadingFiles to prevent infinite loops
+      [openTab, loadFileContent, rootDirectoryHandle] // Remove fileContents and loadingFiles to prevent infinite loops
     );
 
     // Register the openFileInTab function with the IDE layout context

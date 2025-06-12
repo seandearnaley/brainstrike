@@ -1,10 +1,10 @@
-import { Button, ScrollArea } from '@brainstrike/ui';
-import { cn } from '@brainstrike/ui';
+import { Button, cn } from '@brainstrike/ui';
 import { File, Loader2, X } from 'lucide-react';
-import { memo, useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
 
-export interface TabbedFileEditorProps {
+interface TabbedFileEditorProps {
   tabs: FileTab[];
   activeTabId: string | null;
   fileContents: { [compositeKey: string]: string };
@@ -15,7 +15,7 @@ export interface TabbedFileEditorProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
 }
 
-export const TabbedFileEditor = memo<TabbedFileEditorProps>(function TabbedFileEditor({
+export function TabbedFileEditor({
   tabs,
   activeTabId,
   fileContents,
@@ -23,134 +23,174 @@ export const TabbedFileEditor = memo<TabbedFileEditorProps>(function TabbedFileE
   onTabClick,
   onTabClose,
   onLoadFileContent,
-}) {
-  useEffect(() => {
-    if (activeTabId && !fileContents[activeTabId] && !loadingFiles.has(activeTabId)) {
-      onLoadFileContent(activeTabId);
-    }
-  }, [activeTabId, fileContents, loadingFiles, onLoadFileContent]);
+  decodeFileSelection,
+}: TabbedFileEditorProps) {
+  const activeTabRef = useRef<HTMLButtonElement>(null);
 
-  const getFileName = (path: string) => {
-    const parts = path.split('/');
-    return parts[parts.length - 1] || path;
-  };
+  // Load content for active tab if not already loaded
+  useEffect(() => {
+    if (activeTabId) {
+      const activeTab = tabs.find((t) => t.id === activeTabId);
+      if (
+        activeTab &&
+        !fileContents[activeTab.compositeKey] &&
+        !loadingFiles.has(activeTab.compositeKey)
+      ) {
+        onLoadFileContent(activeTab.compositeKey);
+      }
+    }
+  }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent]);
+
+  // Scroll active tab into view
+  // biome-ignore lint/correctness/useExhaustiveDependencies: The ref's current element changes with activeTabId
+  useEffect(() => {
+    if (activeTabRef.current) {
+      activeTabRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    }
+  }, [activeTabId]);
+
+  const getFileName = (path: string) => path.split('/').pop() || path;
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  const activeContent = activeTabId ? fileContents[activeTabId] : null;
-  const isActiveTabLoading = activeTabId ? loadingFiles.has(activeTabId) : false;
+  const activeContent = activeTab ? fileContents[activeTab.compositeKey] : null;
+  const activeIsLoading = activeTab ? loadingFiles.has(activeTab.compositeKey) : false;
+  const activePath = activeTab ? decodeFileSelection(activeTab.compositeKey).path : '';
 
-  if (tabs.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <File className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No files open</p>
-          <p className="text-xs mt-1">Click on a file in the preview panel to open it here</p>
-        </div>
-      </div>
-    );
-  }
+  // Hotkeys for tab management
+  useHotkeys('ctrl+w, cmd+w', (e) => {
+    e.preventDefault();
+    if (activeTabId) {
+      onTabClose(activeTabId);
+    }
+  });
+
+  const cycleTab = (direction: 'next' | 'prev') => {
+    if (!activeTabId || tabs.length < 2) return;
+    const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+    if (currentIndex === -1) return;
+
+    let nextIndex: number;
+    if (direction === 'next') {
+      nextIndex = (currentIndex + 1) % tabs.length;
+    } else {
+      nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    }
+    const nextTab = tabs[nextIndex];
+    if (nextTab) {
+      onTabClick(nextTab.id);
+    }
+  };
+
+  useHotkeys('ctrl+pageup, cmd+pageup', (e) => {
+    e.preventDefault();
+    cycleTab('prev');
+  });
+
+  useHotkeys('ctrl+pagedown, cmd+pagedown', (e) => {
+    e.preventDefault();
+    cycleTab('next');
+  });
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Tab Bar */}
-      <div className="flex border-b border-border bg-muted/30">
+    <div className="flex flex-col h-full">
+      <div className="flex-shrink-0 border-b border-border overflow-x-auto" role="tablist">
         <div className="flex overflow-x-auto scrollbar-thin">
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
-            const fileName = getFileName(tab.path);
-            const isLoading = loadingFiles.has(tab.id);
+            const { path } = decodeFileSelection(tab.compositeKey);
+            const fileName = getFileName(path);
 
             return (
               <div
                 key={tab.id}
+                role="presentation"
                 className={cn(
-                  'flex items-center min-w-0 border-r border-border',
-                  isActive ? 'bg-background' : 'bg-muted/30 hover:bg-muted/50'
+                  'flex-shrink-0 border-r border-transparent',
+                  isActive ? 'border-border' : ''
                 )}
               >
-                <button
-                  type="button"
-                  onClick={() => onTabClick(tab.id)}
+                <div
                   className={cn(
-                    'flex items-center gap-2 px-3 py-2 text-sm min-w-0 flex-1',
-                    'hover:bg-muted/30 transition-colors',
-                    isActive && 'font-medium'
+                    'flex items-center',
+                    isActive ? 'bg-background' : 'bg-muted/50 hover:bg-muted'
                   )}
-                  title={tab.path}
                 >
-                  {isLoading ? (
-                    <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
-                  ) : (
-                    <File className="h-3 w-3 flex-shrink-0" />
-                  )}
-                  <span className="truncate">{fileName}</span>
-                </button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 flex-shrink-0 mr-1 hover:bg-destructive/20 hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onTabClose(tab.id);
-                  }}
-                  title={`Close ${fileName}`}
-                  aria-label={`Close ${fileName}`}
-                >
-                  <X className="h-3 w-3" />
-                </Button>
+                  <button
+                    ref={isActive ? activeTabRef : null}
+                    type="button"
+                    role="tab"
+                    aria-selected={isActive}
+                    className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={() => onTabClick(tab.id)}
+                  >
+                    {loadingFiles.has(tab.compositeKey) ? (
+                      <Loader2 className="h-3 w-3 animate-spin flex-shrink-0" />
+                    ) : (
+                      <File className="h-3 w-3 flex-shrink-0" />
+                    )}
+                    <span className="truncate">{fileName}</span>
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 rounded-sm flex-shrink-0"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onTabClose(tab.id);
+                    }}
+                    title={`Close ${fileName}`}
+                    aria-label={`Close ${fileName}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-hidden">
-        {activeTab && (
-          <div className="h-full flex flex-col">
-            {/* File Path Header */}
-            <div className="px-3 py-2 border-b border-border bg-muted/30">
-              <div
-                className="text-xs text-muted-foreground font-mono truncate"
-                title={activeTab.path}
-              >
-                {activeTab.path}
+      <div className="flex-1 overflow-auto bg-background" role="tabpanel">
+        {tabs.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
+            <p className="font-semibold">No files open</p>
+            <p className="text-sm">Click on a file in the preview panel to open it here</p>
+          </div>
+        ) : (
+          <div className="p-4">
+            {activeIsLoading ? (
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                Loading file content...
               </div>
-            </div>
-
-            {/* File Content */}
-            <ScrollArea className="flex-1">
-              <div className="p-4">
-                {isActiveTabLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading file content...
+            ) : activeContent ? (
+              <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
+                {activeContent.startsWith('File not accessible') ? (
+                  <div className="text-amber-600 dark:text-amber-400">
+                    <p>{activeContent}</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      To access this file, please open the folder again using the folder icon
+                      button. This is a security measure of your browser.
+                    </p>
                   </div>
-                ) : activeContent ? (
-                  <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
-                    {activeContent.startsWith('File not accessible') ? (
-                      <div className="text-amber-600 dark:text-amber-400">
-                        <p>{activeContent}</p>
-                        <p className="text-sm text-muted-foreground mt-2">
-                          To access this file, please open the folder again using the folder
-                          selection dialog.
-                        </p>
-                      </div>
-                    ) : (
-                      activeContent
-                    )}
-                  </pre>
                 ) : (
-                  <div className="text-muted-foreground">No content available</div>
+                  activeContent
                 )}
+              </pre>
+            ) : activeTabId ? (
+              <div className="text-muted-foreground">
+                File not found or unable to load: {activePath}
               </div>
-            </ScrollArea>
+            ) : (
+              <div className="text-muted-foreground">Select a file to view its content.</div>
+            )}
           </div>
         )}
       </div>
     </div>
   );
-});
-
-TabbedFileEditor.displayName = 'TabbedFileEditor';
+}
