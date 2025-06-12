@@ -104,7 +104,7 @@ test.describe('IDE Layout Persistence', () => {
         await expect(rightPanel).toBeVisible();
         
         // Hide and verify persistence
-        const hideRightPanelButton = page.locator('button[aria-label="Hide panel"]');
+        const hideRightPanelButton = page.locator('button[aria-label="Hide right panel"]');
         await hideRightPanelButton.click();
         await expect(rightPanel).not.toBeVisible();
         

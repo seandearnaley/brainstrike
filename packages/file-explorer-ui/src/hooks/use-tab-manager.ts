@@ -170,7 +170,13 @@ export function useTabManager(): UseTabManagerReturn {
     setTabs((prevTabs) =>
       prevTabs.map((tab) =>
         tab.id === tabId
-          ? { ...tab, isLoading, error: isLoading ? (undefined as string | undefined) : tab.error }
+          ? {
+              ...tab,
+              isLoading,
+              // Clear stale content when we begin loading again to avoid showing outdated data
+              content: isLoading ? null : tab.content,
+              error: isLoading ? undefined : tab.error,
+            }
           : tab
       )
     );

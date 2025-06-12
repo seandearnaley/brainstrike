@@ -24,7 +24,6 @@ export const TabbedFileEditor = memo<TabbedFileEditorProps>(function TabbedFileE
   onTabClose,
   onLoadFileContent,
 }) {
-  // Load content for active tab if not already loaded
   useEffect(() => {
     if (activeTabId && !fileContents[activeTabId] && !loadingFiles.has(activeTabId)) {
       onLoadFileContent(activeTabId);
@@ -96,6 +95,7 @@ export const TabbedFileEditor = memo<TabbedFileEditorProps>(function TabbedFileE
                     onTabClose(tab.id);
                   }}
                   title={`Close ${fileName}`}
+                  aria-label={`Close ${fileName}`}
                 >
                   <X className="h-3 w-3" />
                 </Button>

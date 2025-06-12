@@ -48,15 +48,18 @@ export const IdeLayout = React.memo(function IdeLayout({
     ((compositeKey: string) => void) | null
   >(null);
 
-  // Create the context value
+  // Stable callback so consumers don't get a new reference each render
+  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
+    setOpenFileInTabFn(() => fn);
+  }, []);
+
+  // Create the context value – stable except when the implementation changes
   const fileEditorContextValue = useMemo(
     () => ({
       openFileInTab: openFileInTabFn || undefined,
-      registerOpenFileInTab: (fn: (compositeKey: string) => void) => {
-        setOpenFileInTabFn(() => fn);
-      },
+      registerOpenFileInTab,
     }),
-    [openFileInTabFn]
+    [openFileInTabFn, registerOpenFileInTab]
   );
 
   // Add refs for focus management
@@ -411,7 +414,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                       size="icon"
                       className="h-6 w-6"
                       onClick={toggleRightPanel}
-                      aria-label="Hide panel"
+                      aria-label="Hide right panel"
                       ref={hideRightPanelButtonRef}
                     >
                       <ChevronRight className="h-4 w-4" />
