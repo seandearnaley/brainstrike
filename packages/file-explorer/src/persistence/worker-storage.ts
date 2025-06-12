@@ -19,6 +19,22 @@ export interface WorkerResponse {
   error?: string;
 }
 
+export interface StorageRequest {
+  id: string;
+  type: 'storage_request';
+  operation: 'setItem' | 'getItem' | 'removeItem';
+  key: string;
+  value?: string;
+}
+
+export interface StorageResponse {
+  id: string;
+  type: 'storage_response';
+  operation: 'setItem' | 'getItem' | 'removeItem';
+  success?: boolean;
+  rawValue?: string | null;
+}
+
 export class WorkerStorage {
   private worker: Worker | null = null;
   private messageId = 0;
@@ -45,6 +61,7 @@ export class WorkerStorage {
 
       if (!isElectron && typeof import.meta.url !== 'undefined') {
         // Use inline worker for better compatibility
+        // Worker handles JSON serialization/deserialization but delegates storage to main thread
         const workerCode = `
           self.addEventListener('message', async (event) => {
             const { id, type, key, value } = event.data;
@@ -55,31 +72,58 @@ export class WorkerStorage {
                   if (!key || value === undefined) {
                     throw new Error('Save operation requires key and value');
                   }
+                  // Perform heavy JSON serialization in worker
                   const serialized = JSON.stringify(value);
-                  localStorage.setItem(key, serialized);
-                  result = true;
-                  break;
+                  // Send serialized data back to main thread for storage
+                  self.postMessage({ 
+                    id, 
+                    type: 'storage_request', 
+                    operation: 'setItem',
+                    key: key,
+                    value: serialized
+                  });
+                  return; // Don't send success yet, wait for main thread response
                 }
                 case 'load': {
                   if (!key) {
                     throw new Error('Load operation requires key');
                   }
-                  const storedValue = localStorage.getItem(key);
-                  result = storedValue ? JSON.parse(storedValue) : null;
-                  break;
+                  // Request data from main thread
+                  self.postMessage({ 
+                    id, 
+                    type: 'storage_request', 
+                    operation: 'getItem',
+                    key: key
+                  });
+                  return; // Don't send success yet, wait for main thread response
                 }
                 case 'remove': {
                   if (!key) {
                     throw new Error('Remove operation requires key');
                   }
-                  localStorage.removeItem(key);
-                  result = true;
+                  // Request removal from main thread
+                  self.postMessage({ 
+                    id, 
+                    type: 'storage_request', 
+                    operation: 'removeItem',
+                    key: key
+                  });
+                  return; // Don't send success yet, wait for main thread response
+                }
+                case 'storage_response': {
+                  // Handle response from main thread storage operation
+                  if (event.data.operation === 'getItem' && event.data.rawValue) {
+                    // Perform heavy JSON parsing in worker
+                    result = JSON.parse(event.data.rawValue);
+                  } else {
+                    result = event.data.success || true;
+                  }
+                  self.postMessage({ id, type: 'success', result });
                   break;
                 }
                 default:
                   throw new Error(\`Unknown operation type: \${type}\`);
               }
-              self.postMessage({ id, type: 'success', result });
             } catch (error) {
               self.postMessage({ 
                 id, 
@@ -106,8 +150,18 @@ export class WorkerStorage {
     }
   }
 
-  private handleWorkerMessage(event: MessageEvent<WorkerResponse>) {
-    const { id, type, result, error } = event.data;
+  private handleWorkerMessage(event: MessageEvent<WorkerResponse | StorageRequest>) {
+    const { id, type } = event.data;
+
+    // Handle storage requests from worker
+    if (type === 'storage_request') {
+      this.handleStorageRequest(event.data as StorageRequest);
+      return;
+    }
+
+    // Handle normal worker responses
+    const workerResponse = event.data as WorkerResponse;
+    const { result, error } = workerResponse;
     const request = this.pendingRequests.get(id);
 
     if (!request) {
@@ -121,6 +175,56 @@ export class WorkerStorage {
       request.resolve(result);
     } else {
       request.reject(new Error(error || 'Unknown worker error'));
+    }
+  }
+
+  private async handleStorageRequest(data: StorageRequest) {
+    const { id, operation, key, value } = data;
+
+    try {
+      switch (operation) {
+        case 'setItem': {
+          if (value !== undefined) {
+            localStorage.setItem(key, value);
+          }
+          this.worker?.postMessage({
+            id,
+            type: 'storage_response',
+            operation,
+            success: true,
+          } as StorageResponse);
+          break;
+        }
+        case 'getItem': {
+          const rawValue = localStorage.getItem(key);
+          this.worker?.postMessage({
+            id,
+            type: 'storage_response',
+            operation,
+            rawValue,
+          } as StorageResponse);
+          break;
+        }
+        case 'removeItem': {
+          localStorage.removeItem(key);
+          this.worker?.postMessage({
+            id,
+            type: 'storage_response',
+            operation,
+            success: true,
+          } as StorageResponse);
+          break;
+        }
+        default:
+          throw new Error(`Unknown storage operation: ${operation}`);
+      }
+    } catch (error) {
+      // Send error back to worker
+      this.worker?.postMessage({
+        id,
+        type: 'error',
+        error: error instanceof Error ? error.message : 'Storage operation failed',
+      });
     }
   }
 
