@@ -1,4 +1,4 @@
-import { FileExplorerLeftPanel } from '@brainstrike/file-explorer-ui';
+import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
 import { IdeLayout } from '@brainstrike/ui';
 import { useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
@@ -23,6 +23,7 @@ export function RootLayoutContent({
   };
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
+  const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
 
   return (
     <AppLayout
@@ -38,11 +39,7 @@ export function RootLayoutContent({
               Additional tools and panels will appear here...
             </div>
           }
-          consoleContent={
-            <div className="p-4 text-sm text-muted-foreground">
-              Console output will appear here...
-            </div>
-          }
+          consoleContent={tabbedEditorContent}
         >
           {homePageContent}
         </IdeLayout>

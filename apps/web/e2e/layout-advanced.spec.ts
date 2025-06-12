@@ -288,7 +288,7 @@ test.describe('Advanced IDE Layout', () => {
 
       // Verify initial ARIA labels
       await expect(elements.hideExplorerButton).toHaveAttribute('aria-label', 'Hide explorer');
-      await expect(elements.showConsoleShim).toHaveAttribute('aria-label', 'Show console');
+      await expect(elements.showConsoleShim).toHaveAttribute('aria-label', 'Show File Editor');
 
       // Change states and verify ARIA updates
       await elements.hideExplorerButton.click();

@@ -1,10 +1,13 @@
-import { FileExplorerLeftPanel, FileExplorerMiddlePanel } from '@brainstrike/file-explorer-ui';
+import {
+  FileExplorerLeftPanel,
+  FileExplorerMiddlePanelTabbed,
+} from '@brainstrike/file-explorer-ui';
 import { Suspense } from 'react';
 import { Helmet } from 'react-helmet-async';
 
 // Web file explorer component
 function WebFileExplorer() {
-  return <FileExplorerMiddlePanel />;
+  return <FileExplorerMiddlePanelTabbed />;
 }
 
 // Web file explorer left panel component
