@@ -132,9 +132,24 @@ describe('TabbedFileEditorPanel', () => {
     });
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: {},
       loadingFiles: new Set<string>(),
       loadFileContent: mockLoadFileContent,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     render(
@@ -157,9 +172,24 @@ describe('TabbedFileEditorPanel', () => {
     const mockLoadFileContent = vi.fn();
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: { 'folder1|@|/src/index.ts': 'const x = 42;' },
       loadingFiles: new Set<string>(),
       loadFileContent: mockLoadFileContent,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     vi.mocked(useTabManager).mockReturnValue({
@@ -191,9 +221,24 @@ describe('TabbedFileEditorPanel', () => {
     const mockLoadFileContent = vi.fn();
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: {},
       loadingFiles: new Set(['folder1|@|/src/index.ts']),
       loadFileContent: mockLoadFileContent,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     vi.mocked(useTabManager).mockReturnValue({
@@ -228,9 +273,24 @@ describe('TabbedFileEditorPanel', () => {
     const tabs = [{ id: 'file1', path: '/src/index.ts', content: null, isLoading: false }];
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: { file1: 'const x = 42;' },
       loadingFiles: new Set<string>(),
       loadFileContent: vi.fn(),
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     vi.mocked(useTabManager).mockReturnValue({
@@ -280,12 +340,27 @@ describe('TabbedFileEditorPanel', () => {
     });
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: {
         file1: 'content1',
         file2: 'content2',
       },
       loadingFiles: new Set<string>(),
       loadFileContent: mockLoadFileContent,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     render(
@@ -337,11 +412,26 @@ describe('TabbedFileEditorPanel', () => {
     });
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents: {
         file1: 'const x = 42;', // Same content
       },
       loadingFiles: new Set<string>(),
       loadFileContent: vi.fn(),
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     render(

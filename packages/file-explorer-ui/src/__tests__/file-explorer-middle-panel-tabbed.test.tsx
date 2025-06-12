@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerMiddlePanelTabbed } from '../file-explorer-middle-panel-tabbed';
@@ -84,6 +84,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: selectedFiles,
       handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(() => false),
     });
 
     render(
@@ -136,8 +137,24 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const loadingFiles = new Set(['file3']);
 
     vi.mocked(useFileExplorer).mockReturnValue({
+      fileTree: [],
+      handleRootDirectorySelect: vi.fn(),
+      isLoading: false,
+      error: null,
       fileContents,
       loadingFiles,
+      applyFileFilters: vi.fn(() => []),
+      filterError: null,
+      rootDirectoryHandle: null,
+      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      loadFileContent: vi.fn(),
+      refreshFileExplorer: vi.fn(),
+      isInitialLoad: false,
+      clearFileContents: vi.fn(),
+      loadingProgress: null,
+      cancellable: false,
+      cancelOperation: vi.fn(),
+      isCancelling: false,
     });
 
     const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
@@ -151,7 +168,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
     expect(calls).toHaveLength(1);
-    const [props] = calls[0];
+    const props = calls[0]?.[0];
     expect(props).toMatchObject({
       fileContents,
       loadingFiles,
@@ -164,6 +181,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(),
       handleSelectionChange: mockHandleSelectionChange,
+      wouldExceedSelectionLimit: vi.fn(() => false),
     });
 
     const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
@@ -177,8 +195,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
     expect(calls).toHaveLength(1);
-    const [props] = calls[0];
-    expect(props.onSelectionChange).toBe(mockHandleSelectionChange);
+    const props = calls[0]?.[0];
+    expect(props?.onSelectionChange).toBe(mockHandleSelectionChange);
   });
 
   it('should pass decode and token functions to preview panel', async () => {
@@ -193,17 +211,19 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     const calls = VirtualizedPreviewPanelTabbed.mock.calls;
     expect(calls).toHaveLength(1);
-    const [props] = calls[0];
-    expect(typeof props.decodeFileSelection).toBe('function');
-    expect(typeof props.countTokensHeuristic).toBe('function');
-    expect(typeof props.estimateTokenCost).toBe('function');
+    const props = calls[0]?.[0];
+    expect(typeof props?.decodeFileSelection).toBe('function');
+    expect(typeof props?.countTokensHeuristic).toBe('function');
+    expect(typeof props?.estimateTokenCost).toBe('function');
   });
 
   it('should adapt undoable action for preview panel', async () => {
     const mockPerformUndoableAction = vi.fn();
+    const mockClearUndoTimeout = vi.fn();
 
     vi.mocked(useUndoableAction).mockReturnValue({
       performUndoableAction: mockPerformUndoableAction,
+      clearUndoTimeout: mockClearUndoTimeout,
     });
 
     const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
