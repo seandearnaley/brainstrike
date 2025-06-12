@@ -11,6 +11,9 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   )),
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   FileExplorerMiddlePanel: () => <div data-testid="file-explorer-middle-panel">Middle Panel</div>,
+  FileExplorerMiddlePanelTabbed: () => (
+    <div data-testid="file-explorer-middle-panel-tabbed">Tabbed Middle Panel</div>
+  ),
 }));
 
 // Mock the adapters
@@ -42,14 +45,14 @@ vi.mock('@brainstrike/storage', () => ({
 }));
 
 describe('HomePageContent', () => {
-  it('renders the FileExplorerMiddlePanel component', () => {
+  it('renders the FileExplorerMiddlePanelTabbed component', () => {
     const { getByTestId } = render(
       <HelmetProvider>
         <HomePageContent />
       </HelmetProvider>
     );
 
-    // Check if the FileExplorerMiddlePanel is present
-    expect(getByTestId('file-explorer-middle-panel')).toBeInTheDocument();
+    // Check if the FileExplorerMiddlePanelTabbed is present
+    expect(getByTestId('file-explorer-middle-panel-tabbed')).toBeInTheDocument();
   });
 });

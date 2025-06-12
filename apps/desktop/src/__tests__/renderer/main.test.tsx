@@ -42,19 +42,15 @@ describe('renderer main entry', () => {
     document.body.appendChild(rootEl);
   });
 
-  it(
-    'should create root and render app',
-    async () => {
-      await import('../../renderer/main.tsx');
+  it('should create root and render app', async () => {
+    await import('../../renderer/main.tsx');
 
-      const rootEl = document.getElementById('root');
-      expect(rootEl).not.toBeNull();
-      expect(mockCreateRoot).toHaveBeenCalledWith(rootEl);
-      expect(mockRender).toHaveBeenCalledTimes(1);
-      const renderArg = mockRender.mock.calls[0]?.[0];
-      expect(renderArg).toBeDefined();
-      expect(isReactElement(renderArg)).toBe(true);
-    },
-    { timeout: 10000 }
-  );
+    const rootEl = document.getElementById('root');
+    expect(rootEl).not.toBeNull();
+    expect(mockCreateRoot).toHaveBeenCalledWith(rootEl);
+    expect(mockRender).toHaveBeenCalledTimes(1);
+    const renderArg = mockRender.mock.calls[0]?.[0];
+    expect(renderArg).toBeDefined();
+    expect(isReactElement(renderArg)).toBe(true);
+  }, 10000);
 });

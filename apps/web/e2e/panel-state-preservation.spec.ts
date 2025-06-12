@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForAppLoad, resetLayoutState } from './utils/layout-helpers';
+import { waitForAppLoad, resetLayoutState, getPanelElements, togglePanelVisibility } from './utils/layout-helpers';
 import { mockBrowserApis, type FileTree } from './utils/mock-fs';
 import { resetAppState } from './utils/app-state';
 
@@ -59,12 +59,17 @@ test.describe('Panel State Preservation', () => {
     await testCheckbox.click({ force: true });
     await expect(testCheckbox).toBeChecked();
     
-    // Click on the file button to show it in the preview panel
+    // Click on the file button to open it in tabbed editor
+    // Show the console panel first (where tabbed editor lives)
+    const elements = getPanelElements(page);
+    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
+
     const testFileButton = page.getByRole('button', { name: 'test.ts' });
     await testFileButton.click();
     
-    // Verify the file detail panel is shown
-    await expect(page.getByRole('heading', { name: 'test.ts' })).toBeVisible();
+    // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
+    const tab = elements.consolePanel.getByRole('button', { name: /test\.ts/ }).first();
+    await expect(tab).toBeVisible();
     await expect(page.getByText('test content')).toBeVisible();
     
     // Hide the left panel
@@ -96,8 +101,8 @@ test.describe('Panel State Preservation', () => {
     await expect(fileTreeAfterToggle.getByText('test2.ts')).toBeVisible();
     await expect(fileTreeAfterToggle.getByText('src')).toBeVisible();
     
-    // The preview panel should still show the selected file
-    await expect(page.getByRole('heading', { name: 'test.ts' })).toBeVisible();
+    // The tab should still show the selected file
+    await expect(tab).toBeVisible();
     await expect(page.getByText('test content')).toBeVisible();
     
     // Verify we can still interact with the file tree
@@ -110,8 +115,9 @@ test.describe('Panel State Preservation', () => {
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
     await test2FileButton.click();
     
-    // Verify the preview panel updates to show the new file
-    await expect(page.getByRole('heading', { name: 'test2.ts' })).toBeVisible();
+    // Verify the tab updates to show the new file
+    const test2Tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
+    await expect(test2Tab).toBeVisible();
     await expect(page.getByText('test content')).toBeVisible();
   });
 
@@ -166,10 +172,16 @@ test.describe('Panel State Preservation', () => {
     await test2Checkbox.click({ force: true });
     await expect(test2Checkbox).toBeChecked();
     
-    // Now click on the file button to show it in the preview panel
+    // Show the console panel first (where tabbed editor lives)
+    const elements = getPanelElements(page);
+    await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
+
+    // Now click on the file button to open it in tabbed editor
     const test2FileButton = page.getByRole('button', { name: 'test2.ts' });
     await test2FileButton.click();
-    await expect(page.getByRole('heading', { name: 'test2.ts' })).toBeVisible();
+    // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
+    const tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
+    await expect(tab).toBeVisible();
     await expect(page.getByText('test content')).toBeVisible();
   });
 }); 
