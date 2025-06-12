@@ -214,7 +214,6 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const props = calls[0]?.[0];
     expect(typeof props?.decodeFileSelection).toBe('function');
     expect(typeof props?.countTokensHeuristic).toBe('function');
-    expect(typeof props?.estimateTokenCost).toBe('function');
   });
 
   it('should adapt undoable action for preview panel', async () => {
@@ -243,7 +242,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const mockGetStateSnapshot = vi.fn(() => new Set(['file1', 'file2']));
     const mockOnUndo = vi.fn();
 
-    performUndoableActionForPanel?.('test-key', 'item-key', {
+    performUndoableActionForPanel?.('test-key', {
       actionName: 'Test Action',
       itemDescription: 'Test Item',
       getStateSnapshot: mockGetStateSnapshot,

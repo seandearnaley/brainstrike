@@ -3,7 +3,7 @@ import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
-import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
+import { countTokensHeuristic } from '@brainstrike/utils';
 import { useCallback } from 'react';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
@@ -26,7 +26,6 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
 
   const performUndoableActionForPanel = (
     key: string,
-    _itemKey: string, // renamed to avoid unused var lint
     opts: {
       actionName: string;
       itemDescription: string;
@@ -68,7 +67,6 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
               onSelectionChange={handleSelectionChange}
               decodeFileSelection={decodeFileSelection}
               countTokensHeuristic={countTokensHeuristic}
-              estimateTokenCost={estimateTokenCost}
               performUndoableAction={performUndoableActionForPanel}
               onFileClick={handleFileClick}
             />

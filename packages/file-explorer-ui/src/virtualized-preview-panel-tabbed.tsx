@@ -16,7 +16,6 @@ interface VirtualizedPreviewPanelTabbedProps {
   estimateTokenCost?: (tokens: number) => number;
   performUndoableAction: (
     key: string,
-    itemKey: string,
     opts: {
       actionName: string;
       itemDescription: string;
@@ -79,6 +78,8 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
     // Cache token counts per file
     const tokenCacheRef = useRef<Map<string, number>>(new Map());
     const prevSelectedFilesRef = useRef<Set<string> | null>(null);
+    const [lastAnnouncedFolder, setLastAnnouncedFolder] = useState<string | null>(null);
+    const [announcement, setAnnouncement] = useState<string>('');
 
     // Reset batch selections when selectedFiles change
     if (prevSelectedFilesRef.current !== selectedFiles) {
@@ -91,6 +92,13 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
     // Create flat list of items for virtualization
     const flatListItems = useMemo(() => {
       const folderGroups: Record<string, FileItem[]> = {};
+
+      // Implement cache eviction before populating
+      if (tokenCacheRef.current.size > 5000) {
+        // Simple eviction strategy: clear the whole cache
+        // A more sophisticated LRU cache could be used for larger scale
+        tokenCacheRef.current.clear();
+      }
 
       // Group files by folder
       for (const compositeKey of selectedFiles) {
@@ -201,7 +209,7 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
         newSelectedFiles.delete(compositeKey);
         onSelectionChange(newSelectedFiles);
 
-        performUndoableAction(compositeKey, compositeKey, {
+        performUndoableAction(compositeKey, {
           actionName: 'File removed',
           itemDescription: `Removed "${path}" from selection`,
           getStateSnapshot: () => new Set(selectedFiles),
@@ -225,7 +233,7 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
 
       onSelectionChange(newSelectedFiles);
 
-      performUndoableAction('batch-remove', 'batch-remove', {
+      performUndoableAction('batch-remove', {
         actionName: 'Files removed',
         itemDescription: `Removed ${batchSelectedFiles.size} files from selection`,
         getStateSnapshot: () => new Set(selectedFiles),
@@ -252,13 +260,17 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
 
     const toggleFolderCollapse = useCallback((folderId: string) => {
       setCollapsedFolders((prev) => {
-        const newSet = new Set(prev);
-        if (newSet.has(folderId)) {
-          newSet.delete(folderId);
+        const newCollapsed = new Set(prev);
+        const isCurrentlyCollapsed = newCollapsed.has(folderId);
+        if (isCurrentlyCollapsed) {
+          newCollapsed.delete(folderId);
+          setAnnouncement(`Expanded folder ${folderId}`);
         } else {
-          newSet.add(folderId);
+          newCollapsed.add(folderId);
+          setAnnouncement(`Collapsed folder ${folderId}`);
         }
-        return newSet;
+        setLastAnnouncedFolder(folderId);
+        return newCollapsed;
       });
     }, []);
 
@@ -379,8 +391,8 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
           {/* Virtualized list */}
           <div
             ref={scrollElementRef}
-            className="flex-1 overflow-auto"
-            style={{ contain: 'strict' }}
+            className="h-full w-full overflow-auto"
+            aria-label="File preview panel"
           >
             <div
               style={{
@@ -389,6 +401,10 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
                 position: 'relative',
               }}
             >
+              {/* Announcer for screen readers */}
+              <div aria-live="polite" className="sr-only">
+                {announcement && lastAnnouncedFolder ? announcement : ''}
+              </div>
               {virtualizer.getVirtualItems().map((virtualItem) => {
                 const item = flatListItems[virtualItem.index];
                 if (!item) return null;
