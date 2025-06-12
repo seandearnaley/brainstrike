@@ -56,15 +56,16 @@ test.describe('IDE Layout Persistence', () => {
       await expect(consolePanel).not.toBeVisible();
       
       // Show console using floating button
-      const showConsoleButton = page.locator('button[aria-label="Show console"]');
+      const showConsoleButton = page.locator('button[aria-label="Show File Editor"]');
       await expect(showConsoleButton).toBeVisible();
       await showConsoleButton.click();
       
       // Verify console is now visible
       await expect(consolePanel).toBeVisible();
       
-      // Verify console content
-      await expect(page.getByText('Console output will appear here...')).toBeVisible();
+      // Verify console content (now tabbed file editor)
+      await expect(page.getByText('No files open')).toBeVisible();
+      await expect(page.getByText('Click on a file in the preview panel to open it here')).toBeVisible();
       
       // Reload page
       await page.reload();
@@ -74,7 +75,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(consolePanel).toBeVisible();
       
       // Hide console
-      const hideConsoleButton = page.locator('button[aria-label="Close console"]');
+      const hideConsoleButton = page.locator('button[aria-label="Close File Editor"]');
       await hideConsoleButton.click();
       await expect(consolePanel).not.toBeVisible();
       
@@ -103,7 +104,7 @@ test.describe('IDE Layout Persistence', () => {
         await expect(rightPanel).toBeVisible();
         
         // Hide and verify persistence
-        const hideRightPanelButton = page.locator('button[aria-label="Hide panel"]');
+        const hideRightPanelButton = page.locator('button[aria-label="Hide right panel"]');
         await hideRightPanelButton.click();
         await expect(rightPanel).not.toBeVisible();
         
@@ -168,7 +169,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(consolePanel).not.toBeVisible();
       
       // Show console first
-      const showConsoleButton = page.locator('button[aria-label="Show console"]');
+      const showConsoleButton = page.locator('button[aria-label="Show File Editor"]');
       await showConsoleButton.click();
       await expect(consolePanel).toBeVisible();
       
@@ -191,7 +192,7 @@ test.describe('IDE Layout Persistence', () => {
       expect(persistedHeight).toBeGreaterThan(50); // Should maintain reasonable height
       
       // Hide console and verify persistence
-      const hideConsoleButton = page.locator('button[aria-label="Close console"]');
+      const hideConsoleButton = page.locator('button[aria-label="Close File Editor"]');
       await hideConsoleButton.click();
       await expect(consolePanel).not.toBeVisible();
       
@@ -213,7 +214,7 @@ test.describe('IDE Layout Persistence', () => {
       await expect(leftPanel).not.toBeVisible();
       
       // 2. Show console
-      const showConsoleButton = page.locator('button[aria-label="Show console"]');
+      const showConsoleButton = page.locator('button[aria-label="Show File Editor"]');
       await showConsoleButton.click();
       const consolePanel = page.locator('[id="console-panel"], [id="console-panel-horizontal"]');
       await expect(consolePanel).toBeVisible();
@@ -413,12 +414,12 @@ test.describe('IDE Layout Persistence', () => {
       // Verify all panel control buttons have proper ARIA labels
       await expect(page.locator('button[aria-label="Hide explorer"]')).toBeVisible();
       
-      const showConsoleButton = page.locator('button[aria-label="Show console"]');
+      const showConsoleButton = page.locator('button[aria-label="Show File Editor"]');
       await expect(showConsoleButton).toBeVisible();
       
       // Show console to test close button
       await showConsoleButton.click();
-      await expect(page.locator('button[aria-label="Close console"]')).toBeVisible();
+      await expect(page.locator('button[aria-label="Close File Editor"]')).toBeVisible();
       
       // Test right panel buttons if available
       const showRightPanelButton = page.locator('button[aria-label="Show right panel"]');

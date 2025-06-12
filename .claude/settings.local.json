@@ -43,7 +43,16 @@
       "Bash(pnpm -w run build)",
       "Bash(pnpm -w run test)",
       "Bash(pnpm --filter @brainstrike/platform-utils run test)",
-      "Bash(npm run test:*)"
+      "Bash(npm run test:*)",
+      "Bash(cp:*)",
+      "Bash(pnpm exec playwright:*)",
+      "Bash(npx biome check:*)",
+      "Bash(npx biome format:*)",
+      "Bash(pnpm -w run format)",
+      "Bash(npx playwright test:*)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm format:*)",
+      "Bash(pnpm type-check:*)"
     ],
     "deny": []
   },
