@@ -50,6 +50,11 @@ export default defineConfig({
   server: {
     port: 8080,
     host: true,
+    // Headers needed for PGlite WebAssembly to work properly
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
   },
   plugins: [
     react(),
@@ -67,7 +72,7 @@ export default defineConfig({
         ]
       : []), // If no token, don't include the plugin config
   ],
-  assetsInclude: ['**/*.png'],
+  assetsInclude: ['**/*.png', '**/*.wasm'],
   build: {
     minify: "terser", // Use terser for better minification
     terserOptions: {
@@ -76,12 +81,16 @@ export default defineConfig({
     outDir: "dist", // Output directory for the build
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
+    target: 'esnext', // Target modern browsers for WebAssembly support
     rollupOptions: {
       external: ['electron'],
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules")) {
-            // Group vendor dependencies
+            // Group vendor dependencies, but keep PGlite separate
+            if (id.includes('@electric-sql/pglite')) {
+              return 'pglite';
+            }
             return "vendor";
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
@@ -104,7 +113,12 @@ export default defineConfig({
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/file-explorer'
+      '@brainstrike/file-explorer',
+      '@brainstrike/file-cache'
+    ],
+    // Include PGlite for proper bundling
+    include: [
+      '@electric-sql/pglite'
     ]
   },
   test: {
@@ -168,7 +182,8 @@ export default defineConfig({
         '@brainstrike/types',
         '@brainstrike/hooks',
         '@brainstrike/ui',
-        '@brainstrike/utils'
+        '@brainstrike/utils',
+        '@brainstrike/file-cache'
       ],
     },
   },

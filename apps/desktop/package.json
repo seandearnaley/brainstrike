@@ -27,13 +27,15 @@
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/file-cache": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
-    "@brainstrike/utils": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@electric-sql/pglite": "^0.3.3",
     "electron-store": "^10.0.1",
     "react": "^19",
     "react-dom": "^19"

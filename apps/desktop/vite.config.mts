@@ -10,9 +10,11 @@ export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
   plugins: [react(), tailwindcss()],
+  assetsInclude: ['**/*.wasm'],
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,
+    target: 'esnext', // Target modern browsers for WebAssembly support
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
@@ -21,7 +23,10 @@ export default defineConfig({
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules")) {
-            // Group vendor dependencies
+            // Group vendor dependencies, but keep PGlite separate
+            if (id.includes('@electric-sql/pglite')) {
+              return 'pglite';
+            }
             return "vendor";
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
@@ -47,7 +52,12 @@ export default defineConfig({
       '@brainstrike/file-explorer-ui',
       '@brainstrike/file-system',
       '@brainstrike/storage',
-      '@brainstrike/app-shell'
+      '@brainstrike/app-shell',
+      '@brainstrike/file-cache'
+    ],
+    // Include PGlite for proper bundling
+    include: [
+      '@electric-sql/pglite'
     ]
   },
   server: {
