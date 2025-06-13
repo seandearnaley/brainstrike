@@ -23,6 +23,9 @@ test.describe('Complete File Explorer Workflow', () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
+    
+    // Wait for initial load before resetting state
+    await page.waitForLoadState('domcontentloaded');
     await resetAppState(page);
     await page.reload();
 
