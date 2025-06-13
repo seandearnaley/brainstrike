@@ -55,6 +55,6 @@
     "@types/react": "19.1.7",
     "@vitejs/plugin-react": "^4.5.2",
     "jsdom": "^26.1.0",
-    "lucide-react": "^0.514.0"
+    "lucide-react": "^0.515.0"
   }
 }
