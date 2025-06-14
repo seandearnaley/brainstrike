@@ -1,6 +1,9 @@
 {
   "name": "@brainstrike/storage",
   "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
   "description": "Platform-aware storage adapters for web and desktop",
   "type": "module",
   "main": "./dist/index.js",
