@@ -21,6 +21,16 @@ export interface SerializedFolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
+  // Database-first properties
+  databaseMode: boolean;
+  isPopulated: boolean;
+  populationProgress?:
+    | {
+        loaded: number;
+        total: number;
+        isLoading: boolean;
+      }
+    | undefined;
 }
 
 export interface SerializedState {
@@ -40,6 +50,9 @@ export interface SerializedState {
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
+  // Database-first global properties
+  databaseMode: boolean;
+  currentFolderPopulated: boolean;
 }
 
 export interface FolderState {
@@ -57,6 +70,16 @@ export interface FolderState {
   maxSelectionCount: number;
   lastActiveTab: string;
   lastAccessed: number;
+  // Database-first properties
+  databaseMode: boolean;
+  isPopulated: boolean;
+  populationProgress?:
+    | {
+        loaded: number;
+        total: number;
+        isLoading: boolean;
+      }
+    | undefined;
 }
 
 // Data types
@@ -78,6 +101,9 @@ export interface FileExplorerData {
   maxSelectionCount: number;
   lastActiveTab: string;
   fileContents: Record<string, string>;
+  // Database-first global properties
+  databaseMode: boolean;
+  currentFolderPopulated: boolean;
 }
 
 // Store interface extends data with actions
@@ -115,6 +141,16 @@ export interface FileExplorerState extends FileExplorerData {
   setFileContent: (compositeKey: string, content: string) => void;
   clearFileContents: (compositeKeys: string[]) => void;
   clearAllFileContents: () => void;
+
+  // Database-first actions
+  setDatabaseMode: (enabled: boolean) => void;
+  setCurrentFolderPopulated: (populated: boolean) => void;
+  setFolderPopulated: (folderId: string, populated: boolean) => void;
+  setPopulationProgress: (
+    folderId: string,
+    progress: { loaded: number; total: number; isLoading: boolean }
+  ) => void;
+  clearPopulationProgress: (folderId: string) => void;
 }
 
 // Constants
@@ -140,4 +176,7 @@ export const DEFAULT_STATE = {
   lastActiveTab: 'files',
   folderAccessOrder: [] as string[],
   fileContents: {} as Record<string, string>,
+  // Database-first properties
+  databaseMode: true, // Enable by default for new architecture
+  currentFolderPopulated: false,
 } as const;

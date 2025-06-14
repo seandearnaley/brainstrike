@@ -194,6 +194,9 @@ export const createPersistOptions = (
         folderSummaryThreshold: state.folderSummaryThreshold,
         maxSelectionCount: state.maxSelectionCount,
         lastActiveTab: state.lastActiveTab ?? 'files',
+        // Database-first global properties
+        databaseMode: state.databaseMode,
+        currentFolderPopulated: state.currentFolderPopulated,
       };
       if (shouldLog) {
         // console.log('[Partialize] Output SerializedState (with Arrays):', serialized);

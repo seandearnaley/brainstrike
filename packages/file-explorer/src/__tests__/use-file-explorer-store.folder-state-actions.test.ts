@@ -129,6 +129,9 @@ describe('Folder State Actions', () => {
       maxSelectionCount: 50,
       lastActiveTab: 'settings',
       lastAccessed: Date.now(),
+      databaseMode: true,
+      isPopulated: false,
+      populationProgress: undefined,
     };
 
     store.setState((state: FileExplorerState) => ({
@@ -189,6 +192,9 @@ describe('Folder State Actions', () => {
         folderSummaryThreshold: 5,
         maxSelectionCount: 100,
         lastActiveTab: 'files',
+        databaseMode: true,
+        isPopulated: false,
+        populationProgress: undefined,
       };
     }
 

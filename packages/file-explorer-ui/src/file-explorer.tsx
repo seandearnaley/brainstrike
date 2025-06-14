@@ -2,7 +2,6 @@ import { useToastManager } from '@brainstrike/file-explorer-hooks';
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
-import { LoadingOverlay } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
@@ -19,7 +18,9 @@ import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Suspense, lazy } from 'react';
 import { shallow } from 'zustand/shallow';
+import { DatabaseLoadingOverlay } from './database-loading-overlay';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useCombinedLoading } from './use-combined-loading';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
@@ -100,6 +101,14 @@ const FileExplorer: React.FC = () => {
     isCancelling,
   } = useFileExplorer({
     onDisplayedFilePathsChange: setDisplayedFiles,
+  });
+
+  // Get combined loading state for database and file tree operations
+  const combinedLoading = useCombinedLoading({
+    isLoading,
+    loadingProgress: loadingProgress || undefined,
+    cancellable,
+    onCancel: cancelOperation,
   });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
@@ -276,18 +285,20 @@ const FileExplorer: React.FC = () => {
       <div className="@container/main flex flex-col h-full overflow-hidden">
         <FileExplorerHeader />
         <div className="flex-1 flex flex-col overflow-hidden">
-          <LoadingOverlay
-            isLoading={isLoading}
+          <DatabaseLoadingOverlay
+            isFileTreeLoading={isLoading}
             isInitialLoad={isInitialLoad}
-            progressState={
+            fileTreeProgressState={
               loadingProgress ?? {
                 loaded: 0,
                 total: 0,
                 phase: 'counting' as const,
               }
             }
-            cancellable={cancellable}
-            onCancel={handleCancelOperation}
+            isDatabasePopulating={combinedLoading.isDatabasePopulating}
+            databaseProgressState={combinedLoading.databaseProgressState}
+            cancellable={cancellable || combinedLoading.canCancel}
+            onCancel={handleCancelOperation || combinedLoading.onCancel}
             isCancelling={isCancelling}
             className="z-50"
           />

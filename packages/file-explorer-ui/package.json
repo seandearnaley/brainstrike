@@ -33,6 +33,7 @@
     "zustand": "^5"
   },
   "dependencies": {
+    "@brainstrike/file-cache": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-system": "workspace:*",

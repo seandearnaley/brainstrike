@@ -60,6 +60,12 @@ describe('useFileExplorerStore Actions Integration', () => {
     setFileContent: vi.fn(),
     clearFileContents: vi.fn(),
     clearAllFileContents: vi.fn(),
+    // Database actions
+    setDatabaseMode: vi.fn(),
+    setCurrentFolderPopulated: vi.fn(),
+    setFolderPopulated: vi.fn(),
+    setPopulationProgress: vi.fn(),
+    clearPopulationProgress: vi.fn(),
   });
 
   beforeEach(() => {

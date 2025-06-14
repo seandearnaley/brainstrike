@@ -86,6 +86,13 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
     handleFileContentLoading: vi.fn(),
     clearFileContents: vi.fn(),
   })),
+  useDatabaseFileLoading: vi.fn(() => ({
+    requestDirectoryWithDatabase: vi.fn(),
+    isFolderPopulated: false,
+    isDatabaseMode: false,
+    populationProgress: undefined,
+    setDatabaseMode: vi.fn(),
+  })),
   useFileTree: vi.fn(() => ({
     fileTree: [],
     isLoading: false,

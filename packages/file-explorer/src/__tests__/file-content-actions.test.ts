@@ -37,6 +37,14 @@ function createTestStore() {
     setFileContent: vi.fn(),
     clearFileContents: vi.fn(),
     clearAllFileContents: vi.fn(),
+    // Database-first properties and actions
+    databaseMode: DEFAULT_STATE.databaseMode,
+    currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
+    setDatabaseMode: vi.fn(),
+    setCurrentFolderPopulated: vi.fn(),
+    setFolderPopulated: vi.fn(),
+    setPopulationProgress: vi.fn(),
+    clearPopulationProgress: vi.fn(),
   }));
 
   const actions = createFileContentActions(store.setState, store.getState);

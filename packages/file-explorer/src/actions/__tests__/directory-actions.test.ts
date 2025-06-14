@@ -47,6 +47,14 @@ describe('directory-actions', () => {
     setFileContent: vi.fn(),
     clearFileContents: vi.fn(),
     clearAllFileContents: vi.fn(),
+    // Database-first properties and actions
+    databaseMode: true,
+    currentFolderPopulated: false,
+    setDatabaseMode: vi.fn(),
+    setCurrentFolderPopulated: vi.fn(),
+    setFolderPopulated: vi.fn(),
+    setPopulationProgress: vi.fn(),
+    clearPopulationProgress: vi.fn(),
     ...overrides,
   });
 

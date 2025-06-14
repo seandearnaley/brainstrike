@@ -1,7 +1,15 @@
 export * from './action-buttons';
+export { DatabaseLoadingOverlay } from './database-loading-overlay';
+export type {
+  DatabaseProgressState,
+  DatabaseLoadingOverlayProps,
+} from './database-loading-overlay';
+export * from './database-status-indicator';
+export { default as DatabaseModeSetting } from './database-mode-setting';
 export * from './folder-badge';
 export * from './file-explorer-header';
 export * from './loading-overlay';
+export * from './use-combined-loading';
 export * from './preview-panel';
 export * from './virtualized-preview-panel';
 export * from './virtualized-preview-panel-tabbed';

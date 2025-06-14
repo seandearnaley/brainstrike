@@ -2,6 +2,22 @@ import '@testing-library/jest-dom';
 import { beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
+// Mock PGlite to prevent Node.js compatibility issues in tests
+vi.mock('@electric-sql/pglite', () => ({
+  PGlite: vi.fn().mockImplementation(() => ({
+    waitReady: Promise.resolve(),
+    exec: vi.fn().mockResolvedValue(undefined),
+    query: vi.fn().mockResolvedValue({ rows: [] }),
+    transaction: vi.fn().mockImplementation(async (fn) => {
+      const mockTx = {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+      };
+      return await fn(mockTx);
+    }),
+    close: vi.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 // Configure React 19 test environment
 
 // Reset store before each test

@@ -55,7 +55,11 @@
       "Bash(pnpm type-check:*)",
       "Bash(pnpm add:*)",
       "Bash(pnpm vitest run:*)",
-      "Bash(pnpm biome check:*)"
+      "Bash(pnpm biome check:*)",
+      "Bash(turbo build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm dev:*)",
+      "Bash(pkill:*)"
     ],
     "deny": []
   },

@@ -2,19 +2,28 @@ import type { PGlite } from '@electric-sql/pglite';
 
 export interface FileCacheAdapter {
   /**
-   * Get cached file content by path
+   * Get cached file content by path (optionally scoped to folder)
    */
-  getFileContent(filePath: string): Promise<string | null>;
+  getFileContent(filePath: string, folderId?: string): Promise<string | null>;
 
   /**
    * Save file content to cache
    */
-  saveFileContent(filePath: string, content: string): Promise<void>;
+  saveFileContent(
+    filePath: string,
+    content: string,
+    folderId?: string,
+    options?: {
+      fileType?: string;
+      fileSize?: number;
+      etag?: string;
+    }
+  ): Promise<void>;
 
   /**
-   * Remove file from cache
+   * Remove file from cache (optionally scoped to folder)
    */
-  removeFileContent(filePath: string): Promise<void>;
+  removeFileContent(filePath: string, folderId?: string): Promise<void>;
 
   /**
    * Clear all cached files
@@ -22,9 +31,9 @@ export interface FileCacheAdapter {
   clearCache(): Promise<void>;
 
   /**
-   * Get all cached file paths
+   * Get all cached file paths (optionally scoped to folder)
    */
-  getCachedFilePaths(): Promise<string[]>;
+  getCachedFilePaths(folderId?: string): Promise<string[]>;
 
   /**
    * Get cache statistics
@@ -40,6 +49,45 @@ export interface FileCacheAdapter {
    * Close the cache connection
    */
   close(): Promise<void>;
+
+  // New folder management methods
+  /**
+   * Register a folder in the database
+   */
+  registerFolder(folderId: string, folderName: string, folderPath?: string): Promise<void>;
+
+  /**
+   * Get folder contents as file metadata
+   */
+  getFolderContents(folderId: string): Promise<FolderFileEntry[]>;
+
+  /**
+   * Clear all files for a specific folder
+   */
+  clearFolder(folderId: string): Promise<void>;
+
+  /**
+   * Get information about all registered folders
+   */
+  getFolderInfo(): Promise<FolderInfo[]>;
+
+  /**
+   * Save multiple files in bulk (for folder population)
+   */
+  saveBulkFileContents(
+    entries: BulkFileEntry[],
+    onProgress?: (loaded: number, total: number) => void
+  ): Promise<void>;
+
+  /**
+   * Delete a folder and all its files
+   */
+  deleteFolder(folderId: string): Promise<void>;
+
+  /**
+   * Update folder last accessed time
+   */
+  updateFolderAccess(folderId: string): Promise<void>;
 }
 
 export interface FileCacheConfig {
@@ -69,6 +117,30 @@ export interface CachedFileEntry {
   path: string;
   content: string;
   lastModified: Date;
+  etag?: string;
+}
+
+export interface FolderFileEntry {
+  path: string;
+  fileType: string;
+  fileSize: number;
+  lastModified: Date;
+}
+
+export interface FolderInfo {
+  folderId: string;
+  folderName: string;
+  folderPath?: string;
+  fileCount: number;
+  lastAccessed: Date;
+}
+
+export interface BulkFileEntry {
+  path: string;
+  content: string;
+  folderId: string;
+  fileType?: string;
+  fileSize?: number;
   etag?: string;
 }
 

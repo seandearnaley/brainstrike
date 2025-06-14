@@ -1,3 +1,4 @@
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { FileHandle } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
@@ -26,6 +27,9 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
   const loadingPathsRef = useRef(new Set<string>());
   const { fileSystemAdapter } = useAdapters();
 
+  // Get database mode from store
+  const { databaseMode, folderStates } = useFileExplorerStore();
+
   const loadSingleFileContent = useCallback(
     async (compositeKey: string) => {
       // Skip if already loading or loaded
@@ -47,12 +51,17 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         return;
       }
 
+      // Check if folder is populated in database mode
+      const isPopulated = folderStates[folderId]?.isPopulated || false;
+      const isDatabaseAdapter = fileSystemAdapter && 'isDatabaseMode' in fileSystemAdapter;
+      const isInDatabaseMode = databaseMode && isDatabaseAdapter && isPopulated;
+
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
 
       // Debug logging removed to reduce console spam
 
-      // If we can't find the node or don't have access to its handle, wait a bit and retry once
-      if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
+      // In database mode, we don't need a file handle
+      if (!isInDatabaseMode && (!fileNode || fileNode.type !== 'file' || !fileNode.handle)) {
         // Wait a short time for the file tree to potentially update
         await new Promise((resolve) => setTimeout(resolve, 100));
 
@@ -73,6 +82,18 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         }
       }
 
+      // In database mode, we still need to find the node but don't require a handle
+      if (isInDatabaseMode && (!fileNode || fileNode.type !== 'file')) {
+        console.debug('File not found in tree:', { path, folderId });
+        return;
+      }
+
+      // Final null check - ensure fileNode exists at this point
+      if (!fileNode) {
+        console.debug('File node is null after all checks:', { path, folderId });
+        return;
+      }
+
       // Verify the file node belongs to the correct root folder
       if (fileNode.rootFolderId !== folderId) {
         const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
@@ -89,15 +110,18 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
       try {
         // Create a FileHandle from the IFileNode
         const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-        const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-        const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
+        const handlePlatform =
+          fileNode.handle && (fileNode.handle as unknown as { platform?: Platform }).platform;
+        const platform: Platform = adapterPlatform || handlePlatform || 'web';
 
         const fileHandle: FileHandle = {
           path: fileNode.path,
           name: fileNode.name,
           kind: 'file',
           platform,
-          _internal: fileNode.handle,
+          _internal: fileNode.handle || null, // Handle can be null in database mode
+          // Add folder ID for database lookups
+          ...(isInDatabaseMode && { folderId, rootFolderId: folderId }),
         };
 
         let content: string;
@@ -164,7 +188,7 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
         loadingPathsRef.current.delete(compositeKey);
       }
     },
-    [fileTree, fileContents, fileSystemAdapter]
+    [fileTree, fileContents, fileSystemAdapter, databaseMode, folderStates]
   );
 
   const handleFileContentLoading = useCallback(

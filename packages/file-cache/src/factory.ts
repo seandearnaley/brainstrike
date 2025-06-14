@@ -1,5 +1,6 @@
 import { detectPlatform } from '@brainstrike/platform-utils';
 import { FileCacheService } from './cache-service';
+import { FolderService } from './folder-service';
 import type { FileCacheAdapter, FileCacheConfig } from './types';
 
 /**
@@ -104,4 +105,20 @@ export function createFileCacheWithDataDir(
   };
 
   return new FileCacheService(finalConfig);
+}
+
+/**
+ * Create a folder service with file cache backend
+ */
+export function createFolderService(config?: Partial<FileCacheConfig>): FolderService {
+  const cache = createFileCache(config) as FileCacheService;
+  return new FolderService(cache);
+}
+
+/**
+ * Create a folder service for testing (uses in-memory storage)
+ */
+export function createTestFolderService(config?: Partial<FileCacheConfig>): FolderService {
+  const cache = createTestFileCache(config) as FileCacheService;
+  return new FolderService(cache);
 }

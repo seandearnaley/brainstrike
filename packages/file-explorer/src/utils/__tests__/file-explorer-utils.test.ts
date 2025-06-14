@@ -24,6 +24,9 @@ describe('file-explorer-utils', () => {
         lastActiveTab: 'files',
         folderAccessOrder: [],
         fileContents: {},
+        // Database-first global properties
+        databaseMode: true,
+        currentFolderPopulated: false,
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -36,6 +39,10 @@ describe('file-explorer-utils', () => {
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            // Database-first properties
+            databaseMode: true,
+            isPopulated: false,
+            populationProgress: undefined,
           },
         },
       };
@@ -58,6 +65,10 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 10,
           lastActiveTab: 'git',
           lastAccessed: 1000,
+          // Database-first properties
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
         folder2: {
           selectedFilePaths: new Set(['file1', 'file2']),
@@ -70,6 +81,10 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          // Database-first properties
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
       });
     });
@@ -90,6 +105,9 @@ describe('file-explorer-utils', () => {
         lastActiveTab: 'search',
         folderAccessOrder: [],
         fileContents: {},
+        // Database-first global properties
+        databaseMode: true,
+        currentFolderPopulated: false,
         folderStates: {
           folder1: {
             selectedFilePaths: new Set(['oldFile']),
@@ -102,6 +120,10 @@ describe('file-explorer-utils', () => {
             maxSelectionCount: 10,
             lastActiveTab: 'git',
             lastAccessed: 1000,
+            // Database-first properties
+            databaseMode: true,
+            isPopulated: false,
+            populationProgress: undefined,
           },
         },
       };
@@ -123,6 +145,10 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 75,
           lastActiveTab: 'search',
           lastAccessed: 3000,
+          // Database-first properties
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
       });
     });
@@ -143,6 +169,9 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 1000,
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
         folder2: {
           selectedFilePaths: new Set(),
@@ -155,6 +184,9 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
       };
       const order = ['folder1', 'folder2'];
@@ -184,6 +216,9 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: i * 1000, // Increasing timestamps
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         };
         order.push(`folder${i}`);
       }
@@ -223,6 +258,9 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 1000,
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
         folder2: {
           selectedFilePaths: new Set(),
@@ -235,6 +273,9 @@ describe('file-explorer-utils', () => {
           maxSelectionCount: 50,
           lastActiveTab: 'files',
           lastAccessed: 2000,
+          databaseMode: true,
+          isPopulated: false,
+          populationProgress: undefined,
         },
       };
       const order = ['folder1', 'orphan', 'folder2'];
@@ -268,6 +309,10 @@ describe('file-explorer-utils', () => {
         maxSelectionCount: 100,
         lastActiveTab: 'files',
         lastAccessed: 5000,
+        // Database-first properties
+        databaseMode: true,
+        isPopulated: false,
+        populationProgress: undefined,
       });
     });
 

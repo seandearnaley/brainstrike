@@ -60,6 +60,9 @@ export const createFolderStateActions = (
         folderSummaryThreshold: newFolderState.folderSummaryThreshold,
         maxSelectionCount: newFolderState.maxSelectionCount,
         lastActiveTab: newFolderState.lastActiveTab ?? 'files',
+        // Update database-first global properties
+        databaseMode: newFolderState.databaseMode,
+        currentFolderPopulated: newFolderState.isPopulated,
       });
     } else if (folderId) {
       // Create new folder state (resetting current state fields)
@@ -75,6 +78,9 @@ export const createFolderStateActions = (
         folderAccessOrder: updatedOrder,
         selectedFilePaths: new Set<string>(),
         expandedDirectoryPaths: new Set<string>(),
+        // Initialize database-first properties for new folder
+        databaseMode: true,
+        currentFolderPopulated: false,
         // Reset potentially global settings to defaults? Or keep current? Let's keep current for now.
         // includeFilters: DEFAULT_STATE.includeFilters,
         // excludeFilters: DEFAULT_STATE.excludeFilters,
@@ -92,6 +98,9 @@ export const createFolderStateActions = (
         folderAccessOrder: updatedOrder,
         selectedFilePaths: new Set<string>(),
         expandedDirectoryPaths: new Set<string>(),
+        // Reset database-first properties
+        databaseMode: true, // Keep database mode enabled globally
+        currentFolderPopulated: false,
         // Optionally reset other fields to default?
       });
     }
@@ -117,6 +126,9 @@ export const createFolderStateActions = (
         folderSummaryThreshold: folderState.folderSummaryThreshold,
         maxSelectionCount: folderState.maxSelectionCount,
         lastActiveTab: folderState.lastActiveTab ?? 'files',
+        // Update database-first global properties
+        databaseMode: folderState.databaseMode,
+        currentFolderPopulated: folderState.isPopulated,
       };
     });
   },

@@ -6,3 +6,4 @@ export * from './use-file-explorer';
 export * from './use-file-tree';
 export * from './use-file-content-loading';
 export * from './use-file-loading-manager';
+export * from './use-database-file-loading';

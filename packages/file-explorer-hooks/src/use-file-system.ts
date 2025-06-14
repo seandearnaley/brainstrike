@@ -1,4 +1,5 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
+import type { DatabaseAwareFileSystemAdapter, DirectoryHandle } from '@brainstrike/file-system';
 import {
   isAccessError,
   isDialogError,
@@ -6,19 +7,24 @@ import {
   isUserCancelledError,
 } from '@brainstrike/file-system';
 import type { FileExplorerState } from '@brainstrike/types'; // Import the state type
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAdapters } from './adapters-context';
 
 interface UseFileSystemParams {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
+  onPopulationProgress?: (loaded: number, total: number) => void;
 }
 
-export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
+export function useFileSystem({ setCurrentFolderId, onPopulationProgress }: UseFileSystemParams) {
   const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
   const [isAccessLoading, setIsAccessLoading] = useState(false);
   const { fileSystemAdapter } = useAdapters();
 
-  const isFileSystemAccessSupported = (): {
+  // Get database state from store
+  const { databaseMode, setFolderPopulated, setPopulationProgress, clearPopulationProgress } =
+    useFileExplorerStore();
+
+  const isFileSystemAccessSupported = useCallback((): {
     supported: boolean;
     reason: string;
   } => {
@@ -32,9 +38,9 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
         reason: error instanceof Error ? error.message : 'File system access not supported',
       };
     }
-  };
+  }, []);
 
-  const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
+  const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
       throw new Error(reason);
@@ -42,7 +48,36 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
 
     setIsAccessLoading(true);
     try {
-      const handle = await fileSystemAdapter.requestDirectoryAccess();
+      let handle: DirectoryHandle;
+
+      // Check if adapter supports database population
+      const isDatabaseAware = fileSystemAdapter && 'requestDirectoryAccess' in fileSystemAdapter;
+      if (isDatabaseAware && databaseMode) {
+        const dbAdapter = fileSystemAdapter as DatabaseAwareFileSystemAdapter;
+        handle = await dbAdapter.requestDirectoryAccess({
+          populateDatabase: true,
+          onProgress: (loaded, total) => {
+            // Update store progress
+            const folderId = (handle as { folderId?: string })?.folderId || handle?.name;
+            if (folderId) {
+              setPopulationProgress(folderId, { loaded, total, isLoading: true });
+            }
+            // Call user callback
+            onPopulationProgress?.(loaded, total);
+          },
+        });
+
+        // Mark folder as populated when done
+        const folderId = (handle as { folderId?: string }).folderId;
+        if (folderId) {
+          setFolderPopulated(folderId, true);
+          clearPopulationProgress(folderId);
+        }
+      } else {
+        // Fallback to standard directory access
+        handle = await fileSystemAdapter.requestDirectoryAccess();
+      }
+
       setRootDirectoryHandle(handle);
       setCurrentFolderId(handle.name);
       return handle;
@@ -91,7 +126,16 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     } finally {
       setIsAccessLoading(false);
     }
-  };
+  }, [
+    fileSystemAdapter,
+    databaseMode,
+    setCurrentFolderId,
+    setFolderPopulated,
+    setPopulationProgress,
+    clearPopulationProgress,
+    onPopulationProgress,
+    isFileSystemAccessSupported,
+  ]);
 
   return {
     rootDirectoryHandle,

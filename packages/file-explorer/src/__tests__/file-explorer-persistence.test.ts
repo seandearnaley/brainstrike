@@ -43,6 +43,9 @@ const testDefaultFolderState: FolderState = {
   maxSelectionCount: DEFAULT_STATE.maxSelectionCount,
   lastActiveTab: DEFAULT_STATE.lastActiveTab,
   lastAccessed: 0, // Default lastAccessed
+  databaseMode: DEFAULT_STATE.databaseMode,
+  isPopulated: false,
+  populationProgress: undefined,
 };
 
 describe('file-explorer-persistence', () => {
@@ -91,6 +94,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       };
       storage.setItem('foo', { state: base, version: 1 });
       storage.setItem('foo', {
@@ -197,6 +203,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       };
       const wrappedState = { state: actualState, version: 1 };
       const result = migrateFn(wrappedState, 1);
@@ -217,6 +226,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       };
       const result = migrateFn(actualState, 1);
       expect(result).toEqual(actualState);
@@ -286,6 +298,10 @@ describe('file-explorer-persistence', () => {
             includeProjectTree: true,
             folderSummaryThreshold: 10,
             maxSelectionCount: 10,
+            // Database-first folder properties
+            databaseMode: DEFAULT_STATE.databaseMode,
+            isPopulated: false,
+            populationProgress: undefined,
           },
           'another-persisted': {
             selectedFilePaths: ['another.txt'],
@@ -298,6 +314,10 @@ describe('file-explorer-persistence', () => {
             includeProjectTree: false,
             folderSummaryThreshold: 0,
             maxSelectionCount: 0,
+            // Database-first folder properties
+            databaseMode: DEFAULT_STATE.databaseMode,
+            isPopulated: false,
+            populationProgress: undefined,
           },
         },
         lastActiveTab: 'preview',
@@ -307,6 +327,9 @@ describe('file-explorer-persistence', () => {
         includeProjectTree: true,
         folderSummaryThreshold: 20,
         maxSelectionCount: 20,
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       };
 
       const result = mergeFn(persisted, initialCurrentState);
@@ -397,6 +420,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       };
 
       const result = mergeFn(persisted, currentWithExtra);
@@ -460,6 +486,10 @@ describe('file-explorer-persistence', () => {
             maxSelectionCount: 0,
             lastActiveTab: 'files',
             lastAccessed: 1,
+            // Database-first folder properties
+            databaseMode: DEFAULT_STATE.databaseMode,
+            isPopulated: false,
+            populationProgress: undefined,
             // extra property not in FolderState
             extra: 'val' as unknown as never,
           },
@@ -474,6 +504,9 @@ describe('file-explorer-persistence', () => {
         folderSummaryThreshold: 0,
         maxSelectionCount: 0,
         lastActiveTab: 'files',
+        // Database-first global properties
+        databaseMode: DEFAULT_STATE.databaseMode,
+        currentFolderPopulated: DEFAULT_STATE.currentFolderPopulated,
       } as SerializedState;
 
       const merged = mergeFn(persisted, initialCurrentState);

@@ -5,11 +5,13 @@
  * avoiding dependencies on the file-explorer-hooks package that uses the old global store.
  */
 
-import { useAdapters } from '@brainstrike/file-explorer-hooks';
+import { FileCacheService, FolderService } from '@brainstrike/file-cache';
+import { useAdapters, useDatabaseFileLoading } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 export interface LoadingProgressState {
   loaded: number;
@@ -85,8 +87,118 @@ const ensureError = (err: unknown): Error => {
   return err instanceof Error ? err : new Error(String(err));
 };
 
+/**
+ * Builds a hierarchical file tree from flat database results
+ */
+const buildFileTreeFromDatabase = (
+  databaseFiles: Array<{
+    path: string;
+    fileType: string;
+    fileSize: number;
+    lastModified: Date;
+  }>,
+  rootFolderId: string
+): IFileNode[] => {
+  const pathToNode = new Map<string, IFileNode>();
+  const rootNodes: IFileNode[] = [];
+
+  // Sort paths to ensure parent directories are processed before children
+  const sortedFiles = [...databaseFiles].sort((a, b) => a.path.localeCompare(b.path));
+
+  for (const file of sortedFiles) {
+    const pathParts = file.path.split('/');
+
+    // Build each path segment as a node
+    for (let i = 0; i < pathParts.length; i++) {
+      const partialPath = pathParts.slice(0, i + 1).join('/');
+      const name = pathParts[i] || '';
+      const isFile = i === pathParts.length - 1 && file.fileType !== 'directory';
+
+      if (!pathToNode.has(partialPath)) {
+        const node: IFileNode = {
+          name,
+          path: partialPath,
+          type: isFile ? 'file' : 'directory',
+          handle: {} as FileSystemFileHandle | FileSystemDirectoryHandle, // Dummy handle for database nodes
+          depth: i,
+          selectionState: 'unchecked',
+          rootFolderId,
+          isVisible: true,
+          ...(isFile ? {} : { children: [] as IFileNode[] }),
+          ...(isFile && file.fileSize !== undefined ? { size: file.fileSize } : {}),
+          ...(isFile && file.lastModified ? { lastModified: file.lastModified.getTime() } : {}),
+        };
+
+        pathToNode.set(partialPath, node);
+
+        // Add to parent's children or root
+        if (i === 0) {
+          rootNodes.push(node);
+        } else {
+          const parentPath = pathParts.slice(0, i).join('/');
+          const parent = pathToNode.get(parentPath);
+          if (parent?.children) {
+            parent.children.push(node);
+          }
+        }
+      }
+    }
+  }
+
+  // Sort nodes at each level (directories first, then alphabetical)
+  const sortNodes = (nodes: IFileNode[]): IFileNode[] => {
+    return nodes.sort((a, b) => {
+      if (a.type !== b.type) {
+        if (a.type === 'directory') return -1;
+        if (b.type === 'directory') return 1;
+      }
+      return a.name.localeCompare(b.name, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      });
+    });
+  };
+
+  const applySortRecursively = (nodes: IFileNode[]): IFileNode[] => {
+    const sorted = sortNodes(nodes);
+    for (const node of sorted) {
+      if (node.children) {
+        node.children = applySortRecursively(node.children);
+      }
+    }
+    return sorted;
+  };
+
+  return applySortRecursively(rootNodes);
+};
+
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
-  const { fileSystemAdapter } = useAdapters();
+  const { fileSystemAdapter, storageAdapter } = useAdapters();
+  // Keep for any future database loading state - we'll need this hook later for database sync
+  useDatabaseFileLoading();
+  const store = useFileExplorerStoreContext();
+  const { databaseMode } = store((s) => ({ databaseMode: s.databaseMode }));
+
+  // Create FolderService instance
+  const folderService = useMemo(() => {
+    if (storageAdapter) {
+      // Create config for FileCacheService based on environment
+      const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+      const config = {
+        dataDir: isWeb ? 'idb://brainstrike-cache' : './cache',
+        pgOptions: {
+          relaxedDurability: true,
+          debug: false,
+        },
+        tableName: 'cached_files',
+      };
+
+      const cacheService = new FileCacheService(config);
+      return new FolderService(cacheService);
+    }
+    return null;
+  }, [storageAdapter]);
+
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -286,6 +398,47 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     [fileSystemAdapter, sortFileNodes, updateProgress, processFileEntry, processDirectoryEntry]
   );
 
+  const loadTreeFromDatabase = useCallback(
+    async (folderId: string) => {
+      try {
+        setLoadingProgress({
+          loaded: 0,
+          total: 100,
+          phase: 'loading',
+        });
+
+        if (!folderService) {
+          throw new Error('FolderService not available');
+        }
+
+        // Access the cache through reflection since it's private
+        // biome-ignore lint/suspicious/noExplicitAny: FolderService cache is private, need to access via reflection
+        const cacheService = (folderService as any).cache as FileCacheService;
+        const databaseFiles = await cacheService.getFolderContents(folderId);
+
+        if (databaseFiles.length === 0) {
+          setFileTree([]);
+          return;
+        }
+
+        const tree = buildFileTreeFromDatabase(databaseFiles, folderId);
+        setFileTree(tree);
+
+        setLoadingProgress({
+          loaded: databaseFiles.length,
+          total: databaseFiles.length,
+          phase: 'loading',
+        });
+      } catch (err) {
+        const error = ensureError(err);
+        console.error('Error loading tree from database:', error);
+        setError(error);
+        setFileTree([]);
+      }
+    },
+    [folderService]
+  );
+
   const loadTree = useCallback(async () => {
     if (!rootDirectoryHandle) {
       setFileTree([]);
@@ -301,6 +454,20 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     setError(null);
 
     try {
+      const folderId = rootDirectoryHandle.name;
+
+      // Check if we should load from database first
+      if (databaseMode && folderService) {
+        try {
+          await loadTreeFromDatabase(folderId);
+          return; // Successfully loaded from database
+        } catch (err) {
+          console.warn('Failed to load from database, falling back to file system:', err);
+          // Continue to file system loading below
+        }
+      }
+
+      // Load from file system (either not in database mode or database failed)
       const tree = await readFullTree(
         rootDirectoryHandle,
         rootDirectoryHandle,
@@ -328,7 +495,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       setIsCancelling(false);
       abortControllerRef.current = null;
     }
-  }, [rootDirectoryHandle, readFullTree]);
+  }, [rootDirectoryHandle, databaseMode, folderService, loadTreeFromDatabase, readFullTree]);
 
   const refreshTree = useCallback(async () => {
     await loadTree();

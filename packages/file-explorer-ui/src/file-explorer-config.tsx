@@ -4,6 +4,7 @@ import { Settings } from 'lucide-react';
 import type React from 'react';
 import { useEffect, useState } from 'react';
 import { shallow } from 'zustand/shallow';
+import DatabaseModeSetting from './database-mode-setting';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
@@ -19,6 +20,7 @@ interface FileExplorerSettings {
   maxSelectionCount: number;
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
+  databaseMode: boolean;
 }
 
 interface FileExplorerConfigProps {
@@ -36,11 +38,13 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
+    databaseMode,
     setMaxSelectionCount,
     setUseRegex,
     setFilters,
     setIncludeProjectTree,
     setFolderSummaryThreshold,
+    setDatabaseMode,
   } = store(
     (s) => ({
       includeFilters: s.includeFilters,
@@ -49,11 +53,13 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
       maxSelectionCount: s.maxSelectionCount,
       includeProjectTree: s.includeProjectTree,
       folderSummaryThreshold: s.folderSummaryThreshold,
+      databaseMode: s.databaseMode,
       setMaxSelectionCount: s.setMaxSelectionCount,
       setUseRegex: s.setUseRegex,
       setFilters: s.setFilters,
       setIncludeProjectTree: s.setIncludeProjectTree,
       setFolderSummaryThreshold: s.setFolderSummaryThreshold,
+      setDatabaseMode: s.setDatabaseMode,
     }),
     shallow
   );
@@ -65,6 +71,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
+    databaseMode,
   }));
 
   useEffect(() => {
@@ -77,6 +84,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
       maxSelectionCount,
       includeProjectTree,
       folderSummaryThreshold,
+      databaseMode,
     });
   }, [
     isOpen,
@@ -86,6 +94,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
+    databaseMode,
   ]);
 
   const handleSettingChange = <K extends keyof FileExplorerSettings>(
@@ -103,6 +112,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
       excludeFilters,
       includeProjectTree,
       folderSummaryThreshold,
+      databaseMode,
     } = settings;
 
     setMaxSelectionCount(maxSelectionCount);
@@ -110,6 +120,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     setFilters(includeFilters, excludeFilters);
     setIncludeProjectTree(includeProjectTree);
     setFolderSummaryThreshold(folderSummaryThreshold);
+    setDatabaseMode(databaseMode);
 
     onFilterChange(includeFilters, excludeFilters, useRegex);
     setIsOpen(false);
@@ -160,6 +171,10 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
                 }}
                 useRegex={settings.useRegex}
                 filterError={filterError}
+              />
+              <DatabaseModeSetting
+                checked={settings.databaseMode}
+                onChange={(checked) => handleSettingChange('databaseMode', checked)}
               />
               <div className="grid @md/settings:grid-cols-2 gap-4">
                 <UseRegexSetting

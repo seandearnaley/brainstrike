@@ -7,6 +7,8 @@ import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,10 +57,21 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
       'Cross-Origin-Opener-Policy': 'same-origin',
     },
+    fs: {
+      // Allow serving files from node_modules for WASM assets
+      allow: ['..', '../../node_modules']
+    },
+  },
+  // Worker configuration for WASM support
+  worker: {
+    format: 'es',
+    plugins: () => [wasm(), topLevelAwait()]
   },
   plugins: [
     react(),
     tailwindcss(),
+    wasm(),
+    topLevelAwait(),
     copyFontsPlugin(),
     // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
@@ -82,6 +95,8 @@ export default defineConfig({
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
     target: 'esnext', // Target modern browsers for WebAssembly support
+    // Ensure WASM files are copied correctly
+    copyPublicDir: true,
     rollupOptions: {
       external: ['electron'],
       output: {
@@ -114,12 +129,10 @@ export default defineConfig({
       '@brainstrike/ui',
       '@brainstrike/utils',
       '@brainstrike/file-explorer',
-      '@brainstrike/file-cache'
-    ],
-    // Include PGlite for proper bundling
-    include: [
+      '@brainstrike/file-cache',
+      // Exclude PGlite to let WASM plugin handle it properly
       '@electric-sql/pglite'
-    ]
+    ],
   },
   test: {
     globals: true,

@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '../types';
+import { BaseDatabaseAwareAdapter } from '../database-adapter';
+import type { DirectoryHandle, FileHandle } from '../types';
 
 // Type declarations for File System Access API
 declare global {
@@ -25,24 +26,77 @@ declare global {
   }
 }
 
-export class WebFileSystemAdapter implements FileSystemAdapter {
-  async requestDirectoryAccess(): Promise<DirectoryHandle> {
+export class WebFileSystemAdapter extends BaseDatabaseAwareAdapter {
+  async requestDirectoryAccess(options?: {
+    populateDatabase?: boolean;
+    onProgress?: (loaded: number, total: number) => void;
+  }): Promise<DirectoryHandle> {
     if (!('showDirectoryPicker' in window)) {
       throw new Error('File System Access API not supported');
     }
 
     const dirHandle = await window.showDirectoryPicker();
 
-    return {
+    const handle: DirectoryHandle = {
       path: dirHandle.name, // Web API doesn't give full path for security
       name: dirHandle.name,
       kind: 'directory',
       platform: 'web',
       _internal: dirHandle,
     };
+
+    // If database population is requested and we have a folder service
+    if (options?.populateDatabase && this.folderService && this.databaseMode) {
+      try {
+        const folderId = await this.folderService.openFolder(dirHandle, {
+          ...(options.onProgress && { onProgress: options.onProgress }),
+          // Default options for web
+          maxFileSize: 10 * 1024 * 1024, // 10MB limit for web
+          includeHidden: false,
+          fileFilter: (fileName) => {
+            // Filter out common binary and large files
+            const ext = fileName.toLowerCase().split('.').pop() || '';
+            const binaryExtensions = [
+              'jpg',
+              'jpeg',
+              'png',
+              'gif',
+              'mp4',
+              'mp3',
+              'zip',
+              'tar',
+              'gz',
+              'exe',
+              'dll',
+              'so',
+              'dylib',
+            ];
+            return !binaryExtensions.includes(ext);
+          },
+        });
+
+        // Store folder ID in handle for reference
+        (handle as { folderId?: string }).folderId = folderId;
+      } catch (error) {
+        console.error('Failed to populate database from folder:', error);
+        // Continue without database population on error
+      }
+    }
+
+    return handle;
   }
 
   async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
+    // Check if we have a folder ID and database mode is enabled
+    const folderId = (handle as { folderId?: string }).folderId;
+    if (folderId && this.databaseMode) {
+      const dbEntries = await this.readDirectoryFromDatabase(folderId);
+      if (dbEntries) {
+        return dbEntries;
+      }
+    }
+
+    // Fallback to file system reading
     const dirHandle = handle._internal as FileSystemDirectoryHandle;
     const entries: IFileNode[] = [];
 
@@ -87,6 +141,21 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(handle: FileHandle): Promise<string> {
+    // Check if we can read from database first
+    if (this.databaseMode && this.folderService) {
+      // Try to determine folder ID from path or handle
+      const folderId =
+        (handle as { folderId?: string; rootFolderId?: string }).folderId ||
+        (handle as { folderId?: string; rootFolderId?: string }).rootFolderId;
+      if (folderId) {
+        const dbContent = await this.readFileFromDatabase(folderId, handle.path);
+        if (dbContent !== null) {
+          return dbContent;
+        }
+      }
+    }
+
+    // Fallback to file system reading
     const fileHandle = handle._internal as FileSystemFileHandle;
     const file = await fileHandle.getFile();
     return await file.text();

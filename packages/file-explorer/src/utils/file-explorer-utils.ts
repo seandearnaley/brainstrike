@@ -7,6 +7,8 @@ export const saveFolderState = (
   folderId: string,
   now = Date.now()
 ): Record<string, FolderState> => {
+  const currentFolderState = state.folderStates[folderId];
+
   const folderState: FolderState = {
     selectedFilePaths: state.selectedFilePaths,
     expandedDirectoryPaths: state.expandedDirectoryPaths,
@@ -18,6 +20,10 @@ export const saveFolderState = (
     maxSelectionCount: state.maxSelectionCount,
     lastAccessed: now,
     lastActiveTab: state.lastActiveTab || 'files',
+    // Preserve database-first properties from existing state
+    databaseMode: currentFolderState?.databaseMode ?? state.databaseMode,
+    isPopulated: currentFolderState?.isPopulated ?? false,
+    populationProgress: currentFolderState?.populationProgress,
   };
 
   return {
@@ -69,5 +75,9 @@ export const createNewFolderState = (now = Date.now()): FolderState => {
     maxSelectionCount: 100,
     lastActiveTab: 'files',
     lastAccessed: now,
+    // Database-first properties
+    databaseMode: true, // Enable by default for new folders
+    isPopulated: false,
+    populationProgress: undefined,
   };
 };

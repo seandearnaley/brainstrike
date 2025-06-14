@@ -2,8 +2,9 @@ import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
+import { BaseDatabaseAwareAdapter } from '../database-adapter';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
-import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
+import type { DirectoryHandle, FileHandle, FileSystemChange } from '../types';
 
 /**
  * File system adapter for Electron applications
@@ -16,8 +17,9 @@ import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange }
  * - User cancellation detection
  * - Permission and access validation
  * - File watching capabilities
+ * - Database-first file loading support
  */
-export class ElectronFileSystemAdapter implements FileSystemAdapter {
+export class ElectronFileSystemAdapter extends BaseDatabaseAwareAdapter {
   /**
    * Requests directory access from the user via Electron's dialog
    *
@@ -27,7 +29,10 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
    * @throws {AccessError} When the selected path is invalid or inaccessible
    * @throws {DialogError} When the dialog fails to open
    */
-  async requestDirectoryAccess(): Promise<DirectoryHandle> {
+  async requestDirectoryAccess(options?: {
+    populateDatabase?: boolean;
+    onProgress?: (loaded: number, total: number) => void;
+  }): Promise<DirectoryHandle> {
     // Dynamically import electron to avoid issues in browser/test environments
     let dialog: Electron.Dialog;
     try {
@@ -49,10 +54,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       });
 
       if (result.canceled || result.filePaths.length === 0) {
-        throw new UserCancelledError(
-          'User cancelled directory selection',
-          this.requestDirectoryAccess
-        );
+        throw new UserCancelledError('User cancelled directory selection');
       }
 
       const selectedPath = result.filePaths[0];
@@ -64,12 +66,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       try {
         const stats = await fsPromises.stat(selectedPath);
         if (!stats.isDirectory()) {
-          throw new AccessError(
-            'Selected path is not a directory',
-            selectedPath,
-            'access',
-            this.requestDirectoryAccess
-          );
+          throw new AccessError('Selected path is not a directory', selectedPath, 'access');
         }
       } catch (accessError) {
         if (accessError instanceof AccessError) {
@@ -77,17 +74,97 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         }
         throw new PermissionError(
           `Cannot access selected directory: ${accessError instanceof Error ? accessError.message : 'Unknown error'}`,
-          selectedPath,
-          this.requestDirectoryAccess
+          selectedPath
         );
       }
 
-      return {
+      const handle: DirectoryHandle = {
         path: selectedPath,
         name: path.basename(selectedPath),
         kind: 'directory',
         platform: 'electron',
       };
+
+      // If database population is requested and we have a folder service
+      if (options?.populateDatabase && this.folderService && this.databaseMode) {
+        try {
+          // Create a mock FileSystemDirectoryHandle for Electron
+          const electronDirHandle = {
+            kind: 'directory' as const,
+            name: path.basename(selectedPath),
+            // Create an async iterator for entries
+            async *entries() {
+              const files = await fsPromises.readdir(selectedPath, { withFileTypes: true });
+              for (const dirent of files) {
+                const entryPath = path.join(selectedPath, dirent.name);
+                if (dirent.isDirectory()) {
+                  yield [
+                    dirent.name,
+                    {
+                      kind: 'directory' as const,
+                      name: dirent.name,
+                    },
+                  ] as [string, { kind: 'directory'; name: string }];
+                } else {
+                  yield [
+                    dirent.name,
+                    {
+                      kind: 'file' as const,
+                      name: dirent.name,
+                      async getFile() {
+                        const content = await fsPromises.readFile(entryPath);
+                        const stats = await fsPromises.stat(entryPath);
+                        return new File([content], dirent.name, {
+                          lastModified: stats.mtime.getTime(),
+                        });
+                      },
+                    },
+                  ] as [string, { kind: 'file'; name: string; getFile: () => Promise<File> }];
+                }
+              }
+            },
+          };
+
+          const folderId = await this.folderService.openFolder(
+            electronDirHandle as unknown as FileSystemDirectoryHandle,
+            {
+              ...(options.onProgress && { onProgress: options.onProgress }),
+              // Default options for Electron
+              maxFileSize: 50 * 1024 * 1024, // 50MB limit for Electron
+              includeHidden: false,
+              fileFilter: (fileName) => {
+                // Filter out common binary and large files
+                const ext = fileName.toLowerCase().split('.').pop() || '';
+                const binaryExtensions = [
+                  'jpg',
+                  'jpeg',
+                  'png',
+                  'gif',
+                  'mp4',
+                  'mp3',
+                  'zip',
+                  'tar',
+                  'gz',
+                  'exe',
+                  'dll',
+                  'so',
+                  'dylib',
+                  'app',
+                ];
+                return !binaryExtensions.includes(ext);
+              },
+            }
+          );
+
+          // Store folder ID in handle for reference
+          (handle as { folderId?: string }).folderId = folderId;
+        } catch (error) {
+          console.error('Failed to populate database from folder:', error);
+          // Continue without database population on error
+        }
+      }
+
+      return handle;
     } catch (error) {
       // Re-throw with better error handling
       if (
@@ -98,19 +175,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         throw error; // Preserve our custom errors
       }
       if (error instanceof Error) {
-        throw new DialogError(
-          `Failed to open directory dialog: ${error.message}`,
-          this.requestDirectoryAccess
-        );
+        throw new DialogError(`Failed to open directory dialog: ${error.message}`);
       }
-      throw new DialogError(
-        'Unknown error occurred while opening directory dialog',
-        this.requestDirectoryAccess
-      );
+      throw new DialogError('Unknown error occurred while opening directory dialog');
     }
   }
 
   async readDirectory(_handle: DirectoryHandle): Promise<IFileNode[]> {
+    // Check if we have a folder ID and database mode is enabled
+    const folderId = (_handle as { folderId?: string }).folderId;
+    if (folderId && this.databaseMode) {
+      const dbEntries = await this.readDirectoryFromDatabase(folderId);
+      if (dbEntries) {
+        return dbEntries;
+      }
+    }
+
+    // Fallback to file system reading
     try {
       const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
       const result: IFileNode[] = [];
@@ -177,6 +258,21 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(_handle: FileHandle): Promise<string> {
+    // Check if we can read from database first
+    if (this.databaseMode && this.folderService) {
+      // Try to determine folder ID from path or handle
+      const folderId =
+        (_handle as { folderId?: string; rootFolderId?: string }).folderId ||
+        (_handle as { folderId?: string; rootFolderId?: string }).rootFolderId;
+      if (folderId) {
+        const dbContent = await this.readFileFromDatabase(folderId, _handle.path);
+        if (dbContent !== null) {
+          return dbContent;
+        }
+      }
+    }
+
+    // Fallback to file system reading
     try {
       return await fsPromises.readFile(_handle.path, 'utf-8');
     } catch (error) {

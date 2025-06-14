@@ -39,6 +39,14 @@ const createMockState = (overrides: Partial<FileExplorerState> = {}): FileExplor
   setFileContent: vi.fn(),
   clearFileContents: vi.fn(),
   clearAllFileContents: vi.fn(),
+  // Database-first properties and actions
+  databaseMode: true,
+  currentFolderPopulated: false,
+  setDatabaseMode: vi.fn(),
+  setCurrentFolderPopulated: vi.fn(),
+  setFolderPopulated: vi.fn(),
+  setPopulationProgress: vi.fn(),
+  clearPopulationProgress: vi.fn(),
   ...overrides,
 });
 
@@ -63,6 +71,10 @@ describe('folder-state-actions hydrateFolderState', () => {
       maxSelectionCount: 10,
       lastActiveTab: 'settings',
       lastAccessed: Date.now(),
+      // Database-first folder properties
+      databaseMode: true,
+      isPopulated: false,
+      populationProgress: undefined,
     };
     const state = createMockState({ folderStates: { foo: folderState } });
     const actions = createFolderStateActions(mockSet, mockGet);
