@@ -17,9 +17,9 @@
 		"test:coverage": "turbo run test:coverage --summarize --log-order=grouped",
 		"test:e2e": "cd apps/web && pnpm run test:e2e",
 		"test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
-                "test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
-                "check": "pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e",
-                "clean": "turbo run clean --summarize --log-order=grouped",
+		"test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
+		"check": "pnpm install && pnpm run lint && pnpm run build && pnpm run type-check && pnpm run test && pnpm run test:e2e",
+		"clean": "turbo run clean --summarize --log-order=grouped",
 		"type-check": "turbo run type-check --summarize --log-order=grouped",
 		"knip": "knip",
 		"coverage:merge": "node scripts/merge-coverage.js",
@@ -42,7 +42,8 @@
 		"tsup": "^8.5.0",
 		"turbo": "^2.5.4",
 		"typescript": "^5.8.3",
-		"vitest": "^3.2.2"
+		"vite": "^6.3.5",
+		"vitest": "^3.2.3"
 	},
 	"packageManager": "pnpm@10.12.1",
 	"pnpm": {

@@ -3,16 +3,34 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
-  plugins: [react(), tailwindcss()],
+  plugins: [
+    react(),
+    tailwindcss(),
+    wasm(),
+    topLevelAwait(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: '../../node_modules/@electric-sql/pglite/dist/pglite.wasm',
+          dest: 'assets',
+        },
+      ],
+    }),
+  ],
   build: {
     outDir: 'dist/renderer',
     emptyOutDir: true,
+    target: 'esnext',
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, 'index.html'),
@@ -33,11 +51,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
+      src: path.resolve(__dirname, './src/renderer'),
+      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
     },
   },
+  worker: {
+    format: 'es',
+  },
   optimizeDeps: {
-    // Exclude workspace packages from optimization as they are treated as external
     exclude: [
+      '@electric-sql/pglite',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',

@@ -2,6 +2,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
@@ -55,6 +58,16 @@ export default defineConfig({
     react(),
     tailwindcss(),
     copyFontsPlugin(),
+    wasm(),
+    topLevelAwait(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: '../../node_modules/@electric-sql/pglite/dist/pglite.wasm',
+          dest: 'assets',
+        },
+      ],
+    }),
     // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
@@ -76,6 +89,8 @@ export default defineConfig({
     outDir: "dist", // Output directory for the build
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
+    target: 'esnext',
+    assetsInlineLimit: 0,
     rollupOptions: {
       external: ['electron'],
       output: {
@@ -96,16 +111,24 @@ export default defineConfig({
       src: path.resolve(__dirname, "./src"),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
     },
+  },  
+  worker: {
+    format: 'es',
   },
   optimizeDeps: {
-    // Exclude workspace packages from optimization as they are treated as external
     exclude: [
+      '@electric-sql/pglite',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/file-explorer'
-    ]
+      '@brainstrike/file-explorer',
+      '@brainstrike/file-explorer-hooks',
+      '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-system',
+      '@brainstrike/storage',
+      '@brainstrike/app-shell'
+    ],
   },
   test: {
     globals: true,
