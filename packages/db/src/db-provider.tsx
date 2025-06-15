@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useEffect, useMemo } from 'react';
+import { migrate } from './migrations/bootstrap.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
 
 interface DbContextValue {
@@ -15,10 +16,18 @@ interface DbProviderProps {
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
 export function DbProvider({ children, dbPath = 'app.db' }: DbProviderProps) {
-  const repository = useMemo(() => {
+  const { db, repository } = useMemo(() => {
     const db = new PGlite(dbPath);
-    return new FileRecordRepository(db);
+    const repository = new FileRecordRepository(db);
+    return { db, repository };
   }, [dbPath]);
+
+  useEffect(() => {
+    void migrate(db);
+    return () => {
+      void db.close();
+    };
+  }, [db]);
 
   const value = useMemo(() => ({ fileRecordRepository: repository }), [repository]);
 
