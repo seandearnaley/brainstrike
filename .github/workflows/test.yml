@@ -103,24 +103,67 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
-
-
       - name: Run Knip (detect unused code)
+        id: knip-analysis
         run: |
+          # Create a temporary file for the report
+          REPORT_FILE="knip-report.md"
+          
           # Run knip with consistent flags and capture output
           OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
           
           # Display the output for CI logs
           echo "$OUTPUT"
           
-          # Check if there are any issues and fail if found
+          # Save output for PR comment
           if echo "$OUTPUT" | grep -q "Unused"; then
+            # If issues found, save the output and fail
+            echo "$OUTPUT" > $REPORT_FILE
             echo "❌ Knip found unused code. Please review and clean up."
             exit 1
           else
+            # If no issues found, create a success message
+            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "" >> $REPORT_FILE
+            echo "Great job! Knip didn't find any unused files, exports, or dependencies." >> $REPORT_FILE
             echo "✅ No unused code detected!"
           fi
+          
+          # Ensure the file exists for PR comment step
+          touch $REPORT_FILE
         continue-on-error: false
+
+      # Comment on PR with Knip results if this is a PR
+      - name: Comment PR with Knip Results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            // Read the knip report with fallback
+            let knipReport = '## Knip analysis failed to run\n\nPlease check the workflow logs for details.';
+            if (fs.existsSync('knip-report.md')) {
+              knipReport = fs.readFileSync('knip-report.md', 'utf8');
+            }
+            
+            // Create the comment body
+            const body = `## Knip Code Analysis Results
+
+            ${knipReport}
+
+            > Knip helps identify unused code in your project to reduce bundle size and improve maintainability.
+            > 
+            > [Learn more about Knip](https://knip.dev)`;
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
 
       - name: Run tests with coverage (Unit & Integration)
         run: pnpm run test:coverage

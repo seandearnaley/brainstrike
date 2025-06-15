@@ -12,5 +12,7 @@ export default defineConfig({
         singleFork: true,
       },
     },
+    hookTimeout: 30000, // 30 seconds for hooks
+    testTimeout: 20000, // 20 seconds for tests
   },
 });

@@ -31,7 +31,7 @@ class WasmLoader {
     try {
       // Create a temporary PGlite instance to trigger WASM loading
       // Use memory database to avoid file system conflicts
-      const tempDb = new PGlite();
+      const tempDb = new PGlite(':memory:');
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');
