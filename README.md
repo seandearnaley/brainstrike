@@ -91,6 +91,7 @@ graph LR
             TAILWIND[packages/tailwind-config]:::configStyle
             FONTS[packages/fonts]:::configStyle
             CONFIG[packages/config]:::configStyle
+            DB[packages/db]:::coreStyle
         end
     end
 
@@ -106,7 +107,9 @@ graph LR
     WEB --> UTILS
     WEB --> TYPES
     WEB --> FEXPLORE_UI
+    WEB --> DB
     WEB --> SERVER_CONFIG
+    DESKTOP --> DB
 
     DESKTOP --> WEB
     DESKTOP --> UTILS
@@ -181,6 +184,7 @@ Below is a simplified overview of our monorepo structure, highlighting key areas
 │   ├── storage/        # 💾 Abstraction for data persistence
 │   │   └── src/
 │   │       └── adapters/   # (e.g., LocalStorage, Electron-store)
+│   ├── db/             # 🗄️ Local database helpers ([packages/db](./packages/db/README.md))
 │   ├── tailwind-config/# 🎨 Shared Tailwind CSS configuration
 │   ├── test-utils/     # 🧪 Utilities for testing
 │   ├── types/          # 🏷️ Shared TypeScript types and interfaces
