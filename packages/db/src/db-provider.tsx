@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
-import { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { migrate } from './migrations/bootstrap.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
 
