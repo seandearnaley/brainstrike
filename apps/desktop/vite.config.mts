@@ -3,6 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,8 +13,18 @@ export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
   plugins: [
+    wasm(),
+    topLevelAwait(),
     react(),
     tailwindcss(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+          dest: 'assets',
+        },
+      ],
+    }),
   ],
   build: {
     outDir: 'dist/renderer',
@@ -39,7 +52,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/dist/index.js'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
     },
   },
   worker: {

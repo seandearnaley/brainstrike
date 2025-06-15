@@ -23,7 +23,7 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <DbProvider dbPath="desktop.db">
+    <DbProvider dbPath="idb://desktop">
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
         <RootLayoutContent />
       </AdaptersProvider>

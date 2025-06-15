@@ -7,6 +7,9 @@ import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -52,9 +55,19 @@ export default defineConfig({
     host: true,
   },
   plugins: [
+    wasm(),
+    topLevelAwait(),
     react(),
     tailwindcss(),
     copyFontsPlugin(),
+    viteStaticCopy({
+      targets: [
+        {
+          src: path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+          dest: 'assets',
+        },
+      ],
+    }),
     // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
@@ -97,7 +110,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/dist/index.js'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
     },
   },  
   worker: {

@@ -1,6 +1,14 @@
 import type { PGlite } from '@electric-sql/pglite';
 import type { FileRecord } from '../models/file-record';
 
+const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
+  'name',
+  'path',
+  'size',
+  'createdAt',
+  'updatedAt',
+] as const;
+
 export class FileRecordRepository {
   constructor(private db: PGlite) {}
 
@@ -28,7 +36,9 @@ export class FileRecordRepository {
   }
 
   async update(id: string, updates: Partial<FileRecord>): Promise<void> {
-    const fields = Object.keys(updates).filter((k) => k !== 'id');
+    const fields = Object.keys(updates).filter((k): k is keyof FileRecord =>
+      ALLOWED_UPDATE_FIELDS.includes(k as keyof FileRecord)
+    );
     if (fields.length === 0) return;
     const updatesObj = updates as Record<string, unknown>;
     const values = fields.map((f) => updatesObj[f]);

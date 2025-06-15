@@ -283,6 +283,20 @@ export const IdeLayout = React.memo(function IdeLayout({
                 maxSize={50}
                 collapsible
                 collapsedSize={0}
+                onCollapse={() => {
+                  // Sync persistence when panel is collapsed via drag or API.
+                  saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, showRightPanel);
+                }}
+                onExpand={(size?: number) => {
+                  // size param may be undefined in some versions; fall back to last safe size.
+                  const newSize = typeof size === 'number' ? size : safeLeftSize;
+                  saveLayout(
+                    [newSize, safeRightSize, safeConsoleSize],
+                    undefined,
+                    true,
+                    showRightPanel
+                  );
+                }}
                 className="bg-background"
               >
                 <div className="h-full">
@@ -348,6 +362,23 @@ export const IdeLayout = React.memo(function IdeLayout({
                     maxSize={80}
                     collapsible
                     collapsedSize={0}
+                    onCollapse={() => {
+                      saveLayout(
+                        [safeLeftSize, safeRightSize, 0],
+                        false,
+                        showLeftPanel,
+                        showRightPanel
+                      );
+                    }}
+                    onExpand={(size?: number) => {
+                      const newSize = typeof size === 'number' ? size : safeConsoleSize;
+                      saveLayout(
+                        [safeLeftSize, safeRightSize, newSize],
+                        true,
+                        showLeftPanel,
+                        showRightPanel
+                      );
+                    }}
                     className="bg-background"
                   >
                     <div className="h-full border-t border-border">
@@ -401,6 +432,18 @@ export const IdeLayout = React.memo(function IdeLayout({
                 maxSize={60}
                 collapsible
                 collapsedSize={0}
+                onCollapse={() => {
+                  saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
+                }}
+                onExpand={(size?: number) => {
+                  const newSize = typeof size === 'number' ? size : safeRightSize;
+                  saveLayout(
+                    [safeLeftSize, newSize, safeConsoleSize],
+                    undefined,
+                    showLeftPanel,
+                    true
+                  );
+                }}
                 className="bg-background"
               >
                 <div className="h-full border-l border-border">

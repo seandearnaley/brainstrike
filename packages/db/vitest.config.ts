@@ -6,5 +6,11 @@ export default defineConfig({
     globals: true,
     include: ['__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
   },
 });

@@ -1,4 +1,4 @@
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
@@ -24,8 +24,20 @@ function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
 
 describe('DbProvider integration', () => {
   it('migrates, creates and retrieves records via context repository', async () => {
-    const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
-    const repo = result.current;
+    const { result } = renderHook(() => {
+      try {
+        return useFileRecordRepository();
+      } catch {
+        return null;
+      }
+    }, { wrapper });
+    
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+      expect(result.current).toBeDefined();
+    });
+    
+    const repo = result.current!;
 
     const record = createTestRecord();
     await repo.create(record);

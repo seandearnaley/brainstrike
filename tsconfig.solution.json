@@ -41,6 +41,9 @@
       "path": "packages/workers"
     },
     {
+      "path": "packages/db"
+    },
+    {
       "path": "apps/web"
     },
     {

@@ -52,7 +52,8 @@
       "Bash(npx playwright test:*)",
       "Bash(pnpm lint:*)",
       "Bash(pnpm format:*)",
-      "Bash(pnpm type-check:*)"
+      "Bash(pnpm type-check:*)",
+      "Bash(curl:*)"
     ],
     "deny": []
   },

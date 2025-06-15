@@ -12,6 +12,7 @@
       "@brainstrike/file-explorer-ui": ["packages/file-explorer-ui/src"],
       "@brainstrike/storage": ["packages/storage/src"],
       "@brainstrike/workers": ["packages/workers"],
+      "@brainstrike/db": ["packages/db/src"],
       "@web/*": ["apps/web/src/*"],
       "@desktop/*": ["apps/desktop/src/*"]
     },
@@ -34,6 +35,7 @@
     {"path": "./packages/file-explorer-hooks"},
     {"path": "./packages/file-explorer-ui"},
     {"path": "./packages/storage"},
+    {"path": "./packages/db"},
     {"path": "./apps/web"}
   ]
 }

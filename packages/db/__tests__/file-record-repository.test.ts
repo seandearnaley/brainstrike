@@ -29,7 +29,9 @@ describe('FileRecordRepository', () => {
   });
 
   afterEach(async () => {
-    await db.close();
+    if (db) {
+      await db.close();
+    }
   });
 
   it('creates and finds a record by id', async () => {
@@ -80,5 +82,17 @@ describe('FileRecordRepository', () => {
     await repo.update(record.id, {});
     const found = await repo.findById(record.id);
     expect(found).toEqual(record);
+  });
+
+  it('ignores disallowed update fields', async () => {
+    const record = createTestRecord();
+    await repo.create(record);
+    await repo.update(record.id, {
+      id: 'other',
+      name: 'changed',
+      bogus: 'ignored',
+    } as any);
+    const found = await repo.findById(record.id);
+    expect(found).toEqual({ ...record, name: 'changed' });
   });
 });

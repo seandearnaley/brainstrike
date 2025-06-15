@@ -16,9 +16,11 @@ pnpm add @brainstrike/db
 ### DbProvider
 
 `DbProvider` is exported from `@brainstrike/db` and creates a `PGlite` database
-using the provided `dbPath`. It exposes a `FileRecordRepository` via
-`useFileRecordRepository`. Both the web (`apps/web`) and desktop (`apps/desktop`)
-applications wrap their root components in this provider.
+using the provided `dbPath`. If `dbPath` is not supplied, the provider detects
+the runtime (`typeof window === 'undefined'`) and defaults to `app.db` for
+Node/Electron or `idb://app` for browsers. It exposes a `FileRecordRepository`
+via `useFileRecordRepository`. Both the web (`apps/web`) and desktop
+(`apps/desktop`) applications wrap their root components in this provider.
 
 ```tsx
 import React from 'react';
@@ -32,7 +34,7 @@ await migrate(db);
 export function Root() {
   // DbProvider will close the database on unmount once implemented
   return (
-    <DbProvider dbPath="app.db">
+    <DbProvider>
       {/* application components */}
     </DbProvider>
   );
@@ -64,7 +66,9 @@ const all = await repo.findAll();
 
 ## Migrations and Database Path
 
-Run migrations after creating a `PGlite` instance. The path passed to `PGlite` determines where the database is stored.
+Run migrations after creating a `PGlite` instance. The path passed to `PGlite` determines where the database is stored. When using `DbProvider` without a
+`dbPath` prop, it will automatically choose `app.db` in Node/Electron or
+`idb://app` in the browser.
 
 ```ts
 import { PGlite } from '@electric-sql/pglite';
