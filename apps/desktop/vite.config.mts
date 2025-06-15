@@ -1,3 +1,4 @@
+import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
@@ -9,6 +10,42 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Find the PGLite WASM file in different possible locations
+function findPGliteWasm(): string | null {
+  const possiblePaths = [
+    path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+    path.resolve(__dirname, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+  ];
+  
+  // Also try to find in pnpm directory structure with any version
+  try {
+    const pnpmDir = path.resolve(__dirname, '../../node_modules/.pnpm');
+    if (existsSync(pnpmDir)) {
+      const entries = readdirSync(pnpmDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
+          const wasmPath = path.join(pnpmDir, entry.name, 'node_modules/@electric-sql/pglite/dist/pglite.wasm');
+          possiblePaths.push(wasmPath);
+        }
+      }
+    }
+  } catch (err) {
+    // Ignore errors when scanning pnpm directory
+  }
+  
+  for (const wasmPath of possiblePaths) {
+    if (existsSync(wasmPath)) {
+      console.log(`Found PGLite WASM at: ${wasmPath}`);
+      return wasmPath;
+    }
+  }
+  
+  console.warn('PGLite WASM file not found in any expected location');
+  return null;
+}
+
+const wasmPath = findPGliteWasm();
+
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
@@ -17,14 +54,16 @@ export default defineConfig({
     topLevelAwait(),
     react(),
     tailwindcss(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
-          dest: 'assets',
-        },
-      ],
-    }),
+    ...(wasmPath ? [
+      viteStaticCopy({
+        targets: [
+          {
+            src: wasmPath,
+            dest: 'assets',
+          },
+        ],
+      })
+    ] : []),
   ],
   build: {
     outDir: 'dist/renderer',

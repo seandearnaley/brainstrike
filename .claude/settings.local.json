@@ -61,7 +61,8 @@
       "Bash(pnpm --dir packages/db test)",
       "Bash(PACKAGE_DIR=packages/db pnpm -C packages/db test)",
       "Bash(npx turbo test:*)",
-      "Bash(npx turbo type-check:*)"
+      "Bash(npx turbo type-check:*)",
+      "Bash(npx turbo build:*)"
     ],
     "deny": []
   },
