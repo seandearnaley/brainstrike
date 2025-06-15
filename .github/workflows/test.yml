@@ -222,7 +222,7 @@ jobs:
             coverage/
             apps/web/playwright-report/
             apps/web/test-results/ # For Vitest JUnit reports, if configured
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Run dependency vulnerability scan (Snyk)
