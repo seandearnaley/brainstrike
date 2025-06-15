@@ -1,6 +1,6 @@
 import React from 'react';
-import { renderHook, waitFor, act } from '@testing-library/react';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 vi.mock('@electric-sql/pglite', () => {
   return {
@@ -48,7 +48,6 @@ describe('DbProvider default dbPath', () => {
   it('getDefaultDbPath respects runtime', () => {
     const originalWindow = globalThis.window;
     expect(getDefaultDbPath()).toBe('idb://app');
-    // @ts-expect-error - delete window to simulate non-browser
     delete (globalThis as any).window;
     expect(getDefaultDbPath()).toBe('app.db');
     globalThis.window = originalWindow;
