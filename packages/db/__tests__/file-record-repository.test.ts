@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
 import { migrate } from '../src/migrations/bootstrap';
 import type { FileRecord } from '../src/models/file-record';
+import { wasmLoader } from '../src/wasm-loader';
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
@@ -22,7 +23,7 @@ describe('FileRecordRepository', () => {
   let repo: FileRecordRepository;
 
   beforeEach(async () => {
-    db = new PGlite(':memory:');
+    db = await wasmLoader.createPGlite(':memory:');
     await migrate(db);
     await db.query('DELETE FROM file_records');
     repo = new FileRecordRepository(db);

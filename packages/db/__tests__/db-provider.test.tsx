@@ -4,6 +4,7 @@ import React from 'react';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import { PGlite } from '@electric-sql/pglite';
 import * as migrations from '../src/migrations/bootstrap';
+import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Simple wrapper component for renderHook
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -25,18 +26,23 @@ describe('DbProvider', () => {
   });
 
   it('runs migrations on mount and closes db on unmount', async () => {
+    const mockDb = new PGlite(':memory:');
+    const createPGliteSpy = vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockResolvedValue(mockDb);
     const migrateSpy = vi
       .spyOn(migrations, 'migrate')
       .mockResolvedValue(undefined as unknown as void);
     const closeSpy = vi
-      .spyOn(PGlite.prototype, 'close')
+      .spyOn(mockDb, 'close')
       .mockResolvedValue(undefined as unknown as void);
 
     const { result, unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper,
     });
 
-    expect(migrateSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(result.current).toBeDefined());
     unmount();
 

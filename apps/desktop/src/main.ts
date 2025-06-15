@@ -32,9 +32,9 @@ function setupSecurity() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    // Development CSP - allow localhost and dev tools (removed unsafe-eval for security)
+    // Development CSP - allow localhost and dev tools (unsafe-eval needed for WASM)
     const devCSP =
-      "default-src 'self' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' http://localhost:*; style-src 'self' 'unsafe-inline' http://localhost:*; img-src 'self' data: blob: http://localhost:*; font-src 'self' data: http://localhost:*; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+      "default-src 'self' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; style-src 'self' 'unsafe-inline' http://localhost:*; img-src 'self' data: blob: http://localhost:*; font-src 'self' data: http://localhost:*; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     session.defaultSession.webRequest.onHeadersReceived(
       (details: WebRequestDetails, callback: WebRequestCallback) => {

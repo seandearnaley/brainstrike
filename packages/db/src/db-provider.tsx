@@ -1,8 +1,9 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { migrate } from './migrations/bootstrap.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
+import { wasmLoader } from './wasm-loader.js';
 
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | null;
@@ -31,13 +32,20 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
   });
 
   const dbRef = useRef<PGlite | null>(null);
+  const initializingRef = useRef<boolean>(false);
 
   useEffect(() => {
     let cancelled = false;
 
     const initializeDb = async () => {
+      if (initializingRef.current || dbRef.current) {
+        return;
+      }
+
+      initializingRef.current = true;
+
       try {
-        const db = new PGlite(resolvedPath);
+        const db = await wasmLoader.createPGlite(resolvedPath);
         dbRef.current = db;
 
         await migrate(db);
@@ -52,6 +60,8 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
         if (!cancelled) {
           setContextValue({ fileRecordRepository: null, error: err as Error, ready: true });
         }
+      } finally {
+        initializingRef.current = false;
       }
     };
 
@@ -66,6 +76,7 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
         });
         dbRef.current = null;
       }
+      initializingRef.current = false;
     };
   }, [resolvedPath]);
 
