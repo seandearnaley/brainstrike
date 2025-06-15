@@ -369,7 +369,25 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.3.3
         version: 0.3.3
+      react:
+        specifier: ^19.0.0
+        version: 19.1.0
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.1.0(react@19.1.0)
     devDependencies:
+      '@testing-library/react':
+        specifier: ^16.3.0
+        version: 16.3.0(@testing-library/dom@10.4.0)(@types/react-dom@19.1.6(@types/react@19.1.7))(@types/react@19.1.7)(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+      '@types/react':
+        specifier: ^19.1.7
+        version: 19.1.7
+      '@types/react-dom':
+        specifier: ^19.1.6
+        version: 19.1.6(@types/react@19.1.7)
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0
       typescript:
         specifier: ^5.4.0
         version: 5.8.3
@@ -384,7 +402,7 @@ importers:
         version: 3.4.1(vite@6.3.5(@types/node@24.0.0)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0))
       vitest:
         specifier: ^1.6.0
-        version: 1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+        version: 1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer:
     dependencies:
@@ -8073,7 +8091,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8191,7 +8209,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.14
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   '@vitest/utils@1.6.1':
     dependencies:
@@ -11388,7 +11406,7 @@ snapshots:
       lightningcss: 1.30.1
       terser: 5.42.0
 
-  vitest@1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
+  vitest@1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
     dependencies:
       '@vitest/expect': 1.6.1
       '@vitest/runner': 1.6.1

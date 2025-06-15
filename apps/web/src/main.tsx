@@ -1,10 +1,10 @@
+import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
-import { DbProvider } from './db-context';
 // Import global CSS
 import './app/globals.css';
 
@@ -23,7 +23,7 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HelmetProvider>
-      <DbProvider>
+      <DbProvider dbPath="web.db">
         <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
           <RootLayoutContent />
         </AdaptersProvider>

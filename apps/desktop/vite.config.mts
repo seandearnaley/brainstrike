@@ -3,9 +3,6 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -15,16 +12,6 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    wasm(),
-    topLevelAwait(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: '../../node_modules/@electric-sql/pglite/dist/pglite.wasm',
-          dest: 'assets',
-        },
-      ],
-    }),
   ],
   build: {
     outDir: 'dist/renderer',

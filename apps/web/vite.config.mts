@@ -2,9 +2,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
-import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
-import { viteStaticCopy } from "vite-plugin-static-copy";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 // import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
@@ -58,16 +55,6 @@ export default defineConfig({
     react(),
     tailwindcss(),
     copyFontsPlugin(),
-    wasm(),
-    topLevelAwait(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: '../../node_modules/@electric-sql/pglite/dist/pglite.wasm',
-          dest: 'assets',
-        },
-      ],
-    }),
     // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']

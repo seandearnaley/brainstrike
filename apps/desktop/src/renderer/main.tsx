@@ -1,10 +1,10 @@
+import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
-import { DbProvider } from './db-context';
 import './styles.css';
 
 // Import layout component
@@ -23,7 +23,7 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <DbProvider>
+    <DbProvider dbPath="desktop.db">
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
         <RootLayoutContent />
       </AdaptersProvider>
