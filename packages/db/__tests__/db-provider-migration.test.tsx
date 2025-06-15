@@ -1,9 +1,11 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import { migrate } from '../src/migrations/bootstrap';
 import type { FileRecord } from '../src/models/file-record';
+import { PGlite } from '@electric-sql/pglite';
+import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath=":memory:">{children}</DbProvider>;
@@ -23,7 +25,14 @@ function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
 }
 
 describe('DbProvider integration', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('migrates, creates and retrieves records via context repository', async () => {
+    // Mock the wasmLoader to return a real PGlite instance without WASM loading
+    const mockDb = new PGlite(':memory:');
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     const { result } = renderHook(() => {
       try {
         return useFileRecordRepository();

@@ -16,6 +16,10 @@ describe('DbProvider', () => {
     vi.restoreAllMocks();
   });
   it('exposes FileRecordRepository via context', async () => {
+    // Mock the wasmLoader to return a real PGlite instance without WASM loading
+    const mockDb = new PGlite(':memory:');
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
     await waitFor(() => expect(result.current).toBeDefined(), {
       timeout: 10000, // 10 seconds timeout for CI
