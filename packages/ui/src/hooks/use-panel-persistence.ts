@@ -203,9 +203,18 @@ export function usePanelPersistence(
       }
     };
 
-    if (!hasLoadedFromElectron.current) {
+    // Only try to load from Electron API if it's actually available
+    // In browser environments, this prevents overriding the localStorage state
+    if (
+      !hasLoadedFromElectron.current &&
+      typeof window !== 'undefined' &&
+      (window as any).electronAPI
+    ) {
       hasLoadedFromElectron.current = true;
       loadElectronLayout();
+    } else if (!hasLoadedFromElectron.current) {
+      // Mark as loaded to prevent future attempts in browser environments
+      hasLoadedFromElectron.current = true;
     }
   }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel]);
 

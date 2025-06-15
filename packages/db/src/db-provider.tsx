@@ -17,7 +17,7 @@ interface DbProviderProps {
 
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
-  return isBrowser ? 'idb://app' : 'memory';
+  return isBrowser ? 'idb://app' : 'app.db';
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);

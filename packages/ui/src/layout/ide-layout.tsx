@@ -48,6 +48,17 @@ export const IdeLayout = React.memo(function IdeLayout({
     ((compositeKey: string) => void) | null
   >(null);
 
+  // Flag to prevent panel callbacks from saving during initial render
+  const [isInitialRender, setIsInitialRender] = React.useState(true);
+
+  // Mark initial render as complete after mount
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setIsInitialRender(false);
+    }, 100); // Small delay to ensure panels are initialized
+    return () => clearTimeout(timeoutId);
+  }, []);
+
   // Stable callback so consumers don't get a new reference each render
   const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
     setOpenFileInTabFn(() => fn);
@@ -284,18 +295,29 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsible
                 collapsedSize={0}
                 onCollapse={() => {
-                  // Sync persistence when panel is collapsed via drag or API.
-                  saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, showRightPanel);
+                  // Prevent saving during initial render to avoid overriding localStorage state
+                  if (!isInitialRender) {
+                    // Sync persistence when panel is collapsed via drag or API.
+                    saveLayout(
+                      [0, safeRightSize, safeConsoleSize],
+                      undefined,
+                      false,
+                      showRightPanel
+                    );
+                  }
                 }}
                 onExpand={(size?: number) => {
-                  // size param may be undefined in some versions; fall back to last safe size.
-                  const newSize = typeof size === 'number' ? size : safeLeftSize;
-                  saveLayout(
-                    [newSize, safeRightSize, safeConsoleSize],
-                    undefined,
-                    true,
-                    showRightPanel
-                  );
+                  // Prevent saving during initial render to avoid overriding localStorage state
+                  if (!isInitialRender) {
+                    // size param may be undefined in some versions; fall back to last safe size.
+                    const newSize = typeof size === 'number' ? size : safeLeftSize;
+                    saveLayout(
+                      [newSize, safeRightSize, safeConsoleSize],
+                      undefined,
+                      true,
+                      showRightPanel
+                    );
+                  }
                 }}
                 className="bg-background"
               >
@@ -363,21 +385,27 @@ export const IdeLayout = React.memo(function IdeLayout({
                     collapsible
                     collapsedSize={0}
                     onCollapse={() => {
-                      saveLayout(
-                        [safeLeftSize, safeRightSize, 0],
-                        false,
-                        showLeftPanel,
-                        showRightPanel
-                      );
+                      // Prevent saving during initial render to avoid overriding localStorage state
+                      if (!isInitialRender) {
+                        saveLayout(
+                          [safeLeftSize, safeRightSize, 0],
+                          false,
+                          showLeftPanel,
+                          showRightPanel
+                        );
+                      }
                     }}
                     onExpand={(size?: number) => {
-                      const newSize = typeof size === 'number' ? size : safeConsoleSize;
-                      saveLayout(
-                        [safeLeftSize, safeRightSize, newSize],
-                        true,
-                        showLeftPanel,
-                        showRightPanel
-                      );
+                      // Prevent saving during initial render to avoid overriding localStorage state
+                      if (!isInitialRender) {
+                        const newSize = typeof size === 'number' ? size : safeConsoleSize;
+                        saveLayout(
+                          [safeLeftSize, safeRightSize, newSize],
+                          true,
+                          showLeftPanel,
+                          showRightPanel
+                        );
+                      }
                     }}
                     className="bg-background"
                   >
@@ -433,16 +461,22 @@ export const IdeLayout = React.memo(function IdeLayout({
                 collapsible
                 collapsedSize={0}
                 onCollapse={() => {
-                  saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
+                  // Prevent saving during initial render to avoid overriding localStorage state
+                  if (!isInitialRender) {
+                    saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
+                  }
                 }}
                 onExpand={(size?: number) => {
-                  const newSize = typeof size === 'number' ? size : safeRightSize;
-                  saveLayout(
-                    [safeLeftSize, newSize, safeConsoleSize],
-                    undefined,
-                    showLeftPanel,
-                    true
-                  );
+                  // Prevent saving during initial render to avoid overriding localStorage state
+                  if (!isInitialRender) {
+                    const newSize = typeof size === 'number' ? size : safeRightSize;
+                    saveLayout(
+                      [safeLeftSize, newSize, safeConsoleSize],
+                      undefined,
+                      showLeftPanel,
+                      true
+                    );
+                  }
                 }}
                 className="bg-background"
               >

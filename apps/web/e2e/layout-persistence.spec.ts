@@ -25,6 +25,9 @@ test.describe('IDE Layout Persistence', () => {
       const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
       await hideExplorerButton.click();
       
+      // Wait a bit for the save operation to complete
+      await page.waitForTimeout(500);
+      
       // Verify panel is hidden
       await expect(leftPanel).not.toBeVisible();
       
