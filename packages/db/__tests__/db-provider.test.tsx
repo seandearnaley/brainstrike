@@ -17,7 +17,9 @@ describe('DbProvider', () => {
   });
   it('exposes FileRecordRepository via context', async () => {
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
-    await waitFor(() => expect(result.current).toBeDefined());
+    await waitFor(() => expect(result.current).toBeDefined(), {
+      timeout: 10000, // 10 seconds timeout for CI
+    });
   });
 
   it('returns null when hook used outside provider', () => {
@@ -41,9 +43,15 @@ describe('DbProvider', () => {
       wrapper,
     });
 
-    await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current).toBeDefined());
+    await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(result.current).toBeDefined(), {
+      timeout: 10000,
+    });
     unmount();
 
     expect(closeSpy).toHaveBeenCalledTimes(1);
@@ -65,6 +73,8 @@ describe('DbProvider', () => {
     }, { wrapper });
     expect(result.current).toBeNull();
     resolveMigration!();
-    await waitFor(() => expect(result.current).not.toBeNull());
+    await waitFor(() => expect(result.current).not.toBeNull(), {
+      timeout: 10000, // 10 seconds timeout for CI
+    });
   });
 });

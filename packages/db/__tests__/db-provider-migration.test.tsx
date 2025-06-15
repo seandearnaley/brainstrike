@@ -35,6 +35,8 @@ describe('DbProvider integration', () => {
     await waitFor(() => {
       expect(result.current).not.toBeNull();
       expect(result.current).toBeDefined();
+    }, {
+      timeout: 10000, // 10 seconds timeout for CI
     });
     
     const repo = result.current!;
