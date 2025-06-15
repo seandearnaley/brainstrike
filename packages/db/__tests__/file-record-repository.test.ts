@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
 import { migrate } from '../src/migrations/bootstrap';
@@ -26,6 +26,10 @@ describe('FileRecordRepository', () => {
     await migrate(db);
     await db.query('DELETE FROM file_records');
     repo = new FileRecordRepository(db);
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   it('creates and finds a record by id', async () => {
