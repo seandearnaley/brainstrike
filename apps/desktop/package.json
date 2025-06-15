@@ -34,6 +34,7 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
+    "@brainstrike/db": "workspace:*",
     "electron-store": "^10.0.1",
     "react": "^19",
     "react-dom": "^19"

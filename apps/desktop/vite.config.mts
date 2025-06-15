@@ -50,9 +50,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src/renderer'),
-      src: path.resolve(__dirname, './src/renderer'),
+      '@': path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/dist/index.js'),
     },
   },
   worker: {

@@ -4,6 +4,7 @@ import type { IFileNode } from '@brainstrike/types';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import { DbProvider } from './db-context';
 import './styles.css';
 
 // Import layout component
@@ -22,8 +23,10 @@ if (!rootElement) {
 
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
-    <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-      <RootLayoutContent />
-    </AdaptersProvider>
+    <DbProvider>
+      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+        <RootLayoutContent />
+      </AdaptersProvider>
+    </DbProvider>
   </React.StrictMode>
 );

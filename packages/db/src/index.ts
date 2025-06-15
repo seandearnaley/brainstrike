@@ -1,2 +1,3 @@
-export * from './models/file-record';
-export * from './migrations/bootstrap';
+export type { FileRecord } from './models/file-record';
+export * from './migrations/bootstrap.js';
+export * from './repositories/file-record-repository.js';

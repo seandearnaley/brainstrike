@@ -75,8 +75,12 @@ class MockTextEncoder {
 }
 
 // Use type assertion to avoid type compatibility issues
-global.TextDecoder = MockTextDecoder as unknown as typeof global.TextDecoder;
-global.TextEncoder = MockTextEncoder as unknown as typeof global.TextEncoder;
+if (typeof global.TextDecoder === 'undefined') {
+  global.TextDecoder = MockTextDecoder as unknown as typeof global.TextDecoder;
+}
+if (typeof global.TextEncoder === 'undefined') {
+  global.TextEncoder = MockTextEncoder as unknown as typeof global.TextEncoder;
+}
 
 // Configure console to handle test output better
 const originalError = console.error;

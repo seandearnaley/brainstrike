@@ -4,6 +4,7 @@ import { createStorageAdapter } from '@brainstrike/storage';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
+import { DbProvider } from './db-context';
 // Import global CSS
 import './app/globals.css';
 
@@ -22,9 +23,11 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HelmetProvider>
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <RootLayoutContent />
-      </AdaptersProvider>
+      <DbProvider>
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
+      </DbProvider>
     </HelmetProvider>
   </React.StrictMode>
 );

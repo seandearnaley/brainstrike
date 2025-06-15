@@ -67,6 +67,9 @@ importers:
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
@@ -161,6 +164,9 @@ importers:
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
@@ -351,7 +357,7 @@ importers:
         version: 5.8.3
       vitest:
         specifier: ^1.6.0
-        version: 1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+        version: 1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer:
     dependencies:
@@ -7979,7 +7985,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8097,7 +8103,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.14
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@types/debug@4.1.12)(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   '@vitest/utils@1.6.1':
     dependencies:
@@ -11238,7 +11244,7 @@ snapshots:
       lightningcss: 1.30.1
       terser: 5.42.0
 
-  vitest@1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
+  vitest@1.6.1(@types/node@24.0.0)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
     dependencies:
       '@vitest/expect': 1.6.1
       '@vitest/runner': 1.6.1

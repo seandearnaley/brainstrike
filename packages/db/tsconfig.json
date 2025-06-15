@@ -5,13 +5,16 @@
     "rootDir": "src",
     "composite": true,
     "declaration": true,
+
     "declarationMap": true,
+    "declarationDir": "dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "module": "ESNext",
     "target": "ESNext",
-    "moduleResolution": "Node",
+
     "esModuleInterop": true,
     "skipLibCheck": true
   },
-  "include": ["src"],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["dist", "node_modules"]
 }

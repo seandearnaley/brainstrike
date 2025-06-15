@@ -23,6 +23,7 @@
 		{"path": "../../packages/utils"},
 		{"path": "../../packages/file-explorer"},
 		{"path": "../../packages/file-explorer-hooks"},
-		{"path": "../../packages/file-explorer-ui"}
+		{"path": "../../packages/file-explorer-ui"},
+		{"path": "../../packages/db"}
 	]
 }

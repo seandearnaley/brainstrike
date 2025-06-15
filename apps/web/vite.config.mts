@@ -110,6 +110,7 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/dist/index.js'),
     },
   },  
   worker: {
