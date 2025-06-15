@@ -69,6 +69,9 @@
     "typescript": "^5",
     "vite": "^6.3.5",
     "vitest": "^3.2.3",
+    "vite-plugin-wasm": "^3.4.1",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-static-copy": "^3.0.2",
     "@brainstrike/tailwind-config": "workspace:*"
   }
 }
