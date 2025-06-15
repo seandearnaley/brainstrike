@@ -15,29 +15,33 @@ pnpm add @brainstrike/db
 
 ### DbProvider
 
-Create a context so other components can access the `FileRecordRepository`:
+`DbProvider` is exported from `@brainstrike/db` and creates a `PGlite` database
+using the provided `dbPath`. It exposes a `FileRecordRepository` via
+`useFileRecordRepository`. Both the web (`apps/web`) and desktop (`apps/desktop`)
+applications wrap their root components in this provider.
 
 ```tsx
+import React from 'react';
+import { DbProvider, migrate, useFileRecordRepository } from '@brainstrike/db';
 import { PGlite } from '@electric-sql/pglite';
-import { FileRecordRepository, migrate } from '@brainstrike/db';
-import React, { createContext, useContext, useMemo } from 'react';
 
+// Run migrations before rendering the app
 const db = new PGlite('app.db');
 await migrate(db);
-const repo = new FileRecordRepository(db);
 
-const DbContext = createContext<{ fileRecordRepository: FileRecordRepository } | null>(null);
+export function Root() {
+  // DbProvider will close the database on unmount once implemented
+  return (
+    <DbProvider dbPath="app.db">
+      {/* application components */}
+    </DbProvider>
+  );
+}
 
-export const DbProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const value = useMemo(() => ({ fileRecordRepository: repo }), []);
-  return <DbContext.Provider value={value}>{children}</DbContext.Provider>;
-};
-
-export const useFileRecordRepository = () => {
-  const ctx = useContext(DbContext);
-  if (!ctx) throw new Error('useFileRecordRepository must be used within a DbProvider');
-  return ctx.fileRecordRepository;
-};
+function MyComponent() {
+  const repo = useFileRecordRepository();
+  // ...
+}
 ```
 
 ### FileRecordRepository
