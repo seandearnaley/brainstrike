@@ -62,7 +62,10 @@
       "Bash(PACKAGE_DIR=packages/db pnpm -C packages/db test)",
       "Bash(npx turbo test:*)",
       "Bash(npx turbo type-check:*)",
-      "Bash(npx turbo build:*)"
+      "Bash(npx turbo build:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm dev:*)",
+      "WebFetch(domain:pglite.dev)"
     ],
     "deny": []
   },

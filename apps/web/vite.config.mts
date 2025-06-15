@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-// import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
 import { copyFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import wasm from "vite-plugin-wasm";
@@ -90,6 +89,12 @@ export default defineConfig({
     port: 8080,
     host: true,
   },
+  define: {
+    'process.env': {},
+    'process.browser': true,
+    'process.version': '"v16.0.0"',
+    'process.platform': '"browser"',
+  },
   plugins: [
     wasm(),
     topLevelAwait(),
@@ -106,7 +111,6 @@ export default defineConfig({
         ],
       })
     ] : []),
-    // nodePolyfills block removed entirely
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
       ? [
@@ -156,7 +160,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: [
-      '@electric-sql/pglite',
+      '@electric-sql/pglite', // Official PGlite requirement
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
@@ -168,6 +172,11 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell'
     ],
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+      },
+    },
   },
   test: {
     globals: true,

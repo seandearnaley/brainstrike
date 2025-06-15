@@ -30,8 +30,10 @@ class WasmLoader {
   private async loadWasm(): Promise<void> {
     try {
       // Create a temporary PGlite instance to trigger WASM loading
-      // Use memory database to avoid file system conflicts
-      const tempDb = new PGlite(':memory:');
+      // Use browser-compatible storage to avoid Node.js filesystem conflicts
+      const isBrowser = typeof window !== 'undefined';
+      const tempDbPath = isBrowser ? 'memory://' : ':memory:';
+      const tempDb = new PGlite(tempDbPath);
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');

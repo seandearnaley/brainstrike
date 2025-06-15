@@ -23,13 +23,13 @@
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/server-config": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/db": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "dompurify": "^3.2.6",
     "monaco-editor": "^0.52.2",
@@ -42,6 +42,8 @@
   "devDependencies": {
     "@babel/core": "^7.27.4",
     "@biomejs/biome": "1.9.4",
+    "@brainstrike/tailwind-config": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
     "@codecov/vite-plugin": "^1.9.1",
     "@playwright/test": "^1.53.0",
     "@tailwindcss/vite": "^4.1.10",
@@ -59,7 +61,6 @@
     "happy-dom": "^18.0.1",
     "husky": "^9.1.7",
     "identity-obj-proxy": "^3.0.0",
-    "@brainstrike/test-utils": "workspace:*",
     "jsdom": "^26.1.0",
     "knip": "^5.61.0",
     "serve": "^14.2.4",
@@ -68,10 +69,10 @@
     "ts-node": "^10.9.2",
     "typescript": "^5",
     "vite": "^6.3.5",
-    "vitest": "^3.2.3",
-    "vite-plugin-wasm": "^3.4.1",
-    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-node-polyfills": "^0.23.0",
     "vite-plugin-static-copy": "^3.0.2",
-    "@brainstrike/tailwind-config": "workspace:*"
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1",
+    "vitest": "^3.2.3"
   }
 }
