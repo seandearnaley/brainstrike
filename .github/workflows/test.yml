@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  security-events: write # For Snyk & dependency scanning
+  security-events: write # For dependency scanning
 
 jobs:
   test:
@@ -37,6 +37,7 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
 
       - name: Cache Turborepo
         uses: actions/cache@v4
