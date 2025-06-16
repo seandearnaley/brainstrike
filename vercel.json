@@ -1,6 +1,8 @@
 {
+  "framework": null,
   "buildCommand": "pnpm -w run build:web",
   "outputDirectory": "apps/web/dist",
   "installCommand": "pnpm install",
-  "devCommand": "pnpm -w run dev --filter @brainstrike/web"
+  "devCommand": "pnpm -w run dev --filter @brainstrike/web",
+  "ignoreCommand": "exit 1"
 }
