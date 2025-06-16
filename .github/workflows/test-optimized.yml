@@ -85,7 +85,6 @@ jobs:
         run: pnpm run test:coverage
         env:
           NODE_ENV: "test"
-        continue-on-error: true
 
       - name: Upload unit test coverage
         uses: actions/upload-artifact@v4
@@ -210,8 +209,12 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
-      - name: Install minimal dependencies
+      - name: Install dependencies for merging
         run: |
+          # Install nyc at workspace root with explicit flag
+          pnpm add -D -w nyc
+          
+          # Install playwright test in web app
           cd apps/web
           pnpm add -D @playwright/test
 
@@ -242,8 +245,22 @@ jobs:
           echo "Contents of blob report directories:"
           ls -la ../../all-blob-reports/*/
           
-          # Merge reports from all shards - point to each subdirectory
-          pnpm exec playwright merge-reports --reporter html ../../all-blob-reports/blob-report-*
+          # Create a single directory with all blob files
+          mkdir -p ../../merged-blob-reports
+          
+          # Copy all blob report files to the merged directory
+          for dir in ../../all-blob-reports/blob-report-*/; do
+            if [ -d "$dir" ]; then
+              echo "Copying files from $dir"
+              cp -r "$dir"/* ../../merged-blob-reports/ || true
+            fi
+          done
+          
+          echo "Merged blob reports directory contents:"
+          ls -la ../../merged-blob-reports/
+          
+          # Merge reports using the correct directory structure
+          pnpm exec playwright merge-reports --reporter html ../../merged-blob-reports
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4
@@ -252,22 +269,30 @@ jobs:
           path: unit-coverage
 
       - name: Merge all coverage reports
+        if: always()
         run: |
-          # Install nyc for merging
-          pnpm add -D nyc
-          
           # Find and merge all coverage files
           echo "Finding coverage files..."
-          find unit-coverage -name "coverage-final.json" -type f
-          
-          # Create .nyc_output directory
-          mkdir -p .nyc_output
-          
-          # Merge coverage
-          pnpm exec nyc merge unit-coverage .nyc_output/coverage.json
-          
-          # Generate reports
-          pnpm exec nyc report --reporter=lcov --reporter=text --report-dir=./coverage
+          if [ -d "unit-coverage" ]; then
+            find unit-coverage -name "coverage-final.json" -type f
+            
+            # Create .nyc_output directory
+            mkdir -p .nyc_output
+            
+            # Merge coverage if files exist
+            if find unit-coverage -name "coverage-final.json" -type f | head -1 | grep -q .; then
+              echo "Merging coverage files..."
+              pnpm exec nyc merge unit-coverage .nyc_output/coverage.json
+              
+              # Generate reports
+              pnpm exec nyc report --reporter=lcov --reporter=text --report-dir=./coverage
+              echo "Coverage reports generated successfully"
+            else
+              echo "No coverage files found to merge"
+            fi
+          else
+            echo "No unit-coverage directory found"
+          fi
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -277,6 +302,7 @@ jobs:
           fail_ci_if_error: false
 
       - name: Upload final test results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: all-test-results
@@ -284,6 +310,7 @@ jobs:
             coverage/
             apps/web/playwright-report/
           retention-days: 7
+          if-no-files-found: warn
 
   # Optional checks that don't block merging
   code-quality:
