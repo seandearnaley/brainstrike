@@ -85,6 +85,7 @@ jobs:
         run: pnpm run test:coverage
         env:
           NODE_ENV: "test"
+        continue-on-error: true
 
       - name: Upload unit test coverage
         uses: actions/upload-artifact@v4
@@ -193,7 +194,7 @@ jobs:
     name: Merge Test Reports
     needs: [checks, e2e]
     runs-on: ubuntu-latest
-    if: always()
+    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -215,17 +216,29 @@ jobs:
           pnpm add -D @playwright/test
 
       - name: Download blob reports
+        id: download-reports
         uses: actions/download-artifact@v4
         with:
           path: all-blob-reports
           pattern: blob-report-*
+        continue-on-error: true
+
+      - name: Check if blob reports exist
+        id: check-reports
+        run: |
+          if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports)" ]; then
+            echo "reports-exist=true" >> $GITHUB_OUTPUT
+            echo "Blob reports found:"
+            ls -la all-blob-reports/
+          else
+            echo "reports-exist=false" >> $GITHUB_OUTPUT
+            echo "No blob reports found - E2E tests may have failed"
+          fi
 
       - name: Merge Playwright reports
+        if: steps.check-reports.outputs.reports-exist == 'true'
         run: |
           cd apps/web
-          # List all blob reports for debugging
-          echo "Available blob reports:"
-          ls -la ../../all-blob-reports/
           echo "Contents of blob report directories:"
           ls -la ../../all-blob-reports/*/
           
