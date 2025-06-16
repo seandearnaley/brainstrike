@@ -66,7 +66,9 @@
       "Bash(pnpm add:*)",
       "Bash(pnpm dev:*)",
       "WebFetch(domain:pglite.dev)",
-      "Bash(NODE_ENV=production pnpm test __tests__/db-provider.test.tsx)"
+      "Bash(NODE_ENV=production pnpm test __tests__/db-provider.test.tsx)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": []
   },

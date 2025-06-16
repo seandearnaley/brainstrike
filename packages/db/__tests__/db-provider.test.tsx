@@ -106,6 +106,11 @@ describe('DbProvider', () => {
   });
 
   it('waits for migrations before providing context', async () => {
+    // Mock the database creation to succeed
+    const mockDb = new PGlite(':memory:');
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+    
+    // Mock the migration to be delayed
     let resolveMigration: () => void;
     const migratePromise = new Promise<void>((resolve) => {
       resolveMigration = resolve;
