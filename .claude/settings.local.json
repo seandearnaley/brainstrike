@@ -73,7 +73,12 @@
       "Bash(npx vite:*)",
       "Bash(../../node_modules/.bin/vite build)",
       "Bash(turbo run build:*)",
-      "Bash(pnpm -w run build:web)"
+      "Bash(pnpm -w run build:web)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:vercel.link)",
+      "WebFetch(domain:vercel.com)"
     ],
     "deny": []
   },
