@@ -10,16 +10,15 @@ on:
 
 # Cancel in-progress runs when new commits are pushed
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
   pull-requests: write
   security-events: write
 
-env:
-  CI: "true"
+# CI environment variable is already set by GitHub Actions
 
 jobs:
   # Fast-fail checks that run in parallel
@@ -40,12 +39,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: '10.12.1'
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --prefer-offline]
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: 'pnpm'
 
       - name: Get pnpm store directory
         id: pnpm-cache
@@ -116,26 +117,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: '10.12.1'
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --prefer-offline]
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Get pnpm store directory
-        id: pnpm-cache
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-pnpm-store-
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -144,9 +133,6 @@ jobs:
           key: ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Get Playwright version
         id: playwright-version
@@ -202,21 +188,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: '10.12.1'
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --prefer-offline]
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: 'pnpm'
-
-      - name: Install dependencies for merging
-        run: |
-          # Install nyc at workspace root with explicit flag
-          pnpm add -D -w nyc
-          
-          # Install playwright test in web app
-          cd apps/web
-          pnpm add -D @playwright/test
 
       - name: Download blob reports
         id: download-reports
@@ -241,26 +220,25 @@ jobs:
       - name: Merge Playwright reports
         if: steps.check-reports.outputs.reports-exist == 'true'
         run: |
-          cd apps/web
           echo "Contents of blob report directories:"
-          ls -la ../../all-blob-reports/*/
+          ls -la all-blob-reports/*/
           
           # Create a single directory with all blob files
-          mkdir -p ../../merged-blob-reports
+          mkdir -p merged-blob-reports
           
           # Copy all blob report files to the merged directory
-          for dir in ../../all-blob-reports/blob-report-*/; do
+          for dir in all-blob-reports/blob-report-*/; do
             if [ -d "$dir" ]; then
               echo "Copying files from $dir"
-              cp -r "$dir"/* ../../merged-blob-reports/ || true
+              cp -r "$dir"/* merged-blob-reports/ || true
             fi
           done
           
           echo "Merged blob reports directory contents:"
-          ls -la ../../merged-blob-reports/
+          ls -la merged-blob-reports/
           
-          # Merge reports using the correct directory structure
-          pnpm exec playwright merge-reports --reporter html ../../merged-blob-reports
+          # Merge reports using the correct directory structure from root
+          cd apps/web && pnpm exec playwright merge-reports --reporter html ../../merged-blob-reports
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4
@@ -328,12 +306,14 @@ jobs:
         uses: pnpm/action-setup@v4
         with:
           version: '10.12.1'
+          run_install: |
+            - recursive: true
+              args: [--frozen-lockfile, --prefer-offline]
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
-          cache: 'pnpm'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
