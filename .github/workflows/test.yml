@@ -63,7 +63,7 @@ jobs:
 
       - name: Install Playwright browsers and dependencies
         if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install --with-deps
+        run: npx playwright install --with-deps --dry-run
 
       - name: Lint
         run: pnpm run lint

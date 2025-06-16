@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  cacheDir: path.resolve(__dirname, '../../.vite'),
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),

@@ -85,6 +85,7 @@ function copyFontsPlugin() {
 const wasmPath = findPGliteWasm();
 
 export default defineConfig({
+  cacheDir: path.resolve(__dirname, '../../.vite'),
   server: {
     port: 8080,
     host: true,
@@ -131,7 +132,7 @@ export default defineConfig({
     outDir: "dist", // Output directory for the build
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
-    target: 'esnext',
+    target: 'es2020',
     assetsInlineLimit: 0,
     rollupOptions: {
       external: ['electron'],

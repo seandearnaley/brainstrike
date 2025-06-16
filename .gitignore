@@ -84,6 +84,7 @@ web_modules
 
 # Vite build files
 /dist/
+.vite/
 # vite.config.js.timestamp-*.mjs
 
 # Turbo

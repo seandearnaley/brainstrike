@@ -49,6 +49,7 @@ const wasmPath = findPGliteWasm();
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
+  cacheDir: path.resolve(__dirname, '../../.vite'),
   plugins: [
     wasm(),
     topLevelAwait(),
