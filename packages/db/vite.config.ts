@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,14 +22,6 @@ export default defineConfig({
   },
   plugins: [
     wasm(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: '../../node_modules/@electric-sql/pglite/dist/pglite.wasm',
-          dest: 'assets',
-        },
-      ],
-    }),
   ],
   optimizeDeps: {
     exclude: ['@electric-sql/pglite'],

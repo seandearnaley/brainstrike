@@ -32,6 +32,7 @@ BrainStrike aims to revolutionize productivity by providing intelligent tools th
 Our monorepo is structured to support multiple applications and shared libraries efficiently.
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 %%{
   init: {
     'theme': 'base',
@@ -210,6 +211,7 @@ This structure helps us maintain a clean separation of concerns, allowing for in
 *   **Adapter Pattern:** `packages/file-system` and `packages/storage` use adapters, allowing them to work seamlessly in different environments (browser, Node.js/Electron, and for testing). This is crucial for platform flexibility.
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 graph LR;
     subgraph CoreLogic[File Explorer Core]
         direction LR

@@ -5,6 +5,7 @@ import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import { PGlite } from '@electric-sql/pglite';
 import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
+import * as utilsModule from '@brainstrike/utils';
 
 // Simple wrapper component for renderHook
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -31,7 +32,7 @@ describe('DbProvider', () => {
     expect(result.current).toBeNull();
   });
 
-  it('runs migrations on mount and closes db on unmount', async () => {
+  it('runs migrations on mount and closes db on unmount in production', async () => {
     const mockDb = new PGlite(':memory:');
     const createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
@@ -42,6 +43,11 @@ describe('DbProvider', () => {
     const closeSpy = vi
       .spyOn(mockDb, 'close')
       .mockResolvedValue(undefined as unknown as void);
+
+    // Mock production environment
+    const isDevEnvSpy = vi
+      .spyOn(utilsModule, 'isDevEnv')
+      .mockReturnValue(false);
 
     const { result, unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper,
@@ -59,6 +65,44 @@ describe('DbProvider', () => {
     unmount();
 
     expect(closeSpy).toHaveBeenCalledTimes(1);
+    isDevEnvSpy.mockRestore();
+  });
+
+  it('keeps db open on unmount in development (Fast Refresh)', async () => {
+    const mockDb = new PGlite(':memory:');
+    const createPGliteSpy = vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockResolvedValue(mockDb);
+    const migrateSpy = vi
+      .spyOn(migrations, 'migrate')
+      .mockResolvedValue(undefined as unknown as void);
+    const closeSpy = vi
+      .spyOn(mockDb, 'close')
+      .mockResolvedValue(undefined as unknown as void);
+
+    // Mock development environment
+    const isDevEnvSpy = vi
+      .spyOn(utilsModule, 'isDevEnv')
+      .mockReturnValue(true);
+
+    const { result, unmount } = renderHook(() => useFileRecordRepository(), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(migrateSpy).toHaveBeenCalledTimes(1), {
+      timeout: 10000,
+    });
+    await waitFor(() => expect(result.current).toBeDefined(), {
+      timeout: 10000,
+    });
+    unmount();
+
+    // In development, the database should NOT be closed to avoid Fast Refresh issues
+    expect(closeSpy).toHaveBeenCalledTimes(0);
+    isDevEnvSpy.mockRestore();
   });
 
   it('waits for migrations before providing context', async () => {

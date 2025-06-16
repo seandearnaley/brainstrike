@@ -7,7 +7,7 @@ vi.mock('@electric-sql/pglite', () => {
     PGlite: vi.fn(() => ({
       query: vi.fn(),
       exec: vi.fn(),
-      close: vi.fn(),
+      close: vi.fn().mockResolvedValue(undefined),
     })),
   };
 });
@@ -49,7 +49,7 @@ describe('DbProvider default dbPath', () => {
     const originalWindow = globalThis.window;
     expect(getDefaultDbPath()).toBe('idb://app');
     delete (globalThis as any).window;
-    expect(getDefaultDbPath()).toBe('app.db');
+    expect(getDefaultDbPath()).toBe('./app.db');
     globalThis.window = originalWindow;
   });
 });

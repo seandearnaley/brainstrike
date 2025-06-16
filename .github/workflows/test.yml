@@ -30,51 +30,40 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
-      - name: Get pnpm store path
-        id: pnpm-cache-dir
-        shell: sh # Ensure portability
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store and Turborepo
+      - name: Cache Turborepo
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.pnpm-cache-dir.outputs.STORE_PATH }}
-            .turbo
-          key: ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
+          path: .turbo
+          key: ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json') }}-
-            ${{ runner.os }}-pnpm-turbo-v3-
+            ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json') }}-
+            ${{ runner.os }}-turbo-v3-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Get Playwright version
+        id: playwright-version  
+        run: echo "version=$(pnpm exec playwright --version)" >> $GITHUB_OUTPUT
 
       - name: Cache Playwright browsers
         id: playwright-browsers-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-browsers-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
           restore-keys: |
-            ${{ runner.os }}-playwright-browsers-v2-
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright browsers and dependencies
+        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps
-
-      - name: List Playwright browser cache (debug)
-        run: ls -R ~/.cache/ms-playwright || true
-
-      - name: Verify Playwright installation
-        run: |
-          echo "Checking Playwright installation..."
-          pnpm exec playwright --version
-          echo "Checking available browsers..."
-          pnpm exec playwright install --dry-run || true
 
       - name: Lint
         run: pnpm run lint
@@ -133,9 +122,9 @@ jobs:
           touch $REPORT_FILE
         continue-on-error: false
 
-      # Comment on PR with Knip results if this is a PR
+      # Comment on PR with Knip results if this is a PR (but not from forks for security)
       - name: Comment PR with Knip Results
-        if: github.event_name == 'pull_request' && always()
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && always()
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -232,4 +221,4 @@ jobs:
         with:
           args: --severity-threshold=high
         env:
-          SNYK_TOKEN: ${{ secrets.SYNK_TOKEN }}
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}

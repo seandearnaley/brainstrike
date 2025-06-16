@@ -1,3 +1,4 @@
+import { isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -18,7 +19,20 @@ interface DbProviderProps {
 
 export function getDefaultDbPath() {
   const isBrowser = typeof window !== 'undefined';
-  return isBrowser ? 'idb://app' : 'app.db';
+  if (isBrowser) {
+    return 'idb://app';
+  }
+
+  // For Node.js/Electron environments, use a more appropriate default path
+  // In Electron, this should be overridden by the main process with app.getPath('userData')
+  // For now, use a safer default that's more likely to be writable
+  try {
+    // Use OS-specific temp/user directory as fallback
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript strict mode requires bracket notation for process.env
+    return process.env['TMPDIR'] || process.env['TEMP'] || process.env['TMP'] || './app.db';
+  } catch {
+    return './app.db';
+  }
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
@@ -71,10 +85,16 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
       cancelled = true;
       const db = dbRef.current;
       if (db) {
-        db.close().catch((err) => {
-          console.error('Failed to close database:', err);
-        });
-        dbRef.current = null;
+        // In development, avoid closing the database during Fast Refresh
+        // This prevents expensive re-initialization during HMR cycles
+        if (!isDevEnv()) {
+          db.close().catch((err) => {
+            console.error('Failed to close database:', err);
+          });
+          dbRef.current = null;
+        }
+        // In development, we keep the database open but still reset the initialization flag
+        // The database will be reused if the same path is requested again
       }
       initializingRef.current = false;
     };

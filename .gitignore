@@ -119,7 +119,7 @@ apps/desktop/dist/
 apps/desktop/electron-storage.json
 
 # PGlite
-packages/db/:memory:/
+*:memory:*
 packages/db/*.db
 apps/desktop/*.db
 apps/web/*.db

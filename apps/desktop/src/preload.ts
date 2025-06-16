@@ -21,4 +21,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Panel layout persistence
   saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),
   loadLayout: () => ipcRenderer.invoke('layout:load'),
+  // Database path
+  getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
 });

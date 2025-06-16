@@ -22,6 +22,8 @@ declare global {
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<void>;
       loadLayout: () => Promise<PanelPersistenceState | undefined>;
+      // Database path method
+      getUserDataPath: () => Promise<string>;
     };
   }
 }
