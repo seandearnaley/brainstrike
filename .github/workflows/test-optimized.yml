@@ -1,0 +1,318 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '**'
+
+# Cancel in-progress runs when new commits are pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: write
+
+env:
+  CI: "true"
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+
+jobs:
+  # Fast-fail checks that run in parallel
+  checks:
+    name: Lint, Type Check & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Build all packages
+        run: pnpm run build
+
+      - name: Run unit tests with coverage
+        run: pnpm run test:coverage
+        env:
+          NODE_ENV: "test"
+
+      - name: Upload unit test coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: |
+            **/coverage/coverage-final.json
+          retention-days: 1
+
+  # E2E tests run in parallel with sharding
+  e2e:
+    name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
+    needs: checks # Only run if checks pass
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2]
+        shardTotal: [2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.pnpm-store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(pnpm exec playwright --version)" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright Chromium
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright/chromium-*
+          key: ${{ runner.os }}-playwright-chromium-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install chromium --with-deps
+
+      - name: Ensure Playwright dependencies
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Build application
+        run: pnpm run build --filter web
+
+      - name: Run E2E tests (shard)
+        run: |
+          cd apps/web
+          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shardIndex }}
+          path: apps/web/blob-report
+          retention-days: 1
+
+  # Merge E2E test reports
+  merge-reports:
+    name: Merge Test Reports
+    needs: [checks, e2e]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install minimal dependencies
+        run: |
+          cd apps/web
+          pnpm add -D @playwright/test
+
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-blob-reports
+          pattern: blob-report-*
+
+      - name: Merge Playwright reports
+        run: |
+          cd apps/web
+          pnpm exec playwright merge-reports --reporter html ../all-blob-reports
+
+      - name: Download unit test coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: unit-coverage
+
+      - name: Merge all coverage reports
+        run: |
+          # Install nyc for merging
+          pnpm add -D nyc
+          
+          # Find and merge all coverage files
+          echo "Finding coverage files..."
+          find unit-coverage -name "coverage-final.json" -type f
+          
+          # Create .nyc_output directory
+          mkdir -p .nyc_output
+          
+          # Merge coverage
+          pnpm exec nyc merge unit-coverage .nyc_output/coverage.json
+          
+          # Generate reports
+          pnpm exec nyc report --reporter=lcov --reporter=text --report-dir=./coverage
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
+      - name: Upload final test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-test-results
+          path: |
+            coverage/
+            apps/web/playwright-report/
+          retention-days: 7
+
+  # Optional checks that don't block merging
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+        continue-on-error: true
+
+      - name: Run Knip analysis
+        id: knip-analysis
+        run: |
+          REPORT_FILE="knip-report.md"
+          OUTPUT=$(pnpm run knip -c knip.jsonc --cache --reporter markdown || true)
+          echo "$OUTPUT"
+          
+          if echo "$OUTPUT" | grep -q "Unused"; then
+            echo "$OUTPUT" > $REPORT_FILE
+            echo "has_issues=true" >> $GITHUB_OUTPUT
+          else
+            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "" >> $REPORT_FILE
+            echo "Great job! Knip didn't find any unused files, exports, or dependencies." >> $REPORT_FILE
+            echo "has_issues=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment PR with Knip Results
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let knipReport = '## Knip analysis failed to run\n\nPlease check the workflow logs for details.';
+            if (fs.existsSync('knip-report.md')) {
+              knipReport = fs.readFileSync('knip-report.md', 'utf8');
+            }
+            
+            const body = `## 🔍 Code Quality Analysis
+            
+            ${knipReport}
+            
+            > Knip helps identify unused code to reduce bundle size and improve maintainability.
+            > This check is non-blocking but please consider cleaning up unused code.
+            > 
+            > [Learn more about Knip](https://knip.dev)`;
+            
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
