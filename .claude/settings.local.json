@@ -71,7 +71,9 @@
       "Bash(git commit:*)",
       "Bash(turbo run test:*)",
       "Bash(npx vite:*)",
-      "Bash(../../node_modules/.bin/vite build)"
+      "Bash(../../node_modules/.bin/vite build)",
+      "Bash(turbo run build:*)",
+      "Bash(pnpm -w run build:web)"
     ],
     "deny": []
   },
