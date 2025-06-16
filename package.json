@@ -9,6 +9,7 @@
 	},
 	"scripts": {
 		"build": "turbo run build --summarize --log-order=grouped",
+		"build:web": "turbo run build --filter @brainstrike/web --summarize --log-order=grouped",
 		"dev": "turbo run dev",
 		"lint": "biome check .",
 		"format": "biome format . --write",
