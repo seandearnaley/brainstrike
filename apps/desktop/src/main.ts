@@ -32,9 +32,9 @@ function setupSecurity() {
   const isDev = !app.isPackaged;
 
   if (isDev) {
-    // Development CSP - allow localhost and dev tools (removed unsafe-eval for security)
+    // Development CSP - allow localhost and dev tools (unsafe-eval needed for WASM)
     const devCSP =
-      "default-src 'self' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' http://localhost:*; style-src 'self' 'unsafe-inline' http://localhost:*; img-src 'self' data: blob: http://localhost:*; font-src 'self' data: http://localhost:*; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+      "default-src 'self' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; style-src 'self' 'unsafe-inline' http://localhost:*; img-src 'self' data: blob: http://localhost:*; font-src 'self' data: http://localhost:*; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:*; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     session.defaultSession.webRequest.onHeadersReceived(
       (details: WebRequestDetails, callback: WebRequestCallback) => {
@@ -51,9 +51,9 @@ function setupSecurity() {
       console.log('🔒 Development CSP configured');
     }
   } else {
-    // Production CSP - more restrictive
+    // Production CSP - more restrictive but allows unsafe-eval for WASM (PGlite)
     const prodCSP =
-      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+      "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
 
     session.defaultSession.webRequest.onHeadersReceived(
       (details: WebRequestDetails, callback: WebRequestCallback) => {
@@ -186,7 +186,14 @@ ipcMain.handle('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: Direct
 ipcMain.handle('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) =>
   fileSystem.readFile(handle)
 );
-ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => fileSystem.exists(p));
+ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+  // Basic path validation - reject obviously malicious paths
+  if (p.includes('..') || p.startsWith('/etc/') || p.startsWith('/usr/') || p.startsWith('/var/')) {
+    console.warn('Rejected potentially unsafe path access:', p);
+    return false;
+  }
+  return fileSystem.exists(p);
+});
 
 // Layout persistence IPC handlers
 ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
@@ -206,3 +213,10 @@ ipcMain.handle('layout:load', async () => {
   ) as StoreSchema['panelLayout'] | undefined;
   return layout?.v1;
 });
+
+// Database path IPC handler
+ipcMain.handle('db:getUserDataPath', async () => {
+  return path.join(app.getPath('userData'), 'brainstrike.db');
+});
+
+export { createWindow, setupSecurity };

@@ -1,3 +1,4 @@
+import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
@@ -22,9 +23,11 @@ if (!rootElement) {
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <HelmetProvider>
-      <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <RootLayoutContent />
-      </AdaptersProvider>
+      <DbProvider dbPath="idb://web">
+        <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
+          <RootLayoutContent />
+        </AdaptersProvider>
+      </DbProvider>
     </HelmetProvider>
   </React.StrictMode>
 );

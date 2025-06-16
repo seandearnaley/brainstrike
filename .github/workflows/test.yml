@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
-  security-events: write # For Snyk & dependency scanning
+  security-events: write # For dependency scanning
 
 jobs:
   test:
@@ -27,54 +27,46 @@ jobs:
         with:
           fetch-depth: 0 # Required by Turborepo for determining affected packages
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22.x'
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Get pnpm store path
-        id: pnpm-cache-dir
-        shell: sh # Ensure portability
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
-
-      - name: Cache pnpm store and Turborepo
+      - name: Cache Turborepo
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.pnpm-cache-dir.outputs.STORE_PATH }}
-            .turbo
-          key: ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
+          path: .turbo
+          key: ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json', '**/tsconfig*.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json') }}-
-            ${{ runner.os }}-pnpm-turbo-v3-
+            ${{ runner.os }}-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.json') }}-
+            ${{ runner.os }}-turbo-v3-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Get Playwright version
+        id: playwright-version  
+        run: echo "version=$(pnpm exec playwright --version)" >> $GITHUB_OUTPUT
 
       - name: Cache Playwright browsers
         id: playwright-browsers-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-browsers-v2-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
           restore-keys: |
-            ${{ runner.os }}-playwright-browsers-v2-
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright browsers and dependencies
+        if: steps.playwright-browsers-cache.outputs.cache-hit != 'true'
         run: pnpm exec playwright install --with-deps
-
-      - name: List Playwright browser cache (debug)
-        run: ls -R ~/.cache/ms-playwright || true
-
-      - name: Verify Playwright installation
-        run: |
-          echo "Checking Playwright installation..."
-          pnpm exec playwright --version
-          echo "Checking available browsers..."
-          pnpm exec playwright install --dry-run || true
 
       - name: Lint
         run: pnpm run lint
@@ -103,24 +95,67 @@ jobs:
         run: pnpm audit --prod
         continue-on-error: true
 
-
-
       - name: Run Knip (detect unused code)
+        id: knip-analysis
         run: |
+          # Create a temporary file for the report
+          REPORT_FILE="knip-report.md"
+          
           # Run knip with consistent flags and capture output
           OUTPUT=$(pnpm run knip -c knip.jsonc --max-issues 10 --cache --reporter markdown || true)
           
           # Display the output for CI logs
           echo "$OUTPUT"
           
-          # Check if there are any issues and fail if found
+          # Save output for PR comment
           if echo "$OUTPUT" | grep -q "Unused"; then
+            # If issues found, save the output and fail
+            echo "$OUTPUT" > $REPORT_FILE
             echo "❌ Knip found unused code. Please review and clean up."
             exit 1
           else
+            # If no issues found, create a success message
+            echo "## ✅ No unused code detected!" > $REPORT_FILE
+            echo "" >> $REPORT_FILE
+            echo "Great job! Knip didn't find any unused files, exports, or dependencies." >> $REPORT_FILE
             echo "✅ No unused code detected!"
           fi
+          
+          # Ensure the file exists for PR comment step
+          touch $REPORT_FILE
         continue-on-error: false
+
+      # Comment on PR with Knip results if this is a PR (but not from forks for security)
+      - name: Comment PR with Knip Results
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            // Read the knip report with fallback
+            let knipReport = '## Knip analysis failed to run\n\nPlease check the workflow logs for details.';
+            if (fs.existsSync('knip-report.md')) {
+              knipReport = fs.readFileSync('knip-report.md', 'utf8');
+            }
+            
+            // Create the comment body
+            const body = `## Knip Code Analysis Results
+
+            ${knipReport}
+
+            > Knip helps identify unused code in your project to reduce bundle size and improve maintainability.
+            > 
+            > [Learn more about Knip](https://knip.dev)`;
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
 
       - name: Run tests with coverage (Unit & Integration)
         run: pnpm run test:coverage
@@ -142,17 +177,20 @@ jobs:
       - name: Process coverage reports
         if: always()
         run: |
+          echo "Verifying pnpm availability..."
+          which pnpm || (echo "pnpm not found in PATH" && exit 1)
+          
           echo "Listing all raw coverage files (coverage-final.json) to debug:"
           find . -path "*/coverage/coverage-final.json" -type f -ls
           
           echo "Running coverage merge script..."
-          pnpm run coverage:merge # This script should create .nyc_output/coverage.json
+          pnpm run coverage:merge
           
           echo "Checking for merged coverage file (.nyc_output/coverage.json)..."
           if [ -f .nyc_output/coverage.json ]; then
             echo ".nyc_output/coverage.json exists."
             echo "Running coverage report script (to generate lcov, text reports, etc. in ./coverage/)..."
-            pnpm run coverage:report # This script uses .nyc_output/coverage.json as input
+            pnpm run coverage:report
           else
             echo "WARN: Merged coverage file .nyc_output/coverage.json not found! Subsequent reports might be incomplete."
           fi
@@ -178,15 +216,6 @@ jobs:
           path: |
             coverage/
             apps/web/playwright-report/
-            apps/web/test-results/ # For Vitest JUnit reports, if configured
-          retention-days: 30
+            apps/web/test-results/
+          retention-days: 7
           if-no-files-found: warn
-
-      - name: Run dependency vulnerability scan (Snyk)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: snyk/actions/node@master # Consider using a specific tag like @0.7.0 for stability
-        continue-on-error: true
-        with:
-          args: --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SYNK_TOKEN }}

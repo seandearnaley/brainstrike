@@ -32,6 +32,7 @@ BrainStrike aims to revolutionize productivity by providing intelligent tools th
 Our monorepo is structured to support multiple applications and shared libraries efficiently.
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 %%{
   init: {
     'theme': 'base',
@@ -91,6 +92,7 @@ graph LR
             TAILWIND[packages/tailwind-config]:::configStyle
             FONTS[packages/fonts]:::configStyle
             CONFIG[packages/config]:::configStyle
+            DB[packages/db]:::coreStyle
         end
     end
 
@@ -106,7 +108,9 @@ graph LR
     WEB --> UTILS
     WEB --> TYPES
     WEB --> FEXPLORE_UI
+    WEB --> DB
     WEB --> SERVER_CONFIG
+    DESKTOP --> DB
 
     DESKTOP --> WEB
     DESKTOP --> UTILS
@@ -181,6 +185,7 @@ Below is a simplified overview of our monorepo structure, highlighting key areas
 │   ├── storage/        # 💾 Abstraction for data persistence
 │   │   └── src/
 │   │       └── adapters/   # (e.g., LocalStorage, Electron-store)
+│   ├── db/             # 🗄️ Local database helpers ([packages/db](./packages/db/README.md))
 │   ├── tailwind-config/# 🎨 Shared Tailwind CSS configuration
 │   ├── test-utils/     # 🧪 Utilities for testing
 │   ├── types/          # 🏷️ Shared TypeScript types and interfaces
@@ -206,6 +211,7 @@ This structure helps us maintain a clean separation of concerns, allowing for in
 *   **Adapter Pattern:** `packages/file-system` and `packages/storage` use adapters, allowing them to work seamlessly in different environments (browser, Node.js/Electron, and for testing). This is crucial for platform flexibility.
 
 ```mermaid
+%%{init: {'theme':'dark'}}%%
 graph LR;
     subgraph CoreLogic[File Explorer Core]
         direction LR

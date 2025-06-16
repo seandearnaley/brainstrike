@@ -52,9 +52,9 @@
     "@testing-library/react": "^16",
     "@testing-library/user-event": "^14",
     "@types/node": "^24",
-    "@types/react": "19.1.7",
+    "@types/react": "19.1.8",
     "@vitejs/plugin-react": "^4.5.2",
     "jsdom": "^26.1.0",
-    "lucide-react": "^0.514.0"
+    "lucide-react": "^0.515.0"
   }
 }

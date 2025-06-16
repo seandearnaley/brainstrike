@@ -1,5 +1,6 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import type { PanelPersistenceState } from '@brainstrike/ui';
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
@@ -18,6 +19,11 @@ declare global {
         readFile: (handle: FileHandle) => Promise<string>;
         exists: (path: string) => Promise<boolean>;
       };
+      // Layout persistence methods
+      saveLayout: (state: PanelPersistenceState) => Promise<void>;
+      loadLayout: () => Promise<PanelPersistenceState | undefined>;
+      // Database path method
+      getUserDataPath: () => Promise<string>;
     };
   }
 }

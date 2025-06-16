@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
@@ -41,9 +42,11 @@
   "devDependencies": {
     "@babel/core": "^7.27.4",
     "@biomejs/biome": "1.9.4",
+    "@brainstrike/tailwind-config": "workspace:*",
+    "@brainstrike/test-utils": "workspace:*",
     "@codecov/vite-plugin": "^1.9.1",
     "@playwright/test": "^1.53.0",
-    "@tailwindcss/vite": "^4.1.8",
+    "@tailwindcss/vite": "^4.1.10",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
@@ -54,20 +57,21 @@
     "@vitejs/plugin-react": "^4.5.2",
     "@vitest/coverage-v8": "^3.2.3",
     "@vitest/ui": "^3.2.3",
-    "glob": "^11.0.2",
+    "glob": "^11.0.3",
     "happy-dom": "^18.0.1",
     "husky": "^9.1.7",
     "identity-obj-proxy": "^3.0.0",
-    "@brainstrike/test-utils": "workspace:*",
     "jsdom": "^26.1.0",
-    "knip": "^5.60.2",
+    "knip": "^5.61.0",
     "serve": "^14.2.4",
-    "tailwindcss": "^4.1.8",
+    "tailwindcss": "^4.1.10",
     "terser": "^5.42.0",
     "ts-node": "^10.9.2",
     "typescript": "^5",
     "vite": "^6.3.5",
-    "vitest": "^3.2.3",
-    "@brainstrike/tailwind-config": "workspace:*"
+    "vite-plugin-static-copy": "^3.0.2",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.1",
+    "vitest": "^3.2.3"
   }
 }

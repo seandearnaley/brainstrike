@@ -2,6 +2,21 @@ import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LayoutElectronAPI } from '../types/electron';
 
+// Type-safe way to access electronAPI in different environments
+interface WindowWithElectronAPI {
+  electronAPI?: LayoutElectronAPI;
+}
+
+export const getElectronAPI = (): LayoutElectronAPI | undefined => {
+  if (typeof window === 'undefined') return undefined;
+  return (window as WindowWithElectronAPI).electronAPI;
+};
+
+export const hasElectronAPI = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return !!(window as WindowWithElectronAPI).electronAPI;
+};
+
 const STORAGE_KEY = 'panelLayout.v1';
 const SAVE_DEBOUNCE_MS = 250; // Debounce storage writes
 
@@ -106,7 +121,7 @@ export function usePanelPersistence(
 
   const executeSave = useCallback(async (stateToSave: PanelPersistenceState) => {
     try {
-      const electronAPI = (window as { electronAPI?: LayoutElectronAPI }).electronAPI;
+      const electronAPI = getElectronAPI();
       if (electronAPI?.saveLayout) {
         await electronAPI.saveLayout(stateToSave);
       } else if (typeof window !== 'undefined') {
@@ -182,7 +197,7 @@ export function usePanelPersistence(
   useEffect(() => {
     const loadElectronLayout = async () => {
       try {
-        const electronAPI = (window as { electronAPI?: LayoutElectronAPI }).electronAPI;
+        const electronAPI = getElectronAPI();
         if (electronAPI?.loadLayout) {
           const stored = await electronAPI.loadLayout();
           if (stored) {
@@ -203,9 +218,14 @@ export function usePanelPersistence(
       }
     };
 
-    if (!hasLoadedFromElectron.current) {
+    // Only try to load from Electron API if it's actually available
+    // In browser environments, this prevents overriding the localStorage state
+    if (!hasLoadedFromElectron.current && hasElectronAPI()) {
       hasLoadedFromElectron.current = true;
       loadElectronLayout();
+    } else if (!hasLoadedFromElectron.current) {
+      // Mark as loaded to prevent future attempts in browser environments
+      hasLoadedFromElectron.current = true;
     }
   }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel]);
 

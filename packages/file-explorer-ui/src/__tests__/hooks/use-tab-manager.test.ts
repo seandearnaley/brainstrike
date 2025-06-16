@@ -1,5 +1,13 @@
 import { act, renderHook } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+beforeAll(() => {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+afterAll(() => {
+  vi.restoreAllMocks();
+});
+
 import { useTabManager } from '../../hooks/use-tab-manager';
 
 describe('useTabManager', () => {
@@ -70,13 +78,14 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts');
+        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts', 'folder1:/src/index.ts');
       });
 
       expect(result.current.tabs).toHaveLength(1);
       expect(result.current.tabs[0]).toEqual({
         id: 'folder1:/src/index.ts',
         path: '/src/index.ts',
+        compositeKey: 'folder1:/src/index.ts',
         content: null,
         isLoading: true,
       });
@@ -89,12 +98,12 @@ describe('useTabManager', () => {
 
       // Open first tab
       act(() => {
-        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts');
+        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts', 'folder1:/src/index.ts');
       });
 
       // Open second tab
       act(() => {
-        result.current.openTab('/src/app.ts', 'folder1:/src/app.ts');
+        result.current.openTab('/src/app.ts', 'folder1:/src/app.ts', 'folder1:/src/app.ts');
       });
 
       expect(result.current.tabs).toHaveLength(2);
@@ -102,7 +111,7 @@ describe('useTabManager', () => {
 
       // Try to open first tab again
       act(() => {
-        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts');
+        result.current.openTab('/src/index.ts', 'folder1:/src/index.ts', 'folder1:/src/index.ts');
       });
 
       // Should not create a new tab, just activate the existing one
@@ -118,9 +127,9 @@ describe('useTabManager', () => {
 
       // Open three tabs
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
-        result.current.openTab('/src/app.ts', 'file2');
-        result.current.openTab('/src/utils.ts', 'file3');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
+        result.current.openTab('/src/app.ts', 'file2', 'file2');
+        result.current.openTab('/src/utils.ts', 'file3', 'file3');
       });
 
       expect(result.current.tabs).toHaveLength(3);
@@ -142,9 +151,9 @@ describe('useTabManager', () => {
 
       // Open three tabs
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
-        result.current.openTab('/src/app.ts', 'file2');
-        result.current.openTab('/src/utils.ts', 'file3');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
+        result.current.openTab('/src/app.ts', 'file2', 'file2');
+        result.current.openTab('/src/utils.ts', 'file3', 'file3');
       });
 
       // Close the active tab (file3)
@@ -161,7 +170,7 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
       act(() => {
@@ -178,15 +187,15 @@ describe('useTabManager', () => {
 
       // Open three tabs
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
       act(() => {
-        result.current.openTab('/src/app.ts', 'file2');
+        result.current.openTab('/src/app.ts', 'file2', 'file2');
       });
 
       act(() => {
-        result.current.openTab('/src/utils.ts', 'file3');
+        result.current.openTab('/src/utils.ts', 'file3', 'file3');
       });
 
       // Make the first one active
@@ -215,8 +224,8 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
-        result.current.openTab('/src/app.ts', 'file2');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
+        result.current.openTab('/src/app.ts', 'file2', 'file2');
       });
 
       expect(result.current.activeTabId).toBe('file2');
@@ -235,19 +244,19 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      expect(result.current.tabs[0].content).toBeNull();
-      expect(result.current.tabs[0].isLoading).toBe(true);
+      expect(result.current.tabs[0]?.content).toBeNull();
+      expect(result.current.tabs[0]?.isLoading).toBe(true);
 
       act(() => {
         result.current.updateTabContent('file1', 'const x = 42;');
       });
 
-      expect(result.current.tabs[0].content).toBe('const x = 42;');
-      expect(result.current.tabs[0].isLoading).toBe(false);
-      expect(result.current.tabs[0].error).toBeUndefined();
+      expect(result.current.tabs[0]?.content).toBe('const x = 42;');
+      expect(result.current.tabs[0]?.isLoading).toBe(false);
+      expect(result.current.tabs[0]?.error).toBeUndefined();
     });
   });
 
@@ -257,17 +266,17 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
         result.current.updateTabContent('file1', 'content');
       });
 
-      expect(result.current.tabs[0].isLoading).toBe(false);
+      expect(result.current.tabs[0]?.isLoading).toBe(false);
 
       act(() => {
         result.current.setTabLoading('file1', true);
       });
 
-      expect(result.current.tabs[0].isLoading).toBe(true);
+      expect(result.current.tabs[0]?.isLoading).toBe(true);
     });
 
     it('should clear error when setting loading to true', () => {
@@ -275,17 +284,17 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
         result.current.setTabError('file1', 'File not found');
       });
 
-      expect(result.current.tabs[0].error).toBe('File not found');
+      expect(result.current.tabs[0]?.error).toBe('File not found');
 
       act(() => {
         result.current.setTabLoading('file1', true);
       });
 
-      expect(result.current.tabs[0].error).toBeUndefined();
+      expect(result.current.tabs[0]?.error).toBeUndefined();
     });
   });
 
@@ -295,18 +304,18 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      expect(result.current.tabs[0].isLoading).toBe(true);
-      expect(result.current.tabs[0].error).toBeUndefined();
+      expect(result.current.tabs[0]?.isLoading).toBe(true);
+      expect(result.current.tabs[0]?.error).toBeUndefined();
 
       act(() => {
         result.current.setTabError('file1', 'Failed to load file');
       });
 
-      expect(result.current.tabs[0].error).toBe('Failed to load file');
-      expect(result.current.tabs[0].isLoading).toBe(false);
+      expect(result.current.tabs[0]?.error).toBe('Failed to load file');
+      expect(result.current.tabs[0]?.isLoading).toBe(false);
     });
   });
 
@@ -316,9 +325,9 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
-        result.current.openTab('/src/app.ts', 'file2');
-        result.current.openTab('/src/utils.ts', 'file3');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
+        result.current.openTab('/src/app.ts', 'file2', 'file2');
+        result.current.openTab('/src/utils.ts', 'file3', 'file3');
       });
 
       expect(result.current.tabs).toHaveLength(3);
@@ -339,7 +348,7 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
       // Wait for throttled save to trigger
@@ -354,6 +363,7 @@ describe('useTabManager', () => {
             {
               id: 'file1',
               path: '/src/index.ts',
+              compositeKey: 'file1',
             },
           ],
           activeTabId: 'file1',
@@ -372,7 +382,7 @@ describe('useTabManager', () => {
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
-        result.current.openTab('/src/index.ts', 'file1');
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
       // Wait for throttled save to trigger

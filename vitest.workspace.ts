@@ -18,4 +18,5 @@ export default defineWorkspace([
   './packages/config/vitest.config.ts',
   './packages/tailwind-config/vitest.config.ts',
   './packages/server-config/package.json',
+  './packages/db/vitest.config.ts',
 ]);

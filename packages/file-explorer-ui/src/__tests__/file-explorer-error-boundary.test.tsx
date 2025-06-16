@@ -1,7 +1,7 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { describe, expect, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 
 // Mock icons

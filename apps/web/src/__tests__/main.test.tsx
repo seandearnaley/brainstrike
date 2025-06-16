@@ -29,6 +29,23 @@ describe('main entry file', () => {
       default: { createRoot: createRootMock },
     }));
 
+    // Mock providers to render children directly
+    vi.mock('react-helmet-async', () => ({
+      HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
+    }));
+    vi.mock('@brainstrike/db', () => ({
+      DbProvider: ({ children }: { children: React.ReactNode }) => children,
+    }));
+    vi.mock('@brainstrike/file-explorer-hooks', () => ({
+      AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
+    }));
+    vi.mock('@brainstrike/file-system', () => ({
+      createFileSystemAdapter: () => ({}),
+    }));
+    vi.mock('@brainstrike/storage', () => ({
+      createStorageAdapter: () => ({}),
+    }));
+
     vi.mock('../app/root-layout-content', () => ({
       __esModule: true,
       default: () => <div data-testid="root-layout">Root Layout</div>,

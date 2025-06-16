@@ -153,3 +153,6 @@ Always run this before submitting changes.
 - Left/right sidebars and console panel
 - State preservation across sessions
 - Documented in `docs/ide-layout.md`
+
+
+ALWAYS CONSULT THE WEB FOR BEST PRACTICES WITH THE TECHNOLOGY STACK.

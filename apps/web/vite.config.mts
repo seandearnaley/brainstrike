@@ -4,11 +4,47 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
-// import { nodePolyfills } from "vite-plugin-node-polyfills"; // Removed
 import { codecovVitePlugin } from "@codecov/vite-plugin";
-import { copyFileSync, mkdirSync, existsSync } from "node:fs";
+import { copyFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
+import { viteStaticCopy } from "vite-plugin-static-copy";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Find the PGLite WASM file in different possible locations
+function findPGliteWasm(): string | null {
+  const possiblePaths = [
+    path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+    path.resolve(__dirname, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
+  ];
+  
+  // Also try to find in pnpm directory structure with any version
+  try {
+    const pnpmDir = path.resolve(__dirname, '../../node_modules/.pnpm');
+    if (existsSync(pnpmDir)) {
+      const entries = readdirSync(pnpmDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
+          const wasmPath = path.join(pnpmDir, entry.name, 'node_modules/@electric-sql/pglite/dist/pglite.wasm');
+          possiblePaths.push(wasmPath);
+        }
+      }
+    }
+  } catch (err) {
+    // Ignore errors when scanning pnpm directory
+  }
+  
+  for (const wasmPath of possiblePaths) {
+    if (existsSync(wasmPath)) {
+      console.log(`Found PGLite WASM at: ${wasmPath}`);
+      return wasmPath;
+    }
+  }
+  
+  console.warn('PGLite WASM file not found in any expected location');
+  return null;
+}
 
 function copyFontsPlugin() {
   return {
@@ -46,16 +82,36 @@ function copyFontsPlugin() {
   };
 }
 
+const wasmPath = findPGliteWasm();
+
 export default defineConfig({
+  cacheDir: path.resolve(__dirname, '../../.vite'),
   server: {
     port: 8080,
     host: true,
   },
+  define: {
+    'process.env': {},
+    'process.browser': true,
+    'process.version': '"v16.0.0"',
+    'process.platform': '"browser"',
+  },
   plugins: [
+    wasm(),
+    topLevelAwait(),
     react(),
     tailwindcss(),
     copyFontsPlugin(),
-    // nodePolyfills block removed entirely
+    ...(wasmPath ? [
+      viteStaticCopy({
+        targets: [
+          {
+            src: wasmPath,
+            dest: 'assets',
+          },
+        ],
+      })
+    ] : []),
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
       ? [
@@ -76,6 +132,8 @@ export default defineConfig({
     outDir: "dist", // Output directory for the build
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
+    target: 'es2020',
+    assetsInlineLimit: 0,
     rollupOptions: {
       external: ['electron'],
       output: {
@@ -95,17 +153,31 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       src: path.resolve(__dirname, "./src"),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
     },
+  },  
+  worker: {
+    format: 'es',
   },
   optimizeDeps: {
-    // Exclude workspace packages from optimization as they are treated as external
     exclude: [
+      '@electric-sql/pglite', // Official PGlite requirement
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
       '@brainstrike/utils',
-      '@brainstrike/file-explorer'
-    ]
+      '@brainstrike/file-explorer',
+      '@brainstrike/file-explorer-hooks',
+      '@brainstrike/file-explorer-ui',
+      '@brainstrike/file-system',
+      '@brainstrike/storage',
+      '@brainstrike/app-shell'
+    ],
+    esbuildOptions: {
+      define: {
+        global: 'globalThis',
+      },
+    },
   },
   test: {
     globals: true,
