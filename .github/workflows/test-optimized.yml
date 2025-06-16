@@ -26,9 +26,10 @@ jobs:
   checks:
     name: Lint, Type Check & Unit Tests
     runs-on: ubuntu-latest
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    # Uncomment to enable Turborepo remote caching:
+    # env:
+    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+    #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,10 +47,16 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
       - name: Cache pnpm store
         uses: actions/cache@v4
         with:
-          path: ~/.pnpm-store
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
@@ -92,9 +99,10 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    # Uncomment to enable Turborepo remote caching:
+    # env:
+    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+    #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     strategy:
       fail-fast: false
       matrix:
@@ -115,10 +123,16 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'pnpm'
 
+      - name: Get pnpm store directory
+        id: pnpm-cache
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
       - name: Cache pnpm store
         uses: actions/cache@v4
         with:
-          path: ~/.pnpm-store
+          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
           key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
             ${{ runner.os }}-pnpm-store-
@@ -143,7 +157,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright/chromium-*
-          key: ${{ runner.os }}-playwright-chromium-${{ steps.playwright-version.outputs.version }}
+          key: ${{ runner.os }}-playwright-chromium-${{ steps.playwright-version.outputs.version }}-shard-${{ matrix.shardIndex }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-chromium-${{ steps.playwright-version.outputs.version }}-
+            ${{ runner.os }}-playwright-chromium-
 
       - name: Install Playwright Chromium
         if: steps.playwright-cache.outputs.cache-hit != 'true'
@@ -208,6 +225,11 @@ jobs:
       - name: Merge Playwright reports
         run: |
           cd apps/web
+          # List all blob reports for debugging
+          echo "Available blob reports:"
+          ls -la ../all-blob-reports/
+          
+          # Merge reports from all shards
           pnpm exec playwright merge-reports --reporter html ../all-blob-reports
 
       - name: Download unit test coverage
@@ -255,9 +277,10 @@ jobs:
     name: Code Quality Checks
     runs-on: ubuntu-latest
     continue-on-error: true
-    env:
-      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    # Uncomment to enable Turborepo remote caching:
+    # env:
+    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+    #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
