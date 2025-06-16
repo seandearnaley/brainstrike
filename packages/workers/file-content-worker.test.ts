@@ -110,4 +110,31 @@ describe('file-content-worker', () => {
     expect(progress).toEqual([1, 2, 3, 4]);
     expect(adapter.maxActive).toBeLessThanOrEqual(2);
   });
+
+  it('returns loading error when readFile rejects', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/fail.txt');
+    MockFileSystemAdapter.setMockReadFileError('/fail.txt', new Error('fail'));
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toMatch('Error accessing file');
+  });
+
+  it('reports progress for failed files', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const successReq = createRequest('/good.txt');
+    const failReq = createRequest('/bad.txt');
+    MockFileSystemAdapter.setMockFileContent('/good.txt', 'ok');
+    MockFileSystemAdapter.setMockReadFileError('/bad.txt', new Error('fail'));
+
+    const progress: number[] = [];
+    const results = await worker([successReq, failReq], (e) => progress.push(e.loaded));
+
+    expect(progress).toEqual([1, 2]);
+    expect(results[successReq.compositeKey]).toBe('ok');
+    expect(results[failReq.compositeKey]).toMatch('Error accessing file');
+  });
 });

@@ -2,12 +2,18 @@ declare var process: NodeJS.Process;
 import { describe, it, expect, afterEach } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
 import { wasmLoader } from '../src/wasm-loader';
+import * as dbIndex from '../src/index';
 
 describe('PGlite bootstrap', () => {
   let db: PGlite;
 
   afterEach(async () => {
-    await db.close();
+    if (db) {
+      await db.close();
+      // reset to avoid double close errors
+      // @ts-expect-error allow assigning undefined
+      db = undefined;
+    }
   });
 
   it('should instantiate PGlite in production mode', async () => {
@@ -28,5 +34,10 @@ describe('PGlite bootstrap', () => {
         (process.env as NodeJS.ProcessEnv)[envVar] = previous;
       }
     }
+  });
+
+  it('index exports expected members', () => {
+    expect(dbIndex.wasmLoader).toBeDefined();
+    expect(dbIndex.DbProvider).toBeDefined();
   });
 });

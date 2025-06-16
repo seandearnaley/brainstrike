@@ -218,3 +218,5 @@ ipcMain.handle('layout:load', async () => {
 ipcMain.handle('db:getUserDataPath', async () => {
   return path.join(app.getPath('userData'), 'brainstrike.db');
 });
+
+export { createWindow, setupSecurity };

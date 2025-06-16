@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { type Mock, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
 import { IdeLayout } from '../layout/ide-layout';
@@ -18,6 +18,14 @@ const panelHandles: Record<
     isExpanded: Mock;
     expand: Mock;
     collapse: Mock;
+  }
+> = {};
+
+const panelCallbacks: Record<
+  string,
+  {
+    onCollapse?: (size?: number) => void;
+    onExpand?: (size?: number) => void;
   }
 > = {};
 
@@ -51,30 +59,46 @@ vi.mock('react-resizable-panels', () => {
 
   interface PanelProps extends React.HTMLAttributes<HTMLDivElement> {
     children?: React.ReactNode;
+    onCollapse?: (size?: number) => void;
+    onExpand?: (size?: number) => void;
   }
 
-  const Panel = forwardRef<MockImperativeHandle, PanelProps>(({ children, ...props }, ref) => {
-    const handle = {
-      isCollapsed: vi.fn().mockReturnValue(false),
-      isExpanded: vi.fn().mockReturnValue(true),
-      expand: vi.fn(),
-      collapse: vi.fn(),
-    } as {
-      isCollapsed: Mock;
-      isExpanded: Mock;
-      expand: Mock;
-      collapse: Mock;
-    };
-    useImperativeHandle(ref, () => handle);
-    if (props.id) {
-      panelHandles[String(props.id)] = handle;
+  const Panel = forwardRef<MockImperativeHandle, PanelProps>(
+    ({ children, onCollapse, onExpand, ...props }, ref) => {
+      const handle = {
+        isCollapsed: vi.fn().mockReturnValue(false),
+        isExpanded: vi.fn().mockReturnValue(true),
+        expand: vi.fn(() => {
+          if (onExpand) onExpand();
+        }),
+        collapse: vi.fn(() => {
+          if (onCollapse) onCollapse();
+        }),
+      } as {
+        isCollapsed: Mock;
+        isExpanded: Mock;
+        expand: Mock;
+        collapse: Mock;
+      };
+      useImperativeHandle(ref, () => handle);
+      if (props.id) {
+        const id = String(props.id);
+        panelHandles[id] = handle;
+        const callbacks: {
+          onCollapse?: (size?: number) => void;
+          onExpand?: (size?: number) => void;
+        } = {};
+        if (onCollapse) callbacks.onCollapse = onCollapse;
+        if (onExpand) callbacks.onExpand = onExpand;
+        panelCallbacks[id] = callbacks;
+      }
+      return (
+        <div data-testid="panel" {...props}>
+          {children}
+        </div>
+      );
     }
-    return (
-      <div data-testid="panel" {...props}>
-        {children}
-      </div>
-    );
-  });
+  );
 
   const PanelResizeHandle = ({ children }: { children?: React.ReactNode }) => (
     <div data-testid="resize-handle">{children}</div>
@@ -206,7 +230,9 @@ describe('IdeLayout', () => {
       handle.isCollapsed.mockReturnValue(true);
     }
 
-    vi.runAllTimers();
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
 
     if (handle) {
       expect(handle.expand).toHaveBeenCalled();
@@ -247,7 +273,9 @@ describe('IdeLayout', () => {
       handle.isCollapsed.mockReturnValue(true);
     }
 
-    vi.runAllTimers();
+    act(() => {
+      vi.runAllTimers();
+    });
 
     if (handle) {
       expect(handle.expand).toHaveBeenCalled();
@@ -296,5 +324,34 @@ describe('IdeLayout', () => {
     renderDefaultLayout();
 
     expect(screen.getByText('File Editor')).toBeInTheDocument();
+  });
+
+  it('defers persistence until after initial render', () => {
+    vi.useFakeTimers();
+    const utils = renderDefaultLayout();
+
+    panelHandles['left-panel']?.collapse();
+    panelHandles['right-panel']?.collapse();
+    panelHandles['console-panel']?.collapse();
+
+    expect(mockState.saveLayout).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+      utils.rerender(
+        <IdeLayout
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+          consoleContent={consoleContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+    });
+
+    panelHandles['left-panel']?.collapse();
+
+    expect(mockState.saveLayout).toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });
