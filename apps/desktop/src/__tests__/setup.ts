@@ -21,6 +21,7 @@ const mockElectronAPI = {
     readFile: vi.fn().mockResolvedValue('mock file content'),
     exists: vi.fn().mockResolvedValue(true),
   },
+  getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
 };
 
 // Mock window.electronAPI
