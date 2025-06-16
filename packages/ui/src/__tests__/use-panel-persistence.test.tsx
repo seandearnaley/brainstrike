@@ -1,5 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
-import { usePanelPersistence } from '../hooks/use-panel-persistence';
+import {
+  getElectronAPI,
+  hasElectronAPI,
+  usePanelPersistence,
+} from '../hooks/use-panel-persistence';
 
 // Mock localStorage
 const localStorageMock = {
@@ -44,6 +48,21 @@ describe('usePanelPersistence', () => {
   afterEach(() => {
     vi.useRealTimers();
     (window as { electronAPI?: unknown }).electronAPI = undefined;
+  });
+
+  describe('Electron API helpers', () => {
+    it('returns undefined and false when electronAPI is absent', () => {
+      (window as { electronAPI?: unknown }).electronAPI = undefined;
+      expect(getElectronAPI()).toBeUndefined();
+      expect(hasElectronAPI()).toBe(false);
+    });
+
+    it('returns the object and true when electronAPI is defined', () => {
+      const api = {} as unknown as typeof electronAPIMock;
+      (window as { electronAPI?: unknown }).electronAPI = api;
+      expect(getElectronAPI()).toBe(api);
+      expect(hasElectronAPI()).toBe(true);
+    });
   });
 
   it('should initialize with default values when no stored data', () => {
@@ -261,6 +280,20 @@ describe('usePanelPersistence', () => {
     expect(result.current.showConsole).toBe(true);
     expect(result.current.showLeftPanel).toBe(false);
     expect(result.current.showRightPanel).toBe(true);
+  });
+
+  it('should not load from Electron API when unavailable', async () => {
+    localStorageMock.getItem.mockReturnValue(null);
+    (window as { electronAPI?: unknown }).electronAPI = undefined;
+
+    const { result } = renderHook(() => usePanelPersistence([20, 30], false));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    expect(electronAPIMock.loadLayout).not.toHaveBeenCalled();
+    expect(result.current.sizes).toEqual([20, 30]);
   });
 
   it('should handle localStorage errors gracefully', () => {

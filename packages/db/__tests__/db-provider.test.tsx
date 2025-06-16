@@ -130,4 +130,58 @@ describe('DbProvider', () => {
       timeout: 10000, // 10 seconds timeout for CI
     });
   });
+
+  it('returns null and logs error when initialization fails', async () => {
+    const error = new Error('init failed');
+    const consoleSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockRejectedValue(error);
+
+    const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to initialize and migrate database:',
+        error,
+      );
+    });
+
+    expect(result.current).toBeNull();
+    consoleSpy.mockRestore();
+  });
+
+  it('logs an error if closing the db fails on unmount', async () => {
+    const mockDb = new PGlite(':memory:');
+    vi
+      .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
+      .mockResolvedValue(mockDb);
+    vi
+      .spyOn(migrations, 'migrate')
+      .mockResolvedValue(undefined as unknown as void);
+    vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+    const closeError = new Error('close failed');
+    const closeSpy = vi
+      .spyOn(mockDb, 'close')
+      .mockRejectedValue(closeError);
+    const consoleSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
+    const { result, unmount } = renderHook(() => useFileRecordRepository(), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current).toBeDefined(), { timeout: 10000 });
+
+    expect(() => unmount()).not.toThrow();
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to close database:',
+        closeError,
+      );
+    });
+    consoleSpy.mockRestore();
+  });
 });

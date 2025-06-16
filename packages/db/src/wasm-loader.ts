@@ -14,9 +14,9 @@ class WasmLoader {
     return WasmLoader.instance;
   }
 
-  async ensureWasmLoaded(): Promise<void> {
+  ensureWasmLoaded(): Promise<void> {
     if (this.isLoaded) {
-      return;
+      return Promise.resolve();
     }
 
     if (this.wasmLoadPromise) {
@@ -24,7 +24,7 @@ class WasmLoader {
     }
 
     this.wasmLoadPromise = this.loadWasm();
-    await this.wasmLoadPromise;
+    return this.wasmLoadPromise;
   }
 
   private async loadWasm(): Promise<void> {

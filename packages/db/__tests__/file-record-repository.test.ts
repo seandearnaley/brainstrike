@@ -69,6 +69,17 @@ describe('FileRecordRepository', () => {
     expect(updated?.path).toBe(record.path);
   });
 
+  it('updates createdAt and updatedAt', async () => {
+    const record = createTestRecord();
+    await repo.create(record);
+    const newCreatedAt = new Date(Date.now() - 1000).toISOString();
+    const newUpdatedAt = new Date(Date.now() + 1000).toISOString();
+    await repo.update(record.id, { createdAt: newCreatedAt, updatedAt: newUpdatedAt });
+    const updated = await repo.findById(record.id);
+    expect(updated?.createdAt).toBe(newCreatedAt);
+    expect(updated?.updatedAt).toBe(newUpdatedAt);
+  });
+
   it('deletes a record', async () => {
     const record = createTestRecord();
     await repo.create(record);

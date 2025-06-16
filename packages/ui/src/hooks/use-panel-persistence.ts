@@ -7,12 +7,12 @@ interface WindowWithElectronAPI {
   electronAPI?: LayoutElectronAPI;
 }
 
-const getElectronAPI = (): LayoutElectronAPI | undefined => {
+export const getElectronAPI = (): LayoutElectronAPI | undefined => {
   if (typeof window === 'undefined') return undefined;
   return (window as WindowWithElectronAPI).electronAPI;
 };
 
-const hasElectronAPI = (): boolean => {
+export const hasElectronAPI = (): boolean => {
   if (typeof window === 'undefined') return false;
   return !!(window as WindowWithElectronAPI).electronAPI;
 };
