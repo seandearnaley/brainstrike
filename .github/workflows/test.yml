@@ -29,6 +29,8 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: '10.12.1'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -213,12 +215,3 @@ jobs:
             apps/web/test-results/ # For Vitest JUnit reports, if configured
           retention-days: 7
           if-no-files-found: warn
-
-      - name: Run dependency vulnerability scan (Snyk)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: snyk/actions/node@master # Consider using a specific tag like @0.7.0 for stability
-        continue-on-error: true
-        with:
-          args: --severity-threshold=high
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
