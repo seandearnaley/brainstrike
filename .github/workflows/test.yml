@@ -176,17 +176,20 @@ jobs:
       - name: Process coverage reports
         if: always()
         run: |
+          echo "Verifying pnpm availability..."
+          which pnpm || (echo "pnpm not found in PATH" && exit 1)
+          
           echo "Listing all raw coverage files (coverage-final.json) to debug:"
           find . -path "*/coverage/coverage-final.json" -type f -ls
           
           echo "Running coverage merge script..."
-          pnpm run coverage:merge # This script should create .nyc_output/coverage.json
+          pnpm run coverage:merge
           
           echo "Checking for merged coverage file (.nyc_output/coverage.json)..."
           if [ -f .nyc_output/coverage.json ]; then
             echo ".nyc_output/coverage.json exists."
             echo "Running coverage report script (to generate lcov, text reports, etc. in ./coverage/)..."
-            pnpm run coverage:report # This script uses .nyc_output/coverage.json as input
+            pnpm run coverage:report
           else
             echo "WARN: Merged coverage file .nyc_output/coverage.json not found! Subsequent reports might be incomplete."
           fi
@@ -212,6 +215,6 @@ jobs:
           path: |
             coverage/
             apps/web/playwright-report/
-            apps/web/test-results/ # For Vitest JUnit reports, if configured
+            apps/web/test-results/
           retention-days: 7
           if-no-files-found: warn
