@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm build:web",
+  "outputDirectory": "apps/web/dist",
+  "installCommand": "pnpm install",
+  "devCommand": "pnpm dev --filter @brainstrike/web"
+}
