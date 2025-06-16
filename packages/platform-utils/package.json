@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && tsup",
+    "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
     "dev": "tsup --watch",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
