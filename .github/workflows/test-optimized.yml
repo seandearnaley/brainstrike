@@ -20,14 +20,15 @@ permissions:
 
 env:
   CI: "true"
-  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
 
 jobs:
   # Fast-fail checks that run in parallel
   checks:
     name: Lint, Type Check & Unit Tests
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -91,6 +92,9 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     strategy:
       fail-fast: false
       matrix:
@@ -150,7 +154,7 @@ jobs:
         run: pnpm exec playwright install-deps chromium
 
       - name: Build application
-        run: pnpm run build --filter web
+        run: pnpm run build --filter @brainstrike/web
 
       - name: Run E2E tests (shard)
         run: |
@@ -250,6 +254,9 @@ jobs:
     name: Code Quality Checks
     runs-on: ubuntu-latest
     continue-on-error: true
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
