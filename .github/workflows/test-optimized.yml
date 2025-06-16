@@ -226,9 +226,11 @@ jobs:
           # List all blob reports for debugging
           echo "Available blob reports:"
           ls -la ../../all-blob-reports/
+          echo "Contents of blob report directories:"
+          ls -la ../../all-blob-reports/*/
           
-          # Merge reports from all shards
-          pnpm exec playwright merge-reports --reporter html ../../all-blob-reports
+          # Merge reports from all shards - point to each subdirectory
+          pnpm exec playwright merge-reports --reporter html ../../all-blob-reports/blob-report-*
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4
