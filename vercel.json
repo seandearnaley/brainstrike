@@ -1,6 +1,6 @@
 {
   "framework": null,
-  "buildCommand": "turbo run build --filter @brainstrike/web --force",
+  "buildCommand": "turbo run build --filter @brainstrike/web --force && ls -la && ls -la apps/web/",
   "outputDirectory": "apps/web/dist",
   "installCommand": "pnpm install",
   "ignoreCommand": "exit 1"
