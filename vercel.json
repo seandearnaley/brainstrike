@@ -1,8 +1,7 @@
 {
   "framework": null,
-  "buildCommand": "pnpm -w run build:web",
+  "buildCommand": "turbo run build --filter @brainstrike/web --force --no-cache",
   "outputDirectory": "apps/web/dist",
   "installCommand": "pnpm install",
-  "devCommand": "pnpm -w run dev --filter @brainstrike/web",
   "ignoreCommand": "exit 1"
 }
