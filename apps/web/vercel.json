@@ -1,7 +1,7 @@
 {
   "framework": "vite",
-  "buildCommand": "pnpm build",
-  "outputDirectory": "dist",
+  "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web",
+  "outputDirectory": "apps/web/dist",
   "installCommand": "pnpm install",
   "ignoreCommand": "exit 1"
 }
