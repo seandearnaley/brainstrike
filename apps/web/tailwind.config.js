@@ -1,6 +1,9 @@
 /** @type {import('tailwindcss').Config} */
 const base = require('@brainstrike/tailwind-config');
 
+console.log('=== TAILWIND CONFIG LOADED ===');
+console.log('CWD when config loaded:', process.cwd());
+
 // Simple local config for building from apps/web directory
 module.exports = {
   ...base,
@@ -18,4 +21,11 @@ module.exports = {
     '../../packages/hooks/src/**/*.{js,ts,jsx,tsx}',
     '../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}',
   ],
+  plugins: [
+    function debugTailwindConfig() {
+      console.log('=== TAILWIND CONFIG PLUGIN EXECUTING ===');
+      console.log('Working directory during config plugin:', process.cwd());
+      return function() {};
+    }
+  ]
 };

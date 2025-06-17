@@ -141,20 +141,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss({
-      content: tailwindConfigContent,
-      plugins: [
-        function debugTailwind({ addUtilities }) {
-          console.log('=== TAILWIND PLUGIN EXECUTING ===');
-          console.log('Working directory during Tailwind processing:', process.cwd());
-          addUtilities({
-            '.debug-tailwind': {
-              'content': '"Tailwind processed correctly"'
-            }
-          });
-        }
-      ]
-    }),
+    tailwindcss(),
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
