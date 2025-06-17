@@ -85,13 +85,25 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// Determine the correct Tailwind config based on working directory
-const isRootBuild = process.cwd().endsWith('brainstrike'); // Building from repo root (Vercel)
-const tailwindConfig = isRootBuild ? 
-  path.resolve(__dirname, '../../tailwind.config.js') : 
-  path.resolve(__dirname, './tailwind.config.js');
+// Always use relative paths since Vercel still builds from apps/web directory
+// but provide explicit content array to ensure monorepo packages are included
+const tailwindConfigContent = [
+  './index.html',
+  './src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/ui/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/ui/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/app-shell/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-ui/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/hooks/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}',
+];
 
-console.log(`Build context: ${isRootBuild ? 'root' : 'apps/web'}, using config: ${tailwindConfig}`);
+console.log(`Build context - CWD: ${process.cwd()}`);
+console.log(`Scanning content paths: ${tailwindConfigContent.join(', ')}`);
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
@@ -110,7 +122,7 @@ export default defineConfig({
     topLevelAwait(),
     react(),
     tailwindcss({
-      config: tailwindConfig
+      content: tailwindConfigContent
     }),
     copyFontsPlugin(),
     ...(wasmPath ? [
