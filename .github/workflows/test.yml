@@ -25,10 +25,9 @@ jobs:
   checks:
     name: Lint, Type Check & Unit Tests
     runs-on: ubuntu-latest
-    # Uncomment to enable Turborepo remote caching:
-    # env:
-    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-    #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,10 +81,9 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
-    # Uncomment to enable Turborepo remote caching:
-    # env:
-    #   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
-    #   TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
     strategy:
       fail-fast: false
       matrix:
@@ -175,6 +173,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Build packages (required for Playwright config)
+        run: pnpm run build
 
       - name: Download blob reports
         id: download-reports
