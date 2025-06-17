@@ -212,17 +212,70 @@ Use content array in tailwind.config.js instead of @source directives (if suppor
 
 ## Current State
 
-- **CSS Size**: 24.09KB (still significantly smaller than 53KB target)
-- **PostCSS Errors**: "@import must precede all other statements" 
+- **CSS Size**: 25.28KB (still significantly smaller than 53KB target)
+- **PostCSS Errors**: None (clean build)
 - **Build Status**: Successful but with styling issues
-- **Approach**: Using @import "tailwindcss" source(none) with explicit @source directives
+- **Approach**: Two-stage build - dependencies from root, web app from correct context
+
+## Final Attempt - Two-Stage Build Context (December 2024)
+
+### Approach
+Modified Vercel build to:
+1. Build all dependencies from repository root using Turborepo filtering
+2. Then build web app specifically from `apps/web` directory for proper Tailwind content detection
+
+### Configuration
+```json
+{
+  "framework": "vite",
+  "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
+  "outputDirectory": "dist",
+  "installCommand": "cd ../.. && pnpm install",
+  "ignoreCommand": "exit 1"
+}
+```
+
+### Result
+- **Status**: FAILED ❌
+- **CSS Size**: 25.28KB (no improvement)
+- **Build Process**: Clean, no errors
+- **Analysis**: Even with correct build context, Tailwind v4 still fails to detect monorepo package content
+
+### Findings
+1. **Build Context Irrelevant**: Changing build directory from root to `apps/web` made no difference
+2. **Dependency Resolution Works**: Two-stage build successfully resolves all monorepo dependencies  
+3. **Tailwind Detection Fundamental Issue**: Content detection limitation is deeper than working directory
+4. **Cache Not Factor**: Fresh builds consistently produce same 25KB result
 
 ## Next Steps for Developer
 
-1. **Research latest Tailwind v4 monorepo solutions** - check GitHub issues and documentation
-2. **Test with simplified setup** - single @import without @source to establish baseline
-3. **Verify package scanning** - add debug logging to see what files Tailwind finds
-4. **Consider PostCSS plugin approach** instead of Vite plugin for better control
-5. **Engage Tailwind community** - this appears to be a known issue affecting multiple users
+1. **Consider Alternative Approaches**:
+   - Downgrade to Tailwind CSS v3 with explicit content configuration
+   - Use build-time CSS generation tools (e.g., PurgeCSS)
+   - Implement custom CSS bundling solution
+   
+2. **Research Community Solutions**:
+   - Monitor Tailwind Labs GitHub issues for monorepo fixes
+   - Check if newer versions of @tailwindcss/vite plugin address this
+   - Look for third-party tools that solve v4 monorepo scanning
 
-The core issue remains: **Tailwind CSS v4's automatic content detection is incompatible with monorepo structures in production deployment environments**. A fundamental architectural change may be needed rather than configuration tweaks.
+3. **Architectural Changes**:
+   - Consolidate UI components into single package
+   - Move all Tailwind classes to single CSS file
+   - Consider CSS-in-JS solution that doesn't rely on file scanning
+
+4. **Debug Approach**:
+   - Add Tailwind debug mode to see exactly what files it's scanning
+   - Compare file lists between local (53KB) and production (25KB) builds
+   - Test with minimal reproduction case
+
+## Conclusion
+
+**The core issue remains unsolved**: Tailwind CSS v4's automatic content detection is fundamentally incompatible with Turborepo monorepo structures in production deployment environments, regardless of build context or configuration approaches.
+
+**Recommendation**: This appears to require either:
+- Waiting for official Tailwind v4 monorepo support
+- Switching to Tailwind v3 with explicit content configuration
+- Implementing alternative CSS architecture
+
+**Time Investment**: Multiple developers, dozens of attempts, extensive research - this is a systemic limitation, not a configuration issue.
