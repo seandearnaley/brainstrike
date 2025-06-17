@@ -1,8 +1,22 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
-@import "tailwindcss";
-@import "@brainstrike/ui/preflight.css";
+@import "tailwindcss" source(none); /* Disable automatic content detection */
+
+/*
+  Explicitly source all packages containing UI components.
+  Paths are relative from this file's location: apps/web/src/app/
+*/
+@source "../../../../packages/ui/src/**/*.{js,ts,jsx,tsx}";
+@source "../../../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
+@source "../../../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
+@source "../../../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}";
+@source "../../../../packages/hooks/src/**/*.{js,ts,jsx,tsx}";
+
+/* Source the local application files as well */
+@source "../../../*.html";
+@source "../../../src/**/*.{js,ts,jsx,tsx}";
+
 @import "@brainstrike/ui/globals.css";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
@@ -10,7 +24,7 @@
 @layer base {
   :root {
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 240 10% 3.9%;
 
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;

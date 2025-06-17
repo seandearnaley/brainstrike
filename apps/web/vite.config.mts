@@ -97,17 +97,16 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v2
-console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v2) ===');
+// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
+console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
 console.log('Current working directory:', process.cwd());
 console.log('__dirname:', __dirname);
 console.log("process.env.VERCEL:", process.env["VERCEL"]);
 console.log("process.env.CI:", process.env["CI"]);
+console.log('=== VITE CONFIG DEBUG END ===');
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
-
-console.log('=== VITE CONFIG DEBUG END ===');
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
@@ -126,7 +125,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(), // This will automatically use tailwind.config.js
+    tailwindcss(), // Tailwind config is now handled by @source in globals.css
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
