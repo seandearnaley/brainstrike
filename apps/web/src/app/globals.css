@@ -1,15 +1,15 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
-@import "tailwindcss";
+@import "tailwindcss" source("../../");
 @import "@brainstrike/ui/globals.css";
 @import "@brainstrike/ui/styles.css"; /* Import the UI package's styles.css with the @source directive */
 @import "@brainstrike/file-explorer-ui/styles.css"; /* Ensure Tailwind scans file-explorer-ui components */
 
-@source "./src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/ui/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
+@source "apps/web/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/ui/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
 
 @layer base {
   :root {

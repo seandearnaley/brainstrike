@@ -100,7 +100,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(),
+    tailwindcss({
+      config: './tailwind.config.js'
+    }),
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
