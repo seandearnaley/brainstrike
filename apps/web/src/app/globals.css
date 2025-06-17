@@ -2,6 +2,9 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss" source(none); /* Disable automatic content detection */
+@import "@brainstrike/ui/globals.css";
+@import "@brainstrike/ui/styles.css";
+@import "@brainstrike/file-explorer-ui/styles.css";
 
 /*
   Explicitly source all packages containing UI components.
@@ -16,10 +19,6 @@
 /* Source the local application files as well */
 @source "../../../*.html";
 @source "../../../src/**/*.{js,ts,jsx,tsx}";
-
-@import "@brainstrike/ui/globals.css";
-@import "@brainstrike/ui/styles.css";
-@import "@brainstrike/file-explorer-ui/styles.css";
 
 @layer base {
   :root {
