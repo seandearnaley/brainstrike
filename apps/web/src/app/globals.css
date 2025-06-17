@@ -13,9 +13,9 @@
 @source "../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}";
 @source "../../packages/hooks/src/**/*.{js,ts,jsx,tsx}";
 @source "../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}";
-@import "@brainstrike/ui/globals.css";
-@import "@brainstrike/ui/styles.css";
-@import "@brainstrike/file-explorer-ui/styles.css";
+@import "../../packages/ui/src/globals.css";
+@import "../../packages/ui/styles.css";
+@import "../../packages/file-explorer-ui/styles.css";
 
 @layer base {
   :root {
