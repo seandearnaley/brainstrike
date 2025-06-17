@@ -2,6 +2,9 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss";
+@import "@brainstrike/ui/globals.css";
+@import "@brainstrike/ui/styles.css";
+@import "@brainstrike/file-explorer-ui/styles.css";
 
 @source "../../packages/ui/src/**/*.{js,ts,jsx,tsx}";
 @source "../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
@@ -133,11 +136,6 @@
     border-color: var(--color-border); /* This was moved here from a separate @layer base block */
   }
 }
-
-/* Import UI package styles */
-@import "@brainstrike/ui/globals.css";
-@import "@brainstrike/ui/styles.css";
-@import "@brainstrike/file-explorer-ui/styles.css";
 
 /* Inter font configuration */
 @font-face {
