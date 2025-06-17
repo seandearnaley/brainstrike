@@ -204,7 +204,7 @@ jobs:
           ls -la merged-blob-reports/
           
           # Merge reports using the correct directory structure from root
-          cd apps/web && pnpm exec playwright merge-reports --reporter html ../../merged-blob-reports
+          pnpm exec playwright merge-reports --reporter html merged-blob-reports --config apps/web/playwright.config.ts
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4
