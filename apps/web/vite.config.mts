@@ -47,6 +47,18 @@ function findPGliteWasm(): string | null {
   return null;
 }
 
+function debugPlugin() {
+  return {
+    name: 'debug-build-context',
+    buildStart() {
+      console.log('=== DEBUG PLUGIN BUILDSTART ===');
+      console.log('Build starting, CWD:', process.cwd());
+      console.log('Vercel env:', process.env.VERCEL);
+      console.log('=== END DEBUG PLUGIN ===');
+    }
+  };
+}
+
 function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
@@ -85,6 +97,13 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
+// CRITICAL DEBUG: Force console output to appear in logs
+console.log('=== VITE CONFIG DEBUG START ===');
+console.log('Current working directory:', process.cwd());
+console.log('__dirname:', __dirname);
+console.log('process.env.VERCEL:', process.env.VERCEL);
+console.log('process.env.CI:', process.env.CI);
+
 // Always use relative paths since Vercel still builds from apps/web directory
 // but provide explicit content array to ensure monorepo packages are included
 const tailwindConfigContent = [
@@ -102,8 +121,8 @@ const tailwindConfigContent = [
   '../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}',
 ];
 
-console.log(`Build context - CWD: ${process.cwd()}`);
-console.log(`Scanning content paths: ${tailwindConfigContent.join(', ')}`);
+console.log('Tailwind content paths:', tailwindConfigContent);
+console.log('=== VITE CONFIG DEBUG END ===');
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
@@ -118,11 +137,23 @@ export default defineConfig({
     'process.platform': '"browser"',
   },
   plugins: [
+    debugPlugin(),
     wasm(),
     topLevelAwait(),
     react(),
     tailwindcss({
-      content: tailwindConfigContent
+      content: tailwindConfigContent,
+      plugins: [
+        function debugTailwind({ addUtilities }) {
+          console.log('=== TAILWIND PLUGIN EXECUTING ===');
+          console.log('Working directory during Tailwind processing:', process.cwd());
+          addUtilities({
+            '.debug-tailwind': {
+              'content': '"Tailwind processed correctly"'
+            }
+          });
+        }
+      ]
     }),
     copyFontsPlugin(),
     ...(wasmPath ? [
