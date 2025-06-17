@@ -188,7 +188,7 @@ export default defineConfig({
   build: {
     minify: "terser", // Use terser for better minification
     terserOptions: {
-      compress: { drop_console: true },
+      compress: { drop_console: false },
     },
     outDir: "dist", // Output directory for the build
     assetsDir: "assets", // Directory for static assets within the build output
