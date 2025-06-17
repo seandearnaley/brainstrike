@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vite --port 8080 --host",
-    "build": "vite build",
+    "build": "echo 'CACHE BUST BUILD' && vite build",
     "start": "vite preview --port 8080 --host",
     "lint": "pnpm run --filter brainstrike lint",
     "format": "biome format --write .",
