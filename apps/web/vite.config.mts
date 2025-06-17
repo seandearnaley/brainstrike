@@ -109,19 +109,37 @@ console.log('process.env.CI:', process.env.CI);
 const tailwindConfigContent = [
   './index.html',
   './src/**/*.{js,ts,jsx,tsx}',
+  // Package source files
   '../../packages/ui/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/ui/dist/**/*.{js,ts,jsx,tsx}',
   '../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/app-shell/dist/**/*.{js,ts,jsx,tsx}',
   '../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-ui/dist/**/*.{js,ts,jsx,tsx}',
   '../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}',
   '../../packages/hooks/src/**/*.{js,ts,jsx,tsx}',
+  // Package built files (in case they're used)
+  '../../packages/ui/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/app-shell/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-ui/dist/**/*.{js,ts,jsx,tsx}',
+  '../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}',
   '../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}',
+  // Additional packages that might have UI components
+  '../../packages/*/src/**/*.{js,ts,jsx,tsx}',
+  '../../packages/*/dist/**/*.{js,ts,jsx,tsx}',
 ];
 
 console.log('Tailwind content paths:', tailwindConfigContent);
+
+// Verify that key packages exist and log their status
+const keyPackages = [
+  '../../packages/ui/src',
+  '../../packages/app-shell/src',
+  '../../packages/file-explorer-ui/src'
+];
+
+keyPackages.forEach(pkg => {
+  const pkgPath = path.resolve(__dirname, pkg);
+  console.log(`Package path ${pkg}: exists=${existsSync(pkgPath)}, resolved=${pkgPath}`);
+});
+
 console.log('=== VITE CONFIG DEBUG END ===');
 
 export default defineConfig({
@@ -141,7 +159,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(),
+    tailwindcss({
+      content: tailwindConfigContent,
+    }),
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
