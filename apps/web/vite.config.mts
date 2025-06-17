@@ -125,7 +125,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(), // Tailwind config is now handled by @source in globals.css
+    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
