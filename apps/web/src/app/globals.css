@@ -237,38 +237,40 @@ body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
 }
 
-@utility file-explorer {
-  padding: 1rem;
-}
+@layer components {
+  .file-explorer {
+    padding: 1rem;
+  }
 
-@utility file-tree {
-  font-size: 0.875rem;
-  & ul {
-    list-style: none;
-    margin-left: 1.5rem;
+  .file-tree {
+    font-size: 0.875rem;
+    & ul {
+      list-style: none;
+      margin-left: 1.5rem;
+    }
+    & li {
+      margin: 0.25rem 0;
+      cursor: pointer;
+    }
   }
-  & li {
-    margin: 0.25rem 0;
-    cursor: pointer;
-  }
-}
 
-@utility file-tree-node {
-  display: flex;
-  align-items: center;
-  padding: 0.25rem;
-  border-radius: 0.25rem;
-  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-  &:hover {
-    background-color: rgb(243 244 246); /* gray-100 */
+  .file-tree-node {
+    display: flex;
+    align-items: center;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+    &:hover {
+      background-color: rgb(243 244 246); /* gray-100 */
+    }
+    .dark &:hover {
+      background-color: rgb(55 65 81); /* gray-700 */
+    }
   }
-  .dark &:hover {
-    background-color: rgb(55 65 81); /* gray-700 */
-  }
-}
 
-@utility main-panel {
-  padding: 1rem;
+  .main-panel {
+    padding: 1rem;
+  }
 }

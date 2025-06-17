@@ -80,7 +80,8 @@
       "WebFetch(domain:vercel.link)",
       "WebFetch(domain:vercel.com)",
       "WebFetch(domain:brainstrike-1x844lbvk-brainstrike.vercel.app)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(pnpm list:*)"
     ],
     "deny": []
   },
