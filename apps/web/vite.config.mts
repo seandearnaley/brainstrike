@@ -190,7 +190,7 @@ export default defineConfig({
     terserOptions: {
       compress: { drop_console: false },
     },
-    outDir: "dist", // Output directory for the build
+    outDir: "dist", // Output directory for the build - cache bust
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
     target: 'es2020',
