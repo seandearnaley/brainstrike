@@ -85,9 +85,20 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// Check if we should use root-level Tailwind config (for Vercel builds)
+// Always use root-level Tailwind config in production builds
 const rootConfigPath = path.resolve(__dirname, '../../tailwind.config.js');
-const useRootConfig = existsSync(rootConfigPath) && (process.env.VERCEL || process.env.CI);
+const useRootConfig = existsSync(rootConfigPath) && (process.env.VERCEL || process.env.CI || process.env.NODE_ENV === 'production');
+
+console.log('🔧 Tailwind config debug:', {
+  rootConfigExists: existsSync(rootConfigPath),
+  rootConfigPath,
+  useRootConfig,
+  env: {
+    VERCEL: process.env.VERCEL,
+    CI: process.env.CI,
+    NODE_ENV: process.env.NODE_ENV
+  }
+});
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
