@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
+import { existsSync } from "node:fs";
 import { codecovVitePlugin } from "@codecov/vite-plugin";
-import { copyFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import { viteStaticCopy } from "vite-plugin-static-copy";
@@ -84,6 +85,10 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
+// Check if we should use root-level Tailwind config (for Vercel builds)
+const rootConfigPath = path.resolve(__dirname, '../../tailwind.config.js');
+const useRootConfig = existsSync(rootConfigPath) && (process.env.VERCEL || process.env.CI);
+
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
   server: {
@@ -100,7 +105,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(),
+    tailwindcss({
+      config: useRootConfig ? rootConfigPath : undefined
+    }),
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
