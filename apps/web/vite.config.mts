@@ -97,8 +97,8 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// CRITICAL DEBUG: Force console output to appear in logs
-console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY) ===');
+// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v2
+console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v2) ===');
 console.log('Current working directory:', process.cwd());
 console.log('__dirname:', __dirname);
 console.log('process.env.VERCEL:', process.env.VERCEL);
