@@ -6,11 +6,12 @@
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
 
-@source "../../packages/ui/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/hooks/src/**/*.{js,ts,jsx,tsx}";
+/* Source paths relative to repository root for Vercel builds */
+@source "packages/ui/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}";
+@source "packages/hooks/src/**/*.{js,ts,jsx,tsx}";
 
 @layer base {
   :root {
