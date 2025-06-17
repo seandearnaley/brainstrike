@@ -1,18 +1,7 @@
 /* stylelint-disable */
 /* CSS with PostCSS syntax */
 
-@import "tailwindcss" source(none);
-@source "../../apps/web/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/ui/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/ui/dist/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/app-shell/dist/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-ui/dist/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/hooks/src/**/*.{js,ts,jsx,tsx}";
-@source "../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}";
+@import "tailwindcss";
 @import "@brainstrike/ui/globals.css";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";

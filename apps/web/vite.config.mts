@@ -85,7 +85,13 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// Let Tailwind v4 handle automatic detection with @source directives
+// Determine the correct Tailwind config based on working directory
+const isRootBuild = process.cwd().endsWith('brainstrike'); // Building from repo root (Vercel)
+const tailwindConfig = isRootBuild ? 
+  path.resolve(__dirname, '../../tailwind.config.js') : 
+  path.resolve(__dirname, './tailwind.config.js');
+
+console.log(`Build context: ${isRootBuild ? 'root' : 'apps/web'}, using config: ${tailwindConfig}`);
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
@@ -103,7 +109,9 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(),
+    tailwindcss({
+      config: tailwindConfig
+    }),
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
