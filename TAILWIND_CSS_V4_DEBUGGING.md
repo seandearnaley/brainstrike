@@ -279,3 +279,44 @@ Modified Vercel build to:
 - Implementing alternative CSS architecture
 
 **Time Investment**: Multiple developers, dozens of attempts, extensive research - this is a systemic limitation, not a configuration issue.
+
+----
+
+**Vercel Dashboard – “Framework Settings” panel**
+
+1. **Introductory text (small paragraph)**
+
+   > *“When using a framework for a new project, it will be automatically detected. … You can override them below.”*
+
+2. **Yellow-triangle warning**
+
+   > *“Configuration Settings in the current **Production deployment** differ from your current **Project Settings**.”*
+
+---
+
+### A. Production Overrides
+
+*(heading shows the production deployment URL: `brainstrike-1x844lbvk-brainstrike.vercel.app`)*
+
+| Field                | Value                                                            |
+| -------------------- | ---------------------------------------------------------------- |
+| **Framework**        | **Other** (generic framework icon)                               |
+| **Build Command**    | `cd ../../ && turbo run build --filter @brainstrike/web --force` |
+| **Output Directory** | `dist`                                                           |
+| **Install Command**  | `cd ../../ && pnpm install`                                      |
+
+---
+
+### B. Project Settings
+
+| Field                   | Value                                | Override toggle |
+| ----------------------- | ------------------------------------ | --------------- |
+| **Framework Preset**    | **Vite** (selected from dropdown)    | —               |
+| **Build Command**       | `pnpm build:web`                     | **ON**          |
+| **Output Directory**    | `apps/web/dist`                      | **ON**          |
+| **Install Command**     | `pnpm install`                       | **ON**          |
+| **Development Command** | `pnpm dev --filter @brainstrike/web` | **ON**          |
+
+*(All four per-environment overrides in “Project Settings” have their toggle switches enabled, indicated by blue/on state.)*
+
+That’s the complete textual content and configuration values visible in the screenshot.

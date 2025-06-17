@@ -53,7 +53,7 @@ function debugPlugin() {
     buildStart() {
       console.log('=== DEBUG PLUGIN BUILDSTART ===');
       console.log('Build starting, CWD:', process.cwd());
-      console.log('Vercel env:', process.env.VERCEL);
+      console.log("Vercel env:", process.env["VERCEL"]);
       console.log('=== END DEBUG PLUGIN ===');
     }
   };
@@ -101,44 +101,11 @@ const wasmPath = findPGliteWasm();
 console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v2) ===');
 console.log('Current working directory:', process.cwd());
 console.log('__dirname:', __dirname);
-console.log('process.env.VERCEL:', process.env.VERCEL);
-console.log('process.env.CI:', process.env.CI);
+console.log("process.env.VERCEL:", process.env["VERCEL"]);
+console.log("process.env.CI:", process.env["CI"]);
 
-// Always use relative paths since Vercel still builds from apps/web directory
-// but provide explicit content array to ensure monorepo packages are included
-const tailwindConfigContent = [
-  './index.html',
-  './src/**/*.{js,ts,jsx,tsx}',
-  // Package source files
-  '../../packages/ui/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/app-shell/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-ui/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-hooks/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/hooks/src/**/*.{js,ts,jsx,tsx}',
-  // Package built files (in case they're used)
-  '../../packages/ui/dist/**/*.{js,ts,jsx,tsx}',
-  '../../packages/app-shell/dist/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-ui/dist/**/*.{js,ts,jsx,tsx}',
-  '../../packages/file-explorer-hooks/dist/**/*.{js,ts,jsx,tsx}',
-  '../../packages/hooks/dist/**/*.{js,ts,jsx,tsx}',
-  // Additional packages that might have UI components
-  '../../packages/*/src/**/*.{js,ts,jsx,tsx}',
-  '../../packages/*/dist/**/*.{js,ts,jsx,tsx}',
-];
-
-console.log('Tailwind content paths:', tailwindConfigContent);
-
-// Verify that key packages exist and log their status
-const keyPackages = [
-  '../../packages/ui/src',
-  '../../packages/app-shell/src',
-  '../../packages/file-explorer-ui/src'
-];
-
-keyPackages.forEach(pkg => {
-  const pkgPath = path.resolve(__dirname, pkg);
-  console.log(`Package path ${pkg}: exists=${existsSync(pkgPath)}, resolved=${pkgPath}`);
-});
+// The Tailwind CSS content paths are now managed by `tailwind.config.js`.
+// The @tailwindcss/vite plugin will automatically pick it up.
 
 console.log('=== VITE CONFIG DEBUG END ===');
 
@@ -159,9 +126,7 @@ export default defineConfig({
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss({
-      content: tailwindConfigContent,
-    }),
+    tailwindcss(), // This will automatically use tailwind.config.js
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
