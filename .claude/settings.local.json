@@ -78,7 +78,9 @@
       "Bash(git reset:*)",
       "Bash(cat:*)",
       "WebFetch(domain:vercel.link)",
-      "WebFetch(domain:vercel.com)"
+      "WebFetch(domain:vercel.com)",
+      "WebFetch(domain:brainstrike-1x844lbvk-brainstrike.vercel.app)",
+      "Bash(mv:*)"
     ],
     "deny": []
   },
