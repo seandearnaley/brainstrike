@@ -2,6 +2,11 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss";
+@source "../../packages/ui/src";
+@source "../../packages/app-shell/src"; 
+@source "../../packages/file-explorer-ui/src";
+@source "../../packages/file-explorer-hooks/src";
+@source "../../packages/hooks/src";
 @import "@brainstrike/ui/globals.css";
 @import "@brainstrike/ui/styles.css";
 @import "@brainstrike/file-explorer-ui/styles.css";
