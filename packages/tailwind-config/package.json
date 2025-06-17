@@ -7,6 +7,9 @@
     "node": ">=22"
   },
   "main": "tailwind.config.js",
+  "exports": {
+    ".": "./tailwind.config.js"
+  },
   "files": ["tailwind.config.js"],
   "license": "ISC",
   "scripts": {

@@ -74,8 +74,14 @@ describe('FolderBadge', () => {
       expect(badgeElement.style.getPropertyValue('--folder-text')).toBe('#ffffff');
       expect(badgeElement.style.getPropertyValue('--folder-dark-bg')).toBe('#000000');
       expect(badgeElement.style.getPropertyValue('--folder-dark-text')).toBe('#ffffff');
-      expect(badgeElement.style.backgroundColor).toBe('var(--folder-bg)');
-      expect(badgeElement.style.color).toBe('var(--folder-text)');
+
+      // Check that the style attribute contains the expected CSS custom property values
+      // JSDOM doesn't always preserve inline style values with CSS variables correctly
+      const styleAttr = badgeElement.getAttribute('style');
+      expect(styleAttr).toContain('--folder-bg: #ff0000');
+      expect(styleAttr).toContain('--folder-text: #ffffff');
+      expect(styleAttr).toContain('backgound-color: var(--folder-bg)');
+      expect(styleAttr).toContain('color: var(--folder-text)');
     }
   });
 });

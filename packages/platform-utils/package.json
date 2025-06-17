@@ -14,7 +14,7 @@
     }
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && tsup",
+    "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --dts --out-dir dist",
     "dev": "tsup --watch",
     "type-check": "tsc --noEmit",
     "test": "vitest run",
@@ -24,6 +24,7 @@
   "dependencies": {},
   "devDependencies": {
     "@vitest/coverage-v8": "^3.2.3",
+    "jsdom": "^26.1.0",
     "tsup": "^8.5.0",
     "typescript": "^5",
     "vitest": "^3.2.3"

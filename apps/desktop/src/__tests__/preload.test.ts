@@ -80,6 +80,7 @@ describe('Preload Script API Structure', () => {
         readFile: expect.any(Function),
         exists: expect.any(Function),
       },
+      getUserDataPath: expect.any(Function),
     };
 
     expect(key).toBe('electronAPI');

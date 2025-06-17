@@ -69,7 +69,16 @@
       "Bash(NODE_ENV=production pnpm test __tests__/db-provider.test.tsx)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(turbo run test:*)"
+      "Bash(turbo run test:*)",
+      "Bash(npx vite:*)",
+      "Bash(../../node_modules/.bin/vite build)",
+      "Bash(turbo run build:*)",
+      "Bash(pnpm -w run build:web)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:vercel.link)",
+      "WebFetch(domain:vercel.com)"
     ],
     "deny": []
   },

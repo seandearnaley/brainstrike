@@ -19,12 +19,14 @@ console.log(`Test directory: ${path.resolve("./e2e")}`);
 
 const config: PlaywrightTestConfig = {
 	testDir: "./e2e",
-	fullyParallel: false, // Run tests sequentially for easier debugging
+	fullyParallel: true, // Run tests in parallel for faster execution
 	forbidOnly: !!process.env[ciEnv],
 	retries: process.env[ciEnv] ? 2 : 0,
-	workers: process.env[ciEnv] ? 1 : 1, // Use single worker in CI, single worker in local for consistency
+	workers: 2, // Optimal for GitHub Actions free runners (2-core CPU)
 	timeout: 30000, // 30 seconds per test
-	reporter: [["html", { open: "never" }], ["list"]],
+	reporter: process.env[ciEnv] 
+		? [["blob", { outputDir: "blob-report" }], ["list"]]
+		: [["html", { open: "never" }], ["list"]],
         use: {
                 baseURL,
                 headless: true,
@@ -41,9 +43,9 @@ const config: PlaywrightTestConfig = {
 		},
 	],
 	globalSetup: "./e2e/global-setup.ts",
-	// Web server configuration - handles both CI and local development
+	// Web server configuration - use preview in CI for faster startup
         webServer: {
-                command: 'npm run dev',
+                command: process.env[ciEnv] ? 'npm run start' : 'npm run dev',
                 url: serverURL,
                 reuseExistingServer: !process.env[ciEnv],
                 timeout: 60000,

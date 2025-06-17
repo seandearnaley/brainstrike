@@ -5,7 +5,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['src/vitest.setup.ts'],
-    include: ['src/__tests__/**/*.{test,spec}.{ts,tsx}'],
+    include: [
+      'src/__tests__/**/*.{test,spec}.{ts,tsx}',
+      '__tests__/**/*.{test,spec}.{ts,tsx}',
+    ],
     exclude: ['node_modules', 'dist'],
   },
 });
