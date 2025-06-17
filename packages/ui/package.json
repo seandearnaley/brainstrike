@@ -14,7 +14,7 @@
     "icons"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && tailwindcss -i ./src/globals.css -o ./dist/preflight.css && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
+    "build": "rm -rf dist && tsc -b . && pnpm tailwindcss -i ./src/globals.css -o ./dist/preflight.css && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
