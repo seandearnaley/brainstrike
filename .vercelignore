@@ -9,17 +9,19 @@
 !vercel.json
 
 # Configuration files (needed for Vite/Tailwind config)
-!*.config.mts
-!*.config.ts
-!*.config.js
-!*.config.json
-!tailwind.config.*
-!vite.config.*
+!**/*.config.mts
+!**/*.config.ts
+!**/*.config.js
+!**/*.config.json
+!**/tailwind.config.*
+!**/vite.config.*
 !tsconfig*.json
 !biome.json
 
 # Build and dependency management
 !.npmrc
+!**/.npmrc
+!.vercel/
 
 # Applications - allow entire apps directory for Tailwind @source directives
 !apps/
@@ -58,6 +60,7 @@ apps/**/.env.local
 apps/**/.env.development
 apps/**/docs/
 apps/**/README.md
+apps/**/README.MD
 apps/**/*.log
 apps/**/.DS_Store
 
@@ -66,5 +69,8 @@ packages/**/.env.local
 packages/**/.env.development
 packages/**/docs/
 packages/**/README.md
+packages/**/README.MD
 packages/**/*.log
 packages/**/.DS_Store
+
+# ===== DO NOT ADD NEGATIVE PATTERNS BELOW THIS LINE WITHOUT REVIEW =====
