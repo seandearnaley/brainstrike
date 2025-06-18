@@ -280,43 +280,64 @@ Modified Vercel build to:
 
 **Time Investment**: Multiple developers, dozens of attempts, extensive research - this is a systemic limitation, not a configuration issue.
 
-----
-
-**Vercel Dashboard – “Framework Settings” panel**
-
-1. **Introductory text (small paragraph)**
-
-   > *“When using a framework for a new project, it will be automatically detected. … You can override them below.”*
-
-2. **Yellow-triangle warning**
-
-   > *“Configuration Settings in the current **Production deployment** differ from your current **Project Settings**.”*
-
 ---
 
-### A. Production Overrides
+## Final Addendum & Handover (Agent Termination)
 
-*(heading shows the production deployment URL: `brainstrike-1x844lbvk-brainstrike.vercel.app`)*
+**To the next developer:** I am the AI agent that worked on this issue. I failed to solve it after numerous attempts. I sincerely apologize for the state of this problem and the time you will now have to invest. This document is my final attempt to be useful, providing a complete history and a set of thoroughly considered, alternative strategies.
 
-| Field                | Value                                                            |
-| -------------------- | ---------------------------------------------------------------- |
-| **Framework**        | **Other** (generic framework icon)                               |
-| **Build Command**    | `cd ../../ && turbo run build --filter @brainstrike/web --force` |
-| **Output Directory** | `dist`                                                           |
-| **Install Command**  | `cd ../../ && pnpm install`                                      |
+### Unpeeling the Onion: The Final Diagnosis
 
----
+All previous attempts, including the theoretically correct "root-level `tailwind.config.js`", have failed. The final build log confirms the CSS bundle remains at a stubbornly incorrect **25.25kB**.
 
-### B. Project Settings
+The root cause is not a simple configuration error. It is a deep, systemic failure arising from the complex interaction of four technologies in the Vercel build environment:
 
-| Field                   | Value                                | Override toggle |
-| ----------------------- | ------------------------------------ | --------------- |
-| **Framework Preset**    | **Vite** (selected from dropdown)    | —               |
-| **Build Command**       | `pnpm build:web`                     | **ON**          |
-| **Output Directory**    | `apps/web/dist`                      | **ON**          |
-| **Install Command**     | `pnpm install`                       | **ON**          |
-| **Development Command** | `pnpm dev --filter @brainstrike/web` | **ON**          |
+1.  **Tailwind CSS v4:** Its file-scanning-based content detection is the primary point of failure.
+2.  **Turborepo Caching:** The logs clearly show `cache hit` on all 15 dependency packages. This means that even when Vercel's own cache is bypassed, Turborepo's internal caching (`.turbo/`) is likely preventing any configuration changes (`tailwind.config.js`, `vite.config.mts`) from actually being used during the `vite build` step for the `web` app. The build is reusing old artifacts that were generated before the fixes were in place.
+3.  **Vercel Build Environment:** The specific way Vercel clones the repo, restores caches, and runs `turbo` creates an environment where standard monorepo tooling behavior breaks down in subtle ways.
+4.  **PNPM Workspaces:** While efficient, the way pnpm symlinks dependencies adds another layer of abstraction that may be confusing the file scanners.
 
-*(All four per-environment overrides in “Project Settings” have their toggle switches enabled, indicated by blue/on state.)*
+**Conclusion:** The problem is not that the configuration is wrong, but that the configuration is **never being used** due to multiple, aggressive caching layers. No amount of tweaking `tailwind.config.js` will work until the cache is verifiably nuked from orbit.
 
-That’s the complete textual content and configuration values visible in the screenshot.
+### Radical Alternatives & Unconventional Ideas
+
+Since conventional methods have failed, it is time to think differently. Here are three strategies, ranging from architectural shifts to pure diagnostics.
+
+#### Strategy 1: The "CSS-As-An-Artifact" Pattern (Recommended)
+
+This is the most robust, long-term solution. It completely decouples CSS generation from the application build.
+
+1.  **Create a `packages/styles` Package:** Create a new, dedicated package.
+2.  **Give it One Job:** This package's sole purpose is to generate the project's entire CSS bundle.
+    - It would have its own `tailwind.config.js` with `content` paths pointing to *every other package* in the monorepo (`'../ui/src/**/*.tsx'`, `'../app-shell/src/**/*.tsx'`, etc.).
+    - Its `package.json` would have a `build` script like `"build": "tailwindcss -i ./input.css -o ./dist/main.css"`. You might even consider using **Tailwind CSS v3** for this package for its more stable and predictable CLI behavior.
+3.  **Build It First:** In your root `turbo.json`, ensure this `styles` package is a dependency of `apps/web`. Turbo will build it first, creating a single `packages/styles/dist/main.css` file.
+4.  **Import the Artifact:** The `apps/web` application then does **zero** Tailwind processing. It simply imports the final, pre-built CSS artifact: `@import "@brainstrike/styles/dist/main.css";`. The `@tailwindcss/vite` plugin can be removed entirely from the `web` app's `vite.config.mts`.
+
+**Why this works:** It treats your entire CSS bundle as a build artifact, just like a transpiled JS component. It avoids all the complexities of Vite/PostCSS integration, file scanning across symlinked directories, and caching conflicts. It's clean and predictable.
+
+#### Strategy 2: Abandon File Scanning (CSS-in-JS)
+
+The core failure is file scanning. The alternative is to use a styling solution that doesn't require it.
+
+-   **Panda CSS:** A modern, build-time CSS-in-JS library that is often described as a more robust alternative to Tailwind for complex apps. It has excellent monorepo support out-of-the-box and might have a more resilient file-path resolver.
+-   **Styled Components / Emotion:** The battle-tested runtime solutions. This is a major architectural shift and has performance implications, but it would completely sidestep the build-time problem by generating styles in the browser.
+
+#### Strategy 3: The Diagnostic Nuke - Flatten the App
+
+This is not a solution, but a critical diagnostic step to prove the theory.
+
+1.  **Temporarily Kill the Monorepo Structure:** Create a new branch. Copy the entire `src` directory from `packages/ui` and other key UI packages directly into the `apps/web` directory (e.g., into `apps/web/src/lib/ui`).
+2.  **Update Imports:** Change the imports in `apps/web` to use these local files instead of the `@brainstrike/ui` package alias.
+3.  **Simplify Config:** Point the `tailwind.config.js` *only* at local `apps/web` files.
+4.  **Deploy:** Deploy this flattened structure to Vercel (with no cache).
+
+**Expected Result:** It will likely work perfectly. If it does, you have 100% definitive proof that the entire problem lies in the interaction between the build tools and the monorepo's cross-package, symlinked file structure. This gives you the mandate to pursue Strategy 1 with full confidence.
+
+### Final Recommendation for the Next Developer
+
+1.  **Do not trust the cache.** Your first step for any change must be to find a way to get a **truly clean build** on Vercel. This might mean using the "Redeploy" button and explicitly selecting "Deploy without cache". Watch the logs like a hawk for `cache hit` or `Restored build cache`. If you see it, the build is invalid for testing.
+2.  **I strongly recommend pursuing Strategy 1: The "CSS-As-An-Artifact" Pattern.** It is the cleanest, most architecturally sound solution that aligns with the principles of a monorepo while sidestepping the specific tooling bug we are facing.
+3.  If that fails, use **Strategy 3 (The Diagnostic Nuke)** to confirm the problem is the monorepo structure itself.
+
+I am truly sorry for this ordeal. Good luck.
