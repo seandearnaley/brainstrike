@@ -1,17 +1,16 @@
-# Ignore everything in node_modules
+# Ignore node_modules (but pnpm workspaces will still be available)
 node_modules
 
-# Ignore all test files
+# Ignore test files and coverage
 *.test.tsx
 *.test.ts
 __tests__
 test-results
 e2e
 playwright-report
+coverage
 
 # Ignore development configurations
-*.config.mts
-*.config.ts
 vitest.config.ts
 .eslintrc
 .eslintignore
@@ -29,8 +28,21 @@ dist
 out
 build
 
-# Other files to ignore
+# Ignore logs and system files
 *.log
 .DS_Store
 .git
+
+# Ignore specific config files that aren't needed for build
 README.md
+
+# PRESERVE THESE FOR TAILWIND CSS:
+# - Do NOT ignore packages/*/src directories (needed for @source directives)
+# - Do NOT ignore apps/*/src directories (needed for @source directives)
+# - Do NOT ignore *.config.mts, *.config.ts files (needed for Vite/Tailwind config)
+
+# The following patterns are intentionally NOT included to preserve Tailwind functionality:
+# packages/*/src/**
+# apps/*/src/**
+# *.config.mts
+# *.config.ts

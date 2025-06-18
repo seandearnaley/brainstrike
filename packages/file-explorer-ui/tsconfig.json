@@ -8,7 +8,8 @@
     "incremental": true,
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "types": ["node"]
   },
   "include": ["src"],
   "exclude": ["dist", "node_modules", "**/__tests__/**"],

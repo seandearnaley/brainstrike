@@ -6,7 +6,8 @@
     "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "rootDir": "src",
     "outDir": "dist",
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "types": ["node"]
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.*", "**/__tests__/**"],

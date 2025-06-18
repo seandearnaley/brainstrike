@@ -17,7 +17,7 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "types": ["node", "electron", "vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    "types": ["node", "electron", "vite/client"]
   },
   "include": [
     "src/**/*",

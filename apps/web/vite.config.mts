@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
+import { existsSync } from "node:fs";
 import { codecovVitePlugin } from "@codecov/vite-plugin";
-import { copyFileSync, mkdirSync, existsSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import { viteStaticCopy } from "vite-plugin-static-copy";
@@ -46,6 +47,18 @@ function findPGliteWasm(): string | null {
   return null;
 }
 
+function debugPlugin() {
+  return {
+    name: 'debug-build-context',
+    buildStart() {
+      console.log('=== DEBUG PLUGIN BUILDSTART ===');
+      console.log('Build starting, CWD:', process.cwd());
+      console.log("Vercel env:", process.env["VERCEL"]);
+      console.log('=== END DEBUG PLUGIN ===');
+    }
+  };
+}
+
 function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
@@ -84,6 +97,17 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
+// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
+console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
+console.log('Current working directory:', process.cwd());
+console.log('__dirname:', __dirname);
+console.log("process.env.VERCEL:", process.env["VERCEL"]);
+console.log("process.env.CI:", process.env["CI"]);
+console.log('=== VITE CONFIG DEBUG END ===');
+
+// The Tailwind CSS content paths are now managed by `tailwind.config.js`.
+// The @tailwindcss/vite plugin will automatically pick it up.
+
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '../../.vite'),
   server: {
@@ -97,10 +121,11 @@ export default defineConfig({
     'process.platform': '"browser"',
   },
   plugins: [
+    debugPlugin(),
     wasm(),
     topLevelAwait(),
     react(),
-    tailwindcss(),
+    tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     copyFontsPlugin(),
     ...(wasmPath ? [
       viteStaticCopy({
@@ -127,9 +152,9 @@ export default defineConfig({
   build: {
     minify: "terser", // Use terser for better minification
     terserOptions: {
-      compress: { drop_console: true },
+      compress: { drop_console: false },
     },
-    outDir: "dist", // Output directory for the build
+    outDir: "dist", // Output directory for the build - cache bust
     assetsDir: "assets", // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
     target: 'es2020',
@@ -198,7 +223,7 @@ export default defineConfig({
     ],
     reporters: ["default", "hanging-process"],
     silent: true,
-    onConsoleLog: (log, type) => {
+    onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {
       if (
         type === "stderr" &&
         log.includes("ERROR") &&

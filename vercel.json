@@ -1,7 +1,0 @@
-{
-  "framework": null,
-  "buildCommand": "cd ../.. && turbo run build --filter @brainstrike/web --force",
-  "outputDirectory": "dist",
-  "installCommand": "cd ../.. && pnpm install",
-  "ignoreCommand": "exit 1"
-}

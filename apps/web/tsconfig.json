@@ -9,10 +9,10 @@
                 "paths": {
                         "@web/*": ["./src/*"]
                 },
-		"types": ["node", "vitest", "@testing-library/jest-dom", "vite/client"]
+		"types": ["node", "vite/client"]
 	},
-        "include": ["src", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts", "playwright.config.ts", "e2e"],
-	"exclude": ["node_modules", "dist", "build", "coverage"],
+        "include": ["src"],
+	"exclude": ["node_modules", "dist", "build", "coverage", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**", "e2e", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts", "playwright.config.ts"],
 	"references": [
 		{"path": "../../packages/app-shell"},
 		{"path": "../../packages/fonts"},

@@ -4,7 +4,7 @@
  * It should be imported by the consuming application after Tailwind's base imports.
  */
 
-@import "tailwindcss";
+/* @import "tailwindcss"; - Removed to prevent conflict with main app's Tailwind import */
 
 :root {
   --background: 0 0% 100%;
