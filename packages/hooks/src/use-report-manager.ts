@@ -10,6 +10,7 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
+import { logError } from './logger';
 
 interface UseReportManagerProps {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
@@ -49,7 +50,7 @@ export const useReportManager = ({
       const report = await generateReportWithContent();
       return report;
     } catch (error) {
-      console.error('Error generating report:', error);
+      logError('Error generating report:', error);
       toast({
         title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.reportGenerationFailed,
