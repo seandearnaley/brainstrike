@@ -223,7 +223,7 @@ export default defineConfig({
     ],
     reporters: ["default", "hanging-process"],
     silent: true,
-    onConsoleLog: (log, type) => {
+    onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {
       if (
         type === "stderr" &&
         log.includes("ERROR") &&

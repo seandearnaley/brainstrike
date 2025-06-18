@@ -7,6 +7,7 @@
     "rootDir": "./",
     "outDir": "./dist",
     "declaration": true,
+    "types": ["node"],
     "paths": {
       "@brainstrike/storage": ["../storage/src"]
     }
