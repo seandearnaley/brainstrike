@@ -1,48 +1,70 @@
-# Ignore node_modules (but pnpm workspaces will still be available)
-node_modules
+# Allowlist approach - ignore everything, then explicitly allow what's needed
+/*
 
-# Ignore test files and coverage
-*.test.tsx
-*.test.ts
-__tests__
-test-results
-e2e
-playwright-report
-coverage
+# Core build files
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!turbo.json
+!vercel.json
 
-# Ignore development configurations
-vitest.config.ts
-.eslintrc
-.eslintignore
-.npmrc
-.nvmrc
-.env
-.env.local
-.env.development
+# Configuration files (needed for Vite/Tailwind config)
+!*.config.mts
+!*.config.ts
+!*.config.js
+!*.config.json
+!tailwind.config.*
+!vite.config.*
+!tsconfig*.json
+!biome.json
 
-# Ignore documentation
-docs
+# Build and dependency management
+!.npmrc
 
-# Ignore build artifacts
-dist
-out
-build
+# Applications - allow entire apps directory for Tailwind @source directives
+!apps/
 
-# Ignore logs and system files
-*.log
-.DS_Store
-.git
+# Packages - allow entire packages directory for Tailwind @source directives  
+!packages/
 
-# Ignore specific config files that aren't needed for build
-README.md
+# Within allowed directories, ignore specific build/test artifacts
+apps/*/node_modules/
+apps/*/dist/
+apps/*/build/
+apps/*/out/
+apps/*/test-results/
+apps/*/playwright-report/
+apps/*/coverage/
+apps/*/e2e/
+apps/*/__tests__/
 
-# PRESERVE THESE FOR TAILWIND CSS:
-# - Do NOT ignore packages/*/src directories (needed for @source directives)
-# - Do NOT ignore apps/*/src directories (needed for @source directives)
-# - Do NOT ignore *.config.mts, *.config.ts files (needed for Vite/Tailwind config)
+packages/*/node_modules/
+packages/*/dist/
+packages/*/build/
+packages/*/out/
+packages/*/test-results/
+packages/*/coverage/
+packages/*/__tests__/
 
-# The following patterns are intentionally NOT included to preserve Tailwind functionality:
-# packages/*/src/**
-# apps/*/src/**
-# *.config.mts
-# *.config.ts
+# Ignore test files in allowed directories
+apps/**/*.test.ts
+apps/**/*.test.tsx
+packages/**/*.test.ts
+packages/**/*.test.tsx
+
+# Ignore development files in allowed directories
+apps/**/.env
+apps/**/.env.local
+apps/**/.env.development
+apps/**/docs/
+apps/**/README.md
+apps/**/*.log
+apps/**/.DS_Store
+
+packages/**/.env
+packages/**/.env.local
+packages/**/.env.development
+packages/**/docs/
+packages/**/README.md
+packages/**/*.log
+packages/**/.DS_Store
