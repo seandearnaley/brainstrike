@@ -5,7 +5,7 @@
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
-!turbo.json
+!turbo.jsonc
 !vercel.json
 
 # Configuration files (needed for Vite/Tailwind config)
