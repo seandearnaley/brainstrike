@@ -9,7 +9,6 @@ import { useVirtualList } from './use-virtual-list';
 interface IFileTreeProps {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
-  onRender?: (() => void) | undefined;
   folderId: string;
 }
 
@@ -18,10 +17,9 @@ interface IFileTreeProps {
  * @description Renders the file and folder structure.
  * @param {IFileNode[]} fileTree - The array of IFileNode objects representing the file structure to render.
  * @param {Set<string>} loadingFiles - A set of paths for files that are currently in a loading state.
- * @param {(() => void) | undefined} onRender - An optional callback function that is triggered when the tree component renders (primarily for testing).
  * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
  */
-const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
+const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, folderId }) => {
   const store = useFileExplorerStoreContext();
   const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
     store(
@@ -100,11 +98,6 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
       offset,
     ]
   );
-
-  // This effect will run if the onRender callback itself changes.
-  useEffect(() => {
-    onRender?.();
-  }, [onRender]);
 
   return (
     <div ref={containerRef} className="h-full relative flex-1 min-h-0">
