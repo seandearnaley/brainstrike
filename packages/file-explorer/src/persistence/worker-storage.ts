@@ -297,7 +297,7 @@ export class WorkerStorage {
           this.pendingRequests.delete(id);
           reject(new Error('Worker request timeout'));
         }
-      }, 10000); // 10 second timeout
+      }, 30000); // 30 second timeout - increased to account for concurrent file operations
     });
   }
 

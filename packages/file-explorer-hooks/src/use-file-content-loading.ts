@@ -12,7 +12,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 
-const MAX_CONCURRENT_LOADS = 5;
+const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
 
 interface UseFileContentLoadingReturn {
   fileContents: { [compositeKey: string]: string };

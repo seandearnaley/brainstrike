@@ -26,7 +26,7 @@ export interface FileContentWorkerOptions {
 
 export function createFileContentWorker({
   fileSystemAdapter,
-  concurrency = 5,
+  concurrency = 3, // Reduced from 5 to prevent main thread saturation
 }: FileContentWorkerOptions) {
   async function runQueue(queue: FileReadRequest[], onProgress?: (e: ProgressEvent) => void) {
     const results: Record<string, string> = {};
@@ -36,11 +36,15 @@ export function createFileContentWorker({
     const total = queue.length;
 
     return new Promise<Record<string, string>>((resolve) => {
-      const next = () => {
+      const next = async () => {
         while (active < concurrency && index < queue.length) {
           const req = queue[index] as FileReadRequest;
           index += 1;
           active += 1;
+          
+          // Yield to main thread to prevent blocking WorkerStorage communication
+          await new Promise(resolve => setTimeout(resolve, 0));
+          
           processRequest(req)
             .then(({ key, content }) => {
               results[key] = content;
@@ -56,14 +60,14 @@ export function createFileContentWorker({
               if (completed === total) {
                 resolve(results);
               } else {
-                next();
+                next(); // Don't await here to prevent blocking
               }
             });
         }
       };
 
       if (queue.length === 0) resolve(results);
-      next();
+      next(); // Don't await here to start processing immediately
     });
   }
 
