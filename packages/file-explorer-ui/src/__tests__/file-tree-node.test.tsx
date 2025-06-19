@@ -1,4 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -35,7 +36,7 @@ describe('FileTreeNode', () => {
     expect(screen.getByText('test.tsx')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select test.tsx' })).toBeInTheDocument();
     // Should not have expand/collapse button for files
-    expect(screen.queryByTestId('expand-collapse-button')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(EXPAND_COLLAPSE_TEST_ID)).not.toBeInTheDocument();
   });
 
   it('renders a directory node correctly', () => {
@@ -68,7 +69,7 @@ describe('FileTreeNode', () => {
     const user = userEvent.setup();
     render(<FileTreeNode {...defaultDirProps} />, { wrapper: FileExplorerTestWrapper });
 
-    const expandButton = screen.getByTestId('expand-collapse-button');
+    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
     await user.click(expandButton);
 
     expect(defaultDirProps.onToggleDirectoryExpansion).toHaveBeenCalledWith('src/components');
@@ -137,15 +138,48 @@ describe('FileTreeNode', () => {
       wrapper: FileExplorerTestWrapper,
     });
 
-    // Initially collapsed
-    expect(
-      screen.getByRole('button', { name: /expand components directory/i })
-    ).toBeInTheDocument();
+    // Initially collapsed - the button aria-label is just "Expand"
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
 
-    // Expanded
+    // Expanded - the button aria-label is just "Collapse"
     rerender(<FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />);
-    expect(
-      screen.getByRole('button', { name: /collapse components directory/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
+  });
+
+  it('renders an expanded directory node and handles collapse', async () => {
+    const user = userEvent.setup();
+
+    // Create a directory node with child files
+    const nodeWithChildren = createDirectoryNode({
+      name: 'components',
+      path: 'src/components',
+      children: [
+        createFileNode({
+          name: 'child-file-1.txt',
+          path: 'src/components/child-file-1.txt',
+        }),
+      ],
+    });
+
+    const props = {
+      ...defaultDirProps,
+      node: nodeWithChildren,
+      isExpanded: true,
+      folderId: 'test-folder',
+    };
+
+    render(<FileTreeNode {...props} />, {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    expect(screen.getByText('child-file-1.txt')).toBeInTheDocument();
+
+    // The button should be present for expandable directories
+    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
+    expect(expandButton).toBeInTheDocument();
+
+    // User can collapse the directory
+    await user.click(expandButton);
+    expect(defaultDirProps.onToggleDirectoryExpansion).toHaveBeenCalledWith('src/components');
   });
 });

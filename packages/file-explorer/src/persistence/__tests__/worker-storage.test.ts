@@ -86,7 +86,15 @@ describe('WorkerStorage', () => {
     // Mock Worker constructor
     vi.stubGlobal(
       'Worker',
-      vi.fn(() => mockWorker)
+      vi.fn((url: string | URL) => {
+        // For the feature-detect call, return a dummy worker that can be terminated.
+        if (url.toString().startsWith('data:')) {
+          // This mock needs to be an object with a terminate function.
+          return { terminate: vi.fn(), addEventListener: vi.fn() };
+        }
+        // For other calls, return the shared mockWorker for testing.
+        return mockWorker;
+      })
     );
   });
 
@@ -103,13 +111,15 @@ describe('WorkerStorage', () => {
     it('should initialize worker in browser environment', () => {
       const storage = new WorkerStorage();
 
-      expect(Worker).toHaveBeenCalled();
-      expect(Worker).toHaveBeenCalledWith(expect.any(URL), { type: 'module' });
-      // Verify the URL ends with the correct worker file
+      // It's called once for feature detection and once for the real worker.
+      expect(Worker).toHaveBeenCalledTimes(2);
+
+      // Check the second call for the actual worker URL
       const workerMock = Worker as unknown as { mock: { calls: unknown[][] } };
-      const callArgs = workerMock.mock.calls[0];
+      const callArgs = workerMock.mock.calls[1]; // Second call
       expect(callArgs).toBeDefined();
       expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.js$/);
+      expect(callArgs?.[1]).toEqual({ type: 'module' });
       expect(storage.isWorkerAvailable).toBe(true);
     });
 
@@ -128,7 +138,8 @@ describe('WorkerStorage', () => {
 
       const storage = new WorkerStorage();
 
-      expect(Worker).not.toHaveBeenCalled();
+      // It should be called once for feature detection, but not for the real worker.
+      expect(Worker).toHaveBeenCalledTimes(1);
       expect(storage.isWorkerAvailable).toBe(false);
 
       vi.unstubAllGlobals();
@@ -137,7 +148,10 @@ describe('WorkerStorage', () => {
     it('should handle worker initialization errors gracefully', () => {
       vi.stubGlobal(
         'Worker',
-        vi.fn(() => {
+        vi.fn((url: string | URL) => {
+          if (url.toString().startsWith('data:')) {
+            return { terminate: vi.fn(), addEventListener: vi.fn() };
+          }
           throw new Error('Worker initialization failed');
         })
       );

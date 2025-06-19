@@ -59,6 +59,23 @@ export class WorkerStorage {
       return;
     }
 
+    // Feature-test for module worker support
+    const supportsModuleWorker = (() => {
+      try {
+        // Create a dummy worker to test module support.
+        // The 'data:' URL avoids a network request.
+        new Worker('data:text/javascript,', { type: 'module' }).terminate();
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+
+    if (!supportsModuleWorker) {
+      console.warn('Module workers not supported, falling back to main-thread persistence.');
+      return;
+    }
+
     try {
       // Check if we're in a supported environment (not Electron)
       const isElectron =
@@ -261,7 +278,11 @@ export class WorkerStorage {
       console.error('Worker setItem failed:', error);
       // For fallback path, ensure we store stringified value
       const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-      localStorage.setItem(key, serialized);
+      try {
+        localStorage.setItem(key, serialized);
+      } catch (e) {
+        console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+      }
     }
   }
 

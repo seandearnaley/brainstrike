@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { Checkbox } from '@brainstrike/ui';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import { isPathSelectedInFolder } from '@brainstrike/utils';
@@ -257,21 +258,19 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
               </TooltipContent>
             )}
           </Tooltip>
-          {node.type === 'directory' && (
-            <button
-              type="button"
-              onClick={handleExpansionClick}
-              className="p-1 mr-1"
-              aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
-              data-testid="expand-collapse-button"
-            >
-              {isExpanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-            </button>
-          )}
+          <div className="w-6 flex items-center justify-center">
+            {node.type === 'directory' && (
+              <button
+                type="button"
+                className="p-1 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"
+                onClick={handleExpansionClick}
+                data-testid={EXPAND_COLLAPSE_TEST_ID}
+                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+              >
+                {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+              </button>
+            )}
+          </div>
           {renderIcon()}
           {node.isSymbolicLink && <Link2Icon className="mx-1 h-4 w-4 text-blue-500" />}
           <span className="ml-1">{node.name}</span>

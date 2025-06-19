@@ -5,7 +5,6 @@
     "outDir": "dist",
     "composite": true,
     "declaration": true,
-    "emitDeclarationOnly": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],

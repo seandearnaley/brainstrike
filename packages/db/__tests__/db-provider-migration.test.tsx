@@ -2,7 +2,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
-import { migrate } from '../src/migrations/bootstrap';
 import type { FileRecord } from '../src/models/file-record';
 import { PGlite } from '@electric-sql/pglite';
 import * as wasmLoaderModule from '../src/wasm-loader';

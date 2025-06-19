@@ -1,4 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -49,6 +50,7 @@ describe('FileTree', () => {
     render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByText('src')).toBeInTheDocument();
+    expect(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID)).toBeInTheDocument();
   });
 
   it('shows directory structure', () => {
@@ -58,7 +60,7 @@ describe('FileTree', () => {
     expect(screen.getByText('src')).toBeInTheDocument();
 
     // Should have expand/collapse button for directories
-    expect(screen.getByTestId('expand-collapse-button')).toBeInTheDocument();
+    expect(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID)).toBeInTheDocument();
   });
 
   it('handles basic user interactions', async () => {
@@ -66,7 +68,7 @@ describe('FileTree', () => {
     render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
 
     // Find and click expand button
-    const expandButton = screen.getByTestId('expand-collapse-button');
+    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
 
     // Should be able to click without errors
     await user.click(expandButton);
@@ -104,5 +106,21 @@ describe('FileTree', () => {
     });
 
     expect(screen.getByText('file10.txt')).toBeInTheDocument();
+  });
+
+  it('should expand and collapse a directory', async () => {
+    const user = userEvent.setup();
+    render(
+      <FileTree
+        fileTree={[createDirectoryNode({ name: 'src', path: 'src', children: [] })]}
+        loadingFiles={new Set()}
+        folderId="test-folder"
+      />,
+      { wrapper: FileExplorerTestWrapper }
+    );
+    const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
+
+    // Expand
+    await user.click(expandButton);
   });
 });

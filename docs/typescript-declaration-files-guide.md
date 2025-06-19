@@ -408,6 +408,11 @@ Generate declarations separately from bundles:
 }
 ```
 
+
+## NOTES:
+
+`.tsbuildinfo` is a file that TypeScript uses to track the state of the build. It is created by the TypeScript compiler and is used to speed up the build process. In some cases this doesnt get updated correctly and you need to clear the cache, worth trying if you're not seeing index.d.ts files in your dist folder.
+
 ## Conclusion
 
 The key takeaway is that **TypeScript project references and `emitDeclarationOnly` are incompatible**. When using project references in a monorepo:

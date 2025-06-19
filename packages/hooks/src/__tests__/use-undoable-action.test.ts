@@ -170,7 +170,7 @@ describe('useUndoableAction', () => {
         });
       });
 
-      // Verify clearTimeout was called for the first action
+      // Verify a timeout was cleared for the first action.
       expect(global.clearTimeout).toHaveBeenCalledWith(123);
 
       // Verify second toast was created
@@ -217,6 +217,8 @@ describe('useUndoableAction', () => {
         expect(toastCall.duration).toBe(customDuration);
       }
 
+      // With fake timers, the timeout is queued but not run.
+      // Crucially, it should not have been cleared by the hook's logic.
       // Since we mocked setTimeout to execute immediately,
       // the timeout should have been cleared already
       expect(global.clearTimeout).not.toHaveBeenCalled();

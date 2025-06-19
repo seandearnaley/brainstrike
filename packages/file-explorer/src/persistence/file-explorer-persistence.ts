@@ -94,6 +94,26 @@ export const createPersistOptions = (
     window.addEventListener('pagehide', handleBeforeUnload);
   }
 
+  // Add legacy-key migration from v3 to v4
+  try {
+    const legacyKey = 'fileExplorerSettings';
+    const newKey = 'file-explorer-storage-v4';
+    const legacy = localStorage.getItem(legacyKey);
+
+    if (legacy && !localStorage.getItem(newKey)) {
+      if (shouldLog) {
+        logger.debug(`Migrating settings from legacy key "${legacyKey}" to "${newKey}"`);
+      }
+      localStorage.setItem(newKey, legacy);
+      localStorage.removeItem(legacyKey);
+    }
+  } catch (error) {
+    // Ignore potential localStorage access errors in restricted environments
+    if (shouldLog) {
+      logger.warn('Could not perform legacy settings migration:', error);
+    }
+  }
+
   return {
     name: 'file-explorer-storage-v4',
     version: 1,
@@ -105,6 +125,13 @@ export const createPersistOptions = (
           // Use Web Worker for background deserialization
           try {
             const value = await workerStorage.getItem(name);
+            // The worker might return an object or a string. For consistency,
+            // we handle both and ensure the final output is a parsed object.
+            if (value === null || value === undefined) return null;
+            if (typeof value === 'string') {
+              return JSON.parse(value);
+            }
+            // It's already an object, as parsed by the worker.
             return value;
           } catch (error) {
             if (shouldLog) {

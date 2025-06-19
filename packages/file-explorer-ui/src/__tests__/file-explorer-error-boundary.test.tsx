@@ -1,7 +1,7 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { afterAll, beforeAll, describe, expect, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 
 const mockToast = vi.fn();
@@ -51,6 +51,12 @@ describe('FileExplorerErrorBoundary', () => {
   beforeAll(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
+
+  beforeEach(() => {
+    mockToast.mockClear();
+    vi.clearAllMocks();
+  });
+
   afterAll(() => {
     vi.restoreAllMocks();
   });

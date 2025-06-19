@@ -30,7 +30,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
         'w-16 bg-gray-100 dark:bg-gray-800 h-full flex flex-col items-center py-4 space-y-4',
         className
       )}
-      aria-label={ariaLabel}
+      aria-label={ariaLabel || 'Main navigation'}
       {...props}
     >
       {items.map((item) => {
