@@ -26,9 +26,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
 }: NavigationSidebarProps): ReactElement {
   const navigationRole = 'navigation' as const;
   return (
-    <aside
-      role={navigationRole}
-      aria-label={ariaLabel}
+    <nav
       className={cn(
         'w-16 bg-gray-100 dark:bg-gray-800 h-full flex flex-col items-center py-4 space-y-4',
         className
@@ -75,7 +73,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
         );
       })}
       {children ? <div className="mt-auto">{children}</div> : null}
-    </aside>
+    </nav>
   );
 });
 NavigationSidebar.displayName = 'NavigationSidebar';
