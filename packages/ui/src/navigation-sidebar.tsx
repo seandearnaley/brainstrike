@@ -68,6 +68,7 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
               currentPath === item.path && 'bg-gray-200 dark:bg-gray-700'
             )}
             title={item.name}
+            aria-label={item.name}
           >
             <Icon className="w-6 h-6" />
           </a>

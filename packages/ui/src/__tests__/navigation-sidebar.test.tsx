@@ -56,6 +56,13 @@ describe('NavigationSidebar', () => {
     );
   });
 
+  it('applies aria-label to links', () => {
+    renderSidebar();
+
+    const link = screen.getByRole('link', { name: 'Context Explorer' });
+    expect(link).toHaveAttribute('aria-label', 'Context Explorer');
+  });
+
   it('applies aria-label to buttons when onItemClick is provided', () => {
     const handleClick = vi.fn();
     render(<NavigationSidebar items={items} currentPath="/" onItemClick={handleClick} />);
