@@ -29,7 +29,7 @@ export async function mockBrowserApis(
           }
           return { kind: 'directory', name, _entries: children };
         }
-        return { kind: 'file', name, _content: 'test content' };
+        return { kind: 'file', name, _content: `${name} content` };
       }
 
       class FileSystemFileHandle {

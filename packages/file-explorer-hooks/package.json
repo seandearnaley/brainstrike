@@ -12,10 +12,11 @@
     "dist"
   ],
   "scripts": {
-    "build:types": "tsc --emitDeclarationOnly",
-    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
-    "build": "pnpm run build:types && pnpm run build:js",
-    "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
+    "build": "tsc && tsup",
+    "dev": "tsup src/index.ts --format esm,cjs --watch",
+    "clean": "rimraf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

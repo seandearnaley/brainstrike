@@ -120,6 +120,12 @@ export interface FileExplorerState extends FileExplorerData {
 // Constants
 export const MAX_FOLDER_STATES = 20;
 
+/** Default number of files displayed before summarizing folders */
+export const DEFAULT_FOLDER_SUMMARY_THRESHOLD = 5;
+
+/** Default allowed number of file selections */
+export const DEFAULT_MAX_SELECTION_COUNT = 10;
+
 export const DEFAULT_STATE = {
   selectedFilePaths: new Set<string>(),
   expandedDirectoryPaths: new Set<string>(),
@@ -135,8 +141,8 @@ export const DEFAULT_STATE = {
   useRegex: false,
   includeProjectTree: true,
   // Used only when generating reports
-  folderSummaryThreshold: 5,
-  maxSelectionCount: 10,
+  folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
   lastActiveTab: 'files',
   folderAccessOrder: [] as string[],
   fileContents: {} as Record<string, string>,

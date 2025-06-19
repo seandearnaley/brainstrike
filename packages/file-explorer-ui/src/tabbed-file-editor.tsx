@@ -55,11 +55,6 @@ export function TabbedFileEditor({
 
   const getFileName = (path: string) => path.split('/').pop() || path;
 
-  const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  const activeContent = activeTab ? fileContents[activeTab.compositeKey] : null;
-  const activeIsLoading = activeTab ? loadingFiles.has(activeTab.compositeKey) : false;
-  const activePath = activeTab ? decodeFileSelection(activeTab.compositeKey).path : '';
-
   // Hotkeys for tab management
   useHotkeys('ctrl+w, cmd+w', (e) => {
     e.preventDefault();
@@ -103,6 +98,8 @@ export function TabbedFileEditor({
             const isActive = tab.id === activeTabId;
             const { path } = decodeFileSelection(tab.compositeKey);
             const fileName = getFileName(path);
+            const tabButtonId = `tab-${tab.id}`;
+            const panelId = `panel-${tab.id}`;
 
             return (
               <div
@@ -120,10 +117,12 @@ export function TabbedFileEditor({
                   )}
                 >
                   <button
+                    id={tabButtonId}
                     ref={isActive ? activeTabRef : null}
                     type="button"
                     role="tab"
                     aria-selected={isActive}
+                    aria-controls={panelId}
                     className="flex items-center gap-2 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => onTabClick(tab.id)}
                   >
@@ -154,41 +153,59 @@ export function TabbedFileEditor({
         </div>
       </div>
 
-      <div className="flex-1 overflow-auto bg-background" role="tabpanel">
+      <div className="flex-1 overflow-auto bg-background">
         {tabs.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-4 text-center">
             <p className="font-semibold">No files open</p>
             <p className="text-sm">Click on a file in the preview panel to open it here</p>
           </div>
+        ) : activeTabId === null ? (
+          <div className="p-4 text-muted-foreground">Select a file to view its content.</div>
         ) : (
-          <div className="p-4">
-            {activeIsLoading ? (
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                Loading file content...
-              </div>
-            ) : activeContent ? (
-              <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
-                {activeContent.startsWith('File not accessible') ? (
-                  <div className="text-amber-600 dark:text-amber-400">
-                    <p>{activeContent}</p>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      To access this file, please open the folder again using the folder icon
-                      button. This is a security measure of your browser.
-                    </p>
+          tabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            const content = fileContents[tab.compositeKey];
+            const isLoading = loadingFiles.has(tab.compositeKey);
+            const { path } = decodeFileSelection(tab.compositeKey);
+            const panelId = `panel-${tab.id}`;
+            const tabButtonId = `tab-${tab.id}`;
+
+            return (
+              <div
+                key={tab.id}
+                id={panelId}
+                role="tabpanel"
+                aria-labelledby={tabButtonId}
+                hidden={!isActive}
+                className="p-4 h-full"
+              >
+                {isLoading ? (
+                  <div className="flex items-center justify-center h-full text-muted-foreground">
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Loading file content...
                   </div>
+                ) : content ? (
+                  <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
+                    {content.startsWith('File not accessible') ? (
+                      <div className="text-amber-600 dark:text-amber-400">
+                        <p>{content}</p>
+                        <p className="text-sm text-muted-foreground mt-2">
+                          To access this file, please open the folder again using the folder icon
+                          button. This is a security measure of your browser.
+                        </p>
+                      </div>
+                    ) : (
+                      content
+                    )}
+                  </pre>
                 ) : (
-                  activeContent
+                  <div className="text-muted-foreground">
+                    File not found or unable to load: {path}
+                  </div>
                 )}
-              </pre>
-            ) : activeTabId ? (
-              <div className="text-muted-foreground">
-                File not found or unable to load: {activePath}
               </div>
-            ) : (
-              <div className="text-muted-foreground">Select a file to view its content.</div>
-            )}
-          </div>
+            );
+          })
         )}
       </div>
     </div>

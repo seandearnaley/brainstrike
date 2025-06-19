@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 
 export interface VirtualRange {
   start: number;
@@ -21,7 +21,7 @@ export function useVirtualList(
   const [range, setRange] = useState<VirtualRange>({ start: 0, end: 0 });
   const [offset, setOffset] = useState(0);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 

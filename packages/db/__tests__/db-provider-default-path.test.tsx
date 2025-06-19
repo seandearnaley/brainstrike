@@ -1,6 +1,8 @@
 import React from 'react';
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import os from 'node:os';
+import path from 'node:path';
 
 vi.mock('@electric-sql/pglite', () => {
   return {
@@ -49,12 +51,9 @@ describe('DbProvider default dbPath', () => {
     const originalWindow = globalThis.window;
     expect(getDefaultDbPath()).toBe('idb://app');
     delete (globalThis as any).window;
-    // In Node.js environment, it should return a file path (either temp dir or fallback)
+    // In Node.js environment, it should point to the temp directory
     const nodePath = getDefaultDbPath();
-    expect(typeof nodePath).toBe('string');
-    expect(nodePath.length).toBeGreaterThan(0);
-    // Should be either a temp directory path or the fallback './app.db'
-    expect(nodePath.endsWith('/') || nodePath === './app.db' || nodePath.includes('app.db')).toBe(true);
+    expect(nodePath).toBe(path.join(os.tmpdir(), 'app.db'));
     globalThis.window = originalWindow;
   });
 });

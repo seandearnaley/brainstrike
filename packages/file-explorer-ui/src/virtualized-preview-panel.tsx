@@ -365,11 +365,16 @@ export const VirtualizedPreviewPanel = memo<VirtualizedPreviewPanelProps>(
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={expandAllFolders}>
+              <Button variant="outline" size="sm" onClick={expandAllFolders} aria-label="Expand">
                 <ArrowDown className="size-3.5" />
                 <span className="hidden sm:inline ml-1">Expand</span>
               </Button>
-              <Button variant="outline" size="sm" onClick={collapseAllFolders}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={collapseAllFolders}
+                aria-label="Collapse"
+              >
                 <ArrowUp className="size-3.5" />
                 <span className="hidden sm:inline ml-1">Collapse</span>
               </Button>

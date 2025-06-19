@@ -1,5 +1,11 @@
 import type { FileExplorerState, FolderState } from '@brainstrike/types';
-import { DEFAULT_STATE, MAX_FOLDER_STATES, MIN_MAX_SELECTION_COUNT } from '@brainstrike/types';
+import {
+  DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  DEFAULT_MAX_SELECTION_COUNT,
+  DEFAULT_STATE,
+  MAX_FOLDER_STATES,
+  MIN_MAX_SELECTION_COUNT,
+} from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from 'zustand/vanilla';
 import { createFolderStateActions } from '../actions/folder-state-actions';
@@ -103,8 +109,8 @@ describe('Folder State Actions', () => {
     expect(newState.expandedDirectoryPaths.size).toBe(0);
     expect(newState.useRegex).toBe(false);
     expect(newState.includeProjectTree).toBe(true);
-    expect(newState.folderSummaryThreshold).toBe(100);
-    expect(newState.maxSelectionCount).toBe(100);
+    expect(newState.folderSummaryThreshold).toBe(DEFAULT_FOLDER_SUMMARY_THRESHOLD);
+    expect(newState.maxSelectionCount).toBe(DEFAULT_MAX_SELECTION_COUNT);
     expect(newState.lastActiveTab).toBe('files');
     expect(newState.lastAccessed).toBeGreaterThan(0);
     expect(state.selectedFilePaths.size).toBe(0);

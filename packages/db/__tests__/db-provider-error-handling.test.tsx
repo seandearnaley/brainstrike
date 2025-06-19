@@ -13,16 +13,35 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('DbProvider error handling', () => {
+  const activeDatabases: PGlite[] = [];
+  
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset logger configuration to defaults
+    const { resetLogger } = require('@brainstrike/utils');
+    resetLogger();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clean up any active databases to prevent unhandled promise rejections
+    await Promise.allSettled(
+      activeDatabases.map(async (db) => {
+        try {
+          await db.close();
+        } catch (error) {
+          // Ignore close errors in cleanup
+        }
+      })
+    );
+    activeDatabases.length = 0;
     vi.restoreAllMocks();
   });
 
   it('handles database initialization errors gracefully', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Configure logger to enable logging in test environment
+    const { configureLogger } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
     const initError = new Error('Failed to initialize database');
     
     // Mock wasmLoader to throw an error
@@ -36,7 +55,7 @@ describe('DbProvider error handling', () => {
 
     // Wait for the error to be handled
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to initialize and migrate database:', initError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize and migrate database:', initError);
     });
 
     // The repository should be null when there's an error
@@ -47,10 +66,14 @@ describe('DbProvider error handling', () => {
 
   it('handles migration errors gracefully', async () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Configure logger to enable logging in test environment
+    const { configureLogger } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
     const migrationError = new Error('Migration failed');
     
     // Mock successful database creation but failed migration
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockRejectedValue(migrationError);
 
@@ -58,7 +81,7 @@ describe('DbProvider error handling', () => {
 
     // Wait for the error to be handled
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to initialize and migrate database:', migrationError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize and migrate database:', migrationError);
     });
 
     // The repository should be null when there's a migration error
@@ -71,11 +94,15 @@ describe('DbProvider error handling', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const closeError = new Error('Failed to close database');
     
-    // Mock production environment
-    vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+    // Mock production environment but enable logging for the test
+    const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+    // Configure logger to enable logging in production for this test
+    const { configureLogger } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
     
     // Create a mock database that fails to close
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as void);
     vi.spyOn(mockDb, 'close').mockRejectedValue(closeError);
@@ -90,10 +117,11 @@ describe('DbProvider error handling', () => {
 
     // Wait for the close error to be logged
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to close database:', closeError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to close database:', closeError);
     });
 
     consoleErrorSpy.mockRestore();
+    isDevEnvSpy.mockRestore();
   });
 
   it('prevents concurrent database initialization', async () => {
@@ -137,6 +165,7 @@ describe('DbProvider error handling', () => {
 
     // Complete the initialization
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     resolveDbCreation!(mockDb);
 
     // Wait for initialization to complete
@@ -147,6 +176,7 @@ describe('DbProvider error handling', () => {
 
   it('handles already initialized database gracefully', async () => {
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     const createPGliteSpy = vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
       .mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as void);

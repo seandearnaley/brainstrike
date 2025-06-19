@@ -169,4 +169,22 @@ describe('folderTreeGenerator pattern matching', () => {
     expect(result).toContain('Input.tsx');
     expect(result).not.toContain('helper.ts');
   });
+
+  it('should handle invalid regex patterns gracefully', () => {
+    const srcDir = createMockDir('src', 'src');
+    const componentsDir = createMockDir('src/components', 'components');
+    const buttonFile = createMockFile('src/components/Button.tsx', 'Button.tsx');
+
+    componentsDir.children = [buttonFile];
+    srcDir.children = [componentsDir];
+
+    let result = '';
+    expect(() => {
+      result = generateProjectTreeText([srcDir], ['[abc'], [], true, 0);
+    }).not.toThrow();
+
+    expect(result).toContain('components/');
+    // When regex patterns are invalid, the function falls back to including all files
+    expect(result).toContain('Button.tsx');
+  });
 });

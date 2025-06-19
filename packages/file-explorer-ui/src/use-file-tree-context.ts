@@ -87,6 +87,10 @@ const ensureError = (err: unknown): Error => {
 
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
+
+  if (!fileSystemAdapter) {
+    throw new Error('File system adapter is not available');
+  }
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -230,7 +234,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
 
       // Check for cancellation
       if (abortSignal?.aborted) {
-        throw new Error('Operation was cancelled');
+        throw new DOMException('Operation was cancelled', 'AbortError');
       }
 
       try {
@@ -240,7 +244,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
         for (const entry of entries) {
           // Check for cancellation before processing each entry
           if (abortSignal?.aborted) {
-            throw new Error('Operation was cancelled');
+            throw new DOMException('Operation was cancelled', 'AbortError');
           }
 
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;

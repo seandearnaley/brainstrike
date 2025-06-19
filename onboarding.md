@@ -107,7 +107,7 @@ Turborepo orchestrates tasks across the monorepo, optimizing builds through cach
   - **`dev`**: Cache disabled (`cache: false`), marked as persistent (`persistent: true`) as it's a long-running process.
   - **`clean`**: Cache disabled.
   - **`type-check`**: Depends on `^build`. Caching enabled.
-  - **`coverage:merge` & `coverage:report`**: Custom tasks for aggregating coverage across packages. Cache disabled.
+  - **`coverage:merge` & `coverage:report`**: Custom tasks for aggregating coverage across packages (accepts `--quiet` to reduce output). Cache disabled.
 
 ### 4.2 pnpm Workspaces (`pnpm-workspace.yaml`, `package.json`)
 
@@ -195,7 +195,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
     pnpm test:coverage
 
     # Generate a combined coverage report (after running test:coverage)
-    pnpm coverage:merge
+    pnpm coverage:merge -- --quiet # omit --quiet for verbose output
     pnpm coverage:report # Report saved in ./coverage
 
     # Run E2E tests (requires the web app to be built or running)

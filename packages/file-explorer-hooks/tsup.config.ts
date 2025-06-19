@@ -1,18 +1,25 @@
 import { defineConfig } from 'tsup';
 
-export default defineConfig((options) => ({
+export default defineConfig({
   entry: ['src/index.ts'],
   format: ['esm', 'cjs'],
-  dts: false, // Disable dts generation in tsup, handle separately
+  dts: false, // Disable tsup dts generation, use tsc instead
+  outDir: 'dist',
+  clean: false, // Don't clean - tsc already generated .d.ts files
+  target: 'es2020',
   splitting: false,
-  sourcemap: true,
-  minify: !options.watch,
-  esbuildOptions(options, context) {
-    if (context.format === 'cjs') {
-      options.define = {
-        ...options.define,
-        'import.meta.env.DEV': 'false',
-      };
-    }
-  },
-}));
+  sourcemap: false,
+  external: [
+    'react',
+    'react-dom',
+    '@brainstrike/file-explorer',
+    '@brainstrike/file-system',
+    '@brainstrike/hooks',
+    '@brainstrike/platform-utils',
+    '@brainstrike/storage',
+    '@brainstrike/types',
+    '@brainstrike/ui',
+    '@brainstrike/utils',
+  ],
+  tsconfig: './tsconfig.json',
+});

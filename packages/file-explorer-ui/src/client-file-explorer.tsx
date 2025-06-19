@@ -3,23 +3,19 @@ import { FileExplorerErrorBoundary, FileExplorerProvider } from '@brainstrike/fi
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
 import { ErrorFallback, LoadingFallback, UnsupportedFeature } from '@brainstrike/ui';
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils';
 import React, { Suspense, useState, useEffect, useMemo } from 'react';
+
+const logger = createLogger('ClientFileExplorer');
 
 // Lazy load the file explorer component with better error handling for Vite
 const FileExplorer = React.lazy(() => {
-  if (isDevEnv()) {
-    console.log('Attempting to load FileExplorer component...');
-  }
   return import('./file-explorer')
     .then((module) => {
-      if (isDevEnv()) {
-        console.log('FileExplorer component loaded successfully');
-      }
       return module;
     })
     .catch((err) => {
-      console.error('Error loading FileExplorer:', err);
+      logger.error('Error loading FileExplorer:', err);
       // Return a fallback component
       return {
         default: () => (
@@ -41,20 +37,20 @@ export default function ClientFileExplorer() {
     const checkSupport = () => {
       try {
         if (!window.isSecureContext) {
-          console.warn('File System Access API requires a secure context (HTTPS)');
+          logger.warn('File System Access API requires a secure context (HTTPS)');
           setIsSupported(false);
           return;
         }
 
         if (typeof window.showDirectoryPicker !== 'function') {
-          console.warn('File System Access API is not supported in this browser');
+          logger.warn('File System Access API is not supported in this browser');
           setIsSupported(false);
           return;
         }
 
         setIsSupported(true);
       } catch (err) {
-        console.error('Error checking File System API support:', err);
+        logger.error('Error checking File System API support:', err);
         setIsSupported(false);
       }
     };

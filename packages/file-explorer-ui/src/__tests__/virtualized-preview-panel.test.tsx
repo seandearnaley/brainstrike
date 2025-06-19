@@ -117,12 +117,16 @@ describe('VirtualizedPreviewPanel', () => {
     const user = userEvent.setup();
 
     // Collapse all
-    await user.click(screen.getByRole('button', { name: /Collapse/i }));
+    const collapseBtn = screen.getByRole('button', { name: /Collapse/i });
+    expect(collapseBtn).toHaveAttribute('aria-label', 'Collapse');
+    await user.click(collapseBtn);
     expect(screen.queryByText('a.txt')).not.toBeInTheDocument();
     expect(screen.queryByText('b.txt')).not.toBeInTheDocument();
 
     // Expand all
-    await user.click(screen.getByRole('button', { name: /Expand/i }));
+    const expandBtn = screen.getByRole('button', { name: /Expand/i });
+    expect(expandBtn).toHaveAttribute('aria-label', 'Expand');
+    await user.click(expandBtn);
     expect(screen.getByText('a.txt')).toBeInTheDocument();
     expect(screen.getByText('b.txt')).toBeInTheDocument();
   });
