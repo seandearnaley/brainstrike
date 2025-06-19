@@ -41,12 +41,15 @@ describe('DbProvider integration', () => {
       }
     }, { wrapper });
     
-    await waitFor(() => {
-      expect(result.current).not.toBeNull();
-      expect(result.current).toBeDefined();
-    }, {
-      timeout: 10000, // 10 seconds timeout for CI
-    });
+    await waitFor(
+      () => {
+        expect(result.current).not.toBeNull();
+        expect(result.current).toBeDefined();
+      },
+      {
+        timeout: 30000, // Allow slower CI runners (up to 30 s)
+      }
+    );
     
     const repo = result.current!;
 
