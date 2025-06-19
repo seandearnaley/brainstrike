@@ -5,7 +5,7 @@ export default defineConfig({
   format: ['esm', 'cjs'],
   dts: false, // Disable tsup dts generation, use tsc instead
   outDir: 'dist',
-  clean: true,
+  clean: false, // Don't clean - tsc already generated .d.ts files
   target: 'es2020',
   splitting: false,
   sourcemap: false,
