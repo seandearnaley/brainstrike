@@ -1,13 +1,12 @@
 # BrainStrike Monorepo 🚀
 
-<!-- Add your logo here! -->
-<!-- ![BrainStrike Logo](path/to/your/logo.png) -->
+![BrainStrike Logo](icon.png)
 
 **BrainStrike is a 2025-ready, AI-powered productivity suite built on a robust monorepo architecture. We leverage modern technologies like Vite, React 19, and Turborepo to deliver cutting-edge tools for the future of work.**
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/your-repo/your-workflow.yml?branch=main)](https://github.com/your-repo/actions) <!-- Replace with your actual build status badge -->
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC) <!-- Or your actual license -->
-[![Version](https://img.shields.io/npm/v/your-main-package)](https://www.npmjs.com/package/your-main-package) <!-- If applicable -->
+[![Build Status](https://github.com/brainstrike/brainstrike/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/brainstrike/brainstrike/actions/workflows/test.yml)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
+[![Version](https://img.shields.io/npm/v/brainstrike)](https://www.npmjs.com/package/brainstrike)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](AGENTS.md)
 
 ---
@@ -274,7 +273,7 @@ This diagram illustrates how the `file-explorer-hooks` (representing the core lo
 ### 📦 Installation
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repository-url> # Replace with your repository URL
+    git clone https://github.com/brainstrike/brainstrike
     cd brainstrike-monorepo
     ```
 2.  **Install dependencies:**
@@ -287,7 +286,7 @@ This diagram illustrates how the `file-explorer-hooks` (representing the core lo
     ```bash
     pnpm dev --filter web
     ```
-    Access at `http://localhost:xxxx` (port may vary).
+    Access at `http://localhost:8080`.
 
 *   **Desktop App (Development):**
     ```bash
