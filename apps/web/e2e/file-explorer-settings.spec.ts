@@ -31,6 +31,11 @@ test.describe('File Explorer Settings', () => {
     await input.fill('5');
     await dialog.getByRole('button', { name: 'Apply Settings' }).click();
 
+    // Wait for the dialog to close and settings to be persisted
+    await expect(dialog).not.toBeVisible();
+    // Wait a bit longer to ensure persistence completes (debounce is 200ms)
+    await page.waitForTimeout(300);
+
     await page.reload();
     await home.expectLoaded();
 
