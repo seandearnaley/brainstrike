@@ -42,7 +42,7 @@ describe('NavigationSidebar', () => {
   it('renders with correct layout classes', () => {
     renderSidebar();
 
-    const sidebar = screen.getByRole('complementary');
+    const sidebar = screen.getByRole('navigation');
     expect(sidebar).toHaveClass(
       'w-16',
       'bg-gray-100',

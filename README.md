@@ -179,6 +179,7 @@ Below is a simplified overview of our monorepo structure, highlighting key areas
 │   ├── file-system/    # Abstraction for file system operations
 │   │   └── src/
 │   │       └── adapters/   # (e.g., Node.js, Web, In-memory)
+│   │                       # Note: Electron live-watch requires optional chokidar dep; fallback to fs.watch is automatic but less robust
 │   ├── fonts/          # 🖋️ Shared font assets
 │   ├── hooks/          # 🎣 General-purpose React hooks
 │   ├── server-config/  # 🔩 Configuration for server-side aspects

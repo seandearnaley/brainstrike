@@ -192,4 +192,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
   }
 }
 
+// Set displayName for React DevTools
+(FileExplorerErrorBoundary as any).displayName = 'FileExplorerErrorBoundary';
+
 export default FileExplorerErrorBoundary;
