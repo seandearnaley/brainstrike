@@ -219,7 +219,16 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           if (!filename) return;
           const full = path.join(handle.path, filename);
           const exists = fs.existsSync(full);
-          const isDir = exists && fs.statSync(full).isDirectory();
+          let isDir = false;
+          if (exists) {
+            try {
+              isDir = fs.statSync(full).isDirectory();
+            } catch {
+              // Handle permission errors or TOCTOU race conditions silently
+              // Default to file (safer assumption)
+              isDir = false;
+            }
+          }
           const type: FileSystemChange['type'] =
             ev === 'rename' ? (exists ? 'added' : 'removed') : 'modified';
           callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
