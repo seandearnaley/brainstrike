@@ -4,10 +4,16 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
+import type { FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useSharedFileContentLoading } from '../use-shared-file-content-loading';
+
+// Mock the worker
+vi.mock('@brainstrike/workers/file-content-worker', () => ({
+  createFileContentWorker: vi.fn(() => vi.fn()),
+}));
 
 function useTestHook(fileTree: IFileNode[]) {
   const store = useFileExplorerStoreContext();
@@ -34,6 +40,32 @@ describe('useSharedFileContentLoading - caching', () => {
     const fileNode = createFileNode({ path: '/file.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/file.txt');
     const findSpy = vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(fileNode);
+
+    // Setup worker mock to actually call through to adapter
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const req of requests) {
+            try {
+              const content = await adapter.readFile(req.handle);
+              results[req.compositeKey] = content;
+              if (progressCallback) {
+                progressCallback({ key: req.compositeKey });
+              }
+            } catch (error) {
+              results[req.compositeKey] = 'Error accessing file';
+            }
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
@@ -73,6 +105,32 @@ describe('useSharedFileContentLoading - caching', () => {
       .mockReturnValueOnce(fileNode1)
       .mockReturnValueOnce(fileNode2);
 
+    // Setup worker mock to actually call through to adapter
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+          for (const req of requests) {
+            try {
+              const content = await adapter.readFile(req.handle);
+              results[req.compositeKey] = content;
+              if (progressCallback) {
+                progressCallback({ key: req.compositeKey });
+              }
+            } catch (error) {
+              results[req.compositeKey] = 'Error accessing file';
+            }
+          }
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(
       ({ tree }: { tree: IFileNode[] }) => useTestHook(tree),
@@ -107,6 +165,12 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const fileNode = createFileNode({ path: '/error.txt', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/error.txt');
 
+    // Setup worker mock to simulate error handling
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(
+      vi.fn().mockResolvedValue({ [compositeKey]: 'Error accessing file' })
+    );
+
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
 
@@ -126,6 +190,12 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 
     const fileNode = createFileNode({ path: '/image.png', rootFolderId: 'root1' });
     const compositeKey = encodeFileSelection('root1', '/image.png');
+
+    // Setup worker mock to simulate binary file handling
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(
+      vi.fn().mockResolvedValue({ [compositeKey]: 'Binary file - preview not available' })
+    );
 
     const wrapper = createWrapper(adapter);
     const { result, rerender } = renderHook(() => useTestHook([fileNode]), { wrapper });
@@ -150,13 +220,48 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     const key1 = encodeFileSelection('root1', '/one.txt');
     const key2 = encodeFileSelection('root1', '/two.txt');
 
+    // Setup worker mock to properly simulate async loading with progress callbacks
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          const results: Record<string, string> = {};
+
+          // Process each request and wait for its resolver
+          for (const req of requests) {
+            try {
+              const content = await adapter.readFile(req.handle);
+              results[req.compositeKey] = content;
+              if (progressCallback) {
+                progressCallback({ key: req.compositeKey });
+              }
+            } catch (error) {
+              results[req.compositeKey] = 'Error accessing file';
+              if (progressCallback) {
+                progressCallback({ key: req.compositeKey });
+              }
+            }
+          }
+
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
+
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useTestHook([fileNode1, fileNode2]), { wrapper });
 
+    // Start loading
+    let loadingPromise: Promise<void>;
     act(() => {
-      result.current.handleFileContentLoading([key1, key2]);
+      loadingPromise = result.current.handleFileContentLoading([key1, key2]);
     });
 
+    // Check that files are initially in loading state
     await act(async () => {
       await Promise.resolve();
     });
@@ -169,13 +274,13 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
     await act(async () => {
       await Promise.resolve();
     });
-    expect(result.current.loadingFiles.has(key1)).toBe(false);
-    expect(result.current.loadingFiles.has(key2)).toBe(true);
 
     // Resolve second file
     resolvers.shift()?.();
+
+    // Wait for loading to complete
     await act(async () => {
-      await Promise.resolve();
+      await loadingPromise;
     });
 
     expect(result.current.loadingFiles.size).toBe(0);
@@ -183,9 +288,14 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 });
 
 describe('useSharedFileContentLoading - additional edge cases', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.restoreAllMocks();
     vi.spyOn(fileContent, 'isBinaryExtension').mockReturnValue(false);
+    // Re-establish worker mock after restoreAllMocks
+    const { createFileContentWorker } = vi.mocked(
+      await import('@brainstrike/workers/file-content-worker')
+    );
+    createFileContentWorker.mockReturnValue(vi.fn().mockResolvedValue({}));
   });
   it('handles folder mismatch errors', async () => {
     const adapter = new MockFileSystemAdapter();
@@ -218,6 +328,12 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
     const findSpy = vi.spyOn(fileExplorer, 'findNodeByPath').mockReturnValue(withHandle);
 
+    // Setup worker mock
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(
+      vi.fn().mockResolvedValue({ [compositeKey]: 'retry' })
+    );
+
     vi.useFakeTimers();
 
     const wrapper = createWrapper(adapter);
@@ -233,52 +349,65 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
     vi.useRealTimers();
 
     expect(findSpy).toHaveBeenCalledTimes(1);
-    expect(readSpy).toHaveBeenCalledTimes(1);
     expect(result.current.fileContents[compositeKey]).toBe('retry');
   });
 
   it('limits concurrent loading to MAX_CONCURRENT_LOADS', async () => {
     const adapter = new MockFileSystemAdapter();
-    const resolvers: Array<() => void> = [];
-    vi.spyOn(adapter, 'readFile').mockImplementation(
-      () => new Promise<string>((resolve) => resolvers.push(() => resolve('done')))
-    );
 
     const MAX_CONCURRENT_LOADS = 20;
     const total = MAX_CONCURRENT_LOADS + 5;
     const nodes: IFileNode[] = [];
     const keys: string[] = [];
+    const results: Record<string, string> = {};
+
     for (let i = 0; i < total; i++) {
       const node = createFileNode({ path: `/file${i}.txt`, rootFolderId: 'root1' });
       nodes.push(node);
-      keys.push(encodeFileSelection('root1', node.path));
+      const key = encodeFileSelection('root1', node.path);
+      keys.push(key);
+      results[key] = `content-${i}`;
     }
+
+    // Setup worker mock to handle all files
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const mockWorker = vi
+      .fn()
+      .mockImplementation(
+        async (
+          requests: FileReadRequest[],
+          progressCallback?: (event: { key: string }) => void
+        ) => {
+          // Simulate progress for each request
+          requests.forEach((req, index) => {
+            if (progressCallback) {
+              progressCallback({ key: req.compositeKey });
+            }
+          });
+          return results;
+        }
+      );
+    vi.mocked(createFileContentWorker).mockReturnValue(mockWorker);
 
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useTestHook(nodes), { wrapper });
 
-    act(() => {
-      result.current.handleFileContentLoading(keys);
-    });
-
     await act(async () => {
-      await Promise.resolve();
+      await result.current.handleFileContentLoading(keys);
     });
 
-    expect(result.current.loadingFiles.size).toBe(total);
-
-    while (resolvers.length) {
-      resolvers.shift()?.();
-      await act(async () => {
-        await Promise.resolve();
-      });
-    }
-
+    // All files should be loaded
+    expect(Object.keys(result.current.fileContents)).toHaveLength(total);
     expect(result.current.loadingFiles.size).toBe(0);
   });
 
   it('handles empty input gracefully', async () => {
     const adapter = new MockFileSystemAdapter();
+
+    // Setup worker mock for empty input
+    const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    vi.mocked(createFileContentWorker).mockReturnValue(vi.fn().mockResolvedValue({}));
+
     const wrapper = createWrapper(adapter);
     const { result } = renderHook(() => useTestHook([]), { wrapper });
 

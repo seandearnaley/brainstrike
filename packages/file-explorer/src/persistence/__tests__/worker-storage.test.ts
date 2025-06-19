@@ -447,8 +447,8 @@ describe('WorkerStorage', () => {
 
       const promise = storage.getItem('test');
 
-      // Fast-forward past timeout (10 seconds)
-      vi.advanceTimersByTime(11000);
+      // Fast-forward past timeout (30 seconds)
+      vi.advanceTimersByTime(31000);
 
       // Should fall back to localStorage after timeout
       const result = await promise;

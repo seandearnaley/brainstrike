@@ -1,16 +1,12 @@
-import type { FileHandle } from '@brainstrike/file-system';
-import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
-import { decodeFileSelection } from '@brainstrike/utils';
-import {
-  type FileContentWorker,
-  type FileReadRequest,
-  type ProgressEvent,
-  createFileContentWorker,
-} from '@brainstrike/workers/file-content-worker';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { decodeFileSelection, fileExplorer } from '@brainstrike/utils';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
+import {
+  type FileContentProcessor,
+  type FileContentRequest,
+  createFileContentProcessor,
+} from './file-content-processor';
 
 const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
 
@@ -22,26 +18,33 @@ interface UseFileContentLoadingReturn {
   clearFileContents: (compositeKeys: string[]) => void;
 }
 
-export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoadingReturn {
+export interface UseFileContentLoadingOptions {
+  processor?: FileContentProcessor;
+}
+
+export function useFileContentLoading(
+  fileTree: IFileNode[],
+  options: UseFileContentLoadingOptions = {}
+): UseFileContentLoadingReturn {
   const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const loadingPathsRef = useRef(new Set<string>());
-  const workerRef = useRef<FileContentWorker | null>(null);
   const { fileSystemAdapter } = useAdapters();
 
-  useEffect(() => {
-    workerRef.current = createFileContentWorker({
-      fileSystemAdapter,
+  // Create processor with dependency injection
+  const processor = useMemo(() => {
+    if (options.processor) {
+      return options.processor;
+    }
+
+    return createFileContentProcessor(fileSystemAdapter, {
       concurrency: MAX_CONCURRENT_LOADS,
     });
-    return () => {
-      workerRef.current = null;
-    };
-  }, [fileSystemAdapter]);
+  }, [options.processor, fileSystemAdapter]);
 
-  const prepareFileRead = useCallback(
-    async (compositeKey: string): Promise<FileReadRequest | null> => {
+  const prepareFileRequest = useCallback(
+    async (compositeKey: string): Promise<FileContentRequest | null> => {
       if (loadingPathsRef.current.has(compositeKey) || compositeKey in fileContents) {
         return null;
       }
@@ -68,59 +71,52 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
 
       loadingPathsRef.current.add(compositeKey);
 
-      const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-      const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-      const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-      const fileHandle: FileHandle = {
-        path: fileNode.path,
-        name: fileNode.name,
-        kind: 'file',
-        platform,
-        _internal: fileNode.handle,
+      return {
+        compositeKey,
+        fileNode,
+        fileSystemAdapter,
       };
-
-      return { compositeKey, handle: fileHandle, path: fileNode.path };
     },
     [fileTree, fileContents, fileSystemAdapter]
   );
 
   const handleFileContentLoading = useCallback(
     async (compositeKeys: string[]) => {
-      if (!workerRef.current) return;
       setIsLoading(true);
       setError(null);
 
       try {
-        const requests: FileReadRequest[] = [];
+        const requests: FileContentRequest[] = [];
         for (const key of compositeKeys) {
-          const req = await prepareFileRead(key);
+          const req = await prepareFileRequest(key);
           if (req) requests.push(req);
         }
 
-        await workerRef
-          .current(requests, ({ key }: ProgressEvent) => {
-            loadingPathsRef.current.delete(key);
-          })
-          .then((results: Record<string, string>) => {
-            setFileContents((prev) => ({ ...prev, ...results }));
-          });
+        if (requests.length === 0) {
+          return;
+        }
+
+        const results = await processor.processFiles(requests, ({ key }) => {
+          loadingPathsRef.current.delete(key);
+        });
+
+        setFileContents((prev) => ({ ...prev, ...results }));
       } catch (err) {
         setError(err as Error);
       } finally {
         setIsLoading(false);
       }
     },
-    [prepareFileRead]
+    [prepareFileRequest, processor]
   );
 
   const clearFileContents = useCallback((compositeKeys: string[]) => {
     setFileContents((prev) => {
-      const newContents = { ...prev };
+      const updated = { ...prev };
       for (const key of compositeKeys) {
-        delete newContents[key];
+        delete updated[key];
       }
-      return newContents;
+      return updated;
     });
   }, []);
 
