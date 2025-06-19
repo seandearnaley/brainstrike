@@ -271,7 +271,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         dispose = () => watcher.close();
       })
       .catch((err: unknown) => {
-        if (err && typeof err === 'object' && 'code' in err && err.code !== 'MODULE_NOT_FOUND') {
+        // Better error type narrowing
+        const e = err as NodeJS.ErrnoException;
+        if (e?.code !== 'MODULE_NOT_FOUND') {
           console.warn('chokidar unavailable, falling back to fs.watch:', err);
         }
         if (!closed) startFsWatch();

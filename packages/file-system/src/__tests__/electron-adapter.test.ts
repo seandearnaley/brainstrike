@@ -260,7 +260,8 @@ describe('ElectronFileSystemAdapter', () => {
       filePaths: [tempDir],
     });
 
-    // Mock a failed chokidar import
+    // Ensure a clean module cache then mock a failed chokidar import
+    vi.resetModules();
     vi.doMock('chokidar', () => {
       throw new Error('MODULE_NOT_FOUND');
     });
@@ -306,7 +307,8 @@ describe('ElectronFileSystemAdapter', () => {
       filePaths: [tempDir],
     });
 
-    // Mock failed chokidar import
+    // Ensure a clean module cache then mock failed chokidar import
+    vi.resetModules();
     vi.doMock('chokidar', () => {
       throw new Error('MODULE_NOT_FOUND');
     });
