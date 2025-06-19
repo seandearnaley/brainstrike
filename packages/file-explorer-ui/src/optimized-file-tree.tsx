@@ -86,7 +86,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { containerRef, range, offset, totalHeight } = useVirtualList(
       visibleNodes.length,
       ROW_HEIGHT,
-      5 // Increased overscan for smoother scrolling
+      { overscan: 5 } // Increased overscan for smoother scrolling
     );
 
     // Optimized row rendering with better memoization

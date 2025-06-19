@@ -154,6 +154,13 @@ const checkboxState = useMemo(() => {
 - **Row Height**: Consistent 32px with optimized positioning
 - **CSS Optimizations**: Added `willChange` and `contain` properties
 
+### Incremental Loading & Configuration
+The file explorer now supports incremental directory loading to handle
+extremely large folders (10k+ items). The `useFileTree` hook accepts a
+`batchSize` option controlling how many directory entries are processed before
+yielding updates. `useVirtualList` has been updated to accept an `overscan`
+option via a configuration object for finer tuning of virtual scrolling.
+
 ### Memory Optimization
 - **Context Providers**: Eliminated per-checkbox context overhead
 - **DOM Nodes**: Reduced DOM node count per checkbox
