@@ -578,9 +578,6 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
-      '@types/chokidar':
-        specifier: ^2.1.3
-        version: 2.1.7
       '@types/node':
         specifier: ^24
         version: 24.0.3
@@ -602,10 +599,6 @@ importers:
       vitest:
         specifier: ^3.2.3
         version: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
-    optionalDependencies:
-      chokidar:
-        specifier: ^4.0.3
-        version: 4.0.3
 
   packages/fonts:
     devDependencies:
@@ -2526,10 +2519,6 @@ packages:
 
   '@types/chai@5.2.2':
     resolution: {integrity: sha512-8kB30R7Hwqf40JPiKhVzodJs2Qc1ZJ5zuT3uzw5Hq/dhNCl3G3l83jfpdI1e20BP348+fV7VIL/+FxaXkqBmWg==}
-
-  '@types/chokidar@2.1.7':
-    resolution: {integrity: sha512-A7/MFHf6KF7peCzjEC1BBTF8jpmZTokb3vr/A0NxRGfwRLK3Ws+Hq6ugVn6cJIMfM6wkCak/aplWrxbTcu8oig==}
-    deprecated: This is a stub types definition. chokidar provides its own type definitions, so you do not need this installed.
 
   '@types/conventional-commits-parser@5.0.1':
     resolution: {integrity: sha512-7uz5EHdzz2TqoMfV7ee61Egf5y6NkcO4FB/1iCCQnbeiI1F3xzv3vK5dBCXUCLQgGYS+mUeigK1iKQzvED+QnQ==}
@@ -7730,10 +7719,6 @@ snapshots:
   '@types/chai@5.2.2':
     dependencies:
       '@types/deep-eql': 4.0.2
-
-  '@types/chokidar@2.1.7':
-    dependencies:
-      chokidar: 4.0.3
 
   '@types/conventional-commits-parser@5.0.1':
     dependencies:
