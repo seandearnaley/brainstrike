@@ -5,6 +5,7 @@ import {
   type ErrorBoundaryProps,
   type ErrorBoundaryState,
   ScrollArea,
+  useToast,
 } from '@brainstrike/ui';
 import { isDevEnv } from '@brainstrike/utils';
 import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from 'lucide-react';
@@ -14,9 +15,13 @@ import { AlertTriangle, ArrowLeft, Bug, FileWarning, RefreshCw, Server, X } from
  * ErrorBoundary and adds specialized messaging and actions for common
  * file-explorer errors.
  */
-class FileExplorerErrorBoundary extends ErrorBoundary {
+interface FileExplorerErrorBoundaryProps extends ErrorBoundaryProps {
+  toast: ReturnType<typeof useToast>['toast'];
+}
+
+class FileExplorerErrorBoundaryInner extends ErrorBoundary {
+  declare props: FileExplorerErrorBoundaryProps;
   declare state: ErrorBoundaryState;
-  declare props: ErrorBoundaryProps;
 
   private handleCopyErrorDetails = () => {
     const { error, errorInfo } = this.state;
@@ -32,7 +37,10 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
     navigator.clipboard
       .writeText(errorDetails)
       .then(() => {
-        alert('Error details copied to clipboard');
+        this.props.toast({
+          title: 'Success',
+          description: 'Error details copied to clipboard',
+        });
       })
       .catch((err) => {
         console.error('Failed to copy error details:', err);
@@ -192,4 +200,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
   }
 }
 
-export default FileExplorerErrorBoundary;
+export default function FileExplorerErrorBoundary(props: ErrorBoundaryProps) {
+  const { toast } = useToast();
+  return <FileExplorerErrorBoundaryInner {...props} toast={toast} />;
+}
