@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useFileTree } from '../use-file-tree';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
@@ -360,6 +360,20 @@ describe('useFileTree', () => {
       expect(result.current.fileTree).toHaveLength(1);
       expect(result.current.fileTree[0]?.name).toBe('test.txt');
       expect(result.current.error).toBeNull();
+    });
+
+    it('accepts batchSize option without errors', async () => {
+      MockFileSystemAdapter.setMockDirectoryData('root', []);
+      vi.useFakeTimers();
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle, { batchSize: 2 }), {
+        wrapper: AdaptersTestWrapper,
+      });
+      await act(async () => {
+        vi.runAllTimers();
+        await Promise.resolve();
+      });
+      expect(result.current.fileTree).toEqual([]);
+      vi.useRealTimers();
     });
   });
 });

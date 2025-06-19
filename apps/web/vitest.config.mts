@@ -27,7 +27,12 @@ export default defineConfig({
       '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
       '@brainstrike/file-explorer-hooks': resolve(__dirname, '../../packages/file-explorer-hooks/src'),
       '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
+      '@brainstrike/workers': resolve(__dirname, '../../packages/workers'),
+      '@brainstrike/workers/file-content-worker': resolve(
+        __dirname,
+        '../../packages/workers/file-content-worker.ts'
+      ),
     },
     preserveSymlinks: true,
   },
-}); 
+});

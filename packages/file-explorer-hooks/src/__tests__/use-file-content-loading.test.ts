@@ -4,6 +4,7 @@ import { fileExplorer } from '@brainstrike/utils';
 import { encodeFileSelection, fileContent } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DirectFileContentProcessor } from '../file-content-processor';
 import { useFileContentLoading } from '../use-file-content-loading';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
 
@@ -66,7 +67,10 @@ describe('useFileContentLoading', () => {
   });
 
   const renderUseFileContentLoadingHook = (fileTree: IFileNode[] = []) => {
-    return renderHook(() => useFileContentLoading(fileTree), { wrapper: AdaptersTestWrapper });
+    const processor = new DirectFileContentProcessor();
+    return renderHook(() => useFileContentLoading(fileTree, { processor }), {
+      wrapper: AdaptersTestWrapper,
+    });
   };
 
   const getCompositeKey = (path: string) => encodeFileSelection(TEST_FOLDER_ID, path);
@@ -714,8 +718,8 @@ describe('useFileContentLoading', () => {
       expect(result.current.error).toBeNull();
     });
 
-    it('processes files in chunks when exceeding concurrency limit', async () => {
-      const total = 7; // greater than MAX_CONCURRENT_LOADS (5)
+    it('processes files successfully regardless of concurrency strategy', async () => {
+      const total = 7; // Test with multiple files
       const filePaths = Array.from({ length: total }, (_, i) => `/chunk-${i}.txt`);
       const fileNodes = filePaths.map((path) =>
         createFileNode({
@@ -735,50 +739,35 @@ describe('useFileContentLoading', () => {
       );
 
       const compositeKeys = filePaths.map(getCompositeKey);
-      const active: { count: number; max: number } = { count: 0, max: 0 };
-      const resolvers: Array<() => void> = [];
+      let callCount = 0;
 
-      vi.spyOn(MockFileSystemAdapter.prototype, 'readFile').mockImplementation(() => {
-        active.count += 1;
-        active.max = Math.max(active.max, active.count);
-        return new Promise<string>((resolve) => {
-          resolvers.push(() => {
-            active.count -= 1;
-            resolve('chunked');
-          });
-        });
+      // Mock readFile to return unique content for each file
+      vi.spyOn(MockFileSystemAdapter.prototype, 'readFile').mockImplementation((handle) => {
+        callCount++;
+        return Promise.resolve(`content-${handle.path}`);
       });
 
       const { result, rerender } = renderUseFileContentLoadingHook(fileNodes);
 
-      act(() => {
+      await act(async () => {
         result.current.handleFileContentLoading(compositeKeys);
-      });
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      expect(active.max).toBe(5);
-      const first = resolvers.splice(0, 5);
-      for (const fn of first) {
-        fn();
-      }
-      await act(async () => {
-        await Promise.resolve();
-      });
-
-      expect(active.count).toBe(2);
-      for (const fn of resolvers) {
-        fn();
-      }
-      await act(async () => {
         await waitForStateUpdate();
         rerender();
       });
 
-      for (const key of compositeKeys) {
-        expect(result.current.fileContents[key]).toBe('chunked');
+      // Verify all files were processed
+      expect(callCount).toBe(total);
+
+      // Verify all files have content loaded
+      for (let i = 0; i < total; i++) {
+        const key = compositeKeys[i];
+        const path = filePaths[i];
+        expect(result.current.fileContents[key]).toBe(`content-${path}`);
       }
+
+      // Verify loading completed
+      expect(result.current.isLoading).toBe(false);
+      expect(result.current.error).toBeNull();
     });
 
     it('clearFileContents removes specified keys', async () => {

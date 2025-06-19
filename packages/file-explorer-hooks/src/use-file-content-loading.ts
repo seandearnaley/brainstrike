@@ -1,13 +1,14 @@
-import type { FileHandle } from '@brainstrike/file-system';
-import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { FileContentError } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
-import { decodeFileSelection, fileContent } from '@brainstrike/utils';
-import { useCallback, useRef, useState } from 'react';
+import { decodeFileSelection, fileExplorer } from '@brainstrike/utils';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
+import {
+  type FileContentProcessor,
+  type FileContentRequest,
+  createFileContentProcessor,
+} from './file-content-processor';
 
-const MAX_CONCURRENT_LOADS = 5; // Limit concurrent file loads
+const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts
 
 interface UseFileContentLoadingReturn {
   fileContents: { [compositeKey: string]: string };
@@ -17,152 +18,64 @@ interface UseFileContentLoadingReturn {
   clearFileContents: (compositeKeys: string[]) => void;
 }
 
-export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoadingReturn {
-  const [fileContents, setFileContents] = useState<{
-    [compositeKey: string]: string;
-  }>({});
+export interface UseFileContentLoadingOptions {
+  processor?: FileContentProcessor;
+}
+
+export function useFileContentLoading(
+  fileTree: IFileNode[],
+  options: UseFileContentLoadingOptions = {}
+): UseFileContentLoadingReturn {
+  const [fileContents, setFileContents] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const loadingPathsRef = useRef(new Set<string>());
   const { fileSystemAdapter } = useAdapters();
 
-  const loadSingleFileContent = useCallback(
-    async (compositeKey: string) => {
-      // Skip if already loading or loaded
+  // Create processor with dependency injection
+  const processor = useMemo(() => {
+    if (options.processor) {
+      return options.processor;
+    }
+
+    return createFileContentProcessor(fileSystemAdapter, {
+      concurrency: MAX_CONCURRENT_LOADS,
+    });
+  }, [options.processor, fileSystemAdapter]);
+
+  const prepareFileRequest = useCallback(
+    async (compositeKey: string): Promise<FileContentRequest | null> => {
       if (loadingPathsRef.current.has(compositeKey) || compositeKey in fileContents) {
-        return;
+        return null;
       }
 
       const { folderId, path } = decodeFileSelection(compositeKey);
-
-      // Skip loading if we don't have a valid folder ID
-      if (!folderId) {
-        console.debug('Skipping file load - no folder ID');
-        return;
-      }
-
-      // Skip loading if file tree is empty (no root directory selected yet)
-      if (!fileTree.length) {
-        // console.debug('Skipping file load - no root directory selected');
-        return;
+      if (!folderId || !fileTree.length) {
+        return null;
       }
 
       let fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
-
-      // Debug logging removed to reduce console spam
-
-      // If we can't find the node or don't have access to its handle, wait a bit and retry once
       if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
-        // Wait a short time for the file tree to potentially update
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Try to find the node again
+        await new Promise((r) => setTimeout(r, 100));
         fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
-
-        // Debug logging removed to reduce console spam
-
         if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
-          // Don't log as error since this is expected when loading persisted selections
-          console.debug('File not accessible:', {
-            path,
-            folderId,
-            type: fileNode?.type ?? 'not found',
-            rootFolderId: fileNode?.rootFolderId ?? 'unknown',
-          });
-          return;
+          return null;
         }
       }
 
-      // Verify the file node belongs to the correct root folder
       if (fileNode.rootFolderId !== folderId) {
-        const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
-        console.error(error);
-        setFileContents((prev) => ({
-          ...prev,
-          [compositeKey]: error,
-        }));
-        return;
+        const msg = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+        setFileContents((prev) => ({ ...prev, [compositeKey]: msg }));
+        return null;
       }
 
       loadingPathsRef.current.add(compositeKey);
 
-      try {
-        // Create a FileHandle from the IFileNode
-        const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-        const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-        const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-        const fileHandle: FileHandle = {
-          path: fileNode.path,
-          name: fileNode.name,
-          kind: 'file',
-          platform,
-          _internal: fileNode.handle,
-        };
-
-        let content: string;
-
-        try {
-          content = await fileSystemAdapter.readFile(fileHandle);
-        } catch (error) {
-          console.error('Error reading file:', {
-            error,
-            path,
-            folderId,
-            fileNode,
-          });
-          throw new FileContentError('Error accessing file', path, 'LOADING_ERROR');
-        }
-
-        const extension = fileExplorer.getFileExtension(path);
-
-        // Early return for known binary files
-        if (fileContent.isBinaryExtension(extension)) {
-          throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-        }
-
-        // Early return for known text files
-        if (fileContent.isTextExtension(extension)) {
-          if (!fileContent.isTextContent(content)) {
-            throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-          }
-          setFileContents((prev) => ({
-            ...prev,
-            [compositeKey]: content,
-          }));
-          return;
-        }
-
-        // Handle unknown extensions
-        if (!fileContent.isTextContent(content)) {
-          throw new FileContentError('Binary file - preview not available', path, 'BINARY');
-        }
-        setFileContents((prev) => ({
-          ...prev,
-          [compositeKey]: content,
-        }));
-      } catch (err) {
-        if (err instanceof FileContentError) {
-          setFileContents((prev) => ({
-            ...prev,
-            [compositeKey]: err.message,
-          }));
-        } else {
-          console.error('Error loading file:', {
-            error: err,
-            compositeKey,
-            path,
-            folderId,
-          });
-          const error = new FileContentError('Error loading file content', path, 'LOADING_ERROR');
-          setFileContents((prev) => ({
-            ...prev,
-            [compositeKey]: error.message,
-          }));
-        }
-      } finally {
-        loadingPathsRef.current.delete(compositeKey);
-      }
+      return {
+        compositeKey,
+        fileNode,
+        fileSystemAdapter,
+      };
     },
     [fileTree, fileContents, fileSystemAdapter]
   );
@@ -173,32 +86,37 @@ export function useFileContentLoading(fileTree: IFileNode[]): UseFileContentLoad
       setError(null);
 
       try {
-        // Process files in chunks to avoid overwhelming the browser
-        const chunks = [];
-        for (let i = 0; i < compositeKeys.length; i += MAX_CONCURRENT_LOADS) {
-          chunks.push(compositeKeys.slice(i, i + MAX_CONCURRENT_LOADS));
+        const requests: FileContentRequest[] = [];
+        for (const key of compositeKeys) {
+          const req = await prepareFileRequest(key);
+          if (req) requests.push(req);
         }
 
-        for (const chunk of chunks) {
-          await Promise.all(chunk.map(loadSingleFileContent));
+        if (requests.length === 0) {
+          return;
         }
+
+        const results = await processor.processFiles(requests, ({ key }) => {
+          loadingPathsRef.current.delete(key);
+        });
+
+        setFileContents((prev) => ({ ...prev, ...results }));
       } catch (err) {
-        console.error('Error loading files:', err);
         setError(err as Error);
       } finally {
         setIsLoading(false);
       }
     },
-    [loadSingleFileContent]
+    [prepareFileRequest, processor]
   );
 
   const clearFileContents = useCallback((compositeKeys: string[]) => {
     setFileContents((prev) => {
-      const newContents = { ...prev };
+      const updated = { ...prev };
       for (const key of compositeKeys) {
-        delete newContents[key];
+        delete updated[key];
       }
-      return newContents;
+      return updated;
     });
   }, []);
 

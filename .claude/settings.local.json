@@ -88,7 +88,10 @@
       "Bash(gh pr view:*)",
       "Bash(npx turbo prune:*)",
       "Bash(npx turbo run build:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(pnpm --filter \"@brainstrike/file-explorer-ui\" test)",
+      "Bash(pnpm --filter \"@brainstrike/file-explorer-ui\" test src/__tests__/use-shared-file-content-loading.test.tsx)",
+      "Bash(pnpm -w run format packages/file-explorer-hooks/src/__tests__/file-content-processor.test.ts)"
     ],
     "deny": []
   },

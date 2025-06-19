@@ -5,6 +5,10 @@ export interface VirtualRange {
   end: number;
 }
 
+export interface UseVirtualListOptions {
+  overscan?: number;
+}
+
 export interface UseVirtualListReturn {
   containerRef: React.RefObject<HTMLDivElement | null>;
   range: VirtualRange;
@@ -15,8 +19,9 @@ export interface UseVirtualListReturn {
 export function useVirtualList(
   itemCount: number,
   rowHeight: number,
-  overscan = 0
+  options: UseVirtualListOptions = {}
 ): UseVirtualListReturn {
+  const { overscan = 0 } = options;
   const containerRef = useRef<HTMLDivElement>(null);
   const [range, setRange] = useState<VirtualRange>({ start: 0, end: 0 });
   const [offset, setOffset] = useState(0);

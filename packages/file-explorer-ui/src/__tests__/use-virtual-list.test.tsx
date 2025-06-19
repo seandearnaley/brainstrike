@@ -12,7 +12,7 @@ interface TestComponentProps {
 }
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
-  const { containerRef, range } = useVirtualList(itemCount, rowHeight, overscan);
+  const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan });
 
   useLayoutEffect(() => {
     onUpdate(range);

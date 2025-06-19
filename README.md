@@ -298,13 +298,8 @@ This diagram illustrates how the `file-explorer-hooks` (representing the core lo
     ```
     _The desktop app is an Electron wrapper around the web UI, offering a native experience._
 
-### 💡 Tokenizer Worker (Backend/Node.js)
-The `@brainstrike/utils` package features a tokenizer worker for precise token counting, crucial for AI interactions:
-- Requires **Node.js 18+** with ESM support.
-- Utilizes OpenAI's `tiktoken` for GPT-4 level accuracy by default.
-- Falls back to a heuristic estimation if the worker cannot be initialized.
-- To force heuristic mode (e.g., for specific testing or environments), set the environment variable: `DISABLE_TOKEN_WORKER=1`.
-- **Important:** This worker operates only in Node.js environments (like the Electron main process or backend services) and is not available in browser contexts.
+### 💡 Token Counting (Heuristic Only)
+Token counting in `@brainstrike/utils` now relies solely on a heuristic approach. In earlier versions a tokenizer worker leveraged `tiktoken` for more accurate counts, but that worker has been removed. The old `DISABLE_TOKEN_WORKER` environment variable is obsolete and no worker process will be spawned.
 
 ---
 

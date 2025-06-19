@@ -467,6 +467,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      '@brainstrike/workers':
+        specifier: workspace:*
+        version: link:../workers
       react:
         specifier: ^19
         version: 19.1.0

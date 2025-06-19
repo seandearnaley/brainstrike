@@ -9,6 +9,8 @@ const logger = createLogger('useFileTree');
 
 // Batch size for progress updates
 const PROGRESS_BATCH_SIZE = 25;
+// Default batch size for incremental directory loading
+const DEFAULT_BATCH_SIZE = 100;
 
 export interface LoadingProgressState {
   loaded: number;
@@ -43,8 +45,16 @@ export function calculateProgressPercentage(loaded: number, total: number): numb
   return Math.round((loaded / total) * 100);
 }
 
-export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
+export interface UseFileTreeOptions {
+  batchSize?: number;
+}
+
+export function useFileTree(
+  rootDirectoryHandle: DirectoryHandle | null,
+  options: UseFileTreeOptions = {}
+) {
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
+  const batchSize = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgressState>({
@@ -67,6 +77,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     phase: 'counting',
     estimatedTotal: 1000,
   });
+  const rootNodesRef = useRef<IFileNode[]>([]);
   const refreshTrigger = useRef(0);
   const { fileSystemAdapter } = useAdapters();
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -163,6 +174,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         const entries = await fileSystemAdapter.readDirectory(directoryHandle);
 
         const processedEntries: IFileNode[] = [];
+        let batchCounter = 0;
 
         for (const entry of entries) {
           if (abortSignal?.aborted) {
@@ -179,13 +191,23 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
               // For web, use the relative path for security/consistency
               const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
 
-              processedEntries.push({
+              const node: IFileNode = {
                 ...entry,
                 path: finalPath,
                 depth: relativePath.split('/').length - 1,
                 selectionState: 'unchecked',
                 rootFolderId,
-              });
+              };
+              processedEntries.push(node);
+              if (isRoot) {
+                rootNodesRef.current.push(node);
+                batchCounter++;
+                if (batchCounter >= batchSize) {
+                  setFileTree(sortFileNodes([...rootNodesRef.current]));
+                  batchCounter = 0;
+                  await new Promise((r) => setTimeout(r));
+                }
+              }
               stats.successCount++;
               updateProgress(relativePath);
             } else if (entry.type === 'directory') {
@@ -209,20 +231,36 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
                 false,
                 abortSignal
               );
-              processedEntries.push({
+
+              const node: IFileNode = {
                 ...entry,
                 path: finalPath,
                 depth: relativePath.split('/').length - 1,
                 children: sortFileNodes(children),
                 selectionState: 'unchecked',
                 rootFolderId,
-              });
+              };
+
+              processedEntries.push(node);
+              if (isRoot) {
+                rootNodesRef.current.push(node);
+                batchCounter++;
+                if (batchCounter >= batchSize) {
+                  setFileTree(sortFileNodes([...rootNodesRef.current]));
+                  batchCounter = 0;
+                  await new Promise((r) => setTimeout(r));
+                }
+              }
               updateProgress(relativePath);
             }
           } catch (err) {
             logger.error(`Error processing ${relativePath}:`, err);
             stats.failCount++;
           }
+        }
+
+        if (isRoot && rootNodesRef.current.length > 0 && batchCounter > 0) {
+          setFileTree(sortFileNodes([...rootNodesRef.current]));
         }
 
         // Handle errors
@@ -244,7 +282,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         throw err;
       }
     },
-    [sortFileNodes, updateProgress, fileSystemAdapter]
+    [sortFileNodes, updateProgress, fileSystemAdapter, batchSize]
   );
 
   const loadTree = useCallback(async () => {
@@ -259,6 +297,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
     setIsLoading(true);
     setError(null);
+    rootNodesRef.current = [];
+    setFileTree([]);
     progressRef.current = {
       loaded: 0,
       total: 0,
