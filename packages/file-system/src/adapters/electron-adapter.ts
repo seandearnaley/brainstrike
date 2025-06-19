@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
@@ -196,27 +197,55 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     }
   }
 
+  /**
+   * Watch a directory and emit high-level change events.
+   *
+   * 1. Try to use **chokidar** (preferred - cross-platform, debounced).
+   * 2. Gracefully fall back to **fs.watch** when chokidar is not present or fails.
+   *
+   * Always returns a valid disposer that can be called safely at any time.
+   */
   watchDirectory(
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
     let closed = false;
-    let watcher: import('chokidar').FSWatcher | null = null;
+    let dispose: () => void = () => {};
 
+    /** Native fallback used when chokidar is unavailable. */
+    const startFsWatch = () => {
+      try {
+        const native = fs.watch(handle.path, { recursive: false }, (ev, filename) => {
+          if (!filename) return;
+          const full = path.join(handle.path, filename);
+          const exists = fs.existsSync(full);
+          const isDir = exists && fs.statSync(full).isDirectory();
+          const type: FileSystemChange['type'] =
+            ev === 'rename' ? (exists ? 'added' : 'removed') : 'modified';
+          callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
+        });
+        dispose = () => native.close();
+      } catch (e) {
+        console.warn('fs.watch fallback failed:', e);
+        dispose = () => {};
+      }
+    };
+
+    // Preferred watcher
     import('chokidar')
-      .then((chokidar) => {
+      .then((mod) => {
         if (closed) return;
-        watcher = chokidar.watch(handle.path, {
+        // CommonJS ↔ ESM inter-op normalisation
+        const chokidar: typeof import('chokidar') =
+          // biome-ignore lint/suspicious/noExplicitAny: inter-op handling
+          (mod as any).watch ? (mod as any) : (mod.default as unknown as typeof import('chokidar'));
+
+        const watcher = chokidar.watch(handle.path, {
           ignoreInitial: true,
           persistent: true,
-          // Add stability improvements
-          awaitWriteFinish: {
-            stabilityThreshold: 100,
-            pollInterval: 100,
-          },
-          // Ignore common patterns that shouldn't trigger events
-          ignored: /(^|[\/\\])\../, // Ignore dotfiles
-          depth: 0, // Only watch immediate children, not recursive
+          awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
+          ignored: /(^|[\/\\])\../,
+          depth: 0,
         });
 
         const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
@@ -238,22 +267,19 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
           .on('error', (error: unknown) => {
             console.error('Chokidar watcher error:', error);
           });
+
+        dispose = () => watcher.close();
       })
-      .catch((error) => {
-        // Only log if it's not a module not found error
-        if (
-          error &&
-          typeof error === 'object' &&
-          'code' in error &&
-          error.code !== 'MODULE_NOT_FOUND'
-        ) {
-          console.warn('Failed to watch directory:', error);
+      .catch((err: unknown) => {
+        if (err && typeof err === 'object' && 'code' in err && err.code !== 'MODULE_NOT_FOUND') {
+          console.warn('chokidar unavailable, falling back to fs.watch:', err);
         }
+        if (!closed) startFsWatch();
       });
 
     return () => {
       closed = true;
-      watcher?.close();
+      dispose();
     };
   }
 }

@@ -253,16 +253,67 @@ describe('ElectronFileSystemAdapter', () => {
     expect(mockWatcher.close).toHaveBeenCalled();
   });
 
-  it('should return noop watcher when chokidar.watch throws', async () => {
+  it('should fall back to fs.watch when chokidar import fails', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
       filePaths: [tempDir],
     });
 
-    const chokidar = await import('chokidar');
-    vi.mocked(chokidar.default.watch).mockImplementation(() => {
-      throw new Error('nope');
+    // Mock a failed chokidar import
+    vi.doMock('chokidar', () => {
+      throw new Error('MODULE_NOT_FOUND');
+    });
+
+    const handle = await adapter.requestDirectoryAccess();
+    const callback = vi.fn();
+
+    // Mock fs.watch
+    const mockFsWatcher = {
+      close: vi.fn(),
+    };
+    // biome-ignore lint/suspicious/noExplicitAny: mock type
+    const fsWatchSpy = vi.spyOn(fs, 'watch').mockReturnValue(mockFsWatcher as any);
+
+    const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
+
+    // Give the dynamic import time to fail and fallback to activate
+    await new Promise((res) => setTimeout(res, 100));
+
+    // Verify fs.watch was called as fallback
+    expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: false }, expect.any(Function));
+
+    // Test the fs.watch callback
+    const fsWatchCallback = fsWatchSpy.mock.calls[0]?.[2];
+    if (fsWatchCallback) {
+      // Simulate file creation
+      fs.writeFileSync(path.join(tempDir, 'test.txt'), 'content');
+      fsWatchCallback('rename', 'test.txt');
+    }
+
+    expect(callback).toHaveBeenCalledWith([
+      { type: 'added', path: path.join(tempDir, 'test.txt'), kind: 'file' },
+    ]);
+
+    stop();
+    expect(mockFsWatcher.close).toHaveBeenCalled();
+  });
+
+  it('should return noop watcher when both chokidar and fs.watch fail', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
+    // Mock failed chokidar import
+    vi.doMock('chokidar', () => {
+      throw new Error('MODULE_NOT_FOUND');
+    });
+
+    // Mock fs.watch to also fail
+    vi.spyOn(fs, 'watch').mockImplementation(() => {
+      throw new Error('fs.watch failed');
     });
 
     const handle = await adapter.requestDirectoryAccess();
