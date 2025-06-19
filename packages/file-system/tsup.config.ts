@@ -7,5 +7,5 @@ export default defineConfig({
   clean: false,
   sourcemap: true,
   target: 'es2020',
-  external: ['@brainstrike/types', 'electron']
+  external: ['@brainstrike/types', 'electron', 'chokidar']
 }); 

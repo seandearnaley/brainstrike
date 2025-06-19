@@ -75,7 +75,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
-      external: ['electron'],
+      external: ['electron', 'chokidar'],
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules")) {
