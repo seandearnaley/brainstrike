@@ -19,6 +19,7 @@
     { "path": "../platform-utils" },
     { "path": "../types" },
     { "path": "../ui" },
-    { "path": "../utils" }
+    { "path": "../utils" },
+    { "path": "../workers" }
   ]
-} 
+}

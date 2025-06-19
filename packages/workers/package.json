@@ -6,7 +6,11 @@
   "sideEffects": false,
   "files": ["dist/**/*.js", "dist/**/*.d.ts"],
   "exports": {
-    "./file-content-worker": "./dist/file-content-worker.js"
+    "./file-content-worker": {
+      "types": "./dist/file-content-worker.d.ts",
+      "import": "./dist/file-content-worker.js",
+      "require": "./dist/file-content-worker.js"
+    }
   },
   "scripts": {
     "clean": "rimraf dist",
