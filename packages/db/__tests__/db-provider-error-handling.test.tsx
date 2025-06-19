@@ -13,6 +13,8 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('DbProvider error handling', () => {
+  const activeDatabases: PGlite[] = [];
+  
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset logger configuration to defaults
@@ -20,7 +22,18 @@ describe('DbProvider error handling', () => {
     resetLogger();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Clean up any active databases to prevent unhandled promise rejections
+    await Promise.allSettled(
+      activeDatabases.map(async (db) => {
+        try {
+          await db.close();
+        } catch (error) {
+          // Ignore close errors in cleanup
+        }
+      })
+    );
+    activeDatabases.length = 0;
     vi.restoreAllMocks();
   });
 
@@ -60,6 +73,7 @@ describe('DbProvider error handling', () => {
     
     // Mock successful database creation but failed migration
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockRejectedValue(migrationError);
 
@@ -88,6 +102,7 @@ describe('DbProvider error handling', () => {
     
     // Create a mock database that fails to close
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as void);
     vi.spyOn(mockDb, 'close').mockRejectedValue(closeError);
@@ -150,6 +165,7 @@ describe('DbProvider error handling', () => {
 
     // Complete the initialization
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     resolveDbCreation!(mockDb);
 
     // Wait for initialization to complete
@@ -160,6 +176,7 @@ describe('DbProvider error handling', () => {
 
   it('handles already initialized database gracefully', async () => {
     const mockDb = new PGlite(':memory:');
+    activeDatabases.push(mockDb);
     const createPGliteSpy = vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
       .mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as void);
