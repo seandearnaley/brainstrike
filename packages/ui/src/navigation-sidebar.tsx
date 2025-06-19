@@ -11,6 +11,7 @@ export interface NavigationSidebarProps extends React.HTMLAttributes<HTMLElement
   items: NavigationItem[];
   currentPath: string;
   children?: ReactNode;
+  ariaLabel?: string;
   onItemClick?: (path: string) => void;
 }
 
@@ -19,11 +20,15 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
   currentPath,
   children,
   className,
+  ariaLabel = 'Main navigation',
   onItemClick,
   ...props
 }: NavigationSidebarProps): ReactElement {
+  const navigationRole = 'navigation' as const;
   return (
     <aside
+      role={navigationRole}
+      aria-label={ariaLabel}
       className={cn(
         'w-16 bg-gray-100 dark:bg-gray-800 h-full flex flex-col items-center py-4 space-y-4',
         className

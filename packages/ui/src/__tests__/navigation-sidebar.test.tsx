@@ -42,7 +42,7 @@ describe('NavigationSidebar', () => {
   it('renders with correct layout classes', () => {
     renderSidebar();
 
-    const sidebar = screen.getByRole('complementary');
+    const sidebar = screen.getByRole('navigation');
     expect(sidebar).toHaveClass(
       'w-16',
       'bg-gray-100',
@@ -62,5 +62,12 @@ describe('NavigationSidebar', () => {
 
     const button = screen.getByRole('button', { name: 'Context Explorer' });
     expect(button).toHaveAttribute('aria-label', 'Context Explorer');
+  });
+
+  it('sets default aria-label on aside element', () => {
+    renderSidebar();
+
+    const sidebar = screen.getByRole('navigation');
+    expect(sidebar).toHaveAttribute('aria-label', 'Main navigation');
   });
 });
