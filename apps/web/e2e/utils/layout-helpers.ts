@@ -78,7 +78,7 @@ export async function resetLayoutState(page: Page): Promise<void> {
  * Clear file explorer settings from localStorage
  */
 export async function resetFileExplorerSettings(page: Page): Promise<void> {
-  await page.evaluate(() => localStorage.removeItem('fileExplorerSettings'));
+  await page.evaluate(() => localStorage.removeItem('file-explorer-storage-v4'));
 }
 
 /**

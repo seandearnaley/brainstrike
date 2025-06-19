@@ -89,10 +89,7 @@ export function useUndoableAction<T, S = unknown>() {
               size: 'sm',
               onClick: () => {
                 options.onUndo(item, snapshot);
-                if (toastResult?.dismiss) {
-                  toastResult.dismiss(); // Dismiss the toast on undo
-                }
-                clearUndoTimeout(key); // Also clear our internal tracking
+                clearUndoTimeout(key); // This will dismiss the toast and clear internal tracking
               },
             },
             'Undo'

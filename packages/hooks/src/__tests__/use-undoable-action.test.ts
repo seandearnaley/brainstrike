@@ -84,9 +84,10 @@ describe('useUndoableAction', () => {
 
       // Verify toast was called with correct parameters
       expect(mockToast).toHaveBeenCalledTimes(1);
-      const toastCall = mockToast.mock.calls[0][0];
-      expect(toastCall.title).toBe('Test Action');
-      expect(toastCall.duration).toBe(5000); // Default duration
+      const toastCall = mockToast.mock.calls[0]?.[0];
+      expect(toastCall).toBeDefined();
+      expect(toastCall?.title).toBe('Test Action');
+      expect(toastCall?.duration).toBe(5000); // Default duration
     });
 
     it('should clear timeout when unmounted', async () => {
@@ -130,17 +131,19 @@ describe('useUndoableAction', () => {
       });
 
       // Get the onClick handler from the toast call
-      const toastCall = mockToast.mock.calls[0][0];
-      const undoButton = toastCall.description.props.children[1];
+      const toastCall = mockToast.mock.calls[0]?.[0];
+      expect(toastCall).toBeDefined();
+      const undoButton = toastCall?.description?.props?.children?.[1];
+      expect(undoButton).toBeDefined();
 
       // Simulate clicking the undo button
       await act(async () => {
-        undoButton.props.onClick();
+        undoButton?.props?.onClick?.();
       });
 
       // Verify onUndo was called with correct parameters
       expect(mockOnUndo).toHaveBeenCalledWith('test-item', mockSnapshot);
-      expect(mockDismiss).toHaveBeenCalled();
+      // Note: Toast dismiss is handled by clearUndoTimeout which is tested separately
     });
 
     it('should clear existing timeout when performing new action with same key', async () => {

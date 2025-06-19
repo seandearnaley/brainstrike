@@ -7,7 +7,8 @@ self.addEventListener('message', async (event) => {
         if (!key || value === undefined) {
           throw new Error('Save operation requires key and value');
         }
-        const serialized = JSON.stringify(value);
+        // Avoid double-stringifying if the value is already a string
+        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
         const opId = Date.now();
         self.postMessage({
           id,

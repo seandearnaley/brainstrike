@@ -105,7 +105,7 @@ export const createPersistOptions = (
           // Use Web Worker for background deserialization
           try {
             const value = await workerStorage.getItem(name);
-            return value ? JSON.parse(value) : null;
+            return value;
           } catch (error) {
             if (shouldLog) {
               logger.error('Worker getItem failed, falling back to main thread:', error);
@@ -132,7 +132,7 @@ export const createPersistOptions = (
         if (useWorker && workerStorage) {
           // Use Web Worker for background serialization and storage
           try {
-            await workerStorage.setItem(name, JSON.stringify(value));
+            await workerStorage.setItem(name, value);
           } catch (error) {
             if (shouldLog) {
               logger.error('Worker setItem failed, falling back to main thread:', error);

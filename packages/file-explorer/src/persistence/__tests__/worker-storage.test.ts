@@ -104,10 +104,12 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
 
       expect(Worker).toHaveBeenCalled();
-      const call = (Worker as unknown as vi.Mock).mock.calls[0];
-      expect(call[0]).toBeInstanceOf(URL);
-      expect(String(call[0])).toMatch(/worker-storage\.worker\.ts$/);
-      expect(call[1]).toEqual({ type: 'module' });
+      expect(Worker).toHaveBeenCalledWith(expect.any(URL), { type: 'module' });
+      // Verify the URL ends with the correct worker file
+      const workerMock = Worker as unknown as { mock: { calls: unknown[][] } };
+      const callArgs = workerMock.mock.calls[0];
+      expect(callArgs).toBeDefined();
+      expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.js$/);
       expect(storage.isWorkerAvailable).toBe(true);
     });
 
@@ -185,7 +187,8 @@ describe('WorkerStorage', () => {
 
     it('should fallback to localStorage when worker fails', async () => {
       const storage = new WorkerStorage();
-      mockLocalStorage.data.set('fallback-key', 'fallback-value');
+      const testData = { test: 'data' };
+      mockLocalStorage.data.set('fallback-key', JSON.stringify(testData));
 
       // Simulate worker error response
       setTimeout(() => {
@@ -206,7 +209,7 @@ describe('WorkerStorage', () => {
 
       const result = await storage.getItem('fallback-key');
 
-      expect(result).toBe('fallback-value');
+      expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
       expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
 
@@ -535,7 +538,7 @@ describe('WorkerStorage', () => {
 
       expect(mockWorker.postMessage).toHaveBeenCalledTimes(3);
       expect(results).toHaveLength(3);
-      expect(results.every((r) => r?.startsWith('result-'))).toBe(true);
+      expect(results.every((r) => typeof r === 'string' && r.startsWith('result-'))).toBe(true);
     });
 
     it('should generate unique message IDs', async () => {

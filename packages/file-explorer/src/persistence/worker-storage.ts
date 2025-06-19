@@ -62,7 +62,7 @@ export class WorkerStorage {
         (window as { process?: { type?: string } }).process?.type === 'renderer';
 
       if (!isElectron && typeof import.meta.url !== 'undefined') {
-        const workerUrl = new URL('./worker-storage.worker.ts', import.meta.url);
+        const workerUrl = new URL('./worker-storage.worker.js', import.meta.url);
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
         this.worker.addEventListener('error', this.handleWorkerError.bind(this));
@@ -220,24 +220,34 @@ export class WorkerStorage {
     });
   }
 
-  async getItem(key: string): Promise<string | null> {
+  async getItem<T = unknown>(key: string): Promise<T | null> {
     try {
       const result = await this.sendMessage('load', key);
-      return result as string | null;
+      return result as T | null;
     } catch (error) {
       console.error('Worker getItem failed:', error);
       // Fallback to direct localStorage access
-      return localStorage.getItem(key);
+      const rawValue = localStorage.getItem(key);
+      if (!rawValue) return null;
+
+      try {
+        return JSON.parse(rawValue) as T;
+      } catch {
+        // If parsing fails, return the raw value as-is (for backward compatibility)
+        return rawValue as T;
+      }
     }
   }
 
-  async setItem(key: string, value: string): Promise<void> {
+  async setItem(key: string, value: unknown): Promise<void> {
+    const payload = typeof value === 'string' ? value : value;
     try {
-      await this.sendMessage('save', key, value);
+      await this.sendMessage('save', key, payload);
     } catch (error) {
       console.error('Worker setItem failed:', error);
-      // Fallback to direct localStorage access
-      localStorage.setItem(key, value);
+      // For fallback path, ensure we store stringified value
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      localStorage.setItem(key, serialized);
     }
   }
 
