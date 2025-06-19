@@ -24,7 +24,6 @@ const NavigationSidebar = React.memo(function NavigationSidebar({
   onItemClick,
   ...props
 }: NavigationSidebarProps): ReactElement {
-  const navigationRole = 'navigation' as const;
   return (
     <nav
       className={cn(
