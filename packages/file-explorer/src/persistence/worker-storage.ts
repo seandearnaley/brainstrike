@@ -41,9 +41,13 @@ export class WorkerStorage {
   private messageId = 0;
   private pendingRequests = new Map<
     string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: unknown) => void;
+      reject: (reason?: unknown) => void;
+    }
   >();
   private activeSaveOps = new Map<string, number>();
+  private timeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.initializeWorker();
@@ -90,6 +94,13 @@ export class WorkerStorage {
     if (!request) {
       console.warn('Received worker response for unknown request:', id);
       return;
+    }
+
+    // Clear pending timeout for this request
+    const timeout = this.timeouts.get(id);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.timeouts.delete(id);
     }
 
     this.pendingRequests.delete(id);
@@ -211,12 +222,15 @@ export class WorkerStorage {
       this.worker.postMessage(message);
 
       // Set a timeout to prevent hanging requests
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
+          this.timeouts.delete(id);
           reject(new Error('Worker request timeout'));
         }
-      }, 30000); // 30 second timeout - increased to account for concurrent file operations
+      }, 30000); // 30 s timeout – long enough for massive saves but short enough to fail fast
+
+      this.timeouts.set(id, timeout);
     });
   }
 
