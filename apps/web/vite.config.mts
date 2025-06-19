@@ -12,6 +12,7 @@ import topLevelAwait from "vite-plugin-top-level-await";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const isDev = process.env.NODE_ENV === 'development';
 
 // Find the PGLite WASM file in different possible locations
 function findPGliteWasm(): string | null {
@@ -38,7 +39,9 @@ function findPGliteWasm(): string | null {
   
   for (const wasmPath of possiblePaths) {
     if (existsSync(wasmPath)) {
-      console.log(`Found PGLite WASM at: ${wasmPath}`);
+      if (isDev) {
+        console.log(`Found PGLite WASM at: ${wasmPath}`);
+      }
       return wasmPath;
     }
   }
@@ -51,10 +54,12 @@ function debugPlugin() {
   return {
     name: 'debug-build-context',
     buildStart() {
-      console.log('=== DEBUG PLUGIN BUILDSTART ===');
-      console.log('Build starting, CWD:', process.cwd());
-      console.log("Vercel env:", process.env["VERCEL"]);
-      console.log('=== END DEBUG PLUGIN ===');
+      if (isDev) {
+        console.log('=== DEBUG PLUGIN BUILDSTART ===');
+        console.log('Build starting, CWD:', process.cwd());
+        console.log("Vercel env:", process.env["VERCEL"]);
+        console.log('=== END DEBUG PLUGIN ===');
+      }
     }
   };
 }
@@ -88,7 +93,9 @@ function copyFontsPlugin() {
         if (existsSync(src)) {
           copyFileSync(src, destPublic);
           copyFileSync(src, destDist);
-          console.log(`Copied font: ${file}`);
+          if (isDev) {
+            console.log(`Copied font: ${file}`);
+          }
         }
       });
     }
@@ -98,12 +105,14 @@ function copyFontsPlugin() {
 const wasmPath = findPGliteWasm();
 
 // CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
-console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
-console.log('Current working directory:', process.cwd());
-console.log('__dirname:', __dirname);
-console.log("process.env.VERCEL:", process.env["VERCEL"]);
-console.log("process.env.CI:", process.env["CI"]);
-console.log('=== VITE CONFIG DEBUG END ===');
+if (isDev) {
+  console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
+  console.log('Current working directory:', process.cwd());
+  console.log('__dirname:', __dirname);
+  console.log("process.env.VERCEL:", process.env["VERCEL"]);
+  console.log("process.env.CI:", process.env["CI"]);
+  console.log('=== VITE CONFIG DEBUG END ===');
+}
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
@@ -117,7 +126,7 @@ export default defineConfig({
   define: {
     'process.env': {},
     'process.browser': true,
-    'process.version': '"v16.0.0"',
+    'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
   },
   plugins: [
