@@ -1,4 +1,3 @@
-import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
@@ -201,37 +200,55 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void {
-    // Workers disabled for now - complex to bundle in monorepo
-    // Always use main thread fs.watch
-    // Note: Using fs.watch (non-recursive) for directory watching
+    let closed = false;
+    let watcher: import('chokidar').FSWatcher | null = null;
 
-    // Simple fs.watch implementation
-    let watcher: fs.FSWatcher | null = null;
-    try {
-      watcher = fs.watch(handle.path, { recursive: false }, (eventType, filename) => {
-        if (!filename) return;
-        const fullPath = path.join(handle.path, filename);
+    import('chokidar')
+      .then((chokidar) => {
+        if (closed) return;
+        watcher = chokidar.watch(handle.path, {
+          ignoreInitial: true,
+          persistent: true,
+          // Add stability improvements
+          awaitWriteFinish: {
+            stabilityThreshold: 100,
+            pollInterval: 100,
+          },
+          // Ignore common patterns that shouldn't trigger events
+          ignored: /(^|[\/\\])\../, // Ignore dotfiles
+          depth: 0, // Only watch immediate children, not recursive
+        });
 
-        let kind: FileSystemChange['kind'] = 'file';
-        try {
-          const stats = fs.statSync(fullPath);
-          kind = stats.isDirectory() ? 'directory' : 'file';
-        } catch {}
+        const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
+          callback([
+            {
+              type,
+              path: filePath,
+              kind: isDir ? 'directory' : 'file',
+            },
+          ]);
+        };
 
-        let changeType: FileSystemChange['type'] = 'modified';
-        if (eventType === 'rename') {
-          changeType = fs.existsSync(fullPath) ? 'added' : 'removed';
+        watcher
+          .on('add', (file: string) => toChange('added', file, false))
+          .on('addDir', (dir: string) => toChange('added', dir, true))
+          .on('change', (file: string) => toChange('modified', file, false))
+          .on('unlink', (file: string) => toChange('removed', file, false))
+          .on('unlinkDir', (dir: string) => toChange('removed', dir, true))
+          .on('error', (error: unknown) => {
+            console.error('Chokidar watcher error:', error);
+          });
+      })
+      .catch((error) => {
+        // Only log if it's not a module not found error
+        if (error && typeof error === 'object' && 'code' in error && error.code !== 'MODULE_NOT_FOUND') {
+          console.warn('Failed to watch directory:', error);
         }
-
-        callback([{ type: changeType, path: fullPath, kind }]);
       });
 
-      return () => {
-        watcher?.close();
-      };
-    } catch (error) {
-      console.warn('Failed to watch directory:', error);
-      return () => {};
-    }
+    return () => {
+      closed = true;
+      watcher?.close();
+    };
   }
 }
