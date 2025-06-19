@@ -48,7 +48,7 @@ test.describe('File Tabbed Editor', () => {
     // File should now open in a tab in the tabbed editor (look specifically in console panel)
     const tab = elements.consolePanel.getByRole('button', { name: /example\.ts/ }).first();
     await expect(tab).toBeVisible();
-    await expect(page.getByText('test content')).toBeVisible();
+    await expect(page.getByText('example.ts content')).toBeVisible();
 
     // Should be able to close the tab using the close button
     const closeButton = page.getByTitle('Close example.ts');

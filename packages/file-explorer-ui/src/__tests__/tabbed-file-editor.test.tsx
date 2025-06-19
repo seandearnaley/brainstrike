@@ -65,8 +65,52 @@ describe('TabbedFileEditor', () => {
 
     render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
 
-    expect(screen.getByRole('tab', { name: 'index.ts' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Button.tsx' })).toBeInTheDocument();
+    const tab1 = screen.getByRole('tab', { name: 'index.ts' });
+    const tab2 = screen.getByRole('tab', { name: 'Button.tsx' });
+    expect(tab1).toBeInTheDocument();
+    expect(tab2).toBeInTheDocument();
+
+    expect(tab1).toHaveAttribute('id', 'tab-root:file1');
+    expect(tab1).toHaveAttribute('aria-controls', 'panel-root:file1');
+    expect(tab2).toHaveAttribute('id', 'tab-root:file2');
+    expect(tab2).toHaveAttribute('aria-controls', 'panel-root:file2');
+  });
+
+  it('should set correct ids and aria attributes on panels', () => {
+    const tabs: FileTab[] = [
+      {
+        id: 'root:file1',
+        compositeKey: 'file1',
+        path: '/src/index.ts',
+        content: null,
+        isLoading: false,
+      },
+      {
+        id: 'root:file2',
+        compositeKey: 'file2',
+        path: '/src/app.ts',
+        content: null,
+        isLoading: false,
+      },
+    ];
+    mockProps.decodeFileSelection.mockImplementation((key) => {
+      if (key === 'file1') return { folderId: 'f', path: '/src/index.ts' };
+      if (key === 'file2') return { folderId: 'f', path: '/src/app.ts' };
+      return { folderId: 'f', path: 'unknown' };
+    });
+
+    render(<TabbedFileEditor {...mockProps} tabs={tabs} activeTabId="root:file1" />);
+
+    const panel1 = screen.getByRole('tabpanel', { name: 'index.ts' });
+    const panel2 = document.getElementById('panel-root:file2') as HTMLElement;
+
+    expect(panel1).toHaveAttribute('id', 'panel-root:file1');
+    expect(panel1).toHaveAttribute('aria-labelledby', 'tab-root:file1');
+    expect(panel1).not.toHaveAttribute('hidden');
+
+    expect(panel2).toHaveAttribute('id', 'panel-root:file2');
+    expect(panel2).toHaveAttribute('aria-labelledby', 'tab-root:file2');
+    expect(panel2).toHaveAttribute('hidden');
   });
 
   it('should show active tab with proper styling', () => {

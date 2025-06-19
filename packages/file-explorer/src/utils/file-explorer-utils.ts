@@ -1,5 +1,9 @@
 import type { FileExplorerData, FolderState } from '@brainstrike/types';
-import { MAX_FOLDER_STATES } from '@brainstrike/types';
+import {
+  DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+  DEFAULT_MAX_SELECTION_COUNT,
+  MAX_FOLDER_STATES,
+} from '@brainstrike/types';
 
 // Helper function to save current folder state
 export const saveFolderState = (
@@ -65,8 +69,8 @@ export const createNewFolderState = (now = Date.now()): FolderState => {
     excludeFilters: [],
     useRegex: false,
     includeProjectTree: true,
-    folderSummaryThreshold: 100,
-    maxSelectionCount: 100,
+    folderSummaryThreshold: DEFAULT_FOLDER_SUMMARY_THRESHOLD,
+    maxSelectionCount: DEFAULT_MAX_SELECTION_COUNT,
     lastActiveTab: 'files',
     lastAccessed: now,
   };

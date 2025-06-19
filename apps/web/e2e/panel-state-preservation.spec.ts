@@ -70,7 +70,7 @@ test.describe('Panel State Preservation', () => {
     // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
     const tab = elements.consolePanel.getByRole('button', { name: /test\.ts/ }).first();
     await expect(tab).toBeVisible();
-    await expect(page.getByText('test content')).toBeVisible();
+    await expect(elements.consolePanel.getByText('test.ts content')).toBeVisible();
     
     // Hide the left panel
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
@@ -103,7 +103,7 @@ test.describe('Panel State Preservation', () => {
     
     // The tab should still show the selected file
     await expect(tab).toBeVisible();
-    await expect(page.getByText('test content')).toBeVisible();
+    await expect(elements.consolePanel.getByText('test.ts content')).toBeVisible();
     
     // Verify we can still interact with the file tree
     // First select test2.ts to make its button available
@@ -118,7 +118,7 @@ test.describe('Panel State Preservation', () => {
     // Verify the tab updates to show the new file
     const test2Tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
     await expect(test2Tab).toBeVisible();
-    await expect(page.getByText('test content')).toBeVisible();
+    await expect(elements.consolePanel.getByText('test2.ts content')).toBeVisible();
   });
 
   test('should preserve file explorer state across multiple panel toggles', async ({ page }) => {
@@ -182,6 +182,6 @@ test.describe('Panel State Preservation', () => {
     // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
     const tab = elements.consolePanel.getByRole('button', { name: /test2\.ts/ }).first();
     await expect(tab).toBeVisible();
-    await expect(page.getByText('test content')).toBeVisible();
+    await expect(elements.consolePanel.getByText('test2.ts content')).toBeVisible();
   });
 }); 

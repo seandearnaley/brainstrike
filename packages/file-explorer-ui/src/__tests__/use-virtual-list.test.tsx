@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { useEffect } from 'react';
+import type React from 'react';
+import { useLayoutEffect } from 'react';
 import { describe, expect, it } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
 
@@ -13,11 +14,21 @@ interface TestComponentProps {
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
   const { containerRef, range } = useVirtualList(itemCount, rowHeight, overscan);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onUpdate(range);
   }, [range, onUpdate]);
 
-  return <div ref={containerRef} data-testid="container" />;
+  return (
+    <div
+      ref={(el) => {
+        if (el) {
+          Object.defineProperty(el, 'clientHeight', { value: 50 });
+        }
+        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }}
+      data-testid="container"
+    />
+  );
 }
 
 describe('useVirtualList', () => {
@@ -58,5 +69,20 @@ describe('useVirtualList', () => {
 
     const last = updates[updates.length - 1];
     expect(last).toEqual({ start: 16, end: 19 });
+  });
+
+  it('updates range once on initial mount', () => {
+    const updates: { start: number; end: number }[] = [];
+    render(
+      <TestComponent itemCount={10} rowHeight={10} overscan={1} onUpdate={(r) => updates.push(r)} />
+    );
+
+    const container = screen.getByTestId('container');
+    Object.defineProperty(container, 'clientHeight', { value: 50 });
+    // flush effects
+    act(() => {});
+
+    const last = updates[updates.length - 1];
+    expect(last).toEqual({ start: 0, end: 6 });
   });
 });

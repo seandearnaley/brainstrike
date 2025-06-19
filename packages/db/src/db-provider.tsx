@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import { isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -23,16 +25,8 @@ export function getDefaultDbPath() {
     return 'idb://app';
   }
 
-  // For Node.js/Electron environments, use a more appropriate default path
-  // In Electron, this should be overridden by the main process with app.getPath('userData')
-  // For now, use a safer default that's more likely to be writable
-  try {
-    // Use OS-specific temp/user directory as fallback
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript strict mode requires bracket notation for process.env
-    return process.env['TMPDIR'] || process.env['TEMP'] || process.env['TMP'] || './app.db';
-  } catch {
-    return './app.db';
-  }
+  // For Node.js/Electron environments, default to a temp directory
+  return path.join(os.tmpdir(), 'app.db');
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);

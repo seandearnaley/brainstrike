@@ -67,6 +67,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
   });
   const refreshTrigger = useRef(0);
   const { fileSystemAdapter } = useAdapters();
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const sortFileNodes = useCallback((nodes: IFileNode[]): IFileNode[] => {
     return [...nodes].sort((a, b) => {
@@ -115,10 +116,15 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       directoryHandle: DirectoryHandle,
       rootHandle: DirectoryHandle,
       parentPath = '',
-      isRoot = true
+      isRoot = true,
+      abortSignal?: AbortSignal
     ): Promise<IFileNode[]> => {
       const rootFolderId = rootHandle.name;
       const stats = { successCount: 0, failCount: 0 };
+
+      if (abortSignal?.aborted) {
+        throw new Error('Operation was cancelled');
+      }
 
       // For root directory, count total entries first
       if (isRoot) {
@@ -147,12 +153,20 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       }
 
       try {
+        if (abortSignal?.aborted) {
+          throw new Error('Operation was cancelled');
+        }
+
         // Use the adapter to read directory contents
         const entries = await fileSystemAdapter.readDirectory(directoryHandle);
 
         const processedEntries: IFileNode[] = [];
 
         for (const entry of entries) {
+          if (abortSignal?.aborted) {
+            throw new Error('Operation was cancelled');
+          }
+
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
 
           if (fileFilter.shouldIgnorePath(relativePath)) continue;
@@ -186,7 +200,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
                 _internal: entry.handle,
               };
 
-              const children = await readFullTree(dirHandle, rootHandle, relativePath, false);
+              const children = await readFullTree(
+                dirHandle,
+                rootHandle,
+                relativePath,
+                false,
+                abortSignal
+              );
               processedEntries.push({
                 ...entry,
                 path: finalPath,
@@ -231,6 +251,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       return;
     }
 
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setIsLoading(true);
     setError(null);
     progressRef.current = {
@@ -244,19 +268,30 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
 
     try {
-      const newTree = await readFullTree(rootDirectoryHandle, rootDirectoryHandle);
-      setFileTree(newTree);
+      const newTree = await readFullTree(
+        rootDirectoryHandle,
+        rootDirectoryHandle,
+        '',
+        true,
+        abortController.signal
+      );
+
+      if (!abortController.signal.aborted) {
+        setFileTree(newTree);
+      }
     } catch (err) {
       console.error('Error loading file tree:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
       throw err;
     } finally {
       setIsLoading(false);
+      abortControllerRef.current = null;
     }
   }, [rootDirectoryHandle, readFullTree]);
 
   // Reset loading state when root directory changes
   useEffect(() => {
+    abortControllerRef.current?.abort();
     if (rootDirectoryHandle) {
       setIsLoading(true);
       setLoadingProgress({ loaded: 0, total: 0, phase: 'counting' });
@@ -265,6 +300,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
   const refreshTree = useCallback(async () => {
     if (!rootDirectoryHandle) return;
+    abortControllerRef.current?.abort();
     refreshTrigger.current += 1;
     await loadTree();
   }, [rootDirectoryHandle, loadTree]);
@@ -273,6 +309,9 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
     loadTree().catch((err) => {
       console.error('Error in initial tree load:', err);
     });
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [loadTree]);
 
   return {
