@@ -23,18 +23,6 @@ class MockWorker {
   removeEventListener() {}
 }
 
-// Mock URL.createObjectURL and URL.revokeObjectURL
-global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-global.URL.revokeObjectURL = vi.fn();
-
-// Mock Blob
-global.Blob = class MockBlob {
-  constructor(
-    public content: unknown[],
-    public options?: { type?: string }
-  ) {}
-} as unknown as typeof Blob;
-
 // Mock localStorage
 const mockLocalStorage = {
   data: new Map<string, string>(),
@@ -116,7 +104,10 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
 
       expect(Worker).toHaveBeenCalled();
-      expect(URL.createObjectURL).toHaveBeenCalled();
+      const call = (Worker as unknown as vi.Mock).mock.calls[0];
+      expect(call[0]).toBeInstanceOf(URL);
+      expect(String(call[0])).toMatch(/worker-storage\.worker\.ts$/);
+      expect(call[1]).toEqual({ type: 'module' });
       expect(storage.isWorkerAvailable).toBe(true);
     });
 

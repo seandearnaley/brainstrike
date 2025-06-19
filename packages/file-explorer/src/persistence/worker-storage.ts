@@ -62,91 +62,10 @@ export class WorkerStorage {
         (window as { process?: { type?: string } }).process?.type === 'renderer';
 
       if (!isElectron && typeof import.meta.url !== 'undefined') {
-        // Use inline worker for better compatibility
-        // Worker handles JSON serialization/deserialization but delegates storage to main thread
-        const workerCode = `
-          self.addEventListener('message', async (event) => {
-            const { id, type, key, value } = event.data;
-            try {
-              let result;
-              switch (type) {
-                case 'save': {
-                  if (!key || value === undefined) {
-                    throw new Error('Save operation requires key and value');
-                  }
-                  // Perform heavy JSON serialization in worker
-                  const serialized = JSON.stringify(value);
-                  const opId = Date.now();
-                  // Send serialized data back to main thread for storage
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'setItem',
-                    key: key,
-                    value: serialized,
-                    opId: opId
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'load': {
-                  if (!key) {
-                    throw new Error('Load operation requires key');
-                  }
-                  // Request data from main thread
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'getItem',
-                    key: key
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'remove': {
-                  if (!key) {
-                    throw new Error('Remove operation requires key');
-                  }
-                  // Request removal from main thread
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'removeItem',
-                    key: key
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'storage_response': {
-                  // Handle response from main thread storage operation
-                  if (event.data.operation === 'getItem' && event.data.rawValue) {
-                    // Perform heavy JSON parsing in worker
-                    result = JSON.parse(event.data.rawValue);
-                  } else {
-                    result = event.data.success || true;
-                  }
-                  self.postMessage({ id, type: 'success', result });
-                  break;
-                }
-                default:
-                  throw new Error(\`Unknown operation type: \${type}\`);
-              }
-            } catch (error) {
-              self.postMessage({ 
-                id, 
-                type: 'error', 
-                error: error instanceof Error ? error.message : 'Unknown error' 
-              });
-            }
-          });
-        `;
-
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        const workerUrl = URL.createObjectURL(blob);
-
-        this.worker = new Worker(workerUrl);
+        const workerUrl = new URL('./worker-storage.worker.ts', import.meta.url);
+        this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
         this.worker.addEventListener('error', this.handleWorkerError.bind(this));
-
-        // Clean up the blob URL
-        URL.revokeObjectURL(workerUrl);
       }
     } catch (error) {
       console.warn('Failed to initialize Web Worker for state persistence:', error);

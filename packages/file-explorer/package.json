@@ -18,7 +18,7 @@
   "private": true,
   "scripts": {
     "build:types": "tsc --project tsconfig.json --declaration --emitDeclarationOnly",
-    "build:js": "tsup src/index.ts --format esm,cjs --out-dir dist --no-clean",
+    "build:js": "tsup src/index.ts src/persistence/worker-storage.worker.ts --format esm,cjs --out-dir dist --no-clean",
     "build": "pnpm run build:types && pnpm run build:js",
     "dev": "pnpm run build:types && tsup src/index.ts --format esm,cjs --out-dir dist --watch",
     "test": "vitest run --coverage",
