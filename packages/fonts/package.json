@@ -25,5 +25,9 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5"
+  },
   "license": "ISC"
 }

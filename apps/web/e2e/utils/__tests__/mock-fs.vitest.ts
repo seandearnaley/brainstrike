@@ -118,17 +118,17 @@ describe('Mock File System Logic', () => {
 
     const topFileHandle = await rootHandle.getFileHandle('top-file.txt');
     const topFile = await topFileHandle.getFile();
-    expect(await topFile.text()).toBe('test content');
+    expect(await topFile.text()).toBe('top-file.txt content');
 
     const dir1Handle = await rootHandle.getDirectoryHandle('dir1');
     const file1Handle = await dir1Handle.getFileHandle('file1.txt');
     const file1 = await file1Handle.getFile();
-    expect(await file1.text()).toBe('test content');
+    expect(await file1.text()).toBe('file1.txt content');
 
     const dir2Handle = await dir1Handle.getDirectoryHandle('dir2');
     const file2Handle = await dir2Handle.getFileHandle('file2.txt');
     const file2 = await file2Handle.getFile();
-    expect(await file2.text()).toBe('test content');
+    expect(await file2.text()).toBe('file2.txt content');
   });
 
   it('should allow creating and writing to a new file', async () => {

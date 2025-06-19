@@ -21,7 +21,7 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc --project tsconfig.json && tsup src/index.ts --format esm,cjs --outDir dist",
+    "build": "tsc && tsup",
     "dev": "tsup src/index.ts --format esm,cjs --watch",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",

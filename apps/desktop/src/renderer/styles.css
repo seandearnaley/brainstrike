@@ -2,9 +2,11 @@
 /* CSS with PostCSS syntax */
 
 @import "tailwindcss";
+@import "@brainstrike/ui/styles.css";
+@import "@brainstrike/file-explorer-ui/styles.css";
+@import "@brainstrike/app-shell/styles.css";
 @import "@brainstrike/ui/globals.css";
-@import "@brainstrike/ui/styles.css"; /* Import the UI package's styles.css with the @source directive */
-@import "@brainstrike/file-explorer-ui/styles.css"; /* Ensure Tailwind scans file-explorer-ui components */
+@source "src/**/*.{ts,tsx}";
 
 @layer base {
   :root {

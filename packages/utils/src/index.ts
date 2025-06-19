@@ -16,5 +16,6 @@ export * from './file-system-utils';
 export * from './file-system';
 export * from './file-explorer-utils';
 export * from './env-utils';
+export * from './logger';
 
 export type { ColorScheme, FolderColors };

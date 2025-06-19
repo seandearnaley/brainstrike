@@ -27,6 +27,7 @@
     "@brainstrike/platform-utils": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^24",
     "@vitest/coverage-v8": "^3.2.3",
     "electron": "^36",
     "jsdom": "^26.1.0",

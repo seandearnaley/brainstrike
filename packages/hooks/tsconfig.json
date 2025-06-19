@@ -2,19 +2,20 @@
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
     "composite": true,
-    "rootDir": "src",
-    "outDir": "dist",
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
     "declaration": true,
+    "outDir": "./dist",
+    "rootDir": "src",
     "declarationMap": true,
-    "emitDeclarationOnly": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "strict": true,
-    "skipLibCheck": true
+    "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["dist", "node_modules", "**/__tests__/**/*", "**/__mocks__/**/*"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
   "references": [
-    {"path": "../../packages/types"}
+    { "path": "../types" },
+    { "path": "../file-system" },
+    { "path": "../utils" },
+    { "path": "../ui" }
   ]
 } 

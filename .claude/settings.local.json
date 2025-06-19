@@ -73,7 +73,22 @@
       "Bash(npx vite:*)",
       "Bash(../../node_modules/.bin/vite build)",
       "Bash(turbo run build:*)",
-      "Bash(pnpm -w run build:web)"
+      "Bash(pnpm -w run build:web)",
+      "Bash(git push:*)",
+      "Bash(git reset:*)",
+      "Bash(cat:*)",
+      "WebFetch(domain:vercel.link)",
+      "WebFetch(domain:vercel.com)",
+      "WebFetch(domain:brainstrike-1x844lbvk-brainstrike.vercel.app)",
+      "Bash(mv:*)",
+      "Bash(pnpm list:*)",
+      "Bash(pnpm clean:*)",
+      "Bash(tsc --project tsconfig.json)",
+      "Bash(pnpm exec tsc:*)",
+      "Bash(gh pr view:*)",
+      "Bash(npx turbo prune:*)",
+      "Bash(npx turbo run build:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   },

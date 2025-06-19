@@ -1,13 +1,17 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist",
     "composite": true,
-    "declaration": true
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "declaration": true,
+    "outDir": "./dist",
+    "rootDir": "src",
+    "declarationMap": true,
+    "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"],
+  "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
   "references": [
     { "path": "../file-explorer" },
     { "path": "../file-system" },

@@ -16,6 +16,7 @@
       "@web/*": ["apps/web/src/*"],
       "@desktop/*": ["apps/desktop/src/*"]
     },
+    "types": ["node"],
     "noEmit": true,
     "declaration": false,
     "sourceMap": false,

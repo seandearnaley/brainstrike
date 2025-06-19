@@ -1,36 +1,76 @@
-# Ignore everything in node_modules
-node_modules
+# Allowlist approach - ignore everything, then explicitly allow what's needed
+/*
 
-# Ignore all test files
-*.test.tsx
-*.test.ts
-__tests__
-test-results
-e2e
-playwright-report
+# Core build files
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!turbo.jsonc
+!vercel.json
 
-# Ignore development configurations
-*.config.mts
-*.config.ts
-vitest.config.ts
-.eslintrc
-.eslintignore
-.npmrc
-.nvmrc
-.env
-.env.local
-.env.development
+# Configuration files (needed for Vite/Tailwind config)
+!**/*.config.mts
+!**/*.config.ts
+!**/*.config.js
+!**/*.config.json
+!**/tailwind.config.*
+!**/vite.config.*
+!tsconfig*.json
+!biome.json
 
-# Ignore documentation
-docs
+# Build and dependency management
+!.npmrc
+!**/.npmrc
+!.vercel/
 
-# Ignore build artifacts
-dist
-out
-build
+# Applications - allow entire apps directory for Tailwind @source directives
+!apps/
 
-# Other files to ignore
-*.log
-.DS_Store
-.git
-README.md
+# Packages - allow entire packages directory for Tailwind @source directives  
+!packages/
+
+# Within allowed directories, ignore specific build/test artifacts
+apps/*/node_modules/
+apps/*/dist/
+apps/*/build/
+apps/*/out/
+apps/*/test-results/
+apps/*/playwright-report/
+apps/*/coverage/
+apps/*/e2e/
+apps/*/__tests__/
+
+packages/*/node_modules/
+packages/*/dist/
+packages/*/build/
+packages/*/out/
+packages/*/test-results/
+packages/*/coverage/
+packages/*/__tests__/
+
+# Ignore test files in allowed directories
+apps/**/*.test.ts
+apps/**/*.test.tsx
+packages/**/*.test.ts
+packages/**/*.test.tsx
+
+# Ignore development files in allowed directories
+apps/**/.env
+apps/**/.env.local
+apps/**/.env.development
+apps/**/docs/
+apps/**/README.md
+apps/**/README.MD
+apps/**/*.log
+apps/**/.DS_Store
+
+packages/**/.env
+packages/**/.env.local
+packages/**/.env.development
+packages/**/docs/
+packages/**/README.md
+packages/**/README.MD
+packages/**/*.log
+packages/**/.DS_Store
+
+# ===== DO NOT ADD NEGATIVE PATTERNS BELOW THIS LINE WITHOUT REVIEW =====
