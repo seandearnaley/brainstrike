@@ -45,7 +45,7 @@ const config: PlaywrightTestConfig = {
 	globalSetup: "./e2e/global-setup.ts",
 	// Web server configuration - use preview in CI for faster startup
         webServer: {
-                command: process.env[ciEnv] ? 'npm run start' : 'npm run dev',
+                command: process.env[ciEnv] ? "pnpm run start" : "pnpm run dev",
                 url: serverURL,
                 reuseExistingServer: !process.env[ciEnv],
                 timeout: 60000,
