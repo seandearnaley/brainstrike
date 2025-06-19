@@ -58,11 +58,7 @@ describe('FileTree', () => {
     expect(screen.getByText('src')).toBeInTheDocument();
 
     // Should have expand/collapse button for directories
-    expect(
-      screen.getByRole('button', {
-        name: /expand src directory/i,
-      })
-    ).toBeInTheDocument();
+    expect(screen.getByTestId('expand-collapse-button')).toBeInTheDocument();
   });
 
   it('handles basic user interactions', async () => {
@@ -70,9 +66,7 @@ describe('FileTree', () => {
     render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
 
     // Find and click expand button
-    const expandButton = screen.getByRole('button', {
-      name: /expand src directory/i,
-    });
+    const expandButton = screen.getByTestId('expand-collapse-button');
 
     // Should be able to click without errors
     await user.click(expandButton);

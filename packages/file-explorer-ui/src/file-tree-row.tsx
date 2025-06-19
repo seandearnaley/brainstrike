@@ -247,6 +247,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
                 onClick={handleExpansionClick}
                 className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded cursor-pointer transition-colors flex items-center justify-center"
                 aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+                data-testid="expand-collapse-button"
               >
                 {isExpanded ? (
                   <ChevronDown className="h-3 w-3" />

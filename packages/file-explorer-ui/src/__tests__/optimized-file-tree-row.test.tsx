@@ -78,7 +78,7 @@ it('triggers directory expansion callback', async () => {
   const onToggle = vi.fn();
   render(<OptimizedFileTreeRow {...baseDirProps} onToggleDirectoryExpansion={onToggle} />);
 
-  const button = screen.getByRole('button', { name: /expand dir directory/i });
+  const button = screen.getByTestId('expand-collapse-button');
   await user.click(button);
 
   expect(onToggle).toHaveBeenCalledWith('/dir');

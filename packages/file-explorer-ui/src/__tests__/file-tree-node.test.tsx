@@ -35,11 +35,7 @@ describe('FileTreeNode', () => {
     expect(screen.getByText('test.tsx')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select test.tsx' })).toBeInTheDocument();
     // Should not have expand/collapse button for files
-    expect(
-      screen.queryByRole('button', {
-        name: /expand .* directory|collapse .* directory/i,
-      })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId('expand-collapse-button')).not.toBeInTheDocument();
   });
 
   it('renders a directory node correctly', () => {
@@ -72,9 +68,7 @@ describe('FileTreeNode', () => {
     const user = userEvent.setup();
     render(<FileTreeNode {...defaultDirProps} />, { wrapper: FileExplorerTestWrapper });
 
-    const expandButton = screen.getByRole('button', {
-      name: /expand components directory/i,
-    });
+    const expandButton = screen.getByTestId('expand-collapse-button');
     await user.click(expandButton);
 
     expect(defaultDirProps.onToggleDirectoryExpansion).toHaveBeenCalledWith('src/components');

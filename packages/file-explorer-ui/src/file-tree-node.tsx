@@ -263,6 +263,7 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
               onClick={handleExpansionClick}
               className="p-1 mr-1"
               aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+              data-testid="expand-collapse-button"
             >
               {isExpanded ? (
                 <ChevronDown className="h-3 w-3" />
