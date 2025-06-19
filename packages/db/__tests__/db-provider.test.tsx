@@ -13,6 +13,12 @@ function wrapper({ children }: { children: React.ReactNode }) {
 }
 
 describe('DbProvider', () => {
+  beforeEach(() => {
+    // Reset logger configuration to defaults
+    const { resetLogger } = require('@brainstrike/utils');
+    resetLogger();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -137,12 +143,18 @@ describe('DbProvider', () => {
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
+    // Configure logger to enable logging in test environment
+    const { configureLogger } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
+
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockRejectedValue(error);
 
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
 
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith(
+        '[DbProvider]',
+        '[ERROR]',
         'Failed to initialize and migrate database:',
         error,
       );
@@ -160,7 +172,13 @@ describe('DbProvider', () => {
     vi
       .spyOn(migrations, 'migrate')
       .mockResolvedValue(undefined as unknown as void);
-    vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+    
+    // Mock production environment but enable logging for the test
+    const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
+    // Configure logger to enable logging in production for this test
+    const { configureLogger } = await import('@brainstrike/utils');
+    configureLogger({ enableInProduction: true });
+    
     const closeError = new Error('close failed');
     const closeSpy = vi
       .spyOn(mockDb, 'close')
@@ -178,10 +196,13 @@ describe('DbProvider', () => {
     expect(closeSpy).toHaveBeenCalledTimes(1);
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith(
+        '[DbProvider]',
+        '[ERROR]',
         'Failed to close database:',
         closeError,
       );
     });
     consoleSpy.mockRestore();
+    isDevEnvSpy.mockRestore();
   });
 });

@@ -7,9 +7,11 @@
 
 import type { StorageAdapter } from '@brainstrike/storage';
 import type { FileExplorerState, FolderState, SerializedState } from '@brainstrike/types';
-import { debug, error as logError, warn } from '@brainstrike/utils';
+import { createLogger } from '@brainstrike/utils';
 import type { PersistOptions } from 'zustand/middleware';
 import { WorkerStorage } from './worker-storage';
+
+const logger = createLogger('Persistence');
 
 const NODE_ENV_KEY = 'NODE_ENV';
 const nodeEnv = globalThis.process?.env?.[NODE_ENV_KEY];
@@ -44,14 +46,11 @@ export const createPersistOptions = (
       workerStorage = new WorkerStorage();
       useWorker = workerStorage.isWorkerAvailable;
       if (shouldLog && useWorker) {
-        debug('[Persistence] Web Worker enabled for background state persistence');
+        logger.debug('Web Worker enabled for background state persistence');
       }
     } catch (error) {
       if (shouldLog) {
-        warn(
-          '[Persistence] Failed to initialize Web Worker, falling back to debounced approach:',
-          error
-        );
+        logger.warn('Failed to initialize Web Worker, falling back to debounced approach:', error);
       }
     }
   }
@@ -65,7 +64,7 @@ export const createPersistOptions = (
       await storageAdapter.setItem(name, JSON.stringify(value));
     } catch (error) {
       if (shouldLog) {
-        logError('Error setting item in storage:', error);
+        logger.error('Error setting item in storage:', error);
       }
     }
   };
@@ -109,7 +108,7 @@ export const createPersistOptions = (
             return value ? JSON.parse(value) : null;
           } catch (error) {
             if (shouldLog) {
-              logError('Worker getItem failed, falling back to main thread:', error);
+              logger.error('Worker getItem failed, falling back to main thread:', error);
             }
             // Fallback to main thread approach
             const value = await storageAdapter.getItem(name);
@@ -123,7 +122,7 @@ export const createPersistOptions = (
             return value ? JSON.parse(value) : null;
           } catch (error) {
             if (shouldLog) {
-              logError('Error getting item from storage:', error);
+              logger.error('Error getting item from storage:', error);
             }
             return null;
           }
@@ -136,7 +135,7 @@ export const createPersistOptions = (
             await workerStorage.setItem(name, JSON.stringify(value));
           } catch (error) {
             if (shouldLog) {
-              logError('Worker setItem failed, falling back to main thread:', error);
+              logger.error('Worker setItem failed, falling back to main thread:', error);
             }
             // Fallback to main thread approach
             await storageAdapter.setItem(name, JSON.stringify(value));
@@ -160,7 +159,7 @@ export const createPersistOptions = (
           await storageAdapter.removeItem(name);
         } catch (error) {
           if (shouldLog) {
-            logError('Error removing item from storage:', error);
+            logger.error('Error removing item from storage:', error);
           }
         }
       },
@@ -203,10 +202,11 @@ export const createPersistOptions = (
     },
 
     migrate: (rawPersistedState, version) => {
-      if (shouldLog) debug('[Migrate] Received raw state:', rawPersistedState, 'Version:', version);
+      if (shouldLog)
+        logger.debug('Migrate - Received raw state:', rawPersistedState, 'Version:', version);
 
       if (rawPersistedState == null) {
-        if (shouldLog) debug('[Migrate] No state (null or undefined), returning it as is.');
+        if (shouldLog) logger.debug('Migrate - No state (null or undefined), returning it as is.');
         return rawPersistedState as unknown as SerializedState;
       }
 
@@ -216,25 +216,25 @@ export const createPersistOptions = (
 
       if (stateToProcess == null) {
         if (shouldLog)
-          debug('[Migrate] No actual state after unwrap (null/undefined), returning as is.');
+          logger.debug('Migrate - No actual state after unwrap (null/undefined), returning as is.');
         return stateToProcess as unknown as SerializedState;
       }
 
       const serialized = stateToProcess as SerializedState;
-      if (shouldLog) debug('[Migrate] Returning valid SerializedState:', serialized);
+      if (shouldLog) logger.debug('Migrate - Returning valid SerializedState:', serialized);
       return serialized;
     },
 
     merge: (persisted, current) => {
       if (shouldLog)
-        debug(
-          '[Merge] Persisted (SerializedState from migrate):',
+        logger.debug(
+          'Merge - Persisted (SerializedState from migrate):',
           persisted,
           'Current (FileExplorerState from initial):',
           current
         );
       if (!persisted) {
-        if (shouldLog) debug('[Merge] No persisted state, returning current initial state.');
+        if (shouldLog) logger.debug('Merge - No persisted state, returning current initial state.');
         return current;
       }
 
@@ -288,13 +288,14 @@ export const createPersistOptions = (
         }
       }
 
-      if (shouldLog) debug('[Merge] Resulting merged FileExplorerState (with Sets):', mergedState);
+      if (shouldLog)
+        logger.debug('Merge - Resulting merged FileExplorerState (with Sets):', mergedState);
       return mergedState;
     },
 
     onRehydrateStorage: (state) => {
       if (shouldLog) {
-        debug('[onRehydrateStorage] Storage rehydrated. Final state in store:', state);
+        logger.debug('onRehydrateStorage - Storage rehydrated. Final state in store:', state);
       }
     },
   };

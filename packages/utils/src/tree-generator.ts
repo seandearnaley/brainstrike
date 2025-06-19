@@ -1,6 +1,9 @@
 import type { IFileNode } from '@brainstrike/types';
 import { Minimatch } from 'minimatch';
 import { processFilter } from './filter-utils';
+import { createLogger } from './logger';
+
+const logger = createLogger('TreeGenerator');
 
 export function generateProjectTreeText(
   fileTree: IFileNode[],
@@ -27,7 +30,7 @@ export function generateProjectTreeText(
     try {
       compiledInclude.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
     } catch (error) {
-      console.error(`Invalid pattern: ${pattern}`, error);
+      logger.error(`Invalid pattern: ${pattern}`, error);
     }
   }
 
@@ -36,7 +39,7 @@ export function generateProjectTreeText(
     try {
       compiledExclude.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
     } catch (error) {
-      console.error(`Invalid pattern: ${pattern}`, error);
+      logger.error(`Invalid pattern: ${pattern}`, error);
     }
   }
 

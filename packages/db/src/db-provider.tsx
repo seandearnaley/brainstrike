@@ -1,12 +1,14 @@
 import os from 'node:os';
 import path from 'node:path';
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { migrate } from './migrations/bootstrap.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
 import { wasmLoader } from './wasm-loader.js';
+
+const logger = createLogger('DbProvider');
 
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | null;
@@ -64,7 +66,7 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
           setContextValue({ fileRecordRepository: repository, error: null, ready: true });
         }
       } catch (err) {
-        console.error('Failed to initialize and migrate database:', err);
+        logger.error('Failed to initialize and migrate database:', err);
         if (!cancelled) {
           setContextValue({ fileRecordRepository: null, error: err as Error, ready: true });
         }
@@ -83,7 +85,7 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
         // This prevents expensive re-initialization during HMR cycles
         if (!isDevEnv()) {
           db.close().catch((err) => {
-            console.error('Failed to close database:', err);
+            logger.error('Failed to close database:', err);
           });
           dbRef.current = null;
         }
@@ -104,7 +106,7 @@ export function useFileRecordRepository(): FileRecordRepository | null {
   if (!ctx) {
     // This case should ideally not be hit if the hook is used correctly
     // within a component tree wrapped by DbProvider.
-    console.warn('useFileRecordRepository must be used within a DbProvider');
+    logger.warn('useFileRecordRepository must be used within a DbProvider');
     return null;
   }
   // Only return the repository if the DB is ready and there's no error

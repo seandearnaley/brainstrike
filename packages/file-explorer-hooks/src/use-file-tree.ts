@@ -1,9 +1,11 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { fileFilter } from '@brainstrike/utils';
+import { createLogger, fileFilter } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
+
+const logger = createLogger('useFileTree');
 
 // Batch size for progress updates
 const PROGRESS_BATCH_SIZE = 25;
@@ -218,7 +220,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
               updateProgress(relativePath);
             }
           } catch (err) {
-            console.error(`Error processing ${relativePath}:`, err);
+            logger.error(`Error processing ${relativePath}:`, err);
             stats.failCount++;
           }
         }
@@ -238,7 +240,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
         return sortFileNodes(processedEntries);
       } catch (err) {
-        console.error('Error reading directory:', err);
+        logger.error('Error reading directory:', err);
         throw err;
       }
     },
@@ -280,7 +282,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
         setFileTree(newTree);
       }
     } catch (err) {
-      console.error('Error loading file tree:', err);
+      logger.error('Error loading file tree:', err);
       setError(err instanceof Error ? err : new Error(String(err)));
       throw err;
     } finally {
@@ -307,7 +309,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
   useEffect(() => {
     loadTree().catch((err) => {
-      console.error('Error in initial tree load:', err);
+      logger.error('Error in initial tree load:', err);
     });
     return () => {
       abortControllerRef.current?.abort();

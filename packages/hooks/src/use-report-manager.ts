@@ -8,9 +8,9 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
+import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
-import { logError } from './logger';
 
 interface UseReportManagerProps {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
