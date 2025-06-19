@@ -169,7 +169,7 @@ export default defineConfig({
     target: 'es2020',
     assetsInlineLimit: 0,
     rollupOptions: {
-      external: ['electron'],
+      external: ['electron', 'chokidar'],
       output: {
         manualChunks: (id) => {
           if (id.includes("node_modules")) {

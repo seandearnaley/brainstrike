@@ -14,6 +14,17 @@ vi.mock('electron', () => ({
   },
 }));
 
+// Mock chokidar with proper default export structure
+vi.mock('chokidar', () => {
+  const mockWatch = vi.fn();
+  return {
+    default: {
+      watch: mockWatch,
+    },
+    watch: mockWatch,
+  };
+});
+
 const originalCwd = process.cwd();
 
 describe('ElectronFileSystemAdapter', () => {
@@ -201,31 +212,65 @@ describe('ElectronFileSystemAdapter', () => {
 
     const handle = await adapter.requestDirectoryAccess();
     const callback = vi.fn();
+
+    // Mock chokidar watcher
+    const mockWatcher = {
+      on: vi.fn().mockReturnThis(),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const chokidar = await import('chokidar');
+    // biome-ignore lint/suspicious/noExplicitAny: mock type
+    vi.mocked(chokidar.default.watch).mockReturnValue(mockWatcher as any);
+
     const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
 
-    // Give the watcher time to initialize
-    await new Promise((res) => setTimeout(res, 50));
+    // Give the dynamic import time to resolve
+    await new Promise((res) => setTimeout(res, 100));
 
-    await fsPromises.writeFile(path.join(tempDir, 'new.txt'), 'data');
+    // Verify chokidar was initialized correctly
+    expect(chokidar.default.watch).toHaveBeenCalledWith(tempDir, {
+      ignoreInitial: true,
+      persistent: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 100,
+      },
+      ignored: /(^|[\/\\])\../,
+      depth: 0,
+    });
 
-    // Wait longer for file system events to propagate
-    await new Promise((res) => setTimeout(res, 200));
+    // Simulate file addition
+    const addCallback = mockWatcher.on.mock.calls.find((call) => call[0] === 'add')?.[1];
+    const filePath = path.join(tempDir, 'new.txt');
+    if (addCallback) {
+      addCallback(filePath);
+    }
+
+    expect(callback).toHaveBeenCalledWith([{ type: 'added', path: filePath, kind: 'file' }]);
+
     stop();
-    expect(callback).toHaveBeenCalled();
+    expect(mockWatcher.close).toHaveBeenCalled();
   });
 
-  it('should return noop watcher when fs.watch throws', async () => {
+  it('should return noop watcher when chokidar.watch throws', async () => {
     const { dialog } = await import('electron');
     vi.mocked(dialog.showOpenDialog).mockResolvedValue({
       canceled: false,
       filePaths: [tempDir],
     });
-    vi.spyOn(fs, 'watch').mockImplementation(() => {
+
+    const chokidar = await import('chokidar');
+    vi.mocked(chokidar.default.watch).mockImplementation(() => {
       throw new Error('nope');
     });
 
     const handle = await adapter.requestDirectoryAccess();
     const stop = adapter.watchDirectory(handle as DirectoryHandle, vi.fn());
+
+    // Give the dynamic import time to resolve
+    await new Promise((res) => setTimeout(res, 100));
+
     expect(() => stop()).not.toThrow();
   });
 });

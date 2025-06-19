@@ -241,7 +241,12 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
       })
       .catch((error) => {
         // Only log if it's not a module not found error
-        if (error && typeof error === 'object' && 'code' in error && error.code !== 'MODULE_NOT_FOUND') {
+        if (
+          error &&
+          typeof error === 'object' &&
+          'code' in error &&
+          error.code !== 'MODULE_NOT_FOUND'
+        ) {
           console.warn('Failed to watch directory:', error);
         }
       });
