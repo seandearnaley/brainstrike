@@ -69,9 +69,14 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
         throw new Error('Unable to open directory selection dialog. Please try again.');
       }
 
-      // Legacy error handling for backward compatibility
+      // Error handling for abort operations
       if (error instanceof Error) {
-        // Handle other cancellation scenarios (legacy support)
+        // Check for proper DOMException abort errors first
+        if (error.name === 'AbortError') {
+          return null;
+        }
+
+        // Legacy error handling for backward compatibility
         if (
           error.message.includes('AbortError') ||
           error.message.includes('cancelled') ||

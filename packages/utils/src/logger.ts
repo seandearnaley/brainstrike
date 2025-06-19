@@ -51,14 +51,16 @@ export function setLogLevel(level: LogLevel): void {
 /**
  * Format a log message with optional prefix and timestamp
  */
-function formatMessage(level: string, args: unknown[]): unknown[] {
+function formatMessage(level: string, args: unknown[], scopePrefix?: string): unknown[] {
   const parts: unknown[] = [];
 
   if (globalConfig.includeTimestamp) {
     parts.push(`[${new Date().toISOString()}]`);
   }
 
-  if (globalConfig.prefix) {
+  if (scopePrefix) {
+    parts.push(`[${scopePrefix}]`);
+  } else if (globalConfig.prefix) {
     parts.push(`[${globalConfig.prefix}]`);
   }
 
@@ -81,9 +83,16 @@ function shouldLog(): boolean {
  * Log debug messages (only in development by default)
  */
 export function debug(...args: unknown[]): void {
+  debugWithScope(undefined, ...args);
+}
+
+/**
+ * Log debug messages with a specific scope prefix
+ */
+function debugWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.DEBUG) {
     // eslint-disable-next-line no-console
-    console.log(...formatMessage('DEBUG', args));
+    console.log(...formatMessage('DEBUG', args, scopePrefix));
   }
 }
 
@@ -91,9 +100,16 @@ export function debug(...args: unknown[]): void {
  * Log info messages (only in development by default)
  */
 export function info(...args: unknown[]): void {
+  infoWithScope(undefined, ...args);
+}
+
+/**
+ * Log info messages with a specific scope prefix
+ */
+function infoWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.INFO) {
     // eslint-disable-next-line no-console
-    console.info(...formatMessage('INFO', args));
+    console.info(...formatMessage('INFO', args, scopePrefix));
   }
 }
 
@@ -101,9 +117,16 @@ export function info(...args: unknown[]): void {
  * Log warning messages (only in development by default)
  */
 export function warn(...args: unknown[]): void {
+  warnWithScope(undefined, ...args);
+}
+
+/**
+ * Log warning messages with a specific scope prefix
+ */
+function warnWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.WARN) {
     // eslint-disable-next-line no-console
-    console.warn(...formatMessage('WARN', args));
+    console.warn(...formatMessage('WARN', args, scopePrefix));
   }
 }
 
@@ -111,9 +134,16 @@ export function warn(...args: unknown[]): void {
  * Log error messages (only in development by default)
  */
 export function error(...args: unknown[]): void {
+  errorWithScope(undefined, ...args);
+}
+
+/**
+ * Log error messages with a specific scope prefix
+ */
+function errorWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.ERROR) {
     // eslint-disable-next-line no-console
-    console.error(...formatMessage('ERROR', args));
+    console.error(...formatMessage('ERROR', args, scopePrefix));
   }
 }
 
@@ -127,30 +157,10 @@ export function createLogger(prefix: string): {
   error: (...args: unknown[]) => void;
 } {
   return {
-    debug: (...args: unknown[]) => {
-      const previousPrefix = globalConfig.prefix;
-      globalConfig.prefix = prefix;
-      debug(...args);
-      globalConfig.prefix = previousPrefix;
-    },
-    info: (...args: unknown[]) => {
-      const previousPrefix = globalConfig.prefix;
-      globalConfig.prefix = prefix;
-      info(...args);
-      globalConfig.prefix = previousPrefix;
-    },
-    warn: (...args: unknown[]) => {
-      const previousPrefix = globalConfig.prefix;
-      globalConfig.prefix = prefix;
-      warn(...args);
-      globalConfig.prefix = previousPrefix;
-    },
-    error: (...args: unknown[]) => {
-      const previousPrefix = globalConfig.prefix;
-      globalConfig.prefix = prefix;
-      error(...args);
-      globalConfig.prefix = previousPrefix;
-    },
+    debug: (...args: unknown[]) => debugWithScope(prefix, ...args),
+    info: (...args: unknown[]) => infoWithScope(prefix, ...args),
+    warn: (...args: unknown[]) => warnWithScope(prefix, ...args),
+    error: (...args: unknown[]) => errorWithScope(prefix, ...args),
   };
 }
 

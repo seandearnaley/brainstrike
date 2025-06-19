@@ -125,7 +125,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
       const stats = { successCount: 0, failCount: 0 };
 
       if (abortSignal?.aborted) {
-        throw new Error('Operation was cancelled');
+        throw new DOMException('Operation was cancelled', 'AbortError');
       }
 
       // For root directory, count total entries first
@@ -156,7 +156,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
       try {
         if (abortSignal?.aborted) {
-          throw new Error('Operation was cancelled');
+          throw new DOMException('Operation was cancelled', 'AbortError');
         }
 
         // Use the adapter to read directory contents
@@ -166,7 +166,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null) {
 
         for (const entry of entries) {
           if (abortSignal?.aborted) {
-            throw new Error('Operation was cancelled');
+            throw new DOMException('Operation was cancelled', 'AbortError');
           }
 
           const relativePath = parentPath ? `${parentPath}/${entry.name}` : entry.name;

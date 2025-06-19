@@ -84,7 +84,11 @@
       "Bash(pnpm list:*)",
       "Bash(pnpm clean:*)",
       "Bash(tsc --project tsconfig.json)",
-      "Bash(pnpm exec tsc:*)"
+      "Bash(pnpm exec tsc:*)",
+      "Bash(gh pr view:*)",
+      "Bash(npx turbo prune:*)",
+      "Bash(npx turbo run build:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": []
   },
