@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../__mocks__/ui-mocks'; // Adjusted path assuming mock is moved/created in packages/hooks
+import { mockDismissContext, mockToast } from '../__mocks__/ui-mocks';
 import { useUndoableAction } from '../use-undoable-action';
 
 // Mock for toast functions
@@ -36,6 +36,7 @@ describe('useUndoableAction', () => {
     vi.clearAllMocks();
     mockToast.mockClear();
     mockDismiss.mockClear();
+    mockDismissContext.mockClear();
     mockUpdate.mockClear();
 
     // Mock setTimeout to execute callback immediately and return a fake timer ID
@@ -171,6 +172,25 @@ describe('useUndoableAction', () => {
 
       // Verify second toast was created
       expect(mockToast).toHaveBeenCalledTimes(2);
+    });
+
+    it('should dismiss toast when clearUndoTimeout is called', async () => {
+      const { result } = renderUseUndoableActionHook();
+      const mockOnUndo = vi.fn();
+
+      await act(async () => {
+        result.current.performUndoableAction('test-key', 'test-item', {
+          actionName: 'Test Action',
+          itemDescription: 'Test Item',
+          onUndo: mockOnUndo,
+        });
+      });
+
+      act(() => {
+        result.current.clearUndoTimeout('test-key');
+      });
+
+      expect(mockDismissContext).toHaveBeenCalledWith('mock-toast-id');
     });
 
     it('should auto-dismiss after duration', async () => {

@@ -39,7 +39,7 @@ export interface UndoableActionOptions<T, S = unknown> {
  *   - `clearUndoTimeout`: Function to prematurely clear an undo timeout and dismiss its toast.
  */
 export function useUndoableAction<T, S = unknown>() {
-  const { toast } = useToast();
+  const { toast, dismiss } = useToast();
   const [undoTimeouts, setUndoTimeouts] = React.useState<
     Map<string, { timeoutId: number; toastId: string; item: T; snapshot: S }>
   >(new Map());
@@ -58,12 +58,7 @@ export function useUndoableAction<T, S = unknown>() {
       const timeoutDetails = undoTimeouts.get(key);
       if (timeoutDetails) {
         window.clearTimeout(timeoutDetails.timeoutId);
-        // Potentially dismiss the toast if the toast context provides a way by id
-        // For now, this just clears the timeout. The toast itself has a duration.
-        // If an explicit dismiss is needed, the toast function might need to return a dismiss method.
-        // The current `useToast` from `@brainstrike/ui` returns { id, dismiss }
-        // However, we don't have `toastResult.dismiss` available here directly.
-        // The original code had `toastResult.dismiss()` inside the Button onClick, which is fine.
+        dismiss(timeoutDetails.toastId);
 
         setUndoTimeouts((prev) => {
           const next = new Map(prev);
@@ -72,7 +67,7 @@ export function useUndoableAction<T, S = unknown>() {
         });
       }
     },
-    [undoTimeouts]
+    [undoTimeouts, dismiss]
   );
 
   const performUndoableAction = React.useCallback(
