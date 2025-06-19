@@ -56,8 +56,6 @@ const textFileExtensions = new Set([
   'sql',
   'graphql',
   'gql',
-  'tsx',
-  'jsx',
   'vue',
   'svelte',
 ]);
