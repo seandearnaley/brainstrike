@@ -1,5 +1,8 @@
+import {
+  calculateDynamicTotal,
+  calculateProgressPercentage,
+} from '@brainstrike/file-explorer-hooks';
 import { describe, expect, it } from 'vitest';
-import { calculateDynamicTotal, calculateProgressPercentage } from '../use-file-tree-context';
 
 describe('Progress Calculation Utilities', () => {
   describe('calculateDynamicTotal', () => {
@@ -10,13 +13,13 @@ describe('Progress Calculation Utilities', () => {
     });
 
     it('should set total to loaded + buffer when exceeded', () => {
-      expect(calculateDynamicTotal(100, 101)).toBe(201); // 101 + 100 (min buffer)
-      expect(calculateDynamicTotal(100, 200)).toBe(300); // 200 + 100 (max of 50 or 100)
+      expect(calculateDynamicTotal(100, 101)).toBe(601); // 101 + 500 (min buffer)
+      expect(calculateDynamicTotal(100, 200)).toBe(700); // 200 + 500 (min buffer)
     });
 
-    it('should use minimum buffer of 100', () => {
-      expect(calculateDynamicTotal(50, 51)).toBe(151); // 51 + 100 (min buffer)
-      expect(calculateDynamicTotal(10, 11)).toBe(111); // 11 + 100 (min buffer)
+    it('should use minimum buffer of 500', () => {
+      expect(calculateDynamicTotal(50, 51)).toBe(551); // 51 + 500 (min buffer)
+      expect(calculateDynamicTotal(10, 11)).toBe(511); // 11 + 500 (min buffer)
     });
 
     it('should use 25% buffer for large numbers', () => {
@@ -80,9 +83,9 @@ describe('Progress Calculation Utilities', () => {
 
     it('should never exceed 100% when total is properly adjusted', () => {
       const testCases = [
-        { loaded: 150, initialTotal: 100, expectedPercentage: 60 }, // 150/250 = 60%
+        { loaded: 150, initialTotal: 100, expectedPercentage: 23 }, // 150/650 = 23%
         { loaded: 3168, initialTotal: 100, expectedPercentage: 80 }, // 3168/3960 = 80%
-        { loaded: 500, initialTotal: 200, expectedPercentage: 80 }, // 500/625 = 80%
+        { loaded: 500, initialTotal: 200, expectedPercentage: 50 }, // 500/1000 = 50%
       ];
 
       for (const { loaded, initialTotal, expectedPercentage } of testCases) {

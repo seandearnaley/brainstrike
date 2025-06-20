@@ -191,8 +191,6 @@
         "**/lib/utils/*.ts",
         "**/tree-generator.ts",
         "**/main.ts",
-        "**/use-file-tree.ts",
-        "**/use-file-system.ts",
         "**/file-explorer-persistence.ts",
         "**/worker-storage.ts",
         "**/file-tree-node.tsx",
