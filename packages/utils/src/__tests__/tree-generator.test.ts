@@ -1,6 +1,7 @@
 import type { IFileNode } from '@brainstrike/types';
+import { Minimatch } from 'minimatch';
 import { describe, expect, it } from 'vitest';
-import { generateProjectTreeText } from '../tree-generator';
+import { compilePatterns, generateProjectTreeText, traverseFileTree } from '../tree-generator';
 
 const createMockFileHandle = (): FileSystemFileHandle => ({
   kind: 'file',
@@ -186,5 +187,26 @@ describe('folderTreeGenerator pattern matching', () => {
     expect(result).toContain('components/');
     // When regex patterns are invalid, the function falls back to including all files
     expect(result).toContain('Button.tsx');
+  });
+});
+
+describe('helper functions', () => {
+  it('compilePatterns handles glob and regex', () => {
+    const globCompiled = compilePatterns(['**/*.ts'], false);
+    expect(globCompiled[0]).toBeInstanceOf(Minimatch);
+
+    const regexCompiled = compilePatterns(['\\.ts$'], true);
+    expect(regexCompiled[0]).toBeInstanceOf(RegExp);
+  });
+
+  it('traverseFileTree builds lines array', () => {
+    const root = createMockDir('root', 'root');
+    const file = createMockFile('root/a.ts', 'a.ts');
+    root.children = [file];
+
+    const lines: string[] = [];
+    traverseFileTree(root, [], [], lines, 5);
+
+    expect(lines).toEqual(['root/', '  a.ts']);
   });
 });
