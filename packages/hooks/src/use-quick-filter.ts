@@ -1,30 +1,8 @@
 import type { IFileNode } from '@brainstrike/types';
+import { parseFilterString } from '@brainstrike/utils';
 import { useCallback, useMemo, useState } from 'react';
 // New file: useQuickFilter hook
 import { useDebouncedValue } from './use-debounced-value';
-
-interface FilterPatterns {
-  includes: string[];
-  excludes: string[];
-}
-
-function parseFilterString(filter: string): FilterPatterns {
-  const terms = filter.trim().split(/\s+/).filter(Boolean);
-  return terms.reduce(
-    (acc, term) => {
-      if (term.startsWith('-')) {
-        const excludePattern = term.slice(1).toLowerCase();
-        if (excludePattern) {
-          acc.excludes.push(excludePattern);
-        }
-      } else {
-        acc.includes.push(term.toLowerCase());
-      }
-      return acc;
-    },
-    { includes: [], excludes: [] } as FilterPatterns
-  );
-}
 
 /**
  * A hook that provides debounced include/exclude filtering over a tree of IFileNode.

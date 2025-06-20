@@ -1,24 +1,19 @@
 import type { IFileNode } from '@brainstrike/types';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { Checkbox } from '@brainstrike/ui';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import { isPathSelectedInFolder } from '@brainstrike/utils';
-import { fileExplorer } from '@brainstrike/utils';
 import {
   ChevronDown,
   ChevronRight,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
   Link2 as Link2Icon,
-  Loader2,
   MoreHorizontal as MoreHorizontalIcon,
 } from 'lucide-react';
 import type React from 'react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { FolderSelectionDialog } from './folder-selection-dialog';
+import NodeCheckbox from './node-checkbox';
+import NodeIcon from './node-icon';
+import { useFileTreeNodeSelection } from './use-file-tree-node-selection';
 
 interface IFileTreeNodeProps {
   node: IFileNode;
@@ -56,77 +51,20 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
       }),
       shallow
     );
-    const [showSelectionDialog, setShowSelectionDialog] = useState(false);
-
-    /**
-     * Gets all file paths in a directory node, including nested directories
-     */
-    const getAllFilePaths = useCallback((dirNode: IFileNode): string[] => {
-      if (dirNode.type !== 'directory') return [];
-      return (
-        dirNode.children?.reduce((paths: string[], child: IFileNode) => {
-          if (child.type === 'file') {
-            paths.push(child.path);
-          } else if (child.type === 'directory') {
-            paths.push(...getAllFilePaths(child));
-          }
-          return paths;
-        }, []) ?? []
-      );
-    }, []);
-
-    /**
-     * Handles checkbox selection for both files and directories.
-     * For directories, shows a confirmation dialog if the folder contains many files.
-     */
-    const handleNodeSelection = useCallback(() => {
-      if (node.type !== 'directory') {
-        onToggleFileSelection(node.path);
-        return;
-      }
-
-      // Get all file paths in the directory
-      const allFilePaths = getAllFilePaths(node);
-      if (allFilePaths.length === 0) return; // Don't process empty directories
-
-      // For directories, check if we need to show the dialog
-      const { count } = fileExplorer.getFolderFileCount(node);
-
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      const isFullySelected = selectedCount === allFilePaths.length;
-
-      // Only show the confirmation modal for large folders when no files are selected (i.e. on a select-all action)
-      if (count > 10 && selectedCount === 0) {
-        setShowSelectionDialog(true);
-        return;
-      }
-
-      if (!isFullySelected) {
-        // For folders that are not fully selected (including intermediate state), complete the selection by selecting all unselected files
-        const unselectedPaths = allFilePaths.filter(
-          (path) => !(folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false)
-        );
-        const availableSlots = maxSelectionCount - selectedFilePaths.size;
-        const pathsToSelect = unselectedPaths.slice(0, availableSlots);
-        for (const path of pathsToSelect) {
-          onToggleFileSelection(path);
-        }
-      } else {
-        // If fully selected, toggle to deselect all files
-        for (const path of allFilePaths) {
-          onToggleFileSelection(path);
-        }
-      }
-    }, [
+    const {
+      checkboxState,
+      folderInfo,
+      showSelectionDialog,
+      setShowSelectionDialog,
+      handleNodeSelection,
+      wouldExceedLimit,
+    } = useFileTreeNodeSelection({
       node,
-      selectedFilePaths,
-      onToggleFileSelection,
-      maxSelectionCount,
-      getAllFilePaths,
       folderId,
-    ]);
+      selectedFilePaths,
+      maxSelectionCount,
+      onToggleFileSelection,
+    });
 
     /**
      * Handles directory expansion/collapse when clicking the chevron icon.
@@ -146,118 +84,22 @@ const FileTreeNode = memo<IFileTreeNodeProps>(
      * - Directories: Show folder/folder-open based on expansion state
      * - Loading state: Show spinner
      */
-    const renderIcon = useCallback(() => {
-      if (isLoading) {
-        return (
-          <Loader2
-            size={16}
-            className="text-blue-500 dark:text-blue-400 animate-spin"
-            aria-label={`Loading ${node.name}`}
-          />
-        );
-      }
-
-      if (node.type === 'file') {
-        return <FileIcon size={16} className="text-gray-500 dark:text-gray-400" />;
-      }
-
-      if (node.type === 'directory') {
-        return isExpanded ? (
-          <FolderOpen size={16} className="text-blue-500 dark:text-blue-400" />
-        ) : (
-          <Folder size={16} className="text-blue-500 dark:text-blue-400" />
-        );
-      }
-
-      return null;
-    }, [node.type, node.name, isExpanded, isLoading]);
-
-    /**
-     * Computes the checkbox state for the node.
-     *
-     * For files:
-     * - Returns true if file is selected, false otherwise
-     *
-     * For directories:
-     * - Returns true if all child files are selected
-     * - Returns false if no child files are selected
-     * - Returns 'indeterminate' if some (but not all) child files are selected
-     */
-    const checkboxState = useMemo(() => {
-      if (node.type === 'file') {
-        return folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, node.path) : false;
-      }
-
-      const allFilePaths = getAllFilePaths(node);
-      if (allFilePaths.length === 0) {
-        return false;
-      }
-
-      const selectedCount = allFilePaths.filter((path) =>
-        folderId ? isPathSelectedInFolder(selectedFilePaths, folderId, path) : false
-      ).length;
-      if (selectedCount === 0) {
-        return false;
-      }
-
-      return selectedCount === allFilePaths.length ? true : 'indeterminate';
-    }, [node, selectedFilePaths, getAllFilePaths, folderId]);
-
-    /**
-     * Calculate folder file count and selection status for tooltips
-     */
-    const folderInfo = useMemo(() => {
-      if (node.type !== 'directory') return null;
-      const { count, isComplete } = fileExplorer.getFolderFileCount(node);
-      const selectedCount = getAllFilePaths(node).filter(
-        (path) => folderId && isPathSelectedInFolder(selectedFilePaths, folderId, path)
-      ).length;
-      return { count, isComplete, selectedCount };
-    }, [node, selectedFilePaths, getAllFilePaths, folderId]);
-
-    /**
-     * Check if selecting this node would exceed the max selection limit
-     */
-    const wouldExceedLimit = useMemo(() => {
-      if (node.type === 'file') {
-        return (
-          !(folderId && isPathSelectedInFolder(selectedFilePaths, folderId, node.path)) &&
-          selectedFilePaths.size >= maxSelectionCount
-        );
-      }
-      if (!folderInfo) return false;
-
-      const unselectedCount = folderInfo.count - folderInfo.selectedCount;
-      return selectedFilePaths.size + unselectedCount > maxSelectionCount;
-    }, [node, selectedFilePaths, maxSelectionCount, folderInfo, folderId]);
+    const renderIcon = useCallback(
+      () => <NodeIcon node={node} isExpanded={isExpanded} isLoading={isLoading} />,
+      [node, isExpanded, isLoading]
+    );
 
     return (
       <li className="list-none">
         <div className="flex items-center p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="flex items-center">
-                <Checkbox
-                  id={node.path}
-                  checked={checkboxState}
-                  disabled={wouldExceedLimit}
-                  className="mr-2"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (!wouldExceedLimit) {
-                      handleNodeSelection();
-                    }
-                  }}
-                  aria-label={`Select ${node.name}`}
-                />
-              </div>
-            </TooltipTrigger>
-            {wouldExceedLimit && (
-              <TooltipContent>
-                <p>Cannot select more than {maxSelectionCount} files</p>
-              </TooltipContent>
-            )}
-          </Tooltip>
+          <NodeCheckbox
+            node={node}
+            checked={checkboxState}
+            disabled={wouldExceedLimit}
+            onSelect={handleNodeSelection}
+            wouldExceedLimit={wouldExceedLimit}
+            maxSelectionCount={maxSelectionCount}
+          />
           <div className="w-6 flex items-center justify-center">
             {node.type === 'directory' && (
               <button

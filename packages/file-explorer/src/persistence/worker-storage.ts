@@ -28,14 +28,6 @@ export interface StorageRequest {
   opId?: number;
 }
 
-export interface StorageResponse {
-  id: string;
-  type: 'storage_response';
-  operation: 'setItem' | 'getItem' | 'removeItem';
-  success?: boolean;
-  rawValue?: string | null;
-}
-
 export class WorkerStorage {
   private worker: Worker | null = null;
   private messageId = 0;
@@ -53,7 +45,7 @@ export class WorkerStorage {
     this.initializeWorker();
   }
 
-  private async initializeWorker() {
+  private initializeWorker() {
     if (typeof Worker === 'undefined') {
       // Web Workers not supported
       return;
@@ -63,8 +55,7 @@ export class WorkerStorage {
       if (typeof import.meta.url !== 'undefined') {
         const workerUrl = new URL('./worker-storage.worker.js', import.meta.url);
         this.worker = new Worker(workerUrl, { type: 'module' });
-        this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
-        this.worker.addEventListener('error', this.handleWorkerError.bind(this));
+        this.registerWorkerListeners();
       }
     } catch (error) {
       console.warn('Failed to initialize Web Worker for state persistence:', error);
@@ -72,18 +63,24 @@ export class WorkerStorage {
     }
   }
 
-  private handleWorkerMessage(event: MessageEvent<WorkerResponse | StorageRequest>) {
-    const { id, type } = event.data;
+  private registerWorkerListeners() {
+    if (!this.worker) return;
 
-    // Handle storage requests from worker
+    this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
+    this.worker.addEventListener('error', this.handleWorkerError.bind(this));
+  }
+
+  private handleWorkerMessage(event: MessageEvent<WorkerResponse | StorageRequest>) {
+    const { type } = event.data;
+
     if (type === 'storage_request') {
       this.handleStorageRequest(event.data as StorageRequest);
-      return;
+    } else {
+      this.handleWorkerResponse(event.data as WorkerResponse);
     }
+  }
 
-    // Handle normal worker responses
-    const workerResponse = event.data as WorkerResponse;
-    const { result, error } = workerResponse;
+  private handleWorkerResponse({ id, type, result, error }: WorkerResponse) {
     const request = this.pendingRequests.get(id);
 
     if (!request) {
@@ -91,7 +88,6 @@ export class WorkerStorage {
       return;
     }
 
-    // Clear pending timeout for this request
     const timeout = this.timeouts.get(id);
     if (timeout) {
       clearTimeout(timeout);
@@ -112,64 +108,16 @@ export class WorkerStorage {
 
     try {
       switch (operation) {
-        case 'setItem': {
-          if (value !== undefined) {
-            // Race condition mitigation: only save if this is the newest operation
-            const lastOp = this.activeSaveOps.get(key) ?? 0;
-            if (opId && opId < lastOp) {
-              // A newer save operation has already started, so we discard this one.
-              this.worker?.postMessage({ id, type: 'storage_response', operation, success: true });
-              return;
-            }
-            if (opId) {
-              this.activeSaveOps.set(key, opId);
-            }
-            // Swallow quota exceptions
-            try {
-              localStorage.setItem(key, value);
-            } catch (e) {
-              console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
-            }
-          }
-          this.worker?.postMessage({
-            id,
-            type: 'storage_response',
-            operation,
-            success: true,
-          } as StorageResponse);
+        case 'setItem':
+          this.processSetItemRequest(id, key, value, opId);
           break;
-        }
-        case 'getItem': {
-          let rawValue = null;
-          try {
-            rawValue = localStorage.getItem(key);
-          } catch (e) {
-            console.warn(`Failed to getItem from localStorage for key "${key}":`, e);
-          }
-          this.worker?.postMessage({
-            id,
-            type: 'storage_response',
-            operation,
-            rawValue,
-          } as StorageResponse);
+        case 'getItem':
+          this.processGetItemRequest(id, key);
           break;
-        }
-        case 'removeItem': {
-          try {
-            localStorage.removeItem(key);
-          } catch (e) {
-            console.warn(`Failed to removeItem from localStorage for key "${key}":`, e);
-          }
-          this.worker?.postMessage({
-            id,
-            type: 'storage_response',
-            operation,
-            success: true,
-          } as StorageResponse);
+        case 'removeItem':
+          this.processRemoveItemRequest(id, key);
           break;
-        }
         default:
-          // Should be unreachable
           break;
       }
     } catch (error) {
@@ -181,6 +129,65 @@ export class WorkerStorage {
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private processSetItemRequest(id: string, key: string, value: string | undefined, opId?: number) {
+    const lastOp = this.activeSaveOps.get(key) ?? 0;
+    if (opId && opId < lastOp) {
+      this.worker?.postMessage({
+        id,
+        type: 'storage_response',
+        operation: 'setItem',
+        success: true,
+      });
+      return;
+    }
+    if (opId) {
+      this.activeSaveOps.set(key, opId);
+    }
+
+    // If value is undefined, we still need to respond but shouldn't store anything
+    if (value === undefined) {
+      this.worker?.postMessage({
+        id,
+        type: 'storage_response',
+        operation: 'setItem',
+        success: false,
+        error: 'Cannot store undefined value',
+      });
+      return;
+    }
+
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+    }
+    this.worker?.postMessage({ id, type: 'storage_response', operation: 'setItem', success: true });
+  }
+
+  private processGetItemRequest(id: string, key: string) {
+    let rawValue: string | null = null;
+    try {
+      rawValue = localStorage.getItem(key);
+    } catch (e) {
+      console.warn(`Failed to getItem from localStorage for key "${key}":`, e);
+    }
+    this.worker?.postMessage({ id, type: 'storage_response', operation: 'getItem', rawValue });
+  }
+
+  private processRemoveItemRequest(id: string, key: string) {
+    try {
+      localStorage.removeItem(key);
+    } catch (e) {
+      console.warn(`Failed to removeItem from localStorage for key "${key}":`, e);
+    }
+    this.worker?.postMessage({
+      id,
+      type: 'storage_response',
+      operation: 'removeItem',
+      success: true,
+    });
   }
 
   private handleWorkerError(error: ErrorEvent) {

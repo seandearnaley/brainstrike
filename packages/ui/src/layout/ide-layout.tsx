@@ -1,15 +1,14 @@
 import { isDevEnv } from '@brainstrike/utils';
-import { ChevronLeft, ChevronRight, PanelLeft, PanelRight, Terminal, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
 import React, { useCallback, useEffect, useRef, createContext, useContext, useMemo } from 'react';
-import {
-  type ImperativePanelHandle,
-  Panel,
-  PanelGroup,
-  PanelResizeHandle,
-} from 'react-resizable-panels';
+import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
+import { usePanelToggle } from '../hooks/use-panel-toggle';
 import { cn } from '../lib/utils';
+import { ConsolePanel } from './console-panel';
+import { LeftPanel } from './left-panel';
+import { RightPanel } from './right-panel';
 
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
@@ -95,46 +94,29 @@ export const IdeLayout = React.memo(function IdeLayout({
     typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 20,
   ];
 
-  // Focus management functions
-  const handleShowLeftPanel = useCallback(() => {
-    if (leftPanelRef.current) {
-      leftPanelRef.current.expand();
+  const { show: handleShowLeftPanel, hide: handleHideLeftPanel } = usePanelToggle(
+    leftPanelRef,
+    toggleLeftPanel,
+    {
+      focusRef: hideExplorerButtonRef,
     }
-    toggleLeftPanel();
-    // Focus the hide button after the panel is shown
-    setTimeout(() => {
-      hideExplorerButtonRef.current?.focus();
-    }, 100);
-  }, [toggleLeftPanel]);
+  );
 
-  const handleHideLeftPanel = useCallback(() => {
-    if (leftPanelRef.current) {
-      leftPanelRef.current.collapse();
+  const { show: handleShowRightPanel, hide: handleHideRightPanel } = usePanelToggle(
+    rightPanelRef,
+    toggleRightPanel,
+    {
+      focusRef: hideRightPanelButtonRef,
     }
-    toggleLeftPanel();
-  }, [toggleLeftPanel]);
+  );
 
-  const handleShowRightPanel = useCallback(() => {
-    if (rightPanelRef.current) {
-      rightPanelRef.current.expand();
+  const { show: handleShowConsole, hide: handleConsoleClose } = usePanelToggle(
+    consolePanelRef,
+    toggleConsole,
+    {
+      focusRef: hideConsoleButtonRef,
     }
-    toggleRightPanel();
-    // Focus the hide button after the panel is shown
-    setTimeout(() => {
-      hideRightPanelButtonRef.current?.focus();
-    }, 100);
-  }, [toggleRightPanel]);
-
-  const handleShowConsole = useCallback(() => {
-    if (consolePanelRef.current) {
-      consolePanelRef.current.expand();
-    }
-    toggleConsole();
-    // Focus the hide button after the console is shown
-    setTimeout(() => {
-      hideConsoleButtonRef.current?.focus();
-    }, 100);
-  }, [toggleConsole]);
+  );
 
   useEffect(() => {
     if (!leftPanelContent) return;
@@ -261,13 +243,6 @@ export const IdeLayout = React.memo(function IdeLayout({
     [showConsole, consoleContent, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
   );
 
-  const handleConsoleClose = useCallback(() => {
-    if (consolePanelRef.current) {
-      consolePanelRef.current.collapse();
-    }
-    toggleConsole();
-  }, [toggleConsole]);
-
   return (
     <IdeFileEditorContext.Provider value={fileEditorContextValue}>
       <div className={cn('h-full flex-1 flex flex-col', className)}>
@@ -286,66 +261,29 @@ export const IdeLayout = React.memo(function IdeLayout({
             </div>
           )}
           {leftPanelContent && (
-            <>
-              <Panel
-                ref={leftPanelRef}
-                id="left-panel"
-                data-panel-id="left-panel"
-                order={1}
-                defaultSize={safeLeftSize}
-                minSize={15}
-                maxSize={50}
-                collapsible
-                collapsedSize={0}
-                onCollapse={() => {
-                  // Prevent saving during initial render to avoid overriding localStorage state
-                  if (!isInitialRender) {
-                    // Sync persistence when panel is collapsed via drag or API.
-                    saveLayout(
-                      [0, safeRightSize, safeConsoleSize],
-                      undefined,
-                      false,
-                      showRightPanel
-                    );
-                  }
-                }}
-                onExpand={(size?: number) => {
-                  // Prevent saving during initial render to avoid overriding localStorage state
-                  if (!isInitialRender) {
-                    // size param may be undefined in some versions; fall back to last safe size.
-                    const newSize = typeof size === 'number' ? size : safeLeftSize;
-                    saveLayout(
-                      [newSize, safeRightSize, safeConsoleSize],
-                      undefined,
-                      true,
-                      showRightPanel
-                    );
-                  }
-                }}
-                className="bg-background"
-              >
-                <div className="h-full">
-                  <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
-                    <div className="flex items-center gap-2">
-                      <PanelLeft className="h-4 w-4" />
-                      <span className="text-sm font-medium">Explorer</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={handleHideLeftPanel}
-                      aria-label="Hide explorer"
-                      ref={hideExplorerButtonRef}
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{leftPanelContent}</div>
-                </div>
-              </Panel>
-              <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
-            </>
+            <LeftPanel
+              panelRef={leftPanelRef}
+              content={leftPanelContent}
+              hideButtonRef={hideExplorerButtonRef}
+              onHide={handleHideLeftPanel}
+              defaultSize={safeLeftSize}
+              onCollapse={() => {
+                if (!isInitialRender) {
+                  saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, showRightPanel);
+                }
+              }}
+              onExpand={(size?: number) => {
+                if (!isInitialRender) {
+                  const newSize = typeof size === 'number' ? size : safeLeftSize;
+                  saveLayout(
+                    [newSize, safeRightSize, safeConsoleSize],
+                    undefined,
+                    true,
+                    showRightPanel
+                  );
+                }
+              }}
+            />
           )}
 
           <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
@@ -375,64 +313,34 @@ export const IdeLayout = React.memo(function IdeLayout({
                 </div>
               )}
               {consoleContent && (
-                <>
-                  <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
-                  <Panel
-                    ref={consolePanelRef}
-                    id="console-panel"
-                    data-panel-id="console-panel"
-                    order={2}
-                    defaultSize={safeConsoleSize}
-                    minSize={15}
-                    maxSize={80}
-                    collapsible
-                    collapsedSize={0}
-                    onCollapse={() => {
-                      // Prevent saving during initial render to avoid overriding localStorage state
-                      if (!isInitialRender) {
-                        saveLayout(
-                          [safeLeftSize, safeRightSize, 0],
-                          false,
-                          showLeftPanel,
-                          showRightPanel
-                        );
-                      }
-                    }}
-                    onExpand={(size?: number) => {
-                      // Prevent saving during initial render to avoid overriding localStorage state
-                      if (!isInitialRender) {
-                        const newSize = typeof size === 'number' ? size : safeConsoleSize;
-                        saveLayout(
-                          [safeLeftSize, safeRightSize, newSize],
-                          true,
-                          showLeftPanel,
-                          showRightPanel
-                        );
-                      }
-                    }}
-                    className="bg-background"
-                  >
-                    <div className="h-full border-t border-border">
-                      <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
-                        <div className="flex items-center gap-2">
-                          <Terminal className="h-4 w-4" />
-                          <span className="text-sm font-medium">File Editor</span>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          onClick={handleConsoleClose}
-                          aria-label="Close File Editor"
-                          ref={hideConsoleButtonRef}
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="h-[calc(100%-2.5rem)] overflow-hidden">{consoleContent}</div>
-                    </div>
-                  </Panel>
-                </>
+                <ConsolePanel
+                  panelRef={consolePanelRef}
+                  content={consoleContent}
+                  hideButtonRef={hideConsoleButtonRef}
+                  onHide={handleConsoleClose}
+                  defaultSize={safeConsoleSize}
+                  onCollapse={() => {
+                    if (!isInitialRender) {
+                      saveLayout(
+                        [safeLeftSize, safeRightSize, 0],
+                        false,
+                        showLeftPanel,
+                        showRightPanel
+                      );
+                    }
+                  }}
+                  onExpand={(size?: number) => {
+                    if (!isInitialRender) {
+                      const newSize = typeof size === 'number' ? size : safeConsoleSize;
+                      saveLayout(
+                        [safeLeftSize, safeRightSize, newSize],
+                        true,
+                        showLeftPanel,
+                        showRightPanel
+                      );
+                    }
+                  }}
+                />
               )}
             </PanelGroup>
           </Panel>
@@ -451,59 +359,29 @@ export const IdeLayout = React.memo(function IdeLayout({
             </div>
           )}
           {rightPanelContent && (
-            <>
-              <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
-              <Panel
-                ref={rightPanelRef}
-                id="right-panel"
-                data-panel-id="right-panel"
-                order={3}
-                defaultSize={safeRightSize}
-                minSize={15}
-                maxSize={60}
-                collapsible
-                collapsedSize={0}
-                onCollapse={() => {
-                  // Prevent saving during initial render to avoid overriding localStorage state
-                  if (!isInitialRender) {
-                    saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
-                  }
-                }}
-                onExpand={(size?: number) => {
-                  // Prevent saving during initial render to avoid overriding localStorage state
-                  if (!isInitialRender) {
-                    const newSize = typeof size === 'number' ? size : safeRightSize;
-                    saveLayout(
-                      [safeLeftSize, newSize, safeConsoleSize],
-                      undefined,
-                      showLeftPanel,
-                      true
-                    );
-                  }
-                }}
-                className="bg-background"
-              >
-                <div className="h-full border-l border-border">
-                  <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
-                    <div className="flex items-center gap-2">
-                      <PanelRight className="h-4 w-4" />
-                      <span className="text-sm font-medium">Panel</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={toggleRightPanel}
-                      aria-label="Hide right panel"
-                      ref={hideRightPanelButtonRef}
-                    >
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="h-[calc(100%-2.5rem)] overflow-hidden">{rightPanelContent}</div>
-                </div>
-              </Panel>
-            </>
+            <RightPanel
+              panelRef={rightPanelRef}
+              content={rightPanelContent}
+              hideButtonRef={hideRightPanelButtonRef}
+              onHide={handleHideRightPanel}
+              defaultSize={safeRightSize}
+              onCollapse={() => {
+                if (!isInitialRender) {
+                  saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
+                }
+              }}
+              onExpand={(size?: number) => {
+                if (!isInitialRender) {
+                  const newSize = typeof size === 'number' ? size : safeRightSize;
+                  saveLayout(
+                    [safeLeftSize, newSize, safeConsoleSize],
+                    undefined,
+                    showLeftPanel,
+                    true
+                  );
+                }
+              }}
+            />
           )}
         </PanelGroup>
 

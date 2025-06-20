@@ -1,4 +1,4 @@
-import type { PanelPersistenceState } from '../hooks/use-panel-persistence';
+import type { PanelPersistenceState } from './panel';
 
 export interface LayoutElectronAPI {
   saveLayout: (state: PanelPersistenceState) => Promise<void>;
