@@ -28,11 +28,6 @@ type ZustandPersistWrapper<T> = { state?: T; version?: number };
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  let pendingValue: unknown;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let currentStoreName = '';
-  const debounceMs = 200;
-
   // Initialize Web Worker for background state persistence
   let workerStorage: WorkerStorage | null = null;
   let useWorker = false;
@@ -50,38 +45,14 @@ export const createPersistOptions = (
       }
     } catch (error) {
       if (shouldLog) {
-        logger.warn('Failed to initialize Web Worker, falling back to debounced approach:', error);
+        logger.warn('Failed to initialize Web Worker, falling back to immediate approach:', error);
       }
     }
   }
 
-  const flush = async (name: string) => {
-    const value = pendingValue;
-    pendingValue = undefined;
-    timer = null;
-    if (value === undefined) return;
-    try {
-      await storageAdapter.setItem(name, JSON.stringify(value));
-    } catch (error) {
-      if (shouldLog) {
-        logger.error('Error setting item in storage:', error);
-      }
-    }
-  };
-
-  // Add beforeunload handler to flush pending values and cleanup worker
+  // Add beforeunload handler to cleanup worker
   if (typeof window !== 'undefined') {
     const handleBeforeUnload = () => {
-      // Handle pending debounced writes
-      if (pendingValue !== undefined && currentStoreName) {
-        // Attempt synchronous flush on tab close
-        try {
-          localStorage.setItem(currentStoreName, JSON.stringify(pendingValue));
-        } catch {
-          // Ignore errors during beforeunload
-        }
-      }
-
       // Cleanup worker
       if (workerStorage) {
         workerStorage.destroy();
@@ -162,23 +133,21 @@ export const createPersistOptions = (
             await workerStorage.setItem(name, value);
           } catch (error) {
             if (shouldLog) {
-              logger.error('Worker setItem failed, falling back to main thread:', error);
+              logger.error('Worker setItem failed, falling back to immediate approach:', error);
             }
-            // Fallback to main thread approach
+            // Fallback to immediate approach instead of debounced
             await storageAdapter.setItem(name, JSON.stringify(value));
           }
         } else {
-          // Use debounced main thread approach
-          pendingValue = value;
-          currentStoreName = name;
-          if (timer) {
-            clearTimeout(timer);
+          // Use immediate approach instead of debounced to prevent race conditions with page reloads
+          // The debounced approach was causing issues in CI where page reloads happened before the timeout completed
+          try {
+            await storageAdapter.setItem(name, JSON.stringify(value));
+          } catch (error) {
+            if (shouldLog) {
+              logger.error('Error setting item in storage:', error);
+            }
           }
-          return new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-              flush(name).then(resolve);
-            }, debounceMs);
-          });
         }
       },
       removeItem: async (name: string) => {
