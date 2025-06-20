@@ -1,7 +1,7 @@
+import type { FileRecord } from '@brainstrike/db';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test, vi, beforeEach } from 'vitest';
-import type { FileRecord } from '@brainstrike/db';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 
 // Mock the database dependencies
