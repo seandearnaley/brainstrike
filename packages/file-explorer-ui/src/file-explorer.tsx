@@ -1,4 +1,4 @@
-import { useToastManager } from '@brainstrike/file-explorer-hooks';
+import { useFileExplorerToasts } from './hooks/use-file-explorer-toasts';
 
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
@@ -8,20 +8,18 @@ import { FileExplorerToolbar } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useQuickFilter } from '@brainstrike/hooks';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
-import type { IFileNode } from '@brainstrike/types';
-import { FileExplorerStrings } from '@brainstrike/types';
 import { LoadingFallback } from '@brainstrike/ui';
 import { Button } from '@brainstrike/ui';
 import { cn } from '@brainstrike/ui';
 import { decodeFileSelection, encodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Suspense, lazy } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
+import { useFileExplorerSelection } from './hooks/use-file-explorer-selection';
 import { useFileExplorer } from './use-file-explorer-context';
-import { useSelectionManager } from './use-selection-manager-context';
 
 // Lazy load heavy components
 const ActionButtons = lazy(() =>
@@ -77,10 +75,6 @@ const FileExplorer: React.FC = () => {
     shallow
   );
 
-  // Local state for UI
-  const [displayedFiles, setDisplayedFiles] = useState<Set<string>>(new Set());
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
   const {
     fileTree,
     handleRootDirectorySelect,
@@ -99,7 +93,7 @@ const FileExplorer: React.FC = () => {
     cancelOperation,
     isCancelling,
   } = useFileExplorer({
-    onDisplayedFilePathsChange: setDisplayedFiles,
+    onDisplayedFilePathsChange: () => {},
   });
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
@@ -111,14 +105,17 @@ const FileExplorer: React.FC = () => {
   const {
     toast,
     showToast,
-    handleRefreshError,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
     handleSelectionLimitError,
-  } = useToastManager();
-
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
-    onSelectionLimitExceeded: handleSelectionLimitError,
+    isRefreshing,
+    handleRefresh,
+    handleDirectorySelect,
+    handleCancelOperation,
+  } = useFileExplorerToasts({
+    rootDirectoryHandle,
+    refreshFileExplorer,
+    handleRootDirectorySelect,
+    isFileSystemAccessSupported,
+    cancelOperation,
   });
 
   const {
@@ -127,6 +124,11 @@ const FileExplorer: React.FC = () => {
     filteredTree: quickFilteredTree,
     clearFilter,
   } = useQuickFilter(fileTree);
+
+  const { selectedFilePaths, handleSelectionChange, displayedFiles } = useFileExplorerSelection({
+    quickFilteredTree,
+    onSelectionLimitExceeded: handleSelectionLimitError,
+  });
 
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,
@@ -168,63 +170,7 @@ const FileExplorer: React.FC = () => {
     });
   };
 
-  useEffect(() => {
-    if (quickFilteredTree) {
-      const allVisibleFiles = new Set<string>();
-      const collectVisibleFiles = (nodes: IFileNode[]) => {
-        for (const node of nodes) {
-          if (node.type === 'file' && node.isVisible !== false) {
-            allVisibleFiles.add(node.path);
-          } else if (node.type === 'directory' && node.children) {
-            collectVisibleFiles(node.children);
-          }
-        }
-      };
-      collectVisibleFiles(quickFilteredTree);
-      setDisplayedFiles(allVisibleFiles);
-    }
-  }, [quickFilteredTree]);
-
-  const handleRefresh = useCallback(async () => {
-    if (!rootDirectoryHandle) return;
-
-    setIsRefreshing(true);
-    try {
-      await refreshFileExplorer();
-      showToast({
-        title: FileExplorerStrings.success.title,
-        description: FileExplorerStrings.success.refreshSuccess,
-      });
-    } catch (error) {
-      handleRefreshError(error);
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [rootDirectoryHandle, refreshFileExplorer, showToast, handleRefreshError]);
-
-  const handleDirectorySelect = useCallback(async () => {
-    const { supported, reason } = isFileSystemAccessSupported();
-    if (!supported) {
-      handleBrowserCompatibilityError(reason);
-      return;
-    }
-
-    try {
-      const handle = await handleRootDirectorySelect();
-      if (handle === null) {
-        // User cancelled the directory selection, do nothing
-        return;
-      }
-      // Additional business logic for successful selection can be added here if needed
-    } catch (error) {
-      handleDirectorySelectError(error);
-    }
-  }, [
-    handleRootDirectorySelect,
-    handleBrowserCompatibilityError,
-    handleDirectorySelectError,
-    isFileSystemAccessSupported,
-  ]);
+  // Selection and toast logic handled via custom hooks
 
   const handleFilterChange = useCallback(
     (newIncludeFilters: string[], newExcludeFilters: string[], newUseRegex: boolean) => {
@@ -261,15 +207,6 @@ const FileExplorer: React.FC = () => {
   const collapseAll = useCallback(() => {
     store.getState().collapseAllDirectories();
   }, [store]);
-
-  const handleCancelOperation = useCallback(() => {
-    cancelOperation();
-    showToast({
-      title: 'Operation Cancelled',
-      description: 'The file loading operation has been cancelled.',
-      variant: 'default',
-    });
-  }, [cancelOperation, showToast]);
 
   return (
     <FileExplorerErrorBoundary>

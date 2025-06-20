@@ -1,0 +1,19 @@
+import type { FileSystemAdapter } from '@brainstrike/file-system';
+import {
+  type FileContentWorker,
+  createFileContentWorker,
+} from '@brainstrike/workers/file-content-worker';
+
+export function getDefaultConcurrency(): number {
+  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) {
+    return Math.max(5, Math.min(50, navigator.hardwareConcurrency * 2));
+  }
+  return 20;
+}
+
+export function initFileContentWorker(adapter: FileSystemAdapter): FileContentWorker {
+  return createFileContentWorker({
+    fileSystemAdapter: adapter,
+    concurrency: getDefaultConcurrency(),
+  });
+}

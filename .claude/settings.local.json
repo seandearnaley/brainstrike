@@ -97,7 +97,10 @@
       "WebFetch(domain:biomejs.dev)",
       "WebFetch(domain:biomejs.dev)",
       "Bash(pnpm biome check:*)",
-      "Bash(pnpm turbo test:*)"
+      "Bash(pnpm turbo test:*)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui type-check)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui lint)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui build)"
     ],
     "deny": []
   },

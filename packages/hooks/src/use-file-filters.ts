@@ -26,6 +26,101 @@ function matchPath(path: string, globs: string[], regexes: RegExp[], useRegex: b
   return globs.some((pattern) => minimatch(path, pattern));
 }
 
+function cloneNode(node: IFileNode, keepChildren: boolean): IFileNode {
+  const newNode: IFileNode = { ...node, isVisible: true };
+  if (node.children && keepChildren) {
+    newNode.children = [...node.children];
+  } else if (node.children) {
+    newNode.children = [];
+  }
+  return newNode;
+}
+
+function normalizeNodePath(path: string): string {
+  return path.startsWith('/') ? path.slice(1) : path;
+}
+
+function processDirectoryNode(
+  node: IFileNode,
+  processTree: (nodes: IFileNode[]) => IFileNode[]
+): IFileNode {
+  const cloned = cloneNode(node, false);
+  if (node.children && node.children.length > 0) {
+    cloned.children = processTree(node.children);
+  }
+  return cloned;
+}
+
+function processFileNode(
+  node: IFileNode,
+  path: string,
+  matchesInclude: (path: string) => boolean
+): IFileNode | null {
+  if (matchesInclude(path)) {
+    return cloneNode(node, true);
+  }
+  return null;
+}
+
+function setupRegexFilters(
+  processedIncludeFilters: string[],
+  processedExcludeFilters: string[],
+  regexCache: React.MutableRefObject<{ include: RegExp[]; exclude: RegExp[] }>,
+  setError: (msg: string) => void
+): boolean {
+  const includes = compileRegexPatterns(processedIncludeFilters, setError);
+  if (!includes) return false;
+
+  const excludes = compileRegexPatterns(processedExcludeFilters, setError);
+  if (!excludes) return false;
+
+  regexCache.current.include = includes;
+  regexCache.current.exclude = excludes;
+  return true;
+}
+
+function createFilterFunctions(
+  processedIncludeFilters: string[],
+  processedExcludeFilters: string[],
+  regexCache: React.MutableRefObject<{ include: RegExp[]; exclude: RegExp[] }>,
+  useRegex: boolean
+) {
+  const matchesInclude = (path: string): boolean => {
+    if (processedIncludeFilters.length === 0) return true;
+    return matchPath(path, processedIncludeFilters, regexCache.current.include, useRegex);
+  };
+
+  const matchesExclude = (path: string): boolean =>
+    matchPath(path, processedExcludeFilters, regexCache.current.exclude, useRegex);
+
+  return { matchesInclude, matchesExclude };
+}
+
+function createProcessTreeFunction(
+  matchesInclude: (path: string) => boolean,
+  matchesExclude: (path: string) => boolean
+) {
+  const processTree = (nodes: IFileNode[]): IFileNode[] => {
+    const result: IFileNode[] = [];
+    for (const node of nodes) {
+      const path = normalizeNodePath(node.path);
+      if (matchesExclude(path)) continue;
+
+      if (node.type === 'directory') {
+        result.push(processDirectoryNode(node, processTree));
+      } else if (node.type === 'file') {
+        const processedFile = processFileNode(node, path, matchesInclude);
+        if (processedFile) {
+          result.push(processedFile);
+        }
+      }
+    }
+    return result;
+  };
+
+  return processTree;
+}
+
 /**
  * A hook that applies include/exclude filters (glob or regex) to a tree of IFileNode.
  * @returns applyFileFilters: function to filter a node tree, and filterError: error message if regex is invalid
@@ -51,54 +146,23 @@ export function useFileFilters() {
       const processedExcludeFilters = useRegex ? excludeFilters : excludeFilters.map(processFilter);
 
       if (useRegex) {
-        const includes = compileRegexPatterns(processedIncludeFilters, setFilterError);
-        if (!includes) return [];
-
-        const excludes = compileRegexPatterns(processedExcludeFilters, setFilterError);
-        if (!excludes) return [];
-
-        regexCache.current.include = includes;
-        regexCache.current.exclude = excludes;
+        const success = setupRegexFilters(
+          processedIncludeFilters,
+          processedExcludeFilters,
+          regexCache,
+          setFilterError
+        );
+        if (!success) return [];
       }
 
-      const matchesInclude = (path: string): boolean => {
-        if (processedIncludeFilters.length === 0) return true;
-        return matchPath(path, processedIncludeFilters, regexCache.current.include, useRegex);
-      };
+      const { matchesInclude, matchesExclude } = createFilterFunctions(
+        processedIncludeFilters,
+        processedExcludeFilters,
+        regexCache,
+        useRegex
+      );
 
-      const matchesExclude = (path: string): boolean =>
-        matchPath(path, processedExcludeFilters, regexCache.current.exclude, useRegex);
-
-      const cloneNode = (node: IFileNode, keepChildren: boolean): IFileNode => {
-        const newNode: IFileNode = { ...node, isVisible: true };
-        if (node.children && keepChildren) {
-          newNode.children = [...node.children];
-        } else if (node.children) {
-          newNode.children = [];
-        }
-        return newNode;
-      };
-
-      const processTree = (nodes: IFileNode[]): IFileNode[] => {
-        const result: IFileNode[] = [];
-        for (const node of nodes) {
-          const path = node.path.startsWith('/') ? node.path.slice(1) : node.path;
-          if (matchesExclude(path)) continue;
-
-          if (node.type === 'directory') {
-            const cloned = cloneNode(node, false);
-            if (node.children && node.children.length > 0) {
-              cloned.children = processTree(node.children);
-            }
-            result.push(cloned);
-          } else if (node.type === 'file') {
-            if (matchesInclude(path)) {
-              result.push(cloneNode(node, true));
-            }
-          }
-        }
-        return result;
-      };
+      const processTree = createProcessTreeFunction(matchesInclude, matchesExclude);
 
       return processTree(fileTree);
     },

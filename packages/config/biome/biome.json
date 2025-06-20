@@ -187,29 +187,21 @@
     },
     {
       "include": [
-        "**/lib/utils.ts",
-        "**/lib/utils/*.ts",
-        "**/tree-generator.ts",
-        "**/main.ts",
         "**/worker-storage.ts",
-        "**/file-tree-node.tsx",
-        "**/loading-overlay.tsx",
         "**/use-file-system-context.ts",
         "**/report-generator.ts",
         "**/worker-storage.worker.ts",
-        "**/use-file-filters.ts",
-        "**/use-quick-filter.ts",
-        "**/use-panel-persistence.ts",
         "**/ide-layout.tsx",
         "**/use-shared-file-content-loading.ts",
-        "**/electron-adapter.ts",
         "**/virtualized-preview-panel.tsx",
         "**/virtualized-preview-panel-diceui-v2.tsx",
         "**/file-explorer.tsx",
         "**/use-file-tree-context.ts",
         "**/preview-panel.tsx",
+        "**/use-preview-panel-state.ts",
         "**/mock-file-system-adapter.ts",
-        "**/virtualized-preview-panel-tabbed.tsx"
+        "**/virtualized-preview-panel-tabbed.tsx",
+        "**/read-full-tree.ts"
       ],
       "linter": {
         "rules": {

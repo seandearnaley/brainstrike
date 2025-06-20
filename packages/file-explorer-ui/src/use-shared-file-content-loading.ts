@@ -2,27 +2,17 @@ import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { FileHandle } from '@brainstrike/file-system';
 import type { Platform } from '@brainstrike/platform-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
 import { decodeFileSelection } from '@brainstrike/utils';
-import {
-  type FileContentWorker,
-  type FileReadRequest,
-  createFileContentWorker,
-} from '@brainstrike/workers/file-content-worker';
+import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
-
-// Default concurrency based on hardware capabilities
-const getDefaultConcurrency = () => {
-  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) {
-    // Use number of CPU cores * 2 as a reasonable default
-    return Math.max(5, Math.min(50, navigator.hardwareConcurrency * 2));
-  }
-  return 20; // Fallback for environments without hardwareConcurrency
-};
-
-const MAX_CONCURRENT_LOADS = getDefaultConcurrency();
+import { initFileContentWorker } from './utils/file-content-worker';
+import {
+  buildFileNodeCache,
+  getFileNodeFromCache,
+  refreshFileNodeCacheEntry,
+} from './utils/file-node-cache';
 
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
@@ -36,12 +26,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const store = useFileExplorerStoreContext();
 
   useEffect(() => {
-    // Note: createFileContentWorker returns a function, not a worker instance
-    // No cleanup needed as it doesn't create persistent resources
-    workerRef.current = createFileContentWorker({
-      fileSystemAdapter,
-      concurrency: MAX_CONCURRENT_LOADS,
-    });
+    workerRef.current = initFileContentWorker(fileSystemAdapter);
 
     return () => {
       // Clean up the reference when adapter changes
@@ -57,22 +42,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   // Build a cache of path -> node keyed by folder ID whenever the file tree changes
   useEffect(() => {
-    const newCache = new Map<string, Map<string, IFileNode>>();
-
-    const populate = (nodes: IFileNode[]) => {
-      for (const node of nodes) {
-        const folderMap = newCache.get(node.rootFolderId) || new Map<string, IFileNode>();
-        folderMap.set(node.path, node);
-        newCache.set(node.rootFolderId, folderMap);
-
-        if (node.type === 'directory' && node.children) {
-          populate(node.children);
-        }
-      }
-    };
-
-    populate(fileTree);
-    nodeCacheRef.current = newCache;
+    nodeCacheRef.current = buildFileNodeCache(fileTree);
   }, [fileTree]);
 
   const prepareFileRead = useCallback(
@@ -100,19 +70,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         return null;
       }
 
-      // Use the cached node lookup directly instead of via callback
-      const cached = nodeCacheRef.current.get(folderId)?.get(path);
-      let fileNode = cached || fileExplorer.findNodeByPath(fileTree, path, folderId);
-
-      // Update cache if we found the node
-      if (fileNode && !cached) {
-        let folderMap = nodeCacheRef.current.get(folderId);
-        if (!folderMap) {
-          folderMap = new Map<string, IFileNode>();
-          nodeCacheRef.current.set(folderId, folderMap);
-        }
-        folderMap.set(path, fileNode);
-      }
+      let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
 
       // Debug logging removed to reduce console spam
 
@@ -121,8 +79,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
         // Wait a short time for the file tree to potentially update
         await new Promise((resolve) => setTimeout(resolve, 100));
 
-        // Try to find the node again
-        fileNode = fileExplorer.findNodeByPath(fileTree, path, folderId);
+        // Try to find the node again with a fresh lookup
+        fileNode = refreshFileNodeCacheEntry(nodeCacheRef.current, fileTree, folderId, path);
 
         // Debug logging removed to reduce console spam
 

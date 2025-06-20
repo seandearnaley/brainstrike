@@ -91,7 +91,8 @@ export function debug(...args: unknown[]): void {
  */
 function debugWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.DEBUG) {
-    console.info(...formatMessage('DEBUG', args, scopePrefix));
+    // biome-ignore lint/suspicious/noConsoleLog: allow debug logging
+    console.log(...formatMessage('DEBUG', args, scopePrefix));
   }
 }
 

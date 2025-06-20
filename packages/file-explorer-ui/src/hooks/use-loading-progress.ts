@@ -2,6 +2,54 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import { useMemo } from 'react';
 import type { LoadingProgressState } from '../loading-overlay';
 
+/**
+ * Format path for display by showing only the last 2 parts
+ */
+const formatDisplayPath = (currentPath: string): string => {
+  const parts = currentPath.split('/');
+  return parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
+};
+
+/**
+ * Get the base message without cancelling or custom message
+ */
+const getBaseMessage = (isInitialLoad?: boolean, progressState?: LoadingProgressState): string => {
+  if (isInitialLoad) {
+    return FileExplorerStrings.loading.rootDirectory;
+  }
+
+  if (!progressState) {
+    return isInitialLoad
+      ? FileExplorerStrings.loading.rootDirectory
+      : FileExplorerStrings.loading.refreshing;
+  }
+
+  if (progressState.phase === 'counting') {
+    return 'Scanning directory structure...';
+  }
+
+  return getProgressMessage(progressState);
+};
+
+/**
+ * Get progress message with percentage and optional path
+ */
+const getProgressMessage = (progressState: LoadingProgressState): string => {
+  const { loaded, total, currentPath } = progressState;
+
+  if (total === 0) return 'Preparing...';
+
+  const percent = Math.round((loaded / total) * 100);
+  const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
+
+  if (currentPath) {
+    const displayPath = formatDisplayPath(currentPath);
+    return `${baseMsg}\n${displayPath}`;
+  }
+
+  return baseMsg;
+};
+
 export const useProgressMessage = (
   isCancelling: boolean,
   message?: string,
@@ -15,35 +63,7 @@ export const useProgressMessage = (
 
     if (message) return message;
 
-    if (isInitialLoad) {
-      return FileExplorerStrings.loading.rootDirectory;
-    }
-
-    if (!progressState) {
-      return isInitialLoad
-        ? FileExplorerStrings.loading.rootDirectory
-        : FileExplorerStrings.loading.refreshing;
-    }
-
-    if (progressState.phase === 'counting') {
-      return 'Scanning directory structure...';
-    }
-
-    const { loaded, total, currentPath } = progressState;
-
-    if (total === 0) return 'Preparing...';
-
-    const percent = Math.round((loaded / total) * 100);
-    const baseMsg = `Processing files (${loaded}/${total} - ${percent}%)`;
-
-    if (currentPath) {
-      // Get the last 2 parts of the path for display
-      const parts = currentPath.split('/');
-      const displayPath = parts.length > 2 ? `.../${parts.slice(-2).join('/')}` : currentPath;
-      return `${baseMsg}\n${displayPath}`;
-    }
-
-    return baseMsg;
+    return getBaseMessage(isInitialLoad, progressState);
   }, [isCancelling, message, isInitialLoad, progressState]);
 };
 

@@ -5,6 +5,141 @@ import { createLogger } from './logger';
 
 const logger = createLogger('TreeGenerator');
 
+export function compilePatterns(patterns: string[], useRegex: boolean): (RegExp | Minimatch)[] {
+  const processed = useRegex ? patterns : patterns.map(processFilter);
+  const compiled: (RegExp | Minimatch)[] = [];
+  for (const pattern of processed) {
+    try {
+      compiled.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
+    } catch (error) {
+      logger.error(`Invalid pattern: ${pattern}`, error);
+    }
+  }
+  return compiled;
+}
+
+export function matchesPattern(path: string, patterns: (RegExp | Minimatch)[]): boolean {
+  if (patterns.length === 0) {
+    return false;
+  }
+
+  for (const pattern of patterns) {
+    if (pattern instanceof RegExp) {
+      if (pattern.test(path)) {
+        return true;
+      }
+    } else if (pattern.match(path)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function sortFileNodes(nodes: IFileNode[]): IFileNode[] {
+  return nodes.sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === 'directory' ? -1 : 1;
+    }
+
+    const nameA = a.name.replace(/^\./, '').toLowerCase();
+    const nameB = b.name.replace(/^\./, '').toLowerCase();
+    return nameA.localeCompare(nameB, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+  });
+}
+
+function shouldIncludeNode(node: IFileNode, compiledInclude: (RegExp | Minimatch)[]): boolean {
+  if (node.type === 'directory') {
+    return true;
+  }
+
+  if (compiledInclude.length === 0) {
+    return true;
+  }
+
+  return false;
+}
+
+function addNodeToLines(node: IFileNode, lines: string[]): void {
+  const indentation = '  '.repeat(node.depth);
+  lines.push(`${indentation}${node.name}${node.type === 'directory' ? '/' : ''}`);
+}
+
+function getVisibleChildren(
+  children: IFileNode[],
+  compiledExclude: (RegExp | Minimatch)[]
+): IFileNode[] {
+  const sortedChildren = sortFileNodes(children);
+  return sortedChildren.filter((child) => {
+    const childPath = child.path.startsWith('/') ? child.path.slice(1) : child.path;
+    return !matchesPattern(childPath, compiledExclude);
+  });
+}
+
+function addSummaryLine(node: IFileNode, remainingCount: number, lines: string[]): void {
+  const childIndentation = '  '.repeat(node.depth + 1);
+  lines.push(
+    `${childIndentation}... ${remainingCount} more ${remainingCount === 1 ? 'item' : 'items'}`
+  );
+}
+
+function processDirectoryChildren(
+  node: IFileNode,
+  visibleChildren: IFileNode[],
+  compiledInclude: (RegExp | Minimatch)[],
+  compiledExclude: (RegExp | Minimatch)[],
+  lines: string[],
+  folderSummaryThreshold: number
+): void {
+  if (folderSummaryThreshold > 0 && visibleChildren.length > folderSummaryThreshold) {
+    for (const child of visibleChildren.slice(0, folderSummaryThreshold)) {
+      traverseFileTree(child, compiledInclude, compiledExclude, lines, folderSummaryThreshold);
+    }
+    const remainingCount = visibleChildren.length - folderSummaryThreshold;
+    addSummaryLine(node, remainingCount, lines);
+  } else {
+    for (const child of visibleChildren) {
+      traverseFileTree(child, compiledInclude, compiledExclude, lines, folderSummaryThreshold);
+    }
+  }
+}
+
+export function traverseFileTree(
+  node: IFileNode,
+  compiledInclude: (RegExp | Minimatch)[],
+  compiledExclude: (RegExp | Minimatch)[],
+  lines: string[],
+  folderSummaryThreshold: number
+): void {
+  const path = node.path.startsWith('/') ? node.path.slice(1) : node.path;
+
+  if (matchesPattern(path, compiledExclude)) {
+    return;
+  }
+
+  const includeNode =
+    shouldIncludeNode(node, compiledInclude) ||
+    (node.type === 'file' && matchesPattern(path, compiledInclude));
+
+  if (includeNode) {
+    addNodeToLines(node, lines);
+  }
+
+  if (node.type === 'directory' && node.children) {
+    const visibleChildren = getVisibleChildren(node.children, compiledExclude);
+    processDirectoryChildren(
+      node,
+      visibleChildren,
+      compiledInclude,
+      compiledExclude,
+      lines,
+      folderSummaryThreshold
+    );
+  }
+}
+
 export function generateProjectTreeText(
   fileTree: IFileNode[],
   includeFilters: string[] = [],
@@ -13,135 +148,13 @@ export function generateProjectTreeText(
   folderSummaryThreshold = 5
 ): string {
   const lines: string[] = [];
+  const compiledInclude = compilePatterns(includeFilters, useRegex);
+  const compiledExclude = compilePatterns(excludeFilters, useRegex);
 
-  // Process filters only for glob patterns
-  const processedIncludeFilters: string[] = useRegex
-    ? includeFilters
-    : includeFilters.map(processFilter);
-  const processedExcludeFilters: string[] = useRegex
-    ? excludeFilters
-    : excludeFilters.map(processFilter);
-
-  // Precompile patterns once for performance. This avoids creating
-  // RegExp or Minimatch instances on every node during traversal.
-  // In local benchmarks (~10k nodes), this reduced traversal time by ~25%.
-  const compiledInclude: (RegExp | Minimatch)[] = [];
-  for (const pattern of processedIncludeFilters) {
-    try {
-      compiledInclude.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
-    } catch (error) {
-      logger.error(`Invalid pattern: ${pattern}`, error);
-    }
-  }
-
-  const compiledExclude: (RegExp | Minimatch)[] = [];
-  for (const pattern of processedExcludeFilters) {
-    try {
-      compiledExclude.push(useRegex ? new RegExp(pattern) : new Minimatch(pattern));
-    } catch (error) {
-      logger.error(`Invalid pattern: ${pattern}`, error);
-    }
-  }
-
-  const matchesPattern = (path: string, patterns: (RegExp | Minimatch)[]): boolean => {
-    if (patterns.length === 0) {
-      return false;
-    }
-
-    for (const pattern of patterns) {
-      if (pattern instanceof RegExp) {
-        if (pattern.test(path)) {
-          return true;
-        }
-      } else if (pattern.match(path)) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  // Updated sorting function
-  const sortFileNodes = (nodes: IFileNode[]): IFileNode[] => {
-    return nodes.sort((a, b) => {
-      // Directories first
-      if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1;
-      }
-      // Both are same type, compare names without leading dots, case-insensitive
-      const nameA = a.name.replace(/^\./, '').toLowerCase();
-      const nameB = b.name.replace(/^\./, '').toLowerCase();
-      return nameA.localeCompare(nameB, undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      });
-    });
-  };
-
-  const traverse = (node: IFileNode) => {
-    const path = node.path.startsWith('/') ? node.path.slice(1) : node.path;
-
-    // Skip nodes that match the exclude filters
-    if (matchesPattern(path, compiledExclude)) {
-      return;
-    }
-
-    // Check if the node should be included
-    let includeNode = false;
-
-    if (node.type === 'directory') {
-      includeNode = true; // Always include directories (unless excluded)
-    } else {
-      // For files, check if they match the include filters
-      if (compiledInclude.length === 0) {
-        includeNode = true;
-      } else if (matchesPattern(path, compiledInclude)) {
-        includeNode = true;
-      }
-    }
-
-    // Determine indentation based on node depth
-    const indentation = '  '.repeat(node.depth);
-
-    // Add the node to the lines if it should be included
-    if (includeNode) {
-      lines.push(`${indentation}${node.name}${node.type === 'directory' ? '/' : ''}`);
-    }
-
-    // Traverse and sort children if it's a directory
-    if (node.type === 'directory' && node.children) {
-      // Filter and sort children
-      const sortedChildren = sortFileNodes(node.children);
-      const visibleChildren = sortedChildren.filter((child) => {
-        const childPath = child.path.startsWith('/') ? child.path.slice(1) : child.path;
-        return !matchesPattern(childPath, compiledExclude);
-      });
-
-      // If we have more children than the threshold, show summary
-      if (folderSummaryThreshold > 0 && visibleChildren.length > folderSummaryThreshold) {
-        // Show first N items
-        for (const child of visibleChildren.slice(0, folderSummaryThreshold)) {
-          traverse(child);
-        }
-        // Add summary line
-        const remainingCount = visibleChildren.length - folderSummaryThreshold;
-        const childIndentation = '  '.repeat(node.depth + 1);
-        lines.push(
-          `${childIndentation}... ${remainingCount} more ${remainingCount === 1 ? 'item' : 'items'}`
-        );
-      } else {
-        // Show all children
-        for (const child of visibleChildren) {
-          traverse(child);
-        }
-      }
-    }
-  };
-
-  // Sort root-level nodes before traversal
   const sortedRootNodes = sortFileNodes(fileTree);
 
   for (const rootNode of sortedRootNodes) {
-    traverse(rootNode);
+    traverseFileTree(rootNode, compiledInclude, compiledExclude, lines, folderSummaryThreshold);
   }
 
   return lines.join('\n');

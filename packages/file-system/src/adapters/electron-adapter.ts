@@ -1,9 +1,10 @@
-import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
+import { validateDirectoryPath } from '../utils';
+import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
 
 /**
  * File system adapter for Electron applications
@@ -60,27 +61,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
         throw new Error('No directory path selected');
       }
 
-      // Validate that the selected path exists and is accessible
-      try {
-        const stats = await fsPromises.stat(selectedPath);
-        if (!stats.isDirectory()) {
-          throw new AccessError(
-            'Selected path is not a directory',
-            selectedPath,
-            'access',
-            this.requestDirectoryAccess
-          );
-        }
-      } catch (accessError) {
-        if (accessError instanceof AccessError) {
-          throw accessError; // Re-throw our custom error
-        }
-        throw new PermissionError(
-          `Cannot access selected directory: ${accessError instanceof Error ? accessError.message : 'Unknown error'}`,
-          selectedPath,
-          this.requestDirectoryAccess
-        );
-      }
+      await validateDirectoryPath(selectedPath, this.requestDirectoryAccess);
 
       return {
         path: selectedPath,
@@ -212,80 +193,18 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     let closed = false;
     let dispose: () => void = () => {};
 
-    /** Native fallback used when chokidar is unavailable. */
-    const startFsWatch = () => {
-      try {
-        const native = fs.watch(handle.path, { recursive: false }, (ev, filename) => {
-          if (!filename) return;
-          const full = path.join(handle.path, filename);
-          const exists = fs.existsSync(full);
-          let isDir = false;
-          if (exists) {
-            try {
-              isDir = fs.statSync(full).isDirectory();
-            } catch {
-              // Handle permission errors or TOCTOU race conditions silently
-              // Default to file (safer assumption)
-              isDir = false;
-            }
-          }
-          const type: FileSystemChange['type'] =
-            ev === 'rename' ? (exists ? 'added' : 'removed') : 'modified';
-          callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
-        });
-        dispose = () => native.close();
-      } catch (e) {
-        console.warn('fs.watch fallback failed:', e);
-        dispose = () => {};
-      }
-    };
-
-    // Preferred watcher
-    import('chokidar')
-      .then((mod) => {
-        if (closed) return;
-        // CommonJS ↔ ESM inter-op normalisation
-        const chokidar: typeof import('chokidar') =
-          // biome-ignore lint/suspicious/noExplicitAny: inter-op handling
-          (mod as any).watch ? (mod as any) : (mod.default as unknown as typeof import('chokidar'));
-
-        const watcher = chokidar.watch(handle.path, {
-          ignoreInitial: true,
-          persistent: true,
-          awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
-          ignored: /(^|[\/\\])\../,
-          depth: 0,
-        });
-
-        const toChange = (type: FileSystemChange['type'], filePath: string, isDir: boolean) => {
-          callback([
-            {
-              type,
-              path: filePath,
-              kind: isDir ? 'directory' : 'file',
-            },
-          ]);
-        };
-
-        watcher
-          .on('add', (file: string) => toChange('added', file, false))
-          .on('addDir', (dir: string) => toChange('added', dir, true))
-          .on('change', (file: string) => toChange('modified', file, false))
-          .on('unlink', (file: string) => toChange('removed', file, false))
-          .on('unlinkDir', (dir: string) => toChange('removed', dir, true))
-          .on('error', (error: unknown) => {
-            console.error('Chokidar watcher error:', error);
-          });
-
-        dispose = () => watcher.close();
-      })
-      .catch((err: unknown) => {
-        // Better error type narrowing
-        const e = err as NodeJS.ErrnoException;
-        if (e?.code !== 'MODULE_NOT_FOUND') {
-          console.warn('chokidar unavailable, falling back to fs.watch:', err);
+    startChokidarWatch(handle, callback)
+      .then((stop) => {
+        if (closed) {
+          stop();
+          return;
         }
-        if (!closed) startFsWatch();
+        dispose = stop;
+      })
+      .catch((err) => {
+        if (!closed) {
+          dispose = handleWatcherSetupError(err, handle, callback);
+        }
       });
 
     return () => {
