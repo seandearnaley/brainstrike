@@ -91,8 +91,7 @@ export function debug(...args: unknown[]): void {
  */
 function debugWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.DEBUG) {
-    // eslint-disable-next-line no-console
-    console.log(...formatMessage('DEBUG', args, scopePrefix));
+    console.info(...formatMessage('DEBUG', args, scopePrefix));
   }
 }
 
@@ -108,7 +107,6 @@ export function info(...args: unknown[]): void {
  */
 function infoWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.INFO) {
-    // eslint-disable-next-line no-console
     console.info(...formatMessage('INFO', args, scopePrefix));
   }
 }
@@ -125,7 +123,6 @@ export function warn(...args: unknown[]): void {
  */
 function warnWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.WARN) {
-    // eslint-disable-next-line no-console
     console.warn(...formatMessage('WARN', args, scopePrefix));
   }
 }
@@ -142,7 +139,6 @@ export function error(...args: unknown[]): void {
  */
 function errorWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
   if (shouldLog() && currentLogLevel <= LogLevel.ERROR) {
-    // eslint-disable-next-line no-console
     console.error(...formatMessage('ERROR', args, scopePrefix));
   }
 }

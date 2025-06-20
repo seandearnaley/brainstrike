@@ -37,7 +37,7 @@ describe('logger', () => {
       warn('warn message');
       error('error message');
 
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
+      expect(infoSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
       expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info message');
       expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn message');
       expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error message');
@@ -61,7 +61,7 @@ describe('logger', () => {
       configureLogger({ enableInProduction: true });
 
       debug('debug message');
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
+      expect(infoSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
     });
   });
 
@@ -108,7 +108,7 @@ describe('logger', () => {
       configureLogger({ prefix: 'MyApp' });
 
       debug('test message');
-      expect(logSpy).toHaveBeenCalledWith('[MyApp]', '[DEBUG]', 'test message');
+      expect(infoSpy).toHaveBeenCalledWith('[MyApp]', '[DEBUG]', 'test message');
     });
 
     it('adds timestamp when configured', () => {
@@ -118,7 +118,7 @@ describe('logger', () => {
       configureLogger({ includeTimestamp: true });
 
       debug('test message');
-      expect(logSpy).toHaveBeenCalledWith('[2024-01-01T12:00:00.000Z]', '[DEBUG]', 'test message');
+      expect(infoSpy).toHaveBeenCalledWith('[2024-01-01T12:00:00.000Z]', '[DEBUG]', 'test message');
     });
 
     it('combines prefix and timestamp', () => {
@@ -128,7 +128,7 @@ describe('logger', () => {
       configureLogger({ prefix: 'MyApp', includeTimestamp: true });
 
       debug('test message');
-      expect(logSpy).toHaveBeenCalledWith(
+      expect(infoSpy).toHaveBeenCalledWith(
         '[2024-01-01T12:00:00.000Z]',
         '[MyApp]',
         '[DEBUG]',
@@ -146,7 +146,7 @@ describe('logger', () => {
       const logger = createLogger('ComponentA');
 
       logger.debug('test');
-      expect(logSpy).toHaveBeenCalledWith('[ComponentA]', '[DEBUG]', 'test');
+      expect(infoSpy).toHaveBeenCalledWith('[ComponentA]', '[DEBUG]', 'test');
     });
 
     it('preserves global prefix after using created logger', () => {
@@ -156,8 +156,8 @@ describe('logger', () => {
       logger.debug('component message');
       debug('global message');
 
-      expect(logSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'component message');
-      expect(logSpy).toHaveBeenNthCalledWith(2, '[GlobalApp]', '[DEBUG]', 'global message');
+      expect(infoSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'component message');
+      expect(infoSpy).toHaveBeenNthCalledWith(2, '[GlobalApp]', '[DEBUG]', 'global message');
     });
 
     it('handles undefined global prefix correctly', () => {
@@ -166,8 +166,8 @@ describe('logger', () => {
       logger.debug('test');
       debug('global');
 
-      expect(logSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'test');
-      expect(logSpy).toHaveBeenNthCalledWith(2, '[DEBUG]', 'global');
+      expect(infoSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'test');
+      expect(infoSpy).toHaveBeenNthCalledWith(2, '[DEBUG]', 'global');
     });
   });
 
@@ -184,7 +184,7 @@ describe('logger', () => {
       logWarn('warn via logWarn');
       logError('error via logError');
 
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug via log');
+      expect(infoSpy).toHaveBeenCalledWith('[DEBUG]', 'debug via log');
       expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info via logInfo');
       expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn via logWarn');
       expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error via logError');
@@ -198,7 +198,7 @@ describe('logger', () => {
 
     it('handles multiple arguments correctly', () => {
       debug('message', { foo: 'bar' }, 123, true);
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'message', { foo: 'bar' }, 123, true);
+      expect(infoSpy).toHaveBeenCalledWith('[DEBUG]', 'message', { foo: 'bar' }, 123, true);
     });
   });
 });
