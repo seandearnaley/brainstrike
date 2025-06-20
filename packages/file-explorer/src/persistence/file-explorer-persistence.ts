@@ -44,10 +44,18 @@ export const createPersistOptions = (
       // Additional CI environment detection
       (typeof process !== 'undefined' && process.env?.[ciKey] === 'true'));
 
-  // Only use Web Worker in browser environment (not in tests, SSR, Electron, or headless environments)
+  // Enhanced Electron detection - check multiple indicators
+  const electronKey = 'electron';
   const isElectron =
-    typeof window !== 'undefined' &&
-    (window as { process?: { type?: string } }).process?.type === 'renderer';
+    // Standard Electron detection
+    (typeof window !== 'undefined' &&
+      (window as { process?: { type?: string } }).process?.type === 'renderer') ||
+    // Alternative Electron detection methods
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron')) ||
+    // Check for Electron globals
+    (typeof globalThis !== 'undefined' && ('require' in globalThis || 'electron' in globalThis)) ||
+    // Check process versions for Electron
+    (typeof process !== 'undefined' && process.versions?.[electronKey] !== undefined);
 
   if (typeof window !== 'undefined' && !isTest && !isElectron && !isHeadless) {
     try {

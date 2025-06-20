@@ -202,9 +202,12 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
 
 // Set displayName for React DevTools
 // biome-ignore lint/suspicious/noExplicitAny: React displayName requires any type
-(FileExplorerErrorBoundary as any).displayName = 'FileExplorerErrorBoundary';
+(FileExplorerErrorBoundaryInner as any).displayName = 'FileExplorerErrorBoundaryInner';
 
 export default function FileExplorerErrorBoundary(props: ErrorBoundaryProps) {
   const { toast } = useToast();
   return <FileExplorerErrorBoundaryInner {...props} toast={toast} />;
 }
+
+// Set displayName for the wrapper component
+FileExplorerErrorBoundary.displayName = 'FileExplorerErrorBoundary';

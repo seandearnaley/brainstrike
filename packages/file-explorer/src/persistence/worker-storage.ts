@@ -59,30 +59,8 @@ export class WorkerStorage {
       return;
     }
 
-    // Feature-test for module worker support
-    const supportsModuleWorker = (() => {
-      try {
-        // Create a dummy worker to test module support.
-        // The 'data:' URL avoids a network request.
-        new Worker('data:text/javascript,', { type: 'module' }).terminate();
-        return true;
-      } catch {
-        return false;
-      }
-    })();
-
-    if (!supportsModuleWorker) {
-      console.warn('Module workers not supported, falling back to main-thread persistence.');
-      return;
-    }
-
     try {
-      // Check if we're in a supported environment (not Electron)
-      const isElectron =
-        typeof window !== 'undefined' &&
-        (window as { process?: { type?: string } }).process?.type === 'renderer';
-
-      if (!isElectron && typeof import.meta.url !== 'undefined') {
+      if (typeof import.meta.url !== 'undefined') {
         const workerUrl = new URL('./worker-storage.worker.js', import.meta.url);
         this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));

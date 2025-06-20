@@ -111,12 +111,12 @@ describe('WorkerStorage', () => {
     it('should initialize worker in browser environment', () => {
       const storage = new WorkerStorage();
 
-      // It's called once for feature detection and once for the real worker.
-      expect(Worker).toHaveBeenCalledTimes(2);
+      // It's called once for the real worker.
+      expect(Worker).toHaveBeenCalledTimes(1);
 
-      // Check the second call for the actual worker URL
+      // Check the call for the actual worker URL
       const workerMock = Worker as unknown as { mock: { calls: unknown[][] } };
-      const callArgs = workerMock.mock.calls[1]; // Second call
+      const callArgs = workerMock.mock.calls[0]; // First (and only) call
       expect(callArgs).toBeDefined();
       expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.js$/);
       expect(callArgs?.[1]).toEqual({ type: 'module' });
@@ -131,27 +131,10 @@ describe('WorkerStorage', () => {
       expect(storage.isWorkerAvailable).toBe(false);
     });
 
-    it('should not initialize worker in Electron environment', () => {
-      vi.stubGlobal('window', {
-        process: { type: 'renderer' },
-      });
-
-      const storage = new WorkerStorage();
-
-      // It should be called once for feature detection, but not for the real worker.
-      expect(Worker).toHaveBeenCalledTimes(1);
-      expect(storage.isWorkerAvailable).toBe(false);
-
-      vi.unstubAllGlobals();
-    });
-
     it('should handle worker initialization errors gracefully', () => {
       vi.stubGlobal(
         'Worker',
-        vi.fn((url: string | URL) => {
-          if (url.toString().startsWith('data:')) {
-            return { terminate: vi.fn(), addEventListener: vi.fn() };
-          }
+        vi.fn(() => {
           throw new Error('Worker initialization failed');
         })
       );
