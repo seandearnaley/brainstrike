@@ -8,14 +8,35 @@
     "rules": {
       "recommended": true,
       "correctness": {
-        "noUnusedVariables": "error"
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUndeclaredVariables": "error",
+        "noUnusedFunctionParameters": "warn",
+        "useValidForDirection": "error",
+        "useYield": "error"
       },
       "suspicious": {
-        "noExplicitAny": "warn"
+        "noExplicitAny": "error",
+        "noArrayIndexKey": "error",
+        "noAssignInExpressions": "error",
+        "noConsoleLog": "warn",
+        "noDebugger": "error",
+        "noDuplicateParameters": "error",
+        "noImplicitAnyLet": "error",
+        "noMisleadingInstantiator": "error",
+        "noUnsafeDeclarationMerging": "error"
       },
       "style": {
         "useConst": "error",
         "useTemplate": "error",
+        "noVar": "error",
+        "useNumberNamespace": "error",
+        "useNodejsImportProtocol": "error",
+        "useShorthandArrayType": "error",
+        "useShorthandAssign": "error",
+        "noInferrableTypes": "error",
+        "noNamespace": "error",
+        "useEnumInitializers": "error",
         "useNamingConvention": {
           "level": "error",
           "options": {
@@ -30,6 +51,28 @@
             "filenameCases": ["kebab-case"]
           }
         }
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "warn",
+        "noExtraBooleanCast": "error",
+        "noMultipleSpacesInRegularExpressionLiterals": "error",
+        "noUselessCatch": "error",
+        "noUselessConstructor": "error",
+        "noUselessEmptyExport": "error",
+        "noUselessFragments": "error",
+        "noUselessLabel": "error",
+        "noUselessRename": "error",
+        "noUselessSwitchCase": "error",
+        "noUselessTernary": "error",
+        "noUselessTypeConstraint": "error",
+        "useArrowFunction": "error"
+      },
+      "performance": {
+        "noAccumulatingSpread": "warn",
+        "noDelete": "error"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "error"
       }
     }
   },
@@ -45,7 +88,21 @@
       "quoteStyle": "single",
       "trailingCommas": "es5",
       "semicolons": "always"
-    }
+    },
+    "globals": [
+      "React",
+      "describe",
+      "it",
+      "test",
+      "expect",
+      "beforeEach",
+      "afterEach",
+      "beforeAll",
+      "afterAll",
+      "vi",
+      "jest",
+      "Electron"
+    ]
   },
   "files": {
     "maxSize": 10000000,
@@ -80,6 +137,13 @@
           },
           "correctness": {
             "noUnusedVariables": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "warn",
+            "noConsoleLog": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
           }
         }
       }
@@ -95,11 +159,66 @@
       }
     },
     {
-      "include": ["**/lib/utils.ts", "**/lib/utils/*.ts"],
+      "include": ["**/env.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNamespace": "off"
+          }
+        }
+      }
+    },
+    {
+      "include": ["**/*.generated.{ts,tsx}", "**/*.ai.{ts,tsx}", "**/generated/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "warn",
+            "noExplicitAny": "warn"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "warn"
+          },
+          "style": {
+            "useNamingConvention": "warn"
+          }
+        }
+      }
+    },
+    {
+      "include": [
+        "**/lib/utils.ts",
+        "**/lib/utils/*.ts",
+        "**/tree-generator.ts",
+        "**/main.ts",
+        "**/use-file-tree.ts",
+        "**/use-file-system.ts",
+        "**/file-explorer-persistence.ts",
+        "**/worker-storage.ts",
+        "**/file-tree-node.tsx",
+        "**/loading-overlay.tsx",
+        "**/use-file-system-context.ts",
+        "**/report-generator.ts",
+        "**/worker-storage.worker.ts",
+        "**/use-file-filters.ts",
+        "**/use-quick-filter.ts",
+        "**/use-panel-persistence.ts",
+        "**/ide-layout.tsx",
+        "**/use-shared-file-content-loading.ts",
+        "**/electron-adapter.ts",
+        "**/virtualized-preview-panel.tsx",
+        "**/virtualized-preview-panel-diceui-v2.tsx",
+        "**/file-explorer.tsx",
+        "**/use-file-tree-context.ts",
+        "**/preview-panel.tsx",
+        "**/mock-file-system-adapter.ts",
+        "**/virtualized-preview-panel-tabbed.tsx"
+      ],
       "linter": {
         "rules": {
           "complexity": {
-            "useLiteralKeys": "off"
+            "useLiteralKeys": "off",
+            "noExcessiveCognitiveComplexity": "off"
           }
         }
       }

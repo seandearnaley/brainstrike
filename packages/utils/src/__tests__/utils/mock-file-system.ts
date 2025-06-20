@@ -124,7 +124,7 @@ export function createMockFileHandle(name: string, content = 'test content') {
   };
 }
 
-export function createMockDirectoryHandle(name: string, entries: Array<FileSystemHandle> = []) {
+export function createMockDirectoryHandle(name: string, entries: FileSystemHandle[] = []) {
   return {
     kind: 'directory',
     name,

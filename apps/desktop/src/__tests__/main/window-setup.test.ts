@@ -61,7 +61,7 @@ describe('window setup', () => {
     mockApp.isPackaged = false;
     isDevEnvMock.mockReturnValue(true);
 
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
     const { setupSecurity } = await import('../../main');
     setupSecurity();

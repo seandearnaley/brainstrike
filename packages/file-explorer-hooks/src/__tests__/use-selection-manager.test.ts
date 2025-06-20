@@ -1,4 +1,3 @@
-import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionManager } from '../use-selection-manager';

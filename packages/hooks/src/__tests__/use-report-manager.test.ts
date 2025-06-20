@@ -174,7 +174,7 @@ describe('useReportManager', () => {
     expect(saveAs).toHaveBeenCalledTimes(1);
     // First argument should be a Blob with the report content
     const mockSaveAs = saveAs as unknown as {
-      mock: { calls: Array<unknown[]> };
+      mock: { calls: unknown[][] };
     };
 
     // Check the arguments passed to saveAs
