@@ -50,6 +50,170 @@ export interface UsePreviewPanelStateProps {
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
+// Helper function to check if content is accessible
+function isContentAccessible(content: string): boolean {
+  return !content.startsWith('File not accessible') && !content.startsWith('Binary file');
+}
+
+// Helper function to get or calculate token count with caching
+function getTokenCount(
+  compositeKey: string,
+  content: string,
+  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
+  countTokensHeuristic: (content: string) => number
+): number | undefined {
+  if (!isContentAccessible(content)) {
+    return undefined;
+  }
+
+  if (!tokenCacheRef.current.has(compositeKey)) {
+    const count = countTokensHeuristic(content);
+    tokenCacheRef.current.set(compositeKey, count);
+  }
+  return tokenCacheRef.current.get(compositeKey);
+}
+
+// Helper function to get file size
+function getFileSize(
+  compositeKey: string,
+  content: string,
+  fileSizes?: Record<string, number>
+): number | undefined {
+  if (fileSizes && fileSizes[compositeKey] !== undefined) {
+    return fileSizes[compositeKey];
+  }
+  return new TextEncoder().encode(content).length;
+}
+
+// Helper function to create a file item
+function createFileItem(
+  compositeKey: string,
+  folderId: string,
+  path: string,
+  fileContents: Record<string, string>,
+  fileSizes: Record<string, number> | undefined,
+  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
+  countTokensHeuristic: (content: string) => number
+): FileItem {
+  let fileSize: number | undefined;
+  let tokenCount: number | undefined;
+
+  if (fileContents[compositeKey]) {
+    const content = fileContents[compositeKey];
+    tokenCount = getTokenCount(compositeKey, content, tokenCacheRef, countTokensHeuristic);
+    fileSize = getFileSize(compositeKey, content, fileSizes);
+  }
+
+  return {
+    compositeKey,
+    folderId,
+    path,
+    type: 'file',
+    ...(fileSize !== undefined ? { size: fileSize } : {}),
+    ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
+  };
+}
+
+// Helper function to sort files
+function sortFiles(files: FileItem[], sortConfig: SortConfig): void {
+  files.sort((a, b) => {
+    const { key, direction } = sortConfig;
+    const multiplier = direction === 'asc' ? 1 : -1;
+    switch (key) {
+      case 'path':
+        return multiplier * a.path.localeCompare(b.path);
+      case 'size':
+        return multiplier * ((a.size || 0) - (b.size || 0));
+      case 'tokens':
+        return multiplier * ((a.tokens || 0) - (b.tokens || 0));
+      default:
+        return 0;
+    }
+  });
+}
+
+// Helper function to build folder groups
+function buildFolderGroups(
+  selectedFiles: Set<string>,
+  fileContents: Record<string, string>,
+  fileSizes: Record<string, number> | undefined,
+  decodeFileSelection: (compositeKey: string) => { folderId: string; path: string },
+  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
+  countTokensHeuristic: (content: string) => number,
+  sortConfig: SortConfig
+): Record<string, FileItem[]> {
+  const folderGroups: Record<string, FileItem[]> = {};
+
+  for (const compositeKey of selectedFiles) {
+    const { folderId, path } = decodeFileSelection(compositeKey);
+    if (!folderGroups[folderId]) {
+      folderGroups[folderId] = [];
+    }
+
+    const fileItem = createFileItem(
+      compositeKey,
+      folderId,
+      path,
+      fileContents,
+      fileSizes,
+      tokenCacheRef,
+      countTokensHeuristic
+    );
+
+    folderGroups[folderId].push(fileItem);
+  }
+
+  // Sort files in each folder
+  for (const files of Object.values(folderGroups)) {
+    sortFiles(files, sortConfig);
+  }
+
+  return folderGroups;
+}
+
+// Helper function to build final list items
+function buildListItems(
+  folderGroups: Record<string, FileItem[]>,
+  collapsedFolders: Set<string>
+): ListItem[] {
+  const items: ListItem[] = [];
+
+  for (const [folderId, files] of Object.entries(folderGroups)) {
+    const totalTokens = files.reduce((sum, file) => sum + (file.tokens || 0), 0);
+    items.push({ folderId, type: 'folder-header', fileCount: files.length, totalTokens });
+
+    if (!collapsedFolders.has(folderId)) {
+      items.push(...files);
+    }
+  }
+
+  return items;
+}
+
+// Helper function to calculate token count for a single file
+function calculateFileTokens(
+  compositeKey: string,
+  fileContents: Record<string, string>,
+  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
+  countTokensHeuristic: (content: string) => number
+): number {
+  if (!fileContents[compositeKey]) {
+    return 0;
+  }
+
+  const content = fileContents[compositeKey];
+  if (!isContentAccessible(content)) {
+    return 0;
+  }
+
+  if (!tokenCacheRef.current.has(compositeKey)) {
+    const count = countTokensHeuristic(content);
+    tokenCacheRef.current.set(compositeKey, count);
+  }
+
+  return tokenCacheRef.current.get(compositeKey) || 0;
+}
+
 export function usePreviewPanelState({
   selectedFiles,
   fileContents,
@@ -75,70 +239,17 @@ export function usePreviewPanelState({
   }
 
   const flatListItems = useMemo(() => {
-    const folderGroups: Record<string, FileItem[]> = {};
+    const folderGroups = buildFolderGroups(
+      selectedFiles,
+      fileContents,
+      fileSizes,
+      decodeFileSelection,
+      tokenCacheRef,
+      countTokensHeuristic,
+      sortConfig
+    );
 
-    for (const compositeKey of selectedFiles) {
-      const { folderId, path } = decodeFileSelection(compositeKey);
-      if (!folderGroups[folderId]) {
-        folderGroups[folderId] = [];
-      }
-
-      let fileSize: number | undefined;
-      let tokenCount: number | undefined;
-
-      if (fileContents[compositeKey]) {
-        const content = fileContents[compositeKey];
-        if (!content.startsWith('File not accessible') && !content.startsWith('Binary file')) {
-          if (!tokenCacheRef.current.has(compositeKey)) {
-            const count = countTokensHeuristic(content);
-            tokenCacheRef.current.set(compositeKey, count);
-          }
-          tokenCount = tokenCacheRef.current.get(compositeKey);
-        }
-        if (fileSizes && fileSizes[compositeKey] !== undefined) {
-          fileSize = fileSizes[compositeKey];
-        } else {
-          fileSize = new TextEncoder().encode(content).length;
-        }
-      }
-
-      folderGroups[folderId].push({
-        compositeKey,
-        folderId,
-        path,
-        type: 'file',
-        ...(fileSize !== undefined ? { size: fileSize } : {}),
-        ...(tokenCount !== undefined ? { tokens: tokenCount } : {}),
-      });
-    }
-
-    for (const files of Object.values(folderGroups)) {
-      files.sort((a, b) => {
-        const { key, direction } = sortConfig;
-        const multiplier = direction === 'asc' ? 1 : -1;
-        switch (key) {
-          case 'path':
-            return multiplier * a.path.localeCompare(b.path);
-          case 'size':
-            return multiplier * ((a.size || 0) - (b.size || 0));
-          case 'tokens':
-            return multiplier * ((a.tokens || 0) - (b.tokens || 0));
-          default:
-            return 0;
-        }
-      });
-    }
-
-    const items: ListItem[] = [];
-    for (const [folderId, files] of Object.entries(folderGroups)) {
-      const totalTokens = files.reduce((sum, file) => sum + (file.tokens || 0), 0);
-      items.push({ folderId, type: 'folder-header', fileCount: files.length, totalTokens });
-      if (!collapsedFolders.has(folderId)) {
-        items.push(...files);
-      }
-    }
-
-    return items;
+    return buildListItems(folderGroups, collapsedFolders);
   }, [
     selectedFiles,
     sortConfig,
@@ -264,19 +375,17 @@ export function usePreviewPanelState({
   const totalStats = useMemo(() => {
     let totalTokens = 0;
     let totalFiles = 0;
+
     for (const compositeKey of selectedFiles) {
       totalFiles++;
-      if (fileContents[compositeKey]) {
-        const content = fileContents[compositeKey];
-        if (!content.startsWith('File not accessible') && !content.startsWith('Binary file')) {
-          if (!tokenCacheRef.current.has(compositeKey)) {
-            const count = countTokensHeuristic(content);
-            tokenCacheRef.current.set(compositeKey, count);
-          }
-          totalTokens += tokenCacheRef.current.get(compositeKey) || 0;
-        }
-      }
+      totalTokens += calculateFileTokens(
+        compositeKey,
+        fileContents,
+        tokenCacheRef,
+        countTokensHeuristic
+      );
     }
+
     return { totalTokens, totalFiles };
   }, [selectedFiles, fileContents, countTokensHeuristic]);
 
