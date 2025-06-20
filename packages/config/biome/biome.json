@@ -200,7 +200,8 @@
         "**/preview-panel.tsx",
         "**/use-preview-panel-state.ts",
         "**/mock-file-system-adapter.ts",
-        "**/virtualized-preview-panel-tabbed.tsx"
+        "**/virtualized-preview-panel-tabbed.tsx",
+        "**/read-full-tree.ts"
       ],
       "linter": {
         "rules": {
