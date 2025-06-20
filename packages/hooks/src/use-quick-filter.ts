@@ -4,6 +4,32 @@ import { useCallback, useMemo, useState } from 'react';
 // New file: useQuickFilter hook
 import { useDebouncedValue } from './use-debounced-value';
 
+function createSearchableText(node: IFileNode): string {
+  return [node.name.toLowerCase(), node.path.toLowerCase()].join(' ');
+}
+
+function isNodeExcluded(searchableText: string, excludes: string[]): boolean {
+  return excludes.some((exclude) => searchableText.includes(exclude));
+}
+
+function isNodeIncluded(searchableText: string, includes: string[]): boolean {
+  return includes.length === 0 || includes.some((include) => searchableText.includes(include));
+}
+
+function processDirectoryNode(
+  node: IFileNode,
+  isIncluded: boolean,
+  filteredChildren: IFileNode[]
+): IFileNode | null {
+  if (filteredChildren.length > 0) {
+    return { ...node, children: filteredChildren };
+  }
+  if (isIncluded) {
+    return { ...node, children: [] };
+  }
+  return null;
+}
+
 /**
  * A hook that provides debounced include/exclude filtering over a tree of IFileNode.
  */
@@ -18,27 +44,17 @@ export function useQuickFilter(fileTree: IFileNode[]) {
 
     return nodes
       .map((node) => {
-        const searchableText = [node.name.toLowerCase(), node.path.toLowerCase()].join(' ');
+        const searchableText = createSearchableText(node);
 
-        // Exclude matching nodes
-        const isExcluded = excludes.some((exclude) => searchableText.includes(exclude));
-        if (isExcluded) {
+        if (isNodeExcluded(searchableText, excludes)) {
           return null;
         }
 
-        // Include logic
-        const isIncluded =
-          includes.length === 0 || includes.some((include) => searchableText.includes(include));
+        const isIncluded = isNodeIncluded(searchableText, includes);
 
         if (node.type === 'directory' && node.children) {
           const filteredChildren = applyQuickFilter(node.children, filter);
-          if (filteredChildren.length > 0) {
-            return { ...node, children: filteredChildren };
-          }
-          if (isIncluded) {
-            return { ...node, children: [] };
-          }
-          return null;
+          return processDirectoryNode(node, isIncluded, filteredChildren);
         }
 
         return isIncluded ? node : null;

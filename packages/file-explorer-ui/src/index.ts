@@ -42,3 +42,5 @@ export * from './tabbed-file-editor';
 export * from './tabbed-file-editor-panel';
 export * from './hooks';
 export * from './contexts/file-editor-context';
+export * from './use-preview-panel-state';
+export * from './virtualized-preview-list';
