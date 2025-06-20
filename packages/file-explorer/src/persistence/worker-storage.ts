@@ -117,7 +117,7 @@ export class WorkerStorage {
     try {
       switch (operation) {
         case 'setItem':
-          if (value !== undefined) this.processSetItemRequest(id, key, value, opId);
+          this.processSetItemRequest(id, key, value, opId);
           break;
         case 'getItem':
           this.processGetItemRequest(id, key);
@@ -139,7 +139,7 @@ export class WorkerStorage {
     }
   }
 
-  private processSetItemRequest(id: string, key: string, value: string, opId?: number) {
+  private processSetItemRequest(id: string, key: string, value: string | undefined, opId?: number) {
     const lastOp = this.activeSaveOps.get(key) ?? 0;
     if (opId && opId < lastOp) {
       this.worker?.postMessage({
@@ -153,6 +153,19 @@ export class WorkerStorage {
     if (opId) {
       this.activeSaveOps.set(key, opId);
     }
+
+    // If value is undefined, we still need to respond but shouldn't store anything
+    if (value === undefined) {
+      this.worker?.postMessage({
+        id,
+        type: 'storage_response',
+        operation: 'setItem',
+        success: false,
+        error: 'Cannot store undefined value',
+      });
+      return;
+    }
+
     try {
       localStorage.setItem(key, value);
     } catch (e) {
