@@ -28,14 +28,6 @@ export interface StorageRequest {
   opId?: number;
 }
 
-export interface StorageResponse {
-  id: string;
-  type: 'storage_response';
-  operation: 'setItem' | 'getItem' | 'removeItem';
-  success?: boolean;
-  rawValue?: string | null;
-}
-
 export class WorkerStorage {
   private worker: Worker | null = null;
   private messageId = 0;
