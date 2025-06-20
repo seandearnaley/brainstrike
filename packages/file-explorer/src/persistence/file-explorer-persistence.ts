@@ -32,11 +32,24 @@ export const createPersistOptions = (
   let workerStorage: WorkerStorage | null = null;
   let useWorker = false;
 
-  // Only use Web Worker in browser environment (not in tests, SSR, or Electron)
+  // Detect if we're in a headless/CI environment (Playwright, Puppeteer, etc.)
+  const ciKey = 'CI';
+  const isHeadless =
+    typeof navigator !== 'undefined' &&
+    (navigator.webdriver === true ||
+      navigator.userAgent.includes('HeadlessChrome') ||
+      navigator.userAgent.includes('PhantomJS') ||
+      // Playwright detection
+      'playwright' in globalThis ||
+      // Additional CI environment detection
+      (typeof process !== 'undefined' && process.env?.[ciKey] === 'true'));
+
+  // Only use Web Worker in browser environment (not in tests, SSR, Electron, or headless environments)
   const isElectron =
     typeof window !== 'undefined' &&
     (window as { process?: { type?: string } }).process?.type === 'renderer';
-  if (typeof window !== 'undefined' && !isTest && !isElectron) {
+
+  if (typeof window !== 'undefined' && !isTest && !isElectron && !isHeadless) {
     try {
       workerStorage = new WorkerStorage();
       useWorker = workerStorage.isWorkerAvailable;
@@ -48,6 +61,15 @@ export const createPersistOptions = (
         logger.warn('Failed to initialize Web Worker, falling back to immediate approach:', error);
       }
     }
+  } else if (shouldLog) {
+    const reason = isTest
+      ? 'test environment'
+      : isElectron
+        ? 'Electron environment'
+        : isHeadless
+          ? 'headless/CI environment'
+          : 'SSR environment';
+    logger.debug(`Web Worker disabled due to ${reason}, using immediate persistence`);
   }
 
   // Add beforeunload handler to cleanup worker
