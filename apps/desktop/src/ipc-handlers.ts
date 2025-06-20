@@ -1,0 +1,83 @@
+import path from 'node:path';
+import type {
+  DirectoryHandle,
+  ElectronFileSystemAdapter,
+  FileHandle,
+} from '@brainstrike/file-system';
+import type { ElectronStorageAdapter } from '@brainstrike/storage';
+import type { PanelPersistenceState } from '@brainstrike/ui';
+import { app, ipcMain } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
+import type ElectronStore from 'electron-store';
+
+interface StoreSchema {
+  panelLayout: {
+    v1: PanelPersistenceState;
+  };
+}
+
+/**
+ * Register all IPC handlers used by the desktop application.
+ */
+export function registerIpcHandlers(
+  fileSystem: ElectronFileSystemAdapter,
+  storage: ElectronStorageAdapter,
+  store: ElectronStore<StoreSchema>
+) {
+  ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
+    storage.getItem(key)
+  );
+  ipcMain.handle('storage:setItem', async (_e: IpcMainInvokeEvent, key: string, value: string) =>
+    storage.setItem(key, value)
+  );
+  ipcMain.handle('storage:removeItem', async (_e: IpcMainInvokeEvent, key: string) =>
+    storage.removeItem(key)
+  );
+  ipcMain.handle('storage:clear', async () => storage.clear());
+  ipcMain.handle('storage:getAllKeys', async () => storage.getAllKeys());
+
+  ipcMain.handle('fs:requestDirectoryAccess', async () => fileSystem.requestDirectoryAccess());
+  ipcMain.handle('fs:readDirectory', async (_e: IpcMainInvokeEvent, handle: DirectoryHandle) =>
+    fileSystem.readDirectory(handle)
+  );
+  ipcMain.handle('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) =>
+    fileSystem.readFile(handle)
+  );
+  ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+    // Basic path validation - reject obviously malicious paths
+    if (
+      p.includes('..') ||
+      p.startsWith('/etc/') ||
+      p.startsWith('/usr/') ||
+      p.startsWith('/var/')
+    ) {
+      console.warn('Rejected potentially unsafe path access:', p);
+      return false;
+    }
+    return fileSystem.exists(p);
+  });
+
+  // Layout persistence IPC handlers
+  ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
+    // TypeScript has issues with electron-store method resolution during build
+    // Using type assertion to access inherited Conf methods
+    (store as ElectronStore<StoreSchema> & { set: (key: string, value: unknown) => void }).set(
+      'panelLayout',
+      { v1: state }
+    );
+  });
+
+  ipcMain.handle('layout:load', async () => {
+    // TypeScript has issues with electron-store method resolution during build
+    // Using type assertion to access inherited Conf methods
+    const layout = (store as ElectronStore<StoreSchema> & { get: (key: string) => unknown }).get(
+      'panelLayout'
+    ) as StoreSchema['panelLayout'] | undefined;
+    return layout?.v1;
+  });
+
+  // Database path IPC handler
+  ipcMain.handle('db:getUserDataPath', async () => {
+    return path.join(app.getPath('userData'), 'brainstrike.db');
+  });
+}

@@ -7,3 +7,5 @@ export * from './use-file-tree';
 export * from './use-file-content-loading';
 export * from './use-file-loading-manager';
 export * from './file-content-processor';
+export * from './progress-utils';
+export * from './file-system-error-helpers';
