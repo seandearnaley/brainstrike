@@ -115,6 +115,9 @@ export const IdeLayout = React.memo(function IdeLayout({
   }, [toggleLeftPanel]);
 
   const handleShowRightPanel = useCallback(() => {
+    if (rightPanelRef.current) {
+      rightPanelRef.current.expand();
+    }
     toggleRightPanel();
     // Focus the hide button after the panel is shown
     setTimeout(() => {
@@ -447,7 +450,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               </Button>
             </div>
           )}
-          {rightPanelContent && showRightPanel && (
+          {rightPanelContent && (
             <>
               <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
               <Panel
