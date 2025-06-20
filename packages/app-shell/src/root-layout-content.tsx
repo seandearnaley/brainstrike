@@ -3,6 +3,7 @@ import { IdeLayout } from '@brainstrike/ui';
 import { useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
+import { RightPanel } from './right-panel';
 import type { NavigationItem } from './types';
 
 export function RootLayoutContent({
@@ -24,6 +25,7 @@ export function RootLayoutContent({
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
+  const rightPanelContent = useMemo(() => <RightPanel />, []);
 
   return (
     <AppLayout
@@ -34,11 +36,7 @@ export function RootLayoutContent({
       <div style={{ display: activeTab === 'explorer' ? 'block' : 'none', height: '100%' }}>
         <IdeLayout
           leftPanelContent={sidebarContent}
-          rightPanelContent={
-            <div className="p-4 text-sm text-muted-foreground">
-              Additional tools and panels will appear here...
-            </div>
-          }
+          rightPanelContent={rightPanelContent}
           consoleContent={tabbedEditorContent}
         >
           {homePageContent}
