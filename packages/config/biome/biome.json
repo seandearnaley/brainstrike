@@ -191,7 +191,6 @@
         "**/lib/utils/*.ts",
         "**/tree-generator.ts",
         "**/main.ts",
-        "**/file-explorer-persistence.ts",
         "**/worker-storage.ts",
         "**/file-tree-node.tsx",
         "**/loading-overlay.tsx",
