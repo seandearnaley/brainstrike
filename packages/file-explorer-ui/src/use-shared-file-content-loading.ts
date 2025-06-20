@@ -14,6 +14,71 @@ import {
   refreshFileNodeCacheEntry,
 } from './utils/file-node-cache';
 
+// Helper function to create a FileHandle from an IFileNode
+function createFileHandle(fileNode: IFileNode, fileSystemAdapter: unknown): FileHandle {
+  const adapterPlatform = (fileSystemAdapter as { platform?: Platform }).platform;
+  const handlePlatform = (fileNode.handle as { platform?: Platform }).platform;
+  const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
+
+  return {
+    path: fileNode.path,
+    name: fileNode.name,
+    kind: 'file',
+    platform,
+    _internal: fileNode.handle,
+  };
+}
+
+// Helper function to validate if a file node is accessible
+function isFileNodeValid(fileNode: IFileNode | null, folderId: string): boolean {
+  return !!(
+    fileNode &&
+    fileNode.type === 'file' &&
+    fileNode.handle &&
+    fileNode.rootFolderId === folderId
+  );
+}
+
+// Helper function to handle loading state updates
+function updateLoadingState(
+  compositeKey: string,
+  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  setLoadingFiles: React.Dispatch<React.SetStateAction<Set<string>>>
+): void {
+  loadingPathsRef.current.delete(compositeKey);
+  setLoadingFiles((prev) => {
+    const newSet = new Set(prev);
+    newSet.delete(compositeKey);
+    return newSet;
+  });
+}
+
+// Helper function to process worker results
+function processWorkerResults(
+  results: Record<string, string>,
+  setFileContent: (key: string, content: string) => void
+): void {
+  for (const [key, value] of Object.entries(results)) {
+    setFileContent(key, value);
+  }
+}
+
+// Helper function to check if file should be loaded
+function shouldLoadFile(
+  compositeKey: string,
+  loadingPathsRef: React.MutableRefObject<Set<string>>,
+  fileContents: Record<string, string>,
+  folderId: string,
+  fileTree: IFileNode[]
+): boolean {
+  return !!(
+    folderId &&
+    fileTree.length &&
+    !loadingPathsRef.current.has(compositeKey) &&
+    !(compositeKey in fileContents)
+  );
+}
+
 export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -27,18 +92,12 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   useEffect(() => {
     workerRef.current = initFileContentWorker(fileSystemAdapter);
-
     return () => {
-      // Clean up the reference when adapter changes
       workerRef.current = null;
     };
   }, [fileSystemAdapter]);
-  const { selectedFilePaths } = store(
-    (s) => ({
-      selectedFilePaths: s.selectedFilePaths,
-    }),
-    shallow
-  );
+
+  const { selectedFilePaths } = store((s) => ({ selectedFilePaths: s.selectedFilePaths }), shallow);
 
   // Build a cache of path -> node keyed by folder ID whenever the file tree changes
   useEffect(() => {
@@ -47,78 +106,38 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   const prepareFileRead = useCallback(
     async (compositeKey: string): Promise<FileReadRequest | null> => {
-      const currentSetFileContent = store.getState().setFileContent;
-
-      // Skip if already loading or loaded
-      if (
-        loadingPathsRef.current.has(compositeKey) ||
-        compositeKey in store.getState().fileContents
-      ) {
-        return null;
-      }
-
+      const { setFileContent, fileContents } = store.getState();
       const { folderId, path } = decodeFileSelection(compositeKey);
 
-      // Skip loading if we don't have a valid folder ID
-      if (!folderId) {
-        console.debug('Skipping file load - no folder ID');
-        return null;
-      }
-
-      // Skip loading if file tree is empty (no root directory selected yet)
-      if (!fileTree.length) {
+      if (!shouldLoadFile(compositeKey, loadingPathsRef, fileContents, folderId, fileTree)) {
         return null;
       }
 
       let fileNode = getFileNodeFromCache(nodeCacheRef.current, fileTree, folderId, path);
 
-      // Debug logging removed to reduce console spam
-
-      // If we can't find the node or don't have access to its handle, wait a bit and retry once
-      if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
-        // Wait a short time for the file tree to potentially update
+      // If we can't find the node initially, wait and retry once
+      if (!isFileNodeValid(fileNode, folderId)) {
         await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Try to find the node again with a fresh lookup
         fileNode = refreshFileNodeCacheEntry(nodeCacheRef.current, fileTree, folderId, path);
 
-        // Debug logging removed to reduce console spam
-
-        if (!fileNode || fileNode.type !== 'file' || !fileNode.handle) {
-          console.debug('File not accessible:', {
-            path,
-            folderId,
-            type: fileNode?.type ?? 'not found',
-            rootFolderId: fileNode?.rootFolderId ?? 'unknown',
-          });
+        if (!isFileNodeValid(fileNode, folderId)) {
+          if (fileNode && fileNode.rootFolderId !== folderId) {
+            const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
+            setFileContent(compositeKey, error);
+          }
           return null;
         }
       }
 
-      // Verify the file node belongs to the correct root folder
-      if (fileNode.rootFolderId !== folderId) {
-        const error = `File not accessible - Folder mismatch. Expected: ${folderId}, Found: ${fileNode.rootFolderId}`;
-        console.error(error);
-        currentSetFileContent(compositeKey, error);
+      // At this point, fileNode is guaranteed to be valid due to isFileNodeValid check
+      if (!fileNode) {
         return null;
       }
 
       loadingPathsRef.current.add(compositeKey);
       setLoadingFiles((prev) => new Set(prev).add(compositeKey));
 
-      // Create a FileHandle from the IFileNode
-      const adapterPlatform = (fileSystemAdapter as unknown as { platform?: Platform }).platform;
-      const handlePlatform = (fileNode.handle as unknown as { platform?: Platform }).platform;
-      const platform: Platform = adapterPlatform ?? handlePlatform ?? 'web';
-
-      const fileHandle: FileHandle = {
-        path: fileNode.path,
-        name: fileNode.name,
-        kind: 'file',
-        platform,
-        _internal: fileNode.handle,
-      };
-
+      const fileHandle = createFileHandle(fileNode, fileSystemAdapter);
       return { compositeKey, handle: fileHandle, path };
     },
     [fileTree, fileSystemAdapter, store]
@@ -139,18 +158,10 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
         await workerRef
           .current(requests, ({ key }) => {
-            loadingPathsRef.current.delete(key);
-            setLoadingFiles((prev) => {
-              const newSet = new Set(prev);
-              newSet.delete(key);
-              return newSet;
-            });
+            updateLoadingState(key, loadingPathsRef, setLoadingFiles);
           })
           .then((results) => {
-            const setContent = store.getState().setFileContent;
-            for (const [k, value] of Object.entries(results)) {
-              setContent(k, value);
-            }
+            processWorkerResults(results, store.getState().setFileContent);
           });
       } catch (err) {
         console.error('Error loading files:', err);
@@ -164,25 +175,18 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
   // Automatically load content for selected files
   useEffect(() => {
-    const currentFileContents = store.getState().fileContents;
+    const { fileContents } = store.getState();
+
     for (const compositeKey of selectedFilePaths) {
-      if (!currentFileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
+      if (!fileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
         prepareFileRead(compositeKey).then((req) => {
           if (req && workerRef.current) {
             workerRef
               .current([req], ({ key }) => {
-                loadingPathsRef.current.delete(key);
-                setLoadingFiles((prev) => {
-                  const newSet = new Set(prev);
-                  newSet.delete(key);
-                  return newSet;
-                });
+                updateLoadingState(key, loadingPathsRef, setLoadingFiles);
               })
               .then((results) => {
-                const setContent = store.getState().setFileContent;
-                for (const [k, value] of Object.entries(results)) {
-                  setContent(k, value);
-                }
+                processWorkerResults(results, store.getState().setFileContent);
               });
           }
         });

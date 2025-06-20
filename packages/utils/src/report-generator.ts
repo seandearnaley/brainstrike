@@ -105,12 +105,11 @@ async function readFullFileTreeFromAdapter(
   visitedPaths: Set<string> = new Set(),
   maxDepth = 30
 ): Promise<import('@brainstrike/types').IFileNode[]> {
-  const entries: import('@brainstrike/types').IFileNode[] = [];
   const currentPath = parentPath || directoryHandle.path;
 
   // Check for circular references using paths instead of handles
   if (visitedPaths.has(currentPath)) {
-    return entries; // Avoid infinite recursion
+    return []; // Avoid infinite recursion
   }
 
   const newVisitedPaths = new Set(visitedPaths);
@@ -118,85 +117,138 @@ async function readFullFileTreeFromAdapter(
 
   try {
     const directoryContents = await fileSystemAdapter.readDirectory(directoryHandle);
+    const entries: import('@brainstrike/types').IFileNode[] = [];
 
     for (const node of directoryContents) {
-      const nodePath = node.path;
+      if (shouldIgnorePath(node.path)) continue;
 
-      // Skip ignored paths (using simple check for common patterns)
-      if (shouldIgnorePath(nodePath)) continue;
+      const processedNode = await processFileNode(
+        node,
+        depth,
+        rootFolderId,
+        fileSystemAdapter,
+        directoryHandle,
+        newVisitedPaths,
+        maxDepth
+      );
 
-      if (node.type === 'file') {
-        entries.push({
-          ...node,
-          depth,
-          selectionState: 'unchecked',
-          rootFolderId,
-          isSymbolicLink: false,
-          isDepthTruncated: false,
-        });
-      } else if (node.type === 'directory') {
-        // Check depth limit first
-        if (depth >= maxDepth - 1) {
-          entries.push({
-            ...node,
-            depth,
-            children: [], // No further recursion
-            selectionState: 'unchecked',
-            rootFolderId,
-            isSymbolicLink: false,
-            isDepthTruncated: true, // Mark as depth truncated
-          });
-          continue; // Stop processing this directory further
-        }
-
-        // Check for circular references
-        if (newVisitedPaths.has(nodePath)) {
-          entries.push({
-            ...node,
-            depth,
-            children: [], // No further recursion
-            selectionState: 'unchecked',
-            rootFolderId,
-            isSymbolicLink: true, // Mark as symlink/cycle
-            isDepthTruncated: false,
-          });
-          continue; // Stop processing this directory further
-        }
-
-        // Recursively read subdirectory
-        const childDirectoryHandle: DirectoryHandle = {
-          path: node.path,
-          name: node.name,
-          kind: 'directory',
-          platform: directoryHandle.platform, // Use the same platform as the parent
-          _internal: node.handle, // The node.handle is the actual FileSystemDirectoryHandle
-        };
-        const children = await readFullFileTreeFromAdapter(
-          fileSystemAdapter,
-          childDirectoryHandle,
-          nodePath,
-          depth + 1,
-          rootFolderId,
-          newVisitedPaths,
-          maxDepth
-        );
-
-        entries.push({
-          ...node,
-          depth,
-          children,
-          selectionState: 'unchecked',
-          rootFolderId,
-          isSymbolicLink: false,
-          isDepthTruncated: false,
-        });
+      if (processedNode) {
+        entries.push(processedNode);
       }
     }
+
+    return entries;
   } catch (error) {
     console.warn(`Failed to read directory ${currentPath}:`, error);
+    return [];
+  }
+}
+
+// Process individual file or directory nodes
+async function processFileNode(
+  node: import('@brainstrike/types').IFileNode,
+  depth: number,
+  rootFolderId: string,
+  fileSystemAdapter: FileSystemAdapter,
+  directoryHandle: DirectoryHandle,
+  visitedPaths: Set<string>,
+  maxDepth: number
+): Promise<import('@brainstrike/types').IFileNode | null> {
+  if (node.type === 'file') {
+    return createFileNode(node, depth, rootFolderId);
   }
 
-  return entries;
+  if (node.type === 'directory') {
+    return await processDirectoryNode(
+      node,
+      depth,
+      rootFolderId,
+      fileSystemAdapter,
+      directoryHandle,
+      visitedPaths,
+      maxDepth
+    );
+  }
+
+  return null;
+}
+
+// Create a file node with standard properties
+function createFileNode(
+  node: import('@brainstrike/types').IFileNode,
+  depth: number,
+  rootFolderId: string
+): import('@brainstrike/types').IFileNode {
+  return {
+    ...node,
+    depth,
+    selectionState: 'unchecked',
+    rootFolderId,
+    isSymbolicLink: false,
+    isDepthTruncated: false,
+  };
+}
+
+// Process directory nodes with depth and circular reference checks
+async function processDirectoryNode(
+  node: import('@brainstrike/types').IFileNode,
+  depth: number,
+  rootFolderId: string,
+  fileSystemAdapter: FileSystemAdapter,
+  directoryHandle: DirectoryHandle,
+  visitedPaths: Set<string>,
+  maxDepth: number
+): Promise<import('@brainstrike/types').IFileNode> {
+  const baseNode = createFileNode(node, depth, rootFolderId);
+
+  // Check depth limit first
+  if (depth >= maxDepth - 1) {
+    return {
+      ...baseNode,
+      children: [],
+      isDepthTruncated: true,
+    };
+  }
+
+  // Check for circular references
+  if (visitedPaths.has(node.path)) {
+    return {
+      ...baseNode,
+      children: [],
+      isSymbolicLink: true,
+    };
+  }
+
+  // Recursively read subdirectory
+  const childDirectoryHandle = createChildDirectoryHandle(node, directoryHandle);
+  const children = await readFullFileTreeFromAdapter(
+    fileSystemAdapter,
+    childDirectoryHandle,
+    node.path,
+    depth + 1,
+    rootFolderId,
+    visitedPaths,
+    maxDepth
+  );
+
+  return {
+    ...baseNode,
+    children,
+  };
+}
+
+// Create a child directory handle from a node
+function createChildDirectoryHandle(
+  node: import('@brainstrike/types').IFileNode,
+  parentHandle: DirectoryHandle
+): DirectoryHandle {
+  return {
+    path: node.path,
+    name: node.name,
+    kind: 'directory',
+    platform: parentHandle.platform,
+    _internal: node.handle,
+  };
 }
 
 // Simple path ignore check

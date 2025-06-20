@@ -9,11 +9,105 @@ export interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
 }
 
+// Helper function to navigate to a specific path in the mock file system
+function navigateToPath(
+  mockFileSystem: Record<string, MockFileEntry>,
+  basePath: string
+): Record<string, MockFileEntry> | null {
+  if (!basePath) {
+    return mockFileSystem;
+  }
+
+  let currentLevel = mockFileSystem;
+  const pathParts = basePath.split('/');
+
+  for (const part of pathParts) {
+    const entry = currentLevel[part];
+    if (!entry || entry.type !== 'directory' || !entry.children) {
+      return null;
+    }
+    currentLevel = entry.children;
+  }
+
+  return currentLevel;
+}
+
+// Helper function to create a file node from a mock entry
+function createFileNode(
+  name: string,
+  entry: MockFileEntry,
+  fullPath: string,
+  selectedDirectory: string
+): IFileNode {
+  const fileNode: IFileNode = {
+    name,
+    path: fullPath,
+    type: entry.type,
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: selectedDirectory,
+    isVisible: true,
+    handle: {
+      path: fullPath,
+      name,
+      kind: entry.type,
+      platform: 'web',
+      _internal: entry,
+    } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+  };
+
+  if (entry.type === 'file') {
+    fileNode.size = entry.size ?? (entry.content?.length || 0);
+    fileNode.lastModified = Date.now();
+  } else {
+    fileNode.children = [];
+  }
+
+  return fileNode;
+}
+
+// Helper function to sort file nodes (directories first, then alphabetical)
+function sortFileNodes(entries: IFileNode[]): IFileNode[] {
+  return entries.sort((a, b) => {
+    // Directories first, then files
+    if (a.type !== b.type) {
+      return a.type === 'directory' ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+}
+
+// Helper function to add an entry to a nested path structure
+function addEntryToPath(
+  mockFileSystem: Record<string, MockFileEntry>,
+  path: string,
+  entry: MockFileEntry
+): void {
+  const pathParts = path.split('/');
+  let current = mockFileSystem;
+
+  for (let i = 0; i < pathParts.length - 1; i++) {
+    const part = pathParts[i];
+    if (!part) continue;
+
+    if (!current[part]) {
+      current[part] = {
+        name: part,
+        type: 'directory',
+        children: {},
+      };
+    }
+    current = current[part].children ?? {};
+  }
+
+  const fileName = pathParts[pathParts.length - 1];
+  if (fileName) {
+    current[fileName] = entry;
+  }
+}
+
 /**
- * Mock File System Adapter
- *
- * Mock implementation of FileSystemAdapter for testing purposes.
- * Allows configuring a virtual file system structure.
+ * Mock implementation of FileSystemAdapter for testing purposes
  */
 export class MockFileSystemAdapter implements FileSystemAdapter {
   private mockFileSystem: Record<string, MockFileEntry> = {};
@@ -36,27 +130,7 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
    * Add a mock file or directory
    */
   addMockEntry(path: string, entry: MockFileEntry): void {
-    const pathParts = path.split('/');
-    let current = this.mockFileSystem;
-
-    for (let i = 0; i < pathParts.length - 1; i++) {
-      const part = pathParts[i];
-      if (!part) continue;
-
-      if (!current[part]) {
-        current[part] = {
-          name: part,
-          type: 'directory',
-          children: {},
-        };
-      }
-      current = current[part].children ?? {};
-    }
-
-    const fileName = pathParts[pathParts.length - 1];
-    if (fileName) {
-      current[fileName] = entry;
-    }
+    addEntryToPath(this.mockFileSystem, path, entry);
   }
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
@@ -82,61 +156,24 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
       throw new Error('No directory selected');
     }
 
-    const entries: IFileNode[] = [];
     const basePath =
       handle.path === this.selectedDirectory
         ? ''
         : handle.path.replace(`${this.selectedDirectory}/`, '');
 
-    let currentLevel = this.mockFileSystem;
-    if (basePath) {
-      const pathParts = basePath.split('/');
-      for (const part of pathParts) {
-        const entry = currentLevel[part];
-        if (!entry || entry.type !== 'directory' || !entry.children) {
-          return [];
-        }
-        currentLevel = entry.children;
-      }
+    const currentLevel = navigateToPath(this.mockFileSystem, basePath);
+    if (!currentLevel) {
+      return [];
     }
 
+    const entries: IFileNode[] = [];
     for (const [name, entry] of Object.entries(currentLevel)) {
       const fullPath = basePath ? `${handle.path}/${name}` : `${handle.path}/${name}`;
-
-      const fileNode: IFileNode = {
-        name,
-        path: fullPath,
-        type: entry.type,
-        depth: 0,
-        selectionState: 'unchecked',
-        rootFolderId: this.selectedDirectory,
-        isVisible: true,
-        handle: {
-          path: fullPath,
-          name,
-          kind: entry.type,
-          platform: 'web',
-          _internal: entry,
-        } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
-      };
-
-      if (entry.type === 'file') {
-        fileNode.size = entry.size ?? (entry.content?.length || 0);
-        fileNode.lastModified = Date.now();
-      } else {
-        fileNode.children = [];
-      }
-
+      const fileNode = createFileNode(name, entry, fullPath, this.selectedDirectory);
       entries.push(fileNode);
     }
 
-    return entries.sort((a, b) => {
-      // Directories first, then files
-      if (a.type !== b.type) {
-        return a.type === 'directory' ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
+    return sortFileNodes(entries);
   }
 
   async readFile(handle: FileHandle): Promise<string> {

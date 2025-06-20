@@ -23,6 +23,154 @@ const IdeFileEditorContext = createContext<FileEditorContextValue>({
 
 export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
 
+// Helper function to sync panel state with imperative panel handle
+function syncPanelState(
+  panel: ImperativePanelHandle | null,
+  shouldShow: boolean,
+  hasContent: boolean
+): (() => void) | undefined {
+  if (!hasContent || !panel) return;
+
+  const frameId = requestAnimationFrame(() => {
+    try {
+      if (shouldShow) {
+        if (panel.isCollapsed()) {
+          panel.expand();
+        }
+      } else {
+        if (panel.isExpanded()) {
+          panel.collapse();
+        }
+      }
+    } catch (error) {
+      if (isDevEnv()) {
+        console.warn('Panel state operation failed:', error);
+      }
+    }
+  });
+
+  // Return cleanup function
+  return () => cancelAnimationFrame(frameId);
+}
+
+// Custom hook for managing panel state effects
+function usePanelEffects(
+  leftPanelRef: React.RefObject<ImperativePanelHandle | null>,
+  rightPanelRef: React.RefObject<ImperativePanelHandle | null>,
+  consolePanelRef: React.RefObject<ImperativePanelHandle | null>,
+  showLeftPanel: boolean,
+  showRightPanel: boolean,
+  showConsole: boolean,
+  leftPanelContent?: React.ReactNode,
+  rightPanelContent?: React.ReactNode,
+  consoleContent?: React.ReactNode
+) {
+  useEffect(() => {
+    return syncPanelState(leftPanelRef.current, showLeftPanel, !!leftPanelContent);
+  }, [showLeftPanel, leftPanelContent, leftPanelRef]);
+
+  useEffect(() => {
+    return syncPanelState(rightPanelRef.current, showRightPanel, !!rightPanelContent);
+  }, [showRightPanel, rightPanelContent, rightPanelRef]);
+
+  useEffect(() => {
+    return syncPanelState(consolePanelRef.current, showConsole, !!consoleContent);
+  }, [showConsole, consoleContent, consolePanelRef]);
+}
+
+// Custom hook for managing layout change handlers
+function useLayoutHandlers(
+  leftPanelContent?: React.ReactNode,
+  rightPanelContent?: React.ReactNode,
+  consoleContent?: React.ReactNode,
+  showLeftPanel?: boolean,
+  showRightPanel?: boolean,
+  showConsole?: boolean,
+  safeLeftSize?: number,
+  safeRightSize?: number,
+  safeConsoleSize?: number,
+  saveLayout?: (
+    sizes: number[],
+    showConsole?: boolean,
+    showLeftPanel?: boolean,
+    showRightPanel?: boolean
+  ) => void
+) {
+  const handleHorizontalLayout = useCallback(
+    (newSizes: number[]) => {
+      if (!saveLayout) return;
+
+      const hasLeft = leftPanelContent && showLeftPanel;
+      const hasRight = rightPanelContent && showRightPanel;
+
+      let newLeftSize = safeLeftSize ?? 25;
+      let newRightSize = safeRightSize ?? 20;
+
+      if (hasLeft && hasRight) {
+        if (newSizes.length === 3) {
+          newLeftSize = newSizes[0] ?? newLeftSize;
+          newRightSize = newSizes[2] ?? newRightSize;
+        }
+      } else if (hasLeft) {
+        if (newSizes.length === 2) {
+          newLeftSize = newSizes[0] ?? newLeftSize;
+        }
+      } else if (hasRight) {
+        if (newSizes.length === 2) {
+          newRightSize = newSizes[1] ?? newRightSize;
+        }
+      }
+
+      saveLayout([newLeftSize, newRightSize, safeConsoleSize ?? 20]);
+    },
+    [
+      leftPanelContent,
+      showLeftPanel,
+      rightPanelContent,
+      showRightPanel,
+      safeLeftSize,
+      safeRightSize,
+      safeConsoleSize,
+      saveLayout,
+    ]
+  );
+
+  const handleVerticalLayout = useCallback(
+    (newSizes: number[]) => {
+      if (!saveLayout) return;
+
+      if (showConsole && consoleContent && newSizes.length >= 2) {
+        const consoleSize = newSizes[1] ?? safeConsoleSize ?? 20;
+        saveLayout([safeLeftSize ?? 25, safeRightSize ?? 20, consoleSize]);
+      }
+    },
+    [showConsole, consoleContent, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
+  );
+
+  return { handleHorizontalLayout, handleVerticalLayout };
+}
+
+// Custom hook for managing file editor context
+function useFileEditorContext() {
+  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
+    ((compositeKey: string) => void) | null
+  >(null);
+
+  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
+    setOpenFileInTabFn(() => fn);
+  }, []);
+
+  const fileEditorContextValue = useMemo(
+    () => ({
+      openFileInTab: openFileInTabFn || undefined,
+      registerOpenFileInTab,
+    }),
+    [openFileInTabFn, registerOpenFileInTab]
+  );
+
+  return fileEditorContextValue;
+}
+
 export interface IdeLayoutProps {
   children: React.ReactNode;
   leftPanelContent?: React.ReactNode;
@@ -42,11 +190,6 @@ export const IdeLayout = React.memo(function IdeLayout({
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
   const consolePanelRef = useRef<ImperativePanelHandle>(null);
 
-  // State for managing the file editor functionality
-  const [openFileInTabFn, setOpenFileInTabFn] = React.useState<
-    ((compositeKey: string) => void) | null
-  >(null);
-
   // Flag to prevent panel callbacks from saving during initial render
   const [isInitialRender, setIsInitialRender] = React.useState(true);
 
@@ -58,19 +201,8 @@ export const IdeLayout = React.memo(function IdeLayout({
     return () => clearTimeout(timeoutId);
   }, []);
 
-  // Stable callback so consumers don't get a new reference each render
-  const registerOpenFileInTab = useCallback((fn: (compositeKey: string) => void) => {
-    setOpenFileInTabFn(() => fn);
-  }, []);
-
-  // Create the context value – stable except when the implementation changes
-  const fileEditorContextValue = useMemo(
-    () => ({
-      openFileInTab: openFileInTabFn || undefined,
-      registerOpenFileInTab,
-    }),
-    [openFileInTabFn, registerOpenFileInTab]
-  );
+  // File editor context management
+  const fileEditorContextValue = useFileEditorContext();
 
   // Add refs for focus management
   const hideExplorerButtonRef = useRef<HTMLButtonElement>(null);
@@ -118,129 +250,31 @@ export const IdeLayout = React.memo(function IdeLayout({
     }
   );
 
-  useEffect(() => {
-    if (!leftPanelContent) return;
-    const panel = leftPanelRef.current;
-    if (panel) {
-      const frameId = requestAnimationFrame(() => {
-        try {
-          if (showLeftPanel) {
-            if (panel.isCollapsed()) {
-              panel.expand();
-            }
-          } else {
-            if (panel.isExpanded()) {
-              panel.collapse();
-            }
-          }
-        } catch (error) {
-          if (isDevEnv()) {
-            console.warn('Panel state operation failed:', error);
-          }
-        }
-      });
-      return () => cancelAnimationFrame(frameId);
-    }
-    return undefined;
-  }, [showLeftPanel, leftPanelContent]);
-
-  useEffect(() => {
-    if (!rightPanelContent) return;
-    const panel = rightPanelRef.current;
-    if (panel) {
-      const frameId = requestAnimationFrame(() => {
-        try {
-          if (showRightPanel) {
-            if (panel.isCollapsed()) {
-              panel.expand();
-            }
-          } else {
-            if (panel.isExpanded()) {
-              panel.collapse();
-            }
-          }
-        } catch (error) {
-          if (isDevEnv()) {
-            console.warn('Panel state operation failed:', error);
-          }
-        }
-      });
-      return () => cancelAnimationFrame(frameId);
-    }
-    return undefined;
-  }, [showRightPanel, rightPanelContent]);
-
-  useEffect(() => {
-    if (!consoleContent) return;
-    const panel = consolePanelRef.current;
-    if (panel) {
-      const frameId = requestAnimationFrame(() => {
-        try {
-          if (showConsole) {
-            if (panel.isCollapsed()) {
-              panel.expand();
-            }
-          } else {
-            if (panel.isExpanded()) {
-              panel.collapse();
-            }
-          }
-        } catch (error) {
-          if (isDevEnv()) {
-            console.warn('Console panel state operation failed:', error);
-          }
-        }
-      });
-      return () => cancelAnimationFrame(frameId);
-    }
-    return undefined;
-  }, [showConsole, consoleContent]);
-
-  const handleHorizontalLayout = useCallback(
-    (newSizes: number[]) => {
-      const hasLeft = leftPanelContent && showLeftPanel;
-      const hasRight = rightPanelContent && showRightPanel;
-
-      let newLeftSize = safeLeftSize;
-      let newRightSize = safeRightSize;
-
-      if (hasLeft && hasRight) {
-        if (newSizes.length === 3) {
-          newLeftSize = newSizes[0] ?? safeLeftSize;
-          newRightSize = newSizes[2] ?? safeRightSize;
-        }
-      } else if (hasLeft) {
-        if (newSizes.length === 2) {
-          newLeftSize = newSizes[0] ?? safeLeftSize;
-        }
-      } else if (hasRight) {
-        if (newSizes.length === 2) {
-          newRightSize = newSizes[1] ?? safeRightSize;
-        }
-      }
-
-      saveLayout([newLeftSize, newRightSize, safeConsoleSize]);
-    },
-    [
-      leftPanelContent,
-      showLeftPanel,
-      rightPanelContent,
-      showRightPanel,
-      safeLeftSize,
-      safeRightSize,
-      safeConsoleSize,
-      saveLayout,
-    ]
+  // Panel state effects
+  usePanelEffects(
+    leftPanelRef,
+    rightPanelRef,
+    consolePanelRef,
+    showLeftPanel,
+    showRightPanel,
+    showConsole,
+    leftPanelContent,
+    rightPanelContent,
+    consoleContent
   );
 
-  const handleVerticalLayout = useCallback(
-    (newSizes: number[]) => {
-      if (showConsole && consoleContent && newSizes.length >= 2) {
-        const consoleSize = newSizes[1] ?? safeConsoleSize;
-        saveLayout([safeLeftSize, safeRightSize, consoleSize]);
-      }
-    },
-    [showConsole, consoleContent, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
+  // Layout handlers
+  const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(
+    leftPanelContent,
+    rightPanelContent,
+    consoleContent,
+    showLeftPanel,
+    showRightPanel,
+    showConsole,
+    safeLeftSize,
+    safeRightSize,
+    safeConsoleSize,
+    saveLayout
   );
 
   return (
@@ -367,7 +401,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               defaultSize={safeRightSize}
               onCollapse={() => {
                 if (!isInitialRender) {
-                  saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, showLeftPanel, false);
+                  saveLayout([safeLeftSize, 0, safeConsoleSize], showConsole, showLeftPanel, false);
                 }
               }}
               onExpand={(size?: number) => {
@@ -375,7 +409,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   const newSize = typeof size === 'number' ? size : safeRightSize;
                   saveLayout(
                     [safeLeftSize, newSize, safeConsoleSize],
-                    undefined,
+                    showConsole,
                     showLeftPanel,
                     true
                   );
@@ -384,10 +418,6 @@ export const IdeLayout = React.memo(function IdeLayout({
             />
           )}
         </PanelGroup>
-
-        <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2">
-          {/* Floating buttons can be placed here if needed in the future */}
-        </div>
       </div>
     </IdeFileEditorContext.Provider>
   );
