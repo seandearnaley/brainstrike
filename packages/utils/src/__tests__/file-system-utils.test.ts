@@ -1,7 +1,4 @@
-import type { IFileNode } from '@brainstrike/types';
-import { IGNORED_PATHS } from '@brainstrike/types'; // Used for verifying ignored paths
 import { readFullFileTree } from '../file-system-utils';
-import { normalizePath } from '../file-system-utils'; // Import for path normalization checks if needed, though the function does it internally
 
 // --- Mocking Strategy ---
 interface MockFileHandle {

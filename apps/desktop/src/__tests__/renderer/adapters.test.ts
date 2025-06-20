@@ -1,4 +1,3 @@
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ElectronRendererFileSystemAdapter,

@@ -1,7 +1,5 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
-import type { IFileNode } from '@brainstrike/types';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';

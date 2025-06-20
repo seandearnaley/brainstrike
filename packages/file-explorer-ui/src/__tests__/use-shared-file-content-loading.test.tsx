@@ -379,7 +379,7 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
           progressCallback?: (event: { key: string }) => void
         ) => {
           // Simulate progress for each request
-          requests.forEach((req, index) => {
+          requests.forEach((req, _index) => {
             if (progressCallback) {
               progressCallback({ key: req.compositeKey });
             }

@@ -48,7 +48,7 @@ function setupSecurity() {
     );
 
     if (isDevEnv()) {
-      console.log('🔒 Development CSP configured');
+      console.info('🔒 Development CSP configured');
     }
   } else {
     // Production CSP - more restrictive but allows unsafe-eval for WASM (PGlite)
@@ -116,13 +116,13 @@ async function createWindow() {
   if (app.isPackaged || hasBuiltRenderer) {
     // Production: load built files
     if (isDevEnv()) {
-      console.log('📦 Loading built renderer files');
+      console.info('📦 Loading built renderer files');
     }
     win.loadFile(rendererPath);
   } else {
     // Development: connect to Vite dev server
     if (isDevEnv()) {
-      console.log('🔧 Development mode - connecting to Vite dev server');
+      console.info('🔧 Development mode - connecting to Vite dev server');
     }
     const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
 
@@ -130,12 +130,12 @@ async function createWindow() {
       try {
         await win.loadURL(`http://localhost:${port}`);
         if (isDevEnv()) {
-          console.log(`✅ Connected to Vite dev server on port ${port}`);
+          console.info(`✅ Connected to Vite dev server on port ${port}`);
         }
         break;
       } catch (error) {
         if (isDevEnv()) {
-          console.log(`❌ Failed to connect to port ${port}`);
+          console.info(`❌ Failed to connect to port ${port}`);
         }
         if (port === devPorts[devPorts.length - 1]) {
           console.error('❌ Could not connect to any Vite dev server port');
