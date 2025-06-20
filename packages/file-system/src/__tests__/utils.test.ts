@@ -1,10 +1,16 @@
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { AccessError, PermissionError } from '../errors';
 import type { DirectoryHandle } from '../types';
 import {
   extractNativeDirectoryHandle,
   extractNativeDirectoryHandleAsNull,
   extractNativeDirectoryHandleAsUndefined,
   isValidDirectoryHandle,
+  validateDirectoryPath,
 } from '../utils';
 
 describe('utils', () => {
@@ -121,6 +127,33 @@ describe('utils', () => {
       expect(isValidDirectoryHandle(fileHandle)).toBe(false);
       expect(isValidDirectoryHandle(null)).toBe(false);
       expect(isValidDirectoryHandle(undefined)).toBe(false);
+    });
+  });
+
+  describe('validateDirectoryPath', () => {
+    let tempDir: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fs-util-'));
+    });
+
+    afterEach(async () => {
+      await fsPromises.rm(tempDir, { recursive: true, force: true });
+    });
+
+    it('resolves for a valid directory', async () => {
+      await expect(validateDirectoryPath(tempDir)).resolves.not.toThrow();
+    });
+
+    it('throws AccessError for a file path', async () => {
+      const file = path.join(tempDir, 'file.txt');
+      fs.writeFileSync(file, 'data');
+      await expect(validateDirectoryPath(file)).rejects.toBeInstanceOf(AccessError);
+    });
+
+    it('throws PermissionError when stat fails', async () => {
+      vi.spyOn(fsPromises, 'stat').mockRejectedValueOnce(new Error('deny'));
+      await expect(validateDirectoryPath(tempDir)).rejects.toBeInstanceOf(PermissionError);
     });
   });
 });

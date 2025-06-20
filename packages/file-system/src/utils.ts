@@ -1,3 +1,5 @@
+import fsPromises from 'node:fs/promises';
+import { AccessError, PermissionError } from './errors';
 import type { DirectoryHandle } from './types';
 
 /**
@@ -57,4 +59,32 @@ export function isValidDirectoryHandle(
   handle: DirectoryHandle | null | undefined
 ): handle is DirectoryHandle {
   return handle != null && handle.kind === 'directory';
+}
+
+/**
+ * Validate that a given path exists and is a directory.
+ *
+ * @throws {AccessError} If the path exists but is not a directory.
+ * @throws {PermissionError} If the path cannot be accessed.
+ */
+export async function validateDirectoryPath(
+  path: string,
+  asserter?: (...args: unknown[]) => unknown
+): Promise<void> {
+  const assertFn = (asserter ?? validateDirectoryPath) as (...args: unknown[]) => unknown;
+  try {
+    const stats = await fsPromises.stat(path);
+    if (!stats.isDirectory()) {
+      throw new AccessError('Selected path is not a directory', path, 'access', assertFn);
+    }
+  } catch (error) {
+    if (error instanceof AccessError) {
+      throw error;
+    }
+    throw new PermissionError(
+      `Cannot access selected directory: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      path,
+      assertFn
+    );
+  }
 }
