@@ -20,18 +20,9 @@ function App() {
   const [dbPath, setDbPath] = useState<string | null>(null);
 
   useEffect(() => {
-    const getDbPath = async () => {
-      try {
-        const userDataPath = await window.electronAPI.getUserDataPath();
-        setDbPath(userDataPath);
-      } catch (error) {
-        console.error('Failed to get user data path:', error);
-        // Fallback to IndexedDB for desktop app
-        setDbPath('idb://desktop');
-      }
-    };
-
-    getDbPath();
+    // For Electron renderer, we need to use IndexedDB since PGlite WASM
+    // runs in a browser-like environment and can't access the file system directly
+    setDbPath('idb://desktop');
   }, []);
 
   if (!dbPath) {

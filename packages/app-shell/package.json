@@ -32,6 +32,7 @@
     "react": "^19"
   },
   "dependencies": {
+    "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/storage": "workspace:*",
@@ -41,6 +42,7 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.5.2",
     "@types/node": "^24",
     "@types/react": "^19.1.8",
     "jsdom": "^26.1.0",
