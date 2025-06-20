@@ -362,6 +362,99 @@ describe('useFileTree', () => {
       expect(result.current.error).toBeNull();
     });
 
+    it('should sort subdirectory children correctly', async () => {
+      // Create a directory with mixed files and subdirectories in unsorted order
+      const mockParentDir: IFileNode = {
+        name: 'parent',
+        path: 'root/parent',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      // Create subdirectory children in intentionally unsorted order
+      const mockSubDirZ: IFileNode = {
+        name: 'z-subdir',
+        path: 'root/parent/z-subdir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      const mockFileY: IFileNode = {
+        name: 'y-file.txt',
+        path: 'root/parent/y-file.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      };
+
+      const mockSubDirA: IFileNode = {
+        name: 'a-subdir',
+        path: 'root/parent/a-subdir',
+        type: 'directory',
+        handle: {} as FileSystemDirectoryHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+        children: [],
+      };
+
+      const mockFileB: IFileNode = {
+        name: 'b-file.txt',
+        path: 'root/parent/b-file.txt',
+        type: 'file',
+        handle: {} as FileSystemFileHandle,
+        depth: 2,
+        selectionState: 'unchecked',
+        rootFolderId: 'root',
+      };
+
+      // Setup directory structure with intentionally unsorted children
+      MockFileSystemAdapter.setMockDirectoryData('root', [mockParentDir]);
+      MockFileSystemAdapter.setMockDirectoryData('parent', [
+        mockFileY,
+        mockSubDirZ,
+        mockFileB,
+        mockSubDirA,
+      ]);
+      MockFileSystemAdapter.setMockDirectoryData('parent/a-subdir', []);
+      MockFileSystemAdapter.setMockDirectoryData('parent/z-subdir', []);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      // Wait for load to complete
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      });
+
+      expect(result.current.fileTree).toHaveLength(1);
+      const parentNode = result.current.fileTree[0];
+      expect(parentNode?.name).toBe('parent');
+      expect(parentNode?.children).toHaveLength(4);
+
+      // Verify that children are sorted: directories first, then files, alphabetically within each type
+      const children = parentNode?.children;
+      expect(children?.[0]?.name).toBe('a-subdir');
+      expect(children?.[0]?.type).toBe('directory');
+      expect(children?.[1]?.name).toBe('z-subdir');
+      expect(children?.[1]?.type).toBe('directory');
+      expect(children?.[2]?.name).toBe('b-file.txt');
+      expect(children?.[2]?.type).toBe('file');
+      expect(children?.[3]?.name).toBe('y-file.txt');
+      expect(children?.[3]?.type).toBe('file');
+    });
+
     it('accepts batchSize option without errors', async () => {
       MockFileSystemAdapter.setMockDirectoryData('root', []);
       vi.useFakeTimers();

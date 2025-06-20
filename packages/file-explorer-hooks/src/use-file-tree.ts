@@ -362,6 +362,9 @@ export function useFileTree(
           continue;
         }
 
+        // Sort entries before processing them to ensure consistent ordering
+        entries = context.sortFileNodes(entries);
+
         currentBatchCounter = await processDirectoryEntries(
           entries,
           stackItem,
