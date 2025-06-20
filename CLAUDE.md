@@ -95,6 +95,7 @@ Critical architectural pattern enabling cross-platform functionality:
 - Maintain 70%+ test coverage threshold
 - Use Happy DOM for browser environment simulation
 
+
 ## Common Patterns
 
 ### File Explorer Integration
@@ -153,6 +154,7 @@ Always run this before submitting changes.
 - Left/right sidebars and console panel
 - State preservation across sessions
 - Documented in `docs/ide-layout.md`
+
 
 
 ALWAYS CONSULT THE WEB FOR BEST PRACTICES WITH THE TECHNOLOGY STACK.
