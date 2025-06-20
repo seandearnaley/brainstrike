@@ -15,6 +15,7 @@ interface VirtualizedPreviewPanelTabbedProps {
   estimateTokenCost?: (tokens: number) => number;
   performUndoableAction: (
     key: string,
+    itemKey: string,
     opts: {
       actionName: string;
       itemDescription: string;
@@ -26,7 +27,7 @@ interface VirtualizedPreviewPanelTabbedProps {
 }
 
 export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedProps>(
-  function VirtualizedPreviewPanelTabbed(props) {
+  function VirtualizedPreviewPanelTabbedComponent(props) {
     const {
       selectedFiles,
       fileContents,
@@ -42,38 +43,6 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
     const [announcement, setAnnouncement] = useState('');
     const [lastAnnouncedFolder, setLastAnnouncedFolder] = useState<string | null>(null);
 
-    const adaptedUndo = ((
-      key: string,
-      _itemKey: string,
-      opts: {
-        actionName: string;
-        itemDescription: string;
-        getStateSnapshot: () => Set<string>;
-        onUndo: (key: string, snapshot: Set<string>) => void;
-      }
-    ) => {
-      (
-        performUndoableAction as unknown as (
-          key: string,
-          opts: {
-            actionName: string;
-            itemDescription: string;
-            getStateSnapshot: () => Set<string>;
-            onUndo: (key: string, snapshot: Set<string>) => void;
-          }
-        ) => void
-      )(key, opts);
-    }) as (
-      key: string,
-      itemKey: string,
-      opts: {
-        actionName: string;
-        itemDescription: string;
-        getStateSnapshot: () => Set<string>;
-        onUndo: (key: string, snapshot: Set<string>) => void;
-      }
-    ) => void;
-
     const state = usePreviewPanelState({
       selectedFiles,
       fileContents,
@@ -82,7 +51,7 @@ export const VirtualizedPreviewPanelTabbed = memo<VirtualizedPreviewPanelTabbedP
       ...(fileSizes ? { fileSizes } : {}),
       decodeFileSelection,
       countTokensHeuristic,
-      performUndoableAction: adaptedUndo,
+      performUndoableAction,
     });
 
     const {

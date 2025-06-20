@@ -242,7 +242,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const mockGetStateSnapshot = vi.fn(() => new Set(['file1', 'file2']));
     const mockOnUndo = vi.fn();
 
-    performUndoableActionForPanel?.('test-key', {
+    performUndoableActionForPanel?.('test-key', 'test-item-key', {
       actionName: 'Test Action',
       itemDescription: 'Test Item',
       getStateSnapshot: mockGetStateSnapshot,
