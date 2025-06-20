@@ -57,6 +57,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
     }),
     shallow
   );
+
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters,
@@ -68,16 +69,17 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = ({ filterError, on
   }));
 
   useEffect(() => {
-    if (!isOpen) return;
-
-    setSettings({
-      includeFilters,
-      excludeFilters,
-      useRegex,
-      maxSelectionCount,
-      includeProjectTree,
-      folderSummaryThreshold,
-    });
+    // Update settings when dialog is opened to ensure we use the latest store values
+    if (isOpen) {
+      setSettings({
+        includeFilters,
+        excludeFilters,
+        useRegex,
+        maxSelectionCount,
+        includeProjectTree,
+        folderSummaryThreshold,
+      });
+    }
   }, [
     isOpen,
     includeFilters,

@@ -1,4 +1,5 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -78,7 +79,7 @@ it('triggers directory expansion callback', async () => {
   const onToggle = vi.fn();
   render(<OptimizedFileTreeRow {...baseDirProps} onToggleDirectoryExpansion={onToggle} />);
 
-  const button = screen.getByRole('button', { name: /expand dir directory/i });
+  const button = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
   await user.click(button);
 
   expect(onToggle).toHaveBeenCalledWith('/dir');

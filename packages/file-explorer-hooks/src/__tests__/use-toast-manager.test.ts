@@ -3,30 +3,41 @@ import { FileExplorerStrings } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useToastManager } from '../use-toast-manager';
 
 // Mock dependencies
 vi.mock('@brainstrike/ui', () => ({
-  useToast: vi.fn().mockReturnValue({
-    toast: vi.fn(),
-    dismiss: vi.fn(),
-    toasts: [],
-  }),
+  useToast: vi.fn(),
 }));
 
-// Mock console.error to avoid test noise
-vi.spyOn(console, 'error').mockImplementation(() => {});
-
 describe('useToastManager', () => {
-  // Setup for each test
-  const setup = () => {
-    const mockToast = vi.fn();
+  let mockToast: ReturnType<typeof vi.fn>;
+  let mockDismiss: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    // Reset mocks before each test
+    vi.clearAllMocks();
+
+    // Setup fresh mocks for useToast
+    mockToast = vi.fn();
+    mockDismiss = vi.fn();
     vi.mocked(useToast).mockReturnValue({
       toast: mockToast,
-      dismiss: vi.fn(),
+      dismiss: mockDismiss,
       toasts: [],
     });
+
+    // Mock console.error to avoid test noise
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    // Restore mocks after each test
+    vi.restoreAllMocks();
+  });
+
+  const setup = () => {
     const { result } = renderHook(() => useToastManager());
     return { result, mockToast };
   };

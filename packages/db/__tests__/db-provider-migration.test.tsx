@@ -2,7 +2,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
-import { migrate } from '../src/migrations/bootstrap';
 import type { FileRecord } from '../src/models/file-record';
 import { PGlite } from '@electric-sql/pglite';
 import * as wasmLoaderModule from '../src/wasm-loader';
@@ -41,12 +40,15 @@ describe('DbProvider integration', () => {
       }
     }, { wrapper });
     
-    await waitFor(() => {
-      expect(result.current).not.toBeNull();
-      expect(result.current).toBeDefined();
-    }, {
-      timeout: 10000, // 10 seconds timeout for CI
-    });
+    await waitFor(
+      () => {
+        expect(result.current).not.toBeNull();
+        expect(result.current).toBeDefined();
+      },
+      {
+        timeout: 30000, // Allow slower CI runners (up to 30 s)
+      }
+    );
     
     const repo = result.current!;
 

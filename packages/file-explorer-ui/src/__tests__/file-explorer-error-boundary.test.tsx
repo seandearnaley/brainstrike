@@ -1,8 +1,10 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { afterAll, beforeAll, describe, expect, vi } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
+
+const mockToast = vi.fn();
 
 // Mock icons
 vi.mock('lucide-react', () => ({
@@ -15,11 +17,12 @@ vi.mock('lucide-react', () => ({
   X: () => <div data-testid="icon-x">X</div>,
 }));
 
-// Mock Button component from @brainstrike/ui
+// Mock Button component and useToast from @brainstrike/ui
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...mod,
+    useToast: () => ({ toast: mockToast }),
     Button: ({
       children,
       onClick,
@@ -48,6 +51,12 @@ describe('FileExplorerErrorBoundary', () => {
   beforeAll(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
+
+  beforeEach(() => {
+    mockToast.mockClear();
+    vi.clearAllMocks();
+  });
+
   afterAll(() => {
     vi.restoreAllMocks();
   });
@@ -122,8 +131,6 @@ describe('FileExplorerErrorBoundary', () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     // @ts-expect-error - allow assigning clipboard for test
     navigator.clipboard = { writeText };
-    const alertSpy = vi.fn();
-    window.alert = alertSpy as unknown as typeof window.alert;
 
     render(
       <FileExplorerErrorBoundary showDetails={true}>
@@ -136,7 +143,10 @@ describe('FileExplorerErrorBoundary', () => {
     await Promise.resolve();
 
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(alertSpy).toHaveBeenCalledWith('Error details copied to clipboard');
+    expect(mockToast).toHaveBeenCalledWith({
+      title: 'Success',
+      description: 'Error details copied to clipboard',
+    });
   });
 
   test('renders generic error message for unknown error', () => {

@@ -92,7 +92,8 @@
       "Bash(pnpm --filter \"@brainstrike/file-explorer-ui\" test)",
       "Bash(pnpm --filter \"@brainstrike/file-explorer-ui\" test src/__tests__/use-shared-file-content-loading.test.tsx)",
       "Bash(pnpm -w run format packages/file-explorer-hooks/src/__tests__/file-content-processor.test.ts)",
-      "Bash(biome check:*)"
+      "Bash(biome check:*)",
+      "Bash(pnpm start:*)"
     ],
     "deny": []
   },

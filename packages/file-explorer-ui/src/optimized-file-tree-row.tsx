@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { LightweightCheckbox } from '@brainstrike/ui';
 import { memoizedFileExplorer as fileExplorer, isPathSelectedInFolder } from '@brainstrike/utils';
 import {
@@ -244,6 +245,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
                 onClick={handleExpansionClick}
                 className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded cursor-pointer transition-colors flex items-center justify-center"
                 aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${node.name} directory`}
+                data-testid={EXPAND_COLLAPSE_TEST_ID}
               >
                 {isExpanded ? (
                   <ChevronDown className="h-3 w-3" />

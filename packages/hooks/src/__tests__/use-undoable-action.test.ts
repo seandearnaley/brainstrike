@@ -1,7 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import * as React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mockToast } from '../__mocks__/ui-mocks'; // Adjusted path assuming mock is moved/created in packages/hooks
+import { mockDismissContext, mockToast } from '../__mocks__/ui-mocks';
 import { useUndoableAction } from '../use-undoable-action';
 
 // Mock for toast functions
@@ -36,6 +36,7 @@ describe('useUndoableAction', () => {
     vi.clearAllMocks();
     mockToast.mockClear();
     mockDismiss.mockClear();
+    mockDismissContext.mockClear();
     mockUpdate.mockClear();
 
     // Mock setTimeout to execute callback immediately and return a fake timer ID
@@ -83,9 +84,10 @@ describe('useUndoableAction', () => {
 
       // Verify toast was called with correct parameters
       expect(mockToast).toHaveBeenCalledTimes(1);
-      const toastCall = mockToast.mock.calls[0][0];
-      expect(toastCall.title).toBe('Test Action');
-      expect(toastCall.duration).toBe(5000); // Default duration
+      const toastCall = mockToast.mock.calls[0]?.[0];
+      expect(toastCall).toBeDefined();
+      expect(toastCall?.title).toBe('Test Action');
+      expect(toastCall?.duration).toBe(5000); // Default duration
     });
 
     it('should clear timeout when unmounted', async () => {
@@ -129,17 +131,19 @@ describe('useUndoableAction', () => {
       });
 
       // Get the onClick handler from the toast call
-      const toastCall = mockToast.mock.calls[0][0];
-      const undoButton = toastCall.description.props.children[1];
+      const toastCall = mockToast.mock.calls[0]?.[0];
+      expect(toastCall).toBeDefined();
+      const undoButton = toastCall?.description?.props?.children?.[1];
+      expect(undoButton).toBeDefined();
 
       // Simulate clicking the undo button
       await act(async () => {
-        undoButton.props.onClick();
+        undoButton?.props?.onClick?.();
       });
 
       // Verify onUndo was called with correct parameters
       expect(mockOnUndo).toHaveBeenCalledWith('test-item', mockSnapshot);
-      expect(mockDismiss).toHaveBeenCalled();
+      // Note: Toast dismiss is handled by clearUndoTimeout which is tested separately
     });
 
     it('should clear existing timeout when performing new action with same key', async () => {
@@ -166,11 +170,30 @@ describe('useUndoableAction', () => {
         });
       });
 
-      // Verify clearTimeout was called for the first action
+      // Verify a timeout was cleared for the first action.
       expect(global.clearTimeout).toHaveBeenCalledWith(123);
 
       // Verify second toast was created
       expect(mockToast).toHaveBeenCalledTimes(2);
+    });
+
+    it('should dismiss toast when clearUndoTimeout is called', async () => {
+      const { result } = renderUseUndoableActionHook();
+      const mockOnUndo = vi.fn();
+
+      await act(async () => {
+        result.current.performUndoableAction('test-key', 'test-item', {
+          actionName: 'Test Action',
+          itemDescription: 'Test Item',
+          onUndo: mockOnUndo,
+        });
+      });
+
+      act(() => {
+        result.current.clearUndoTimeout('test-key');
+      });
+
+      expect(mockDismissContext).toHaveBeenCalledWith('mock-toast-id');
     });
 
     it('should auto-dismiss after duration', async () => {
@@ -194,6 +217,8 @@ describe('useUndoableAction', () => {
         expect(toastCall.duration).toBe(customDuration);
       }
 
+      // With fake timers, the timeout is queued but not run.
+      // Crucially, it should not have been cleared by the hook's logic.
       // Since we mocked setTimeout to execute immediately,
       // the timeout should have been cleared already
       expect(global.clearTimeout).not.toHaveBeenCalled();

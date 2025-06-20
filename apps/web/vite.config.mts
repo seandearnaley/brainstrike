@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 /// <reference types="vitest" />
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import tailwindcss from "@tailwindcss/vite";
 import { existsSync } from "node:fs";
 import { codecovVitePlugin } from "@codecov/vite-plugin";
@@ -192,6 +192,7 @@ export default defineConfig({
   },  
   worker: {
     format: 'es',
+    plugins: () => [],
   },
   optimizeDeps: {
     exclude: [

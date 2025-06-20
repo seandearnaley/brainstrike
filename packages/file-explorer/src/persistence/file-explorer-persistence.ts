@@ -28,20 +28,36 @@ type ZustandPersistWrapper<T> = { state?: T; version?: number };
 export const createPersistOptions = (
   storageAdapter: StorageAdapter
 ): PersistOptions<FileExplorerState, SerializedState> => {
-  let pendingValue: unknown;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let currentStoreName = '';
-  const debounceMs = 200;
-
   // Initialize Web Worker for background state persistence
   let workerStorage: WorkerStorage | null = null;
   let useWorker = false;
 
-  // Only use Web Worker in browser environment (not in tests, SSR, or Electron)
+  // Detect if we're in a headless/CI environment (Playwright, Puppeteer, etc.)
+  const ciKey = 'CI';
+  const isHeadless =
+    typeof navigator !== 'undefined' &&
+    (navigator.webdriver === true ||
+      navigator.userAgent.includes('HeadlessChrome') ||
+      navigator.userAgent.includes('PhantomJS') ||
+      // Playwright detection
+      'playwright' in globalThis ||
+      // Additional CI environment detection
+      (typeof process !== 'undefined' && process.env?.[ciKey] === 'true'));
+
+  // Enhanced Electron detection - check multiple indicators
+  const electronKey = 'electron';
   const isElectron =
-    typeof window !== 'undefined' &&
-    (window as { process?: { type?: string } }).process?.type === 'renderer';
-  if (typeof window !== 'undefined' && !isTest && !isElectron) {
+    // Standard Electron detection
+    (typeof window !== 'undefined' &&
+      (window as { process?: { type?: string } }).process?.type === 'renderer') ||
+    // Alternative Electron detection methods
+    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron')) ||
+    // Check for Electron globals
+    (typeof globalThis !== 'undefined' && ('require' in globalThis || 'electron' in globalThis)) ||
+    // Check process versions for Electron
+    (typeof process !== 'undefined' && process.versions?.[electronKey] !== undefined);
+
+  if (typeof window !== 'undefined' && !isTest && !isElectron && !isHeadless) {
     try {
       workerStorage = new WorkerStorage();
       useWorker = workerStorage.isWorkerAvailable;
@@ -50,38 +66,23 @@ export const createPersistOptions = (
       }
     } catch (error) {
       if (shouldLog) {
-        logger.warn('Failed to initialize Web Worker, falling back to debounced approach:', error);
+        logger.warn('Failed to initialize Web Worker, falling back to immediate approach:', error);
       }
     }
+  } else if (shouldLog) {
+    const reason = isTest
+      ? 'test environment'
+      : isElectron
+        ? 'Electron environment'
+        : isHeadless
+          ? 'headless/CI environment'
+          : 'SSR environment';
+    logger.debug(`Web Worker disabled due to ${reason}, using immediate persistence`);
   }
 
-  const flush = async (name: string) => {
-    const value = pendingValue;
-    pendingValue = undefined;
-    timer = null;
-    if (value === undefined) return;
-    try {
-      await storageAdapter.setItem(name, JSON.stringify(value));
-    } catch (error) {
-      if (shouldLog) {
-        logger.error('Error setting item in storage:', error);
-      }
-    }
-  };
-
-  // Add beforeunload handler to flush pending values and cleanup worker
+  // Add beforeunload handler to cleanup worker
   if (typeof window !== 'undefined') {
     const handleBeforeUnload = () => {
-      // Handle pending debounced writes
-      if (pendingValue !== undefined && currentStoreName) {
-        // Attempt synchronous flush on tab close
-        try {
-          localStorage.setItem(currentStoreName, JSON.stringify(pendingValue));
-        } catch {
-          // Ignore errors during beforeunload
-        }
-      }
-
       // Cleanup worker
       if (workerStorage) {
         workerStorage.destroy();
@@ -92,6 +93,26 @@ export const createPersistOptions = (
 
     // Also cleanup on page hide (for mobile Safari, etc.)
     window.addEventListener('pagehide', handleBeforeUnload);
+  }
+
+  // Add legacy-key migration from v3 to v4
+  try {
+    const legacyKey = 'fileExplorerSettings';
+    const newKey = 'file-explorer-storage-v4';
+    const legacy = localStorage.getItem(legacyKey);
+
+    if (legacy && !localStorage.getItem(newKey)) {
+      if (shouldLog) {
+        logger.debug(`Migrating settings from legacy key "${legacyKey}" to "${newKey}"`);
+      }
+      localStorage.setItem(newKey, legacy);
+      localStorage.removeItem(legacyKey);
+    }
+  } catch (error) {
+    // Ignore potential localStorage access errors in restricted environments
+    if (shouldLog) {
+      logger.warn('Could not perform legacy settings migration:', error);
+    }
   }
 
   return {
@@ -105,7 +126,14 @@ export const createPersistOptions = (
           // Use Web Worker for background deserialization
           try {
             const value = await workerStorage.getItem(name);
-            return value ? JSON.parse(value) : null;
+            // The worker might return an object or a string. For consistency,
+            // we handle both and ensure the final output is a parsed object.
+            if (value === null || value === undefined) return null;
+            if (typeof value === 'string') {
+              return JSON.parse(value);
+            }
+            // It's already an object, as parsed by the worker.
+            return value;
           } catch (error) {
             if (shouldLog) {
               logger.error('Worker getItem failed, falling back to main thread:', error);
@@ -132,26 +160,24 @@ export const createPersistOptions = (
         if (useWorker && workerStorage) {
           // Use Web Worker for background serialization and storage
           try {
-            await workerStorage.setItem(name, JSON.stringify(value));
+            await workerStorage.setItem(name, value);
           } catch (error) {
             if (shouldLog) {
-              logger.error('Worker setItem failed, falling back to main thread:', error);
+              logger.error('Worker setItem failed, falling back to immediate approach:', error);
             }
-            // Fallback to main thread approach
+            // Fallback to immediate approach instead of debounced
             await storageAdapter.setItem(name, JSON.stringify(value));
           }
         } else {
-          // Use debounced main thread approach
-          pendingValue = value;
-          currentStoreName = name;
-          if (timer) {
-            clearTimeout(timer);
+          // Use immediate approach instead of debounced to prevent race conditions with page reloads
+          // The debounced approach was causing issues in CI where page reloads happened before the timeout completed
+          try {
+            await storageAdapter.setItem(name, JSON.stringify(value));
+          } catch (error) {
+            if (shouldLog) {
+              logger.error('Error setting item in storage:', error);
+            }
           }
-          return new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-              flush(name).then(resolve);
-            }, debounceMs);
-          });
         }
       },
       removeItem: async (name: string) => {

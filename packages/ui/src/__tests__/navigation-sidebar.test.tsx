@@ -56,11 +56,25 @@ describe('NavigationSidebar', () => {
     );
   });
 
+  it('applies aria-label to links', () => {
+    renderSidebar();
+
+    const link = screen.getByRole('link', { name: 'Context Explorer' });
+    expect(link).toHaveAttribute('aria-label', 'Context Explorer');
+  });
+
   it('applies aria-label to buttons when onItemClick is provided', () => {
     const handleClick = vi.fn();
     render(<NavigationSidebar items={items} currentPath="/" onItemClick={handleClick} />);
 
     const button = screen.getByRole('button', { name: 'Context Explorer' });
     expect(button).toHaveAttribute('aria-label', 'Context Explorer');
+  });
+
+  it('sets default aria-label on aside element', () => {
+    renderSidebar();
+
+    const sidebar = screen.getByRole('navigation');
+    expect(sidebar).toHaveAttribute('aria-label', 'Main navigation');
   });
 });

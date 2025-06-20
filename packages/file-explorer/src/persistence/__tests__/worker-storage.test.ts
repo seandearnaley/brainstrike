@@ -23,18 +23,6 @@ class MockWorker {
   removeEventListener() {}
 }
 
-// Mock URL.createObjectURL and URL.revokeObjectURL
-global.URL.createObjectURL = vi.fn(() => 'blob:mock-url');
-global.URL.revokeObjectURL = vi.fn();
-
-// Mock Blob
-global.Blob = class MockBlob {
-  constructor(
-    public content: unknown[],
-    public options?: { type?: string }
-  ) {}
-} as unknown as typeof Blob;
-
 // Mock localStorage
 const mockLocalStorage = {
   data: new Map<string, string>(),
@@ -98,7 +86,15 @@ describe('WorkerStorage', () => {
     // Mock Worker constructor
     vi.stubGlobal(
       'Worker',
-      vi.fn(() => mockWorker)
+      vi.fn((url: string | URL) => {
+        // For the feature-detect call, return a dummy worker that can be terminated.
+        if (url.toString().startsWith('data:')) {
+          // This mock needs to be an object with a terminate function.
+          return { terminate: vi.fn(), addEventListener: vi.fn() };
+        }
+        // For other calls, return the shared mockWorker for testing.
+        return mockWorker;
+      })
     );
   });
 
@@ -115,8 +111,15 @@ describe('WorkerStorage', () => {
     it('should initialize worker in browser environment', () => {
       const storage = new WorkerStorage();
 
-      expect(Worker).toHaveBeenCalled();
-      expect(URL.createObjectURL).toHaveBeenCalled();
+      // It's called once for the real worker.
+      expect(Worker).toHaveBeenCalledTimes(1);
+
+      // Check the call for the actual worker URL
+      const workerMock = Worker as unknown as { mock: { calls: unknown[][] } };
+      const callArgs = workerMock.mock.calls[0]; // First (and only) call
+      expect(callArgs).toBeDefined();
+      expect(String(callArgs?.[0])).toMatch(/worker-storage\.worker\.js$/);
+      expect(callArgs?.[1]).toEqual({ type: 'module' });
       expect(storage.isWorkerAvailable).toBe(true);
     });
 
@@ -126,19 +129,6 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
 
       expect(storage.isWorkerAvailable).toBe(false);
-    });
-
-    it('should not initialize worker in Electron environment', () => {
-      vi.stubGlobal('window', {
-        process: { type: 'renderer' },
-      });
-
-      const storage = new WorkerStorage();
-
-      expect(Worker).not.toHaveBeenCalled();
-      expect(storage.isWorkerAvailable).toBe(false);
-
-      vi.unstubAllGlobals();
     });
 
     it('should handle worker initialization errors gracefully', () => {
@@ -194,7 +184,8 @@ describe('WorkerStorage', () => {
 
     it('should fallback to localStorage when worker fails', async () => {
       const storage = new WorkerStorage();
-      mockLocalStorage.data.set('fallback-key', 'fallback-value');
+      const testData = { test: 'data' };
+      mockLocalStorage.data.set('fallback-key', JSON.stringify(testData));
 
       // Simulate worker error response
       setTimeout(() => {
@@ -215,7 +206,7 @@ describe('WorkerStorage', () => {
 
       const result = await storage.getItem('fallback-key');
 
-      expect(result).toBe('fallback-value');
+      expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
       expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
 
@@ -544,7 +535,7 @@ describe('WorkerStorage', () => {
 
       expect(mockWorker.postMessage).toHaveBeenCalledTimes(3);
       expect(results).toHaveLength(3);
-      expect(results.every((r) => r?.startsWith('result-'))).toBe(true);
+      expect(results.every((r) => typeof r === 'string' && r.startsWith('result-'))).toBe(true);
     });
 
     it('should generate unique message IDs', async () => {

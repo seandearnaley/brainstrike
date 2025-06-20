@@ -41,9 +41,13 @@ export class WorkerStorage {
   private messageId = 0;
   private pendingRequests = new Map<
     string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void }
+    {
+      resolve: (value: unknown) => void;
+      reject: (reason?: unknown) => void;
+    }
   >();
   private activeSaveOps = new Map<string, number>();
+  private timeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.initializeWorker();
@@ -56,97 +60,11 @@ export class WorkerStorage {
     }
 
     try {
-      // Check if we're in a supported environment (not Electron)
-      const isElectron =
-        typeof window !== 'undefined' &&
-        (window as { process?: { type?: string } }).process?.type === 'renderer';
-
-      if (!isElectron && typeof import.meta.url !== 'undefined') {
-        // Use inline worker for better compatibility
-        // Worker handles JSON serialization/deserialization but delegates storage to main thread
-        const workerCode = `
-          self.addEventListener('message', async (event) => {
-            const { id, type, key, value } = event.data;
-            try {
-              let result;
-              switch (type) {
-                case 'save': {
-                  if (!key || value === undefined) {
-                    throw new Error('Save operation requires key and value');
-                  }
-                  // Perform heavy JSON serialization in worker
-                  const serialized = JSON.stringify(value);
-                  const opId = Date.now();
-                  // Send serialized data back to main thread for storage
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'setItem',
-                    key: key,
-                    value: serialized,
-                    opId: opId
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'load': {
-                  if (!key) {
-                    throw new Error('Load operation requires key');
-                  }
-                  // Request data from main thread
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'getItem',
-                    key: key
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'remove': {
-                  if (!key) {
-                    throw new Error('Remove operation requires key');
-                  }
-                  // Request removal from main thread
-                  self.postMessage({ 
-                    id, 
-                    type: 'storage_request', 
-                    operation: 'removeItem',
-                    key: key
-                  });
-                  return; // Don't send success yet, wait for main thread response
-                }
-                case 'storage_response': {
-                  // Handle response from main thread storage operation
-                  if (event.data.operation === 'getItem' && event.data.rawValue) {
-                    // Perform heavy JSON parsing in worker
-                    result = JSON.parse(event.data.rawValue);
-                  } else {
-                    result = event.data.success || true;
-                  }
-                  self.postMessage({ id, type: 'success', result });
-                  break;
-                }
-                default:
-                  throw new Error(\`Unknown operation type: \${type}\`);
-              }
-            } catch (error) {
-              self.postMessage({ 
-                id, 
-                type: 'error', 
-                error: error instanceof Error ? error.message : 'Unknown error' 
-              });
-            }
-          });
-        `;
-
-        const blob = new Blob([workerCode], { type: 'application/javascript' });
-        const workerUrl = URL.createObjectURL(blob);
-
-        this.worker = new Worker(workerUrl);
+      if (typeof import.meta.url !== 'undefined') {
+        const workerUrl = new URL('./worker-storage.worker.js', import.meta.url);
+        this.worker = new Worker(workerUrl, { type: 'module' });
         this.worker.addEventListener('message', this.handleWorkerMessage.bind(this));
         this.worker.addEventListener('error', this.handleWorkerError.bind(this));
-
-        // Clean up the blob URL
-        URL.revokeObjectURL(workerUrl);
       }
     } catch (error) {
       console.warn('Failed to initialize Web Worker for state persistence:', error);
@@ -171,6 +89,13 @@ export class WorkerStorage {
     if (!request) {
       console.warn('Received worker response for unknown request:', id);
       return;
+    }
+
+    // Clear pending timeout for this request
+    const timeout = this.timeouts.get(id);
+    if (timeout) {
+      clearTimeout(timeout);
+      this.timeouts.delete(id);
     }
 
     this.pendingRequests.delete(id);
@@ -292,33 +217,50 @@ export class WorkerStorage {
       this.worker.postMessage(message);
 
       // Set a timeout to prevent hanging requests
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
+          this.timeouts.delete(id);
           reject(new Error('Worker request timeout'));
         }
-      }, 30000); // 30 second timeout - increased to account for concurrent file operations
+      }, 30000); // 30 s timeout – long enough for massive saves but short enough to fail fast
+
+      this.timeouts.set(id, timeout);
     });
   }
 
-  async getItem(key: string): Promise<string | null> {
+  async getItem<T = unknown>(key: string): Promise<T | null> {
     try {
       const result = await this.sendMessage('load', key);
-      return result as string | null;
+      return result as T | null;
     } catch (error) {
       console.error('Worker getItem failed:', error);
       // Fallback to direct localStorage access
-      return localStorage.getItem(key);
+      const rawValue = localStorage.getItem(key);
+      if (!rawValue) return null;
+
+      try {
+        return JSON.parse(rawValue) as T;
+      } catch {
+        // If parsing fails, return the raw value as-is (for backward compatibility)
+        return rawValue as T;
+      }
     }
   }
 
-  async setItem(key: string, value: string): Promise<void> {
+  async setItem(key: string, value: unknown): Promise<void> {
+    const payload = typeof value === 'string' ? value : value;
     try {
-      await this.sendMessage('save', key, value);
+      await this.sendMessage('save', key, payload);
     } catch (error) {
       console.error('Worker setItem failed:', error);
-      // Fallback to direct localStorage access
-      localStorage.setItem(key, value);
+      // For fallback path, ensure we store stringified value
+      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+      try {
+        localStorage.setItem(key, serialized);
+      } catch (e) {
+        console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+      }
     }
   }
 

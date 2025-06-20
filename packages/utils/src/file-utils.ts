@@ -56,8 +56,6 @@ const textFileExtensions = new Set([
   'sql',
   'graphql',
   'gql',
-  'tsx',
-  'jsx',
   'vue',
   'svelte',
 ]);
@@ -149,21 +147,29 @@ export function getBaseFilename(filename: string): string {
   return nameWithExtension.slice(0, lastDotIndex);
 }
 
+const FILE_SIZE_UNITS = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+
 /**
- * Formats a file size in bytes to a human-readable string
- * @param bytes The file size in bytes
- * @param decimals The number of decimal places to show
- * @returns A formatted string (e.g. "1.5 KB")
+ * Formats a file size in bytes to a human-readable string.
+ *
+ * @warning This function is not locale-aware and allocates intermediate strings.
+ * For performance-critical code, especially in virtualized lists, consider a memoized alternative.
+ *
+ * @param bytes The file size in bytes. Must be a non-negative number.
+ * @param decimals The number of decimal places to use (default: 1).
+ * @returns A formatted file size string (e.g., "1.5 KB").
  */
 export function formatFileSize(bytes: number, decimals = 1): string {
-  if (bytes === 0) return '0 Bytes';
+  if (bytes <= 0) return '0 Bytes';
 
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
 
   const i = Math.floor(Math.log(bytes) / Math.log(k));
 
-  const value = Number.parseFloat((bytes / k ** i).toFixed(dm));
-  return `${value} ${sizes[i]}`;
+  // Ensure index is within bounds of the units array
+  const unitIndex = i < FILE_SIZE_UNITS.length ? i : FILE_SIZE_UNITS.length - 1;
+
+  const value = Number.parseFloat((bytes / k ** unitIndex).toFixed(dm));
+  return `${value} ${FILE_SIZE_UNITS[unitIndex]}`;
 }
