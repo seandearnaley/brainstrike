@@ -9,7 +9,8 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { FileText, Layers, Search, Settings } from 'lucide-react';
+import { Database, FileText, Layers, Search } from 'lucide-react';
+import { DatabaseDemoPanel } from './database-demo-panel';
 
 export function RightPanel() {
   return (
@@ -28,9 +29,9 @@ export function RightPanel() {
             <Search className="h-3 w-3" />
             <span className="hidden sm:inline">Search</span>
           </TabsTrigger>
-          <TabsTrigger value="settings" className="flex items-center gap-1">
-            <Settings className="h-3 w-3" />
-            <span className="hidden sm:inline">Config</span>
+          <TabsTrigger value="database" className="flex items-center gap-1">
+            <Database className="h-3 w-3" />
+            <span className="hidden sm:inline">DB</span>
           </TabsTrigger>
         </TabsList>
 
@@ -120,32 +121,8 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="settings" className="h-full mt-0">
-            <Card className="h-full">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Configuration</CardTitle>
-                <CardDescription className="text-xs">
-                  Application settings and preferences
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="text-xs space-y-3">
-                <div>
-                  <h4 className="font-medium mb-2">General Settings</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis
-                    praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias
-                    excepturi sint occaecati cupiditate non provident.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">Advanced Options</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Similique sunt in culpa qui officia deserunt mollitia animi, id est laborum et
-                    dolorum fuga. Et harum quidem rerum facilis est et expedita distinctio.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="database" className="h-full mt-0">
+            <DatabaseDemoPanel />
           </TabsContent>
         </div>
       </Tabs>

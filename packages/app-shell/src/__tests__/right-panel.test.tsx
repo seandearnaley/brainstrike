@@ -1,7 +1,23 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
+
+// Mock the database dependencies
+vi.mock('@brainstrike/db', () => ({
+  useFileRecordRepository: () => null, // Return null to simulate loading state
+}));
+
+// Mock the UI toast functionality
+vi.mock('@brainstrike/ui', async () => {
+  const actual = await vi.importActual('@brainstrike/ui');
+  return {
+    ...actual,
+    useToast: () => ({
+      toast: vi.fn(),
+    }),
+  };
+});
 
 describe('RightPanel', () => {
   test('renders with all tabs', () => {
@@ -11,7 +27,7 @@ describe('RightPanel', () => {
     expect(screen.getByRole('tab', { name: /props/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /layers/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /config/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
   });
 
   test('shows properties tab content by default', () => {
@@ -41,12 +57,11 @@ describe('RightPanel', () => {
     expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
     expect(screen.getByText('Search Options')).toBeInTheDocument();
 
-    // Click on the config tab
-    await user.click(screen.getByRole('tab', { name: /config/i }));
+    // Click on the database tab
+    await user.click(screen.getByRole('tab', { name: /db/i }));
 
-    // Should show config content
-    expect(screen.getByText('Application settings and preferences')).toBeInTheDocument();
-    expect(screen.getByText('General Settings')).toBeInTheDocument();
+    // Should show database content
+    expect(screen.getByText('Database is initializing...')).toBeInTheDocument();
   });
 
   test('has proper tab structure with icons', () => {
@@ -63,7 +78,7 @@ describe('RightPanel', () => {
     expect(tabs[0]).toHaveTextContent('Props');
     expect(tabs[1]).toHaveTextContent('Layers');
     expect(tabs[2]).toHaveTextContent('Search');
-    expect(tabs[3]).toHaveTextContent('Config');
+    expect(tabs[3]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {

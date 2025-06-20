@@ -6,3 +6,4 @@ export * from './right-panel';
 export * from './root-layout-content';
 export * from './settings-page-content';
 export * from './navigation';
+export * from './database-demo-panel';

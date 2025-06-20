@@ -39,20 +39,7 @@ beforeEach(() => {
 });
 
 describe('App database path resolution', () => {
-  it('uses user data path when getUserDataPath resolves', async () => {
-    mockElectronAPI.getUserDataPath.mockResolvedValue('/user/data');
-    await import('../../renderer/main.tsx');
-    const element = mockRender.mock.calls[0]?.[0];
-    if (element) {
-      render(element);
-    }
-    await new Promise((r) => setTimeout(r, 0));
-    const call = mockDbProvider.mock.calls.at(-1)?.[0] as { dbPath: string } | undefined;
-    expect(call?.dbPath).toBe('/user/data');
-  });
-
-  it('falls back to idb://desktop when getUserDataPath rejects', async () => {
-    mockElectronAPI.getUserDataPath.mockRejectedValue(new Error('fail'));
+  it('uses IndexedDB for desktop app', async () => {
     await import('../../renderer/main.tsx');
     const element = mockRender.mock.calls[0]?.[0];
     if (element) {

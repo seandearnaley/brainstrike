@@ -321,6 +321,9 @@ importers:
 
   packages/app-shell:
     dependencies:
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../file-explorer-hooks
