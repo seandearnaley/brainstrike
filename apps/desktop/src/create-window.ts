@@ -86,7 +86,7 @@ async function loadRenderer(win: BrowserWindow) {
 export async function createWindow() {
   // Check if running in headless mode (for tests)
   const isHeadless = process.argv.includes('--headless') || process.argv.includes('--test-mode');
-  
+
   const win = new BrowserWindow({
     width: 1536,
     height: 800,
