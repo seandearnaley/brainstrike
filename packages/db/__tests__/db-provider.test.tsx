@@ -19,7 +19,9 @@ describe('DbProvider', () => {
     resetLogger();
   });
 
-  afterEach(() => {
+  afterEach(async () => {
+    // Add a small delay to allow any pending promises to settle
+    await new Promise(resolve => setTimeout(resolve, 10));
     vi.restoreAllMocks();
   });
   it('exposes FileRecordRepository via context', async () => {
@@ -70,7 +72,10 @@ describe('DbProvider', () => {
     });
     unmount();
 
-    expect(closeSpy).toHaveBeenCalledTimes(1);
+    // Wait for the async close operation to complete
+    await waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1), {
+      timeout: 1000,
+    });
     isDevEnvSpy.mockRestore();
   });
 
@@ -193,7 +198,12 @@ describe('DbProvider', () => {
     await waitFor(() => expect(result.current).toBeDefined(), { timeout: 10000 });
 
     expect(() => unmount()).not.toThrow();
-    expect(closeSpy).toHaveBeenCalledTimes(1);
+    
+    // Wait for the async close operation to complete
+    await waitFor(() => expect(closeSpy).toHaveBeenCalledTimes(1), {
+      timeout: 1000,
+    });
+    
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith(
         '[DbProvider]',

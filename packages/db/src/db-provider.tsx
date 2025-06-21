@@ -84,9 +84,16 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
         // In development, avoid closing the database during Fast Refresh
         // This prevents expensive re-initialization during HMR cycles
         if (!isDevEnv()) {
-          db.close().catch((err) => {
-            logger.error('Failed to close database:', err);
-          });
+          // Use a timeout to avoid blocking the cleanup and handle potential race conditions
+          setTimeout(() => {
+            db.close().catch((err) => {
+              // Only log the error if it's not a "database already closed" type error
+              const errorMessage = err?.message || '';
+              if (!errorMessage.includes('closed') && !errorMessage.includes('PGlite is closed')) {
+                logger.error('Failed to close database:', err);
+              }
+            });
+          }, 0);
           dbRef.current = null;
         }
         // In development, we keep the database open but still reset the initialization flag

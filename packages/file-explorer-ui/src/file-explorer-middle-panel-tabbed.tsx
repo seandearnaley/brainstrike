@@ -26,6 +26,7 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
 
   const performUndoableActionForPanel = (
     key: string,
+    _itemKey: string,
     opts: {
       actionName: string;
       itemDescription: string;

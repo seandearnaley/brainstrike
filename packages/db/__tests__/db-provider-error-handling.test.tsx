@@ -27,13 +27,20 @@ describe('DbProvider error handling', () => {
     await Promise.allSettled(
       activeDatabases.map(async (db) => {
         try {
-          await db.close();
+          // Check if database is still open before trying to close
+          if (db && typeof db.close === 'function') {
+            await db.close();
+          }
         } catch (error) {
-          // Ignore close errors in cleanup
+          // Ignore close errors in cleanup - database might already be closed
         }
       })
     );
     activeDatabases.length = 0;
+    
+    // Add a small delay to allow any pending promises to settle
+    await new Promise(resolve => setTimeout(resolve, 10));
+    
     vi.restoreAllMocks();
   });
 
