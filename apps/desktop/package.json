@@ -25,8 +25,8 @@
     "type-check": "npm run type-check:main && npm run type-check:e2e",
     "type-check:main": "tsc --noEmit",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
-    "lint": "cd ../.. && npx biome check apps/desktop/",
-    "lint:fix": "cd ../.. && npx biome check apps/desktop/ --write"
+    "lint": "cd ../.. && pnpm biome check apps/desktop/",
+    "lint:fix": "cd ../.. && pnpm biome check apps/desktop/ --write"
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",
@@ -43,7 +43,6 @@
     "react-dom": "^19"
   },
   "devDependencies": {
-    "@biomejs/biome": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@tailwindcss/vite": "^4.1.10",
     "@testing-library/jest-dom": "^6.6.3",
@@ -53,7 +52,7 @@
     "@types/react-dom": "^19",
     "@vitejs/plugin-react": "^4.5.2",
     "@vitest/coverage-v8": "^3.2.3",
-    "@playwright/test": "workspace:*",
+    "@playwright/test": "^1.52.0",
     "concurrently": "^9.1.2",
     "electron": "36.4.0",
     "electron-builder": "^26.0.12",
