@@ -96,33 +96,48 @@ interface LayoutHandlerConfig {
   ) => void;
 }
 
+// Helper to determine panel visibility state
+function getPanelVisibilityState(config: LayoutHandlerConfig) {
+  return {
+    hasLeft: config.leftPanelContent && config.showLeftPanel,
+    hasRight: config.rightPanelContent && config.showRightPanel,
+  };
+}
+
+// Helper to get size from array with fallback
+function getSizeWithFallback(sizes: number[], index: number, fallback: number): number {
+  return sizes[index] ?? fallback;
+}
+
 // Horizontal layout size calculation
 function calculateHorizontalSizes(
   newSizes: number[],
   config: LayoutHandlerConfig
 ): [number, number] {
-  const hasLeft = config.leftPanelContent && config.showLeftPanel;
-  const hasRight = config.rightPanelContent && config.showRightPanel;
+  const { hasLeft, hasRight } = getPanelVisibilityState(config);
+  const defaultLeftSize = config.safeLeftSize ?? 25;
+  const defaultRightSize = config.safeRightSize ?? 20;
 
-  let newLeftSize = config.safeLeftSize ?? 25;
-  let newRightSize = config.safeRightSize ?? 20;
-
-  if (hasLeft && hasRight) {
-    if (newSizes.length === 3) {
-      newLeftSize = newSizes[0] ?? newLeftSize;
-      newRightSize = newSizes[2] ?? newRightSize;
-    }
-  } else if (hasLeft) {
-    if (newSizes.length === 2) {
-      newLeftSize = newSizes[0] ?? newLeftSize;
-    }
-  } else if (hasRight) {
-    if (newSizes.length === 2) {
-      newRightSize = newSizes[1] ?? newRightSize;
-    }
+  // Both panels visible - expect 3 sizes [left, middle, right]
+  if (hasLeft && hasRight && newSizes.length === 3) {
+    return [
+      getSizeWithFallback(newSizes, 0, defaultLeftSize),
+      getSizeWithFallback(newSizes, 2, defaultRightSize),
+    ];
   }
 
-  return [newLeftSize, newRightSize];
+  // Only left panel visible - expect 2 sizes [left, middle]
+  if (hasLeft && newSizes.length === 2) {
+    return [getSizeWithFallback(newSizes, 0, defaultLeftSize), defaultRightSize];
+  }
+
+  // Only right panel visible - expect 2 sizes [middle, right]
+  if (hasRight && newSizes.length === 2) {
+    return [defaultLeftSize, getSizeWithFallback(newSizes, 1, defaultRightSize)];
+  }
+
+  // Fallback to defaults for all other cases
+  return [defaultLeftSize, defaultRightSize];
 }
 
 // Custom hook for managing layout change handlers

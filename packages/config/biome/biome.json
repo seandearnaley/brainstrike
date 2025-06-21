@@ -184,17 +184,6 @@
           }
         }
       }
-    },
-    {
-      "include": ["**/ide-layout.tsx"],
-      "linter": {
-        "rules": {
-          "complexity": {
-            "useLiteralKeys": "off",
-            "noExcessiveCognitiveComplexity": "off"
-          }
-        }
-      }
     }
   ],
   "vcs": {
