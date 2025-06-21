@@ -19,10 +19,16 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   console.log('Main path:', mainPath);
   
   const launchOptions: Parameters<typeof electron.launch>[0] = {
-    args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode'],
+    args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode', '--disable-dialogs'],
     executablePath: electronPath,
     // Set timeout for app launch
     timeout: 30000,
+    // Additional options to prevent dialogs and windows
+    env: {
+      ...process.env,
+      ELECTRON_IS_E2E_TEST: 'true',
+      DISABLE_NATIVE_DIALOGS: 'true'
+    }
   };
   
   // Only record video when not in CI to prevent window popups
@@ -136,9 +142,15 @@ export async function isDevMode(app: ElectronApplication): Promise<boolean> {
  */
 export async function setupDialogMocking(app: ElectronApplication): Promise<void> {
   await app.evaluate(async ({ dialog }) => {
+    // Store original methods in case they're needed
+    const originalShowOpenDialog = dialog.showOpenDialog;
+    const originalShowSaveDialog = dialog.showSaveDialog;
+    const originalShowMessageBox = dialog.showMessageBox;
+    const originalShowErrorBox = dialog.showErrorBox;
+    
     // Mock showOpenDialog to return a predefined result
     dialog.showOpenDialog = async (options) => {
-      console.log('Mocked showOpenDialog called with options:', options);
+      console.log('🔸 Mocked showOpenDialog called with options:', options);
       
       // Return a mock directory path for testing
       return {
@@ -149,7 +161,7 @@ export async function setupDialogMocking(app: ElectronApplication): Promise<void
     
     // Mock showSaveDialog
     dialog.showSaveDialog = async (options) => {
-      console.log('Mocked showSaveDialog called with options:', options);
+      console.log('🔸 Mocked showSaveDialog called with options:', options);
       
       return {
         canceled: false,
@@ -159,13 +171,27 @@ export async function setupDialogMocking(app: ElectronApplication): Promise<void
     
     // Mock showMessageBox
     dialog.showMessageBox = async (options) => {
-      console.log('Mocked showMessageBox called with options:', options);
+      console.log('🔸 Mocked showMessageBox called with options:', options);
       
       return {
         response: 0, // First button (usually OK/Yes)
         checkboxChecked: false
       };
     };
+    
+    // Mock showErrorBox (this is synchronous)
+    dialog.showErrorBox = (title, content) => {
+      console.log('🔸 Mocked showErrorBox called:', { title, content });
+      // Just log the error, don't show a dialog
+    };
+    
+    // Mock showCertificateTrustDialog if it exists
+    if (dialog.showCertificateTrustDialog) {
+      dialog.showCertificateTrustDialog = async (...args: any[]) => {
+        console.log('🔸 Mocked showCertificateTrustDialog called with args:', args);
+        // This method doesn't return anything according to Electron docs
+      };
+    }
   });
 }
 
@@ -177,15 +203,50 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
     // Mock the electronAPI file system methods if they exist
     const electronAPI = (window as any).electronAPI;
     if (electronAPI?.fileSystem) {
+      console.log('🔸 Setting up file system API mocks...');
+      
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
-        console.log('Mocked requestDirectoryAccess called');
+        console.log('🔸 Mocked requestDirectoryAccess called');
         return '/mock/test/directory';
       };
       
       electronAPI.fileSystem.exists = async (path: string) => {
-        console.log('Mocked exists called with path:', path);
+        console.log('🔸 Mocked exists called with path:', path);
         // Return true for mock paths, false for others
         return path.includes('/mock/');
+      };
+      
+      electronAPI.fileSystem.readDirectory = async (path: string) => {
+        console.log('🔸 Mocked readDirectory called with path:', path);
+        return ['mock-file1.txt', 'mock-file2.txt', 'mock-folder/'];
+      };
+      
+      electronAPI.fileSystem.readFile = async (path: string) => {
+        console.log('🔸 Mocked readFile called with path:', path);
+        return 'Mock file content for testing';
+      };
+      
+      electronAPI.fileSystem.writeFile = async (path: string, content: string) => {
+        console.log('🔸 Mocked writeFile called with path:', path, 'content length:', content.length);
+        return true;
+      };
+      
+      electronAPI.fileSystem.watchDirectory = async (path: string) => {
+        console.log('🔸 Mocked watchDirectory called with path:', path);
+        return { unwatch: () => console.log('🔸 Mocked unwatch called') };
+      };
+    } else {
+      console.log('🔸 No electronAPI.fileSystem found to mock');
+    }
+    
+    // Also mock any global file picker functions if they exist
+    if ((window as any).showDirectoryPicker) {
+      (window as any).showDirectoryPicker = async () => {
+        console.log('🔸 Mocked showDirectoryPicker called');
+        return {
+          name: 'mock-directory',
+          kind: 'directory'
+        };
       };
     }
   });

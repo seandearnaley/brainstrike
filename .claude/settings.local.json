@@ -109,7 +109,11 @@
       "Bash(CI=true npx playwright test e2e/*.spec.ts --reporter=list --grep \"should launch successfully\" --timeout=30000)",
       "Bash(CI=true npx playwright test ./e2e/app-launch.spec.ts --reporter=list --grep \"should launch successfully\" --timeout=30000)",
       "Bash(CI=true npx playwright test --reporter=list --grep \"should launch successfully\" --timeout=20000)",
-      "Bash(CI=true npx playwright test --reporter=list --timeout=20000)"
+      "Bash(CI=true npx playwright test --reporter=list --timeout=20000)",
+      "Bash(CI=true pnpm test:e2e --reporter=list)",
+      "Bash(CI=true pnpm test:e2e)",
+      "Bash(timeout 60s pnpm run test --filter @brainstrike/desktop)",
+      "Bash(PWDEBUG=1 pnpm test:e2e --headed)"
     ],
     "deny": []
   },

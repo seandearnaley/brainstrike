@@ -68,8 +68,8 @@ const config: PlaywrightTestConfig = {
   // Global setup for Electron app
   globalSetup: './e2e/global-setup.ts',
   
-  // Output directory for test artifacts
-  outputDir: 'test-results/',
+  // Output directory for test artifacts - align with CI artifact path
+  outputDir: 'blob-report/',
 };
 
 export default config; 

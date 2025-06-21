@@ -326,8 +326,8 @@ jobs:
           echo "Merged blob reports directory contents:"
           ls -la merged-blob-reports/
           
-          # Merge reports using the correct directory structure from root
-          pnpm exec playwright merge-reports --reporter html merged-blob-reports --config apps/web/playwright.config.ts
+          # Merge reports using default config to handle both web and desktop
+          pnpm exec playwright merge-reports --reporter html merged-blob-reports
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4

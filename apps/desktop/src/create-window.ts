@@ -23,6 +23,27 @@ function configureSecurity(win: BrowserWindow) {
     }
     event.preventDefault();
   });
+
+  // Security: Add Content Security Policy headers (only in real Electron environment)
+  if (win.webContents.session?.webRequest) {
+    win.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; " +
+              "img-src 'self' data: blob:; " +
+              "style-src 'self' 'unsafe-inline'; " +
+              "script-src 'self'; " +
+              "connect-src 'self' ws: wss:; " +
+              "worker-src 'self' blob:; " +
+              "object-src 'none'; " +
+              "base-uri 'self';",
+          ],
+        },
+      });
+    });
+  }
 }
 
 /**
