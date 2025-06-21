@@ -11,7 +11,7 @@ export interface ElectronAppContext {
  * Launch the Electron app for testing
  */
 export async function launchElectronApp(): Promise<ElectronAppContext> {
-  const electronPath = path.join(process.cwd(), 'node_modules', '.bin', 'electron');
+  const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
   
   console.log('🚀 Launching Electron app...');
@@ -19,7 +19,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   console.log('Main path:', mainPath);
   
   const launchOptions: Parameters<typeof electron.launch>[0] = {
-    args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode', '--headless'],
+    args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode'],
     executablePath: electronPath,
     // Set timeout for app launch
     timeout: 30000,

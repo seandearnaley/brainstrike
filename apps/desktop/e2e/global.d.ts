@@ -1,4 +1,5 @@
 /// <reference types="node" />
+/// <reference types="@playwright/test" />
 
 declare global {
   namespace NodeJS {

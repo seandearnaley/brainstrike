@@ -9,14 +9,18 @@ const execAsync = promisify(exec);
 async function globalSetup(config: FullConfig) {
   console.log('🔧 Setting up Electron E2E tests...');
   
-  // Build the Electron app before running tests
-  console.log('📦 Building Electron app...');
-  try {
-    await execAsync('npm run build', { cwd: process.cwd() });
-    console.log('✅ Electron app built successfully');
-  } catch (error) {
-    console.error('❌ Failed to build Electron app:', error);
-    throw error;
+  // Build the Electron app before running tests (skip in CI since it's already built)
+  if (!process.env.CI) {
+    console.log('📦 Building Electron app...');
+    try {
+      await execAsync('npm run build', { cwd: process.cwd() });
+      console.log('✅ Electron app built successfully');
+    } catch (error) {
+      console.error('❌ Failed to build Electron app:', error);
+      throw error;
+    }
+  } else {
+    console.log('🚀 Skipping build in CI (already built)');
   }
   
   // Ensure the main process file exists

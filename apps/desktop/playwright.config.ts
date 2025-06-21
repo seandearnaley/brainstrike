@@ -14,8 +14,8 @@ console.log(`Test directory: ./e2e`);
 const config: PlaywrightTestConfig = {
   testDir: './e2e',
   
-  // Run tests in files in parallel
-  fullyParallel: true,
+  // Don't run tests in files in parallel since we have limited workers
+  fullyParallel: false,
   
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: isCI,
@@ -57,7 +57,8 @@ const config: PlaywrightTestConfig = {
   projects: [
     {
       name: 'electron-main',
-      testMatch: '**/e2e/**/*.spec.ts',
+      testDir: './e2e',
+      testMatch: '**/*.spec.ts',
       use: {
         // Electron-specific configuration will be handled in global setup
       },

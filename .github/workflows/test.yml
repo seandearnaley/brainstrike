@@ -234,24 +234,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
 
-      - name: Get Playwright version
-        id: playwright-version
-        run: echo "version=$(node -e "console.log(require('./apps/desktop/package.json').devDependencies['@playwright/test'])")" >> $GITHUB_OUTPUT
-
-      - name: Cache Playwright browsers
-        id: playwright-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-electron-${{ steps.playwright-version.outputs.version }}
-
       - name: Install system dependencies for Electron
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
 
-      - name: Install Playwright
-        run: pnpm exec playwright install --with-deps
+      - name: Install Playwright for Electron (no browsers needed)
+        run: pnpm exec playwright install-deps
 
       - name: Build desktop application
         run: pnpm run build --filter @brainstrike/desktop
@@ -327,7 +316,7 @@ jobs:
           mkdir -p merged-blob-reports
           
           # Copy all blob report files to the merged directory
-          for dir in all-blob-reports/blob-report-*/; do
+          for dir in all-blob-reports/*/; do
             if [ -d "$dir" ]; then
               echo "Copying files from $dir"
               cp -r "$dir"/* merged-blob-reports/ || true
