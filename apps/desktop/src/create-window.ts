@@ -84,6 +84,9 @@ async function loadRenderer(win: BrowserWindow) {
  * Create the main application window and load the appropriate renderer.
  */
 export async function createWindow() {
+  // Check if running in headless mode (for tests)
+  const isHeadless = process.argv.includes('--headless') || process.argv.includes('--test-mode');
+  
   const win = new BrowserWindow({
     width: 1536,
     height: 800,
@@ -102,10 +105,12 @@ export async function createWindow() {
     show: false,
   });
 
-  // Show window when ready
-  win.once('ready-to-show', () => {
-    win.show();
-  });
+  // Show window when ready (unless in headless mode)
+  if (!isHeadless) {
+    win.once('ready-to-show', () => {
+      win.show();
+    });
+  }
 
   configureSecurity(win);
   await loadRenderer(win);

@@ -119,6 +119,18 @@
       // No outputs to cache, and should always run fresh.
       "cache": false,
       "outputs": ["coverage/**"]
+    },
+
+    // --- E2E Test Task --- //
+    "test:e2e": {
+      // E2E tests should run after the app is built
+      "dependsOn": ["build"],
+      // E2E tests produce test results and reports
+      "outputs": ["test-results/**", "playwright-report/**", "blob-report/**"],
+      // E2E tests should not be cached as they test the full application
+      "cache": false,
+      // Show all logs for E2E tests as they're important for debugging
+      "outputLogs": "full"
     }
   }
 } 
