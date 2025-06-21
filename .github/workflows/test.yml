@@ -326,8 +326,14 @@ jobs:
           echo "Merged blob reports directory contents:"
           ls -la merged-blob-reports/
           
-          # Merge reports using default config to handle both web and desktop
-          pnpm exec playwright merge-reports --reporter html merged-blob-reports
+          # Debug: Check if merge config exists and is valid
+          echo "Checking merge config..."
+          ls -la playwright-merge.config.js
+          node -c playwright-merge.config.js
+          
+          # Merge reports using custom merge config to handle both web and desktop
+          echo "Starting merge process..."
+          pnpm exec playwright merge-reports --config playwright-merge.config.js merged-blob-reports
 
       - name: Download unit test coverage
         uses: actions/download-artifact@v4
@@ -375,7 +381,7 @@ jobs:
           name: all-test-results
           path: |
             coverage/
-            apps/web/playwright-report/
+            playwright-report-merged/
           retention-days: 7
           if-no-files-found: warn
 
