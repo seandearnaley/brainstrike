@@ -21,29 +21,27 @@ const ERROR_MESSAGES = {
   genericError: 'An unexpected error occurred while selecting the directory.',
 } as const;
 
+// Error mapping configuration
+const ERROR_PATTERNS = [
+  { pattern: /Permission denied/i, message: ERROR_MESSAGES.permissionDenied },
+  {
+    pattern: /Unable to open directory selection dialog|Failed to open directory dialog/i,
+    message: ERROR_MESSAGES.dialogFailed,
+  },
+  {
+    pattern: /Unable to read the selected directory/i,
+    message: ERROR_MESSAGES.directoryReadFailed,
+  },
+  {
+    pattern: /Cannot access selected directory/i,
+    message: ERROR_MESSAGES.directoryAccessFailed,
+  },
+] as const;
+
 // Helper function to map error messages to user-friendly text
 function getUserFriendlyErrorMessage(errorMessage: string): string {
-  if (errorMessage.includes('Permission denied')) {
-    return ERROR_MESSAGES.permissionDenied;
-  }
-
-  if (
-    errorMessage.includes('Unable to open directory selection dialog') ||
-    errorMessage.includes('Failed to open directory dialog')
-  ) {
-    return ERROR_MESSAGES.dialogFailed;
-  }
-
-  if (errorMessage.includes('Unable to read the selected directory')) {
-    return ERROR_MESSAGES.directoryReadFailed;
-  }
-
-  if (errorMessage.includes('Cannot access selected directory')) {
-    return ERROR_MESSAGES.directoryAccessFailed;
-  }
-
-  // For any other errors, pass through the message as-is since it's already user-friendly
-  return errorMessage;
+  const matchedPattern = ERROR_PATTERNS.find(({ pattern }) => pattern.test(errorMessage));
+  return matchedPattern ? matchedPattern.message : errorMessage;
 }
 
 // Helper function to handle directory selection with proper error handling
@@ -65,10 +63,11 @@ async function selectDirectoryWithErrorHandling(
     }
     return handle;
   } catch (error) {
-    if (error instanceof Error) {
-      throw new Error(getUserFriendlyErrorMessage(error.message));
-    }
-    throw new Error(ERROR_MESSAGES.genericError);
+    const errorMessage =
+      error instanceof Error
+        ? getUserFriendlyErrorMessage(error.message)
+        : ERROR_MESSAGES.genericError;
+    throw new Error(errorMessage);
   } finally {
     setIsAccessLoading(false);
   }

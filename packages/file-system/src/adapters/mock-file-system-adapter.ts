@@ -9,7 +9,7 @@ export interface MockFileEntry {
   children?: Record<string, MockFileEntry>;
 }
 
-// Helper function to navigate to a specific path in the mock file system
+// Navigation helper functions
 function navigateToPath(
   mockFileSystem: Record<string, MockFileEntry>,
   basePath: string
@@ -32,52 +32,6 @@ function navigateToPath(
   return currentLevel;
 }
 
-// Helper function to create a file node from a mock entry
-function createFileNode(
-  name: string,
-  entry: MockFileEntry,
-  fullPath: string,
-  selectedDirectory: string
-): IFileNode {
-  const fileNode: IFileNode = {
-    name,
-    path: fullPath,
-    type: entry.type,
-    depth: 0,
-    selectionState: 'unchecked',
-    rootFolderId: selectedDirectory,
-    isVisible: true,
-    handle: {
-      path: fullPath,
-      name,
-      kind: entry.type,
-      platform: 'web',
-      _internal: entry,
-    } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
-  };
-
-  if (entry.type === 'file') {
-    fileNode.size = entry.size ?? (entry.content?.length || 0);
-    fileNode.lastModified = Date.now();
-  } else {
-    fileNode.children = [];
-  }
-
-  return fileNode;
-}
-
-// Helper function to sort file nodes (directories first, then alphabetical)
-function sortFileNodes(entries: IFileNode[]): IFileNode[] {
-  return entries.sort((a, b) => {
-    // Directories first, then files
-    if (a.type !== b.type) {
-      return a.type === 'directory' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
-}
-
-// Helper function to add an entry to a nested path structure
 function addEntryToPath(
   mockFileSystem: Record<string, MockFileEntry>,
   path: string,
@@ -104,6 +58,69 @@ function addEntryToPath(
   if (fileName) {
     current[fileName] = entry;
   }
+}
+
+function checkPathExists(
+  mockFileSystem: Record<string, MockFileEntry>,
+  relativePath: string
+): boolean {
+  const pathParts = relativePath.split('/');
+  let current = mockFileSystem;
+
+  for (const part of pathParts) {
+    if (!current[part]) {
+      return false;
+    }
+    if (current[part].type === 'directory' && current[part].children) {
+      current = current[part].children;
+    }
+  }
+
+  return true;
+}
+
+// File node creation helper functions
+function createFileNode(
+  name: string,
+  entry: MockFileEntry,
+  fullPath: string,
+  selectedDirectory: string
+): IFileNode {
+  const baseNode: IFileNode = {
+    name,
+    path: fullPath,
+    type: entry.type,
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: selectedDirectory,
+    isVisible: true,
+    handle: {
+      path: fullPath,
+      name,
+      kind: entry.type,
+      platform: 'web',
+      _internal: entry,
+    } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+  };
+
+  if (entry.type === 'file') {
+    baseNode.size = entry.size ?? (entry.content?.length || 0);
+    baseNode.lastModified = Date.now();
+  } else {
+    baseNode.children = [];
+  }
+
+  return baseNode;
+}
+
+function sortFileNodes(entries: IFileNode[]): IFileNode[] {
+  return entries.sort((a, b) => {
+    // Directories first, then files
+    if (a.type !== b.type) {
+      return a.type === 'directory' ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
 }
 
 /**
@@ -156,12 +173,9 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
       throw new Error('No directory selected');
     }
 
-    const basePath =
-      handle.path === this.selectedDirectory
-        ? ''
-        : handle.path.replace(`${this.selectedDirectory}/`, '');
-
+    const basePath = this.getRelativePath(handle.path);
     const currentLevel = navigateToPath(this.mockFileSystem, basePath);
+
     if (!currentLevel) {
       return [];
     }
@@ -189,20 +203,16 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
       return false;
     }
 
-    const relativePath = path.replace(`${this.selectedDirectory}/`, '');
-    const pathParts = relativePath.split('/');
+    const relativePath = this.getRelativePath(path);
+    return checkPathExists(this.mockFileSystem, relativePath);
+  }
 
-    let current = this.mockFileSystem;
-    for (const part of pathParts) {
-      if (!current[part]) {
-        return false;
-      }
-      if (current[part].type === 'directory' && current[part].children) {
-        current = current[part].children;
-      }
+  private getRelativePath(path: string): string {
+    if (!this.selectedDirectory) {
+      return path;
     }
 
-    return true;
+    return path === this.selectedDirectory ? '' : path.replace(`${this.selectedDirectory}/`, '');
   }
 
   /**

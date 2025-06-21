@@ -1,64 +1,99 @@
+// Operation handlers for different storage operations
+interface StorageOperation {
+  id: string;
+  type: string;
+  key?: string;
+  value?: unknown;
+  operation?: string;
+  rawValue?: string;
+  success?: boolean;
+}
+
+// Handle save operation
+function handleSaveOperation(data: StorageOperation): void {
+  if (!data.key || data.value === undefined) {
+    throw new Error('Save operation requires key and value');
+  }
+
+  const serialized = typeof data.value === 'string' ? data.value : JSON.stringify(data.value);
+  const opId = Date.now();
+
+  self.postMessage({
+    id: data.id,
+    type: 'storage_request',
+    operation: 'setItem',
+    key: data.key,
+    value: serialized,
+    opId,
+  });
+}
+
+// Handle load operation
+function handleLoadOperation(data: StorageOperation): void {
+  if (!data.key) {
+    throw new Error('Load operation requires key');
+  }
+
+  self.postMessage({
+    id: data.id,
+    type: 'storage_request',
+    operation: 'getItem',
+    key: data.key,
+  });
+}
+
+// Handle remove operation
+function handleRemoveOperation(data: StorageOperation): void {
+  if (!data.key) {
+    throw new Error('Remove operation requires key');
+  }
+
+  self.postMessage({
+    id: data.id,
+    type: 'storage_request',
+    operation: 'removeItem',
+    key: data.key,
+  });
+}
+
+// Handle storage response
+function handleStorageResponse(data: StorageOperation): void {
+  const result =
+    data.operation === 'getItem' && data.rawValue
+      ? JSON.parse(data.rawValue)
+      : data.success || true;
+
+  self.postMessage({
+    id: data.id,
+    type: 'success',
+    result,
+  });
+}
+
+// Main event handler
 self.addEventListener('message', async (event) => {
-  const { id, type, key, value } = event.data;
+  const data = event.data as StorageOperation;
+
   try {
-    let result: unknown;
-    switch (type) {
-      case 'save': {
-        if (!key || value === undefined) {
-          throw new Error('Save operation requires key and value');
-        }
-        // Avoid double-stringifying if the value is already a string
-        const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-        const opId = Date.now();
-        self.postMessage({
-          id,
-          type: 'storage_request',
-          operation: 'setItem',
-          key,
-          value: serialized,
-          opId,
-        });
-        return;
-      }
-      case 'load': {
-        if (!key) {
-          throw new Error('Load operation requires key');
-        }
-        self.postMessage({
-          id,
-          type: 'storage_request',
-          operation: 'getItem',
-          key,
-        });
-        return;
-      }
-      case 'remove': {
-        if (!key) {
-          throw new Error('Remove operation requires key');
-        }
-        self.postMessage({
-          id,
-          type: 'storage_request',
-          operation: 'removeItem',
-          key,
-        });
-        return;
-      }
-      case 'storage_response': {
-        if (event.data.operation === 'getItem' && event.data.rawValue) {
-          result = JSON.parse(event.data.rawValue);
-        } else {
-          result = event.data.success || true;
-        }
-        self.postMessage({ id, type: 'success', result });
+    switch (data.type) {
+      case 'save':
+        handleSaveOperation(data);
         break;
-      }
+      case 'load':
+        handleLoadOperation(data);
+        break;
+      case 'remove':
+        handleRemoveOperation(data);
+        break;
+      case 'storage_response':
+        handleStorageResponse(data);
+        break;
       default:
-        throw new Error(`Unknown operation type: ${type}`);
+        throw new Error(`Unknown operation type: ${data.type}`);
     }
   } catch (error) {
     self.postMessage({
-      id,
+      id: data.id,
       type: 'error',
       error: error instanceof Error ? error.message : 'Unknown error',
     });

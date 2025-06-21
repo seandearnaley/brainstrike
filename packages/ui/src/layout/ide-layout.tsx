@@ -23,7 +23,7 @@ const IdeFileEditorContext = createContext<FileEditorContextValue>({
 
 export const useIdeFileEditor = () => useContext(IdeFileEditorContext);
 
-// Helper function to sync panel state with imperative panel handle
+// Panel state synchronization helper
 function syncPanelState(
   panel: ImperativePanelHandle | null,
   shouldShow: boolean,
@@ -49,7 +49,6 @@ function syncPanelState(
     }
   });
 
-  // Return cleanup function
   return () => cancelAnimationFrame(frameId);
 }
 
@@ -78,73 +77,76 @@ function usePanelEffects(
   }, [showConsole, consoleContent, consolePanelRef]);
 }
 
-// Custom hook for managing layout change handlers
-function useLayoutHandlers(
-  leftPanelContent?: React.ReactNode,
-  rightPanelContent?: React.ReactNode,
-  consoleContent?: React.ReactNode,
-  showLeftPanel?: boolean,
-  showRightPanel?: boolean,
-  showConsole?: boolean,
-  safeLeftSize?: number,
-  safeRightSize?: number,
-  safeConsoleSize?: number,
+// Layout handler configuration
+interface LayoutHandlerConfig {
+  leftPanelContent?: React.ReactNode;
+  rightPanelContent?: React.ReactNode;
+  consoleContent?: React.ReactNode;
+  showLeftPanel?: boolean;
+  showRightPanel?: boolean;
+  showConsole?: boolean;
+  safeLeftSize?: number;
+  safeRightSize?: number;
+  safeConsoleSize?: number;
   saveLayout?: (
     sizes: number[],
     showConsole?: boolean,
     showLeftPanel?: boolean,
     showRightPanel?: boolean
-  ) => void
-) {
+  ) => void;
+}
+
+// Horizontal layout size calculation
+function calculateHorizontalSizes(
+  newSizes: number[],
+  config: LayoutHandlerConfig
+): [number, number] {
+  const hasLeft = config.leftPanelContent && config.showLeftPanel;
+  const hasRight = config.rightPanelContent && config.showRightPanel;
+
+  let newLeftSize = config.safeLeftSize ?? 25;
+  let newRightSize = config.safeRightSize ?? 20;
+
+  if (hasLeft && hasRight) {
+    if (newSizes.length === 3) {
+      newLeftSize = newSizes[0] ?? newLeftSize;
+      newRightSize = newSizes[2] ?? newRightSize;
+    }
+  } else if (hasLeft) {
+    if (newSizes.length === 2) {
+      newLeftSize = newSizes[0] ?? newLeftSize;
+    }
+  } else if (hasRight) {
+    if (newSizes.length === 2) {
+      newRightSize = newSizes[1] ?? newRightSize;
+    }
+  }
+
+  return [newLeftSize, newRightSize];
+}
+
+// Custom hook for managing layout change handlers
+function useLayoutHandlers(config: LayoutHandlerConfig) {
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!saveLayout) return;
+      if (!config.saveLayout) return;
 
-      const hasLeft = leftPanelContent && showLeftPanel;
-      const hasRight = rightPanelContent && showRightPanel;
-
-      let newLeftSize = safeLeftSize ?? 25;
-      let newRightSize = safeRightSize ?? 20;
-
-      if (hasLeft && hasRight) {
-        if (newSizes.length === 3) {
-          newLeftSize = newSizes[0] ?? newLeftSize;
-          newRightSize = newSizes[2] ?? newRightSize;
-        }
-      } else if (hasLeft) {
-        if (newSizes.length === 2) {
-          newLeftSize = newSizes[0] ?? newLeftSize;
-        }
-      } else if (hasRight) {
-        if (newSizes.length === 2) {
-          newRightSize = newSizes[1] ?? newRightSize;
-        }
-      }
-
-      saveLayout([newLeftSize, newRightSize, safeConsoleSize ?? 20]);
+      const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, config);
+      config.saveLayout([newLeftSize, newRightSize, config.safeConsoleSize ?? 20]);
     },
-    [
-      leftPanelContent,
-      showLeftPanel,
-      rightPanelContent,
-      showRightPanel,
-      safeLeftSize,
-      safeRightSize,
-      safeConsoleSize,
-      saveLayout,
-    ]
+    [config]
   );
 
   const handleVerticalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!saveLayout) return;
+      if (!config.saveLayout) return;
 
-      if (showConsole && consoleContent && newSizes.length >= 2) {
-        const consoleSize = newSizes[1] ?? safeConsoleSize ?? 20;
-        saveLayout([safeLeftSize ?? 25, safeRightSize ?? 20, consoleSize]);
+      if (config.showConsole && config.consoleContent && newSizes.length >= 2) {
+        const consoleSize = newSizes[1] ?? config.safeConsoleSize ?? 20;
+        config.saveLayout([config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize]);
       }
     },
-    [showConsole, consoleContent, safeLeftSize, safeRightSize, safeConsoleSize, saveLayout]
+    [config]
   );
 
   return { handleHorizontalLayout, handleVerticalLayout };
@@ -169,6 +171,59 @@ function useFileEditorContext() {
   );
 
   return fileEditorContextValue;
+}
+
+// Panel collapse/expand handler factory
+function createPanelHandler(
+  isInitialRender: boolean,
+  saveLayout: (
+    sizes: number[],
+    showConsole?: boolean,
+    showLeftPanel?: boolean,
+    showRightPanel?: boolean
+  ) => void,
+  sizes: [number, number, number],
+  panelType: 'left' | 'right' | 'console'
+) {
+  const [safeLeftSize, safeRightSize, safeConsoleSize] = sizes;
+
+  return {
+    onCollapse: () => {
+      if (isInitialRender) return;
+
+      switch (panelType) {
+        case 'left':
+          saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, undefined);
+          break;
+        case 'right':
+          saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, undefined, false);
+          break;
+        case 'console':
+          saveLayout([safeLeftSize, safeRightSize, 0], false, undefined, undefined);
+          break;
+      }
+    },
+    onExpand: (size?: number) => {
+      if (isInitialRender) return;
+
+      const newSize =
+        typeof size === 'number'
+          ? size
+          : sizes[panelType === 'left' ? 0 : panelType === 'right' ? 1 : 2];
+
+      switch (panelType) {
+        case 'left':
+          saveLayout([newSize, safeRightSize, safeConsoleSize], undefined, true, undefined);
+          break;
+        case 'right':
+          saveLayout([safeLeftSize, newSize, safeConsoleSize], undefined, undefined, true);
+          break;
+        case 'console':
+          saveLayout([safeLeftSize, safeRightSize, newSize], true, undefined, undefined);
+          break;
+      }
+    },
+  };
 }
 
 export interface IdeLayoutProps {
@@ -226,28 +281,24 @@ export const IdeLayout = React.memo(function IdeLayout({
     typeof sizes[2] === 'number' && !Number.isNaN(sizes[2]) ? sizes[2] : 20,
   ];
 
+  const safeSizes: [number, number, number] = [safeLeftSize, safeRightSize, safeConsoleSize];
+
   const { show: handleShowLeftPanel, hide: handleHideLeftPanel } = usePanelToggle(
     leftPanelRef,
     toggleLeftPanel,
-    {
-      focusRef: hideExplorerButtonRef,
-    }
+    { focusRef: hideExplorerButtonRef }
   );
 
   const { show: handleShowRightPanel, hide: handleHideRightPanel } = usePanelToggle(
     rightPanelRef,
     toggleRightPanel,
-    {
-      focusRef: hideRightPanelButtonRef,
-    }
+    { focusRef: hideRightPanelButtonRef }
   );
 
   const { show: handleShowConsole, hide: handleConsoleClose } = usePanelToggle(
     consolePanelRef,
     toggleConsole,
-    {
-      focusRef: hideConsoleButtonRef,
-    }
+    { focusRef: hideConsoleButtonRef }
   );
 
   // Panel state effects
@@ -264,7 +315,7 @@ export const IdeLayout = React.memo(function IdeLayout({
   );
 
   // Layout handlers
-  const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(
+  const layoutConfig: LayoutHandlerConfig = {
     leftPanelContent,
     rightPanelContent,
     consoleContent,
@@ -274,7 +325,19 @@ export const IdeLayout = React.memo(function IdeLayout({
     safeLeftSize,
     safeRightSize,
     safeConsoleSize,
-    saveLayout
+    saveLayout,
+  };
+
+  const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(layoutConfig);
+
+  // Panel handlers
+  const leftPanelHandlers = createPanelHandler(isInitialRender, saveLayout, safeSizes, 'left');
+  const rightPanelHandlers = createPanelHandler(isInitialRender, saveLayout, safeSizes, 'right');
+  const consolePanelHandlers = createPanelHandler(
+    isInitialRender,
+    saveLayout,
+    safeSizes,
+    'console'
   );
 
   return (
@@ -301,22 +364,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               hideButtonRef={hideExplorerButtonRef}
               onHide={handleHideLeftPanel}
               defaultSize={safeLeftSize}
-              onCollapse={() => {
-                if (!isInitialRender) {
-                  saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, showRightPanel);
-                }
-              }}
-              onExpand={(size?: number) => {
-                if (!isInitialRender) {
-                  const newSize = typeof size === 'number' ? size : safeLeftSize;
-                  saveLayout(
-                    [newSize, safeRightSize, safeConsoleSize],
-                    undefined,
-                    true,
-                    showRightPanel
-                  );
-                }
-              }}
+              {...leftPanelHandlers}
             />
           )}
 
@@ -353,27 +401,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   hideButtonRef={hideConsoleButtonRef}
                   onHide={handleConsoleClose}
                   defaultSize={safeConsoleSize}
-                  onCollapse={() => {
-                    if (!isInitialRender) {
-                      saveLayout(
-                        [safeLeftSize, safeRightSize, 0],
-                        false,
-                        showLeftPanel,
-                        showRightPanel
-                      );
-                    }
-                  }}
-                  onExpand={(size?: number) => {
-                    if (!isInitialRender) {
-                      const newSize = typeof size === 'number' ? size : safeConsoleSize;
-                      saveLayout(
-                        [safeLeftSize, safeRightSize, newSize],
-                        true,
-                        showLeftPanel,
-                        showRightPanel
-                      );
-                    }
-                  }}
+                  {...consolePanelHandlers}
                 />
               )}
             </PanelGroup>
@@ -399,22 +427,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               hideButtonRef={hideRightPanelButtonRef}
               onHide={handleHideRightPanel}
               defaultSize={safeRightSize}
-              onCollapse={() => {
-                if (!isInitialRender) {
-                  saveLayout([safeLeftSize, 0, safeConsoleSize], showConsole, showLeftPanel, false);
-                }
-              }}
-              onExpand={(size?: number) => {
-                if (!isInitialRender) {
-                  const newSize = typeof size === 'number' ? size : safeRightSize;
-                  saveLayout(
-                    [safeLeftSize, newSize, safeConsoleSize],
-                    showConsole,
-                    showLeftPanel,
-                    true
-                  );
-                }
-              }}
+              {...rightPanelHandlers}
             />
           )}
         </PanelGroup>

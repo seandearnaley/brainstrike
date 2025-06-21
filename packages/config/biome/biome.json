@@ -186,14 +186,7 @@
       }
     },
     {
-      "include": [
-        "**/report-generator.ts",
-        "**/worker-storage.worker.ts",
-        "**/use-file-system-context.ts",
-        "**/ide-layout.tsx",
-        "**/use-shared-file-content-loading.ts",
-        "**/mock-file-system-adapter.ts"
-      ],
+      "include": ["**/ide-layout.tsx"],
       "linter": {
         "rules": {
           "complexity": {
