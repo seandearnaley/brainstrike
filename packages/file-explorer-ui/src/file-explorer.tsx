@@ -35,7 +35,9 @@ const FileExplorerSidebar = lazy(() =>
 
 const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.VirtualizedPreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+    default: m.VirtualizedPreviewPanelTabbed as unknown as React.ComponentType<
+      Record<string, unknown>
+    >,
   }))
 );
 
@@ -165,7 +167,7 @@ const FileExplorer: React.FC = () => {
       actionName: opts.actionName,
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match VirtualizedPreviewPanel expectation
+      // Adapt onUndo signature to match VirtualizedPreviewPanelTabbed expectation
       onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };

@@ -38,7 +38,7 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
       actionName: opts.actionName,
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match VirtualizedPreviewPanel expectation
+      // Adapt onUndo signature to match VirtualizedPreviewPanelTabbed expectation
       onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };

@@ -126,3 +126,7 @@ apps/desktop/electron-storage.json
 packages/db/*.db
 apps/desktop/*.db
 apps/web/*.db
+
+
+# Blob report
+apps/desktop/blob-report/

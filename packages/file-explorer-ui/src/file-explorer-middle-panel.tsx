@@ -1,19 +1,13 @@
 import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
 import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
-import { LoadingFallback } from '@brainstrike/ui';
+import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
-import { Suspense, lazy, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-
-// Lazy load the virtualized preview panel component
-const FileExplorerMainPanel = lazy(() =>
-  import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.VirtualizedPreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
-  }))
-);
+import { VirtualizedPreviewPanelTabbed } from './virtualized-preview-panel-tabbed';
 
 /**
  * FileExplorerMiddlePanel - Contains the preview panel and action buttons
@@ -22,7 +16,7 @@ const FileExplorerMainPanel = lazy(() =>
 export const FileExplorerMiddlePanel: React.FC = () => {
   const handleDisplayedFilesChange = useCallback(() => {}, []);
 
-  const { fileContents, loadingFiles, rootDirectoryHandle } = useFileExplorer({
+  const { fileContents, loadingFiles } = useFileExplorer({
     onDisplayedFilePathsChange: handleDisplayedFilesChange,
   });
 
@@ -46,10 +40,22 @@ export const FileExplorerMiddlePanel: React.FC = () => {
       actionName: opts.actionName,
       itemDescription: opts.itemDescription,
       getStateSnapshot: opts.getStateSnapshot,
-      // Adapt onUndo signature to match VirtualizedPreviewPanel expectation
+      // Adapt onUndo signature to match VirtualizedPreviewPanelTabbed expectation
       onUndo: (_item: unknown, snapshot: unknown) => opts.onUndo(key, snapshot as Set<string>),
     });
   };
+
+  const { openFileInTab } = useIdeFileEditor();
+
+  // Handle file clicks to open in tabs
+  const handleFileClick = useCallback(
+    (compositeKey: string) => {
+      if (openFileInTab) {
+        openFileInTab(compositeKey);
+      }
+    },
+    [openFileInTab]
+  );
 
   return (
     <FileExplorerErrorBoundary>
@@ -57,19 +63,17 @@ export const FileExplorerMiddlePanel: React.FC = () => {
         <FileExplorerHeader />
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden border-t md:border-t-0 md:border-l bg-card/50">
-            <Suspense fallback={<LoadingFallback />}>
-              <FileExplorerMainPanel
-                rootDirectoryHandle={rootDirectoryHandle}
-                selectedFiles={selectedFilePaths}
-                fileContents={fileContents}
-                loadingFiles={loadingFiles}
-                onSelectionChange={handleSelectionChange}
-                decodeFileSelection={decodeFileSelection}
-                countTokensHeuristic={countTokensHeuristic}
-                estimateTokenCost={estimateTokenCost}
-                performUndoableAction={performUndoableActionForPanel}
-              />
-            </Suspense>
+            <VirtualizedPreviewPanelTabbed
+              selectedFiles={selectedFilePaths}
+              fileContents={fileContents}
+              loadingFiles={loadingFiles}
+              onSelectionChange={handleSelectionChange}
+              decodeFileSelection={decodeFileSelection}
+              countTokensHeuristic={countTokensHeuristic}
+              estimateTokenCost={estimateTokenCost}
+              performUndoableAction={performUndoableActionForPanel}
+              onFileClick={handleFileClick}
+            />
           </div>
         </div>
       </div>
