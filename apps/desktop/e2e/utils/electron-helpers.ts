@@ -1,6 +1,9 @@
 import { _electron as electron } from 'playwright';
 import type { ElectronApplication, Page } from 'playwright';
 import path from 'path';
+import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+
+declare const process: NodeJS.Process;
 
 export interface ElectronAppContext {
   app: ElectronApplication;
@@ -18,15 +21,19 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
   
+  // Get CI-optimized launch arguments
+  const ciArgs = getCILaunchArgs();
+  const baseArgs = [mainPath, '--test-mode', '--disable-dialogs'];
+  
   const launchOptions: Parameters<typeof electron.launch>[0] = {
-    args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode', '--disable-dialogs'],
+    args: [...baseArgs, ...ciArgs],
     executablePath: electronPath,
     // Increase timeout for Codex environment - from 30s to 60s
     timeout: 60000
   };
   
   // Only record video when not in CI to prevent window popups
-  if (!process.env['CI']) {
+  if (!process.env.CI) {
     launchOptions.recordVideo = {
       dir: 'test-results/videos',
       size: { width: 1280, height: 720 }

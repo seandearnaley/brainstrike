@@ -17,6 +17,7 @@
 		"test": "turbo run test --summarize --log-order=grouped",
 		"test:coverage": "turbo run test:coverage --summarize --log-order=grouped",
 		"test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
+		"setup:headless": "bash scripts/setup-headless-display.sh",
 		"test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
 		"test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",
 		"test:e2e:desktop": "cd apps/desktop && pnpm run test:e2e",

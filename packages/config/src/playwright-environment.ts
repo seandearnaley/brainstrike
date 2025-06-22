@@ -79,12 +79,20 @@ export const getCILaunchArgs = (env?: ReturnType<typeof detectEnvironment>): str
     '--disable-dev-shm-usage', // /dev/shm is tiny in CI
     '--disable-setuid-sandbox',
     '--disable-gpu',
+    '--disable-features=VizDisplayCompositor', // Helps with headless environments
   ];
 
   // Add extra flags for Codex environment only if absolutely necessary
   // Note: --disable-web-security bypasses same-origin policy - use with caution
   if (isCodex) {
-    baseArgs.push('--disable-web-security');
+    baseArgs.push(
+      '--disable-web-security',
+      '--disable-extensions',
+      '--disable-plugins',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding'
+    );
   }
 
   return baseArgs;
