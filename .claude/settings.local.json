@@ -118,7 +118,8 @@
       "WebFetch(domain:github.com)",
       "Bash(pnpm -w run type-check --filter @brainstrike/file-explorer-ui)",
       "Bash(pnpm -w run knip)",
-      "Bash(pnpm biome format:*)"
+      "Bash(pnpm biome format:*)",
+      "Bash(npx knip:*)"
     ],
     "deny": []
   },
