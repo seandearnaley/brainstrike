@@ -143,10 +143,10 @@ export async function isDevMode(app: ElectronApplication): Promise<boolean> {
 export async function setupDialogMocking(app: ElectronApplication): Promise<void> {
   await app.evaluate(async ({ dialog }) => {
     // Store original methods in case they're needed
-    const originalShowOpenDialog = dialog.showOpenDialog;
-    const originalShowSaveDialog = dialog.showSaveDialog;
-    const originalShowMessageBox = dialog.showMessageBox;
-    const originalShowErrorBox = dialog.showErrorBox;
+    // const originalShowOpenDialog = dialog.showOpenDialog;
+    // const originalShowSaveDialog = dialog.showSaveDialog;
+    // const originalShowMessageBox = dialog.showMessageBox;
+    // const originalShowErrorBox = dialog.showErrorBox;
     
     // Mock showOpenDialog to return a predefined result
     dialog.showOpenDialog = async (options) => {

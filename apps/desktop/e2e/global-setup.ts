@@ -1,4 +1,3 @@
-import { chromium } from '@playwright/test';
 import type { FullConfig } from '@playwright/test';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -6,7 +5,7 @@ import path from 'path';
 
 const execAsync = promisify(exec);
 
-async function globalSetup(config: FullConfig) {
+async function globalSetup(_config: FullConfig) {
   console.log('🔧 Setting up Electron E2E tests...');
   
   // Build the Electron app before running tests (skip in CI since it's already built)
