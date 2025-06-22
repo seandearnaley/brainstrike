@@ -104,6 +104,9 @@ importers:
         specifier: ^19
         version: 19.1.0(react@19.1.0)
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@brainstrike/tailwind-config':
         specifier: workspace:*
         version: link:../../packages/tailwind-config
@@ -231,6 +234,9 @@ importers:
       '@biomejs/biome':
         specifier: 1.9.4
         version: 1.9.4
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@brainstrike/tailwind-config':
         specifier: workspace:*
         version: link:../../packages/tailwind-config

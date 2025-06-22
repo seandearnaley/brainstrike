@@ -2,6 +2,19 @@
 
 This document outlines the optimizations made to our Playwright configurations for better performance in different CI environments with varying resource constraints.
 
+## 🔄 **Recent Updates (Post-Review)**
+
+### Code Quality Improvements
+- ✅ **Extracted environment detection logic** to shared utility (`@brainstrike/config/playwright-environment`)
+- ✅ **Added configuration validation** with proper warnings
+- ✅ **Improved TypeScript types** and error handling
+- ✅ **Added full browser coverage option** for staging/comprehensive testing
+
+### Browser Coverage Strategy
+- **Default**: Chromium-only for speed and resource efficiency
+- **Full Coverage**: Use `pnpm run test:e2e:full-browsers` to test across Chromium, Firefox, and WebKit
+- **Recommendation**: Run full browser tests in staging or before major releases
+
 ## Environment Detection
 
 Our configurations now intelligently detect and optimize for different environments:
@@ -10,6 +23,7 @@ Our configurations now intelligently detect and optimize for different environme
 - **`CODEX_ENV`**: Custom variable set in Codex environments (very limited resources)
 - **`GITHUB_ACTIONS`**: Standard GitHub Actions environment variable
 - **`CI`**: General CI environment variable (fallback)
+- **`PLAYWRIGHT_FULL_BROWSER_COVERAGE`**: Enable testing across all browsers (Chromium, Firefox, WebKit)
 
 ### Worker Configuration by Environment
 ```typescript
@@ -127,12 +141,71 @@ pnpm run test:e2e
 - 🔄 **Fast iteration** (no retries)
 - 🚫 **No artificial timeouts**
 
+## Browser Coverage Strategy
+
+### Default Configuration (Chromium Only)
+```bash
+# Fast, resource-efficient testing
+pnpm run test:e2e
+```
+
+### Full Browser Coverage
+```bash
+# Comprehensive cross-browser testing
+pnpm run test:e2e:full-browsers
+```
+
+**When to Use Full Browser Coverage:**
+- Before major releases
+- In staging environments
+- When debugging browser-specific issues
+- Weekly/monthly comprehensive test runs
+
+**Browser Coverage Trade-offs:**
+| Approach | Speed | Resource Usage | Coverage | Best For |
+|----------|-------|----------------|----------|----------|
+| Chromium Only | ⚡ Fast | 💾 Low | 🎯 Focused | CI, Development |
+| Full Browser | 🐌 Slower | 💾 High | 🌍 Complete | Staging, Releases |
+
 ## Security Considerations
 
-⚠️ **Important**: The `--no-sandbox` flag disables Chromium's security sandbox. This is acceptable for trusted CI environments running known code, but should not be used when:
-- Running untrusted user-generated content
-- Testing applications that handle sensitive data
-- Running in environments where security isolation is critical
+### `--disable-web-security` Flag Usage
+
+⚠️ **Important Security Note**: The `--disable-web-security` flag is used **only in Codex environments** and should be used with extreme caution.
+
+**What it does:**
+- Bypasses same-origin policy
+- Disables CORS restrictions  
+- Removes other web security measures
+
+**When it's acceptable:**
+- ✅ Trusted CI environments (like Codex)
+- ✅ Testing known, controlled code
+- ✅ Isolated container environments
+
+**When to avoid:**
+- ❌ Testing user-generated content
+- ❌ Applications handling sensitive data
+- ❌ Production-like environments
+- ❌ When security isolation is critical
+
+**Alternatives to consider:**
+```typescript
+// If possible, use less permissive flags instead:
+const minimalCIArgs = [
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-setuid-sandbox',
+  '--disable-gpu',
+  // Only add --disable-web-security if absolutely necessary
+];
+```
+
+**Justification for Codex usage:**
+- Codex has extremely limited resources (single-core, 15-min limit)
+- Tests run in isolated, disposable containers
+- Code is known and controlled (not user-generated)
+- Alternative optimizations may not provide sufficient resource savings
 
 ## Troubleshooting by Environment
 

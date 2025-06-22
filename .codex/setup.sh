@@ -1,6 +1,9 @@
 # .codex/setup.sh - Optimized setup for CI environments with limited resources
 set -euo pipefail
 
+# Set Codex environment variable for proper detection
+export CODEX_ENV=true
+
 # Enable pnpm via corepack (Node 20+ already present)
 corepack enable
 
