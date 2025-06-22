@@ -117,16 +117,16 @@ export const logEnvironmentConfig = (
   config: EnvironmentConfig,
   baseURL?: string
 ) => {
-  console.log(`${appName} Playwright config:`);
-  console.log(`  Codex: ${config.isCodex}`);
-  console.log(`  GitHub Actions: ${config.isGitHubActions}`);
-  console.log(`  General CI: ${config.isCI}`);
-  console.log(`  Workers: ${config.workers}`);
-  console.log(`  Global timeout: ${config.globalTimeout / 1000}s`);
-  console.log(`  Retries: ${config.retries}`);
-  console.log(`  Headless: ${config.headless}`);
+  console.info(`${appName} Playwright config:`);
+  console.info(`  Codex: ${config.isCodex}`);
+  console.info(`  GitHub Actions: ${config.isGitHubActions}`);
+  console.info(`  General CI: ${config.isCI}`);
+  console.info(`  Workers: ${config.workers}`);
+  console.info(`  Global timeout: ${config.globalTimeout / 1000}s`);
+  console.info(`  Retries: ${config.retries}`);
+  console.info(`  Headless: ${config.headless}`);
   if (baseURL) {
-    console.log(`  Base URL: ${baseURL}`);
+    console.info(`  Base URL: ${baseURL}`);
   }
 };
 
