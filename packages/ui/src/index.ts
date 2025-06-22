@@ -17,6 +17,11 @@ export * from './scroll-area';
 export * from './select';
 export * from './switch';
 export * from './table';
+export * from './data-table-column-header';
+export * from './data-table-floating-bar';
+export * from './data-table-toolbar';
+export * from './data-table-view-options';
+export * from './virtualized-data-table';
 export * from './tabs';
 export * from './toast';
 export * from './toaster';
@@ -34,6 +39,7 @@ export type { RouterProviderProps } from './router-provider';
 // Export hooks
 export * from './use-toast';
 export * from './hooks';
+export * from './hooks/use-data-table';
 export type { PanelPersistenceState } from './hooks/use-panel-persistence';
 
 // Export layout components

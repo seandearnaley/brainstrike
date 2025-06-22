@@ -113,7 +113,10 @@
       "Bash(CI=true pnpm test:e2e --reporter=list)",
       "Bash(CI=true pnpm test:e2e)",
       "Bash(timeout 60s pnpm run test --filter @brainstrike/desktop)",
-      "Bash(PWDEBUG=1 pnpm test:e2e --headed)"
+      "Bash(PWDEBUG=1 pnpm test:e2e --headed)",
+      "WebFetch(domain:tanstack.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(pnpm -w run type-check --filter @brainstrike/file-explorer-ui)"
     ],
     "deny": []
   },

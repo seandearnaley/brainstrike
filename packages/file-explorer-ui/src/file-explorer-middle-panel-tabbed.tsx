@@ -5,9 +5,9 @@ import { useIdeFileEditor } from '@brainstrike/ui';
 import { decodeFileSelection } from '@brainstrike/utils';
 import { countTokensHeuristic } from '@brainstrike/utils';
 import { useCallback } from 'react';
+import { EnhancedPreviewPanelSimple } from './enhanced-preview-panel-simple';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
-import { VirtualizedPreviewPanelTabbed } from './virtualized-preview-panel-tabbed';
 
 /**
  * FileExplorerMiddlePanelTabbed - Contains the preview panel with tab support
@@ -61,7 +61,7 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
         <FileExplorerHeader />
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-hidden border-t md:border-t-0 md:border-l bg-card/50">
-            <VirtualizedPreviewPanelTabbed
+            <EnhancedPreviewPanelSimple
               selectedFiles={selectedFilePaths}
               fileContents={fileContents}
               loadingFiles={loadingFiles}
