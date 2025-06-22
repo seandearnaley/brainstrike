@@ -35,7 +35,9 @@ const FileExplorerSidebar = lazy(() =>
 
 const FileExplorerMainPanel = lazy(() =>
   import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.VirtualizedPreviewPanel as unknown as React.ComponentType<Record<string, unknown>>,
+    default: m.VirtualizedPreviewPanelTabbed as unknown as React.ComponentType<
+      Record<string, unknown>
+    >,
   }))
 );
 
