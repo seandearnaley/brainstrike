@@ -28,11 +28,13 @@ interface PersistedTabState {
   activeTabId: string | null;
 }
 
+type SaveTabStateThrottled = ((state: TabState) => void) & { cancel: () => void };
+
 // Helper functions for localStorage
-const saveTabStateThrottled = (() => {
+const saveTabStateThrottled: SaveTabStateThrottled = (() => {
   let timeoutId: NodeJS.Timeout | null = null;
 
-  return (state: TabState): void => {
+  function save(state: TabState): void {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
@@ -53,7 +55,16 @@ const saveTabStateThrottled = (() => {
         console.warn('Failed to save tab state:', error);
       }
     }, 500); // 500ms throttle
+  }
+
+  save.cancel = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
   };
+
+  return save;
 })();
 
 const loadTabState = (): TabState | null => {
@@ -105,6 +116,9 @@ export function useTabManager(): UseTabManagerReturn {
   useEffect(() => {
     const state: TabState = { tabs, activeTabId };
     saveTabStateThrottled(state);
+    return () => {
+      saveTabStateThrottled.cancel();
+    };
   }, [tabs, activeTabId]);
 
   const openTab = useCallback((path: string, tabId: string, compositeKey: string) => {

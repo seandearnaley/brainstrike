@@ -394,5 +394,22 @@ describe('useTabManager', () => {
 
       consoleWarnSpy.mockRestore();
     });
+
+    it('should cancel pending save on unmount', async () => {
+      localStorageMock.getItem.mockReturnValue(null);
+      const { result, unmount } = renderHook(() => useTabManager());
+
+      act(() => {
+        result.current.openTab('/src/index.ts', 'file1', 'file1');
+      });
+
+      unmount();
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 600));
+      });
+
+      expect(localStorageMock.setItem).not.toHaveBeenCalled();
+    });
   });
 });
