@@ -3,7 +3,7 @@ export * from './folder-badge';
 export * from './file-explorer-header';
 export * from './loading-overlay';
 export * from './virtualized-preview-panel-tabbed';
-export * from './enhanced-preview-panel-simple';
+export * from './preview-panel';
 export { default as FolderHeaderRow } from './folder-header-row';
 export { default as FileRow } from './file-row';
 export { default as FileExtensionFilter } from './file-extension-filter';

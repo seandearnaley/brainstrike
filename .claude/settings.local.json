@@ -116,7 +116,8 @@
       "Bash(PWDEBUG=1 pnpm test:e2e --headed)",
       "WebFetch(domain:tanstack.com)",
       "WebFetch(domain:github.com)",
-      "Bash(pnpm -w run type-check --filter @brainstrike/file-explorer-ui)"
+      "Bash(pnpm -w run type-check --filter @brainstrike/file-explorer-ui)",
+      "Bash(pnpm -w run knip)"
     ],
     "deny": []
   },

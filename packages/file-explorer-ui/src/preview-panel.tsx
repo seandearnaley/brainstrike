@@ -8,7 +8,7 @@ import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useMemo, useCallback, useDeferredValue, useState } from 'react';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 
-interface EnhancedPreviewPanelSimpleProps {
+interface PreviewPanelProps {
   selectedFiles: Set<string>;
   fileContents: { [compositeKey: string]: string };
   loadingFiles: Set<string>;
@@ -41,8 +41,8 @@ type TableRowData = {
   compositeKey: string;
 };
 
-export const EnhancedPreviewPanelSimple = memo<EnhancedPreviewPanelSimpleProps>(
-  function EnhancedPreviewPanelSimpleComponent(props) {
+export const PreviewPanel = memo<PreviewPanelProps>(
+  function PreviewPanelComponent(props) {
     const {
       selectedFiles,
       fileContents,
@@ -495,4 +495,4 @@ export const EnhancedPreviewPanelSimple = memo<EnhancedPreviewPanelSimpleProps>(
   }
 );
 
-EnhancedPreviewPanelSimple.displayName = 'EnhancedPreviewPanelSimple';
+PreviewPanel.displayName = 'PreviewPanel';
