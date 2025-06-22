@@ -263,7 +263,7 @@ export class WorkerStorage {
       if (existingTimer) {
         clearTimeout(existingTimer);
       }
-      
+
       // Debounce rapid saves for the same key
       const timer = setTimeout(async () => {
         this.debounceTimers.delete(key);
@@ -284,7 +284,7 @@ export class WorkerStorage {
           }
         }
       }, 100); // 100ms debounce
-      
+
       this.debounceTimers.set(key, timer);
     });
   }
