@@ -2,7 +2,7 @@
 
 Welcome to the `brainstrike` monorepo! This guide is designed to help both human developers and AI agents understand how to effectively contribute to this project.
 
-It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024.
+It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024/ I think there is misinformation going around.
 
 ## Codebase Overview
 
