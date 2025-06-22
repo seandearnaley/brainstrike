@@ -421,11 +421,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(
           <div className="flex items-center justify-between p-3 border-t bg-background">
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               <span>Page {currentPage + 1} of {totalPages} ({sortedData.length} total files)</span>
-              {previewSelections.size > 0 && (
-                <span className="text-blue-600 font-medium">
-                  {previewSelections.size} selected across all pages
-                </span>
-              )}
             </div>
             <div className="flex items-center space-x-2">
               <Button
