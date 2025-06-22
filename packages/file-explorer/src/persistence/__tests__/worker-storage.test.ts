@@ -252,7 +252,7 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testData = { foo: 'bar' };
 
-      // Simulate worker response
+      // Simulate worker response after debounce delay
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -265,7 +265,7 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 10);
+      }, 120); // Wait longer than the 100ms debounce
 
       await storage.setItem('test-key', JSON.stringify(testData));
 
@@ -281,7 +281,7 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testValue = 'test-value';
 
-      // Simulate worker error response
+      // Simulate worker error response after debounce delay
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -294,7 +294,7 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 10);
+      }, 120); // Wait longer than the 100ms debounce
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -423,10 +423,8 @@ describe('WorkerStorage', () => {
         );
       }
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Received worker response for unknown request:',
-        'unknown-id'
-      );
+      // Should silently ignore unknown response IDs (no console warning)
+      expect(consoleSpy).not.toHaveBeenCalled();
 
       consoleSpy.mockRestore();
     });

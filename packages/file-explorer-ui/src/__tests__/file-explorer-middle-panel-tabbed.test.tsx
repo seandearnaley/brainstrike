@@ -29,11 +29,11 @@ vi.mock('../file-explorer-header', () => ({
   FileExplorerHeader: () => <div data-testid="file-explorer-header">Header</div>,
 }));
 
-vi.mock('../virtualized-preview-panel-tabbed', () => ({
-  VirtualizedPreviewPanelTabbed: vi.fn(({ onFileClick, selectedFiles }) => (
-    <div data-testid="virtualized-preview-panel-tabbed">
+vi.mock('../preview-panel', () => ({
+  PreviewPanel: vi.fn(({ onFileClick, selectedFiles }) => (
+    <div data-testid="preview-panel">
       <div>Selected files: {selectedFiles.size}</div>
-      <button type="button" onClick={() => onFileClick?.('file1')}>
+      <button type="button" onClick={() => onFileClick?.('folder1|@|file1.ts')}>
         Open file1
       </button>
     </div>
@@ -87,11 +87,15 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     expect(screen.getByTestId('file-explorer-header')).toBeInTheDocument();
-    expect(screen.getByTestId('virtualized-preview-panel-tabbed')).toBeInTheDocument();
+    expect(screen.getByTestId('preview-panel')).toBeInTheDocument();
   });
 
   it('should pass selected files to preview panel', () => {
-    const selectedFiles = new Set(['file1', 'file2', 'file3']);
+    const selectedFiles = new Set([
+      'folder1|@|file1.ts',
+      'folder2|@|file2.js',
+      'folder3|@|file3.txt',
+    ]);
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: selectedFiles,
@@ -126,7 +130,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const openButton = screen.getByText('Open file1');
     await user.click(openButton);
 
-    expect(mockOpenFileInTab).toHaveBeenCalledWith('file1');
+    expect(mockOpenFileInTab).toHaveBeenCalledWith('folder1|@|file1.ts');
   });
 
   it('should pass file contents and loading state to preview panel', async () => {
@@ -157,8 +161,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       isCancelling: false,
     });
 
-    const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
-    const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
+    const previewPanelModule = await import('../preview-panel');
+    const { PreviewPanel } = vi.mocked(previewPanelModule);
 
     render(
       <TestWrapper>
@@ -166,7 +170,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
-    const calls = VirtualizedPreviewPanelTabbed.mock.calls;
+    const calls = PreviewPanel.mock.calls;
     expect(calls).toHaveLength(1);
     const props = calls[0]?.[0];
     expect(props).toMatchObject({
@@ -184,8 +188,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       wouldExceedSelectionLimit: vi.fn(() => false),
     });
 
-    const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
-    const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
+    const previewPanelModule = await import('../preview-panel');
+    const { PreviewPanel } = vi.mocked(previewPanelModule);
 
     render(
       <TestWrapper>
@@ -193,15 +197,15 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
-    const calls = VirtualizedPreviewPanelTabbed.mock.calls;
+    const calls = PreviewPanel.mock.calls;
     expect(calls).toHaveLength(1);
     const props = calls[0]?.[0];
     expect(props?.onSelectionChange).toBe(mockHandleSelectionChange);
   });
 
   it('should pass decode and token functions to preview panel', async () => {
-    const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
-    const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
+    const previewPanelModule = await import('../preview-panel');
+    const { PreviewPanel } = vi.mocked(previewPanelModule);
 
     render(
       <TestWrapper>
@@ -209,7 +213,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
-    const calls = VirtualizedPreviewPanelTabbed.mock.calls;
+    const calls = PreviewPanel.mock.calls;
     expect(calls).toHaveLength(1);
     const props = calls[0]?.[0];
     expect(typeof props?.decodeFileSelection).toBe('function');
@@ -225,8 +229,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       clearUndoTimeout: mockClearUndoTimeout,
     });
 
-    const virtualizedPreviewPanelModule = await import('../virtualized-preview-panel-tabbed');
-    const { VirtualizedPreviewPanelTabbed } = vi.mocked(virtualizedPreviewPanelModule);
+    const previewPanelModule = await import('../preview-panel');
+    const { PreviewPanel } = vi.mocked(previewPanelModule);
 
     render(
       <TestWrapper>
@@ -235,11 +239,11 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     // Get the performUndoableAction passed to preview panel
-    const passedProps = VirtualizedPreviewPanelTabbed.mock.calls[0]?.[0];
+    const passedProps = PreviewPanel.mock.calls[0]?.[0];
     const performUndoableActionForPanel = passedProps?.performUndoableAction;
 
     // Test the adapted function
-    const mockGetStateSnapshot = vi.fn(() => new Set(['file1', 'file2']));
+    const mockGetStateSnapshot = vi.fn(() => new Set(['folder1|@|file1.ts', 'folder2|@|file2.js']));
     const mockOnUndo = vi.fn();
 
     performUndoableActionForPanel?.('test-key', 'test-item-key', {

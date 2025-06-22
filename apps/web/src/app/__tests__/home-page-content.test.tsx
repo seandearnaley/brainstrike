@@ -6,9 +6,6 @@ import HomePageContent from '../home-page-content';
 // Mock the file explorer components
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   __esModule: true,
-  ClientFileExplorer: vi.fn(() => (
-    <div data-testid="client-file-explorer">Mock ClientFileExplorer</div>
-  )),
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   FileExplorerMiddlePanel: () => <div data-testid="file-explorer-middle-panel">Middle Panel</div>,
   FileExplorerMiddlePanelTabbed: () => (

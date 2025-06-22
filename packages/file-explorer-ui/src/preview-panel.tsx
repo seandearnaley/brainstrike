@@ -217,19 +217,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       const dirPath = item.path.substring(0, item.path.lastIndexOf('/'));
 
       return (
-        <tr
-          key={item.id}
-          className="border-b transition-colors hover:bg-muted/50 cursor-pointer"
-          onClick={() => onFileClick?.(item.compositeKey)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              onFileClick?.(item.compositeKey);
-            }
-          }}
-          tabIndex={0}
-          aria-label={`Open file ${item.path}`}
-        >
+        <tr key={item.id} className="border-b transition-colors hover:bg-muted/50">
           <td className="p-4 w-12">
             <Checkbox
               checked={isPreviewSelected}
@@ -245,12 +233,20 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             </div>
           </td>
           <td className="p-4 min-w-0 flex-1">
-            <div className="min-w-0">
+            <button
+              type="button"
+              className="min-w-0 text-left w-full hover:text-primary transition-colors"
+              onClick={(e) => {
+                e.preventDefault();
+                onFileClick?.(item.compositeKey);
+              }}
+              aria-label={fileName}
+            >
               <div className="font-medium text-sm truncate">{fileName}</div>
               {dirPath && (
                 <div className="text-xs text-muted-foreground truncate font-mono">{dirPath}</div>
               )}
-            </div>
+            </button>
           </td>
           <td className="p-4 w-20">
             <Badge variant="secondary" className="text-xs">
