@@ -1,38 +1,45 @@
 import type { PlaywrightTestConfig } from '@playwright/test';
+import { 
+  getEnvironmentConfig, 
+  logEnvironmentConfig, 
+  validateEnvironmentConfig,
+  getCILaunchArgs 
+} from '@brainstrike/config/playwright-environment';
 
-// Environment variable names
-const ciEnv = 'CI';
+// Get environment configuration
+const config = getEnvironmentConfig();
 
-// Check if running in CI environment
-const isCI = !!process.env[ciEnv];
+// Log environment detection for debugging
+logEnvironmentConfig('Desktop', config);
 
-// Log important info for debugging
-console.log(`Desktop Playwright config: CI=${isCI}`);
-console.log(`Current working directory: ${process.cwd()}`);
-console.log(`Test directory: ./e2e`);
+// Validate configuration and show warnings
+validateEnvironmentConfig(config);
 
-const config: PlaywrightTestConfig = {
+const playwrightConfig: PlaywrightTestConfig = {
   testDir: './e2e',
   
-  // Don't run tests in files in parallel since we have limited workers
-  fullyParallel: false,
+  // Global timeout based on environment
+  globalTimeout: config.globalTimeout,
+  
+  // Per-test timeout - Electron apps can be slower to start
+  timeout: 60_000,
+  
+  // Don't run tests in parallel - Electron can be resource intensive
+  fullyParallel: config.fullyParallel,
   
   // Fail the build on CI if you accidentally left test.only in the source code
-  forbidOnly: isCI,
+  forbidOnly: config.isCI,
   
-  // Retry on CI only
-  retries: isCI ? 2 : 0,
+  // Retry strategy based on environment
+  retries: config.retries,
   
-  // Opt out of parallel tests on CI for Electron (can be resource intensive)
-  workers: isCI ? 1 : 2,
+  // Worker count based on environment capabilities
+  workers: config.workers,
   
-  // Reporter to use
-  reporter: isCI 
+  // Reporter configuration
+  reporter: config.isCI 
     ? [['blob', { outputDir: 'blob-report' }], ['list']]
     : [['html', { open: 'never' }], ['list']],
-  
-  // Global timeout for each test
-  timeout: 60000, // Electron apps can be slower to start
   
   // Expect timeout for assertions
   expect: {
@@ -40,8 +47,19 @@ const config: PlaywrightTestConfig = {
   },
   
   use: {
-    // Collect trace when retrying the failed test
-    trace: isCI ? 'on-first-retry' : 'retain-on-failure',
+    // Always use headless mode to prevent X server issues in CI
+    // Local development can override with --headed flag if needed
+    headless: true,
+    
+    // CI-optimized launch options for resource-constrained environments
+    ...(config.isCI && {
+      launchOptions: {
+        args: getCILaunchArgs()
+      }
+    }),
+    
+    // Collect trace when retrying failed tests
+    trace: config.isCI ? 'on' : 'on-first-retry',
     
     // Take screenshot on failure
     screenshot: 'only-on-failure',
@@ -49,27 +67,28 @@ const config: PlaywrightTestConfig = {
     // Record video on retry
     video: 'retain-on-failure',
     
-    // Test ID attribute for better element selection
+    // Use data-testid for element selection
     testIdAttribute: 'data-testid',
   },
   
-  // Configure projects for different scenarios
-  projects: [
-    {
-      name: 'electron-main',
-      testDir: './e2e',
-      testMatch: '**/*.spec.ts',
-      use: {
-        // Electron-specific configuration will be handled in global setup
-      },
-    },
+  // Test match patterns
+  testMatch: [
+    '**/*.spec.ts',
+    '**/*.test.ts'
+  ],
+  
+  // Test ignore patterns
+  testIgnore: [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/build/**'
   ],
   
   // Global setup for Electron app
   globalSetup: './e2e/global-setup.ts',
   
-  // Output directory for test artifacts - align with CI artifact path
+  // Output directory for test artifacts
   outputDir: 'blob-report/',
 };
 
-export default config; 
+export default playwrightConfig; 

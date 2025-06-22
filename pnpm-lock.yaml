@@ -104,6 +104,9 @@ importers:
         specifier: ^19
         version: 19.1.0(react@19.1.0)
     devDependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@brainstrike/tailwind-config':
         specifier: workspace:*
         version: link:../../packages/tailwind-config
@@ -173,6 +176,9 @@ importers:
       wait-on:
         specifier: ^8.0.3
         version: 8.0.3
+      xvfb-maybe:
+        specifier: ^0.2.1
+        version: 0.2.1
 
   apps/web:
     dependencies:
@@ -231,6 +237,9 @@ importers:
       '@biomejs/biome':
         specifier: 1.9.4
         version: 1.9.4
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@brainstrike/tailwind-config':
         specifier: workspace:*
         version: link:../../packages/tailwind-config
@@ -6019,6 +6028,10 @@ packages:
   which-module@2.0.1:
     resolution: {integrity: sha512-iBdZ57RDvnOR9AGBhML2vFZf7h8vmBjhoaZqODJBFWHVtKkDmKuHai3cx5PgVMrX5YDNp27AofYbAwctSS+vhQ==}
 
+  which@1.3.1:
+    resolution: {integrity: sha512-HxJdYWq1MTIQbJ3nw0cqssHoTNU267KlrDuGZ1WYlxDStUtKUhOaJmh112/TZmHxxUfuJqPXSOm7tDyas0OSIQ==}
+    hasBin: true
+
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
@@ -6081,6 +6094,10 @@ packages:
 
   xmlchars@2.2.0:
     resolution: {integrity: sha512-JZnDKK8B0RCDw84FNdDAIpZK+JuJw+s7Lz8nksI7SIuU3UXJJslUthsi+uWBUYOwPFwW7W7PRLRfUKpxjtjFCw==}
+
+  xvfb-maybe@0.2.1:
+    resolution: {integrity: sha512-9IyRz3l6Qyhl6LvnGRF5jMPB4oBEepQnuzvVAFTynP6ACLLSevqigICJ9d/+ofl29m2daeaVBChnPYUnaeJ7yA==}
+    hasBin: true
 
   y18n@4.0.3:
     resolution: {integrity: sha512-JKhqTOwSrqNA1NY5lSztJ1GrBiUodLMmIZuLiDaMRJ+itFd+ABVE8XBjOvIWL+rSqNDC74LCSFmlb/U4UZ4hJQ==}
@@ -11529,6 +11546,10 @@ snapshots:
 
   which-module@2.0.1: {}
 
+  which@1.3.1:
+    dependencies:
+      isexe: 2.0.0
+
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
@@ -11584,6 +11605,13 @@ snapshots:
   xmlbuilder@15.1.1: {}
 
   xmlchars@2.2.0: {}
+
+  xvfb-maybe@0.2.1:
+    dependencies:
+      debug: 2.6.9
+      which: 1.3.1
+    transitivePeerDependencies:
+      - supports-color
 
   y18n@4.0.3: {}
 

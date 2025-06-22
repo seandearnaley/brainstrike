@@ -11,7 +11,8 @@
         "exports": {
 		"./biome": "./biome/biome.json",
 		"./biome/base": "./biome/biome.json",
-		"./tsconfig/*": "./tsconfig/*"
+		"./tsconfig/*": "./tsconfig/*.json",
+		"./playwright-environment": "./src/playwright-environment.ts"
 	},
 	"scripts": {
         "clean": "rm -rf dist .tsbuildinfo",

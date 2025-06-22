@@ -17,6 +17,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "npx playwright test",
+    "test:e2e:full-browsers": "PLAYWRIGHT_FULL_BROWSER_COVERAGE=1 npx playwright test",
     "test:e2e:ui": "npx playwright test --ui",
     "test:e2e:debug": "npx playwright test --debug",
     "serve-static": "serve dist -p 8080"
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@babel/core": "^7.27.4",
     "@biomejs/biome": "1.9.4",
+    "@brainstrike/config": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@codecov/vite-plugin": "^1.9.1",
