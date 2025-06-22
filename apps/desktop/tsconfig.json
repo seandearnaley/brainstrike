@@ -25,7 +25,9 @@
   ],
   "exclude": [
     "node_modules",
-    "dist"
+    "dist",
+    "e2e/**/*",
+    "playwright.config.ts"
   ],
   "references": [
     { "path": "../../packages/db" }

@@ -8,6 +8,11 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
+    exclude: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**', // Exclude Playwright e2e tests
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
@@ -15,6 +20,7 @@ export default defineConfig({
         'node_modules/',
         'dist/',
         'src/__tests__/',
+        'e2e/',
         '**/*.d.ts',
         '**/*.config.*',
         'src/main.ts', // Main process - tested separately

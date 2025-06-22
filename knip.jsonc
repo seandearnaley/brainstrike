@@ -262,7 +262,9 @@
     "**/.turbo/**",
     "**/*.d.ts",
     // Ignore husky hook file
-    ".husky/commit-msg.js"
+    ".husky/commit-msg.js",
+    // Ignore Playwright merge config - used by CI workflows via shell commands
+    "playwright-merge.config.js"
     // Removed specific file ignores from here as they are moved to apps/web workspace ignore
   ],
   // Keep existing global settings
