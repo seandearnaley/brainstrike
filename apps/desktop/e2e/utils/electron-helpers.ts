@@ -21,14 +21,8 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   const launchOptions: Parameters<typeof electron.launch>[0] = {
     args: [mainPath, '--no-sandbox', '--disable-web-security', '--test-mode', '--disable-dialogs'],
     executablePath: electronPath,
-    // Set timeout for app launch
-    timeout: 30000,
-    // Additional options to prevent dialogs and windows
-    env: {
-      ...process.env,
-      ELECTRON_IS_E2E_TEST: 'true',
-      DISABLE_NATIVE_DIALOGS: 'true'
-    }
+    // Increase timeout for Codex environment - from 30s to 60s
+    timeout: 60000
   };
   
   // Only record video when not in CI to prevent window popups
@@ -73,8 +67,10 @@ export async function waitForAppReady(window: Page): Promise<void> {
     return document.readyState === 'complete';
   });
   
-  // Wait for any initial loading states to complete
-  await window.waitForTimeout(1000);
+  // Increase wait time for Codex environment
+  const isCodex = process.env['CODEX_ENV'] === 'true';
+  const waitTime = isCodex ? 3000 : 1000;
+  await window.waitForTimeout(waitTime);
 }
 
 /**

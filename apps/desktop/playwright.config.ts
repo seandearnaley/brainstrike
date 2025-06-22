@@ -59,7 +59,7 @@ const playwrightConfig: PlaywrightTestConfig = {
     }),
     
     // Collect trace when retrying failed tests
-    trace: config.isCI ? 'on-first-retry' : 'retain-on-failure',
+    trace: config.isCI ? 'on' : 'on-first-retry',
     
     // Take screenshot on failure
     screenshot: 'only-on-failure',
