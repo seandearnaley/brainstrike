@@ -1,6 +1,6 @@
 import { Badge, Button, Checkbox, Progress } from '@brainstrike/ui';
 import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 
 interface PreviewPanelProps {
@@ -299,7 +299,13 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   // Reset to first page when data changes
+  const prevTotalPagesRef = useRef(totalPages);
   useEffect(() => {
+    if (prevTotalPagesRef.current !== totalPages) {
+      prevTotalPagesRef.current = totalPages;
+      setCurrentPage(0);
+      return;
+    }
     if (currentPage >= totalPages && totalPages > 0) {
       setCurrentPage(0);
     }

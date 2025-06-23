@@ -192,6 +192,20 @@ describe('PreviewPanel', () => {
         expect(mockProps.onFileClick).toHaveBeenCalledWith('file1');
       }
     });
+
+    it('should render progress with correct value for total tokens', () => {
+      const totalTokens = 2000;
+      mockUsePreviewPanelState.mockReturnValue({
+        ...mockState,
+        totalStats: { totalFiles: 3, totalTokens },
+      });
+
+      render(<PreviewPanel {...mockProps} />);
+
+      const progress = screen.getByTestId('progress');
+      const expected = Math.min((totalTokens / 100000) * 100, 100);
+      expect(progress).toHaveAttribute('data-value', expected.toString());
+    });
   });
 
   describe('Sorting', () => {
@@ -390,6 +404,51 @@ describe('PreviewPanel', () => {
 
       // Next should be disabled on last page
       expect(screen.getByText('Next')).toBeDisabled();
+    });
+
+    it('resets to first page when file count decreases', () => {
+      const fileSet = new Set(Array.from({ length: 25 }, (_, i) => `file${i}`));
+      const stateWith25 = {
+        ...largeMockState,
+        flatListItems: Array.from({ length: 25 }, (_, i) => ({
+          type: 'file' as const,
+          compositeKey: `file${i}`,
+          folderId: `folder-file${i}`,
+          path: `path/to/file${i}.txt`,
+          size: 1024,
+          tokens: 100,
+        })),
+      };
+
+      mockUsePreviewPanelState.mockReturnValue(stateWith25);
+      const { rerender } = render(
+        <PreviewPanel {...mockProps} selectedFiles={fileSet} pageSize={10} />
+      );
+
+      // Should show three pages
+      expect(screen.getByText('Page 1 of 3 (25 total files)')).toBeInTheDocument();
+
+      const page2Button = screen.getByText('2');
+      fireEvent.click(page2Button);
+
+      // Shrink to 15 files
+      const smallerFileSet = new Set(Array.from({ length: 15 }, (_, i) => `file${i}`));
+      const stateWith15 = {
+        ...stateWith25,
+        flatListItems: Array.from({ length: 15 }, (_, i) => ({
+          type: 'file' as const,
+          compositeKey: `file${i}`,
+          folderId: `folder-file${i}`,
+          path: `path/to/file${i}.txt`,
+          size: 1024,
+          tokens: 100,
+        })),
+      };
+
+      mockUsePreviewPanelState.mockReturnValue(stateWith15);
+      rerender(<PreviewPanel {...mockProps} selectedFiles={smallerFileSet} pageSize={10} />);
+
+      expect(screen.getByText('Page 1 of 2 (15 total files)')).toBeInTheDocument();
     });
   });
 

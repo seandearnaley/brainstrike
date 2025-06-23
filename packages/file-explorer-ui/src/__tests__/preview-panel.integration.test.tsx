@@ -369,6 +369,31 @@ describe('PreviewPanel Integration Tests', () => {
         expect(screen.queryByText(/files selected in preview/)).not.toBeInTheDocument();
       });
     });
+
+    it('should reset to first page when total pages decrease', async () => {
+      const mockProps = createMockProps(120);
+      const mockState = createMockState(120);
+      mockUsePreviewPanelState.mockReturnValue(mockState);
+
+      const { rerender } = render(<PreviewPanel {...mockProps} />);
+
+      // Navigate to the last page
+      const nextButton = screen.getByText('Next');
+      fireEvent.click(nextButton);
+      fireEvent.click(nextButton);
+      expect(screen.getByText('Page 3 of 3 (120 total files)')).toBeInTheDocument();
+
+      // Rerender with fewer files resulting in two pages
+      const fewerProps = createMockProps(60);
+      const fewerState = createMockState(60);
+      mockUsePreviewPanelState.mockReturnValue(fewerState);
+
+      rerender(<PreviewPanel {...fewerProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Page 1 of 2 (60 total files)')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Accessibility Integration', () => {
