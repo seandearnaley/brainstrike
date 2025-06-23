@@ -314,5 +314,17 @@ export class WorkerStorage {
       this.worker = null;
     }
     this.pendingRequests.clear();
+
+    // Clear all active debounce timers to prevent memory leaks
+    for (const timer of this.debounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.debounceTimers.clear();
+
+    // Clear any remaining timeout timers
+    for (const timer of this.timeouts.values()) {
+      clearTimeout(timer);
+    }
+    this.timeouts.clear();
   }
 }

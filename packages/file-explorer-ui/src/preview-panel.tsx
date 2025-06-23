@@ -76,25 +76,33 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       (item): item is FileItem => item.type === 'file'
     );
 
-    return fileItems.map((fileItem): TableRowData => {
-      const { folderId, path } = decodeFileSelection(fileItem.compositeKey);
-      const result: TableRowData = {
-        id: fileItem.compositeKey,
-        rootFolderId: folderId,
-        path: path,
-        type: path.split('.').pop()?.toUpperCase() || 'FILE',
-        compositeKey: fileItem.compositeKey,
-      };
+    return fileItems
+      .map((fileItem): TableRowData | null => {
+        try {
+          const { folderId, path } = decodeFileSelection(fileItem.compositeKey);
+          const result: TableRowData = {
+            id: fileItem.compositeKey,
+            rootFolderId: folderId,
+            path: path,
+            type: path.split('.').pop()?.toUpperCase() || 'FILE',
+            compositeKey: fileItem.compositeKey,
+          };
 
-      if (fileItem.size !== undefined) {
-        result.size = fileItem.size;
-      }
-      if (fileItem.tokens !== undefined) {
-        result.tokens = fileItem.tokens;
-      }
+          if (fileItem.size !== undefined) {
+            result.size = fileItem.size;
+          }
+          if (fileItem.tokens !== undefined) {
+            result.tokens = fileItem.tokens;
+          }
 
-      return result;
-    });
+          return result;
+        } catch (error) {
+          // Skip malformed composite keys gracefully
+          console.warn('Failed to decode composite key:', fileItem.compositeKey, error);
+          return null;
+        }
+      })
+      .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection]);
 
   // Simple sort state without complex data table
