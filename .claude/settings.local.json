@@ -113,7 +113,20 @@
       "Bash(CI=true pnpm test:e2e --reporter=list)",
       "Bash(CI=true pnpm test:e2e)",
       "Bash(timeout 60s pnpm run test --filter @brainstrike/desktop)",
-      "Bash(PWDEBUG=1 pnpm test:e2e --headed)"
+      "Bash(PWDEBUG=1 pnpm test:e2e --headed)",
+      "WebFetch(domain:tanstack.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(pnpm -w run type-check --filter @brainstrike/file-explorer-ui)",
+      "Bash(pnpm -w run knip)",
+      "Bash(pnpm biome format:*)",
+      "Bash(npx knip:*)",
+      "Bash(git rm:*)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx)"
     ],
     "deny": []
   },

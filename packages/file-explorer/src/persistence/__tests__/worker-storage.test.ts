@@ -252,7 +252,7 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testData = { foo: 'bar' };
 
-      // Simulate worker response
+      // Simulate worker response after debounce delay
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -265,7 +265,7 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 10);
+      }, 120); // Wait longer than the 100ms debounce
 
       await storage.setItem('test-key', JSON.stringify(testData));
 
@@ -281,7 +281,7 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testValue = 'test-value';
 
-      // Simulate worker error response
+      // Simulate worker error response after debounce delay
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -294,7 +294,7 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 10);
+      }, 120); // Wait longer than the 100ms debounce
 
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -423,10 +423,8 @@ describe('WorkerStorage', () => {
         );
       }
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Received worker response for unknown request:',
-        'unknown-id'
-      );
+      // Should silently ignore unknown response IDs (no console warning)
+      expect(consoleSpy).not.toHaveBeenCalled();
 
       consoleSpy.mockRestore();
     });
@@ -578,6 +576,189 @@ describe('WorkerStorage', () => {
       // and return null for non-existent keys
       const result = await storage.getItem('test');
       expect(result).toBeNull();
+    });
+  });
+
+  describe('storage_request', () => {
+    it('handles setItem requests', () => {
+      new WorkerStorage();
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '1',
+              type: 'storage_request',
+              operation: 'setItem',
+              key: 'foo',
+              value: 'bar',
+              opId: 1,
+            },
+          })
+        );
+      }
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledWith('foo', 'bar');
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        id: '1',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: true,
+      });
+    });
+
+    it('ignores older opId values', () => {
+      new WorkerStorage();
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '1',
+              type: 'storage_request',
+              operation: 'setItem',
+              key: 'foo',
+              value: 'bar',
+              opId: 2,
+            },
+          })
+        );
+      }
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '2',
+              type: 'storage_request',
+              operation: 'setItem',
+              key: 'foo',
+              value: 'baz',
+              opId: 1,
+            },
+          })
+        );
+      }
+
+      expect(mockLocalStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(1, {
+        id: '1',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: true,
+      });
+      expect(mockWorker.postMessage).toHaveBeenNthCalledWith(2, {
+        id: '2',
+        type: 'storage_response',
+        operation: 'setItem',
+        success: true,
+      });
+    });
+
+    it('handles getItem requests', () => {
+      new WorkerStorage();
+      mockLocalStorage.data.set('foo', 'bar');
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '1',
+              type: 'storage_request',
+              operation: 'getItem',
+              key: 'foo',
+            },
+          })
+        );
+      }
+
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        id: '1',
+        type: 'storage_response',
+        operation: 'getItem',
+        rawValue: 'bar',
+      });
+    });
+
+    it('handles removeItem requests', () => {
+      new WorkerStorage();
+      mockLocalStorage.data.set('foo', 'bar');
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '1',
+              type: 'storage_request',
+              operation: 'removeItem',
+              key: 'foo',
+            },
+          })
+        );
+      }
+
+      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('foo');
+      expect(mockWorker.postMessage).toHaveBeenCalledWith({
+        id: '1',
+        type: 'storage_response',
+        operation: 'removeItem',
+        success: true,
+      });
+    });
+
+    it('logs warnings on localStorage errors', () => {
+      new WorkerStorage();
+
+      mockLocalStorage.setItem.mockImplementationOnce(() => {
+        throw new Error('fail');
+      });
+      mockLocalStorage.getItem.mockImplementationOnce(() => {
+        throw new Error('fail');
+      });
+      mockLocalStorage.removeItem.mockImplementationOnce(() => {
+        throw new Error('fail');
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      if (mockWorker.onmessage) {
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '1',
+              type: 'storage_request',
+              operation: 'setItem',
+              key: 'foo',
+              value: 'bar',
+              opId: 1,
+            },
+          })
+        );
+
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '2',
+              type: 'storage_request',
+              operation: 'getItem',
+              key: 'foo',
+            },
+          })
+        );
+
+        mockWorker.onmessage(
+          new MessageEvent('message', {
+            data: {
+              id: '3',
+              type: 'storage_request',
+              operation: 'removeItem',
+              key: 'foo',
+            },
+          })
+        );
+      }
+
+      expect(warnSpy).toHaveBeenCalledTimes(3);
+      warnSpy.mockRestore();
     });
   });
 });

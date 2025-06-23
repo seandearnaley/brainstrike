@@ -40,6 +40,7 @@ export class WorkerStorage {
   >();
   private activeSaveOps = new Map<string, number>();
   private timeouts = new Map<string, ReturnType<typeof setTimeout>>();
+  private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor() {
     this.initializeWorker();
@@ -84,7 +85,7 @@ export class WorkerStorage {
     const request = this.pendingRequests.get(id);
 
     if (!request) {
-      console.warn('Received worker response for unknown request:', id);
+      // Silently ignore responses for requests that have already timed out
       return;
     }
 
@@ -230,7 +231,7 @@ export class WorkerStorage {
           this.timeouts.delete(id);
           reject(new Error('Worker request timeout'));
         }
-      }, 30000); // 30 s timeout – long enough for massive saves but short enough to fail fast
+      }, 5000); // 5 s timeout – faster failure recovery
 
       this.timeouts.set(id, timeout);
     });
@@ -256,19 +257,35 @@ export class WorkerStorage {
   }
 
   async setItem(key: string, value: unknown): Promise<void> {
-    const payload = typeof value === 'string' ? value : value;
-    try {
-      await this.sendMessage('save', key, payload);
-    } catch (error) {
-      console.error('Worker setItem failed:', error);
-      // For fallback path, ensure we store stringified value
-      const serialized = typeof value === 'string' ? value : JSON.stringify(value);
-      try {
-        localStorage.setItem(key, serialized);
-      } catch (e) {
-        console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+    return new Promise((resolve, reject) => {
+      // Clear any existing debounce timer for this key
+      const existingTimer = this.debounceTimers.get(key);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
       }
-    }
+
+      // Debounce rapid saves for the same key
+      const timer = setTimeout(async () => {
+        this.debounceTimers.delete(key);
+        try {
+          await this.sendMessage('save', key, value);
+          resolve();
+        } catch (error) {
+          console.error('Worker setItem failed:', error);
+          // Fallback path, ensure we store stringified value
+          const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+          try {
+            localStorage.setItem(key, serialized);
+            resolve();
+          } catch (e) {
+            console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+            reject(e);
+          }
+        }
+      }, 100); // 100ms debounce
+
+      this.debounceTimers.set(key, timer);
+    });
   }
 
   async removeItem(key: string): Promise<void> {
@@ -297,5 +314,17 @@ export class WorkerStorage {
       this.worker = null;
     }
     this.pendingRequests.clear();
+
+    // Clear all active debounce timers to prevent memory leaks
+    for (const timer of this.debounceTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.debounceTimers.clear();
+
+    // Clear any remaining timeout timers
+    for (const timer of this.timeouts.values()) {
+      clearTimeout(timer);
+    }
+    this.timeouts.clear();
   }
 }

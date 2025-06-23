@@ -70,7 +70,8 @@ test.describe('Complete File Explorer Workflow', () => {
     // Step 6: Verify action buttons are now enabled
     await expect(page.getByRole('button', { name: 'Download Report' })).toBeEnabled();
     await expect(copyButton).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Select All' })).toBeEnabled();
+    // Look for the file tree's Deselect All button (which shows when files are selected)
+    await expect(page.getByRole('button', { name: 'Deselect All' })).toBeEnabled();
 
     // Step 7: Use the EXACT working pattern from quick-filter.spec.ts
     const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");

@@ -11,7 +11,7 @@
 		"build": "turbo run build --summarize --log-order=grouped",
 		"build:web": "turbo run build --filter @brainstrike/web --summarize --log-order=grouped",
 		"dev": "turbo run dev",
-		"lint": "biome check .",
+		"lint": "biome check . --fix",
 		"format": "biome format . --write",
 		"lint-all": "pnpm lint && pnpm format",
 		"test": "turbo run test --summarize --log-order=grouped",
@@ -73,8 +73,5 @@
 	"workspaces": [
 		"apps/*",
 		"packages/*"
-	],
-	"dependencies": {
-		"@tanstack/react-virtual": "^3.13.9"
-	}
+	]
 }
