@@ -1,6 +1,6 @@
 import { Badge, Button, Checkbox, Progress } from '@brainstrike/ui';
 import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
-import { memo, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 
 interface PreviewPanelProps {
@@ -23,6 +23,7 @@ interface PreviewPanelProps {
     }
   ) => void;
   onFileClick?: (compositeKey: string) => void;
+  pageSize?: number; // Configurable page size with default 50
 }
 
 // Simplified table data structure - only files, no folder headers
@@ -47,6 +48,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     countTokensHeuristic,
     performUndoableAction,
     onFileClick,
+    pageSize = 50,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
@@ -101,7 +103,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Simple pagination state
   const [currentPage, setCurrentPage] = useState(0);
-  const pageSize = 50; // Keep it at 50 rows for performance
 
   // Null check helper - reduces complexity
   const handleNullValues = useCallback((aVal: unknown, bVal: unknown): number | null => {
@@ -290,7 +291,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   );
 
   // Reset to first page when data changes
-  useMemo(() => {
+  useEffect(() => {
     if (currentPage >= totalPages && totalPages > 0) {
       setCurrentPage(0);
     }
@@ -402,11 +403,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               Reset Sort
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={expandAllFolders}>
+          <Button variant="outline" size="sm" onClick={expandAllFolders} title="Expand all folders">
             <ArrowDown className="size-3.5" />
             <span className="hidden sm:inline ml-1">Expand</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={collapseAllFolders}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={collapseAllFolders}
+            title="Collapse all folders"
+          >
             <ArrowUp className="size-3.5" />
             <span className="hidden sm:inline ml-1">Collapse</span>
           </Button>
@@ -419,7 +425,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-background border-b">
               <tr>
-                <th className="px-4 py-3 w-12">
+                <th className="px-4 py-3 w-12" scope="col">
                   <Checkbox
                     checked={isAllCurrentPageSelected}
                     onCheckedChange={(checked) =>

@@ -47,7 +47,6 @@ export interface UsePreviewPanelStateProps {
   ) => void;
 }
 
-import { useVirtualizer } from '@tanstack/react-virtual';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 // Helper function to check if content is accessible
@@ -260,18 +259,6 @@ export function usePreviewPanelState({
     collapsedFolders,
   ]);
 
-  const scrollElementRef = useRef<HTMLDivElement>(null);
-
-  const virtualizer = useVirtualizer({
-    count: flatListItems.length,
-    getScrollElement: () => scrollElementRef.current,
-    estimateSize: (index) => {
-      const item = flatListItems[index];
-      return item?.type === 'folder-header' ? 60 : 40;
-    },
-    overscan: 10,
-  });
-
   const handleRemoveFile = useCallback(
     (compositeKey: string) => {
       const { path } = decodeFileSelection(compositeKey);
@@ -393,8 +380,6 @@ export function usePreviewPanelState({
     batchSelectedFiles,
     collapsedFolders,
     flatListItems,
-    scrollElementRef,
-    virtualizer,
     handleRemoveFile,
     handleBatchRemove,
     toggleFileSelection,

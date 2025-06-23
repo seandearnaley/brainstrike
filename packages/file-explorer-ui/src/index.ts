@@ -41,7 +41,6 @@ export * from './tabbed-file-editor-panel';
 export * from './hooks';
 export * from './contexts/file-editor-context';
 export * from './use-preview-panel-state';
-export * from './virtualized-preview-list';
 export * from './use-shared-file-content-loading';
 export * from './utils/file-content-worker';
 export * from './utils/file-node-cache';

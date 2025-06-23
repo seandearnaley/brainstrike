@@ -120,7 +120,12 @@
       "Bash(pnpm -w run knip)",
       "Bash(pnpm biome format:*)",
       "Bash(npx knip:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx)"
     ],
     "deny": []
   },

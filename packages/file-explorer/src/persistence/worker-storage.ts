@@ -267,13 +267,12 @@ export class WorkerStorage {
       // Debounce rapid saves for the same key
       const timer = setTimeout(async () => {
         this.debounceTimers.delete(key);
-        const payload = typeof value === 'string' ? value : value;
         try {
-          await this.sendMessage('save', key, payload);
+          await this.sendMessage('save', key, value);
           resolve();
         } catch (error) {
           console.error('Worker setItem failed:', error);
-          // For fallback path, ensure we store stringified value
+          // Fallback path, ensure we store stringified value
           const serialized = typeof value === 'string' ? value : JSON.stringify(value);
           try {
             localStorage.setItem(key, serialized);
