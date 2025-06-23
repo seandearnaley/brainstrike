@@ -157,25 +157,13 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     Example: `feat(web): Add user profile page`
     If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
 *   **Checklist**:
-    *   **Crucially, run the following command to validate your changes:**
-        ```bash
-        pnpm run check
-        ```
+    *   Relevant tests should be added and pass.
     *   PR description clearly explains the changes and reasoning.
     *   New functionality is covered by tests.
 
 ## Codebase Migrations & Deprecations
 
-*   *(No active major migrations noted at the moment. This section can be updated as needed.)*
 *   When deprecating code, follow established deprecation patterns and update documentation accordingly.
-
-## Validating Changes (Summary)
-
-Before pushing code or opening a PR, ensure the following command completes successfully:
-
-```bash
-pnpm run check
-```
 
 **Important:** The `pnpm run build` command must succeed for every workspace in the monorepo. It runs with `--filter ./...` internally, building all packages and applications. If any workspace fails to build, the entire build step will fail.
 
