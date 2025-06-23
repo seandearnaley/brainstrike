@@ -73,8 +73,5 @@
 	"workspaces": [
 		"apps/*",
 		"packages/*"
-	],
-	"dependencies": {
-		"@tanstack/react-virtual": "^3.13.9"
-	}
+	]
 }
