@@ -234,6 +234,46 @@ describe('PreviewPanel', () => {
       expect(screen.getAllByTestId('arrow-down').length).toBeGreaterThan(0);
     });
 
+    it('should sort by tokens ascending and descending', async () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      let tokensHeader = screen.getByText('Tokens');
+      fireEvent.click(tokensHeader); // ascending
+
+      await waitFor(() => {
+        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
+        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
+      });
+
+      tokensHeader = screen.getByText('Tokens');
+      fireEvent.click(tokensHeader); // descending
+
+      await waitFor(() => {
+        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
+        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file2.txt');
+      });
+    });
+
+    it('should sort by size ascending and descending', async () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      let sizeHeader = screen.getByText('Size');
+      fireEvent.click(sizeHeader); // ascending
+
+      await waitFor(() => {
+        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
+        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
+      });
+
+      sizeHeader = screen.getByText('Size');
+      fireEvent.click(sizeHeader); // descending
+
+      await waitFor(() => {
+        const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ });
+        expect(fileButtons[0]).toHaveAttribute('aria-label', 'file2.txt');
+      });
+    });
+
     it('should reset sort when reset button is clicked', () => {
       render(<PreviewPanel {...mockProps} />);
 
