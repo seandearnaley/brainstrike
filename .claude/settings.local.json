@@ -125,7 +125,8 @@
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test --reporter=verbose)",
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx --reporter=verbose)",
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx)",
-      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx)"
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx)"
     ],
     "deny": []
   },
