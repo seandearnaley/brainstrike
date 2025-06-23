@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Panel layout persistence
   saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),
   loadLayout: () => ipcRenderer.invoke('layout:load'),
-  // Database path
+  // Database operations
+  db: {
+    query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
+    exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
+    test: () => ipcRenderer.invoke('db:test'),
+  },
+  // Database path (legacy - kept for compatibility)
   getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
 });

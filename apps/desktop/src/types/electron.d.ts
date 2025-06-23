@@ -2,6 +2,11 @@ import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 
+interface QueryResult {
+  rows: unknown[];
+  fields?: { name: string; dataType: string }[];
+}
+
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
@@ -19,10 +24,16 @@ declare global {
         readFile: (handle: FileHandle) => Promise<string>;
         exists: (path: string) => Promise<boolean>;
       };
+      // Database operations
+      db: {
+        query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
+        exec: (sql: string) => Promise<void>;
+        test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
+      };
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<void>;
       loadLayout: () => Promise<PanelPersistenceState | undefined>;
-      // Database path method
+      // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
     };
   }

@@ -15,20 +15,32 @@ const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
 
 function App() {
-  const [dbPath, setDbPath] = useState<string | null>(null);
+  const [dbReady, setDbReady] = useState(false);
 
   useEffect(() => {
-    // For Electron renderer, we need to use IndexedDB since PGlite WASM
-    // runs in a browser-like environment and can't access the file system directly
-    setDbPath('idb://desktop');
+    // Verify Electron API is available
+    if (window.electronAPI?.db) {
+      setDbReady(true);
+    } else {
+      console.error('Electron database API not available');
+    }
   }, []);
 
-  if (!dbPath) {
-    return <div>Loading...</div>;
+  if (!dbReady) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="text-lg font-semibold">Initializing Database...</div>
+          <div className="text-sm text-muted-foreground mt-2">
+            Setting up PGlite with NodeFS persistence
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <DbProvider dbPath={dbPath}>
+    <DbProvider useElectronIPC={true}>
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
         <RootLayoutContent />
       </AdaptersProvider>

@@ -21,7 +21,11 @@
   },
   "include": [
     "src/main.ts",
-    "src/preload.ts"
+    "src/preload.ts",
+    "src/db-main.ts",
+    "src/ipc-handlers.ts",
+    "src/create-window.ts",
+    "src/setup-security.ts"
   ],
   "exclude": [
     "node_modules",

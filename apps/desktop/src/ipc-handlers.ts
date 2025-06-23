@@ -9,6 +9,7 @@ import type { PanelPersistenceState } from '@brainstrike/ui';
 import { app, ipcMain } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import type ElectronStore from 'electron-store';
+import { getDatabase } from './db-main';
 
 interface StoreSchema {
   panelLayout: {
@@ -120,7 +121,52 @@ export function registerIpcHandlers(
     return layout?.v1;
   });
 
-  // Database path IPC handler
+  // Database IPC handlers
+  ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
+    try {
+      const db = getDatabase();
+      return await db.query(sql, params);
+    } catch (error) {
+      console.error('Database query error:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
+    try {
+      const db = getDatabase();
+      return await db.exec(sql);
+    } catch (error) {
+      console.error('Database exec error:', error);
+      throw error;
+    }
+  });
+
+  // Database test handler for connection validation
+  ipcMain.handle('db:test', async () => {
+    try {
+      const db = getDatabase();
+      const result = await db.query('SELECT 1 as test, current_timestamp as timestamp');
+      const dbPath = path.join(
+        app.getPath('documents'),
+        process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev',
+        'pgdata'
+      );
+      return {
+        success: true,
+        message: `Database connected successfully. Test query returned: ${JSON.stringify(result.rows[0])}`,
+        dbLocation: `NodeFS: ${dbPath}`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Database test failed: ${error}`,
+        dbLocation: 'Unknown',
+      };
+    }
+  });
+
+  // Database path IPC handler (legacy - kept for compatibility)
   ipcMain.handle('db:getUserDataPath', async () => {
     return path.join(app.getPath('userData'), 'brainstrike.db');
   });
