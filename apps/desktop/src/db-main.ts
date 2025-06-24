@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { app } from 'electron';
 import { createLogger } from '@brainstrike/utils';
+import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
@@ -23,6 +23,7 @@ let db: any | null = null;
  * Uses a different directory for development vs production
  */
 function getDatabasePath(): string {
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
   const isProduction = process.env['NODE_ENV'] === 'production';
   const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
   return path.join(app.getPath('documents'), dbDirName, 'pgdata');

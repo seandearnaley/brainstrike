@@ -10,8 +10,12 @@ vi.mock('react-dom/client', () => ({
 }));
 
 const mockDbProvider = vi.fn(
-  ({ children, dbPath }: { children: React.ReactNode; dbPath: string }) => (
-    <div data-testid="db-provider" data-db-path={dbPath}>
+  ({
+    children,
+    dbPath,
+    useElectronIPC,
+  }: { children: React.ReactNode; dbPath?: string; useElectronIPC?: boolean }) => (
+    <div data-testid="db-provider" data-db-path={dbPath} data-use-electron-ipc={useElectronIPC}>
       {children}
     </div>
   )
@@ -38,14 +42,20 @@ beforeEach(() => {
 });
 
 describe('App database path resolution', () => {
-  it('uses IndexedDB for desktop app', async () => {
+  it('uses Electron IPC for desktop app', async () => {
+    // Mock window.electronAPI for this test
+    Object.defineProperty(window, 'electronAPI', {
+      value: { db: { query: vi.fn(), exec: vi.fn(), test: vi.fn() } },
+      writable: true,
+    });
+
     await import('../../renderer/main.tsx');
     const element = mockRender.mock.calls[0]?.[0];
     if (element) {
       render(element);
     }
     await new Promise((r) => setTimeout(r, 0));
-    const call = mockDbProvider.mock.calls.at(-1)?.[0] as { dbPath: string } | undefined;
-    expect(call?.dbPath).toBe('idb://desktop');
+    const call = mockDbProvider.mock.calls.at(-1)?.[0] as { useElectronIPC?: boolean } | undefined;
+    expect(call?.useElectronIPC).toBe(true);
   });
 });

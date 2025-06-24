@@ -149,6 +149,7 @@ export function registerIpcHandlers(
       const result = await db.query('SELECT 1 as test, current_timestamp as timestamp');
       const dbPath = path.join(
         app.getPath('documents'),
+        // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
         process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev',
         'pgdata'
       );

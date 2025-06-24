@@ -40,10 +40,69 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
     };
   }
   
-  const app = await electron.launch(launchOptions);
+  let app;
+  try {
+    app = await electron.launch(launchOptions);
+  } catch (error) {
+    console.error('❌ Failed to launch Electron app:', error);
+    throw new Error(`Failed to launch Electron app: ${error}`);
+  }
   
-  // Wait for the first window to be created
-  const window = await app.firstWindow();
+  // Add error logging for app crashes
+  app.on('close', () => {
+    console.log('⚠️ Electron app closed unexpectedly');
+  });
+  
+  // Wait for the first window to be created with better error handling
+  let window: Page | undefined;
+  let retryCount = 0;
+  const maxRetries = 3;
+  
+  while (retryCount < maxRetries) {
+    try {
+      // Wait a bit for the app to initialize, especially on subsequent tests
+      if (retryCount > 0) {
+        console.log(`🔄 Retry ${retryCount}/${maxRetries} - waiting for app to initialize...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+      window = await app.firstWindow();
+      console.log('✅ Successfully got first window');
+      break;
+    } catch (error) {
+      console.error(`❌ Failed to get first window (attempt ${retryCount + 1}):`, error);
+      
+      // Try to get any available windows
+      const windows = app.windows();
+      console.log(`🔍 Available windows: ${windows.length}`);
+      
+      if (windows.length > 0) {
+        const firstWindow = windows[0];
+        if (firstWindow) {
+          window = firstWindow;
+          console.log('✅ Using first available window');
+          break;
+        }
+      }
+      
+      retryCount++;
+      if (retryCount >= maxRetries) {
+        console.error('❌ Exhausted all retries, app may have crashed');
+        // Try to close the app gracefully
+        try {
+          await app.close();
+        } catch (closeError) {
+          console.error('❌ Failed to close app:', closeError);
+        }
+        throw new Error('No windows available after retries - app may have crashed during initialization');
+      }
+    }
+  }
+  
+  // Ensure window was assigned
+  if (!window) {
+    throw new Error('Window was not assigned after retry logic - this should not happen');
+  }
   
   // Wait for the app to be ready
   await window.waitForLoadState('domcontentloaded');
@@ -61,8 +120,16 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
  */
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
   console.log('🔒 Closing Electron app...');
-  await appContext.app.close();
-  console.log('✅ Electron app closed');
+  try {
+    await appContext.app.close();
+    console.log('✅ Electron app closed');
+    // Add a small delay to ensure cleanup is complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  } catch (error) {
+    console.error('❌ Error closing Electron app:', error);
+    // Still try to wait a bit for any cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
 }
 
 /**

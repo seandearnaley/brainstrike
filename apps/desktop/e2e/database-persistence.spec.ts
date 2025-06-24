@@ -1,6 +1,9 @@
 import { test, expect } from '@playwright/test';
 import { launchElectronApp, closeElectronApp, waitForAppReady } from './utils/electron-helpers';
+import { showDatabaseDemoPanel, waitForDatabaseReady, getDatabasePanelElements, clearDatabaseRecords } from './utils/layout-helpers';
 import type { ElectronAppContext } from './utils/electron-helpers';
+
+test.describe.configure({ mode: 'serial' });
 
 test.describe('Database Persistence with NodeFS', () => {
   let appContext: ElectronAppContext;
@@ -19,19 +22,27 @@ test.describe('Database Persistence with NodeFS', () => {
   test('should persist data between app restarts using NodeFS', async () => {
     const page = appContext.window;
     
-    // Wait for database to initialize
-    await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
+    // Navigate to and show the database demo panel
+    await showDatabaseDemoPanel(page);
+    await waitForDatabaseReady(page);
+    
+    // Clear any existing records first
+    await clearDatabaseRecords(page);
     
     // Verify NodeFS storage is being used
     await expect(page.locator('text=NodeFS:')).toBeVisible();
     await expect(page.locator('text=/BrainStrike')).toBeVisible();
     
+    // Get initial count after cleanup
+    const initialCount = await page.locator('tbody tr').count();
+    console.log(`📊 Initial count after cleanup: ${initialCount}`);
+    
     // Add a test record
     const testFileName = `test-persistence-${Date.now()}.txt`;
     await page.click('button:has-text("Add Test Record")');
     
-    // Wait for the record to appear
-    await expect(page.locator('tbody tr')).toHaveCount(1, { timeout: 10000 });
+    // Wait for a new record to appear (should be initial count + 1)
+    await expect(page.locator('tbody tr')).toHaveCount(initialCount + 1, { timeout: 10000 });
     
     // Get the record count
     const initialRecords = await page.locator('tbody tr').count();
@@ -49,14 +60,19 @@ test.describe('Database Persistence with NodeFS', () => {
     await waitForAppReady(appContext.window);
     const newPage = appContext.window;
     
-    // Wait for database to reinitialize
-    await expect(newPage.locator('[data-testid="database-demo-panel"]')).toBeVisible();
+    // Navigate to and show the database demo panel again
+    await showDatabaseDemoPanel(newPage);
+    await waitForDatabaseReady(newPage);
     
     // Wait for records to load
     await newPage.waitForTimeout(2000);
     
-    // Verify data persisted after restart
-    await expect(newPage.locator(`text=${firstRecordName}`)).toBeVisible({ timeout: 10000 });
+    // Verify data persisted after restart - use more specific selector for the filename column
+    if (firstRecordName) {
+      await expect(newPage.locator('tbody tr td:nth-child(2)', { hasText: firstRecordName })).toBeVisible({ timeout: 10000 });
+    } else {
+      throw new Error('First record name was not found before restart');
+    }
     
     // Verify record count is the same
     const afterRestartRecords = await newPage.locator('tbody tr').count();
@@ -72,8 +88,9 @@ test.describe('Database Persistence with NodeFS', () => {
   test('should handle database errors gracefully', async () => {
     const page = appContext.window;
     
-    // Wait for database demo panel
-    await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
+    // Navigate to and show the database demo panel
+    await showDatabaseDemoPanel(page);
+    await waitForDatabaseReady(page);
     
     // Verify connection status is shown
     await expect(page.locator('text=✓')).toBeVisible(); // Success indicator
@@ -88,7 +105,9 @@ test.describe('Database Persistence with NodeFS', () => {
   test('should show correct database location info', async () => {
     const page = appContext.window;
     
-    await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
+    // Navigate to and show the database demo panel
+    await showDatabaseDemoPanel(page);
+    await waitForDatabaseReady(page);
     
     // Check for NodeFS indicator in desktop app
     await expect(page.locator('text=NodeFS:')).toBeVisible();
@@ -102,12 +121,12 @@ test.describe('Database Persistence with NodeFS', () => {
   test('should perform CRUD operations through UI', async () => {
     const page = appContext.window;
     
-    // Wait for database to initialize
-    await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
+    // Navigate to and show the database demo panel
+    await showDatabaseDemoPanel(page);
+    await waitForDatabaseReady(page);
     
-    // Clear any existing records by refreshing
-    await page.click('button:has-text("Refresh")');
-    await page.waitForTimeout(1000);
+    // Clear any existing records first
+    await clearDatabaseRecords(page);
     
     // Add multiple test records
     for (let i = 0; i < 3; i++) {

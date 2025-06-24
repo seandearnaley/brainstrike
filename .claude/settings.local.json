@@ -130,7 +130,8 @@
       "Bash(timeout 10s pnpm dev --filter @brainstrike/desktop)",
       "Bash(npm run start:electron:*)",
       "Bash(electron:*)",
-      "Bash(npx electron:*)"
+      "Bash(npx electron:*)",
+      "Bash(turbo run type-check:*)"
     ],
     "deny": []
   },

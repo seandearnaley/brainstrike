@@ -48,7 +48,16 @@ const existsSyncMock = vi.fn();
 vi.mock('node:fs', () => ({ default: { existsSync: existsSyncMock } }));
 
 const isDevEnvMock = vi.fn();
-vi.mock('@brainstrike/utils', () => ({ isDevEnv: isDevEnvMock }));
+const createLoggerMock = vi.fn(() => ({
+  info: vi.fn(),
+  debug: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('@brainstrike/utils', () => ({
+  isDevEnv: isDevEnvMock,
+  createLogger: createLoggerMock,
+}));
 vi.mock('electron-store', () => ({ default: vi.fn(() => ({})) }));
 
 describe('window setup', () => {

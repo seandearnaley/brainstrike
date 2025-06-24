@@ -18,19 +18,6 @@ import {
 import { Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-// Type augmentation for window.electronAPI
-declare global {
-  interface Window {
-    electronAPI?: {
-      db?: {
-        query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
-        exec: (sql: string) => Promise<void>;
-        test?: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
-      };
-    };
-  }
-}
-
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
   const { toast } = useToast();
@@ -64,9 +51,11 @@ export function DatabaseDemoPanel() {
 
   // Test database connection
   const testDatabaseConnection = useCallback(async () => {
-    if (typeof window !== 'undefined' && window.electronAPI?.db?.test) {
+    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.test) {
       try {
-        const result = await window.electronAPI.db.test();
+        // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+        const result = await (window as any).electronAPI.db.test();
         setDbInfo({
           location: result.dbLocation,
           testResult: result.message,
@@ -195,15 +184,15 @@ export function DatabaseDemoPanel() {
         </CardTitle>
         <CardDescription className="text-xs">
           PGlite WASM database with file records table
-          {dbInfo && (
-            <div className="mt-2 p-2 bg-muted rounded text-xs">
-              <div className="font-medium">Storage: {dbInfo.location}</div>
-              <div className={`mt-1 ${dbInfo.connected ? 'text-green-600' : 'text-red-600'}`}>
-                {dbInfo.connected ? '✓' : '✗'} {dbInfo.testResult}
-              </div>
-            </div>
-          )}
         </CardDescription>
+        {dbInfo && (
+          <div className="mt-2 p-2 bg-muted rounded text-xs">
+            <div className="font-medium">Storage: {dbInfo.location}</div>
+            <div className={`mt-1 ${dbInfo.connected ? 'text-green-600' : 'text-red-600'}`}>
+              {dbInfo.connected ? '✓' : '✗'} {dbInfo.testResult}
+            </div>
+          </div>
+        )}
         <div className="flex gap-2 pt-2">
           <Button
             size="sm"
