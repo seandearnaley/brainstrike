@@ -25,7 +25,7 @@ const playwrightConfig: PlaywrightTestConfig = {
   timeout: 60_000,
   
   // Don't run tests in parallel - Electron can be resource intensive
-  fullyParallel: config.fullyParallel,
+  fullyParallel: false,
   
   // Fail the build on CI if you accidentally left test.only in the source code
   forbidOnly: config.isCI,
@@ -34,7 +34,8 @@ const playwrightConfig: PlaywrightTestConfig = {
   retries: config.retries,
   
   // Worker count based on environment capabilities
-  workers: config.workers,
+  // Force single worker for desktop to avoid test interference
+  workers: 1,
   
   // Reporter configuration
   reporter: config.isCI 
