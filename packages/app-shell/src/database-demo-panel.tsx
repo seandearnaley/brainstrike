@@ -13,10 +13,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  createDebounce,
   useToast,
 } from '@brainstrike/ui';
 import { Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
@@ -29,6 +30,10 @@ export function DatabaseDemoPanel() {
     testResult: string;
     connected: boolean;
   } | null>(null);
+
+  // Use a ref to track if an add operation is currently in progress
+  // This prevents rapid successive calls even in React Strict Mode
+  const isAddingRef = useRef(false);
 
   const loadRecords = useCallback(async () => {
     if (!repository) return;
@@ -85,11 +90,14 @@ export function DatabaseDemoPanel() {
     }
   }, [repository, loadRecords, testDatabaseConnection]);
 
-  const addTestRecord = useCallback(async () => {
-    if (!repository) return;
+  // Internal function that actually performs the record creation
+  const performAddTestRecord = useCallback(async () => {
+    if (!repository || isAddingRef.current) return;
 
     try {
+      isAddingRef.current = true;
       setLoading(true);
+
       const now = new Date().toISOString();
       const randomId = Math.random().toString(36).substring(2, 15);
       const testRecord: FileRecord = {
@@ -117,8 +125,32 @@ export function DatabaseDemoPanel() {
       });
     } finally {
       setLoading(false);
+      isAddingRef.current = false;
     }
   }, [repository, loadRecords, toast]);
+
+  // Create a debounced version of the add function to prevent rapid successive calls
+  const { run: debouncedAddTestRecord } = useMemo(
+    () => createDebounce(performAddTestRecord, 300),
+    [performAddTestRecord]
+  );
+
+  // Public interface that handles the button click
+  const addTestRecord = useCallback(
+    (event: React.MouseEvent) => {
+      // Prevent event bubbling and default behavior
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Additional protection against rapid clicks
+      if (loading || isAddingRef.current) {
+        return;
+      }
+
+      debouncedAddTestRecord();
+    },
+    [loading, debouncedAddTestRecord]
+  );
 
   const removeRecord = useCallback(
     async (id: string, name: string) => {

@@ -145,12 +145,12 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(page);
     await waitForDatabaseReady(page);
     
-    // CRITICAL: Clear any existing records first for this test
+    // Clear any existing records first for this test
     // Since we use NodeFS persistence, data persists between test runs
     console.log('🧹 Clearing existing records before CRUD test...');
     await clearDatabaseRecords(page);
     
-    // Verify we start clean (wait a bit for cleanup to complete)
+    // Verify we start clean
     await page.waitForTimeout(1000);
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(1000);
@@ -158,91 +158,28 @@ test.describe('Database Persistence with NodeFS', () => {
     // Confirm we start with 0 records
     const initialCount = await page.locator('tbody tr').count();
     console.log(`📊 Initial record count for CRUD test: ${initialCount}`);
+    expect(initialCount).toBe(0);
     
-    if (initialCount > 0) {
-      console.log(`⚠️ Found ${initialCount} existing records, performing additional cleanup...`);
-      // Try one more aggressive cleanup
-      await clearDatabaseRecords(page);
-      await page.waitForTimeout(1000);
-      await page.click('button:has-text("Refresh")');
-      await page.waitForTimeout(1000);
-      
-      const finalInitialCount = await page.locator('tbody tr').count();
-      if (finalInitialCount > 0) {
-        console.log(`🚨 WARNING: Still have ${finalInitialCount} records after cleanup. Adjusting test expectations.`);
-      }
-    }
-    
-    // Get the actual starting count (might not be 0 if cleanup failed)
-    const actualStartCount = await page.locator('tbody tr').count();
-    console.log(`📊 Actual starting count: ${actualStartCount}`);
-    
-    // Add multiple test records
+    // Add 3 test records
     console.log('📝 Adding 3 test records...');
     for (let i = 0; i < 3; i++) {
       console.log(`🔄 Adding record ${i + 1}/3...`);
       
-      // Get current count before clicking
-      const beforeCount = await page.locator('tbody tr').count();
-      console.log(`📊 Record count before click ${i + 1}: ${beforeCount}`);
-      
-      // Click the add button once
+      // Click the add button
       await page.click('button:has-text("Add Test Record")');
       
-      // Wait for the record to be added and refresh to see it
+      // Wait for the record to be added
       await page.waitForTimeout(1000);
       await page.click('button:has-text("Refresh")');
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(500);
       
-      // Check the count after this click
-      const afterCount = await page.locator('tbody tr').count();
-      console.log(`📊 Record count after click ${i + 1}: ${afterCount}`);
-      
-      // If we got more than 1 record from this click, something is wrong
-      const recordsAdded = afterCount - beforeCount;
-      if (recordsAdded > 1) {
-        console.log(`⚠️ WARNING: Click ${i + 1} added ${recordsAdded} records instead of 1!`);
-        console.log(`🚨 This indicates a UI bug - the Add Test Record button is creating multiple records per click`);
-        
-        // Delete the extra records to get back to expected state
-        const expectedCount = beforeCount + 1;
-        const extraRecords = afterCount - expectedCount;
-        console.log(`🗑️ Deleting ${extraRecords} extra records...`);
-        
-        for (let j = 0; j < extraRecords; j++) {
-          const deleteButtons = page.locator('tbody tr button[title="Remove record"]');
-          const buttonCount = await deleteButtons.count();
-          if (buttonCount > 0) {
-            await deleteButtons.first().click();
-            await page.waitForTimeout(500);
-          }
-        }
-        
-        // Refresh and verify we're back to expected count
-        await page.click('button:has-text("Refresh")');
-        await page.waitForTimeout(1000);
-        
-        const finalCount = await page.locator('tbody tr').count();
-        console.log(`📊 Count after cleanup: ${finalCount}, expected: ${expectedCount}`);
-      } else if (recordsAdded === 0) {
-        console.log(`⚠️ WARNING: Click ${i + 1} didn't add any records, retrying...`);
-        // Retry this click
-        i--;
-        continue;
-      }
+      // Verify the record was added
+      const currentCount = await page.locator('tbody tr').count();
+      expect(currentCount).toBe(i + 1);
+      console.log(`📊 Record count after adding record ${i + 1}: ${currentCount}`);
     }
     
-    // Final refresh and count check
-    await page.click('button:has-text("Refresh")');
-    await page.waitForTimeout(1000);
-    
-    // Verify we have the expected count (starting count + 3 new records)
-    const expectedAfterAdd = actualStartCount + 3;
-    const finalRecordCount = await page.locator('tbody tr').count();
-    console.log(`📊 Final record count: ${finalRecordCount}, expected: ${expectedAfterAdd}`);
-    
-    await expect(page.locator('tbody tr')).toHaveCount(expectedAfterAdd);
-    console.log(`✅ Successfully added 3 records (total: ${expectedAfterAdd})`);
+    console.log('✅ Successfully added 3 records');
     
     // Delete one record
     console.log('🗑️ Deleting one record...');
@@ -250,15 +187,14 @@ test.describe('Database Persistence with NodeFS', () => {
     await page.waitForTimeout(500);
     
     // Verify count decreased by 1
-    const expectedAfterDelete = expectedAfterAdd - 1;
-    await expect(page.locator('tbody tr')).toHaveCount(expectedAfterDelete);
-    console.log(`✅ Successfully deleted 1 record (total: ${expectedAfterDelete})`);
+    await expect(page.locator('tbody tr')).toHaveCount(2);
+    console.log('✅ Successfully deleted 1 record (total: 2)');
     
     // Refresh and verify count persists
     await page.click('button:has-text("Refresh")');
-    await page.waitForTimeout(1000);
-    await expect(page.locator('tbody tr')).toHaveCount(expectedAfterDelete);
-    console.log(`✅ Record count persisted after refresh: ${expectedAfterDelete}`);
+    await page.waitForTimeout(500);
+    await expect(page.locator('tbody tr')).toHaveCount(2);
+    console.log('✅ Record count persisted after refresh: 2');
   });
 
   test('should persist data between app restarts using NodeFS', async () => {
@@ -271,33 +207,12 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(page);
     await waitForDatabaseReady(page);
     
-    // AGGRESSIVE CLEANUP: Ensure we start with a completely clean database
-    // This is critical since database persistence means data survives between test runs
-    console.log('🧹 Performing aggressive database cleanup...');
-    let cleanupAttempts = 0;
-    const maxCleanupAttempts = 10;
-    
-    while (cleanupAttempts < maxCleanupAttempts) {
-      await clearDatabaseRecords(page);
-      await page.waitForTimeout(1000);
-      
-      // Refresh and check if we're truly clean
-      await page.click('button:has-text("Refresh")');
-      await page.waitForTimeout(1000);
-      
-      const recordCount = await page.locator('tbody tr').count();
-      console.log(`🧹 Cleanup attempt ${cleanupAttempts + 1}: Found ${recordCount} records`);
-      
-      if (recordCount === 0) {
-        console.log('✅ Database is completely clean');
-        break;
-      }
-      
-      cleanupAttempts++;
-      if (cleanupAttempts >= maxCleanupAttempts) {
-        throw new Error(`Failed to clean database after ${maxCleanupAttempts} attempts. Still has ${recordCount} records.`);
-      }
-    }
+    // Ensure we start with a completely clean database
+    console.log('🧹 Cleaning database before persistence test...');
+    await clearDatabaseRecords(page);
+    await page.waitForTimeout(1000);
+    await page.click('button:has-text("Refresh")');
+    await page.waitForTimeout(1000);
     
     // Verify NodeFS storage is being used
     await expect(page.locator('text=NodeFS:')).toBeVisible();
@@ -307,76 +222,20 @@ test.describe('Database Persistence with NodeFS', () => {
     await expect(page.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
     console.log('✅ Confirmed database is clean before test');
     
-    // Add a test record - ensure we only click once and wait for completion
+    // Add a test record
     console.log('🔄 Adding test record...');
-    const addButton = page.locator('button:has-text("Add Test Record")');
+    await page.click('button:has-text("Add Test Record")');
     
-    // Make sure the button is visible and ready
-    await addButton.waitFor({ state: 'visible', timeout: 5000 });
-    await page.waitForTimeout(500); // Small delay to ensure UI is stable
-    
-    // Click the button once and wait for the operation to complete
-    await addButton.click();
-    console.log('✅ Clicked add button');
-    
-    // Wait for the record to be added - check progressively
-    await page.waitForTimeout(2000); // Give more time for the record to be created
-    
-    // Refresh to ensure we see the latest state
+    // Wait for the record to be added
+    await page.waitForTimeout(1000);
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(1000);
     
-    // Check how many records we actually have and aggressively clean up if needed
-    let actualCount = await page.locator('tbody tr').count();
-    console.log(`📊 Actual record count after adding: ${actualCount}`);
-    
-    // If we have more than 1 record, aggressively clean up until we have exactly 1
-    if (actualCount !== 1) {
-      console.log(`⚠️ Expected 1 record but got ${actualCount}. Cleaning up to exactly 1...`);
-      
-      let cleanupAttempts = 0;
-      const maxCleanupAttempts = 10;
-      
-      while (actualCount !== 1 && cleanupAttempts < maxCleanupAttempts) {
-        if (actualCount > 1) {
-          // Delete excess records from the end
-          const deleteButtons = page.locator('tbody tr button[title="Remove record"]');
-          const deleteCount = await deleteButtons.count();
-          
-          // Delete from the end to avoid index shifting issues
-          for (let i = deleteCount - 1; i > 0; i--) {
-            try {
-              await deleteButtons.nth(i).click();
-              await page.waitForTimeout(500);
-            } catch (error) {
-              console.log(`⚠️ Error deleting extra record ${i}:`, error);
-            }
-          }
-        } else if (actualCount === 0) {
-          // We accidentally deleted everything, add one back
-          await addButton.click();
-          await page.waitForTimeout(1000);
-        }
-        
-        // Refresh and check again
-        await page.click('button:has-text("Refresh")');
-        await page.waitForTimeout(1000);
-        actualCount = await page.locator('tbody tr').count();
-        console.log(`🔄 Cleanup attempt ${cleanupAttempts + 1}: Now have ${actualCount} records`);
-        
-        cleanupAttempts++;
-      }
-      
-      if (actualCount !== 1) {
-        throw new Error(`Failed to achieve exactly 1 record after cleanup. Have ${actualCount} records.`);
-      }
-    }
-    
-    // Verify we now have exactly 1 record
-    await expect(page.locator('tbody tr')).toHaveCount(1, { timeout: 10000 });
+    // Verify exactly 1 record was created
+    await expect(page.locator('tbody tr')).toHaveCount(1);
     console.log('✅ Successfully confirmed 1 record exists');
     
-    // Get the actual file name of the first record for verification after restart
+    // Get the record name for verification after restart
     const firstRecordName = await page.locator('tbody tr:first-child td:nth-child(2)').textContent();
     expect(firstRecordName).toBeTruthy();
     console.log(`📝 First record name: ${firstRecordName}`);
@@ -384,8 +243,7 @@ test.describe('Database Persistence with NodeFS', () => {
     // Close and restart the app to test persistence
     await closeElectronApp(appContext);
     
-    // Add extra delay to ensure complete database cleanup and file system sync
-    // This is critical for persistence tests to avoid race conditions
+    // Wait for complete app shutdown and file system sync
     console.log('⏱️ Waiting for complete app shutdown and file system sync...');
     await new Promise(resolve => setTimeout(resolve, 8000)); // 8 second delay
     
@@ -398,64 +256,25 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(newPage);
     await waitForDatabaseReady(newPage);
     
-    // Wait for records to load with longer timeout
+    // Wait for records to load
     console.log('⏱️ Waiting for database records to load after restart...');
-    await newPage.waitForTimeout(5000); // Longer wait
-    
-    // Refresh to ensure we see the latest state
+    await newPage.waitForTimeout(3000);
     await newPage.click('button:has-text("Refresh")');
-    await newPage.waitForTimeout(3000); // Longer wait
+    await newPage.waitForTimeout(2000);
     
     // Verify data persisted after restart - should still have exactly 1 record
-    // Use a longer timeout and add retry logic for persistence verification
-    let recordCount = 0;
-    let retryCount = 0;
-    const maxRetries = 8; // More retries
-    
-    while (retryCount < maxRetries) {
-      try {
-        recordCount = await newPage.locator('tbody tr').count();
-        console.log(`📊 Attempt ${retryCount + 1}: Found ${recordCount} records after restart`);
-        
-        if (recordCount === 1) {
-          break; // Success!
-        } else if (recordCount === 0 && retryCount < maxRetries - 1) {
-          // Data might not have loaded yet, wait and refresh
-          console.log('⏱️ No records found, waiting and refreshing...');
-          await newPage.waitForTimeout(3000);
-          await newPage.click('button:has-text("Refresh")');
-          await newPage.waitForTimeout(2000);
-        }
-        
-        retryCount++;
-      } catch (error) {
-        console.log(`⚠️ Error checking record count (attempt ${retryCount + 1}):`, error);
-        retryCount++;
-        if (retryCount < maxRetries) {
-          await newPage.waitForTimeout(3000);
-        }
-      }
-    }
-    
-    // Final verification with longer timeout
-    await expect(newPage.locator('tbody tr')).toHaveCount(1, { timeout: 20000 });
+    await expect(newPage.locator('tbody tr')).toHaveCount(1, { timeout: 15000 });
     console.log('✅ Confirmed 1 record persisted after restart');
     
     // Verify the specific record persisted
     if (firstRecordName) {
-      await expect(newPage.locator('tbody tr td:nth-child(2)', { hasText: firstRecordName })).toBeVisible({ timeout: 15000 });
+      await expect(newPage.locator('tbody tr td:nth-child(2)', { hasText: firstRecordName })).toBeVisible({ timeout: 10000 });
       console.log(`✅ Confirmed specific record "${firstRecordName}" persisted`);
-    } else {
-      throw new Error('First record name was not found before restart');
     }
     
-    // Test database operations still work - add another record carefully
+    // Test database operations still work - add another record
     console.log('🔄 Adding second record after restart...');
-    const addButton2 = newPage.locator('button:has-text("Add Test Record")');
-    await addButton2.waitFor({ state: 'visible', timeout: 5000 });
-    await newPage.waitForTimeout(500);
-    
-    await addButton2.click();
+    await newPage.click('button:has-text("Add Test Record")');
     await newPage.waitForTimeout(1000);
     
     // Refresh to see the new record
@@ -466,34 +285,16 @@ test.describe('Database Persistence with NodeFS', () => {
     await expect(newPage.locator('tbody tr')).toHaveCount(2, { timeout: 10000 });
     console.log('✅ Successfully added second record after restart');
     
-    // Final cleanup for this test - clean up the test data we created
+    // Final cleanup for this test
     console.log('🧹 Final cleanup for persistence test...');
     await clearDatabaseRecords(newPage);
-    
-    // Verify cleanup was successful - this is CRITICAL for subsequent tests
+    await newPage.waitForTimeout(1000);
     await newPage.click('button:has-text("Refresh")');
     await newPage.waitForTimeout(1000);
     
     const finalRecordCount = await newPage.locator('tbody tr').count();
     console.log(`📊 Final record count after persistence test cleanup: ${finalRecordCount}`);
-    
-    if (finalRecordCount > 0) {
-      console.log(`⚠️ Persistence test cleanup left ${finalRecordCount} records. Attempting additional cleanup...`);
-      // Try one more aggressive cleanup
-      await clearDatabaseRecords(newPage);
-      await newPage.waitForTimeout(2000);
-      await newPage.click('button:has-text("Refresh")');
-      await newPage.waitForTimeout(1000);
-      
-      const veryFinalCount = await newPage.locator('tbody tr').count();
-      if (veryFinalCount > 0) {
-        console.log(`🚨 WARNING: Persistence test could not fully clean database. ${veryFinalCount} records remain.`);
-        console.log(`🚨 This may affect subsequent tests in the suite.`);
-      } else {
-        console.log('✅ Additional cleanup successful - database is now clean');
-      }
-    }
-    
+    expect(finalRecordCount).toBe(0);
     console.log('✅ Persistence test cleanup completed');
   });
 });
