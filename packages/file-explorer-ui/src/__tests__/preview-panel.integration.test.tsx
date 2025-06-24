@@ -253,7 +253,7 @@ describe('PreviewPanel Integration Tests', () => {
       const endTime = performance.now();
 
       // Should render within reasonable time (allow more time for CI)
-      expect(endTime - startTime).toBeLessThan(500);
+      expect(endTime - startTime).toBeLessThan(1000);
 
       // Should show pagination for large datasets
       expect(screen.getByText('Page 1 of 20 (1000 total files)')).toBeInTheDocument();

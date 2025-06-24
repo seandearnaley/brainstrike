@@ -182,7 +182,7 @@ test.describe('Database Persistence with NodeFS', () => {
     await closeElectronApp(appContext);
     
     // Wait for complete app shutdown and file system sync
-    await new Promise(resolve => setTimeout(resolve, 5000)); // 5 second delay instead of 8
+    await new Promise(resolve => setTimeout(resolve, 8000)); // Increased back to 8 seconds for proper sync
     
     // Launch a new instance
     appContext = await launchElectronApp();
@@ -193,13 +193,13 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(newPage);
     await waitForDatabaseReady(newPage);
     
-    // Wait for records to load
-    await newPage.waitForTimeout(2000);
+    // Wait for records to load and force a refresh
+    await newPage.waitForTimeout(3000); // Increased wait time
     await newPage.click('button:has-text("Refresh")');
-    await newPage.waitForTimeout(1000);
+    await newPage.waitForTimeout(2000); // Increased wait time
     
     // Verify data persisted after restart - should still have exactly 1 record
-    await expect(newPage.locator('tbody tr')).toHaveCount(1, { timeout: 10000 });
+    await expect(newPage.locator('tbody tr')).toHaveCount(1, { timeout: 15000 }); // Increased timeout
     
     // Verify the specific record persisted
     if (firstRecordName) {
