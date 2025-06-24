@@ -105,27 +105,50 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(page);
     await waitForDatabaseReady(page);
     
-    // Clear any existing records first for this test
-    await clearDatabaseRecords(page);
+    // More aggressive cleanup - repeat until clean
+    let attempts = 0;
+    let currentCount = await page.locator('tbody tr').count();
     
-    // Verify we start clean
-    await page.click('button:has-text("Refresh")');
-    await page.waitForTimeout(500);
+    while (currentCount > 0 && attempts < 5) {
+      console.log(`Cleanup attempt ${attempts + 1}: Found ${currentCount} existing records`);
+      await clearDatabaseRecords(page);
+      await page.waitForTimeout(1000);
+      await page.click('button:has-text("Refresh")');
+      await page.waitForTimeout(1000);
+      currentCount = await page.locator('tbody tr').count();
+      attempts++;
+    }
     
-    // Confirm we start with 0 records
-    const initialCount = await page.locator('tbody tr').count();
-    expect(initialCount).toBe(0);
+    // Final verification we start clean
+    expect(currentCount).toBe(0);
+    console.log('✅ Database confirmed clean, starting CRUD test');
     
     // Add 3 test records
     for (let i = 0; i < 3; i++) {
+      console.log(`Adding record ${i + 1}/3...`);
+      
+      // Record count before adding
+      const beforeCount = await page.locator('tbody tr').count();
+      console.log(`Record count before click ${i + 1}: ${beforeCount}`);
+      
       await page.click('button:has-text("Add Test Record")');
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(1000); // Wait for the operation to complete
+      
       await page.click('button:has-text("Refresh")');
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(500);
       
       // Verify the record was added
-      const currentCount = await page.locator('tbody tr').count();
-      expect(currentCount).toBe(i + 1);
+      const afterCount = await page.locator('tbody tr').count();
+      console.log(`Record count after click ${i + 1}: ${afterCount}`);
+      
+      if (afterCount !== beforeCount + 1) {
+        console.log(`⚠️ WARNING: Expected ${beforeCount + 1} records but found ${afterCount}`);
+        // Log all record names for debugging
+        const recordNames = await page.locator('tbody tr td:nth-child(2)').allTextContents();
+        console.log('Current records:', recordNames);
+      }
+      
+      expect(afterCount).toBe(i + 1);
     }
     
     // Delete one record
