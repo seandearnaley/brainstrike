@@ -13,10 +13,11 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  createDebounce,
   useToast,
 } from '@brainstrike/ui';
 import { Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
@@ -24,6 +25,15 @@ export function DatabaseDemoPanel() {
   const [records, setRecords] = useState<FileRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [dbInfo, setDbInfo] = useState<{
+    location: string;
+    testResult: string;
+    connected: boolean;
+  } | null>(null);
+
+  // Use a ref to track if an add operation is currently in progress
+  // This prevents rapid successive calls even in React Strict Mode
+  const isAddingRef = useRef(false);
 
   const loadRecords = useCallback(async () => {
     if (!repository) return;
@@ -44,18 +54,54 @@ export function DatabaseDemoPanel() {
     }
   }, [repository, toast]);
 
+  // Test database connection
+  const testDatabaseConnection = useCallback(async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+    if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.test) {
+      try {
+        // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+        const result = await (window as any).electronAPI.db.test();
+        setDbInfo({
+          location: result.dbLocation,
+          testResult: result.message,
+          connected: result.success,
+        });
+      } catch (error) {
+        setDbInfo({
+          location: 'Unknown',
+          testResult: `Connection test failed: ${error}`,
+          connected: false,
+        });
+      }
+    } else {
+      setDbInfo({
+        location: 'IndexedDB (Web)',
+        testResult: 'Using browser IndexedDB storage',
+        connected: true,
+      });
+    }
+  }, []);
+
   // Load records on mount and when repository becomes available
   useEffect(() => {
     if (repository) {
       loadRecords();
+      testDatabaseConnection();
     }
-  }, [repository, loadRecords]);
+  }, [repository, loadRecords, testDatabaseConnection]);
 
-  const addTestRecord = useCallback(async () => {
-    if (!repository) return;
+  // Internal function that actually performs the record creation
+  const performAddTestRecord = useCallback(async () => {
+    if (!repository || isAddingRef.current) {
+      // If we can't proceed, reset loading state
+      setLoading(false);
+      return;
+    }
 
     try {
-      setLoading(true);
+      isAddingRef.current = true;
+      // Note: loading is already set to true in addTestRecord
+
       const now = new Date().toISOString();
       const randomId = Math.random().toString(36).substring(2, 15);
       const testRecord: FileRecord = {
@@ -83,8 +129,35 @@ export function DatabaseDemoPanel() {
       });
     } finally {
       setLoading(false);
+      isAddingRef.current = false;
     }
   }, [repository, loadRecords, toast]);
+
+  // Create a debounced version of the add function to prevent rapid successive calls
+  const { run: debouncedAddTestRecord } = useMemo(
+    () => createDebounce(performAddTestRecord, 300),
+    [performAddTestRecord]
+  );
+
+  // Public interface that handles the button click
+  const addTestRecord = useCallback(
+    (event: React.MouseEvent) => {
+      // Prevent event bubbling and default behavior
+      event.preventDefault();
+      event.stopPropagation();
+
+      // Additional protection against rapid clicks
+      if (loading || isAddingRef.current) {
+        return;
+      }
+
+      // Set loading immediately to disable the button
+      setLoading(true);
+
+      debouncedAddTestRecord();
+    },
+    [loading, debouncedAddTestRecord]
+  );
 
   const removeRecord = useCallback(
     async (id: string, name: string) => {
@@ -142,7 +215,7 @@ export function DatabaseDemoPanel() {
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="h-full flex flex-col" data-testid="database-demo-panel">
       <CardHeader className="pb-3 flex-shrink-0">
         <CardTitle className="text-sm flex items-center gap-2">
           <Database className="h-4 w-4" />
@@ -151,6 +224,14 @@ export function DatabaseDemoPanel() {
         <CardDescription className="text-xs">
           PGlite WASM database with file records table
         </CardDescription>
+        {dbInfo && (
+          <div className="mt-2 p-2 bg-muted rounded text-xs">
+            <div className="font-medium">Storage: {dbInfo.location}</div>
+            <div className={`mt-1 ${dbInfo.connected ? 'text-green-600' : 'text-red-600'}`}>
+              {dbInfo.connected ? '✓' : '✗'} {dbInfo.testResult}
+            </div>
+          </div>
+        )}
         <div className="flex gap-2 pt-2">
           <Button
             size="sm"

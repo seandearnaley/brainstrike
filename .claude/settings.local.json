@@ -126,7 +126,12 @@
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx --reporter=verbose)",
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.integration.test.tsx)",
       "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx)",
-      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx)"
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx src/__tests__/preview-panel.integration.test.tsx)",
+      "Bash(timeout 10s pnpm dev --filter @brainstrike/desktop)",
+      "Bash(npm run start:electron:*)",
+      "Bash(electron:*)",
+      "Bash(npx electron:*)",
+      "Bash(turbo run type-check:*)"
     ],
     "deny": []
   },

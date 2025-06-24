@@ -146,6 +146,9 @@ test.describe('File System Integration', () => {
   });
 
   test('should maintain file system state across app restart', async () => {
+    // Increase timeout for this test since it involves app restart
+    test.setTimeout(120000); // 2 minutes instead of default 60 seconds
+    
     // Test state persistence for file system operations
     
     // Perform some file system operation (if available)
@@ -158,23 +161,43 @@ test.describe('File System Integration', () => {
       await appContext.window.waitForTimeout(1000);
     }
     
-    // Close the app
-    await closeElectronApp(appContext);
+    // Store reference to current app context for proper cleanup
+    const originalAppContext = appContext;
     
-    // Restart the app
-    appContext = await launchElectronApp();
-    await waitForAppReady(appContext.window);
-    homePage = new HomePage(appContext.window);
+    // Close the app with extended cleanup time
+    await closeElectronApp(originalAppContext);
     
-    // Verify the app starts correctly after file system operations
-    await homePage.shouldBeVisible();
+    // Add extra wait time to ensure complete cleanup before restart
+    // This prevents resource conflicts and port binding issues
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Check that any persistent file system state is maintained
-    // This depends on your app's implementation
-    const fileExplorer = appContext.window.getByTestId('file-explorer-panel');
-    if (await fileExplorer.isVisible().catch(() => false)) {
-      // File explorer should be functional after restart
-      await expect(fileExplorer).toBeVisible();
+    try {
+      // Restart the app with retry logic
+      appContext = await launchElectronApp();
+      await waitForAppReady(appContext.window);
+      homePage = new HomePage(appContext.window);
+      
+      // Verify the app starts correctly after file system operations
+      await homePage.shouldBeVisible();
+      
+      // Check that any persistent file system state is maintained
+      // This depends on your app's implementation
+      const fileExplorer = appContext.window.getByTestId('file-explorer-panel');
+      if (await fileExplorer.isVisible().catch(() => false)) {
+        // File explorer should be functional after restart
+        await expect(fileExplorer).toBeVisible();
+      }
+    } catch (error) {
+      console.error('❌ Failed to restart app in test:', error);
+      // If restart fails, ensure we don't leave a dangling app context
+      if (appContext && appContext !== originalAppContext) {
+        try {
+          await closeElectronApp(appContext);
+        } catch (cleanupError) {
+          console.error('❌ Failed to cleanup app after restart failure:', cleanupError);
+        }
+      }
+      throw error;
     }
   });
 }); 

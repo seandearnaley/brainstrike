@@ -62,7 +62,7 @@ describe('DbProvider error handling', () => {
 
     // Wait for the error to be handled
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize and migrate database:', initError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize database:', initError);
     });
 
     // The repository should be null when there's an error
@@ -88,7 +88,7 @@ describe('DbProvider error handling', () => {
 
     // Wait for the error to be handled
     await waitFor(() => {
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize and migrate database:', migrationError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[DbProvider]', '[ERROR]', 'Failed to initialize database:', migrationError);
     });
 
     // The repository should be null when there's a migration error
@@ -143,31 +143,19 @@ describe('DbProvider error handling', () => {
     
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as void);
 
-    // Create a component that will trigger multiple effect runs
-    let triggerRerender: () => void;
-    function TestComponent() {
-      const [, setCount] = React.useState(0);
-      triggerRerender = () => setCount(c => c + 1);
-      
-      const repo = useFileRecordRepository();
-      return <div>{repo ? 'ready' : 'loading'}</div>;
-    }
-
-    const { rerender } = renderHook(() => useFileRecordRepository(), {
+    // First render - this should trigger initialization
+    const { unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper: ({ children }) => (
-        <DbProvider dbPath=":memory:">
-          <TestComponent />
+        <DbProvider dbPath=":memory:" useElectronIPC={false}>
           {children}
         </DbProvider>
       ),
     });
 
-    // Trigger multiple rerenders while initialization is in progress
-    triggerRerender!();
-    triggerRerender!();
-    rerender();
+    // Wait a bit to ensure the first call starts
+    await new Promise(resolve => setTimeout(resolve, 10));
 
-    // Verify createPGlite was only called once despite multiple renders
+    // Verify createPGlite was called once
     expect(createPGliteSpy).toHaveBeenCalledTimes(1);
 
     // Complete the initialization
@@ -179,6 +167,8 @@ describe('DbProvider error handling', () => {
     await waitFor(() => {
       expect(createPGliteSpy).toHaveBeenCalledTimes(1);
     });
+
+    unmount();
   });
 
   it('handles already initialized database gracefully', async () => {

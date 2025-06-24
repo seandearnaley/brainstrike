@@ -160,7 +160,7 @@ describe('DbProvider', () => {
       expect(consoleSpy).toHaveBeenCalledWith(
         '[DbProvider]',
         '[ERROR]',
-        'Failed to initialize and migrate database:',
+        'Failed to initialize database:',
         error,
       );
     });

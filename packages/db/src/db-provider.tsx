@@ -3,15 +3,24 @@ import path from 'node:path';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { migrate } from './migrations/bootstrap.js';
+import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
 import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
 interface DbContextValue {
-  fileRecordRepository: FileRecordRepository | null;
+  fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
   error: Error | null;
   ready: boolean;
 }
@@ -19,6 +28,7 @@ interface DbContextValue {
 interface DbProviderProps {
   children: React.ReactNode;
   dbPath?: string;
+  useElectronIPC?: boolean;
 }
 
 export function getDefaultDbPath() {
@@ -33,7 +43,7 @@ export function getDefaultDbPath() {
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
-export function DbProvider({ children, dbPath }: DbProviderProps) {
+export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [contextValue, setContextValue] = useState<DbContextValue>({
     fileRecordRepository: null,
@@ -44,30 +54,88 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+  const testElectronConnection = useCallback(async (electronDB: any) => {
+    if (!electronDB.test) return;
 
+    try {
+      const testResult = await electronDB.test();
+      if (!testResult.success) {
+        throw new Error(`Database test failed: ${testResult.message}`);
+      }
+      logger.info('Database test passed:', testResult.message);
+    } catch (error) {
+      logger.warn('Database test not available or failed:', error);
+    }
+  }, []);
+
+  const initializeElectronIPC = useCallback(
+    async (cancelled: { value: boolean }) => {
+      // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+      if (!(useElectronIPC && typeof window !== 'undefined' && (window as any).electronAPI?.db)) {
+        return false;
+      }
+
+      logger.info('Using Electron IPC database connection');
+
+      // TypeScript doesn't narrow the type properly, so we assert it exists
+      // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+      const electronDB = (window as any).electronAPI.db;
+      await testElectronConnection(electronDB);
+
+      // The repository doesn't need the test method, so we can pass just the db interface
+      const repository = new ElectronFileRecordRepository({
+        query: electronDB.query,
+        exec: electronDB.exec,
+      });
+
+      if (!cancelled.value) {
+        setContextValue({
+          fileRecordRepository: repository,
+          error: null,
+          ready: true,
+        });
+      }
+      return true;
+    },
+    [useElectronIPC, testElectronConnection]
+  );
+
+  const initializeDirectPGlite = useCallback(
+    async (cancelled: { value: boolean }) => {
+      logger.info('Using direct PGlite connection');
+      const db = await wasmLoader.createPGlite(resolvedPath);
+      dbRef.current = db;
+
+      await migrate(db);
+      const repository = new FileRecordRepository(db);
+
+      if (!cancelled.value) {
+        setContextValue({ fileRecordRepository: repository, error: null, ready: true });
+      }
+    },
+    [resolvedPath]
+  );
+
+  useEffect(() => {
+    const cancelled = { value: false };
+
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This function needs to handle both Electron and web initialization paths
     const initializeDb = async () => {
-      if (initializingRef.current || dbRef.current) {
+      if (initializingRef.current || (dbRef.current && !useElectronIPC)) {
         return;
       }
 
       initializingRef.current = true;
 
       try {
-        const db = await wasmLoader.createPGlite(resolvedPath);
-        dbRef.current = db;
-
-        await migrate(db);
-
-        const repository = new FileRecordRepository(db);
-
-        if (!cancelled) {
-          setContextValue({ fileRecordRepository: repository, error: null, ready: true });
+        const isElectronInitialized = await initializeElectronIPC(cancelled);
+        if (!isElectronInitialized) {
+          await initializeDirectPGlite(cancelled);
         }
       } catch (err) {
-        logger.error('Failed to initialize and migrate database:', err);
-        if (!cancelled) {
+        logger.error('Failed to initialize database:', err);
+        if (!cancelled.value) {
           setContextValue({ fileRecordRepository: null, error: err as Error, ready: true });
         }
       } finally {
@@ -78,7 +146,7 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
     initializeDb();
 
     return () => {
-      cancelled = true;
+      cancelled.value = true;
       const db = dbRef.current;
       if (db) {
         // In development, avoid closing the database during Fast Refresh
@@ -101,14 +169,17 @@ export function DbProvider({ children, dbPath }: DbProviderProps) {
       }
       initializingRef.current = false;
     };
-  }, [resolvedPath]);
+  }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
   const memoizedValue = useMemo(() => contextValue, [contextValue]);
 
   return <DbContext.Provider value={memoizedValue}>{children}</DbContext.Provider>;
 }
 
-export function useFileRecordRepository(): FileRecordRepository | null {
+export function useFileRecordRepository():
+  | FileRecordRepository
+  | ElectronFileRecordRepository
+  | null {
   const ctx = useContext(DbContext);
   if (!ctx) {
     // This case should ideally not be hit if the hook is used correctly

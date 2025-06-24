@@ -90,6 +90,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@electric-sql/pglite':
+        specifier: ^0.3.3
+        version: 0.3.3
       electron-store:
         specifier: ^10.1.0
         version: 10.1.0
