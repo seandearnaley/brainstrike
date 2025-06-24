@@ -1,4 +1,4 @@
-import { type Page, expect } from '@playwright/test';
+import { type Page } from '@playwright/test';
 
 /**
  * Layout test utilities for Desktop E2E panel testing
@@ -62,58 +62,34 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
  * Clear all records from the database for testing
  */
 export async function clearDatabaseRecords(page: Page): Promise<void> {
-  console.log('🧹 Starting database cleanup...');
-  
   // First refresh to ensure we see all current records
   await page.click('button:has-text("Refresh")');
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(500);
   
   // Check initial record count
   const initialCount = await page.locator('tbody tr').count();
-  console.log(`📊 Initial record count: ${initialCount}`);
   
   if (initialCount === 0) {
-    console.log('✅ Database already clean');
     return;
   }
   
   // Delete records one by one
   let attempts = 0;
-  const maxAttempts = initialCount + 5; // Give a few extra attempts for safety
+  const maxAttempts = initialCount + 2; // Small safety buffer
   
   while (attempts < maxAttempts) {
     const deleteButtons = page.locator('tbody tr button[title="Remove record"]');
     const count = await deleteButtons.count();
     
-    console.log(`🗑️ Attempt ${attempts + 1}: Found ${count} records to delete`);
-    
     if (count === 0) {
-      console.log('✅ No more records to delete');
       break;
     }
     
-    // Click the first delete button and wait for the action to complete
-    try {
-      await deleteButtons.first().click();
-      await page.waitForTimeout(500);
-    } catch (error) {
-      console.log(`⚠️ Error during deletion attempt ${attempts + 1}:`, error);
-      // Refresh to reset the UI state
-      await page.click('button:has-text("Refresh")');
-      await page.waitForTimeout(1000);
-    }
+    // Click the first delete button
+    await deleteButtons.first().click();
+    await page.waitForTimeout(300);
     
     attempts++;
-  }
-  
-  // Final check
-  const finalCount = await page.locator('tbody tr').count();
-  console.log(`📊 Final record count: ${finalCount}`);
-  
-  if (finalCount === 0) {
-    console.log('✅ Database cleanup completed successfully');
-  } else {
-    console.log(`⚠️ ${finalCount} records remain after cleanup`);
   }
 }
 

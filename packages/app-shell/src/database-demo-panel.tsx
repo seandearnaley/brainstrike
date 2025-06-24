@@ -92,11 +92,15 @@ export function DatabaseDemoPanel() {
 
   // Internal function that actually performs the record creation
   const performAddTestRecord = useCallback(async () => {
-    if (!repository || isAddingRef.current) return;
+    if (!repository || isAddingRef.current) {
+      // If we can't proceed, reset loading state
+      setLoading(false);
+      return;
+    }
 
     try {
       isAddingRef.current = true;
-      setLoading(true);
+      // Note: loading is already set to true in addTestRecord
 
       const now = new Date().toISOString();
       const randomId = Math.random().toString(36).substring(2, 15);
@@ -146,6 +150,9 @@ export function DatabaseDemoPanel() {
       if (loading || isAddingRef.current) {
         return;
       }
+
+      // Set loading immediately to disable the button
+      setLoading(true);
 
       debouncedAddTestRecord();
     },
