@@ -77,9 +77,9 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
     return;
   }
   
-  // Keep deleting until no more records exist
+  // Strategy 1: Try to delete records one by one
   let attempts = 0;
-  const maxAttempts = 50; // Increased safety limit
+  const maxAttempts = Math.max(initialCount * 2, 10); // Scale with number of records
   
   while (attempts < maxAttempts) {
     // Wait for any pending UI updates
@@ -98,7 +98,7 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
     // Click the first delete button and wait for the action to complete
     try {
       await deleteButtons.first().click();
-      await page.waitForTimeout(800); // Increased wait time for deletion
+      await page.waitForTimeout(800); // Wait for deletion
       
       // Verify deletion actually happened by checking if count decreased
       const newCount = await page.locator('tbody tr').count();
@@ -117,55 +117,93 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
     attempts++;
   }
   
-  if (attempts >= maxAttempts) {
-    console.log('⚠️ Reached maximum cleanup attempts, forcing final refresh...');
-  }
-  
-  // Final refresh to ensure all deletions are reflected
-  await page.click('button:has-text("Refresh")');
-  await page.waitForTimeout(1500); // Longer wait for final refresh
-  
-  // Check final count
-  const finalCount = await page.locator('tbody tr').count();
-  console.log(`📊 Final record count: ${finalCount}`);
-  
-  // If we still have records, try one more aggressive cleanup
-  if (finalCount > 0) {
-    console.log('🚨 Records still remain, attempting aggressive cleanup...');
+  // Strategy 2: If we still have records, try bulk deletion
+  let currentCount = await page.locator('tbody tr').count();
+  if (currentCount > 0) {
+    console.log(`🚨 ${currentCount} records still remain, attempting bulk deletion...`);
     
-    // Try clicking all delete buttons at once
-    const remainingButtons = page.locator('tbody tr button[title="Remove record"]');
-    const buttonCount = await remainingButtons.count();
+    // Refresh first to ensure we see all records
+    await page.click('button:has-text("Refresh")');
+    await page.waitForTimeout(1000);
+    
+    // Try clicking all delete buttons rapidly
+    const allButtons = page.locator('tbody tr button[title="Remove record"]');
+    const buttonCount = await allButtons.count();
     
     for (let i = 0; i < buttonCount; i++) {
       try {
-        const button = remainingButtons.nth(i);
+        const button = allButtons.nth(i);
         if (await button.isVisible()) {
           await button.click();
-          await page.waitForTimeout(300);
+          await page.waitForTimeout(200); // Shorter wait for bulk operations
         }
       } catch (error) {
         console.log(`⚠️ Error clicking button ${i}:`, error);
       }
     }
     
-    // Final refresh after aggressive cleanup
+    // Wait longer for bulk deletions to process
+    await page.waitForTimeout(2000);
+    
+    // Refresh to see results
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(1500);
     
-    const veryFinalCount = await page.locator('tbody tr').count();
-    console.log(`📊 Very final record count: ${veryFinalCount}`);
-    
-    if (veryFinalCount > 0) {
-      console.log('🚨 WARNING: Could not clear all records, tests may be affected');
-      // Don't fail here, let the test handle the assertion
-      return;
-    }
+    currentCount = await page.locator('tbody tr').count();
+    console.log(`📊 After bulk deletion: ${currentCount} records remain`);
   }
   
-  // Verify no records remain
-  await expect(page.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
-  console.log('✅ Database cleanup completed successfully');
+  // Strategy 3: If records still remain, try one final aggressive approach
+  if (currentCount > 0) {
+    console.log(`🚨 ${currentCount} records STILL remain, final aggressive cleanup...`);
+    
+    // Try multiple refresh cycles with deletions
+    for (let cycle = 0; cycle < 3; cycle++) {
+      await page.click('button:has-text("Refresh")');
+      await page.waitForTimeout(1000);
+      
+      const buttons = page.locator('tbody tr button[title="Remove record"]');
+      const count = await buttons.count();
+      
+      if (count === 0) break;
+      
+      console.log(`🔄 Cleanup cycle ${cycle + 1}: ${count} records to delete`);
+      
+      // Click all visible delete buttons
+      for (let i = 0; i < count; i++) {
+        try {
+          const button = buttons.nth(i);
+          if (await button.isVisible({ timeout: 1000 })) {
+            await button.click();
+            await page.waitForTimeout(300);
+          }
+        } catch (error) {
+          // Ignore individual button errors in aggressive mode
+        }
+      }
+      
+      await page.waitForTimeout(1000);
+    }
+    
+    // Final refresh
+    await page.click('button:has-text("Refresh")');
+    await page.waitForTimeout(1500);
+    
+    currentCount = await page.locator('tbody tr').count();
+    console.log(`📊 Final aggressive cleanup result: ${currentCount} records remain`);
+  }
+  
+  // Check final count and log result
+  const finalCount = await page.locator('tbody tr').count();
+  console.log(`📊 Final record count: ${finalCount}`);
+  
+  if (finalCount === 0) {
+    console.log('✅ Database cleanup completed successfully');
+  } else {
+    console.log(`🚨 WARNING: Could not clear all records (${finalCount} remain). Tests may be affected.`);
+    // For now, don't fail the cleanup - let the test handle the assertion
+    // This prevents cleanup failures from blocking all tests
+  }
 }
 
 /**

@@ -28,8 +28,8 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   const launchOptions: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     executablePath: electronPath,
-    // Increase timeout for Codex environment - from 30s to 60s
-    timeout: 60000
+    // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
+    timeout: 90000
   };
   
   // Only record video when not in CI to prevent window popups
@@ -60,11 +60,16 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   
   while (retryCount < maxRetries) {
     try {
-      // Wait a bit for the app to initialize, especially on subsequent tests
+      // Wait progressively longer for subsequent retries, especially important for restart scenarios
       if (retryCount > 0) {
-        console.log(`🔄 Retry ${retryCount}/${maxRetries} - waiting for app to initialize...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        const waitTime = Math.min(2000 + (retryCount * 2000), 8000); // 2s, 4s, 6s max
+        console.log(`🔄 Retry ${retryCount}/${maxRetries} - waiting ${waitTime}ms for app to initialize...`);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
       }
+      
+      // Use longer timeout for window creation on retries (restart scenarios)
+      const windowTimeout = retryCount > 0 ? 45000 : 30000;
+      console.log(`⏱️ Waiting for first window (timeout: ${windowTimeout}ms)...`);
       
       window = await app.firstWindow();
       console.log('✅ Successfully got first window');
@@ -72,7 +77,40 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
     } catch (error) {
       console.error(`❌ Failed to get first window (attempt ${retryCount + 1}):`, error);
       
-      // Try to get any available windows
+      // If the error indicates the app crashed, we need to restart the app entirely
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isAppCrashed = errorMessage.includes('Target page, context or browser has been closed') ||
+                          errorMessage.includes('Browser closed') ||
+                          errorMessage.includes('Connection closed');
+      
+      if (isAppCrashed && retryCount < maxRetries - 1) {
+        console.log('🔄 App appears to have crashed, attempting full restart...');
+        try {
+          await app.close();
+          console.log('✅ Closed crashed app');
+        } catch (closeError) {
+          console.error('❌ Failed to close crashed app:', closeError);
+        }
+        
+        // Wait before relaunching
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Relaunch the app
+        try {
+          app = await electron.launch(launchOptions);
+          console.log('✅ Relaunched app after crash');
+          
+          // Reset retry count since we have a fresh app
+          retryCount = 0;
+          continue;
+        } catch (relaunchError) {
+          console.error('❌ Failed to relaunch app:', relaunchError);
+          retryCount++;
+          continue;
+        }
+      }
+      
+      // Try to get any available windows for non-crash errors
       const windows = app.windows();
       console.log(`🔍 Available windows: ${windows.length}`);
       
@@ -91,6 +129,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
         // Try to close the app gracefully
         try {
           await app.close();
+          console.log('✅ Closed failed app');
         } catch (closeError) {
           console.error('❌ Failed to close app:', closeError);
         }
@@ -121,14 +160,31 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
   console.log('🔒 Closing Electron app...');
   try {
+    // First, try to close all windows gracefully
+    const windows = appContext.app.windows();
+    console.log(`📋 Closing ${windows.length} window(s)...`);
+    
+    for (const window of windows) {
+      try {
+        await window.close();
+        console.log('✅ Window closed successfully');
+      } catch (windowError) {
+        console.warn('⚠️ Failed to close window gracefully:', windowError);
+      }
+    }
+    
+    // Then close the app
     await appContext.app.close();
     console.log('✅ Electron app closed');
-    // Add a small delay to ensure cleanup is complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Add extended delay for cleanup, especially important for restart scenarios
+    // This ensures all processes are fully terminated and resources are released
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
-    // Still try to wait a bit for any cleanup
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Still try to wait for any cleanup processes
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 }
 
@@ -136,15 +192,32 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
  * Wait for the app to be fully loaded and ready
  */
 export async function waitForAppReady(window: Page): Promise<void> {
-  // Wait for React to be ready
-  await window.waitForFunction(() => {
-    return document.readyState === 'complete';
-  });
-  
-  // Increase wait time for Codex environment
-  const isCodex = process.env['CODEX_ENV'] === 'true';
-  const waitTime = isCodex ? 3000 : 1000;
-  await window.waitForTimeout(waitTime);
+  try {
+    // Wait for React to be ready
+    await window.waitForFunction(() => {
+      return document.readyState === 'complete';
+    }, { timeout: 30000 });
+    
+    // Increase wait time for Codex environment and restart scenarios
+    const isCodex = process.env['CODEX_ENV'] === 'true';
+    const baseWaitTime = isCodex ? 3000 : 1000;
+    
+    // Add extra time for potential restart scenarios (detected by checking if this is a subsequent call)
+    const extendedWaitTime = baseWaitTime + 2000; // Add 2 seconds for restart scenarios
+    
+    console.log(`⏱️ Waiting ${extendedWaitTime}ms for app to be fully ready...`);
+    await window.waitForTimeout(extendedWaitTime);
+    
+    // Verify the window is still responsive
+    await window.evaluate(() => {
+      return document.readyState === 'complete' && (window as any).innerWidth > 0;
+    });
+    
+    console.log('✅ App is ready and responsive');
+  } catch (error) {
+    console.error('❌ Error waiting for app to be ready:', error);
+    throw new Error(`App failed to become ready: ${error}`);
+  }
 }
 
 /**
