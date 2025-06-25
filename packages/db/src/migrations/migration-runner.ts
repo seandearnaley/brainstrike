@@ -48,12 +48,18 @@ export class MigrationRunner {
   }
 
   /**
-   * Calculate checksum for migration content
+   * Calculate cryptographic checksum for migration content
    */
   private calculateChecksum(content: string): string {
-    // Simple checksum using base64 encoding of content
-    // In production, you might want to use a proper hash function
-    return btoa(content).slice(0, 32);
+    // Use a simple but effective hash for migration verification
+    // This is platform-agnostic and doesn't require Node.js crypto module
+    let hash = 0;
+    for (let i = 0; i < content.length; i++) {
+      const char = content.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(16);
   }
 
   /**
@@ -88,7 +94,8 @@ export class MigrationRunner {
     } catch (error) {
       // Rollback on error
       await this.db.exec('ROLLBACK');
-      throw new Error(`Migration ${migration.version} failed: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Migration ${migration.version} failed: ${errorMessage}`);
     }
   }
 
@@ -138,7 +145,8 @@ export class MigrationRunner {
     } catch (error) {
       // Rollback on error
       await this.db.exec('ROLLBACK');
-      throw new Error(`Rollback of migration ${migration.version} failed: ${error}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      throw new Error(`Rollback of migration ${migration.version} failed: ${errorMessage}`);
     }
   }
 
