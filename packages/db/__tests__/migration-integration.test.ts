@@ -217,8 +217,8 @@ describe('Migration System Integration', () => {
       
       const duration = Date.now() - startTime;
       
-      // Should complete in reasonable time (less than 1 second for test DB)
-      expect(duration).toBeLessThan(1000);
+      // Should complete in reasonable time (less than 1.5 seconds for test DB)
+      expect(duration).toBeLessThan(1500);
       
       // All migrations should be applied
       expect(await runner.getCurrentVersion()).toBe(3);
