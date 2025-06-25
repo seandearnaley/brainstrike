@@ -79,7 +79,7 @@ describe('ElectronFileRecordRepository', () => {
       ],
     });
     const result = await repo.findAll();
-    expect(query).toHaveBeenCalledWith('SELECT * FROM file_records ORDER BY created_at DESC');
+    expect(query).toHaveBeenCalledWith('SELECT * FROM file_records ORDER BY updated_at DESC');
     expect(result).toEqual([r1, r2]);
   });
 

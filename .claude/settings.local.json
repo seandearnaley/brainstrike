@@ -131,7 +131,16 @@
       "Bash(npm run start:electron:*)",
       "Bash(electron:*)",
       "Bash(npx electron:*)",
-      "Bash(turbo run type-check:*)"
+      "Bash(turbo run type-check:*)",
+      "Bash(pnpm -w run test:e2e)",
+      "Bash(pnpm -w build --filter @brainstrike/desktop)",
+      "Bash(pnpm -w lint)",
+      "Bash(pnpm -w build)",
+      "Bash(pnpm -w type-check)",
+      "Bash(pnpm -w test)",
+      "Bash(pnpm -w test --filter @brainstrike/db --filter @brainstrike/desktop)",
+      "Bash(pnpm -w test --filter @brainstrike/app-shell)",
+      "Bash(pnpm -w build --force)"
     ],
     "deny": []
   },
