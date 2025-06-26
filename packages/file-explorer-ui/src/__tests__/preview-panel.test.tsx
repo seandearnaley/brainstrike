@@ -64,7 +64,229 @@ vi.mock('@brainstrike/ui', () => ({
   Progress: ({ value, ...props }: MockProgressProps) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  SortableTableHeader: ({
+    title,
+    onSort,
+    field,
+    sortField,
+    sortDirection,
+    className,
+    ...domProps
+  }: {
+    title: string;
+    onSort: (field: string) => void;
+    field: string;
+    sortField?: string;
+    sortDirection?: 'asc' | 'desc';
+    className?: string;
+    [key: string]: unknown;
+  }) => (
+    <th
+      data-testid="sortable-header"
+      onClick={() => onSort?.(field)}
+      className={className}
+      scope="col"
+      {...domProps}
+    >
+      {title}
+    </th>
+  ),
+  TablePagination: ({
+    currentPage,
+    totalPages,
+    onPageChange,
+    totalItems,
+    pageInfo,
+    maxPageButtons,
+    ...domProps
+  }: {
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+    totalItems?: number;
+    pageInfo?: string;
+    maxPageButtons?: number;
+    [key: string]: unknown;
+  }) => {
+    const getPageNumbers = () => {
+      const maxButtons = maxPageButtons || 5;
+      const halfMax = Math.floor(maxButtons / 2);
+
+      if (totalPages <= maxButtons) {
+        return Array.from({ length: totalPages }, (_, i) => i);
+      }
+
+      if (currentPage < halfMax) {
+        return Array.from({ length: maxButtons }, (_, i) => i);
+      }
+
+      if (currentPage > totalPages - Math.ceil(maxButtons / 2) - 1) {
+        return Array.from({ length: maxButtons }, (_, i) => totalPages - maxButtons + i);
+      }
+
+      const startPage = currentPage - halfMax;
+      return Array.from({ length: maxButtons }, (_, i) => startPage + i);
+    };
+
+    return (
+      <div data-testid="table-pagination" {...domProps}>
+        <button
+          type="button"
+          onClick={() => onPageChange?.(currentPage - 1)}
+          disabled={currentPage === 0}
+        >
+          Previous
+        </button>
+        <span>
+          Page {currentPage + 1} of {totalPages}
+          {pageInfo ? ` ${pageInfo}` : totalItems ? ` (${totalItems} total items)` : ''}
+        </span>
+        <div>
+          {getPageNumbers().map((pageNum) => (
+            <button
+              key={pageNum}
+              type="button"
+              onClick={() => onPageChange?.(pageNum)}
+              style={{ margin: '0 2px' }}
+            >
+              {pageNum + 1}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => onPageChange?.(currentPage + 1)}
+          disabled={currentPage >= totalPages - 1}
+        >
+          Next
+        </button>
+      </div>
+    );
+  },
+  TableGroupHeader: ({
+    groupLabel,
+    onToggleCollapse,
+    onSelectionChange,
+    isCollapsed,
+    isGroupSelected,
+    isIndeterminate,
+    filesInGroup,
+    groupKey,
+    isFullySelected,
+    isPartiallySelected,
+    ...domProps
+  }: {
+    groupLabel: string;
+    onToggleCollapse: () => void;
+    onSelectionChange: (selected: boolean) => void;
+    isCollapsed?: boolean;
+    isGroupSelected?: boolean;
+    isIndeterminate?: boolean;
+    filesInGroup?: number;
+    groupKey?: string | number;
+    isFullySelected?: boolean;
+    isPartiallySelected?: boolean;
+    [key: string]: unknown;
+  }) => (
+    <tr data-testid="table-group-header" {...domProps}>
+      <td>
+        <input
+          type="checkbox"
+          onChange={(e) => onSelectionChange?.(e.target.checked)}
+          aria-label={`Select all files in group ${groupLabel}`}
+        />
+      </td>
+      <td>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+          aria-expanded={!isCollapsed}
+        >
+          {groupLabel}
+        </button>
+      </td>
+    </tr>
+  ),
 }));
+
+// Mock hooks with React state - use shared state across renders
+let sharedPaginationState = { currentPage: 0, prevTotalPages: 0 };
+
+vi.mock('@brainstrike/hooks', () => {
+  const { useState, useEffect, useRef } = require('react');
+
+  return {
+    usePagination: vi.fn((options: { totalItems: number; pageSize?: number }) => {
+      const pageSize = options.pageSize || 50;
+      const totalPages = Math.ceil(options.totalItems / pageSize);
+
+      // Use shared state that persists across mock calls
+      const [currentPage, setCurrentPage] = useState(sharedPaginationState.currentPage);
+
+      // Reset logic: if total pages changed and current page is now out of bounds, reset to page 0
+      if (totalPages !== sharedPaginationState.prevTotalPages) {
+        if (sharedPaginationState.currentPage >= totalPages && totalPages > 0) {
+          sharedPaginationState.currentPage = 0;
+        }
+        sharedPaginationState.prevTotalPages = totalPages;
+      }
+
+      // Update local state to match shared state
+      if (currentPage !== sharedPaginationState.currentPage) {
+        setCurrentPage(sharedPaginationState.currentPage);
+      }
+
+      const startIndex = currentPage * pageSize;
+      const endIndex = Math.min(startIndex + pageSize, options.totalItems);
+
+      const goToPage = vi.fn((page: number) => {
+        const newPage = Math.max(0, Math.min(page, totalPages - 1));
+        setCurrentPage(newPage);
+        sharedPaginationState.currentPage = newPage;
+      });
+
+      const goToNextPage = vi.fn(() => {
+        if (currentPage < totalPages - 1) {
+          const newPage = currentPage + 1;
+          setCurrentPage(newPage);
+          sharedPaginationState.currentPage = newPage;
+        }
+      });
+
+      const goToPreviousPage = vi.fn(() => {
+        if (currentPage > 0) {
+          const newPage = currentPage - 1;
+          setCurrentPage(newPage);
+          sharedPaginationState.currentPage = newPage;
+        }
+      });
+
+      const resetToFirstPage = vi.fn(() => {
+        setCurrentPage(0);
+        sharedPaginationState.currentPage = 0;
+      });
+
+      return {
+        currentPage,
+        totalPages,
+        startIndex,
+        endIndex,
+        goToPage,
+        goToNextPage,
+        goToPreviousPage,
+        resetToFirstPage,
+        isFirstPage: currentPage === 0,
+        isLastPage: currentPage >= totalPages - 1 || totalPages <= 1,
+      };
+    }),
+  };
+});
+
+// Reset shared state before each test
+beforeEach(() => {
+  sharedPaginationState = { currentPage: 0, prevTotalPages: 0 };
+});
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
@@ -377,7 +599,7 @@ describe('PreviewPanel', () => {
 
       expect(screen.getByText('Previous')).toBeInTheDocument();
       expect(screen.getByText('Next')).toBeInTheDocument();
-      expect(screen.getByText('Page 1 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
     });
 
     it('should handle next page navigation', () => {
@@ -391,7 +613,7 @@ describe('PreviewPanel', () => {
       const nextButton = screen.getByText('Next');
       fireEvent.click(nextButton);
 
-      expect(screen.getByText('Page 2 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
     });
 
     it('should handle previous page navigation', () => {
@@ -410,7 +632,7 @@ describe('PreviewPanel', () => {
       const prevButton = screen.getByText('Previous');
       fireEvent.click(prevButton);
 
-      expect(screen.getByText('Page 1 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
     });
 
     it('should handle direct page navigation', () => {
@@ -424,7 +646,7 @@ describe('PreviewPanel', () => {
       const page2Button = screen.getByText('2');
       fireEvent.click(page2Button);
 
-      expect(screen.getByText('Page 2 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
     });
 
     it('should disable navigation buttons at boundaries', () => {
@@ -446,7 +668,7 @@ describe('PreviewPanel', () => {
       expect(screen.getByText('Next')).toBeDisabled();
     });
 
-    it('resets to first page when file count decreases', () => {
+    it('resets to first page when current page becomes out of bounds', () => {
       const fileSet = new Set(Array.from({ length: 25 }, (_, i) => `file${i}`));
       const stateWith25 = {
         ...largeMockState,
@@ -466,16 +688,19 @@ describe('PreviewPanel', () => {
       );
 
       // Should show three pages
-      expect(screen.getByText('Page 1 of 3 (25 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3 (25 total items)')).toBeInTheDocument();
 
-      const page2Button = screen.getByText('2');
-      fireEvent.click(page2Button);
+      // Go to page 3 (last page)
+      const page3Buttons = screen.getAllByText('3');
+      const page3Button = page3Buttons.find((button) => button.tagName === 'BUTTON');
+      expect(page3Button).toBeDefined();
+      fireEvent.click(page3Button);
 
-      // Shrink to 15 files
-      const smallerFileSet = new Set(Array.from({ length: 15 }, (_, i) => `file${i}`));
-      const stateWith15 = {
+      // Shrink to 5 files (only 1 page now), making page 3 out of bounds
+      const smallerFileSet = new Set(Array.from({ length: 5 }, (_, i) => `file${i}`));
+      const stateWith5 = {
         ...stateWith25,
-        flatListItems: Array.from({ length: 15 }, (_, i) => ({
+        flatListItems: Array.from({ length: 5 }, (_, i) => ({
           type: 'file' as const,
           compositeKey: `file${i}`,
           folderId: `folder-file${i}`,
@@ -485,10 +710,11 @@ describe('PreviewPanel', () => {
         })),
       };
 
-      mockUsePreviewPanelState.mockReturnValue(stateWith15);
+      mockUsePreviewPanelState.mockReturnValue(stateWith5);
       rerender(<PreviewPanel {...mockProps} selectedFiles={smallerFileSet} pageSize={10} />);
 
-      expect(screen.getByText('Page 1 of 2 (15 total files)')).toBeInTheDocument();
+      // Should reset to page 1 since page 3 is now out of bounds
+      expect(screen.getByText('Page 1 of 1 (5 total items)')).toBeInTheDocument();
     });
   });
 
@@ -1078,7 +1304,7 @@ describe('PreviewPanel', () => {
       expect(endTime - startTime).toBeLessThan(1000);
 
       // Should only show first page (50 items)
-      expect(screen.getByText('Page 1 of 20 (1000 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 20 (1000 total items)')).toBeInTheDocument();
     });
   });
 });

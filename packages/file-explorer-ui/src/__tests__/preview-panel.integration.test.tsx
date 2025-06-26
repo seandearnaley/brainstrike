@@ -64,7 +64,207 @@ vi.mock('@brainstrike/ui', () => ({
   Progress: ({ value, ...props }: MockProgressProps) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  SortableTableHeader: ({
+    title,
+    onSort,
+    field,
+    sortField,
+    sortDirection,
+    className,
+    ...domProps
+  }: {
+    title: string;
+    onSort: (field: string) => void;
+    field: string;
+    sortField?: string;
+    sortDirection?: 'asc' | 'desc';
+    className?: string;
+    [key: string]: unknown;
+  }) => (
+    <th
+      data-testid="sortable-header"
+      onClick={() => onSort?.(field)}
+      className={className}
+      scope="col"
+      {...domProps}
+    >
+      {title}
+    </th>
+  ),
+  TablePagination: ({
+    currentPage,
+    totalPages,
+    onPageChange,
+    totalItems,
+    pageInfo,
+    maxPageButtons,
+    ...domProps
+  }: {
+    currentPage: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+    totalItems?: number;
+    pageInfo?: string;
+    maxPageButtons?: number;
+    [key: string]: unknown;
+  }) => {
+    const getPageNumbers = () => {
+      const maxButtons = maxPageButtons || 5;
+      const halfMax = Math.floor(maxButtons / 2);
+
+      if (totalPages <= maxButtons) {
+        return Array.from({ length: totalPages }, (_, i) => i);
+      }
+
+      if (currentPage < halfMax) {
+        return Array.from({ length: maxButtons }, (_, i) => i);
+      }
+
+      if (currentPage > totalPages - Math.ceil(maxButtons / 2) - 1) {
+        return Array.from({ length: maxButtons }, (_, i) => totalPages - maxButtons + i);
+      }
+
+      const startPage = currentPage - halfMax;
+      return Array.from({ length: maxButtons }, (_, i) => startPage + i);
+    };
+
+    return (
+      <div data-testid="table-pagination" {...domProps}>
+        <button
+          type="button"
+          onClick={() => onPageChange?.(currentPage - 1)}
+          disabled={currentPage === 0}
+        >
+          Previous
+        </button>
+        <span>
+          Page {currentPage + 1} of {totalPages}
+          {pageInfo ? ` ${pageInfo}` : totalItems ? ` (${totalItems} total items)` : ''}
+        </span>
+        <div>
+          {getPageNumbers().map((pageNum) => (
+            <button
+              key={pageNum}
+              type="button"
+              onClick={() => onPageChange?.(pageNum)}
+              style={{ margin: '0 2px' }}
+            >
+              {pageNum + 1}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => onPageChange?.(currentPage + 1)}
+          disabled={currentPage >= totalPages - 1}
+        >
+          Next
+        </button>
+      </div>
+    );
+  },
+  TableGroupHeader: ({
+    groupLabel,
+    onToggleCollapse,
+    onSelectionChange,
+    isCollapsed,
+    isGroupSelected,
+    isIndeterminate,
+    filesInGroup,
+    groupKey,
+    isFullySelected,
+    isPartiallySelected,
+    ...domProps
+  }: {
+    groupLabel: string;
+    onToggleCollapse: () => void;
+    onSelectionChange: (selected: boolean) => void;
+    isCollapsed?: boolean;
+    isGroupSelected?: boolean;
+    isIndeterminate?: boolean;
+    filesInGroup?: number;
+    groupKey?: string | number;
+    isFullySelected?: boolean;
+    isPartiallySelected?: boolean;
+    [key: string]: unknown;
+  }) => (
+    <tr data-testid="table-group-header" {...domProps}>
+      <td>
+        <input
+          type="checkbox"
+          onChange={(e) => onSelectionChange?.(e.target.checked)}
+          aria-label={`Select all files in group ${groupLabel}`}
+        />
+      </td>
+      <td>
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
+          aria-expanded={!isCollapsed}
+        >
+          {groupLabel}
+        </button>
+      </td>
+    </tr>
+  ),
 }));
+
+// Mock hooks with React state
+vi.mock('@brainstrike/hooks', () => {
+  const { useState, useEffect, useRef } = require('react');
+
+  return {
+    usePagination: vi.fn((options: { totalItems: number; pageSize?: number }) => {
+      const pageSize = options.pageSize || 50;
+      const totalPages = Math.ceil(options.totalItems / pageSize);
+      const [currentPage, setCurrentPage] = useState(0);
+      const prevTotalPagesRef = useRef(totalPages);
+
+      // Reset to first page when total pages changes and current page is out of bounds
+      useEffect(() => {
+        if (prevTotalPagesRef.current !== totalPages) {
+          prevTotalPagesRef.current = totalPages;
+          if (currentPage >= totalPages && totalPages > 0) {
+            setCurrentPage(0);
+          }
+        }
+      }, [currentPage, totalPages]);
+
+      const startIndex = currentPage * pageSize;
+      const endIndex = Math.min(startIndex + pageSize, options.totalItems);
+
+      const goToPage = vi.fn((page: number) => {
+        setCurrentPage(Math.max(0, Math.min(page, totalPages - 1)));
+      });
+
+      const goToNextPage = vi.fn(() => {
+        setCurrentPage((prev: number) => (prev < totalPages - 1 ? prev + 1 : prev));
+      });
+
+      const goToPreviousPage = vi.fn(() => {
+        setCurrentPage((prev: number) => (prev > 0 ? prev - 1 : prev));
+      });
+
+      const resetToFirstPage = vi.fn(() => {
+        setCurrentPage(0);
+      });
+
+      return {
+        currentPage,
+        totalPages,
+        startIndex,
+        endIndex,
+        goToPage,
+        goToNextPage,
+        goToPreviousPage,
+        resetToFirstPage,
+        isFirstPage: currentPage === 0,
+        isLastPage: currentPage >= totalPages - 1 || totalPages <= 1,
+      };
+    }),
+  };
+});
 
 // Mock Lucide icons
 vi.mock('lucide-react', () => ({
@@ -190,7 +390,7 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Verify pagination is shown
-      expect(screen.getByText('Page 1 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
 
       // Sort by file path
       const pathHeader = screen.getByText('File Path');
@@ -203,7 +403,7 @@ describe('PreviewPanel Integration Tests', () => {
       const nextButton = screen.getByText('Next');
       fireEvent.click(nextButton);
 
-      expect(screen.getByText('Page 2 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 2 of 3 (120 total items)')).toBeInTheDocument();
 
       // Change sort direction
       fireEvent.click(pathHeader);
@@ -213,7 +413,7 @@ describe('PreviewPanel Integration Tests', () => {
       const resetButton = screen.getByText('Reset Sort');
       fireEvent.click(resetButton);
 
-      expect(screen.getByText('Page 1 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 3 (120 total items)')).toBeInTheDocument();
     });
 
     it('should handle folder operations with large datasets', () => {
@@ -256,7 +456,7 @@ describe('PreviewPanel Integration Tests', () => {
       expect(endTime - startTime).toBeLessThan(1000);
 
       // Should show pagination for large datasets
-      expect(screen.getByText('Page 1 of 20 (1000 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 1 of 20 (1000 total items)')).toBeInTheDocument();
 
       // Should only render first page items (performance optimization)
       expect(screen.getByText('file0.txt')).toBeInTheDocument();
@@ -282,7 +482,7 @@ describe('PreviewPanel Integration Tests', () => {
 
       // Should handle rapid navigation efficiently (allow much more time for CI)
       expect(endTime - startTime).toBeLessThan(3000);
-      expect(screen.getByText('Page 6 of 10 (500 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 6 of 10 (500 total items)')).toBeInTheDocument();
     });
   });
 
@@ -348,7 +548,7 @@ describe('PreviewPanel Integration Tests', () => {
       const nextButton = screen.getByText('Next');
       fireEvent.click(nextButton);
 
-      expect(screen.getByText('Page 2 of 2 (75 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 2 of 2 (75 total items)')).toBeInTheDocument();
 
       // Select files on page 2
       const checkboxes = screen.getAllByTestId('checkbox');
@@ -381,7 +581,7 @@ describe('PreviewPanel Integration Tests', () => {
       const nextButton = screen.getByText('Next');
       fireEvent.click(nextButton);
       fireEvent.click(nextButton);
-      expect(screen.getByText('Page 3 of 3 (120 total files)')).toBeInTheDocument();
+      expect(screen.getByText('Page 3 of 3 (120 total items)')).toBeInTheDocument();
 
       // Rerender with fewer files resulting in two pages
       const fewerProps = createMockProps(60);
@@ -391,7 +591,7 @@ describe('PreviewPanel Integration Tests', () => {
       rerender(<PreviewPanel {...fewerProps} />);
 
       await waitFor(() => {
-        expect(screen.getByText('Page 1 of 2 (60 total files)')).toBeInTheDocument();
+        expect(screen.getByText('Page 1 of 2 (60 total items)')).toBeInTheDocument();
       });
     });
   });

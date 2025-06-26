@@ -5,3 +5,4 @@ export * from './use-file-filters';
 export * from './use-loading-manager';
 export * from './use-report-manager';
 export * from './use-report-generation';
+export * from './use-pagination';
