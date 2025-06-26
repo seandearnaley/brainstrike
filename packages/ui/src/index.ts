@@ -30,6 +30,9 @@ export * from './theme-toggle';
 export * from './theme-settings';
 export { default as RouterProvider } from './router-provider';
 export type { RouterProviderProps } from './router-provider';
+export * from './sortable-table-header';
+export * from './table-pagination';
+export * from './table-group-header';
 
 // Export hooks
 export * from './use-toast';

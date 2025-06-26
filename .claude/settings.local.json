@@ -140,7 +140,13 @@
       "Bash(pnpm -w test)",
       "Bash(pnpm -w test --filter @brainstrike/db --filter @brainstrike/desktop)",
       "Bash(pnpm -w test --filter @brainstrike/app-shell)",
-      "Bash(pnpm -w build --force)"
+      "Bash(pnpm -w build --force)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx -t \"should handle checkbox state properly when switching grouping modes\")",
+      "Bash(pnpm --filter @brainstrike/file-explorer-ui test src/__tests__/preview-panel.test.tsx -t \"should handle checkbox state when switching grouping modes\")",
+      "Bash(pnpm biome lint:*)",
+      "Bash(pnpm vitest:*)",
+      "Bash(for i in {1..5})",
+      "Bash(do echo \"Run $i:\")"
     ],
     "deny": []
   },

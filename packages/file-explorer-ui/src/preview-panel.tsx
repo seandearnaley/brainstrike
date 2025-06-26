@@ -1,7 +1,28 @@
-import { Badge, Button, Checkbox, Progress } from '@brainstrike/ui';
+import { usePagination } from '@brainstrike/hooks';
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Progress,
+  SortableTableHeader,
+  TableGroupHeader,
+  TablePagination,
+} from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useGroupSelection } from './hooks/use-group-selection';
+import { PreviewTableRow } from './preview-table-row';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
+import {
+  GROUPING_CONFIGS,
+  type GroupKey,
+  type GroupedData,
+  type TableRowData,
+  groupData,
+} from './utils/grouping-configs';
+
+const logger = createLogger('PreviewPanel');
 
 interface PreviewPanelProps {
   selectedFiles: Set<string>;
@@ -23,19 +44,8 @@ interface PreviewPanelProps {
     }
   ) => void;
   onFileClick?: (compositeKey: string) => void;
-  pageSize?: number; // Configurable page size with default 50
+  pageSize?: number;
 }
-
-// Simplified table data structure - only files, no folder headers
-type TableRowData = {
-  id: string;
-  rootFolderId: string;
-  path: string;
-  type: string; // File extension
-  size?: number;
-  tokens?: number;
-  compositeKey: string;
-};
 
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
@@ -70,7 +80,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Use deferred value for expensive transformations to prevent blocking
   const deferredFlatListItems = useDeferredValue(flatListItems);
 
-  // Transform list items to simplified table data - only files (no arbitrary limit now since we have pagination)
+  // Transform list items to simplified table data - only files
   const tableData: TableRowData[] = useMemo(() => {
     const fileItems = deferredFlatListItems.filter(
       (item): item is FileItem => item.type === 'file'
@@ -97,27 +107,40 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
           return result;
         } catch (error) {
-          // Skip malformed composite keys gracefully
-          console.warn('Failed to decode composite key:', fileItem.compositeKey, error);
+          logger.warn('Failed to decode composite key:', fileItem.compositeKey, error);
           return null;
         }
       })
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection]);
 
-  // Simple sort state without complex data table
+  // Sort state
   const [sortField, setSortField] = useState<keyof TableRowData>('rootFolderId');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
 
-  // Simple pagination state
-  const [currentPage, setCurrentPage] = useState(0);
+  // Grouping state
+  const [groupingConfig, setGroupingConfig] = useState<string>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupKey>>(new Set());
 
-  // Null check helper - reduces complexity
+  // Toggle group collapse
+  const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
+    setCollapsedGroups((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(groupKey)) {
+        newSet.delete(groupKey);
+      } else {
+        newSet.add(groupKey);
+      }
+      return newSet;
+    });
+  }, []);
+
+  // Null check helper
   const handleNullValues = useCallback((aVal: unknown, bVal: unknown): number | null => {
     if (aVal == null && bVal == null) return 0;
     if (aVal == null) return 1;
     if (bVal == null) return -1;
-    return null; // Both values are not null
+    return null;
   }, []);
 
   // Comparison helper with proper type handling
@@ -137,57 +160,222 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     [handleNullValues]
   );
 
-  // Memoized sorted data
-  const sortedData = useMemo(() => {
-    return [...tableData].sort((a, b) => {
+  // Memoized sorted and grouped data
+  const { sortedData, groupedData } = useMemo(() => {
+    // First sort the data
+    const sorted = [...tableData].sort((a, b) => {
       const comparison = compareValues(a[sortField], b[sortField], sortField);
       return sortDirection === 'desc' ? -comparison : comparison;
     });
-  }, [tableData, sortField, sortDirection, compareValues]);
 
-  // Pagination calculations
-  const totalPages = Math.ceil(sortedData.length / pageSize);
-  const startIndex = currentPage * pageSize;
-  const endIndex = startIndex + pageSize;
-  const currentPageData = sortedData.slice(startIndex, endIndex);
+    // Then group the sorted data
+    const config =
+      GROUPING_CONFIGS[groupingConfig as keyof typeof GROUPING_CONFIGS] ?? GROUPING_CONFIGS.none;
+    const grouped = groupData(sorted, config);
 
-  // Preview panel selection handlers (internal to this component)
-  const handlePreviewSelectAllPage = useCallback(() => {
-    const allFilesOnPage = new Set(currentPageData.map((row) => row.compositeKey));
-    setPreviewSelections((prev) => {
-      const newSelection = new Set(prev);
-      for (const key of allFilesOnPage) {
-        newSelection.add(key);
+    return { sortedData: sorted, groupedData: grouped };
+  }, [tableData, sortField, sortDirection, compareValues, groupingConfig]);
+
+  // Calculate total items for pagination (including group headers)
+  const totalItems = useMemo(() => {
+    if (groupingConfig === 'none') {
+      return sortedData.length;
+    }
+
+    let count = 0;
+    for (const group of groupedData) {
+      count++; // Group header
+      if (!collapsedGroups.has(group.groupKey)) {
+        count += group.items.length; // Group items
       }
-      return newSelection;
-    });
-  }, [currentPageData]);
+    }
+    return count;
+  }, [groupedData, collapsedGroups, groupingConfig, sortedData.length]);
 
-  const handlePreviewSelectAllGlobal = useCallback(() => {
-    const allFiles = new Set(sortedData.map((row) => row.compositeKey));
-    setPreviewSelections(allFiles);
-  }, [sortedData]);
+  // Flatten grouped data for selection operations
+  const flattenedData = useMemo(() => {
+    if (groupingConfig === 'none') {
+      return sortedData;
+    }
 
-  const handlePreviewDeselectAll = useCallback(() => {
-    setPreviewSelections(new Set());
-  }, []);
+    const flattened: TableRowData[] = [];
+    for (const group of groupedData) {
+      flattened.push(...group.items);
+    }
+    return flattened;
+  }, [groupedData, groupingConfig, sortedData]);
 
-  const togglePreviewSelection = useCallback((compositeKey: string, checked: boolean) => {
-    setPreviewSelections((prev) => {
-      const newSelection = new Set(prev);
+  // Use pagination hook
+  const pagination = usePagination({
+    totalItems: groupingConfig === 'none' ? flattenedData.length : totalItems,
+    pageSize,
+  });
+
+  const { currentPage, goToPage, resetToFirstPage } = pagination;
+
+  // Use group selection hook
+  const groupSelection = useGroupSelection({
+    selections: previewSelections,
+    onSelectionChange: setPreviewSelections,
+    getItemKey: (item: TableRowData) => item.compositeKey,
+  });
+
+  const {
+    handleGroupSelectAll,
+    handleGroupDeselectAll,
+    isGroupFullySelected,
+    isGroupPartiallySelected,
+    toggleItemSelection,
+    selectAllOnPage,
+    deselectAll,
+    isAllSelected,
+  } = groupSelection;
+
+  // Current page data
+  const currentPageData =
+    groupingConfig === 'none'
+      ? flattenedData.slice(pagination.startIndex, pagination.endIndex)
+      : [];
+
+  // Group header component wrapper
+  const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
+    const handleSelectionChange = (checked: boolean) => {
       if (checked) {
-        newSelection.add(compositeKey);
+        handleGroupSelectAll(group);
       } else {
-        newSelection.delete(compositeKey);
+        handleGroupDeselectAll(group);
       }
-      return newSelection;
-    });
-  }, []);
+    };
 
+    return (
+      <TableGroupHeader
+        groupKey={group.groupKey}
+        groupLabel={group.groupLabel}
+        isCollapsed={collapsedGroups.has(group.groupKey)}
+        isFullySelected={isGroupFullySelected(group)}
+        isPartiallySelected={isGroupPartiallySelected(group)}
+        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
+        onSelectionChange={handleSelectionChange}
+        icon={<FolderOpen className="size-4 text-muted-foreground" />}
+        stats={
+          <>
+            <span>{group.count} files</span>
+            <span>{formatTokenCount(group.totalTokens)}</span>
+            <span>{(group.totalSize / 1024).toFixed(1)} KB</span>
+          </>
+        }
+      />
+    );
+  });
+
+  // Helper to render group items within pagination bounds
+  const renderGroupItems = useCallback(
+    (group: GroupedData<TableRowData>, itemCount: number, elements: React.ReactNode[]) => {
+      let currentItemCount = itemCount;
+
+      for (const item of group.items) {
+        if (currentItemCount >= pagination.startIndex && currentItemCount < pagination.endIndex) {
+          elements.push(
+            <PreviewTableRow
+              key={`item-${item.compositeKey}`}
+              item={item}
+              isSelected={previewSelections.has(item.compositeKey)}
+              onToggleSelection={toggleItemSelection}
+              {...(onFileClick && { onFileClick })}
+            />
+          );
+        }
+        currentItemCount++;
+      }
+
+      return currentItemCount;
+    },
+    [
+      pagination.startIndex,
+      pagination.endIndex,
+      previewSelections,
+      toggleItemSelection,
+      onFileClick,
+    ]
+  );
+
+  // Grouped table body renderer
+  const GroupedTableBody = memo(() => {
+    const elements: React.ReactNode[] = [];
+    let itemCount = 0;
+
+    for (const group of groupedData) {
+      const isCollapsed = collapsedGroups.has(group.groupKey);
+
+      // Add group header if within page bounds
+      if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
+        elements.push(<GroupHeaderWrapper key={`group-${group.groupKey}`} group={group} />);
+      }
+      itemCount++;
+
+      // Add group items if not collapsed
+      if (!isCollapsed) {
+        itemCount = renderGroupItems(group, itemCount, elements);
+      }
+
+      // Stop if we've reached the end of the page
+      if (itemCount >= pagination.endIndex) break;
+    }
+
+    return <>{elements}</>;
+  });
+
+  // Helper to collect visible items from a group
+  const collectVisibleGroupItems = useCallback(
+    (group: GroupedData<TableRowData>, startCount: number, visibleFiles: TableRowData[]) => {
+      let itemCount = startCount;
+
+      for (const item of group.items) {
+        if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
+          visibleFiles.push(item);
+        }
+        itemCount++;
+        if (itemCount >= pagination.endIndex) break;
+      }
+
+      return itemCount;
+    },
+    [pagination.startIndex, pagination.endIndex]
+  );
+
+  // Get files visible on current page
+  const getVisibleFilesOnPage = useCallback(() => {
+    if (groupingConfig === 'none') {
+      return currentPageData;
+    }
+
+    const visibleFiles: TableRowData[] = [];
+    let itemCount = 0;
+
+    for (const group of groupedData) {
+      itemCount++; // Group header count
+
+      if (!collapsedGroups.has(group.groupKey)) {
+        itemCount = collectVisibleGroupItems(group, itemCount, visibleFiles);
+      }
+
+      if (itemCount >= pagination.endIndex) break;
+    }
+
+    return visibleFiles;
+  }, [
+    groupingConfig,
+    currentPageData,
+    groupedData,
+    collapsedGroups,
+    collectVisibleGroupItems,
+    pagination.endIndex,
+  ]);
+
+  // Batch remove handler
   const handleBatchRemove = useCallback(() => {
     if (previewSelections.size === 0) return;
 
-    // Remove preview-selected files from the main file selection
     const newSelectedFiles = new Set(selectedFiles);
     for (const compositeKey of previewSelections) {
       newSelectedFiles.delete(compositeKey);
@@ -203,114 +391,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     });
 
     onSelectionChange(newSelectedFiles);
-    setPreviewSelections(new Set()); // Clear preview selections after removal
+    setPreviewSelections(new Set());
   }, [previewSelections, selectedFiles, onSelectionChange, performUndoableAction]);
 
   // Check if all items on current page are selected
   const isAllCurrentPageSelected = useMemo(() => {
-    if (currentPageData.length === 0) return false;
-    return currentPageData.every((item) => previewSelections.has(item.compositeKey));
-  }, [currentPageData, previewSelections]);
+    const visibleFiles = getVisibleFilesOnPage();
+    return isAllSelected(visibleFiles);
+  }, [getVisibleFilesOnPage, isAllSelected]);
 
-  // Check if all items globally are selected
-  const isAllGloballySelected = useMemo(() => {
-    if (sortedData.length === 0) return false;
-    return sortedData.every((item) => previewSelections.has(item.compositeKey));
-  }, [sortedData, previewSelections]);
-
-  // Memoized table row component with all dependencies
-  const TableRow = useCallback(
-    ({ item }: { item: TableRowData }) => {
-      const isPreviewSelected = previewSelections.has(item.compositeKey);
-      const fileName = item.path.split('/').pop() || item.path;
-      const dirPath = item.path.substring(0, item.path.lastIndexOf('/'));
-
-      return (
-        <tr key={item.id} className="border-b transition-colors hover:bg-muted/50">
-          <td className="p-4 w-12">
-            <Checkbox
-              checked={isPreviewSelected}
-              onCheckedChange={(checked) => togglePreviewSelection(item.compositeKey, !!checked)}
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`Select ${item.path}`}
-            />
-          </td>
-          <td className="p-4">
-            <div className="flex items-center gap-2">
-              <FolderOpen className="size-4 text-muted-foreground flex-shrink-0" />
-              <span className="font-mono text-sm truncate">{item.rootFolderId}</span>
-            </div>
-          </td>
-          <td className="p-4 min-w-0 flex-1">
-            <button
-              type="button"
-              className="min-w-0 text-left w-full hover:text-primary transition-colors"
-              onClick={(e) => {
-                e.preventDefault();
-                onFileClick?.(item.compositeKey);
-              }}
-              aria-label={fileName}
-            >
-              <div className="font-medium text-sm truncate">{fileName}</div>
-              {dirPath && (
-                <div className="text-xs text-muted-foreground truncate font-mono">{dirPath}</div>
-              )}
-            </button>
-          </td>
-          <td className="p-4 w-20">
-            <Badge variant="secondary" className="text-xs">
-              {item.type}
-            </Badge>
-          </td>
-          <td className="p-4 w-24 text-right">
-            {item.tokens ? (
-              <span className="font-mono text-sm">{formatTokenCount(item.tokens)}</span>
-            ) : (
-              <span className="text-muted-foreground text-sm">—</span>
-            )}
-          </td>
-          <td className="p-4 w-24 text-right">
-            {item.size ? (
-              <span className="font-mono text-sm">{(item.size / 1024).toFixed(1)} KB</span>
-            ) : (
-              <span className="text-muted-foreground text-sm">—</span>
-            )}
-          </td>
-        </tr>
-      );
-    },
-    [previewSelections, togglePreviewSelection, onFileClick]
-  );
-
-  // Pagination handlers
-  const goToNextPage = useCallback(() => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages - 1));
-  }, [totalPages]);
-
-  const goToPreviousPage = useCallback(() => {
-    setCurrentPage((prev) => Math.max(prev - 1, 0));
-  }, []);
-
-  const goToPage = useCallback(
-    (page: number) => {
-      setCurrentPage(Math.max(0, Math.min(page, totalPages - 1)));
-    },
-    [totalPages]
-  );
-
-  // Reset to first page when data changes
-  const prevTotalPagesRef = useRef(totalPages);
-  useEffect(() => {
-    if (prevTotalPagesRef.current !== totalPages) {
-      prevTotalPagesRef.current = totalPages;
-      setCurrentPage(0);
-      return;
-    }
-    if (currentPage >= totalPages && totalPages > 0) {
-      setCurrentPage(0);
-    }
-  }, [currentPage, totalPages]);
-
+  // Handle sort changes
   const handleSort = useCallback(
     (field: keyof TableRowData) => {
       if (sortField === field) {
@@ -319,56 +409,25 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         setSortField(field);
         setSortDirection('asc');
       }
-      // Reset to first page when sorting changes
-      setCurrentPage(0);
+      resetToFirstPage();
     },
-    [sortField]
+    [sortField, resetToFirstPage]
   );
 
   const resetSort = useCallback(() => {
     setSortField('rootFolderId');
     setSortDirection('asc');
-    setCurrentPage(0);
-  }, []);
+    resetToFirstPage();
+  }, [resetToFirstPage]);
 
-  // Memoized table headers
-  const SortableHeader = memo(
-    ({
-      field,
-      title,
-      className,
-    }: {
-      field: keyof TableRowData;
-      title: string;
-      className?: string;
-    }) => {
-      const isActive = sortField === field;
-      return (
-        <th
-          className={`px-4 py-3 text-left text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground ${className}`}
-          onClick={() => handleSort(field)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              handleSort(field);
-            }
-          }}
-          scope="col"
-          aria-sort={isActive ? (sortDirection === 'asc' ? 'ascending' : 'descending') : 'none'}
-        >
-          <div className="flex items-center gap-1">
-            {title}
-            {isActive &&
-              (sortDirection === 'asc' ? (
-                <ArrowUp className="size-3" />
-              ) : (
-                <ArrowDown className="size-3" />
-              ))}
-          </div>
-        </th>
-      );
+  // Reset to first page when grouping changes
+  const prevGroupingConfigRef = useRef(groupingConfig);
+  useEffect(() => {
+    if (prevGroupingConfigRef.current !== groupingConfig) {
+      prevGroupingConfigRef.current = groupingConfig;
+      resetToFirstPage();
     }
-  );
+  }, [groupingConfig, resetToFirstPage]);
 
   if (selectedFiles.size === 0) {
     return (
@@ -381,59 +440,106 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   return (
     <div className="h-full flex flex-col">
       {/* Header with stats and controls */}
-      <div className="p-3 border-b flex items-center justify-between bg-background">
-        <div className="flex items-center gap-3">
-          <Badge variant="outline" className="py-1.5">
-            {formatTokenCount(totalStats.totalTokens)}
-          </Badge>
-          <div className="text-xs text-muted-foreground">
-            <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
-            <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span> tokens
+      <div className="p-3 border-b bg-background">
+        {/* Top row - stats and main controls */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="py-1.5">
+              {formatTokenCount(totalStats.totalTokens)}
+            </Badge>
+            <div className="text-xs text-muted-foreground">
+              <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
+              <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span> tokens
+            </div>
+            <div className="w-32">
+              <Progress
+                value={Math.min((totalStats.totalTokens / 100000) * 100, 100)}
+                className="h-2"
+              />
+            </div>
           </div>
-          <div className="w-32">
-            <Progress
-              value={Math.min((totalStats.totalTokens / 100000) * 100, 100)}
-              className="h-2"
-            />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePreviewSelectAllGlobal}
-            disabled={isAllGloballySelected}
-            title="Select all files across all pages"
-          >
-            Select All ({sortedData.length})
-          </Button>
-          {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+          <div className="flex gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={resetSort}
-              title="Reset sort to default (by folder)"
+              onClick={() => groupSelection.selectAll(flattenedData)}
+              disabled={isAllSelected(flattenedData)}
+              title="Select all files across all pages"
             >
-              Reset Sort
+              Select All ({flattenedData.length})
             </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={expandAllFolders} title="Expand all folders">
-            <ArrowDown className="size-3.5" />
-            <span className="hidden sm:inline ml-1">Expand</span>
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={collapseAllFolders}
-            title="Collapse all folders"
+            {(sortField !== 'rootFolderId' || sortDirection !== 'asc') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetSort}
+                title="Reset sort to default (by folder)"
+              >
+                Reset Sort
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={expandAllFolders}
+              title="Expand all folders"
+            >
+              <ArrowDown className="size-3.5" />
+              <span className="hidden sm:inline ml-1">Expand</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={collapseAllFolders}
+              title="Collapse all folders"
+            >
+              <ArrowUp className="size-3.5" />
+              <span className="hidden sm:inline ml-1">Collapse</span>
+            </Button>
+          </div>
+        </div>
+
+        {/* Bottom row - grouping controls */}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Group by:</span>
+          <select
+            value={groupingConfig}
+            onChange={(e) => {
+              setGroupingConfig(e.target.value);
+              setCollapsedGroups(new Set());
+            }}
+            className="text-sm border border-input bg-background px-2 py-1 rounded-md focus:outline-none focus:ring-2 focus:ring-ring"
           >
-            <ArrowUp className="size-3.5" />
-            <span className="hidden sm:inline ml-1">Collapse</span>
-          </Button>
+            {Object.entries(GROUPING_CONFIGS).map(([key, config]) => (
+              <option key={key} value={key}>
+                {config.label}
+              </option>
+            ))}
+          </select>
+          {groupingConfig !== 'none' && groupedData.length > 1 && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCollapsedGroups(new Set())}
+                title="Expand all groups"
+              >
+                Expand All Groups
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCollapsedGroups(new Set(groupedData.map((g) => g.groupKey)))}
+                title="Collapse all groups"
+              >
+                Collapse All Groups
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Simple Table - No Virtualization, No Pagination */}
+      {/* Table */}
       <div className="flex-1 overflow-auto">
         <div className="min-w-full">
           <table className="w-full border-collapse">
@@ -443,22 +549,70 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                   <Checkbox
                     checked={isAllCurrentPageSelected}
                     onCheckedChange={(checked) =>
-                      checked ? handlePreviewSelectAllPage() : handlePreviewDeselectAll()
+                      checked ? selectAllOnPage(getVisibleFilesOnPage()) : deselectAll()
                     }
                     aria-label="Select all files on current page"
                     title="Select all files on current page"
                   />
                 </th>
-                <SortableHeader field="rootFolderId" title="Folder" />
-                <SortableHeader field="path" title="File Path" className="min-w-0 flex-1" />
-                <SortableHeader field="type" title="Type" className="w-20" />
-                <SortableHeader field="tokens" title="Tokens" className="w-24" />
-                <SortableHeader field="size" title="Size" className="w-24" />
+                <SortableTableHeader
+                  field="rootFolderId"
+                  title="Folder"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                />
+                <SortableTableHeader
+                  field="path"
+                  title="File Path"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  className="min-w-0 flex-1"
+                />
+                <SortableTableHeader
+                  field="type"
+                  title="Type"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  className="w-20"
+                />
+                <SortableTableHeader
+                  field="tokens"
+                  title="Tokens"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  className="w-24"
+                />
+                <SortableTableHeader
+                  field="size"
+                  title="Size"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  className="w-24"
+                />
               </tr>
             </thead>
-            <tbody>{currentPageData.map((item) => TableRow({ item }))}</tbody>
+            <tbody>
+              {groupingConfig === 'none' ? (
+                currentPageData.map((item) => (
+                  <PreviewTableRow
+                    key={item.compositeKey}
+                    item={item}
+                    isSelected={previewSelections.has(item.compositeKey)}
+                    onToggleSelection={toggleItemSelection}
+                    {...(onFileClick && { onFileClick })}
+                  />
+                ))
+              ) : (
+                <GroupedTableBody />
+              )}
+            </tbody>
           </table>
-          {sortedData.length === 0 && (
+          {flattenedData.length === 0 && (
             <div className="p-8 text-center text-muted-foreground">
               No files match your selection criteria
             </div>
@@ -466,61 +620,16 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
         </div>
       </div>
 
-      {/* Pagination Controls */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between p-3 border-t bg-background">
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span>
-              Page {currentPage + 1} of {totalPages} ({sortedData.length} total files)
-            </span>
-          </div>
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={goToPreviousPage}
-              disabled={currentPage === 0}
-            >
-              Previous
-            </Button>
-            <div className="flex items-center space-x-1">
-              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                // Show pages around current page
-                let pageNum: number;
-                if (totalPages <= 5) {
-                  pageNum = i;
-                } else if (currentPage < 3) {
-                  pageNum = i;
-                } else if (currentPage > totalPages - 4) {
-                  pageNum = totalPages - 5 + i;
-                } else {
-                  pageNum = currentPage - 2 + i;
-                }
-
-                return (
-                  <Button
-                    key={pageNum}
-                    variant={pageNum === currentPage ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => goToPage(pageNum)}
-                    className="w-8 h-8 p-0"
-                  >
-                    {pageNum + 1}
-                  </Button>
-                );
-              })}
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={goToNextPage}
-              disabled={currentPage === totalPages - 1}
-            >
-              Next
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* Pagination */}
+      <TablePagination
+        currentPage={currentPage}
+        totalPages={pagination.totalPages}
+        totalItems={flattenedData.length}
+        onPageChange={goToPage}
+        {...(groupingConfig !== 'none' && groupedData.length > 1
+          ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
+          : {})}
+      />
 
       {/* Fixed bottom action bar */}
       {previewSelections.size > 0 && (
@@ -529,7 +638,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
             <span className="text-sm font-medium">
               {previewSelections.size} files selected in preview
             </span>
-            <Button size="sm" variant="outline" onClick={handlePreviewDeselectAll}>
+            <Button size="sm" variant="outline" onClick={deselectAll}>
               Clear Preview Selection
             </Button>
           </div>

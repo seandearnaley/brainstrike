@@ -64,6 +64,18 @@ vi.mock('../use-selection-manager-context', () => ({
 }));
 vi.mock('@brainstrike/hooks', () => ({
   useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
+  usePagination: vi.fn(() => ({
+    currentPage: 0,
+    totalPages: 1,
+    startIndex: 0,
+    endIndex: 50,
+    goToPage: vi.fn(),
+    goToNextPage: vi.fn(),
+    goToPreviousPage: vi.fn(),
+    resetToFirstPage: vi.fn(),
+    isFirstPage: true,
+    isLastPage: true,
+  })),
 }));
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
