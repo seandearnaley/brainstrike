@@ -66,7 +66,8 @@ describe('TableGroupHeader', () => {
 
   it('marks checkbox indeterminate when isPartiallySelected', () => {
     renderGroupHeader({ ...baseProps, isPartiallySelected: true });
-    const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
-    expect(checkbox.indeterminate).toBe(true);
+    const checkbox = screen.getByRole('checkbox');
+    // Radix UI uses data-state attribute to indicate indeterminate state
+    expect(checkbox).toHaveAttribute('data-state', 'indeterminate');
   });
 });

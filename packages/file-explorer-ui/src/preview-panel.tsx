@@ -8,6 +8,7 @@ import {
   TableGroupHeader,
   TablePagination,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
@@ -20,6 +21,8 @@ import {
   type TableRowData,
   groupData,
 } from './utils/grouping-configs';
+
+const logger = createLogger('PreviewPanel');
 
 interface PreviewPanelProps {
   selectedFiles: Set<string>;
@@ -104,7 +107,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
           return result;
         } catch (error) {
-          console.warn('Failed to decode composite key:', fileItem.compositeKey, error);
+          logger.warn('Failed to decode composite key:', fileItem.compositeKey, error);
           return null;
         }
       })

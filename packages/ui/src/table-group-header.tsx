@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { type ReactNode, memo } from 'react';
+import { type ReactNode, memo, useCallback } from 'react';
 import { Checkbox } from './checkbox';
 
 interface TableGroupHeaderProps {
@@ -26,18 +26,24 @@ export const TableGroupHeader = memo<TableGroupHeaderProps>(function TableGroupH
   stats,
   colSpan = 5,
 }) {
+  const handleSelectionChange = useCallback(
+    (checked: boolean | 'indeterminate') => {
+      if (typeof checked === 'boolean') {
+        onSelectionChange(checked);
+      }
+    },
+    [onSelectionChange]
+  );
+
+  // Use Radix's indeterminate state directly
+  const checkboxState = isPartiallySelected ? 'indeterminate' : isFullySelected;
+
   return (
     <tr className="bg-muted/50 border-b-2 border-muted-foreground/20">
       <td className="p-4 w-12">
         <Checkbox
-          checked={isFullySelected}
-          ref={(el) => {
-            if (el && isPartiallySelected) {
-              // Cast to HTMLInputElement since Checkbox renders an input
-              (el as HTMLInputElement).indeterminate = true;
-            }
-          }}
-          onCheckedChange={onSelectionChange}
+          checked={checkboxState}
+          onCheckedChange={handleSelectionChange}
           onClick={(e) => e.stopPropagation()}
           aria-label={`Select all items in group ${groupLabel}`}
         />

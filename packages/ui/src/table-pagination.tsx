@@ -19,7 +19,9 @@ export const TablePagination = memo<TablePaginationProps>(function TablePaginati
   maxPageButtons = 5,
 }) {
   const goToNextPage = () => {
-    onPageChange(Math.min(currentPage + 1, totalPages - 1));
+    if (totalPages > 0) {
+      onPageChange(Math.min(currentPage + 1, totalPages - 1));
+    }
   };
 
   const goToPreviousPage = () => {

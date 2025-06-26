@@ -3,6 +3,22 @@ export type GroupKey = string | number;
 export type GroupFunction<T = unknown> = (item: T) => GroupKey;
 export type GroupBandFunction<T = unknown> = (item: T) => string;
 
+// Size threshold constants (in bytes)
+export const SIZE_THRESHOLDS = {
+  small: 1024, // 1 KB
+  medium: 10240, // 10 KB
+  large: 102400, // 100 KB
+  veryLarge: 1048576, // 1 MB
+} as const;
+
+// Token threshold constants
+export const TOKEN_THRESHOLDS = {
+  small: 100,
+  medium: 500,
+  large: 1000,
+  veryLarge: 5000,
+} as const;
+
 export interface GroupConfig<T = unknown> {
   id: string;
   label: string;
@@ -55,10 +71,10 @@ export const GROUPING_CONFIGS = {
     groupBy: (item: TableRowData) => {
       const size = item.size || 0;
       if (size === 0) return 'Unknown';
-      if (size < 1024) return 'Small (< 1 KB)';
-      if (size < 10240) return 'Medium (1-10 KB)';
-      if (size < 102400) return 'Large (10-100 KB)';
-      if (size < 1048576) return 'Very Large (100 KB - 1 MB)';
+      if (size < SIZE_THRESHOLDS.small) return 'Small (< 1 KB)';
+      if (size < SIZE_THRESHOLDS.medium) return 'Medium (1-10 KB)';
+      if (size < SIZE_THRESHOLDS.large) return 'Large (10-100 KB)';
+      if (size < SIZE_THRESHOLDS.veryLarge) return 'Very Large (100 KB - 1 MB)';
       return 'Huge (> 1 MB)';
     },
     sortGroups: (a: GroupKey, b: GroupKey) => {
@@ -79,10 +95,10 @@ export const GROUPING_CONFIGS = {
     groupBy: (item: TableRowData) => {
       const tokens = item.tokens || 0;
       if (tokens === 0) return 'Unknown';
-      if (tokens < 100) return 'Small (< 100)';
-      if (tokens < 500) return 'Medium (100-500)';
-      if (tokens < 1000) return 'Large (500-1K)';
-      if (tokens < 5000) return 'Very Large (1K-5K)';
+      if (tokens < TOKEN_THRESHOLDS.small) return 'Small (< 100)';
+      if (tokens < TOKEN_THRESHOLDS.medium) return 'Medium (100-500)';
+      if (tokens < TOKEN_THRESHOLDS.large) return 'Large (500-1K)';
+      if (tokens < TOKEN_THRESHOLDS.veryLarge) return 'Very Large (1K-5K)';
       return 'Huge (> 5K)';
     },
     sortGroups: (a: GroupKey, b: GroupKey) => {
