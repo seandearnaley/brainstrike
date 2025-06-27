@@ -104,7 +104,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       });
 
       // Convert the output to a regular array
-      const embedding = Array.from(output.data);
+      const embedding = Array.from(output.data as Float32Array);
 
       return {
         embedding,
@@ -128,9 +128,13 @@ export class SimpleEmbeddingService implements EmbeddingService {
     let norm2 = 0;
 
     for (let i = 0; i < embedding1.length; i++) {
-      dotProduct += embedding1[i] * embedding2[i];
-      norm1 += embedding1[i] * embedding1[i];
-      norm2 += embedding2[i] * embedding2[i];
+      const val1 = embedding1[i];
+      const val2 = embedding2[i];
+      if (val1 !== undefined && val2 !== undefined) {
+        dotProduct += val1 * val2;
+        norm1 += val1 * val1;
+        norm2 += val2 * val2;
+      }
     }
 
     const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));

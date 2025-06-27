@@ -16,8 +16,6 @@ import {
   SimpleEmbeddingService,
   type EmbeddingStatus,
   type EmbeddingConfig,
-  type EmbeddingProgress,
-  type EmbeddingResult,
 } from '@brainstrike/embeddings';
 
 const getStatusColor = (status: EmbeddingStatus): 'default' | 'secondary' | 'destructive' => {
@@ -62,9 +60,12 @@ export function EmbeddingsPanel() {
   const [text2, setText2] = useState('Hi there, this is another test phrase.');
   const [similarity, setSimilarity] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [embedding1, setEmbedding1] = useState<EmbeddingResult | null>(null);
-  const [embedding2, setEmbedding2] = useState<EmbeddingResult | null>(null);
   const serviceRef = useRef<SimpleEmbeddingService | null>(null);
+  
+  // Debug logging for status changes
+  useEffect(() => {
+    console.log('[EmbeddingsPanel] Status changed to:', status);
+  }, [status]);
 
   useEffect(() => {
     // Initialize the service
@@ -80,7 +81,10 @@ export function EmbeddingsPanel() {
     if (!serviceRef.current) return;
 
     try {
+      console.log('[EmbeddingsPanel] Starting initialization...');
+      setStatus('initializing');
       setError(null);
+      
       const config: Partial<EmbeddingConfig> = {
         modelId: 'Xenova/all-MiniLM-L6-v2',
         device: 'webgpu', // Try WebGPU first, will fallback to WASM
@@ -88,36 +92,65 @@ export function EmbeddingsPanel() {
       };
 
       await serviceRef.current.initialize(config, (progressInfo) => {
+        console.log('[EmbeddingsPanel] Progress:', progressInfo);
         setProgress(progressInfo.progress || 0);
         setProgressMessage(progressInfo.message || '');
+        
+        // Update status based on progress stage
+        if (progressInfo.stage === 'downloading') {
+          setStatus('downloading');
+        }
       });
+      
+      // After successful initialization, set status to ready
+      const serviceStatus = serviceRef.current.getStatus();
+      console.log('[EmbeddingsPanel] Service status after init:', serviceStatus);
+      setStatus('ready');
+      setProgress(100);
+      console.log('[EmbeddingsPanel] Initialization complete, status set to ready');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to initialize model';
       setError(errorMessage);
-      console.error('Failed to initialize BGE-M3 model:', err);
+      setStatus('error');
+      console.error('Failed to initialize model:', err);
     }
   };
 
   const handleCalculateSimilarity = async () => {
-    if (!serviceRef.current || status !== 'ready' || !text1.trim() || !text2.trim()) return;
+    if (!serviceRef.current || status !== 'ready' || !text1.trim() || !text2.trim()) {
+      console.log('[EmbeddingsPanel] Cannot calculate similarity:', {
+        hasService: !!serviceRef.current,
+        status,
+        hasText1: !!text1.trim(),
+        hasText2: !!text2.trim()
+      });
+      return;
+    }
 
     try {
+      console.log('[EmbeddingsPanel] Calculating similarity...');
+      setStatus('processing');
       setError(null);
       setSimilarity(null);
 
+      console.log('[EmbeddingsPanel] Generating embedding for text1:', text1.substring(0, 50) + '...');
       const result1 = await serviceRef.current.generateEmbedding(text1.trim());
+      
+      console.log('[EmbeddingsPanel] Generating embedding for text2:', text2.substring(0, 50) + '...');
       const result2 = await serviceRef.current.generateEmbedding(text2.trim());
-      setEmbedding1(result1);
-      setEmbedding2(result2);
 
+      console.log('[EmbeddingsPanel] Calculating cosine similarity...');
       const simResult = serviceRef.current.calculateSimilarity(
         result1.embedding,
         result2.embedding
       );
       setSimilarity(simResult.similarity);
+      setStatus('ready');
+      console.log('[EmbeddingsPanel] Similarity calculated:', simResult.similarity);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to calculate similarity';
       setError(errorMessage);
+      setStatus('ready');
       console.error('Failed to calculate similarity:', err);
     }
   };
@@ -126,11 +159,14 @@ export function EmbeddingsPanel() {
     if (!serviceRef.current) return;
 
     try {
+      console.log('[EmbeddingsPanel] Disposing service...');
       await serviceRef.current.dispose();
+      setStatus('idle');
       setSimilarity(null);
       setProgress(0);
       setProgressMessage('');
       setError(null);
+      console.log('[EmbeddingsPanel] Service disposed, status reset to idle');
     } catch (err) {
       console.error('Failed to dispose service:', err);
     }
@@ -143,10 +179,10 @@ export function EmbeddingsPanel() {
           <div>
             <CardTitle className="text-sm flex items-center gap-2">
               <Brain className="w-4 h-4" />
-              BGE-M3 Embeddings
+              Text Embeddings
             </CardTitle>
             <CardDescription className="text-xs">
-              Multilingual text embedding and similarity
+              Generate embeddings and calculate text similarity
             </CardDescription>
           </div>
           <Badge variant={getStatusColor(status)} className="text-xs">
@@ -161,7 +197,7 @@ export function EmbeddingsPanel() {
           <div className="grid grid-cols-2 gap-2">
             <div>
               <p className="font-medium">Model:</p>
-              <p className="text-muted-foreground">Xenova/bge-m3</p>
+              <p className="text-muted-foreground">Xenova/all-MiniLM-L6-v2</p>
             </div>
             <div>
               <p className="font-medium">Dimensions:</p>
@@ -189,7 +225,7 @@ export function EmbeddingsPanel() {
               Initialize Model
             </Button>
             <p className="text-muted-foreground text-xs">
-              Downloads ~550MB model for local inference
+              Downloads ~23MB model for local inference
             </p>
           </div>
         )}
@@ -271,12 +307,12 @@ export function EmbeddingsPanel() {
 
         {/* Info */}
         <div className="p-2 bg-muted/30 rounded text-xs">
-          <p className="font-medium mb-1">About BGE-M3:</p>
+          <p className="font-medium mb-1">About all-MiniLM-L6-v2:</p>
           <ul className="space-y-1 text-muted-foreground">
-            <li>• Multilingual (100+ languages)</li>
+            <li>• English language optimized</li>
             <li>• 384-dimensional embeddings</li>
-            <li>• Dense + sparse + multi-vector</li>
-            <li>• Optimized for retrieval tasks</li>
+            <li>• Fast and efficient (~23MB)</li>
+            <li>• Great for semantic similarity</li>
             <li>• WebGPU + WASM support</li>
           </ul>
         </div>
