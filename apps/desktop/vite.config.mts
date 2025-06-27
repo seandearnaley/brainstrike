@@ -115,6 +115,9 @@ export default defineConfig({
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts
+    headers: {
+      'Content-Security-Policy': "default-src 'self' http://localhost:* ws://localhost:*; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' http://localhost:*; img-src 'self' data: blob: http://localhost:*; font-src 'self' data: http://localhost:*; connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    }
   },
   publicDir: 'public',
 });

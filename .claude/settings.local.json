@@ -147,7 +147,9 @@
       "Bash(pnpm vitest:*)",
       "Bash(for i in {1..5})",
       "Bash(do echo \"Run $i:\")",
-      "WebFetch(domain:huggingface.co)"
+      "WebFetch(domain:huggingface.co)",
+      "Bash(turbo run lint:*)",
+      "Bash(npm run:*)"
     ],
     "deny": []
   },
