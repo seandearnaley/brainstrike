@@ -1,0 +1,1 @@
+this folder contains contexts from chat exports, it is probably outdated.

@@ -10,6 +10,11 @@ import {
   Progress,
   Input,
   Label,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@brainstrike/ui';
 import { Brain, Cpu, Zap, Square, AlertCircle } from 'lucide-react';
 import {
@@ -17,6 +22,72 @@ import {
   type EmbeddingStatus,
   type EmbeddingConfig,
 } from '@brainstrike/embeddings';
+
+// Model configurations
+const AVAILABLE_MODELS = {
+  'all-MiniLM-L6-v2': {
+    id: 'Xenova/all-MiniLM-L6-v2',
+    name: 'all-MiniLM-L6-v2',
+    description: 'Fast and efficient English embeddings',
+    dimensions: 384,
+    size: '~23MB',
+    requiresQuantization: false,
+    features: [
+      'English language optimized',
+      '384-dimensional embeddings',
+      'Fast and efficient (~23MB)',
+      'Great for semantic similarity',
+      'WebGPU + WASM support',
+    ],
+  },
+  'bge-small-en-v1.5': {
+    id: 'Xenova/bge-small-en-v1.5',
+    name: 'BGE-Small-EN-v1.5',
+    description: 'Balanced English embeddings',
+    dimensions: 384,
+    size: '~67MB',
+    requiresQuantization: false,
+    features: [
+      'English language specialized',
+      '384-dimensional embeddings',
+      'High-quality retrieval',
+      'Balanced speed/quality',
+      'WebGPU + WASM support',
+    ],
+  },
+  'bge-base-en-v1.5': {
+    id: 'Xenova/bge-base-en-v1.5',
+    name: 'BGE-Base-EN-v1.5',
+    description: 'High-quality English embeddings',
+    dimensions: 768,
+    size: '~130MB',
+    requiresQuantization: false,
+    features: [
+      'English language specialized',
+      '768-dimensional embeddings',
+      'Excellent retrieval quality',
+      'BAAI state-of-the-art',
+      'WebGPU + WASM support',
+    ],
+  },
+  'bge-m3': {
+    id: 'Xenova/bge-m3',
+    name: 'BGE-M3 (Quantized)',
+    description: 'Multilingual top-tier embeddings',
+    dimensions: 1024,
+    size: '~550MB',
+    requiresQuantization: true,
+    features: [
+      'Multilingual (100+ languages)',
+      '1024-dimensional embeddings',
+      'Dense + sparse + ColBERT',
+      'Top-tier retrieval quality',
+      'Quantized for stability',
+    ],
+  },
+} as const;
+
+type ModelKey = keyof typeof AVAILABLE_MODELS;
 
 const getStatusColor = (status: EmbeddingStatus): 'default' | 'secondary' | 'destructive' => {
   switch (status) {
@@ -56,6 +127,7 @@ export function EmbeddingsPanel() {
   const [status, setStatus] = useState<EmbeddingStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
+  const [selectedModel, setSelectedModel] = useState<ModelKey>('all-MiniLM-L6-v2');
   const [text1, setText1] = useState('Hello world, this is a test sentence.');
   const [text2, setText2] = useState('Hi there, this is another test phrase.');
   const [similarity, setSimilarity] = useState<number | null>(null);
@@ -77,18 +149,29 @@ export function EmbeddingsPanel() {
     };
   }, []);
 
+  const handleModelChange = (newModel: ModelKey) => {
+    if (status !== 'idle') {
+      // If a model is already loaded, show warning
+      setError('Please dispose the current model before switching');
+      return;
+    }
+    setSelectedModel(newModel);
+    setError(null);
+  };
+
   const handleInitialize = async () => {
     if (!serviceRef.current) return;
 
     try {
-      console.log('[EmbeddingsPanel] Starting initialization...');
+      console.log('[EmbeddingsPanel] Starting initialization with model:', selectedModel);
       setStatus('initializing');
       setError(null);
       
+      const modelConfig = AVAILABLE_MODELS[selectedModel];
       const config: Partial<EmbeddingConfig> = {
-        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelId: modelConfig.id,
         device: 'webgpu', // Try WebGPU first, will fallback to WASM
-        quantized: true,
+        quantized: modelConfig.requiresQuantization || true, // Force quantization for BGE-M3, optional for others
       };
 
       await serviceRef.current.initialize(config, (progressInfo) => {
@@ -109,10 +192,22 @@ export function EmbeddingsPanel() {
       setProgress(100);
       console.log('[EmbeddingsPanel] Initialization complete, status set to ready');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize model';
+      console.error('Failed to initialize model:', err);
+      const currentModel = AVAILABLE_MODELS[selectedModel];
+      let errorMessage = 'Failed to initialize model';
+      
+      if (err instanceof Error) {
+        if (err.message.includes('Failed to fetch')) {
+          errorMessage = `Network error loading ${currentModel.name}. Check your internet connection or try a different model.`;
+        } else if (err.message.includes('external data format')) {
+          errorMessage = `${currentModel.name} requires quantization. Please try again or use a different model.`;
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
       setError(errorMessage);
       setStatus('error');
-      console.error('Failed to initialize model:', err);
     }
   };
 
@@ -192,16 +287,51 @@ export function EmbeddingsPanel() {
       </CardHeader>
 
       <CardContent className="text-xs space-y-3">
+        {/* Model Selector */}
+        {status === 'idle' && (
+          <div className="space-y-2">
+            <Label htmlFor="model-select" className="text-xs">
+              Select Model:
+            </Label>
+            <Select value={selectedModel} onValueChange={(value) => handleModelChange(value as ModelKey)}>
+              <SelectTrigger id="model-select" className="text-xs">
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(AVAILABLE_MODELS).map(([key, model]) => (
+                  <SelectItem key={key} value={key} className="text-xs">
+                    <div>
+                      <div className="font-medium">{model.name}</div>
+                      <div className="text-muted-foreground text-xs">{model.description}</div>
+                      <div className="text-muted-foreground text-xs">
+                        {model.dimensions}D • {model.size}
+                      </div>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {AVAILABLE_MODELS[selectedModel].requiresQuantization && (
+              <div className="p-2 bg-orange-50 border border-orange-200 rounded text-xs">
+                <p className="font-medium text-orange-800">Note:</p>
+                <p className="text-orange-700">
+                  This model requires quantization for stability in browsers.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Model Info */}
         <div className="p-2 bg-muted/30 rounded text-xs">
           <div className="grid grid-cols-2 gap-2">
             <div>
               <p className="font-medium">Model:</p>
-              <p className="text-muted-foreground">Xenova/all-MiniLM-L6-v2</p>
+              <p className="text-muted-foreground">{AVAILABLE_MODELS[selectedModel].name}</p>
             </div>
             <div>
               <p className="font-medium">Dimensions:</p>
-              <p className="text-muted-foreground">384D</p>
+              <p className="text-muted-foreground">{AVAILABLE_MODELS[selectedModel].dimensions}D</p>
             </div>
           </div>
         </div>
@@ -225,7 +355,7 @@ export function EmbeddingsPanel() {
               Initialize Model
             </Button>
             <p className="text-muted-foreground text-xs">
-              Downloads ~23MB model for local inference
+              Downloads {AVAILABLE_MODELS[selectedModel].size} model for local inference
             </p>
           </div>
         )}
@@ -307,13 +437,11 @@ export function EmbeddingsPanel() {
 
         {/* Info */}
         <div className="p-2 bg-muted/30 rounded text-xs">
-          <p className="font-medium mb-1">About all-MiniLM-L6-v2:</p>
+          <p className="font-medium mb-1">About {AVAILABLE_MODELS[selectedModel].name}:</p>
           <ul className="space-y-1 text-muted-foreground">
-            <li>• English language optimized</li>
-            <li>• 384-dimensional embeddings</li>
-            <li>• Fast and efficient (~23MB)</li>
-            <li>• Great for semantic similarity</li>
-            <li>• WebGPU + WASM support</li>
+            {AVAILABLE_MODELS[selectedModel].features.map((feature, index) => (
+              <li key={index}>• {feature}</li>
+            ))}
           </ul>
         </div>
       </CardContent>

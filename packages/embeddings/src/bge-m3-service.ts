@@ -18,7 +18,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
   private _pipeline: any = null;
   private _status: EmbeddingStatus = 'idle';
   private _config: EmbeddingConfig = {
-    modelId: 'Xenova/all-MiniLM-L6-v2', // Well-tested model that works in browsers
+    modelId: 'Xenova/all-MiniLM-L6-v2', // Default model - can be overridden
     device: 'webgpu',
     quantized: true,
   };
@@ -27,8 +27,17 @@ export class SimpleEmbeddingService implements EmbeddingService {
     config?: Partial<EmbeddingConfig>,
     onProgress?: (progress: EmbeddingProgress) => void
   ): Promise<void> {
-    if (this._status === 'initializing' || this._status === 'ready') {
+    if (this._status === 'initializing') {
       return;
+    }
+
+    // Check if we're trying to initialize with a different model
+    if (this._status === 'ready' && config?.modelId && config.modelId !== this._config.modelId) {
+      throw new Error('Cannot switch models without disposing first. Call dispose() before initializing with a different model.');
+    }
+
+    if (this._status === 'ready') {
+      return; // Already initialized with same model
     }
 
     this._status = 'initializing';
@@ -54,7 +63,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
         message: 'Creating feature extraction pipeline...',
       });
 
-      console.log('Creating feature extraction pipeline...');
+      console.log(`Creating feature extraction pipeline for ${this._config.modelId}...`);
 
       // Use feature-extraction pipeline which is well-tested and reliable
       this._pipeline = await this._transformers.pipeline(
@@ -83,7 +92,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       });
 
       this._status = 'ready';
-      console.log('Feature extraction pipeline ready!');
+      console.log(`Feature extraction pipeline ready for ${this._config.modelId}!`);
     } catch (error) {
       console.error('Failed to initialize embedding service:', error);
       this._status = 'error';
