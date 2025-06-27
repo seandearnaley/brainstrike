@@ -65,24 +65,43 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
       console.log(`Creating feature extraction pipeline for ${this._config.modelId}...`);
 
-      // Use feature-extraction pipeline which is well-tested and reliable
+      // Use feature-extraction pipeline with robust configuration
+      const pipelineConfig: any = {
+        quantized: this._config.quantized,
+        progressCallback: (progress: any) => {
+          if (progress.status === 'downloading') {
+            const progressPercent = Math.round((progress.loaded / progress.total) * 100);
+            onProgress?.({
+              stage: 'downloading',
+              progress: 25 + progressPercent * 0.5, // 25-75%
+              message: `Downloading ${progress.file}... ${progressPercent}%`,
+            });
+          }
+        },
+      };
+
+      // Add device configuration if WebGPU is requested and supported
+      if (this._config.device === 'webgpu') {
+        try {
+          // Check if WebGPU is available
+          if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
+            pipelineConfig.device = 'webgpu';
+          } else {
+            console.log('WebGPU not available, falling back to WASM');
+            pipelineConfig.device = 'wasm';
+          }
+        } catch (error) {
+          console.log('WebGPU check failed, using WASM fallback');
+          pipelineConfig.device = 'wasm';
+        }
+      } else {
+        pipelineConfig.device = this._config.device;
+      }
+
       this._pipeline = await this._transformers.pipeline(
         'feature-extraction',
         this._config.modelId,
-        {
-          quantized: this._config.quantized,
-          device: this._config.device,
-          progressCallback: (progress: any) => {
-            if (progress.status === 'downloading') {
-              const progressPercent = Math.round((progress.loaded / progress.total) * 100);
-              onProgress?.({
-                stage: 'downloading',
-                progress: 25 + progressPercent * 0.5, // 25-75%
-                message: `Downloading ${progress.file}... ${progressPercent}%`,
-              });
-            }
-          },
-        }
+        pipelineConfig
       );
 
       onProgress?.({
