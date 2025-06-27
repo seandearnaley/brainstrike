@@ -25,7 +25,7 @@ describe('RightPanel', () => {
 
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /props/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /layers/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
   });
@@ -43,12 +43,14 @@ describe('RightPanel', () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Click on the layers tab
-    await user.click(screen.getByRole('tab', { name: /layers/i }));
+    // Click on the embeddings tab
+    await user.click(screen.getByRole('tab', { name: /embed/i }));
 
-    // Should show layers content
-    expect(screen.getByText('Layer hierarchy and organization')).toBeInTheDocument();
-    expect(screen.getByText('Layer Structure')).toBeInTheDocument();
+    // Should show embeddings content
+    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+    expect(
+      screen.getByText('Generate embeddings and calculate text similarity')
+    ).toBeInTheDocument();
 
     // Click on the search tab
     await user.click(screen.getByRole('tab', { name: /search/i }));
@@ -76,7 +78,7 @@ describe('RightPanel', () => {
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Props');
-    expect(tabs[1]).toHaveTextContent('Layers');
+    expect(tabs[1]).toHaveTextContent('Embed');
     expect(tabs[2]).toHaveTextContent('Search');
     expect(tabs[3]).toHaveTextContent('DB');
   });
@@ -85,16 +87,16 @@ describe('RightPanel', () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to layers tab
-    await user.click(screen.getByRole('tab', { name: /layers/i }));
-    expect(screen.getByText('Layer Structure')).toBeInTheDocument();
+    // Switch to embeddings tab
+    await user.click(screen.getByRole('tab', { name: /embed/i }));
+    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
 
     // Switch back to properties tab
     await user.click(screen.getByRole('tab', { name: /props/i }));
     expect(screen.getByText('Basic Properties')).toBeInTheDocument();
 
-    // Switch to layers again - content should still be there
-    await user.click(screen.getByRole('tab', { name: /layers/i }));
-    expect(screen.getByText('Layer Structure')).toBeInTheDocument();
+    // Switch to embeddings again - content should still be there
+    await user.click(screen.getByRole('tab', { name: /embed/i }));
+    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
   });
 });

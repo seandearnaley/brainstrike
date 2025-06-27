@@ -15,21 +15,27 @@
   "files": [
     "dist"
   ],
+  "bin": {
+    "embed-code": "./dist/cli/embed-code.js"
+  },
   "scripts": {
-    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/cli/embed-code.ts --format esm,cjs --out-dir dist",
     "dev": "tsup --watch",
     "clean": "rimraf dist",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "type-check": "tsc --noEmit",
-    "test": "vitest",
-    "test:watch": "vitest --watch"
+    "test": "vitest run",
+    "test:watch": "vitest --watch",
+    "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\""
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.6.0"
+    "@huggingface/transformers": "^3.6.0",
+    "glob": "^11.0.0"
   },
   "devDependencies": {
     "@brainstrike/config": "workspace:*",
+    "@types/glob": "^8.1.0",
     "@types/node": "^24.0.1",
     "@types/react": "^19.0.0",
     "rimraf": "^6.0.1",

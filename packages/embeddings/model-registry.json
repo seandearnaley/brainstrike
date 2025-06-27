@@ -1,0 +1,55 @@
+{
+  "default": "jina-code",
+  "models": {
+    "jina-code": {
+      "id": "jinaai/jina-embeddings-v2-base-code",
+      "name": "Jina Code (default)",
+      "dimensions": 768,
+      "quantized": false,
+      "description": "Code-aware embeddings (30+ languages, 8k ctx)",
+      "tags": ["code", "multilingual", "open-source"],
+      "origin": "Code-aware",
+      "size": "~300MB"
+    },
+    "all-MiniLM-L6-v2": {
+      "id": "Xenova/all-MiniLM-L6-v2",
+      "name": "all-MiniLM-L6-v2",
+      "dimensions": 384,
+      "quantized": false,
+      "description": "Fast and efficient English embeddings",
+      "tags": ["english", "fast", "general"],
+      "origin": "General text",
+      "size": "~23MB"
+    },
+    "bge-small-en-v1.5": {
+      "id": "Xenova/bge-small-en-v1.5",
+      "name": "BGE-Small-EN-v1.5",
+      "dimensions": 384,
+      "quantized": false,
+      "description": "Balanced English embeddings",
+      "tags": ["english", "balanced", "bge"],
+      "origin": "General text",
+      "size": "~67MB"
+    },
+    "bge-base-en-v1.5": {
+      "id": "Xenova/bge-base-en-v1.5",
+      "name": "BGE-Base-EN-v1.5",
+      "dimensions": 768,
+      "quantized": false,
+      "description": "High-quality English embeddings",
+      "tags": ["english", "high-quality", "bge"],
+      "origin": "General text",
+      "size": "~130MB"
+    },
+    "bge-large-en-v1.5": {
+      "id": "Xenova/bge-large-en-v1.5",
+      "name": "BGE-Large-EN-v1.5",
+      "dimensions": 1024,
+      "quantized": false,
+      "description": "SOTA English text embeddings",
+      "tags": ["english", "sota", "bge"],
+      "origin": "General text",
+      "size": "~330MB"
+    }
+  }
+}

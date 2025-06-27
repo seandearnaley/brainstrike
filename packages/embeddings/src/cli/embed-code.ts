@@ -1,0 +1,547 @@
+#!/usr/bin/env node
+
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { glob } from 'glob';
+import { SimpleEmbeddingService } from '../bge-m3-service';
+import { ModelRegistryManager } from '../model-registry';
+import type { EmbeddingProgress } from '../types';
+
+/**
+ * Code file patterns to include in embedding
+ */
+const DEFAULT_CODE_PATTERNS = [
+  '**/*.js',
+  '**/*.jsx',
+  '**/*.ts',
+  '**/*.tsx',
+  '**/*.py',
+  '**/*.java',
+  '**/*.c',
+  '**/*.cpp',
+  '**/*.h',
+  '**/*.hpp',
+  '**/*.cs',
+  '**/*.go',
+  '**/*.rs',
+  '**/*.rb',
+  '**/*.php',
+  '**/*.swift',
+  '**/*.kt',
+  '**/*.scala',
+  '**/*.r',
+  '**/*.sql',
+  '**/*.sh',
+  '**/*.bash',
+  '**/*.zsh',
+  '**/*.fish',
+  '**/*.ps1',
+  '**/*.dockerfile',
+  '**/*.yml',
+  '**/*.yaml',
+  '**/*.json',
+  '**/*.toml',
+  '**/*.xml',
+  '**/*.html',
+  '**/*.css',
+  '**/*.scss',
+  '**/*.sass',
+  '**/*.vue',
+  '**/*.svelte',
+];
+
+/**
+ * Patterns to exclude from embedding
+ */
+const DEFAULT_EXCLUDE_PATTERNS = [
+  'node_modules/**',
+  'dist/**',
+  'build/**',
+  'target/**',
+  '.git/**',
+  '.next/**',
+  '.nuxt/**',
+  '.turbo/**',
+  'coverage/**',
+  '**/*.min.js',
+  '**/*.min.css',
+  '**/*.bundle.js',
+  '**/*.bundle.css',
+  '**/*.map',
+  '**/*.log',
+  '**/*.tmp',
+  '**/*.temp',
+];
+
+/**
+ * Configuration for the CLI tool
+ */
+interface EmbedCodeConfig {
+  /** Root directory to scan for code files */
+  rootDir: string;
+  /** Model key from registry to use for embeddings */
+  modelKey?: string;
+  /** Custom file patterns to include */
+  include?: string[];
+  /** Custom patterns to exclude */
+  exclude?: string[];
+  /** Output format */
+  format: 'json' | 'csv' | 'pgvector';
+  /** Output file path */
+  output?: string;
+  /** Maximum file size in bytes */
+  maxFileSize?: number;
+  /** Maximum lines per chunk */
+  maxLines?: number;
+  /** Chunk overlap in lines */
+  chunkOverlap?: number;
+  /** Verbose logging */
+  verbose?: boolean;
+}
+
+/**
+ * Represents an embedded code chunk
+ */
+interface CodeEmbedding {
+  /** Unique identifier for the chunk */
+  id: string;
+  /** File path relative to root */
+  filePath: string;
+  /** Programming language detected */
+  language: string;
+  /** Content of the code chunk */
+  content: string;
+  /** Start line number in the file */
+  startLine: number;
+  /** End line number in the file */
+  endLine: number;
+  /** Generated embedding vector */
+  embedding: number[];
+  /** Embedding dimensions */
+  dimensions: number;
+  /** Model used for embedding */
+  model: string;
+  /** Timestamp when embedding was created */
+  timestamp: string;
+}
+
+/**
+ * CLI tool for embedding code files
+ */
+export class CodeEmbeddingCLI {
+  private service: SimpleEmbeddingService;
+  private config: EmbedCodeConfig;
+
+  constructor(config: EmbedCodeConfig) {
+    this.config = {
+      maxFileSize: 1024 * 1024, // 1MB default
+      maxLines: 100, // 100 lines per chunk
+      chunkOverlap: 10, // 10 lines overlap
+      verbose: false,
+      ...config,
+    };
+    this.service = new SimpleEmbeddingService();
+  }
+
+  /**
+   * Initialize the embedding service with the specified model
+   */
+  async initialize(): Promise<void> {
+    const modelKey = this.config.modelKey || ModelRegistryManager.getDefaultModelKey();
+    const model = ModelRegistryManager.getModel(modelKey);
+
+    if (!model) {
+      throw new Error(`Model '${modelKey}' not found in registry`);
+    }
+
+    this.log(`Initializing embedding service with model: ${model.name}`);
+
+    await this.service.initializeWithModel(modelKey, (progress: EmbeddingProgress) => {
+      if (this.config.verbose) {
+        this.log(`${progress.stage}: ${progress.message} (${progress.progress?.toFixed(1)}%)`);
+      }
+    });
+
+    this.log('Model initialized successfully!');
+  }
+
+  /**
+   * Find all code files matching the patterns
+   */
+  async findCodeFiles(): Promise<string[]> {
+    const patterns = this.config.include || DEFAULT_CODE_PATTERNS;
+    const excludePatterns = [...(this.config.exclude || []), ...DEFAULT_EXCLUDE_PATTERNS];
+
+    this.log(`Scanning for code files in: ${this.config.rootDir}`);
+    this.log(`Include patterns: ${patterns.join(', ')}`);
+    this.log(`Exclude patterns: ${excludePatterns.join(', ')}`);
+
+    const allFiles: string[] = [];
+
+    for (const pattern of patterns) {
+      const files = await glob(pattern, {
+        cwd: this.config.rootDir,
+        ignore: excludePatterns,
+        absolute: false,
+      });
+      allFiles.push(...files);
+    }
+
+    // Remove duplicates and filter by file size
+    const uniqueFiles = [...new Set(allFiles)];
+    const validFiles: string[] = [];
+
+    for (const file of uniqueFiles) {
+      const fullPath = path.join(this.config.rootDir, file);
+      try {
+        const stats = fs.statSync(fullPath);
+        if (stats.size <= (this.config.maxFileSize || 1024 * 1024)) {
+          validFiles.push(file);
+        } else {
+          this.log(`Skipping ${file}: file too large (${stats.size} bytes)`);
+        }
+      } catch (_error) {
+        this.log(`Skipping ${file}: cannot read file stats`);
+      }
+    }
+
+    this.log(`Found ${validFiles.length} code files to process`);
+    return validFiles;
+  }
+
+  /**
+   * Split file content into chunks
+   */
+  splitIntoChunks(
+    content: string,
+    _filePath: string
+  ): Array<{
+    content: string;
+    startLine: number;
+    endLine: number;
+  }> {
+    const lines = content.split('\n');
+    const chunks: Array<{ content: string; startLine: number; endLine: number }> = [];
+    const maxLines = this.config.maxLines || 100;
+    const overlap = this.config.chunkOverlap || 10;
+
+    let startLine = 0;
+
+    while (startLine < lines.length) {
+      const endLine = Math.min(startLine + maxLines, lines.length);
+      const chunkLines = lines.slice(startLine, endLine);
+
+      if (chunkLines.length > 0) {
+        chunks.push({
+          content: chunkLines.join('\n'),
+          startLine: startLine + 1, // 1-based line numbers
+          endLine: endLine,
+        });
+      }
+
+      // Move start position with overlap
+      startLine = endLine - overlap;
+      if (startLine >= endLine) break;
+    }
+
+    return chunks;
+  }
+
+  /**
+   * Detect programming language from file extension
+   */
+  detectLanguage(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    const languageMap: Record<string, string> = {
+      '.js': 'javascript',
+      '.jsx': 'javascript',
+      '.ts': 'typescript',
+      '.tsx': 'typescript',
+      '.py': 'python',
+      '.java': 'java',
+      '.c': 'c',
+      '.cpp': 'cpp',
+      '.h': 'c',
+      '.hpp': 'cpp',
+      '.cs': 'csharp',
+      '.go': 'go',
+      '.rs': 'rust',
+      '.rb': 'ruby',
+      '.php': 'php',
+      '.swift': 'swift',
+      '.kt': 'kotlin',
+      '.scala': 'scala',
+      '.r': 'r',
+      '.sql': 'sql',
+      '.sh': 'shell',
+      '.bash': 'shell',
+      '.zsh': 'shell',
+      '.fish': 'shell',
+      '.ps1': 'powershell',
+      '.dockerfile': 'dockerfile',
+      '.yml': 'yaml',
+      '.yaml': 'yaml',
+      '.json': 'json',
+      '.toml': 'toml',
+      '.xml': 'xml',
+      '.html': 'html',
+      '.css': 'css',
+      '.scss': 'scss',
+      '.sass': 'sass',
+      '.vue': 'vue',
+      '.svelte': 'svelte',
+    };
+
+    return languageMap[ext] || 'text';
+  }
+
+  /**
+   * Process all code files and generate embeddings
+   */
+  async processFiles(): Promise<CodeEmbedding[]> {
+    const files = await this.findCodeFiles();
+    const embeddings: CodeEmbedding[] = [];
+    let processedFiles = 0;
+
+    for (const file of files) {
+      try {
+        const fullPath = path.join(this.config.rootDir, file);
+        const content = fs.readFileSync(fullPath, 'utf-8');
+        const language = this.detectLanguage(file);
+        const chunks = this.splitIntoChunks(content, file);
+
+        this.log(`Processing ${file} (${chunks.length} chunks)`);
+
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          if (!chunk) continue;
+          const id = `${file}:${chunk.startLine}-${chunk.endLine}`;
+
+          try {
+            const result = await this.service.generateEmbedding(chunk.content);
+
+            embeddings.push({
+              id,
+              filePath: file,
+              language,
+              content: chunk.content,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              embedding: result.embedding,
+              dimensions: result.dimensions,
+              model: result.model,
+              timestamp: new Date().toISOString(),
+            });
+
+            if (this.config.verbose) {
+              this.log(`  Chunk ${i + 1}/${chunks.length}: ${id}`);
+            }
+          } catch (error) {
+            this.log(`Error embedding chunk ${id}: ${error}`);
+          }
+        }
+
+        processedFiles++;
+        this.log(`Progress: ${processedFiles}/${files.length} files processed`);
+      } catch (error) {
+        this.log(`Error processing ${file}: ${error}`);
+      }
+    }
+
+    return embeddings;
+  }
+
+  /**
+   * Save embeddings to file
+   */
+  async saveEmbeddings(embeddings: CodeEmbedding[]): Promise<void> {
+    if (!this.config.output) {
+      return;
+    }
+
+    const outputPath = this.config.output;
+    this.log(`Saving ${embeddings.length} embeddings to: ${outputPath}`);
+
+    switch (this.config.format) {
+      case 'json':
+        fs.writeFileSync(outputPath, JSON.stringify(embeddings, null, 2));
+        break;
+
+      case 'csv': {
+        const csvHeader =
+          'id,file_path,language,start_line,end_line,dimensions,model,timestamp,content,embedding\n';
+        const csvRows = embeddings.map(
+          (e) =>
+            `"${e.id}","${e.filePath}","${e.language}",${e.startLine},${e.endLine},${e.dimensions},"${e.model}","${e.timestamp}","${e.content.replace(/"/g, '""')}","[${e.embedding.join(',')}]"`
+        );
+        fs.writeFileSync(outputPath, csvHeader + csvRows.join('\n'));
+        break;
+      }
+
+      case 'pgvector': {
+        // Generate SQL for PostgreSQL with pgvector extension
+        const sqlStatements = embeddings.map((e) => {
+          const vectorString = `[${e.embedding.join(',')}]`;
+          return `INSERT INTO code_embeddings (id, file_path, language, start_line, end_line, content, embedding, model, created_at) VALUES ('${e.id}', '${e.filePath}', '${e.language}', ${e.startLine}, ${e.endLine}, $code$${e.content}$code$, '${vectorString}'::vector, '${e.model}', '${e.timestamp}');`;
+        });
+
+        const sqlContent = `-- Code embeddings generated at ${new Date().toISOString()}\n-- Total embeddings: ${embeddings.length}\n\n${sqlStatements.join('\n\n')}`;
+        fs.writeFileSync(outputPath, sqlContent);
+        break;
+      }
+
+      default:
+        throw new Error(`Unsupported output format: ${this.config.format}`);
+    }
+
+    this.log(`Successfully saved embeddings to ${outputPath}`);
+  }
+
+  /**
+   * Run the complete embedding process
+   */
+  async run(): Promise<void> {
+    try {
+      await this.initialize();
+      const embeddings = await this.processFiles();
+      await this.saveEmbeddings(embeddings);
+
+      this.log('\nCompleted successfully!');
+      this.log(`Total embeddings generated: ${embeddings.length}`);
+
+      const modelConfig = this.service.getCurrentModelConfig();
+      if (modelConfig) {
+        this.log(`Model used: ${modelConfig.name} (${modelConfig.dimensions}D)`);
+      }
+    } catch (error) {
+      console.error('Error during embedding process:', error);
+      process.exit(1);
+    } finally {
+      await this.service.dispose();
+    }
+  }
+
+  /**
+   * Utility logging method
+   */
+  private log(message: string): void {
+    if (this.config.verbose || !this.config.output) {
+      // biome-ignore lint/suspicious/noConsoleLog: CLI tool needs console output
+      console.log(message);
+    }
+  }
+}
+
+/**
+ * Validate and require a command line argument value
+ */
+function requireArgValue(argName: string, value: string | undefined): string {
+  if (!value) {
+    console.error(`Error: ${argName} requires a value`);
+    process.exit(1);
+  }
+  return value;
+}
+
+/**
+ * Parse a single command line option
+ */
+function parseOption(config: EmbedCodeConfig, arg: string, nextArg: string | undefined): boolean {
+  switch (arg) {
+    case '--model':
+      config.modelKey = requireArgValue(arg, nextArg);
+      return true;
+    case '--include':
+      config.include = requireArgValue(arg, nextArg).split(',');
+      return true;
+    case '--exclude':
+      config.exclude = requireArgValue(arg, nextArg).split(',');
+      return true;
+    case '--format': {
+      const format = requireArgValue(arg, nextArg);
+      if (!['json', 'csv', 'pgvector'].includes(format)) {
+        console.error(`Error: Invalid format '${format}'. Use json, csv, or pgvector.`);
+        process.exit(1);
+      }
+      config.format = format as 'json' | 'csv' | 'pgvector';
+      return true;
+    }
+    case '--output':
+      config.output = requireArgValue(arg, nextArg);
+      return true;
+    case '--max-file-size':
+      config.maxFileSize = Number.parseInt(requireArgValue(arg, nextArg));
+      return true;
+    case '--max-lines':
+      config.maxLines = Number.parseInt(requireArgValue(arg, nextArg));
+      return true;
+    case '--chunk-overlap':
+      config.chunkOverlap = Number.parseInt(requireArgValue(arg, nextArg));
+      return true;
+    case '--verbose':
+      config.verbose = true;
+      return false; // no value consumed
+    default:
+      console.error(`Error: Unknown option '${arg}'`);
+      process.exit(1);
+  }
+}
+
+/**
+ * Parse command line arguments
+ */
+function parseArguments(args: string[]): EmbedCodeConfig | null {
+  if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
+    return null;
+  }
+
+  const rootDir = args[0];
+  if (!rootDir) {
+    console.error('Error: Root directory is required');
+    process.exit(1);
+  }
+
+  if (!fs.existsSync(rootDir)) {
+    console.error(`Error: Directory '${rootDir}' does not exist`);
+    process.exit(1);
+  }
+
+  const config: EmbedCodeConfig = {
+    rootDir,
+    format: 'json',
+  };
+
+  // Parse command line arguments
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg) continue;
+
+    const nextArg = args[i + 1];
+
+    if (parseOption(config, arg, nextArg)) {
+      i++; // Skip next arg if it was consumed
+    }
+  }
+
+  return config;
+}
+
+/**
+ * CLI entry point
+ */
+async function main() {
+  const args = process.argv.slice(2);
+  const config = parseArguments(args);
+
+  if (!config) {
+    process.exit(0);
+  }
+
+  const cli = new CodeEmbeddingCLI(config);
+  await cli.run();
+}
+
+// Run CLI if this file is executed directly
+if (require.main === module) {
+  main().catch(console.error);
+}

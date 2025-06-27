@@ -1,93 +1,33 @@
-import { useState, useEffect, useRef } from 'react';
 import {
+  type EmbeddingStatus,
+  type ModelConfig,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
+import {
+  Badge,
+  Button,
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  Button,
-  Badge,
-  Progress,
   Input,
   Label,
+  Progress,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
-import { Brain, Cpu, Zap, Square, AlertCircle } from 'lucide-react';
-import {
-  SimpleEmbeddingService,
-  type EmbeddingStatus,
-  type EmbeddingConfig,
-} from '@brainstrike/embeddings';
+import { AlertCircle, Brain, Cpu, Square, Zap } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
-// Model configurations
-const AVAILABLE_MODELS = {
-  'all-MiniLM-L6-v2': {
-    id: 'Xenova/all-MiniLM-L6-v2',
-    name: 'all-MiniLM-L6-v2',
-    description: 'Fast and efficient English embeddings',
-    dimensions: 384,
-    size: '~23MB',
-    requiresQuantization: false,
-    features: [
-      'English language optimized',
-      '384-dimensional embeddings',
-      'Fast and efficient (~23MB)',
-      'Great for semantic similarity',
-      'WebGPU + WASM support',
-    ],
-  },
-  'bge-small-en-v1.5': {
-    id: 'Xenova/bge-small-en-v1.5',
-    name: 'BGE-Small-EN-v1.5',
-    description: 'Balanced English embeddings',
-    dimensions: 384,
-    size: '~67MB',
-    requiresQuantization: false,
-    features: [
-      'English language specialized',
-      '384-dimensional embeddings',
-      'High-quality retrieval',
-      'Balanced speed/quality',
-      'WebGPU + WASM support',
-    ],
-  },
-  'bge-base-en-v1.5': {
-    id: 'Xenova/bge-base-en-v1.5',
-    name: 'BGE-Base-EN-v1.5',
-    description: 'High-quality English embeddings',
-    dimensions: 768,
-    size: '~130MB',
-    requiresQuantization: false,
-    features: [
-      'English language specialized',
-      '768-dimensional embeddings',
-      'Excellent retrieval quality',
-      'BAAI state-of-the-art',
-      'WebGPU + WASM support',
-    ],
-  },
-  'bge-large-en-v1.5': {
-    id: 'Xenova/bge-large-en-v1.5',
-    name: 'BGE-Large-EN-v1.5',
-    description: 'Top-tier English embeddings',
-    dimensions: 1024,
-    size: '~330MB',
-    requiresQuantization: false,
-    features: [
-      'English language specialized',
-      '1024-dimensional embeddings',
-      'State-of-the-art quality',
-      'BAAI top performance',
-      'Proven browser stability',
-    ],
-  },
-} as const;
+// Get models from registry
+const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
+const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
 
-type ModelKey = keyof typeof AVAILABLE_MODELS;
+type ModelKey = string;
 
 const getStatusColor = (status: EmbeddingStatus): 'default' | 'secondary' | 'destructive' => {
   switch (status) {
@@ -123,21 +63,159 @@ const getStatusText = (status: EmbeddingStatus): string => {
   }
 };
 
+const formatInitializationError = (error: unknown, modelName: string): string => {
+  if (!(error instanceof Error)) {
+    return 'Failed to initialize model';
+  }
+
+  if (error.message.includes('Failed to fetch')) {
+    return `Network error loading ${modelName}. Check your internet connection or try a different model.`;
+  }
+
+  if (error.message.includes('external data format')) {
+    return `${modelName} requires quantization. Please try again or use a different model.`;
+  }
+
+  return error.message;
+};
+
+interface ModelInfoProps {
+  modelConfig: ModelConfig | undefined;
+  isDefault: boolean;
+}
+
+const ModelInfo = ({ modelConfig, isDefault }: ModelInfoProps) => {
+  if (!modelConfig) return null;
+
+  return (
+    <div className="p-2 bg-muted/30 rounded text-xs">
+      <div className="grid grid-cols-2 gap-2 mb-2">
+        <div>
+          <p className="font-medium">Model:</p>
+          <p className="text-muted-foreground">{modelConfig.name}</p>
+        </div>
+        <div>
+          <p className="font-medium">Dimensions:</p>
+          <p className="text-muted-foreground">{modelConfig.dimensions}D</p>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <p className="font-medium">Origin:</p>
+          <p className="text-muted-foreground">{modelConfig.origin}</p>
+        </div>
+        <div>
+          <p className="font-medium">Size:</p>
+          <p className="text-muted-foreground">{modelConfig.size}</p>
+        </div>
+      </div>
+      {!isDefault && (
+        <div className="mt-2 flex items-center gap-1">
+          <Badge variant="secondary" className="text-xs">
+            Non-default
+          </Badge>
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface SimilarityInterfaceProps {
+  status: EmbeddingStatus;
+  text1: string;
+  text2: string;
+  similarity: number | null;
+  onText1Change: (value: string) => void;
+  onText2Change: (value: string) => void;
+  onCalculate: () => void;
+  onDispose: () => void;
+}
+
+const SimilarityInterface = ({
+  status,
+  text1,
+  text2,
+  similarity,
+  onText1Change,
+  onText2Change,
+  onCalculate,
+  onDispose,
+}: SimilarityInterfaceProps) => (
+  <div className="space-y-3">
+    <div className="space-y-2">
+      <Label htmlFor="text1" className="text-xs">
+        Text 1:
+      </Label>
+      <Input
+        id="text1"
+        value={text1}
+        onChange={(e) => onText1Change(e.target.value)}
+        className="text-xs"
+        placeholder="Enter first text..."
+        disabled={status === 'processing'}
+      />
+    </div>
+
+    <div className="space-y-2">
+      <Label htmlFor="text2" className="text-xs">
+        Text 2:
+      </Label>
+      <Input
+        id="text2"
+        value={text2}
+        onChange={(e) => onText2Change(e.target.value)}
+        className="text-xs"
+        placeholder="Enter second text..."
+        disabled={status === 'processing'}
+      />
+    </div>
+
+    <Button
+      onClick={onCalculate}
+      size="sm"
+      className="w-full gap-2"
+      disabled={status === 'processing' || !text1.trim() || !text2.trim()}
+    >
+      <Cpu className="w-3 h-3" />
+      {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
+    </Button>
+
+    {similarity !== null && (
+      <div className="p-2 bg-blue-50 border border-blue-200 rounded">
+        <p className="font-medium">Similarity Score:</p>
+        <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
+        <p className="text-muted-foreground mt-1">
+          {similarity > 0.7
+            ? 'Very similar'
+            : similarity > 0.5
+              ? 'Moderately similar'
+              : similarity > 0.3
+                ? 'Somewhat similar'
+                : 'Not very similar'}
+        </p>
+      </div>
+    )}
+
+    <Button onClick={onDispose} size="sm" variant="outline" className="w-full gap-2">
+      <Square className="w-3 h-3" />
+      Dispose Model
+    </Button>
+  </div>
+);
+
 export function EmbeddingsPanel() {
   const [status, setStatus] = useState<EmbeddingStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
-  const [selectedModel, setSelectedModel] = useState<ModelKey>('all-MiniLM-L6-v2');
+  const [selectedModel, setSelectedModel] = useState<ModelKey>(DEFAULT_MODEL_KEY);
   const [text1, setText1] = useState('Hello world, this is a test sentence.');
   const [text2, setText2] = useState('Hi there, this is another test phrase.');
   const [similarity, setSimilarity] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const serviceRef = useRef<SimpleEmbeddingService | null>(null);
-  
+
   // Debug logging for status changes
-  useEffect(() => {
-    console.log('[EmbeddingsPanel] Status changed to:', status);
-  }, [status]);
+  useEffect(() => {}, []);
 
   useEffect(() => {
     // Initialize the service
@@ -163,49 +241,27 @@ export function EmbeddingsPanel() {
     if (!serviceRef.current) return;
 
     try {
-      console.log('[EmbeddingsPanel] Starting initialization with model:', selectedModel);
       setStatus('initializing');
       setError(null);
-      
-      const modelConfig = AVAILABLE_MODELS[selectedModel];
-      const config: Partial<EmbeddingConfig> = {
-        modelId: modelConfig.id,
-        device: 'webgpu', // Try WebGPU first, will fallback to WASM
-        quantized: modelConfig.requiresQuantization || true, // Force quantization for BGE-M3, optional for others
-      };
 
-      await serviceRef.current.initialize(config, (progressInfo) => {
-        console.log('[EmbeddingsPanel] Progress:', progressInfo);
+      // Use the new registry-aware initialization method
+      await serviceRef.current.initializeWithModel(selectedModel, (progressInfo) => {
         setProgress(progressInfo.progress || 0);
         setProgressMessage(progressInfo.message || '');
-        
+
         // Update status based on progress stage
         if (progressInfo.stage === 'downloading') {
           setStatus('downloading');
         }
       });
-      
+
       // After successful initialization, set status to ready
-      const serviceStatus = serviceRef.current.getStatus();
-      console.log('[EmbeddingsPanel] Service status after init:', serviceStatus);
       setStatus('ready');
       setProgress(100);
-      console.log('[EmbeddingsPanel] Initialization complete, status set to ready');
     } catch (err) {
       console.error('Failed to initialize model:', err);
       const currentModel = AVAILABLE_MODELS[selectedModel];
-      let errorMessage = 'Failed to initialize model';
-      
-      if (err instanceof Error) {
-        if (err.message.includes('Failed to fetch')) {
-          errorMessage = `Network error loading ${currentModel.name}. Check your internet connection or try a different model.`;
-        } else if (err.message.includes('external data format')) {
-          errorMessage = `${currentModel.name} requires quantization. Please try again or use a different model.`;
-        } else {
-          errorMessage = err.message;
-        }
-      }
-      
+      const errorMessage = formatInitializationError(err, currentModel?.name || selectedModel);
       setError(errorMessage);
       setStatus('error');
     }
@@ -213,35 +269,21 @@ export function EmbeddingsPanel() {
 
   const handleCalculateSimilarity = async () => {
     if (!serviceRef.current || status !== 'ready' || !text1.trim() || !text2.trim()) {
-      console.log('[EmbeddingsPanel] Cannot calculate similarity:', {
-        hasService: !!serviceRef.current,
-        status,
-        hasText1: !!text1.trim(),
-        hasText2: !!text2.trim()
-      });
       return;
     }
 
     try {
-      console.log('[EmbeddingsPanel] Calculating similarity...');
       setStatus('processing');
       setError(null);
       setSimilarity(null);
-
-      console.log('[EmbeddingsPanel] Generating embedding for text1:', text1.substring(0, 50) + '...');
       const result1 = await serviceRef.current.generateEmbedding(text1.trim());
-      
-      console.log('[EmbeddingsPanel] Generating embedding for text2:', text2.substring(0, 50) + '...');
       const result2 = await serviceRef.current.generateEmbedding(text2.trim());
-
-      console.log('[EmbeddingsPanel] Calculating cosine similarity...');
       const simResult = serviceRef.current.calculateSimilarity(
         result1.embedding,
         result2.embedding
       );
       setSimilarity(simResult.similarity);
       setStatus('ready');
-      console.log('[EmbeddingsPanel] Similarity calculated:', simResult.similarity);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to calculate similarity';
       setError(errorMessage);
@@ -254,14 +296,12 @@ export function EmbeddingsPanel() {
     if (!serviceRef.current) return;
 
     try {
-      console.log('[EmbeddingsPanel] Disposing service...');
       await serviceRef.current.dispose();
       setStatus('idle');
       setSimilarity(null);
       setProgress(0);
       setProgressMessage('');
       setError(null);
-      console.log('[EmbeddingsPanel] Service disposed, status reset to idle');
     } catch (err) {
       console.error('Failed to dispose service:', err);
     }
@@ -293,7 +333,10 @@ export function EmbeddingsPanel() {
             <Label htmlFor="model-select" className="text-xs">
               Select Model:
             </Label>
-            <Select value={selectedModel} onValueChange={(value) => handleModelChange(value as ModelKey)}>
+            <Select
+              value={selectedModel}
+              onValueChange={(value) => handleModelChange(value as ModelKey)}
+            >
               <SelectTrigger id="model-select" className="text-xs">
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
@@ -311,11 +354,11 @@ export function EmbeddingsPanel() {
                 ))}
               </SelectContent>
             </Select>
-            {AVAILABLE_MODELS[selectedModel].requiresQuantization && (
+            {AVAILABLE_MODELS[selectedModel]?.quantized && (
               <div className="p-2 bg-orange-50 border border-orange-200 rounded text-xs">
                 <p className="font-medium text-orange-800">Note:</p>
                 <p className="text-orange-700">
-                  This model requires quantization for stability in browsers.
+                  This model uses quantization for stability in browsers.
                 </p>
               </div>
             )}
@@ -323,18 +366,10 @@ export function EmbeddingsPanel() {
         )}
 
         {/* Model Info */}
-        <div className="p-2 bg-muted/30 rounded text-xs">
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <p className="font-medium">Model:</p>
-              <p className="text-muted-foreground">{AVAILABLE_MODELS[selectedModel].name}</p>
-            </div>
-            <div>
-              <p className="font-medium">Dimensions:</p>
-              <p className="text-muted-foreground">{AVAILABLE_MODELS[selectedModel].dimensions}D</p>
-            </div>
-          </div>
-        </div>
+        <ModelInfo
+          modelConfig={AVAILABLE_MODELS[selectedModel]}
+          isDefault={selectedModel === DEFAULT_MODEL_KEY}
+        />
 
         {/* Error Display */}
         {error && (
@@ -355,7 +390,7 @@ export function EmbeddingsPanel() {
               Initialize Model
             </Button>
             <p className="text-muted-foreground text-xs">
-              Downloads {AVAILABLE_MODELS[selectedModel].size} model for local inference
+              Downloads {AVAILABLE_MODELS[selectedModel]?.size || '~??MB'} model for local inference
             </p>
           </div>
         )}
@@ -373,74 +408,24 @@ export function EmbeddingsPanel() {
 
         {/* Main Interface */}
         {(status === 'ready' || status === 'processing') && (
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label htmlFor="text1" className="text-xs">
-                Text 1:
-              </Label>
-              <Input
-                id="text1"
-                value={text1}
-                onChange={(e) => setText1(e.target.value)}
-                className="text-xs"
-                placeholder="Enter first text..."
-                disabled={status === 'processing'}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="text2" className="text-xs">
-                Text 2:
-              </Label>
-              <Input
-                id="text2"
-                value={text2}
-                onChange={(e) => setText2(e.target.value)}
-                className="text-xs"
-                placeholder="Enter second text..."
-                disabled={status === 'processing'}
-              />
-            </div>
-
-            <Button
-              onClick={handleCalculateSimilarity}
-              size="sm"
-              className="w-full gap-2"
-              disabled={status === 'processing' || !text1.trim() || !text2.trim()}
-            >
-              <Cpu className="w-3 h-3" />
-              {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
-            </Button>
-
-            {similarity !== null && (
-              <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-                <p className="font-medium">Similarity Score:</p>
-                <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
-                <p className="text-muted-foreground mt-1">
-                  {similarity > 0.7
-                    ? 'Very similar'
-                    : similarity > 0.5
-                      ? 'Moderately similar'
-                      : similarity > 0.3
-                        ? 'Somewhat similar'
-                        : 'Not very similar'}
-                </p>
-              </div>
-            )}
-
-            <Button onClick={handleDispose} size="sm" variant="outline" className="w-full gap-2">
-              <Square className="w-3 h-3" />
-              Dispose Model
-            </Button>
-          </div>
+          <SimilarityInterface
+            status={status}
+            text1={text1}
+            text2={text2}
+            similarity={similarity}
+            onText1Change={setText1}
+            onText2Change={setText2}
+            onCalculate={handleCalculateSimilarity}
+            onDispose={handleDispose}
+          />
         )}
 
         {/* Info */}
         <div className="p-2 bg-muted/30 rounded text-xs">
-          <p className="font-medium mb-1">About {AVAILABLE_MODELS[selectedModel].name}:</p>
+          <p className="font-medium mb-1">About {AVAILABLE_MODELS[selectedModel]?.name}:</p>
           <ul className="space-y-1 text-muted-foreground">
-            {AVAILABLE_MODELS[selectedModel].features.map((feature, index) => (
-              <li key={index}>• {feature}</li>
+            {AVAILABLE_MODELS[selectedModel]?.tags.map((tag) => (
+              <li key={tag}>• {tag}</li>
             ))}
           </ul>
         </div>

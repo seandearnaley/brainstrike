@@ -9,7 +9,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { Database, FileText, Brain, Search } from 'lucide-react';
+import { Brain, Database, FileText, Search } from 'lucide-react';
 import { DatabaseDemoPanel } from './database-demo-panel';
 import { EmbeddingsPanel } from './embeddings-panel';
 

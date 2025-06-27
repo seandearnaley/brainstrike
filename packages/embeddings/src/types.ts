@@ -2,7 +2,7 @@
  * Configuration for the embedding service
  */
 export interface EmbeddingConfig {
-  /** Model ID for BGE-M3 */
+  /** Model ID for the embedding model */
   modelId: string;
   /** Device preference - will fallback automatically */
   device?: 'webgpu' | 'wasm' | 'cpu';
@@ -12,6 +12,38 @@ export interface EmbeddingConfig {
   revision?: string;
   /** Cache directory for models */
   cacheDir?: string;
+}
+
+/**
+ * Model registry entry
+ */
+export interface ModelConfig {
+  /** Hugging Face model ID */
+  id: string;
+  /** Display name for UI */
+  name: string;
+  /** Embedding dimensions */
+  dimensions: number;
+  /** Whether to use quantization */
+  quantized: boolean;
+  /** Description for UI */
+  description: string;
+  /** Model tags for categorization */
+  tags: string[];
+  /** Model origin/type */
+  origin: string;
+  /** Approximate download size */
+  size: string;
+}
+
+/**
+ * Model registry structure
+ */
+export interface ModelRegistry {
+  /** Default model key */
+  default: string;
+  /** Available models */
+  models: Record<string, ModelConfig>;
 }
 
 /**

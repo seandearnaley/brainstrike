@@ -1,27 +1,117 @@
+import { ModelRegistryManager } from './model-registry';
 import type {
-  EmbeddingService,
   EmbeddingConfig,
-  EmbeddingResult,
-  SimilarityResult,
-  EmbeddingStatus,
   EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStatus,
+  ModelConfig,
+  SimilarityResult,
 } from './types';
 
+// Type definitions for transformers.js
+interface TransformersModule {
+  pipeline: (
+    task: string,
+    model: string,
+    config: PipelineConfig
+  ) => Promise<FeatureExtractionPipeline>;
+}
+
+type FeatureExtractionPipeline = (
+  text: string,
+  options: { pooling: string; normalize: boolean }
+) => Promise<{
+  data: Float32Array;
+}>;
+
+interface PipelineConfig {
+  quantized?: boolean;
+  device?: string;
+  progressCallback?: (progress: ProgressInfo) => void;
+}
+
+interface ProgressInfo {
+  status: string;
+  loaded?: number;
+  total?: number;
+  file?: string;
+}
+
 /**
- * A simple, reliable embedding service using transformers.js feature-extraction pipeline
- * Based on working examples from the transformers.js documentation
+ * Determine the appropriate device for the current environment
+ */
+function determineDevice(requestedDevice: string | undefined): string {
+  if (requestedDevice === 'webgpu') {
+    try {
+      // Check if we're in a browser environment with WebGPU support
+      if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
+        return 'webgpu';
+      }
+    } catch (_error) {
+      // Fallback to CPU if WebGPU check fails
+    }
+    return 'cpu';
+  }
+
+  if (requestedDevice === 'wasm') {
+    // In Node.js, WASM isn't supported, use CPU instead
+    if (typeof window === 'undefined') {
+      return 'cpu';
+    }
+    return 'wasm';
+  }
+
+  return requestedDevice || 'cpu';
+}
+
+/**
+ * A registry-aware embedding service using transformers.js feature-extraction pipeline
+ * Supports plug-and-play model switching via JSON manifest
  */
 export class SimpleEmbeddingService implements EmbeddingService {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _transformers: any = null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private _pipeline: any = null;
+  private _transformers: TransformersModule | null = null;
+  private _pipeline: FeatureExtractionPipeline | null = null;
   private _status: EmbeddingStatus = 'idle';
-  private _config: EmbeddingConfig = {
-    modelId: 'Xenova/all-MiniLM-L6-v2', // Default model - can be overridden
-    device: 'webgpu',
-    quantized: true,
-  };
+  private _config: EmbeddingConfig;
+  private _currentModelKey: string | null = null;
+  private _currentModelConfig: ModelConfig | null = null;
+
+  constructor() {
+    // Initialize with default model from registry
+    const defaultModel = ModelRegistryManager.getDefaultModel();
+    this._config = {
+      modelId: defaultModel.id,
+      device: 'webgpu',
+      quantized: ModelRegistryManager.shouldQuantize(defaultModel),
+    };
+  }
+
+  /**
+   * Initialize with a model key from the registry
+   */
+  async initializeWithModel(
+    modelKey?: string,
+    onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    const key = modelKey || ModelRegistryManager.getDefaultModelKey();
+    const modelConfig = ModelRegistryManager.getModel(key);
+
+    if (!modelConfig) {
+      throw new Error(`Model '${key}' not found in registry`);
+    }
+
+    const config: Partial<EmbeddingConfig> = {
+      modelId: modelConfig.id,
+      device: this._config.device || 'webgpu',
+      quantized: ModelRegistryManager.shouldQuantize(modelConfig),
+    };
+
+    this._currentModelKey = key;
+    this._currentModelConfig = modelConfig;
+
+    return this.initialize(config, onProgress);
+  }
 
   async initialize(
     config?: Partial<EmbeddingConfig>,
@@ -33,7 +123,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
     // Check if we're trying to initialize with a different model
     if (this._status === 'ready' && config?.modelId && config.modelId !== this._config.modelId) {
-      throw new Error('Cannot switch models without disposing first. Call dispose() before initializing with a different model.');
+      throw new Error(
+        'Cannot switch models without disposing first. Call dispose() before initializing with a different model.'
+      );
     }
 
     if (this._status === 'ready') {
@@ -54,8 +146,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       });
 
       // Dynamic import to avoid bundling issues
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this._transformers = (await import('@huggingface/transformers')) as any;
+      this._transformers = (await import('@huggingface/transformers')) as TransformersModule;
 
       onProgress?.({
         stage: 'downloading',
@@ -63,40 +154,23 @@ export class SimpleEmbeddingService implements EmbeddingService {
         message: 'Creating feature extraction pipeline...',
       });
 
-      console.log(`Creating feature extraction pipeline for ${this._config.modelId}...`);
-
       // Use feature-extraction pipeline with robust configuration
-      const pipelineConfig: any = {
-        quantized: this._config.quantized,
-        progressCallback: (progress: any) => {
-          if (progress.status === 'downloading') {
+      const pipelineConfig: PipelineConfig = {
+        ...(this._config.quantized !== undefined && { quantized: this._config.quantized }),
+        progressCallback: (progress: ProgressInfo) => {
+          if (progress.status === 'downloading' && progress.loaded && progress.total) {
             const progressPercent = Math.round((progress.loaded / progress.total) * 100);
             onProgress?.({
               stage: 'downloading',
               progress: 25 + progressPercent * 0.5, // 25-75%
-              message: `Downloading ${progress.file}... ${progressPercent}%`,
+              message: `Downloading ${progress.file || 'model'}... ${progressPercent}%`,
             });
           }
         },
       };
 
-      // Add device configuration if WebGPU is requested and supported
-      if (this._config.device === 'webgpu') {
-        try {
-          // Check if WebGPU is available
-          if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
-            pipelineConfig.device = 'webgpu';
-          } else {
-            console.log('WebGPU not available, falling back to WASM');
-            pipelineConfig.device = 'wasm';
-          }
-        } catch (error) {
-          console.log('WebGPU check failed, using WASM fallback');
-          pipelineConfig.device = 'wasm';
-        }
-      } else {
-        pipelineConfig.device = this._config.device;
-      }
+      // Add device configuration based on environment
+      pipelineConfig.device = determineDevice(this._config.device);
 
       this._pipeline = await this._transformers.pipeline(
         'feature-extraction',
@@ -111,7 +185,6 @@ export class SimpleEmbeddingService implements EmbeddingService {
       });
 
       this._status = 'ready';
-      console.log(`Feature extraction pipeline ready for ${this._config.modelId}!`);
     } catch (error) {
       console.error('Failed to initialize embedding service:', error);
       this._status = 'error';
@@ -186,5 +259,49 @@ export class SimpleEmbeddingService implements EmbeddingService {
     this._pipeline = null;
     this._transformers = null;
     this._status = 'idle';
+    this._currentModelKey = null;
+    this._currentModelConfig = null;
+  }
+
+  /**
+   * Get the currently loaded model key
+   */
+  getCurrentModelKey(): string | null {
+    return this._currentModelKey;
+  }
+
+  /**
+   * Get the currently loaded model configuration
+   */
+  getCurrentModelConfig(): ModelConfig | null {
+    return this._currentModelConfig;
+  }
+
+  /**
+   * Static method to list all available models from registry
+   */
+  static listModels(): Record<string, ModelConfig> {
+    return ModelRegistryManager.listModels();
+  }
+
+  /**
+   * Static method to get the default model key
+   */
+  static getDefaultModelKey(): string {
+    return ModelRegistryManager.getDefaultModelKey();
+  }
+
+  /**
+   * Static method to get a specific model configuration
+   */
+  static getModelConfig(key: string): ModelConfig | null {
+    return ModelRegistryManager.getModel(key);
+  }
+
+  /**
+   * Static method to get the model registry
+   */
+  static getRegistry() {
+    return ModelRegistryManager.getRegistry();
   }
 }

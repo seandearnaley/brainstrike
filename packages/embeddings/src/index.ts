@@ -7,6 +7,8 @@ export type {
   EmbeddingStatus,
   EmbeddingProgress,
   RetrievalMode,
+  ModelConfig,
+  ModelRegistry,
 } from './types';
 
 // Export error class
@@ -18,5 +20,5 @@ export { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
 // Export service implementation
 export { SimpleEmbeddingService } from './bge-m3-service';
 
-// Export React component (will be created separately)
-// export { EmbeddingPanel } from './embedding-panel';
+// Export model registry manager
+export { ModelRegistryManager } from './model-registry';
