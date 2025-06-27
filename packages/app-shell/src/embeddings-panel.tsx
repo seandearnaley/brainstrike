@@ -1,0 +1,286 @@
+import { useState, useEffect, useRef } from 'react';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Button,
+  Badge,
+  Progress,
+  Input,
+  Label,
+} from '@brainstrike/ui';
+import { Brain, Cpu, Zap, Square, AlertCircle } from 'lucide-react';
+import {
+  SimpleEmbeddingService,
+  type EmbeddingStatus,
+  type EmbeddingConfig,
+  type EmbeddingProgress,
+  type EmbeddingResult,
+} from '@brainstrike/embeddings';
+
+const getStatusColor = (status: EmbeddingStatus): 'default' | 'secondary' | 'destructive' => {
+  switch (status) {
+    case 'ready':
+      return 'default';
+    case 'processing':
+      return 'secondary';
+    case 'error':
+      return 'destructive';
+    default:
+      return 'secondary';
+  }
+};
+
+const getStatusText = (status: EmbeddingStatus): string => {
+  switch (status) {
+    case 'idle':
+      return 'Not initialized';
+    case 'initializing':
+      return 'Initializing...';
+    case 'downloading':
+      return 'Downloading...';
+    case 'ready':
+      return 'Ready';
+    case 'processing':
+      return 'Processing...';
+    case 'error':
+      return 'Error';
+    case 'disposed':
+      return 'Disposed';
+    default:
+      return 'Unknown';
+  }
+};
+
+export function EmbeddingsPanel() {
+  const [status, setStatus] = useState<EmbeddingStatus>('idle');
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
+  const [text1, setText1] = useState('Hello world, this is a test sentence.');
+  const [text2, setText2] = useState('Hi there, this is another test phrase.');
+  const [similarity, setSimilarity] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [embedding1, setEmbedding1] = useState<EmbeddingResult | null>(null);
+  const [embedding2, setEmbedding2] = useState<EmbeddingResult | null>(null);
+  const serviceRef = useRef<SimpleEmbeddingService | null>(null);
+
+  useEffect(() => {
+    // Initialize the service
+    const service = new SimpleEmbeddingService();
+    serviceRef.current = service;
+
+    return () => {
+      service.dispose();
+    };
+  }, []);
+
+  const handleInitialize = async () => {
+    if (!serviceRef.current) return;
+
+    try {
+      setError(null);
+      const config: Partial<EmbeddingConfig> = {
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        device: 'webgpu', // Try WebGPU first, will fallback to WASM
+        quantized: true,
+      };
+
+      await serviceRef.current.initialize(config, (progressInfo) => {
+        setProgress(progressInfo.progress || 0);
+        setProgressMessage(progressInfo.message || '');
+      });
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to initialize model';
+      setError(errorMessage);
+      console.error('Failed to initialize BGE-M3 model:', err);
+    }
+  };
+
+  const handleCalculateSimilarity = async () => {
+    if (!serviceRef.current || status !== 'ready' || !text1.trim() || !text2.trim()) return;
+
+    try {
+      setError(null);
+      setSimilarity(null);
+
+      const result1 = await serviceRef.current.generateEmbedding(text1.trim());
+      const result2 = await serviceRef.current.generateEmbedding(text2.trim());
+      setEmbedding1(result1);
+      setEmbedding2(result2);
+
+      const simResult = serviceRef.current.calculateSimilarity(
+        result1.embedding,
+        result2.embedding
+      );
+      setSimilarity(simResult.similarity);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to calculate similarity';
+      setError(errorMessage);
+      console.error('Failed to calculate similarity:', err);
+    }
+  };
+
+  const handleDispose = async () => {
+    if (!serviceRef.current) return;
+
+    try {
+      await serviceRef.current.dispose();
+      setSimilarity(null);
+      setProgress(0);
+      setProgressMessage('');
+      setError(null);
+    } catch (err) {
+      console.error('Failed to dispose service:', err);
+    }
+  };
+
+  return (
+    <Card className="h-full">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Brain className="w-4 h-4" />
+              BGE-M3 Embeddings
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Multilingual text embedding and similarity
+            </CardDescription>
+          </div>
+          <Badge variant={getStatusColor(status)} className="text-xs">
+            {getStatusText(status)}
+          </Badge>
+        </div>
+      </CardHeader>
+
+      <CardContent className="text-xs space-y-3">
+        {/* Model Info */}
+        <div className="p-2 bg-muted/30 rounded text-xs">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <p className="font-medium">Model:</p>
+              <p className="text-muted-foreground">Xenova/bge-m3</p>
+            </div>
+            <div>
+              <p className="font-medium">Dimensions:</p>
+              <p className="text-muted-foreground">384D</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <div className="p-2 bg-red-50 border border-red-200 rounded flex items-start gap-2">
+            <AlertCircle className="w-3 h-3 text-red-500 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="font-medium text-red-800">Error:</p>
+              <p className="text-red-700">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Initialization */}
+        {status === 'idle' && (
+          <div className="space-y-2">
+            <Button onClick={handleInitialize} size="sm" className="w-full gap-2">
+              <Zap className="w-3 h-3" />
+              Initialize Model
+            </Button>
+            <p className="text-muted-foreground text-xs">
+              Downloads ~550MB model for local inference
+            </p>
+          </div>
+        )}
+
+        {/* Progress */}
+        {(status === 'initializing' || status === 'downloading') && (
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <span>{progressMessage || 'Loading...'}</span>
+              <span>{progress.toFixed(0)}%</span>
+            </div>
+            <Progress value={progress} className="h-1" />
+          </div>
+        )}
+
+        {/* Main Interface */}
+        {(status === 'ready' || status === 'processing') && (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="text1" className="text-xs">
+                Text 1:
+              </Label>
+              <Input
+                id="text1"
+                value={text1}
+                onChange={(e) => setText1(e.target.value)}
+                className="text-xs"
+                placeholder="Enter first text..."
+                disabled={status === 'processing'}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="text2" className="text-xs">
+                Text 2:
+              </Label>
+              <Input
+                id="text2"
+                value={text2}
+                onChange={(e) => setText2(e.target.value)}
+                className="text-xs"
+                placeholder="Enter second text..."
+                disabled={status === 'processing'}
+              />
+            </div>
+
+            <Button
+              onClick={handleCalculateSimilarity}
+              size="sm"
+              className="w-full gap-2"
+              disabled={status === 'processing' || !text1.trim() || !text2.trim()}
+            >
+              <Cpu className="w-3 h-3" />
+              {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
+            </Button>
+
+            {similarity !== null && (
+              <div className="p-2 bg-blue-50 border border-blue-200 rounded">
+                <p className="font-medium">Similarity Score:</p>
+                <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
+                <p className="text-muted-foreground mt-1">
+                  {similarity > 0.7
+                    ? 'Very similar'
+                    : similarity > 0.5
+                      ? 'Moderately similar'
+                      : similarity > 0.3
+                        ? 'Somewhat similar'
+                        : 'Not very similar'}
+                </p>
+              </div>
+            )}
+
+            <Button onClick={handleDispose} size="sm" variant="outline" className="w-full gap-2">
+              <Square className="w-3 h-3" />
+              Dispose Model
+            </Button>
+          </div>
+        )}
+
+        {/* Info */}
+        <div className="p-2 bg-muted/30 rounded text-xs">
+          <p className="font-medium mb-1">About BGE-M3:</p>
+          <ul className="space-y-1 text-muted-foreground">
+            <li>• Multilingual (100+ languages)</li>
+            <li>• 384-dimensional embeddings</li>
+            <li>• Dense + sparse + multi-vector</li>
+            <li>• Optimized for retrieval tasks</li>
+            <li>• WebGPU + WASM support</li>
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

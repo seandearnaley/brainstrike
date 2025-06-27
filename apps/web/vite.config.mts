@@ -122,6 +122,25 @@ export default defineConfig({
   server: {
     port: 8080,
     host: true,
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+    },
+    proxy: {
+      // Proxy Hugging Face requests to avoid CORS issues
+      '/api/hf': {
+        target: 'https://huggingface.co',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/hf/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // Add headers to ensure we get JSON responses
+            proxyReq.setHeader('Accept', 'application/json');
+            proxyReq.setHeader('User-Agent', 'transformers.js');
+          });
+        },
+      },
+    },
   },
   define: {
     'process.env': {},
