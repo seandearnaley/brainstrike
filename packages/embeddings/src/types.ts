@@ -67,7 +67,7 @@ export interface SimilarityResult {
   /** Distance score (0-2) */
   distance: number;
   /** Method used for calculation */
-  method: 'cosine' | 'euclidean' | 'manhattan';
+  method: 'cosine' | 'euclidean' | 'manhattan' | 'l2' | 'dot_product';
 }
 
 /**

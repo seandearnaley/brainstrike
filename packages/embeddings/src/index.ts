@@ -22,3 +22,13 @@ export { SimpleEmbeddingService } from './bge-m3-service';
 
 // Export model registry manager
 export { ModelRegistryManager } from './model-registry';
+
+// Export backend and utilities
+export { TransformersBackend } from './transformers-backend';
+export {
+  calculateCosineSimilarity,
+  calculateL2Distance,
+  calculateDotProduct,
+  normalize,
+  magnitude,
+} from './embedding-math';

@@ -231,7 +231,8 @@ describe('Model Registry Tests', () => {
       const zero1 = [0, 0, 0];
       const zero2 = [0, 0, 0];
       const result1 = service.calculateSimilarity(zero1, zero2);
-      expect(Number.isNaN(result1.similarity)).toBe(true); // 0/0 case
+      expect(result1.similarity).toBe(0); // Should return 0 for zero vectors, not NaN
+      expect(result1.distance).toBe(1);
 
       // Very small values
       const small1 = [1e-10, 1e-10, 1e-10];

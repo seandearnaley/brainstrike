@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
-import { AlertCircle, Brain, Cpu, Square, Zap } from 'lucide-react';
+import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 // Get models from registry
@@ -125,6 +125,7 @@ interface SimilarityInterfaceProps {
   text1: string;
   text2: string;
   similarity: number | null;
+  selectedDevice?: string;
   onText1Change: (value: string) => void;
   onText2Change: (value: string) => void;
   onCalculate: () => void;
@@ -136,72 +137,101 @@ const SimilarityInterface = ({
   text1,
   text2,
   similarity,
+  selectedDevice,
   onText1Change,
   onText2Change,
   onCalculate,
   onDispose,
-}: SimilarityInterfaceProps) => (
-  <div className="space-y-3">
-    <div className="space-y-2">
-      <Label htmlFor="text1" className="text-xs">
-        Text 1:
-      </Label>
-      <Input
-        id="text1"
-        value={text1}
-        onChange={(e) => onText1Change(e.target.value)}
-        className="text-xs"
-        placeholder="Enter first text..."
-        disabled={status === 'processing'}
-      />
-    </div>
+}: SimilarityInterfaceProps) => {
+  const handleCopySimilarity = async () => {
+    if (similarity !== null) {
+      try {
+        await navigator.clipboard.writeText((similarity * 100).toFixed(3));
+      } catch (error) {
+        console.warn('Failed to copy to clipboard:', error);
+      }
+    }
+  };
 
-    <div className="space-y-2">
-      <Label htmlFor="text2" className="text-xs">
-        Text 2:
-      </Label>
-      <Input
-        id="text2"
-        value={text2}
-        onChange={(e) => onText2Change(e.target.value)}
-        className="text-xs"
-        placeholder="Enter second text..."
-        disabled={status === 'processing'}
-      />
-    </div>
-
-    <Button
-      onClick={onCalculate}
-      size="sm"
-      className="w-full gap-2"
-      disabled={status === 'processing' || !text1.trim() || !text2.trim()}
-    >
-      <Cpu className="w-3 h-3" />
-      {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
-    </Button>
-
-    {similarity !== null && (
-      <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-        <p className="font-medium">Similarity Score:</p>
-        <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
-        <p className="text-muted-foreground mt-1">
-          {similarity > 0.7
-            ? 'Very similar'
-            : similarity > 0.5
-              ? 'Moderately similar'
-              : similarity > 0.3
-                ? 'Somewhat similar'
-                : 'Not very similar'}
-        </p>
+  return (
+    <div className="space-y-3">
+      <div className="space-y-2">
+        <Label htmlFor="text1" className="text-xs">
+          Text 1:
+        </Label>
+        <Input
+          id="text1"
+          value={text1}
+          onChange={(e) => onText1Change(e.target.value)}
+          className="text-xs"
+          placeholder="Enter first text..."
+          disabled={status === 'processing'}
+        />
       </div>
-    )}
 
-    <Button onClick={onDispose} size="sm" variant="outline" className="w-full gap-2">
-      <Square className="w-3 h-3" />
-      Dispose Model
-    </Button>
-  </div>
-);
+      <div className="space-y-2">
+        <Label htmlFor="text2" className="text-xs">
+          Text 2:
+        </Label>
+        <Input
+          id="text2"
+          value={text2}
+          onChange={(e) => onText2Change(e.target.value)}
+          className="text-xs"
+          placeholder="Enter second text..."
+          disabled={status === 'processing'}
+        />
+      </div>
+
+      <Button
+        onClick={onCalculate}
+        size="sm"
+        className="w-full gap-2"
+        disabled={status === 'processing' || !text1.trim() || !text2.trim()}
+      >
+        <Cpu className="w-3 h-3" />
+        {status === 'processing' ? 'Processing...' : 'Calculate Similarity'}
+      </Button>
+
+      {similarity !== null && (
+        <div className="p-2 bg-blue-50 border border-blue-200 rounded">
+          <div className="flex items-center justify-between mb-1">
+            <p className="font-medium">Similarity Score:</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopySimilarity}
+              className="h-auto p-1"
+              title="Copy similarity score"
+            >
+              <Copy className="w-3 h-3" />
+            </Button>
+          </div>
+          <p className="text-lg font-bold text-blue-600">{(similarity * 100).toFixed(1)}%</p>
+          <p className="text-muted-foreground mt-1">
+            {similarity > 0.7
+              ? 'Very similar'
+              : similarity > 0.5
+                ? 'Moderately similar'
+                : similarity > 0.3
+                  ? 'Somewhat similar'
+                  : 'Not very similar'}
+          </p>
+          {selectedDevice && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Computed on: {selectedDevice.toUpperCase()}
+            </p>
+          )}
+        </div>
+      )}
+
+      <Button onClick={onDispose} size="sm" variant="outline" className="w-full gap-2">
+        <Square className="w-3 h-3" />
+        Dispose Model
+      </Button>
+    </div>
+  );
+};
 
 export function EmbeddingsPanel() {
   const [status, setStatus] = useState<EmbeddingStatus>('idle');
@@ -211,6 +241,7 @@ export function EmbeddingsPanel() {
   const [text1, setText1] = useState('Hello world, this is a test sentence.');
   const [text2, setText2] = useState('Hi there, this is another test phrase.');
   const [similarity, setSimilarity] = useState<number | null>(null);
+  const [selectedDevice, setSelectedDevice] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
   const serviceRef = useRef<SimpleEmbeddingService | null>(null);
 
@@ -258,6 +289,10 @@ export function EmbeddingsPanel() {
       // After successful initialization, set status to ready
       setStatus('ready');
       setProgress(100);
+
+      // Get selected device info
+      const config = serviceRef.current.getConfig();
+      setSelectedDevice(config.selectedDevice);
     } catch (err) {
       console.error('Failed to initialize model:', err);
       const currentModel = AVAILABLE_MODELS[selectedModel];
@@ -413,6 +448,7 @@ export function EmbeddingsPanel() {
             text1={text1}
             text2={text2}
             similarity={similarity}
+            {...(selectedDevice && { selectedDevice })}
             onText1Change={setText1}
             onText2Change={setText2}
             onCalculate={handleCalculateSimilarity}
