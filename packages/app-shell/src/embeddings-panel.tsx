@@ -292,7 +292,9 @@ export function EmbeddingsPanel() {
 
       // Get selected device info
       const config = serviceRef.current.getConfig();
-      setSelectedDevice(config.selectedDevice);
+      if (config?.selectedDevice) {
+        setSelectedDevice(config.selectedDevice);
+      }
     } catch (err) {
       console.error('Failed to initialize model:', err);
       const currentModel = AVAILABLE_MODELS[selectedModel];
