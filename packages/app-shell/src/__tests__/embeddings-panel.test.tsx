@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { vi, describe, it, expect, beforeEach } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingsPanel } from '../embeddings-panel';
 
 // Mock the SimpleEmbeddingService
@@ -55,19 +55,19 @@ describe('EmbeddingsPanel', () => {
     vi.clearAllMocks();
     const { SimpleEmbeddingService } = await import('@brainstrike/embeddings');
     mockService = new SimpleEmbeddingService();
-    
+
     // Set up default mock responses
     mockService.getStatus.mockReturnValue('idle');
     mockService.getConfig.mockReturnValue({
       modelId: 'jinaai/jina-embeddings-v3',
       device: 'webgpu',
-      selectedDevice: 'webgpu'
+      selectedDevice: 'webgpu',
     });
   });
 
   it('renders with initial state', () => {
     render(<EmbeddingsPanel />);
-    
+
     expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
     expect(screen.getByText('Not initialized')).toBeInTheDocument();
     expect(screen.getAllByText('Jina Code')[0]).toBeInTheDocument();
@@ -75,32 +75,34 @@ describe('EmbeddingsPanel', () => {
 
   it('allows model selection', () => {
     render(<EmbeddingsPanel />);
-    
+
     const selectTrigger = screen.getByRole('combobox');
     fireEvent.click(selectTrigger);
-    
+
     const miniLMOption = screen.getAllByText('all-MiniLM-L6-v2')[0];
     fireEvent.click(miniLMOption);
-    
+
     expect(screen.getAllByText('all-MiniLM-L6-v2')[0]).toBeInTheDocument();
   });
 
   it('has initialize model button', () => {
     render(<EmbeddingsPanel />);
-    
+
     const initButton = screen.getByRole('button', { name: /Initialize Model/i });
     expect(initButton).toBeInTheDocument();
   });
 
   it('shows proper description', () => {
     render(<EmbeddingsPanel />);
-    
-    expect(screen.getByText('Generate embeddings and calculate text similarity')).toBeInTheDocument();
+
+    expect(
+      screen.getByText('Generate embeddings and calculate text similarity')
+    ).toBeInTheDocument();
   });
 
   it('shows model info correctly', () => {
     render(<EmbeddingsPanel />);
-    
+
     expect(screen.getByText('Model:')).toBeInTheDocument();
     expect(screen.getAllByText('Jina Code')[0]).toBeInTheDocument();
     expect(screen.getByText('Dimensions:')).toBeInTheDocument();
@@ -113,14 +115,14 @@ describe('EmbeddingsPanel', () => {
 
   it('shows non-default badge for non-default models', () => {
     render(<EmbeddingsPanel />);
-    
+
     // Switch to non-default model
     const selectTrigger = screen.getByRole('combobox');
     fireEvent.click(selectTrigger);
-    
+
     const miniLMOption = screen.getAllByText('all-MiniLM-L6-v2')[0];
     fireEvent.click(miniLMOption);
-    
+
     expect(screen.getByText('Non-default')).toBeInTheDocument();
   });
 });

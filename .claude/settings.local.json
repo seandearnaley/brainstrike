@@ -150,7 +150,8 @@
       "WebFetch(domain:huggingface.co)",
       "Bash(turbo run lint:*)",
       "Bash(npm run:*)",
-      "Bash(timeout 30s pnpm exec playwright test --grep \"should show action buttons in disabled state initially\")"
+      "Bash(timeout 30s pnpm exec playwright test --grep \"should show action buttons in disabled state initially\")",
+      "Bash(pnpm exec turbo daemon:*)"
     ],
     "deny": []
   },
