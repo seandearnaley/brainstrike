@@ -92,10 +92,3 @@ export function getCSP(env: Environment): string {
 export function getDevCSP(): string {
   return getCSP('development');
 }
-
-/**
- * Get production CSP string
- */
-export function getProdCSP(): string {
-  return getCSP('production');
-}
