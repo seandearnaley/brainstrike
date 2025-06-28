@@ -9,8 +9,9 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { Database, FileText, Layers, Search } from 'lucide-react';
+import { Brain, Database, FileText, Search } from 'lucide-react';
 import { DatabaseDemoPanel } from './database-demo-panel';
+import { EmbeddingsPanel } from './embeddings-panel';
 
 export function RightPanel() {
   return (
@@ -21,9 +22,9 @@ export function RightPanel() {
             <FileText className="h-3 w-3" />
             <span className="hidden sm:inline">Props</span>
           </TabsTrigger>
-          <TabsTrigger value="layers" className="flex items-center gap-1">
-            <Layers className="h-3 w-3" />
-            <span className="hidden sm:inline">Layers</span>
+          <TabsTrigger value="embeddings" className="flex items-center gap-1">
+            <Brain className="h-3 w-3" />
+            <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
           <TabsTrigger value="search" className="flex items-center gap-1">
             <Search className="h-3 w-3" />
@@ -65,32 +66,8 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="layers" className="h-full mt-0">
-            <Card className="h-full">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm">Layers</CardTitle>
-                <CardDescription className="text-xs">
-                  Layer hierarchy and organization
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="text-xs space-y-3">
-                <div>
-                  <h4 className="font-medium mb-2">Layer Structure</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium
-                    doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore
-                    veritatis et quasi architecto beatae vitae dicta sunt.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">Layer Controls</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed
-                    quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+          <TabsContent value="embeddings" className="h-full mt-0">
+            <EmbeddingsPanel />
           </TabsContent>
 
           <TabsContent value="search" className="h-full mt-0">

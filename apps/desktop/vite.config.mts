@@ -7,6 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -115,6 +116,9 @@ export default defineConfig({
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts
+    headers: {
+      'Content-Security-Policy': getDevCSP()
+    }
   },
   publicDir: 'public',
 });

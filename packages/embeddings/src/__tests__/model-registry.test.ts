@@ -1,0 +1,244 @@
+/**
+ * Unit tests for model registry functionality
+ * These tests don't require downloading models
+ */
+
+import { describe, expect, it } from 'vitest';
+import { SimpleEmbeddingService } from '../bge-m3-service';
+import { ModelRegistryManager } from '../model-registry';
+import type { ModelRegistry } from '../types';
+
+describe('Model Registry Tests', () => {
+  describe('ModelRegistryManager', () => {
+    it('should load models from registry', () => {
+      const models = ModelRegistryManager.listModels();
+
+      expect(models).toBeDefined();
+      expect(Object.keys(models).length).toBeGreaterThan(0);
+    });
+
+    it('should have jina-code as default model', () => {
+      const defaultKey = ModelRegistryManager.getDefaultModelKey();
+      expect(defaultKey).toBe('jina-code');
+
+      const defaultModel = ModelRegistryManager.getDefaultModel();
+      expect(defaultModel.id).toBe('jinaai/jina-embeddings-v2-base-code');
+      expect(defaultModel.name).toBe('Jina Code (default)');
+      expect(defaultModel.dimensions).toBe(768);
+      expect(defaultModel.tags).toContain('code');
+    });
+
+    it('should get specific model configurations', () => {
+      const jinaModel = ModelRegistryManager.getModel('jina-code');
+      expect(jinaModel).toBeDefined();
+      expect(jinaModel?.id).toBe('jinaai/jina-embeddings-v2-base-code');
+
+      const miniLM = ModelRegistryManager.getModel('all-MiniLM-L6-v2');
+      expect(miniLM).toBeDefined();
+      expect(miniLM?.dimensions).toBe(384);
+
+      const nonExistent = ModelRegistryManager.getModel('non-existent');
+      expect(nonExistent).toBeNull();
+    });
+
+    it('should check model existence', () => {
+      expect(ModelRegistryManager.hasModel('jina-code')).toBe(true);
+      expect(ModelRegistryManager.hasModel('all-MiniLM-L6-v2')).toBe(true);
+      expect(ModelRegistryManager.hasModel('non-existent')).toBe(false);
+    });
+
+    it('should filter models by tag', () => {
+      const codeModels = ModelRegistryManager.getModelsByTag('code');
+      expect(Object.keys(codeModels).length).toBeGreaterThan(0);
+      expect(codeModels['jina-code']).toBeDefined();
+
+      const englishModels = ModelRegistryManager.getModelsByTag('english');
+      expect(Object.keys(englishModels).length).toBeGreaterThan(0);
+
+      const nonExistentTag = ModelRegistryManager.getModelsByTag('non-existent-tag');
+      expect(Object.keys(nonExistentTag).length).toBe(0);
+    });
+
+    it('should determine quantization correctly', () => {
+      const models = ModelRegistryManager.listModels();
+
+      // Test jina-code (768D, should force quantization)
+      const jinaCode = models['jina-code'];
+      expect(ModelRegistryManager.shouldQuantize(jinaCode)).toBe(true);
+
+      // Test all-MiniLM-L6-v2 (384D, should force quantization)
+      const miniLM = models['all-MiniLM-L6-v2'];
+      expect(ModelRegistryManager.shouldQuantize(miniLM)).toBe(true);
+
+      // Test BGE-Large (1024D, should respect quantized flag)
+      const bgeLarge = models['bge-large-en-v1.5'];
+      if (bgeLarge) {
+        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(bgeLarge.quantized);
+      }
+    });
+
+    it('should allow registry updates', () => {
+      const originalRegistry = ModelRegistryManager.getRegistry();
+
+      const testRegistry: ModelRegistry = {
+        default: 'test-model',
+        models: {
+          'test-model': {
+            id: 'test/model',
+            name: 'Test Model',
+            dimensions: 512,
+            quantized: true,
+            description: 'Test model for testing',
+            tags: ['test'],
+            origin: 'Test',
+            size: '100MB',
+          },
+        },
+      };
+
+      ModelRegistryManager.updateRegistry(testRegistry);
+
+      expect(ModelRegistryManager.getDefaultModelKey()).toBe('test-model');
+      expect(ModelRegistryManager.hasModel('test-model')).toBe(true);
+
+      // Restore original registry
+      ModelRegistryManager.updateRegistry(originalRegistry);
+      expect(ModelRegistryManager.getDefaultModelKey()).toBe('jina-code');
+    });
+  });
+
+  describe('SimpleEmbeddingService Static Methods', () => {
+    it('should expose registry methods', () => {
+      const models = SimpleEmbeddingService.listModels();
+      expect(models).toBeDefined();
+
+      const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
+      expect(defaultKey).toBe('jina-code');
+
+      const jinaConfig = SimpleEmbeddingService.getModelConfig('jina-code');
+      expect(jinaConfig).toBeDefined();
+      expect(jinaConfig?.name).toBe('Jina Code (default)');
+
+      const registry = SimpleEmbeddingService.getRegistry();
+      expect(registry.default).toBe('jina-code');
+      expect(registry.models).toBeDefined();
+    });
+  });
+
+  describe('Model Configuration Validation', () => {
+    it('should have required properties for all models', () => {
+      const models = ModelRegistryManager.listModels();
+
+      for (const [key, model] of Object.entries(models)) {
+        expect(model.id).toBeDefined();
+        expect(model.name).toBeDefined();
+        expect(model.dimensions).toBeGreaterThan(0);
+        expect(typeof model.quantized).toBe('boolean');
+        expect(model.description).toBeDefined();
+        expect(Array.isArray(model.tags)).toBe(true);
+        expect(model.origin).toBeDefined();
+        expect(model.size).toBeDefined();
+
+        console.log(`Model ${key}: ${model.name} (${model.dimensions}D, ${model.size})`);
+      }
+    });
+
+    it('should have consistent model IDs with proper prefixes', () => {
+      const models = ModelRegistryManager.listModels();
+
+      for (const [key, model] of Object.entries(models)) {
+        // Most models use Xenova/ prefix, but Jina uses jinaai/ prefix
+        expect(model.id).toMatch(/^(Xenova|jinaai)\//);
+      }
+    });
+
+    it('should have reasonable dimension values', () => {
+      const models = ModelRegistryManager.listModels();
+
+      for (const [key, model] of Object.entries(models)) {
+        expect(model.dimensions).toBeGreaterThan(100);
+        expect(model.dimensions).toBeLessThan(5000);
+        expect(model.dimensions % 1).toBe(0); // Should be integer
+      }
+    });
+
+    it('should have non-empty tags for all models', () => {
+      const models = ModelRegistryManager.listModels();
+
+      for (const [key, model] of Object.entries(models)) {
+        expect(model.tags.length).toBeGreaterThan(0);
+        expect(model.tags.every((tag) => typeof tag === 'string' && tag.length > 0)).toBe(true);
+      }
+    });
+  });
+
+  describe('Similarity Calculation Logic', () => {
+    it('should calculate cosine similarity correctly', () => {
+      const service = new SimpleEmbeddingService();
+
+      // Test identical vectors
+      const vector1 = [1, 0, 0];
+      const vector2 = [1, 0, 0];
+      const result1 = service.calculateSimilarity(vector1, vector2);
+      expect(result1.similarity).toBeCloseTo(1.0, 5);
+      expect(result1.distance).toBeCloseTo(0.0, 5);
+      expect(result1.method).toBe('cosine');
+
+      // Test orthogonal vectors
+      const vector3 = [1, 0, 0];
+      const vector4 = [0, 1, 0];
+      const result2 = service.calculateSimilarity(vector3, vector4);
+      expect(result2.similarity).toBeCloseTo(0.0, 5);
+      expect(result2.distance).toBeCloseTo(1.0, 5);
+
+      // Test opposite vectors
+      const vector5 = [1, 0, 0];
+      const vector6 = [-1, 0, 0];
+      const result3 = service.calculateSimilarity(vector5, vector6);
+      expect(result3.similarity).toBeCloseTo(-1.0, 5);
+      expect(result3.distance).toBeCloseTo(2.0, 5);
+    });
+
+    it('should handle normalized vectors correctly', () => {
+      const service = new SimpleEmbeddingService();
+
+      // Test with normalized vectors (common in embeddings)
+      const vector1 = [0.6, 0.8, 0.0]; // magnitude = 1
+      const vector2 = [0.8, 0.6, 0.0]; // magnitude = 1
+
+      const result = service.calculateSimilarity(vector1, vector2);
+
+      // For normalized vectors, dot product = cosine similarity
+      const expectedSimilarity = 0.6 * 0.8 + 0.8 * 0.6 + 0.0 * 0.0;
+      expect(result.similarity).toBeCloseTo(expectedSimilarity, 5);
+    });
+
+    it('should reject vectors of different dimensions', () => {
+      const service = new SimpleEmbeddingService();
+
+      const vector1 = [1, 2, 3];
+      const vector2 = [1, 2]; // Different length
+
+      expect(() => {
+        service.calculateSimilarity(vector1, vector2);
+      }).toThrow('Embeddings must have the same dimensions');
+    });
+
+    it('should handle edge cases safely', () => {
+      const service = new SimpleEmbeddingService();
+
+      // Zero vectors
+      const zero1 = [0, 0, 0];
+      const zero2 = [0, 0, 0];
+      const result1 = service.calculateSimilarity(zero1, zero2);
+      expect(result1.similarity).toBe(0); // Should return 0 for zero vectors, not NaN
+      expect(result1.distance).toBe(1);
+
+      // Very small values
+      const small1 = [1e-10, 1e-10, 1e-10];
+      const small2 = [1e-10, 1e-10, 1e-10];
+      const result2 = service.calculateSimilarity(small1, small2);
+      expect(result2.similarity).toBeCloseTo(1.0, 5);
+    });
+  });
+});

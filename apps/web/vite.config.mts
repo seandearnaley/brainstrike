@@ -10,6 +10,7 @@ import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
 import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import { viteStaticCopy } from "vite-plugin-static-copy";
+import { getDevCSP } from "./src/csp-utils";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
@@ -122,6 +123,26 @@ export default defineConfig({
   server: {
     port: 8080,
     host: true,
+    headers: {
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Content-Security-Policy': getDevCSP(),
+    },
+    proxy: {
+      // Proxy Hugging Face requests to avoid CORS issues
+      '/api/hf': {
+        target: 'https://huggingface.co',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/hf/, ''),
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            // Add headers to ensure we get JSON responses
+            proxyReq.setHeader('Accept', 'application/json');
+            proxyReq.setHeader('User-Agent', 'transformers.js');
+          });
+        },
+      },
+    },
   },
   define: {
     'process.env': {},

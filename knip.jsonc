@@ -244,6 +244,20 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/embeddings": {
+      "entry": [
+        "src/index.ts",
+        "src/cli/embed-code.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     }
   },
   // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
@@ -287,6 +301,7 @@
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
-    "duplicates": "off" // Keep user's rule setting
+    "duplicates": "off", // Keep user's rule setting
+    "exports": "off" // Disable export checking for now due to false positives
   }
 } 

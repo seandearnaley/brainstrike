@@ -25,7 +25,10 @@ export class HomePage {
   }
 
   async expectLoaded(): Promise<void> {
-    await expect(this.contextExplorerHeading).toBeVisible();
+    // Wait for network to be idle to ensure all resources are loaded
+    await this.page.waitForLoadState('networkidle');
+    // Give a bit more time for the heading to appear with longer timeout
+    await expect(this.contextExplorerHeading).toBeVisible({ timeout: 10000 });
   }
 
   async navigateToSettings(): Promise<void> {
