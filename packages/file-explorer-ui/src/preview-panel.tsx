@@ -3,13 +3,16 @@ import {
   Badge,
   Button,
   Checkbox,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Progress,
   SortableTableHeader,
   TableGroupHeader,
   TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { ArrowDown, ArrowUp, FileX2, FolderOpen } from 'lucide-react';
+import { ArrowDown, ArrowUp, Columns3, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import { PreviewTableRow } from './preview-table-row';
@@ -47,6 +50,36 @@ interface PreviewPanelProps {
   pageSize?: number;
 }
 
+// Column configuration
+interface ColumnConfig {
+  id: string;
+  label: string;
+  accessor: keyof TableRowData | 'checkbox';
+  canHide: boolean;
+  defaultVisible: boolean;
+}
+
+const COLUMN_CONFIGS: ColumnConfig[] = [
+  {
+    id: 'checkbox',
+    label: 'Selection',
+    accessor: 'checkbox',
+    canHide: false,
+    defaultVisible: true,
+  },
+  {
+    id: 'rootFolderId',
+    label: 'Folder',
+    accessor: 'rootFolderId',
+    canHide: true,
+    defaultVisible: true,
+  },
+  { id: 'path', label: 'File Path', accessor: 'path', canHide: false, defaultVisible: true },
+  { id: 'type', label: 'Type', accessor: 'type', canHide: true, defaultVisible: true },
+  { id: 'tokens', label: 'Tokens', accessor: 'tokens', canHide: true, defaultVisible: true },
+  { id: 'size', label: 'Size', accessor: 'size', canHide: true, defaultVisible: true },
+];
+
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
     selectedFiles,
@@ -63,6 +96,107 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
 
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
+
+  // Default column visibility
+  const defaultColumnVisibility = useMemo(() => {
+    const defaults: Record<string, boolean> = {};
+    for (const col of COLUMN_CONFIGS) {
+      defaults[col.id] = col.defaultVisible;
+    }
+    return defaults;
+  }, []);
+
+  // Simple persistence with localStorage
+  const STORAGE_KEY = 'previewPanelPreferences.v1';
+  
+  // Load initial state from localStorage
+  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return { ...defaultColumnVisibility, ...parsed.columnVisibility };
+      }
+    } catch (error) {
+      console.warn('Failed to load preferences from localStorage:', error);
+    }
+    return defaultColumnVisibility;
+  });
+  
+  const [sortField, setSortField] = useState<keyof TableRowData>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.sortField || 'rootFolderId';
+      }
+    } catch (error) {
+      console.warn('Failed to load preferences from localStorage:', error);
+    }
+    return 'rootFolderId';
+  });
+  
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.sortDirection || 'asc';
+      }
+    } catch (error) {
+      console.warn('Failed to load preferences from localStorage:', error);
+    }
+    return 'asc';
+  });
+  
+  const [groupingConfig, setGroupingConfig] = useState<string>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.groupingConfig || 'none';
+      }
+    } catch (error) {
+      console.warn('Failed to load preferences from localStorage:', error);
+    }
+    return 'none';
+  });
+  
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return new Set(parsed.collapsedGroups || []);
+      }
+    } catch (error) {
+      console.warn('Failed to load preferences from localStorage:', error);
+    }
+    return new Set();
+  });
+
+  // Save to localStorage whenever state changes
+  const savePreferences = useCallback(() => {
+    try {
+      const preferences = {
+        columnVisibility,
+        sortField,
+        sortDirection,
+        groupingConfig,
+        collapsedGroups: Array.from(collapsedGroups),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+      console.log('💾 Saved preferences to localStorage');
+    } catch (error) {
+      console.warn('Failed to save preferences to localStorage:', error);
+    }
+  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups]);
+
+  // Debounced save
+  useEffect(() => {
+    const timeoutId = setTimeout(savePreferences, 250);
+    return () => clearTimeout(timeoutId);
+  }, [savePreferences]);
 
   const state = usePreviewPanelState({
     selectedFiles,
@@ -114,22 +248,17 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection]);
 
-  // Sort state
-  const [sortField, setSortField] = useState<keyof TableRowData>('rootFolderId');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-
-  // Grouping state
-  const [groupingConfig, setGroupingConfig] = useState<string>('none');
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<GroupKey>>(new Set());
+  // Using local state variables defined above
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
     setCollapsedGroups((prev) => {
       const newSet = new Set(prev);
-      if (newSet.has(groupKey)) {
-        newSet.delete(groupKey);
+      const keyStr = String(groupKey);
+      if (newSet.has(keyStr)) {
+        newSet.delete(keyStr);
       } else {
-        newSet.add(groupKey);
+        newSet.add(keyStr);
       }
       return newSet;
     });
@@ -185,7 +314,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     let count = 0;
     for (const group of groupedData) {
       count++; // Group header
-      if (!collapsedGroups.has(group.groupKey)) {
+      if (!collapsedGroups.has(String(group.groupKey))) {
         count += group.items.length; // Group items
       }
     }
@@ -251,7 +380,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       <TableGroupHeader
         groupKey={group.groupKey}
         groupLabel={group.groupLabel}
-        isCollapsed={collapsedGroups.has(group.groupKey)}
+        isCollapsed={collapsedGroups.has(String(group.groupKey))}
         isFullySelected={isGroupFullySelected(group)}
         isPartiallySelected={isGroupPartiallySelected(group)}
         onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
@@ -281,6 +410,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               item={item}
               isSelected={previewSelections.has(item.compositeKey)}
               onToggleSelection={toggleItemSelection}
+              columnVisibility={columnVisibility}
               {...(onFileClick && { onFileClick })}
             />
           );
@@ -295,6 +425,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       pagination.endIndex,
       previewSelections,
       toggleItemSelection,
+      columnVisibility,
       onFileClick,
     ]
   );
@@ -305,7 +436,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     let itemCount = 0;
 
     for (const group of groupedData) {
-      const isCollapsed = collapsedGroups.has(group.groupKey);
+      const isCollapsed = collapsedGroups.has(String(group.groupKey));
 
       // Add group header if within page bounds
       if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
@@ -355,7 +486,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     for (const group of groupedData) {
       itemCount++; // Group header count
 
-      if (!collapsedGroups.has(group.groupKey)) {
+      if (!collapsedGroups.has(String(group.groupKey))) {
         itemCount = collectVisibleGroupItems(group, itemCount, visibleFiles);
       }
 
@@ -496,6 +627,41 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               <ArrowUp className="size-3.5" />
               <span className="hidden sm:inline ml-1">Collapse</span>
             </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Columns3 className="size-3.5 mr-1" />
+                  Columns
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-48 p-2">
+                <div className="space-y-1">
+                  {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
+                    <div
+                      key={column.id}
+                      className="flex items-center space-x-2 py-1.5 px-2 rounded hover:bg-accent cursor-pointer"
+                    >
+                      <Checkbox
+                        id={`column-${column.id}`}
+                        checked={columnVisibility[column.id] ?? false}
+                        onCheckedChange={(checked) => {
+                          setColumnVisibility(prev => ({
+                            ...prev,
+                            [column.id]: !!checked
+                          }));
+                        }}
+                      />
+                      <label
+                        htmlFor={`column-${column.id}`}
+                        className="text-sm select-none cursor-pointer"
+                      >
+                        {column.label}
+                      </label>
+                    </div>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
 
@@ -529,7 +695,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCollapsedGroups(new Set(groupedData.map((g) => g.groupKey)))}
+                onClick={() => setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))}
                 title="Collapse all groups"
               >
                 Collapse All Groups
@@ -545,55 +711,67 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
           <table className="w-full border-collapse">
             <thead className="sticky top-0 bg-background border-b">
               <tr>
-                <th className="px-4 py-3 w-12" scope="col">
-                  <Checkbox
-                    checked={isAllCurrentPageSelected}
-                    onCheckedChange={(checked) =>
-                      checked ? selectAllOnPage(getVisibleFilesOnPage()) : deselectAll()
-                    }
-                    aria-label="Select all files on current page"
-                    title="Select all files on current page"
+                {columnVisibility['checkbox'] && (
+                  <th className="px-4 py-3 w-12" scope="col">
+                    <Checkbox
+                      checked={isAllCurrentPageSelected}
+                      onCheckedChange={(checked) =>
+                        checked ? selectAllOnPage(getVisibleFilesOnPage()) : deselectAll()
+                      }
+                      aria-label="Select all files on current page"
+                      title="Select all files on current page"
+                    />
+                  </th>
+                )}
+                {columnVisibility['rootFolderId'] && (
+                  <SortableTableHeader
+                    field="rootFolderId"
+                    title="Folder"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
                   />
-                </th>
-                <SortableTableHeader
-                  field="rootFolderId"
-                  title="Folder"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                />
-                <SortableTableHeader
-                  field="path"
-                  title="File Path"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  className="min-w-0 flex-1"
-                />
-                <SortableTableHeader
-                  field="type"
-                  title="Type"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  className="w-20"
-                />
-                <SortableTableHeader
-                  field="tokens"
-                  title="Tokens"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  className="w-24"
-                />
-                <SortableTableHeader
-                  field="size"
-                  title="Size"
-                  sortField={sortField}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  className="w-24"
-                />
+                )}
+                {columnVisibility['path'] && (
+                  <SortableTableHeader
+                    field="path"
+                    title="File Path"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="min-w-0 flex-1"
+                  />
+                )}
+                {columnVisibility['type'] && (
+                  <SortableTableHeader
+                    field="type"
+                    title="Type"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="w-20"
+                  />
+                )}
+                {columnVisibility['tokens'] && (
+                  <SortableTableHeader
+                    field="tokens"
+                    title="Tokens"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="w-24"
+                  />
+                )}
+                {columnVisibility['size'] && (
+                  <SortableTableHeader
+                    field="size"
+                    title="Size"
+                    sortField={sortField}
+                    sortDirection={sortDirection}
+                    onSort={handleSort}
+                    className="w-24"
+                  />
+                )}
               </tr>
             </thead>
             <tbody>
@@ -604,6 +782,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                     item={item}
                     isSelected={previewSelections.has(item.compositeKey)}
                     onToggleSelection={toggleItemSelection}
+                    columnVisibility={columnVisibility}
                     {...(onFileClick && { onFileClick })}
                   />
                 ))
