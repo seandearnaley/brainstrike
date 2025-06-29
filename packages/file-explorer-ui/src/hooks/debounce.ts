@@ -3,18 +3,23 @@ export function createDebounce<T extends unknown[]>(
   delay: number
 ) {
   let timeoutId: NodeJS.Timeout | null = null;
-  let pendingPromise: Promise<void> | null = null;
+  let pendingResolve: (() => void) | null = null;
 
   const run = (...args: T) => {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
 
-    pendingPromise = new Promise<void>((resolve) => {
+    new Promise<void>((resolve) => {
+      pendingResolve = resolve;
       timeoutId = setTimeout(async () => {
-        await fn(...args);
+        try {
+          await fn(...args);
+        } catch {
+          // Ignore errors from the debounced function to prevent unhandled rejections
+        }
         timeoutId = null;
-        pendingPromise = null;
+        pendingResolve = null;
         resolve();
       }, delay);
     });
@@ -24,9 +29,13 @@ export function createDebounce<T extends unknown[]>(
     if (timeoutId) {
       clearTimeout(timeoutId);
       timeoutId = null;
-    }
-    if (pendingPromise) {
-      await pendingPromise;
+
+      // If we have a pending promise, we need to resolve it immediately
+      // since we cancelled the timeout that would have resolved it
+      if (pendingResolve) {
+        pendingResolve();
+        pendingResolve = null;
+      }
     }
   };
 

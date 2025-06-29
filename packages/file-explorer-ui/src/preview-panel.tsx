@@ -393,7 +393,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
   // Safe localStorage persistence without the problematic hook
-  const storageKey = 'previewPanelSettings.v1';
+  const storageKey = 'previewPanelPreferences.v1';
 
   const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(() =>
     getStoredColumnVisibility(storageKey)
