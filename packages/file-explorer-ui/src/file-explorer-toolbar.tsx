@@ -55,4 +55,6 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
   }
 );
 
+FileExplorerToolbar.displayName = 'FileExplorerToolbar';
+
 export { FileExplorerToolbar };

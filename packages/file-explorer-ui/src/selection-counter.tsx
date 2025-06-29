@@ -25,3 +25,5 @@ export const SelectionCounter: React.FC = React.memo(() => {
     </output>
   );
 });
+
+SelectionCounter.displayName = 'SelectionCounter';

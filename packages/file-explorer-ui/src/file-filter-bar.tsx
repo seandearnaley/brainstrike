@@ -58,4 +58,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
     );
   }
 );
+
+FileFilterBar.displayName = 'FileFilterBar';
+
 export default FileFilterBar;
