@@ -64,6 +64,40 @@ vi.mock('@brainstrike/ui', () => ({
   Progress: ({ value, ...props }: MockProgressProps) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  Popover: ({
+    children,
+    open,
+    onOpenChange,
+    ...props
+  }: {
+    children: React.ReactNode;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    [key: string]: unknown;
+  }) => (
+    <div data-testid="popover" data-open={open} {...props}>
+      {children}
+    </div>
+  ),
+  PopoverTrigger: ({
+    children,
+    asChild,
+    ...props
+  }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => (
+    <div data-testid="popover-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  PopoverContent: ({
+    children,
+    align,
+    className,
+    ...props
+  }: { children: React.ReactNode; align?: string; className?: string; [key: string]: unknown }) => (
+    <div data-testid="popover-content" data-align={align} className={className} {...props}>
+      {children}
+    </div>
+  ),
   SortableTableHeader: ({
     title,
     onSort,
@@ -292,6 +326,7 @@ beforeEach(() => {
 vi.mock('lucide-react', () => ({
   ArrowDown: () => <div data-testid="arrow-down" />,
   ArrowUp: () => <div data-testid="arrow-up" />,
+  Columns3: () => <div data-testid="columns3" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
 }));
@@ -434,8 +469,8 @@ describe('PreviewPanel', () => {
     it('should handle column sorting', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Click on folder header to sort
-      const folderHeader = screen.getByText('Folder');
+      // Click on folder header to sort - use the sortable header specifically
+      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
       fireEvent.click(folderHeader);
 
       // Should display sort indicator
@@ -445,7 +480,7 @@ describe('PreviewPanel', () => {
     it('should toggle sort direction on repeated clicks', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const folderHeader = screen.getByText('Folder');
+      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
 
       // First click - ascending
       fireEvent.click(folderHeader);
@@ -459,7 +494,7 @@ describe('PreviewPanel', () => {
     it('should sort by tokens ascending and descending', async () => {
       render(<PreviewPanel {...mockProps} />);
 
-      let tokensHeader = screen.getByText('Tokens');
+      let tokensHeader = screen.getByRole('columnheader', { name: 'Tokens' });
       fireEvent.click(tokensHeader); // ascending
 
       await waitFor(() => {
@@ -467,7 +502,7 @@ describe('PreviewPanel', () => {
         expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
       });
 
-      tokensHeader = screen.getByText('Tokens');
+      tokensHeader = screen.getByRole('columnheader', { name: 'Tokens' });
       fireEvent.click(tokensHeader); // descending
 
       await waitFor(() => {
@@ -479,7 +514,7 @@ describe('PreviewPanel', () => {
     it('should sort by size ascending and descending', async () => {
       render(<PreviewPanel {...mockProps} />);
 
-      let sizeHeader = screen.getByText('Size');
+      let sizeHeader = screen.getByRole('columnheader', { name: 'Size' });
       fireEvent.click(sizeHeader); // ascending
 
       await waitFor(() => {
@@ -487,7 +522,7 @@ describe('PreviewPanel', () => {
         expect(fileButtons[0]).toHaveAttribute('aria-label', 'file3.txt');
       });
 
-      sizeHeader = screen.getByText('Size');
+      sizeHeader = screen.getByRole('columnheader', { name: 'Size' });
       fireEvent.click(sizeHeader); // descending
 
       await waitFor(() => {
@@ -516,28 +551,31 @@ describe('PreviewPanel', () => {
     it('should handle individual file selection', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const checkboxes = screen.getAllByTestId('checkbox');
-      const firstFileCheckbox = checkboxes[1]; // Skip the "select all" checkbox
-      expect(firstFileCheckbox).toBeInTheDocument();
+      // Find the checkbox for a specific file using aria-label
+      const fileCheckbox = screen.getByLabelText('Select path/to/file1.txt');
+      expect(fileCheckbox).toBeInTheDocument();
 
-      fireEvent.click(firstFileCheckbox);
+      fireEvent.click(fileCheckbox);
 
       // Should update selection state (tested through internal state)
-      expect(firstFileCheckbox).toBeChecked();
+      expect(fileCheckbox).toBeChecked();
     });
 
     it('should handle select all on current page', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const selectAllCheckbox = screen.getAllByTestId('checkbox')[0];
+      const selectAllCheckbox = screen.getByLabelText('Select all files on current page');
       expect(selectAllCheckbox).toBeInTheDocument();
       fireEvent.click(selectAllCheckbox);
 
       // All file checkboxes should be checked
-      const checkboxes = screen.getAllByTestId('checkbox');
-      for (const checkbox of checkboxes.slice(1)) {
-        expect(checkbox).toBeChecked();
-      }
+      const file1Checkbox = screen.getByLabelText('Select path/to/file1.txt');
+      const file2Checkbox = screen.getByLabelText('Select path/to/file2.txt');
+      const file3Checkbox = screen.getByLabelText('Select path/to/file3.txt');
+
+      expect(file1Checkbox).toBeChecked();
+      expect(file2Checkbox).toBeChecked();
+      expect(file3Checkbox).toBeChecked();
     });
 
     it('should handle global select all', () => {
@@ -553,10 +591,10 @@ describe('PreviewPanel', () => {
     it('should handle batch removal', async () => {
       render(<PreviewPanel {...mockProps} />);
 
-      // Select files first
-      const checkboxes = screen.getAllByTestId('checkbox');
-      expect(checkboxes[1]).toBeInTheDocument();
-      fireEvent.click(checkboxes[1]); // Select first file
+      // Select files first using aria-label
+      const fileCheckbox = screen.getByLabelText('Select path/to/file1.txt');
+      expect(fileCheckbox).toBeInTheDocument();
+      fireEvent.click(fileCheckbox); // Select first file
 
       // Should show action bar
       await waitFor(() => {
@@ -1030,7 +1068,7 @@ describe('PreviewPanel', () => {
     it('should support keyboard navigation for sorting', () => {
       render(<PreviewPanel {...mockProps} />);
 
-      const folderHeader = screen.getByText('Folder');
+      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
 
       // Test Enter key
       fireEvent.keyDown(folderHeader, { key: 'Enter' });

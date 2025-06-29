@@ -64,6 +64,40 @@ vi.mock('@brainstrike/ui', () => ({
   Progress: ({ value, ...props }: MockProgressProps) => (
     <div data-testid="progress" data-value={value} {...props} />
   ),
+  Popover: ({
+    children,
+    open,
+    onOpenChange,
+    ...props
+  }: {
+    children: React.ReactNode;
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    [key: string]: unknown;
+  }) => (
+    <div data-testid="popover" data-open={open} {...props}>
+      {children}
+    </div>
+  ),
+  PopoverTrigger: ({
+    children,
+    asChild,
+    ...props
+  }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => (
+    <div data-testid="popover-trigger" {...props}>
+      {children}
+    </div>
+  ),
+  PopoverContent: ({
+    children,
+    align,
+    className,
+    ...props
+  }: { children: React.ReactNode; align?: string; className?: string; [key: string]: unknown }) => (
+    <div data-testid="popover-content" data-align={align} className={className} {...props}>
+      {children}
+    </div>
+  ),
   SortableTableHeader: ({
     title,
     onSort,
@@ -270,6 +304,7 @@ vi.mock('@brainstrike/hooks', () => {
 vi.mock('lucide-react', () => ({
   ArrowDown: () => <div data-testid="arrow-down" />,
   ArrowUp: () => <div data-testid="arrow-up" />,
+  Columns3: () => <div data-testid="columns3" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
 }));
@@ -352,14 +387,18 @@ describe('PreviewPanel Integration Tests', () => {
         })
       ).toBeInTheDocument();
 
-      // Select multiple files
-      const checkboxes = screen.getAllByTestId('checkbox');
-      expect(checkboxes[1]).toBeInTheDocument();
-      expect(checkboxes[2]).toBeInTheDocument();
-      expect(checkboxes[3]).toBeInTheDocument();
-      fireEvent.click(checkboxes[1]); // Select first file
-      fireEvent.click(checkboxes[2]); // Select second file
-      fireEvent.click(checkboxes[3]); // Select third file
+      // Select multiple files using aria-labels - files are in folder0 for file1-file9
+      const file1Checkbox = screen.getByLabelText('Select path/to/folder0/file1.txt');
+      const file2Checkbox = screen.getByLabelText('Select path/to/folder0/file2.txt');
+      const file3Checkbox = screen.getByLabelText('Select path/to/folder0/file3.txt');
+
+      expect(file1Checkbox).toBeInTheDocument();
+      expect(file2Checkbox).toBeInTheDocument();
+      expect(file3Checkbox).toBeInTheDocument();
+
+      fireEvent.click(file1Checkbox); // Select first file
+      fireEvent.click(file2Checkbox); // Select second file
+      fireEvent.click(file3Checkbox); // Select third file
 
       // Verify selection UI appears
       await waitFor(() => {
@@ -540,10 +579,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       expect(screen.getByText('Page 2 of 2 (75 total items)')).toBeInTheDocument();
 
-      // Select files on page 2
-      const checkboxes = screen.getAllByTestId('checkbox');
-      expect(checkboxes[1]).toBeInTheDocument();
-      fireEvent.click(checkboxes[1]);
+      // Select files on page 2 - first file on page 2 would be file50
+      const file50Checkbox = screen.getByLabelText('Select path/to/folder5/file50.txt');
+      expect(file50Checkbox).toBeInTheDocument();
+      fireEvent.click(file50Checkbox);
 
       // Should show selection bar
       await waitFor(() => {
@@ -601,7 +640,7 @@ describe('PreviewPanel Integration Tests', () => {
       }
 
       // Test keyboard sorting
-      const folderHeader = screen.getByText('Folder');
+      const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
       fireEvent.keyDown(folderHeader, { key: 'Enter' });
       expect(screen.getAllByTestId('arrow-up').length).toBeGreaterThan(0);
 
@@ -610,8 +649,8 @@ describe('PreviewPanel Integration Tests', () => {
       expect(screen.getAllByTestId('arrow-down').length).toBeGreaterThan(0);
 
       // All interactive elements should have proper labels
-      const checkboxes = screen.getAllByTestId('checkbox');
-      expect(checkboxes[0]).toHaveAttribute('aria-label', 'Select all files on current page');
+      const selectAllCheckbox = screen.getByLabelText('Select all files on current page');
+      expect(selectAllCheckbox).toHaveAttribute('aria-label', 'Select all files on current page');
     });
   });
 });
