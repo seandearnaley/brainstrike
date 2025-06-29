@@ -108,14 +108,14 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   return (
     <div ref={containerRef} className="h-full relative flex-1 min-h-0">
-      <ul
+      <div
         className="relative file-tree"
         role="tree"
         aria-label="File tree"
         style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
       >
         {renderedRows}
-      </ul>
+      </div>
     </div>
   );
 });

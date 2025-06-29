@@ -142,7 +142,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     return (
       <div ref={containerRef} className="h-full relative flex-1 min-h-0">
-        <ul
+        <div
           className="relative file-tree"
           role="tree"
           aria-label="File tree"
@@ -155,7 +155,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           }}
         >
           {renderedRows}
-        </ul>
+        </div>
       </div>
     );
   }

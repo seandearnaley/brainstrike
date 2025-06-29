@@ -1,18 +1,8 @@
 import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
-
-// Interface for a generic error with potential name and message properties
-interface GenericError {
-  name?: string;
-  message?: string;
-}
-
-// Helper function to check if an object is a generic error
-function isGenericError(error: unknown): error is GenericError {
-  return typeof error === 'object' && error !== null;
-}
 
 /**
  * `useToastManager` hook for File Explorer contexts.
@@ -35,6 +25,8 @@ function isGenericError(error: unknown): error is GenericError {
  *  - `handleDirectorySelectError`: Handles errors during directory selection.
  *  - `handleSelectionLimitError`: Handles toasts for selection limits.
  */
+const logger = createLogger('ToastManager');
+
 export const useToastManager = () => {
   const { toast } = useToast();
 
@@ -118,10 +110,7 @@ export const useToastManager = () => {
 
   const handleDirectorySelectError = useCallback(
     (error: unknown) => {
-      console.error('Failed to select root directory. Raw error:', error);
-      if (isGenericError(error)) {
-        console.error(`Error Name: ${error.name}, Error Message: ${error.message}`);
-      }
+      logger.error('Failed to select root directory. Raw error:', error);
       showToast({
         title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,

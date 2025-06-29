@@ -2,7 +2,7 @@ import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { BrowserWindow, app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import ElectronStore from 'electron-store';
 import { createWindow } from './create-window';
 import { closeDatabase, initializeMainDatabase } from './db-main';

@@ -107,9 +107,9 @@ describe('LightweightCheckbox', () => {
     const onCheckedChange = vi.fn();
 
     render(
-      <div onClick={parentClick} onKeyDown={parentKeyDown}>
+      <button type="button" onClick={parentClick} onKeyDown={parentKeyDown}>
         <LightweightCheckbox onCheckedChange={onCheckedChange} />
-      </div>
+      </button>
     );
 
     const checkbox = screen.getByRole('checkbox');

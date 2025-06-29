@@ -1,8 +1,9 @@
-declare var process: NodeJS.Process;
-import { describe, it, expect, afterEach } from 'vitest';
+declare let process: NodeJS.Process;
+
 import type { PGlite } from '@electric-sql/pglite';
-import { wasmLoader } from '../src/wasm-loader';
+import { afterEach, describe, expect, it } from 'vitest';
 import * as dbIndex from '../src/index';
+import { wasmLoader } from '../src/wasm-loader';
 
 describe('PGlite bootstrap', () => {
   let db: PGlite;
@@ -23,7 +24,12 @@ describe('PGlite bootstrap', () => {
       (process.env as NodeJS.ProcessEnv)[envVar] = 'production';
       db = await wasmLoader.createPGlite();
       const result = await db.query('SELECT 1 AS value');
-      if (!Array.isArray(result.rows) || result.rows.length === 0 || typeof result.rows[0] !== 'object' || result.rows[0] === null) {
+      if (
+        !Array.isArray(result.rows) ||
+        result.rows.length === 0 ||
+        typeof result.rows[0] !== 'object' ||
+        result.rows[0] === null
+      ) {
         throw new Error('Unexpected query result');
       }
       expect((result.rows[0] as { value: number }).value).toBe(1);

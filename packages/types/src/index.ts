@@ -9,9 +9,9 @@ import {
 
 // Export types from other files
 export * from './errors';
-export * from './file-explorer-types';
 export * from './file-explorer-constants';
 export * from './file-explorer-strings';
+export * from './file-explorer-types';
 // export * from "./git-types"; // Removed as git-types.ts is deleted
 export * from './file-system'; // Added export for file system types
 

@@ -6,10 +6,7 @@
       "type": "node-terminal",
       "request": "launch",
       "command": "npm run dev",
-      "skipFiles": [
-        "<node_internals>/**",
-        "${workspaceFolder}/node_modules/**"
-      ],
+      "skipFiles": ["<node_internals>/**", "${workspaceFolder}/node_modules/**"],
       "serverReadyAction": {
         "pattern": "- Local:.+(https?://.+)",
         "uriFormat": "%s",
@@ -75,11 +72,7 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "${workspaceRoot}/node_modules/.bin/playwright",
-      "args": [
-        "test",
-        "--debug",
-        "${file}"
-      ],
+      "args": ["test", "--debug", "${file}"],
       "cwd": "${workspaceRoot}",
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",

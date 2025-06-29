@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
-import { type AppShellConfig, type NavigationItem } from '../types';
+import type { AppShellConfig, NavigationItem } from '../types';
 
 // Mock the UI package
 vi.mock('@brainstrike/ui', () => ({

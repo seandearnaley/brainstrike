@@ -1,5 +1,6 @@
 import type { FileFilterOptions, IFileNode } from '@brainstrike/types';
 import { minimatch } from 'minimatch';
+import { createLogger } from './logger';
 
 /**
  * Common file patterns to ignore
@@ -31,8 +32,9 @@ export const fileFilter = {
   matchRegex(str: string, pattern: string): boolean {
     try {
       return new RegExp(pattern).test(str);
-    } catch (error) {
-      console.warn(`Invalid regex pattern: ${pattern}`, error);
+    } catch (_error) {
+      const logger = createLogger('fileFilter');
+      logger.warn(`Invalid regex pattern: ${pattern}`, _error);
       return false;
     }
   },

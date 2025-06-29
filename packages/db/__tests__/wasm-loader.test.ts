@@ -1,14 +1,14 @@
-import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 let wasmLoader: typeof import('../src/wasm-loader').wasmLoader;
-let PGliteMock: any;
+let PGliteMock: ReturnType<typeof vi.fn>;
 
 describe('wasmLoader.ensureWasmLoaded', () => {
   beforeEach(async () => {
     // Clear all modules and reset state before each test
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
-    
+
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn(() => ({
         query: vi.fn().mockResolvedValue(undefined),
@@ -16,14 +16,14 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       }));
       return { PGlite: PGliteMock };
     });
-    
+
     // Import fresh module after mocking
     const wasmLoaderModule = await import('../src/wasm-loader');
     wasmLoader = wasmLoaderModule.wasmLoader;
-    
+
     // Reset internal state using proper type casting
-    const internalLoader = wasmLoader as unknown as { 
-      wasmLoadPromise: Promise<void> | null; 
+    const internalLoader = wasmLoader as unknown as {
+      wasmLoadPromise: Promise<void> | null;
       isLoaded: boolean;
     };
     internalLoader.wasmLoadPromise = null;

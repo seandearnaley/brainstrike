@@ -83,7 +83,11 @@ vi.mock('@brainstrike/ui', () => ({
     children,
     asChild,
     ...props
-  }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => (
+  }: {
+    children: React.ReactNode;
+    asChild?: boolean;
+    [key: string]: unknown;
+  }) => (
     <div data-testid="popover-trigger" {...props}>
       {children}
     </div>
@@ -93,7 +97,12 @@ vi.mock('@brainstrike/ui', () => ({
     align,
     className,
     ...props
-  }: { children: React.ReactNode; align?: string; className?: string; [key: string]: unknown }) => (
+  }: {
+    children: React.ReactNode;
+    align?: string;
+    className?: string;
+    [key: string]: unknown;
+  }) => (
     <div data-testid="popover-content" data-align={align} className={className} {...props}>
       {children}
     </div>
@@ -248,7 +257,7 @@ vi.mock('@brainstrike/ui', () => ({
 let sharedPaginationState = { currentPage: 0, prevTotalPages: 0 };
 
 vi.mock('@brainstrike/hooks', () => {
-  const { useState, useEffect, useRef } = require('react');
+  const { useState } = require('react');
 
   return {
     usePagination: vi.fn((options: { totalItems: number; pageSize?: number }) => {
@@ -732,7 +741,9 @@ describe('PreviewPanel', () => {
       const page3Buttons = screen.getAllByText('3');
       const page3Button = page3Buttons.find((button) => button.tagName === 'BUTTON');
       expect(page3Button).toBeDefined();
-      fireEvent.click(page3Button);
+      if (page3Button) {
+        fireEvent.click(page3Button);
+      }
 
       // Shrink to 5 files (only 1 page now), making page 3 out of bounds
       const smallerFileSet = new Set(Array.from({ length: 5 }, (_, i) => `file${i}`));
@@ -1167,7 +1178,9 @@ describe('PreviewPanel', () => {
       const groupCheckboxes = screen.getAllByLabelText(/Select all files in group/);
       expect(groupCheckboxes.length).toBeGreaterThan(0);
 
-      fireEvent.click(groupCheckboxes[0]); // Select first group
+      if (groupCheckboxes[0]) {
+        fireEvent.click(groupCheckboxes[0]); // Select first group
+      }
 
       // Check that files in the group are selected
       const fileCheckboxes = screen.getAllByTestId('checkbox');

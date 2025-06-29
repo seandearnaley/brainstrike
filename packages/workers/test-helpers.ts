@@ -75,4 +75,4 @@ export class MockFileSystemAdapter implements FileSystemAdapter {
   async exists(_path: string): Promise<boolean> {
     return true;
   }
-} 
+}

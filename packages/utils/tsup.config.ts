@@ -9,4 +9,4 @@ export default defineConfig({
   target: 'es2020',
   outDir: 'dist',
   external: ['@brainstrike/types', '@brainstrike/file-system'],
-}); 
+});

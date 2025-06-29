@@ -14,7 +14,11 @@ const mockDbProvider = vi.fn(
     children,
     dbPath,
     useElectronIPC,
-  }: { children: React.ReactNode; dbPath?: string; useElectronIPC?: boolean }) => (
+  }: {
+    children: React.ReactNode;
+    dbPath?: string;
+    useElectronIPC?: boolean;
+  }) => (
     <div data-testid="db-provider" data-db-path={dbPath} data-use-electron-ipc={useElectronIPC}>
       {children}
     </div>

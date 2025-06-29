@@ -1,4 +1,4 @@
-import { type Page, expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /**
  * Layout test utilities for IDE panel testing
@@ -84,8 +84,10 @@ export async function resetFileExplorerSettings(page: Page): Promise<void> {
 /**
  * Get the current dimensions of a panel
  */
-export async function getPanelDimensions(panel: ReturnType<Page['locator']>): Promise<{ width: number; height: number }> {
-  return await panel.evaluate(el => {
+export async function getPanelDimensions(
+  panel: ReturnType<Page['locator']>
+): Promise<{ width: number; height: number }> {
+  return await panel.evaluate((el) => {
     const rect = el.getBoundingClientRect();
     return { width: rect.width, height: rect.height };
   });
@@ -98,7 +100,7 @@ export async function resizePanel(
   page: Page,
   resizeHandle: ReturnType<Page['locator']>,
   deltaX: number,
-  deltaY: number = 0
+  deltaY = 0
 ): Promise<void> {
   const handleBox = await resizeHandle.boundingBox();
   if (!handleBox) throw new Error('Resize handle not found');
@@ -110,7 +112,7 @@ export async function resizePanel(
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY);
   await page.mouse.up();
-  
+
   // Wait for resize to complete
   await page.waitForTimeout(300);
 }
@@ -120,7 +122,9 @@ export async function resizePanel(
  */
 export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The left panel's resize handle is the first one in the horizontal group
-  return page.locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]').first();
+  return page
+    .locator('[data-panel-group-direction="horizontal"] [data-panel-resize-handle-id]')
+    .first();
 }
 
 /**
@@ -128,7 +132,9 @@ export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']
  */
 export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The console panel's resize handle is in the vertical group
-  return page.locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]').first();
+  return page
+    .locator('[data-panel-group-direction="vertical"] [data-panel-resize-handle-id]')
+    .first();
 }
 
 /**
@@ -162,17 +168,17 @@ export async function verifyPersistenceAfterReload(
 ): Promise<void> {
   await page.reload({ waitUntil: 'load' });
   await waitForAppLoad(page);
-  
+
   if (shouldBeVisible) {
     await expect(panel).toBeVisible();
-    
+
     if (dimensions) {
       const currentDimensions = await getPanelDimensions(panel);
-      
+
       if (dimensions.width !== undefined) {
         expect(Math.abs(currentDimensions.width - dimensions.width)).toBeLessThan(100);
       }
-      
+
       if (dimensions.height !== undefined) {
         expect(Math.abs(currentDimensions.height - dimensions.height)).toBeLessThan(10);
       }
@@ -191,16 +197,16 @@ export async function setupComplexLayout(page: Page): Promise<{
   consoleDimensions: { width: number; height: number };
 }> {
   const elements = getPanelElements(page);
-  
+
   // Hide left panel
   await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
-  
+
   // Show console
   await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
-  
+
   // Get console dimensions
   const consoleDimensions = await getPanelDimensions(elements.consolePanel);
-  
+
   return {
     leftPanelHidden: true,
     consoleVisible: true,
@@ -221,20 +227,22 @@ export async function verifyComplexLayout(
   }
 ): Promise<void> {
   const elements = getPanelElements(page);
-  
+
   if (expectedState.leftPanelHidden) {
     await expect(elements.leftPanel).not.toBeVisible();
     await expect(elements.showExplorerShim).toBeVisible();
   } else {
     await expect(elements.leftPanel).toBeVisible();
   }
-  
+
   if (expectedState.consoleVisible) {
     await expect(elements.consolePanel).toBeVisible();
-    
+
     if (expectedState.consoleDimensions) {
       const currentDimensions = await getPanelDimensions(elements.consolePanel);
-      expect(Math.abs(currentDimensions.height - expectedState.consoleDimensions.height)).toBeLessThan(10);
+      expect(
+        Math.abs(currentDimensions.height - expectedState.consoleDimensions.height)
+      ).toBeLessThan(10);
     }
   } else {
     await expect(elements.consolePanel).not.toBeVisible();
@@ -266,7 +274,7 @@ export async function testPanelSizeConstraints(
   if (!viewportSize) throw new Error('Viewport size not available');
 
   // First, ensure the panel is expanded/visible
-  const currentWidth = await panel.evaluate(el => el.getBoundingClientRect().width);
+  const currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
   if (currentWidth === 0) {
     // Panel is collapsed, need to expand it first
     const showButton = page.locator('button[aria-label="Show explorer"]');
@@ -277,15 +285,15 @@ export async function testPanelSizeConstraints(
       await page.waitForTimeout(300);
     }
   }
-  
+
   // Ensure panel is visible before proceeding
   await expect(panel).toBeVisible();
 
   // Test minimum size constraint - use moderate resize to avoid collapse
   await resizePanel(page, resizeHandle, -200); // Moderate reduction
-  
+
   // Check if panel collapsed after resize and re-expand if needed
-  const postResizeWidth = await panel.evaluate(el => el.getBoundingClientRect().width);
+  const postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
   if (postResizeWidth === 0) {
     // Panel collapsed due to resize, expand it again
     const showButton = page.locator('button[aria-label="Show explorer"]');
@@ -295,14 +303,14 @@ export async function testPanelSizeConstraints(
       await page.waitForTimeout(300);
     }
   }
-  
+
   const minDimensions = await getPanelDimensions(panel);
   const minExpectedWidth = viewportSize.width * (minPercentage / 100);
   expect(minDimensions.width).toBeGreaterThan(minExpectedWidth * 0.8); // Allow 20% variance
-  
+
   // Test maximum size constraint
   await resizePanel(page, resizeHandle, 500); // Try to make larger
-  
+
   const maxDimensions = await getPanelDimensions(panel);
   const maxExpectedWidth = viewportSize.width * (maxPercentage / 100);
   expect(maxDimensions.width).toBeLessThan(maxExpectedWidth * 1.2); // Allow 20% variance
@@ -374,7 +382,7 @@ export async function testKeyboardNavigation(
 ): Promise<void> {
   await button.focus();
   await page.keyboard.press(key);
-  
+
   // The exact behavior depends on the button's current state
   // This helper just ensures the keyboard interaction works
   await page.waitForTimeout(100);
@@ -390,33 +398,33 @@ export async function testLayoutPersistenceAcrossNavigation(
 ): Promise<void> {
   // Setup layout state
   await setupCallback();
-  
+
   // Check if left panel is hidden and temporarily show it for navigation
   const leftPanel = page.locator('[data-panel-id="left-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
-  
+
   if (wasHidden) {
     // Temporarily show the panel to avoid UI overlap with floating button
     const showExplorerButton = page.locator('button[aria-label="Show explorer"]');
     await showExplorerButton.click();
     await expect(leftPanel).toBeVisible();
   }
-  
+
   // Navigate to Settings
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
-  
+
   // Navigate back to Context Explorer
   await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
-  
+
   // Restore original state if panel was hidden
   if (wasHidden) {
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
     await hideExplorerButton.click();
     await expect(leftPanel).not.toBeVisible();
   }
-  
+
   // Verify layout state persisted
   await verifyCallback();
-} 
+}

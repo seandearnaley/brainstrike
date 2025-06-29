@@ -18,10 +18,10 @@ function main() {
   const result = execSync(findCommand, { encoding: 'utf8' });
   const files = result.split('\n').filter(Boolean);
   info('Search completed. Found:', files.length);
-  files.forEach(f => info(f));
+  files.forEach((f) => info(f));
 
   const merged = {};
-  files.forEach(f => {
+  files.forEach((f) => {
     if (fs.existsSync(f)) {
       try {
         const content = JSON.parse(fs.readFileSync(f, 'utf8'));

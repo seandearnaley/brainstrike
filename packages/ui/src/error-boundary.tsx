@@ -38,7 +38,6 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 
   public override componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     this.setState({ errorInfo });
-    console.error('Uncaught error:', error, errorInfo);
     this.props.onError?.(error, errorInfo);
   }
 

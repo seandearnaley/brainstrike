@@ -1,5 +1,5 @@
+import path from 'node:path';
 import { defineConfig } from 'vitest/config';
-import path from 'path';
 
 export default defineConfig({
   test: {
@@ -12,4 +12,4 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../file-system/src/index.ts'),
     },
   },
-}); 
+});

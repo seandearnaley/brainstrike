@@ -1,12 +1,9 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
-import { resolve } from 'path';
 
 export default defineConfig({
   optimizeDeps: {
-    include: [
-      '@brainstrike/hooks',
-      '@brainstrike/ui',
-    ],
+    include: ['@brainstrike/hooks', '@brainstrike/ui'],
   },
   test: {
     environment: 'jsdom',
@@ -25,7 +22,10 @@ export default defineConfig({
       '@brainstrike/ui': resolve(__dirname, '../../packages/ui/src'),
       '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
-      '@brainstrike/file-explorer-hooks': resolve(__dirname, '../../packages/file-explorer-hooks/src'),
+      '@brainstrike/file-explorer-hooks': resolve(
+        __dirname,
+        '../../packages/file-explorer-hooks/src'
+      ),
       '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
       '@brainstrike/workers': resolve(__dirname, '../../packages/workers'),
       '@brainstrike/workers/file-content-worker': resolve(

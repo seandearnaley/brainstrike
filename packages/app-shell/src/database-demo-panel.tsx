@@ -1,5 +1,5 @@
-import { useFileRecordRepository } from '@brainstrike/db';
 import type { FileRecord } from '@brainstrike/db';
+import { useFileRecordRepository } from '@brainstrike/db';
 import {
   Button,
   Card,
@@ -7,13 +7,13 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  createDebounce,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
   TableRow,
-  createDebounce,
   useToast,
 } from '@brainstrike/ui';
 import { Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
@@ -42,8 +42,7 @@ export function DatabaseDemoPanel() {
       setRefreshing(true);
       const allRecords = await repository.findAll();
       setRecords(allRecords);
-    } catch (error) {
-      console.error('Failed to load records:', error);
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to load database records',
@@ -85,8 +84,8 @@ export function DatabaseDemoPanel() {
   // Load records on mount and when repository becomes available
   useEffect(() => {
     if (repository) {
-      loadRecords();
-      testDatabaseConnection();
+      void loadRecords();
+      void testDatabaseConnection();
     }
   }, [repository, loadRecords, testDatabaseConnection]);
 
@@ -120,8 +119,7 @@ export function DatabaseDemoPanel() {
         title: 'Success',
         description: `Added test record: ${testRecord.name}`,
       });
-    } catch (error) {
-      console.error('Failed to add test record:', error);
+    } catch (_error) {
       toast({
         title: 'Error',
         description: 'Failed to add test record',
@@ -171,8 +169,7 @@ export function DatabaseDemoPanel() {
           title: 'Success',
           description: `Removed record: ${name}`,
         });
-      } catch (error) {
-        console.error('Failed to remove record:', error);
+      } catch (_error) {
         toast({
           title: 'Error',
           description: 'Failed to remove record',

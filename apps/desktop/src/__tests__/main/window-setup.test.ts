@@ -25,16 +25,14 @@ const mockBrowserWindowInstance = {
 
 const mockBrowserWindow = vi.fn(() => mockBrowserWindowInstance);
 
-const whenReadyMock = vi.fn(
-  // biome-ignore lint/suspicious/noThenProperty: mocked thenable to bypass execution
-  () => ({ then: vi.fn() }) as unknown as Promise<void>
-);
+const whenReadyMock = vi.fn(() => Promise.resolve());
 
 const mockApp = {
   isPackaged: false,
   whenReady: whenReadyMock,
   on: vi.fn(),
   getPath: vi.fn(),
+  quit: vi.fn(),
 };
 
 vi.mock('electron', () => ({

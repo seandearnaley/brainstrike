@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { handlers, mockIpcMain, mockIpcRenderer, mockApp } = vi.hoisted(() => {
+const { mockIpcMain, mockIpcRenderer, mockApp } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mockIpcMain = {
     handle: vi.fn((channel: string, listener: (...args: unknown[]) => unknown) => {

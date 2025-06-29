@@ -1,7 +1,6 @@
 import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { fileExplorer } from '@brainstrike/utils';
-import { encodeFileSelection, fileContent } from '@brainstrike/utils';
+import { encodeFileSelection, fileContent, fileExplorer } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DirectFileContentProcessor } from '../file-content-processor';

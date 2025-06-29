@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
-import { MigrationRunner, type Migration } from '../src/migrations/migration-runner.js';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { type Migration, MigrationRunner } from '../src/migrations/migration-runner.js';
 
 describe('MigrationRunner', () => {
   let db: PGlite;
@@ -44,7 +44,7 @@ describe('MigrationRunner', () => {
     it('should handle repeated initialization calls', async () => {
       await runner.initialize();
       await runner.initialize();
-      
+
       const result = await db.query(
         "SELECT tablename FROM pg_tables WHERE tablename='_migrations'"
       );
@@ -60,17 +60,17 @@ describe('MigrationRunner', () => {
 
     it('should track current version correctly', async () => {
       expect(await runner.getCurrentVersion()).toBe(0);
-      
+
       await runner.runMigration(testMigration1);
       expect(await runner.getCurrentVersion()).toBe(1);
-      
+
       await runner.runMigration(testMigration2);
       expect(await runner.getCurrentVersion()).toBe(2);
     });
 
     it('should check if migration is applied', async () => {
       expect(await runner.isApplied(1)).toBe(false);
-      
+
       await runner.runMigration(testMigration1);
       expect(await runner.isApplied(1)).toBe(true);
       expect(await runner.isApplied(2)).toBe(false);
@@ -79,7 +79,7 @@ describe('MigrationRunner', () => {
     it('should list applied migrations in order', async () => {
       await runner.runMigration(testMigration1); // Create table first
       await runner.runMigration(testMigration2); // Then alter it
-      
+
       const applied = await runner.getAppliedMigrations();
       expect(applied).toEqual([1, 2]);
     });
@@ -88,9 +88,9 @@ describe('MigrationRunner', () => {
   describe('running migrations', () => {
     it('should run a single migration successfully', async () => {
       await runner.runMigration(testMigration1);
-      
+
       expect(await runner.isApplied(1)).toBe(true);
-      
+
       // Verify the actual table was created
       const result = await db.query('SELECT * FROM test_table');
       expect(result.rows).toEqual([]);
@@ -98,25 +98,23 @@ describe('MigrationRunner', () => {
 
     it('should skip already applied migrations', async () => {
       const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-      
+
       await runner.runMigration(testMigration1);
       await runner.runMigration(testMigration1); // Second time should skip
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('already applied')
-      );
-      
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('already applied'));
+
       consoleSpy.mockRestore();
     });
 
     it('should run migrations in order with up() method', async () => {
       const migrations = [testMigration2, testMigration1, testMigration3]; // Out of order
-      
+
       await runner.up(migrations);
-      
+
       const applied = await runner.getAppliedMigrations();
       expect(applied).toEqual([1, 2, 3]);
-      
+
       // Verify all changes were applied
       const result = await db.query(`
         SELECT column_name FROM information_schema.columns 
@@ -134,10 +132,8 @@ describe('MigrationRunner', () => {
         down: 'DROP TABLE nonexistent;',
       };
 
-      await expect(runner.runMigration(badMigration)).rejects.toThrow(
-        'Migration 99 failed:'
-      );
-      
+      await expect(runner.runMigration(badMigration)).rejects.toThrow('Migration 99 failed:');
+
       expect(await runner.isApplied(99)).toBe(false);
     });
   });
@@ -150,10 +146,10 @@ describe('MigrationRunner', () => {
 
     it('should rollback a single migration', async () => {
       await runner.rollback(testMigration2);
-      
+
       expect(await runner.isApplied(2)).toBe(false);
       expect(await runner.isApplied(1)).toBe(true);
-      
+
       // Verify the column was removed
       const result = await db.query(`
         SELECT column_name FROM information_schema.columns 
@@ -167,7 +163,7 @@ describe('MigrationRunner', () => {
       // Only rollback migrations that have down scripts
       const migrations = [testMigration1, testMigration2];
       await runner.down(migrations, 1);
-      
+
       expect(await runner.getCurrentVersion()).toBe(1);
       expect(await runner.isApplied(1)).toBe(true);
       expect(await runner.isApplied(2)).toBe(false);
@@ -175,26 +171,24 @@ describe('MigrationRunner', () => {
 
     it('should skip rollback for unapplied migrations', async () => {
       const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-      
+
       const unappliedMigration: Migration = {
         version: 99,
         name: 'unapplied',
         up: 'CREATE TABLE temp (id INTEGER);',
         down: 'DROP TABLE temp;',
       };
-      
+
       await runner.rollback(unappliedMigration);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('is not applied')
-      );
-      
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('is not applied'));
+
       consoleSpy.mockRestore();
     });
 
     it('should throw error for migration without down script', async () => {
       await runner.runMigration(testMigration3);
-      
+
       await expect(runner.rollback(testMigration3)).rejects.toThrow(
         'Migration 3 does not support rollback'
       );
@@ -207,9 +201,9 @@ describe('MigrationRunner', () => {
         up: 'CREATE TABLE temp_table (id INTEGER);',
         down: 'INVALID ROLLBACK SQL;',
       };
-      
+
       await runner.runMigration(badRollbackMigration);
-      
+
       await expect(runner.rollback(badRollbackMigration)).rejects.toThrow(
         'Rollback of migration 88 failed:'
       );
@@ -219,7 +213,7 @@ describe('MigrationRunner', () => {
   describe('checksum validation', () => {
     it('should calculate consistent checksums', async () => {
       await runner.runMigration(testMigration1);
-      
+
       const migrations = [testMigration1];
       const isValid = await runner.verify(migrations);
       expect(isValid).toBe(true);
@@ -227,23 +221,21 @@ describe('MigrationRunner', () => {
 
     it('should detect modified migrations', async () => {
       await runner.runMigration(testMigration1);
-      
+
       // Create a modified version of the migration
       const modifiedMigration: Migration = {
         ...testMigration1,
         up: 'CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT, modified BOOLEAN);',
       };
-      
+
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      
+
       const migrations = [modifiedMigration];
       const isValid = await runner.verify(migrations);
       expect(isValid).toBe(false);
-      
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('checksum mismatch')
-      );
-      
+
+      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('checksum mismatch'));
+
       consoleSpy.mockRestore();
     });
 
@@ -263,10 +255,10 @@ describe('MigrationRunner', () => {
     it('should handle rollback to version 0', async () => {
       await runner.runMigration(testMigration1);
       await runner.runMigration(testMigration2);
-      
+
       const migrations = [testMigration1, testMigration2];
       await runner.down(migrations, 0);
-      
+
       expect(await runner.getCurrentVersion()).toBe(0);
       expect(await runner.getAppliedMigrations()).toEqual([]);
     });
@@ -278,12 +270,12 @@ describe('MigrationRunner', () => {
         up: 'CREATE TABLE duplicate_table (id INTEGER);',
         down: 'DROP TABLE duplicate_table;',
       };
-      
+
       await runner.runMigration(testMigration1);
-      
+
       // Second migration with same version should be skipped
       await runner.runMigration(duplicateMigration);
-      
+
       // Should still only have one migration applied
       const applied = await runner.getAppliedMigrations();
       expect(applied).toEqual([1]);

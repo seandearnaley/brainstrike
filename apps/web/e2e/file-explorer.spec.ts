@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
-import { HomePage } from './page-objects/home-page';
+import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
+import { HomePage } from './page-objects/home-page';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Explorer', () => {
   test.beforeEach(async ({ page }) => {
@@ -47,12 +47,14 @@ test.describe('File Explorer', () => {
     // The dialog is a PopoverContent which renders a <dialog> element
     const dialog = page.locator('dialog[aria-labelledby="config-title"]');
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'File Explorer Configuration' })).toBeVisible();
+    await expect(
+      dialog.getByRole('heading', { name: 'File Explorer Configuration' })
+    ).toBeVisible();
 
     // Check for specific configuration options within the dialog
     // MaxSelectionCountSetting renders a label "Max Selection Count"
     await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
-    
+
     // FolderSummaryThresholdSetting renders a label "Folder Summary Threshold"
     await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
 

@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { getPanelElements, togglePanelVisibility } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Tabbed Editor', () => {
   test.beforeEach(async ({ page }) => {
@@ -16,7 +16,7 @@ test.describe('File Tabbed Editor', () => {
     await page.reload();
 
     await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true }),
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
     ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({
       timeout: 10000,
@@ -39,7 +39,9 @@ test.describe('File Tabbed Editor', () => {
 
     // Verify initial state shows no files open in tabbed editor
     await expect(page.getByText('No files open')).toBeVisible();
-    await expect(page.getByText('Click on a file in the preview panel to open it here')).toBeVisible();
+    await expect(
+      page.getByText('Click on a file in the preview panel to open it here')
+    ).toBeVisible();
 
     const rowButton = page.getByRole('button', { name: 'example.ts' });
     await expect(rowButton).toBeVisible();

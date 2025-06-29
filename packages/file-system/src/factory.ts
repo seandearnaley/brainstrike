@@ -1,4 +1,4 @@
-import { type Platform, detectPlatform } from '@brainstrike/platform-utils';
+import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { ElectronFileSystemAdapter } from './adapters/electron-adapter';
 import { MockFileSystemAdapter } from './adapters/mock-file-system-adapter';
 import { WebFileSystemAdapter } from './adapters/web-adapter';

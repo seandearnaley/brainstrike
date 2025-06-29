@@ -1,21 +1,21 @@
-import { test, expect } from '@playwright/test';
-import {
-  getPanelElements,
-  waitForAppLoad,
-  getPanelDimensions,
-  resizePanel,
-  getLeftPanelResizeHandle,
-  getConsolePanelResizeHandle,
-  verifyPersistenceAfterReload,
-  setupComplexLayout,
-  verifyComplexLayout,
-  testPanelSizeConstraints,
-  corruptLayoutStorage,
-  clearAllStorage,
-  verifyDefaultLayout,
-  testLayoutPersistenceAcrossNavigation,
-} from './utils/layout-helpers';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import {
+  clearAllStorage,
+  corruptLayoutStorage,
+  getConsolePanelResizeHandle,
+  getLeftPanelResizeHandle,
+  getPanelDimensions,
+  getPanelElements,
+  resizePanel,
+  setupComplexLayout,
+  testLayoutPersistenceAcrossNavigation,
+  testPanelSizeConstraints,
+  verifyComplexLayout,
+  verifyDefaultLayout,
+  verifyPersistenceAfterReload,
+  waitForAppLoad,
+} from './utils/layout-helpers';
 
 test.describe('Advanced IDE Layout', () => {
   test.beforeEach(async ({ page }) => {
@@ -316,7 +316,7 @@ test.describe('Advanced IDE Layout', () => {
       // Verify minimum sizes are respected
       const { width } = await getPanelDimensions(elements.leftPanel);
       const viewportWidth = page.viewportSize()?.width ?? 400;
-      expect(width / viewportWidth).toBeGreaterThanOrEqual(0.10); // Allow for some variance due to small viewport
+      expect(width / viewportWidth).toBeGreaterThanOrEqual(0.1); // Allow for some variance due to small viewport
     });
 
     test('should handle very large viewport sizes', async ({ page }) => {

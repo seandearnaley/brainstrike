@@ -1,12 +1,12 @@
 import './globals.css';
 import {
-  RouterProvider,
   appleTouchIcon,
   icon16,
   icon32,
   icon48,
   icon192,
   icon512,
+  RouterProvider,
 } from '@brainstrike/ui';
 import type React from 'react';
 

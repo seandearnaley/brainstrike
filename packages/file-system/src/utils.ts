@@ -21,14 +21,8 @@ export function extractNativeDirectoryHandle(
   // For electron or other platforms, return null since there's no native handle
   // If platform is undefined, assume web for backward compatibility
   if (handle.platform === undefined) {
-    console.warn('DirectoryHandle platform is undefined, assuming web platform');
     return handle._internal as FileSystemDirectoryHandle;
   }
-
-  // For non-web platforms, return null instead of throwing
-  console.warn(
-    `extractNativeDirectoryHandle called for ${handle.platform} platform, returning null. Consider using platform-agnostic file system operations instead.`
-  );
   return null;
 }
 

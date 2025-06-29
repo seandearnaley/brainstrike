@@ -227,7 +227,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
   }, [loadTree]);
 
   useEffect(() => {
-    loadTree();
+    void loadTree();
   }, [loadTree]);
 
   return {

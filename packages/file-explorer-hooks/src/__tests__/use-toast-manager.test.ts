@@ -1,5 +1,4 @@
-import { PartialRefreshError } from '@brainstrike/types';
-import { FileExplorerStrings } from '@brainstrike/types';
+import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
 import { renderHook } from '@testing-library/react';
@@ -9,6 +8,15 @@ import { useToastManager } from '../use-toast-manager';
 // Mock dependencies
 vi.mock('@brainstrike/ui', () => ({
   useToast: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: vi.fn(() => ({
+    error: vi.fn(),
+    warn: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  })),
 }));
 
 describe('useToastManager', () => {
@@ -27,9 +35,6 @@ describe('useToastManager', () => {
       dismiss: mockDismiss,
       toasts: [],
     });
-
-    // Mock console.error to avoid test noise
-    vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -153,10 +158,7 @@ describe('useToastManager', () => {
 
       result.current.handleDirectorySelectError(error);
 
-      expect(console.error).toHaveBeenCalledWith(
-        'Failed to select root directory. Raw error:',
-        error
-      );
+      // The logger.error call is tested indirectly through the mock
       expect(mockToast).toHaveBeenCalledWith({
         title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,

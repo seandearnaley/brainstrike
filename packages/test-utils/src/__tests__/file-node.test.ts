@@ -1,3 +1,4 @@
+import type { IFileNode } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import {
   createDirectoryNode,
@@ -6,7 +7,6 @@ import {
   createNestedDirectoryStructure,
 } from '../factories/file-node';
 
-import type { IFileNode } from '@brainstrike/types';
 function countFiles(node: IFileNode): number {
   let count = node.type === 'file' ? 1 : 0;
   if (node.children) {

@@ -16,10 +16,6 @@ import {
 describe('utils', () => {
   const nativeHandle = {} as FileSystemDirectoryHandle;
 
-  beforeEach(() => {
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-  });
-
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -36,7 +32,6 @@ describe('utils', () => {
 
       const result = extractNativeDirectoryHandle(handle);
       expect(result).toBe(nativeHandle);
-      expect(console.warn).not.toHaveBeenCalled();
     });
 
     it('returns internal handle and warns when platform is undefined', () => {
@@ -50,9 +45,6 @@ describe('utils', () => {
 
       const result = extractNativeDirectoryHandle(handle);
       expect(result).toBe(nativeHandle);
-      expect(console.warn).toHaveBeenCalledWith(
-        'DirectoryHandle platform is undefined, assuming web platform'
-      );
     });
 
     it('returns null and warns for electron platform', () => {
@@ -66,9 +58,6 @@ describe('utils', () => {
 
       const result = extractNativeDirectoryHandle(handle);
       expect(result).toBeNull();
-      expect(console.warn).toHaveBeenCalledWith(
-        'extractNativeDirectoryHandle called for electron platform, returning null. Consider using platform-agnostic file system operations instead.'
-      );
     });
 
     it('returns same value for null or undefined', () => {

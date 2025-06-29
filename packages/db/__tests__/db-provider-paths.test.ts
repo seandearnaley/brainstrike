@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import os from 'node:os';
 import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDefaultDbPath } from '../src/db-provider';
 
 describe('getDefaultDbPath additional coverage', () => {
@@ -16,11 +16,11 @@ describe('getDefaultDbPath additional coverage', () => {
 
   it('handles different environment configurations', () => {
     // Test browser environment
-    global.window = {} as any;
+    global.window = {} as Window & typeof globalThis;
     expect(getDefaultDbPath()).toBe('idb://app');
 
     // Test Node environment
-    global.window = undefined as any;
+    global.window = undefined as unknown as Window & typeof globalThis;
     const nodePath = getDefaultDbPath();
     expect(nodePath).toBe(path.join(os.tmpdir(), 'app.db'));
   });

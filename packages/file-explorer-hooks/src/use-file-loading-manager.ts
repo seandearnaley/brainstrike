@@ -31,8 +31,7 @@ export const useFileLoadingManager = ({
 
       try {
         await loadFileContent(path);
-      } catch (error) {
-        console.error('Error loading file:', path, error);
+      } catch (_error) {
       } finally {
         setLoadingFiles((prev) => {
           const newSet = new Set(prev);
@@ -48,7 +47,7 @@ export const useFileLoadingManager = ({
     // Load content for all selected files
     for (const path of selectedFilePaths) {
       if (!fileContents[path]) {
-        handleFileLoading(path);
+        void handleFileLoading(path);
       }
     }
   }, [selectedFilePaths, fileContents, handleFileLoading]);

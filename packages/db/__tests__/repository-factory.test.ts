@@ -1,12 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
+import { describe, expect, it, vi } from 'vitest';
+import { ElectronFileRecordRepository } from '../src/repositories/electron-file-record-repository.js';
+import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import {
   createFileRecordRepository,
-  isPGlite,
   type ElectronDbAPI,
+  isPGlite,
 } from '../src/repositories/repository-factory.js';
-import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
-import { ElectronFileRecordRepository } from '../src/repositories/electron-file-record-repository.js';
 
 describe('Repository Factory', () => {
   describe('isPGlite type guard', () => {
@@ -66,7 +66,7 @@ describe('Repository Factory', () => {
     it('should create FileRecordRepository for PGlite database', () => {
       const db = new PGlite();
       const repository = createFileRecordRepository(db);
-      
+
       expect(repository).toBeInstanceOf(FileRecordRepository);
     });
 
@@ -75,9 +75,9 @@ describe('Repository Factory', () => {
         query: vi.fn().mockResolvedValue({ rows: [] }),
         exec: vi.fn().mockResolvedValue(undefined),
       };
-      
+
       const repository = createFileRecordRepository(mockElectronDb);
-      
+
       expect(repository).toBeInstanceOf(ElectronFileRecordRepository);
     });
 
@@ -116,7 +116,7 @@ describe('Repository Factory', () => {
       };
 
       // Should be treated as PGlite due to type guard
-      const repository = createFileRecordRepository(fakePGlite as any);
+      const repository = createFileRecordRepository(fakePGlite as unknown as PGlite);
       expect(repository).toBeInstanceOf(FileRecordRepository);
     });
 
@@ -148,7 +148,7 @@ describe('Repository Factory', () => {
 
       const electronResult = await electronRepo.findAll();
       expect(Array.isArray(electronResult)).toBe(true);
-      
+
       // Verify the Electron mock was called
       expect(mockElectronDb.query).toHaveBeenCalled();
     });
@@ -164,7 +164,7 @@ describe('Repository Factory', () => {
 
       // Test that TypeScript accepts both types
       let db: PGlite | ElectronDbAPI;
-      
+
       db = pgliteDb;
       const repo1 = createFileRecordRepository(db);
       expect(repo1).toBeInstanceOf(FileRecordRepository);

@@ -1,4 +1,4 @@
-import { defineWorkspace } from "vitest/config";
+import { defineWorkspace } from 'vitest/config';
 
 // Defines the Vitest workspace, pointing to configurations for each package/app.
 export default defineWorkspace([

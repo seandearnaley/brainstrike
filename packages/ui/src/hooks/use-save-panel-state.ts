@@ -23,9 +23,8 @@ export function useSavePanelState(
           localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
         }
         lastSavedRef.current = stateToSave;
-      } catch (error) {
+      } catch (_error) {
         if (isDevEnv()) {
-          console.warn('Failed to save panel layout:', error);
         }
       }
     },

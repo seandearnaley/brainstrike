@@ -2,9 +2,9 @@ import { TextDecoder, TextEncoder } from 'node:util';
 import { describe, expect, it, vi } from 'vitest';
 import { fileSystem } from '../file-system';
 import {
-  MockFileSystemHandle,
   createCircularHandles,
   createSelfReferencingHandle,
+  MockFileSystemHandle,
 } from './utils/mock-file-system';
 
 // Add TextEncoder and TextDecoder to global scope if not already defined

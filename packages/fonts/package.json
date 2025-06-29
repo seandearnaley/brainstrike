@@ -15,7 +15,10 @@
     },
     "./inter/*": "./src/inter/*"
   },
-  "files": ["dist", "src/inter"],
+  "files": [
+    "dist",
+    "src/inter"
+  ],
   "scripts": {
     "build": "rm -rf dist && tsc -b .",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",

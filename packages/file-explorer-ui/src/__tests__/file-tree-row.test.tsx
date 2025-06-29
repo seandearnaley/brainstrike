@@ -58,7 +58,7 @@ describe('FileTreeRow', () => {
         wrapper: FileExplorerTestWrapper,
       });
 
-      const innerDiv = container.querySelector('li > div');
+      const innerDiv = container.querySelector('div[role="treeitem"] > div');
       expect(innerDiv).toHaveStyle({ paddingLeft: '56px' }); // 2 * 24 + 8 = 56px
     });
 
@@ -68,8 +68,8 @@ describe('FileTreeRow', () => {
         wrapper: FileExplorerTestWrapper,
       });
 
-      const listItem = container.querySelector('li');
-      expect(listItem).toHaveStyle({ top: '100px' });
+      const treeItem = container.querySelector('div[role="treeitem"]');
+      expect(treeItem).toHaveStyle({ top: '100px' });
     });
   });
 

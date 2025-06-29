@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Complete File Explorer Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -27,17 +27,25 @@ test.describe('Complete File Explorer Workflow', () => {
     await page.reload();
 
     // Wait for the app to load completely
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });
 
-  test('should complete the full file selection and report generation workflow', async ({ page }) => {
+  test('should complete the full file selection and report generation workflow', async ({
+    page,
+  }) => {
     // Step 1: Verify initial state
     await expect(page.getByText('0/10')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Download Report' })).toBeDisabled();
     // Handle both "Copy Report" and "Copy" text due to responsive design
-    const copyButton = page.locator('button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))').first();
+    const copyButton = page
+      .locator(
+        'button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))'
+      )
+      .first();
     await expect(copyButton).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Select All' })).toBeDisabled();
 
@@ -45,7 +53,9 @@ test.describe('Complete File Explorer Workflow', () => {
     await page.getByTestId('select-root-button').click();
 
     // Step 3: Wait for file tree to load
-    await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
+    ).toBeVisible();
     await expect(page.getByText('No directory selected')).not.toBeVisible();
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
 
@@ -74,18 +84,20 @@ test.describe('Complete File Explorer Workflow', () => {
     await expect(page.getByRole('button', { name: 'Deselect All' })).toBeEnabled();
 
     // Step 7: Use the EXACT working pattern from quick-filter.spec.ts
-    const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
-    
+    const filterInput = page.getByPlaceholder(
+      "Type to filter files... (e.g. 'test component -spec')"
+    );
+
     // Apply filter first (this is the key!)
     await filterInput.fill('Button');
     await page.waitForTimeout(200);
-    
+
     // Then expand all
     await page.getByTestId('expand-all-button-small').click();
-    
+
     // Verify nested file is now visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
-    
+
     // Clear filter to see full tree again
     await filterInput.fill('');
     await page.waitForTimeout(200);
@@ -100,10 +112,7 @@ test.describe('Complete File Explorer Workflow', () => {
     const downloadButton = page.getByRole('button', { name: 'Download Report' });
     await expect(downloadButton).toBeEnabled();
 
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      downloadButton.click(),
-    ]);
+    const [download] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
 
     // Verify download occurred
     expect(download.suggestedFilename()).toMatch(/report/i);
@@ -114,12 +123,16 @@ test.describe('Complete File Explorer Workflow', () => {
 
     // Wait for success toast (copy operation should show a success message)
     // Use first() to avoid strict mode violation when multiple elements have the same text
-    await expect(page.getByText('The report has been copied to your clipboard.').first()).toBeVisible();
+    await expect(
+      page.getByText('The report has been copied to your clipboard.').first()
+    ).toBeVisible();
 
     // Step 11: Test filter functionality
-    const filterInput2 = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+    const filterInput2 = page.getByPlaceholder(
+      "Type to filter files... (e.g. 'test component -spec')"
+    );
     await filterInput2.fill('test');
-    
+
     // Should only show test files
     await expect(fileTree.getByText('test.ts')).toBeVisible();
     await expect(fileTree.getByText('test2.ts')).toBeVisible();
@@ -137,7 +150,9 @@ test.describe('Complete File Explorer Workflow', () => {
     // Note: src directory may still be visible as it's not a file with an extension
   });
 
-  test('should select and deselect all visible files using the Select All button', async ({ page }) => {
+  test('should select and deselect all visible files using the Select All button', async ({
+    page,
+  }) => {
     // Select root directory
     await page.getByTestId('select-root-button').click();
 

@@ -76,59 +76,53 @@ export class TransformersBackend {
     if (this._isInitialized) {
       return;
     }
+    onProgress?.({
+      stage: 'downloading',
+      progress: 0,
+      message: 'Loading transformers.js...',
+    });
 
-    try {
-      onProgress?.({
-        stage: 'downloading',
-        progress: 0,
-        message: 'Loading transformers.js...',
-      });
+    // Dynamic import to avoid bundling issues
+    this._transformers = (await import('@huggingface/transformers')) as TransformersModule;
 
-      // Dynamic import to avoid bundling issues
-      this._transformers = (await import('@huggingface/transformers')) as TransformersModule;
+    onProgress?.({
+      stage: 'downloading',
+      progress: 25,
+      message: 'Creating feature extraction pipeline...',
+    });
 
-      onProgress?.({
-        stage: 'downloading',
-        progress: 25,
-        message: 'Creating feature extraction pipeline...',
-      });
+    // Use feature-extraction pipeline with robust configuration
+    const pipelineConfig: PipelineConfig = {
+      ...(config.quantized !== undefined && { quantized: config.quantized }),
+      progressCallback: (progress: ProgressInfo) => {
+        if (progress.status === 'downloading' && progress.loaded && progress.total) {
+          const progressPercent = Math.round((progress.loaded / progress.total) * 100);
+          onProgress?.({
+            stage: 'downloading',
+            progress: 25 + progressPercent * 0.5, // 25-75%
+            message: `Downloading ${progress.file || 'model'}... ${progressPercent}%`,
+          });
+        }
+      },
+    };
 
-      // Use feature-extraction pipeline with robust configuration
-      const pipelineConfig: PipelineConfig = {
-        ...(config.quantized !== undefined && { quantized: config.quantized }),
-        progressCallback: (progress: ProgressInfo) => {
-          if (progress.status === 'downloading' && progress.loaded && progress.total) {
-            const progressPercent = Math.round((progress.loaded / progress.total) * 100);
-            onProgress?.({
-              stage: 'downloading',
-              progress: 25 + progressPercent * 0.5, // 25-75%
-              message: `Downloading ${progress.file || 'model'}... ${progressPercent}%`,
-            });
-          }
-        },
-      };
+    // Add device configuration based on environment
+    this._selectedDevice = determineDevice(config.device);
+    pipelineConfig.device = this._selectedDevice;
 
-      // Add device configuration based on environment
-      this._selectedDevice = determineDevice(config.device);
-      pipelineConfig.device = this._selectedDevice;
+    this._pipeline = await this._transformers.pipeline(
+      'feature-extraction',
+      config.modelId,
+      pipelineConfig
+    );
 
-      this._pipeline = await this._transformers.pipeline(
-        'feature-extraction',
-        config.modelId,
-        pipelineConfig
-      );
+    onProgress?.({
+      stage: 'ready',
+      progress: 100,
+      message: 'Model ready!',
+    });
 
-      onProgress?.({
-        stage: 'ready',
-        progress: 100,
-        message: 'Model ready!',
-      });
-
-      this._isInitialized = true;
-    } catch (error) {
-      console.error('Failed to initialize transformers backend:', error);
-      throw error;
-    }
+    this._isInitialized = true;
   }
 
   /**
@@ -138,26 +132,20 @@ export class TransformersBackend {
     if (!this._isInitialized || !this._pipeline) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
+    // Use the feature extraction pipeline with proper options
+    const output = await this._pipeline(text, {
+      pooling: 'mean',
+      normalize: true,
+    });
 
-    try {
-      // Use the feature extraction pipeline with proper options
-      const output = await this._pipeline(text, {
-        pooling: 'mean',
-        normalize: true,
-      });
+    // Convert the output to a regular array
+    const embedding = Array.from(output.data as Float32Array);
 
-      // Convert the output to a regular array
-      const embedding = Array.from(output.data as Float32Array);
-
-      return {
-        embedding,
-        dimensions: embedding.length,
-        model: modelId,
-      };
-    } catch (error) {
-      console.error('Failed to generate embedding:', error);
-      throw error;
-    }
+    return {
+      embedding,
+      dimensions: embedding.length,
+      model: modelId,
+    };
   }
 
   /**
@@ -186,9 +174,7 @@ export class TransformersBackend {
     ) {
       try {
         await (this._pipeline as unknown as { dispose: () => Promise<void> }).dispose();
-      } catch (error) {
-        console.warn('Error disposing pipeline:', error);
-      }
+      } catch (_error) {}
     }
 
     this._pipeline = null;

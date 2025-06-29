@@ -136,10 +136,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
               } as unknown as FileSystemFileHandle,
             });
           }
-        } catch (statError) {
-          // Skip files that can't be accessed (permissions, etc.)
-          console.warn(`Could not access ${fullPath}:`, statError);
-        }
+        } catch (_statError) {}
       }
 
       return result.sort((a, b) => {

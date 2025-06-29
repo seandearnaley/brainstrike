@@ -143,7 +143,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
     };
 
-    initializeDb();
+    void initializeDb();
 
     return () => {
       cancelled.value = true;

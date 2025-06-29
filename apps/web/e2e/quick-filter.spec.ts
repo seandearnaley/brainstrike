@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Quick Filter and Tree Expansion', () => {
   test.beforeEach(async ({ page }) => {
@@ -24,17 +24,23 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await resetAppState(page);
     await page.reload();
 
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     await page.getByTestId('select-root-button').click();
 
-    await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
+    ).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
   });
 
   test('should filter files and toggle tree expansion', async ({ page }) => {
     const fileTree = page.getByRole('tree', { name: 'File tree' });
-    const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+    const filterInput = page.getByPlaceholder(
+      "Type to filter files... (e.g. 'test component -spec')"
+    );
 
     await filterInput.fill('Button');
     await page.waitForTimeout(200);

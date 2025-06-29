@@ -20,10 +20,10 @@ import { PreviewTableRow } from './preview-table-row';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 import {
   GROUPING_CONFIGS,
-  type GroupKey,
   type GroupedData,
-  type TableRowData,
+  type GroupKey,
   groupData,
+  type TableRowData,
 } from './utils/grouping-configs';
 
 const logger = createLogger('PreviewPanel');
