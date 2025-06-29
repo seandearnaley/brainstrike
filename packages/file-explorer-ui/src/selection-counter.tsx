@@ -1,9 +1,9 @@
 import { Badge } from '@brainstrike/ui';
-import type React from 'react';
+import * as React from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
-export const SelectionCounter: React.FC = () => {
+export const SelectionCounter: React.FC = React.memo(() => {
   const store = useFileExplorerStoreContext();
   const { selectedFilePaths, maxSelectionCount } = store(
     (s) => ({
@@ -24,4 +24,4 @@ export const SelectionCounter: React.FC = () => {
       </Badge>
     </output>
   );
-};
+});
