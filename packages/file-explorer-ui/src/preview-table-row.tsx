@@ -1,6 +1,7 @@
 import { Badge, Checkbox } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
 import { memo } from 'react';
+import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
 
@@ -9,7 +10,7 @@ interface PreviewTableRowProps {
   isSelected: boolean;
   onToggleSelection: (compositeKey: string, checked: boolean) => void;
   onFileClick?: (compositeKey: string) => void;
-  columnVisibility: Record<string, boolean>;
+  columnVisibility: ColumnVisibility;
 }
 
 export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableRowComponent({
@@ -24,7 +25,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
 
   return (
     <tr className="border-b transition-colors hover:bg-muted/50">
-      {columnVisibility['checkbox'] && (
+      {columnVisibility.checkbox && (
         <td className="p-4 w-12">
           <Checkbox
             checked={isSelected}
@@ -34,7 +35,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           />
         </td>
       )}
-      {columnVisibility['rootFolderId'] && (
+      {columnVisibility.rootFolderId && (
         <td className="p-4">
           <div className="flex items-center gap-2">
             <FolderOpen className="size-4 text-muted-foreground flex-shrink-0" />
@@ -42,7 +43,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           </div>
         </td>
       )}
-      {columnVisibility['path'] && (
+      {columnVisibility.path && (
         <td className="p-4 min-w-0 flex-1">
           <button
             type="button"
@@ -60,14 +61,14 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           </button>
         </td>
       )}
-      {columnVisibility['type'] && (
+      {columnVisibility.type && (
         <td className="p-4 w-20">
           <Badge variant="secondary" className="text-xs">
             {item.type}
           </Badge>
         </td>
       )}
-      {columnVisibility['tokens'] && (
+      {columnVisibility.tokens && (
         <td className="p-4 w-24 text-right">
           {item.tokens ? (
             <span className="font-mono text-sm">{formatTokenCount(item.tokens)}</span>
@@ -76,7 +77,7 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
           )}
         </td>
       )}
-      {columnVisibility['size'] && (
+      {columnVisibility.size && (
         <td className="p-4 w-24 text-right">
           {item.size ? (
             <span className="font-mono text-sm">{(item.size / 1024).toFixed(1)} KB</span>

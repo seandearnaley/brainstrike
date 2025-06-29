@@ -15,6 +15,7 @@ import { createLogger } from '@brainstrike/utils';
 import { ArrowDown, ArrowUp, Columns3, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
+import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
 import {
@@ -80,6 +81,300 @@ const COLUMN_CONFIGS: ColumnConfig[] = [
   { id: 'size', label: 'Size', accessor: 'size', canHide: true, defaultVisible: true },
 ];
 
+// Utility functions to reduce complexity
+function loadStoredPreferences(storageKey: string) {
+  try {
+    const stored = localStorage.getItem(storageKey);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function createDefaultColumnVisibility(): ColumnVisibility {
+  return {
+    checkbox: true,
+    rootFolderId: true,
+    path: true,
+    type: true,
+    tokens: true,
+    size: true,
+  };
+}
+
+function getStoredColumnVisibility(storageKey: string): ColumnVisibility {
+  const stored = loadStoredPreferences(storageKey);
+  if (stored?.columnVisibility) {
+    return {
+      checkbox: true,
+      rootFolderId: stored.columnVisibility.rootFolderId ?? true,
+      path: true, // Always keep path visible
+      type: stored.columnVisibility.type ?? true,
+      tokens: stored.columnVisibility.tokens ?? true,
+      size: stored.columnVisibility.size ?? true,
+    };
+  }
+  return createDefaultColumnVisibility();
+}
+
+function getStoredValue<T>(storageKey: string, key: string, defaultValue: T): T {
+  const stored = loadStoredPreferences(storageKey);
+  return stored?.[key] ?? defaultValue;
+}
+
+// Column visibility controls component
+interface ColumnVisibilityControlsProps {
+  columnVisibility: ColumnVisibility;
+  onColumnVisibilityChange: (visibility: ColumnVisibility) => void;
+}
+
+const ColumnVisibilityControls = memo<ColumnVisibilityControlsProps>(
+  function ColumnVisibilityControlsComponent({ columnVisibility, onColumnVisibilityChange }) {
+    return (
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Columns3 className="size-3.5 mr-1" />
+            Columns
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-48 p-2">
+          <div className="space-y-1">
+            {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
+              <div
+                key={column.id}
+                className="flex items-center space-x-2 py-1.5 px-2 rounded hover:bg-accent cursor-pointer"
+              >
+                <Checkbox
+                  id={`column-${column.id}`}
+                  checked={columnVisibility[column.id as keyof ColumnVisibility] ?? false}
+                  disabled={column.id === 'checkbox' || column.id === 'path'} // Keep essential columns always visible
+                  onCheckedChange={(checked) => {
+                    onColumnVisibilityChange({
+                      ...columnVisibility,
+                      [column.id]: !!checked,
+                    });
+                  }}
+                />
+                <label
+                  htmlFor={`column-${column.id}`}
+                  className="text-sm select-none cursor-pointer"
+                >
+                  {column.label}
+                </label>
+              </div>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    );
+  }
+);
+
+// Preview Table component to reduce main component complexity
+interface PreviewTableProps {
+  columnVisibility: ColumnVisibility;
+  sortField: keyof TableRowData;
+  sortDirection: 'asc' | 'desc';
+  groupingConfig: string;
+  groupedData: GroupedData<TableRowData>[];
+  currentPageData: TableRowData[];
+  collapsedGroups: Set<string>;
+  isAllCurrentPageSelected: boolean;
+  previewSelections: Set<string>;
+  onSort: (field: keyof TableRowData) => void;
+  onToggleSelection: (compositeKey: string, checked: boolean) => void;
+  onSelectAllOnPage: (items: TableRowData[]) => void;
+  onDeselectAll: () => void;
+  getVisibleFilesOnPage: () => TableRowData[];
+  onFileClick?: (compositeKey: string) => void;
+  toggleGroupCollapse: (groupKey: GroupKey) => void;
+  isGroupFullySelected: (group: GroupedData<TableRowData>) => boolean;
+  isGroupPartiallySelected: (group: GroupedData<TableRowData>) => boolean;
+  handleGroupSelectAll: (group: GroupedData<TableRowData>) => void;
+  handleGroupDeselectAll: (group: GroupedData<TableRowData>) => void;
+  renderGroupItems: (
+    group: GroupedData<TableRowData>,
+    itemCount: number,
+    elements: React.ReactNode[]
+  ) => number;
+  pagination: { startIndex: number; endIndex: number };
+}
+
+const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(props) {
+  const {
+    columnVisibility,
+    sortField,
+    sortDirection,
+    groupingConfig,
+    groupedData,
+    currentPageData,
+    isAllCurrentPageSelected,
+    onSort,
+    onSelectAllOnPage,
+    onDeselectAll,
+    getVisibleFilesOnPage,
+    onFileClick,
+    onToggleSelection,
+    previewSelections,
+    collapsedGroups,
+    toggleGroupCollapse,
+    isGroupFullySelected,
+    isGroupPartiallySelected,
+    handleGroupSelectAll,
+    handleGroupDeselectAll,
+    renderGroupItems,
+    pagination,
+  } = props;
+
+  // Group header component wrapper
+  const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
+    const handleSelectionChange = (checked: boolean) => {
+      if (checked) {
+        handleGroupSelectAll(group);
+      } else {
+        handleGroupDeselectAll(group);
+      }
+    };
+
+    return (
+      <TableGroupHeader
+        groupKey={group.groupKey}
+        groupLabel={group.groupLabel}
+        isCollapsed={collapsedGroups.has(String(group.groupKey))}
+        isFullySelected={isGroupFullySelected(group)}
+        isPartiallySelected={isGroupPartiallySelected(group)}
+        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
+        onSelectionChange={handleSelectionChange}
+        icon={<FolderOpen className="size-4 text-muted-foreground" />}
+        stats={
+          <>
+            <span>{group.count} files</span>
+            <span>{formatTokenCount(group.totalTokens)}</span>
+            <span>{(group.totalSize / 1024).toFixed(1)} KB</span>
+          </>
+        }
+      />
+    );
+  });
+
+  // Grouped table body renderer
+  const GroupedTableBody = memo(() => {
+    const elements: React.ReactNode[] = [];
+    let itemCount = 0;
+
+    for (const group of groupedData) {
+      const isCollapsed = collapsedGroups.has(String(group.groupKey));
+
+      // Add group header if within page bounds
+      if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
+        elements.push(<GroupHeaderWrapper key={`group-${group.groupKey}`} group={group} />);
+      }
+      itemCount++;
+
+      // Add group items if not collapsed
+      if (!isCollapsed) {
+        itemCount = renderGroupItems(group, itemCount, elements);
+      }
+
+      // Stop if we've reached the end of the page
+      if (itemCount >= pagination.endIndex) break;
+    }
+
+    return <>{elements}</>;
+  });
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <div className="min-w-full">
+        <table className="w-full border-collapse">
+          <thead className="sticky top-0 bg-background border-b">
+            <tr>
+              {columnVisibility.checkbox && (
+                <th className="px-4 py-3 w-12" scope="col">
+                  <Checkbox
+                    checked={isAllCurrentPageSelected}
+                    onCheckedChange={(checked) =>
+                      checked ? onSelectAllOnPage(getVisibleFilesOnPage()) : onDeselectAll()
+                    }
+                    aria-label="Select all files on current page"
+                    title="Select all files on current page"
+                  />
+                </th>
+              )}
+              {columnVisibility.rootFolderId && (
+                <SortableTableHeader
+                  field="rootFolderId"
+                  title="Folder"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                />
+              )}
+              {columnVisibility.path && (
+                <SortableTableHeader
+                  field="path"
+                  title="File Path"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="min-w-0 flex-1"
+                />
+              )}
+              {columnVisibility.type && (
+                <SortableTableHeader
+                  field="type"
+                  title="Type"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="w-20"
+                />
+              )}
+              {columnVisibility.tokens && (
+                <SortableTableHeader
+                  field="tokens"
+                  title="Tokens"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="w-24"
+                />
+              )}
+              {columnVisibility.size && (
+                <SortableTableHeader
+                  field="size"
+                  title="Size"
+                  sortField={sortField}
+                  sortDirection={sortDirection}
+                  onSort={onSort}
+                  className="w-24"
+                />
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {groupingConfig === 'none' ? (
+              currentPageData.map((item) => (
+                <PreviewTableRow
+                  key={item.compositeKey}
+                  item={item}
+                  isSelected={previewSelections.has(item.compositeKey)}
+                  onToggleSelection={onToggleSelection}
+                  columnVisibility={columnVisibility}
+                  {...(onFileClick && { onFileClick })}
+                />
+              ))
+            ) : (
+              <GroupedTableBody />
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+});
+
 export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelComponent(props) {
   const {
     selectedFiles,
@@ -97,106 +392,49 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   // Local selection state for preview panel - separate from file tree selections
   const [previewSelections, setPreviewSelections] = useState<Set<string>>(new Set());
 
-  // Default column visibility
-  const defaultColumnVisibility = useMemo(() => {
-    const defaults: Record<string, boolean> = {};
-    for (const col of COLUMN_CONFIGS) {
-      defaults[col.id] = col.defaultVisible;
-    }
-    return defaults;
-  }, []);
+  // Safe localStorage persistence without the problematic hook
+  const storageKey = 'previewPanelSettings.v1';
 
-  // Simple persistence with localStorage
-  const STORAGE_KEY = 'previewPanelPreferences.v1';
-  
-  // Load initial state from localStorage
-  const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return { ...defaultColumnVisibility, ...parsed.columnVisibility };
-      }
-    } catch (error) {
-      console.warn('Failed to load preferences from localStorage:', error);
-    }
-    return defaultColumnVisibility;
-  });
-  
-  const [sortField, setSortField] = useState<keyof TableRowData>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return parsed.sortField || 'rootFolderId';
-      }
-    } catch (error) {
-      console.warn('Failed to load preferences from localStorage:', error);
-    }
-    return 'rootFolderId';
-  });
-  
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return parsed.sortDirection || 'asc';
-      }
-    } catch (error) {
-      console.warn('Failed to load preferences from localStorage:', error);
-    }
-    return 'asc';
-  });
-  
-  const [groupingConfig, setGroupingConfig] = useState<string>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return parsed.groupingConfig || 'none';
-      }
-    } catch (error) {
-      console.warn('Failed to load preferences from localStorage:', error);
-    }
-    return 'none';
-  });
-  
+  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibility>(() =>
+    getStoredColumnVisibility(storageKey)
+  );
+
+  const [sortField, setSortField] = useState<keyof TableRowData>(() =>
+    getStoredValue(storageKey, 'sortField', 'rootFolderId')
+  );
+
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>(() =>
+    getStoredValue(storageKey, 'sortDirection', 'asc')
+  );
+
+  const [groupingConfig, setGroupingConfig] = useState<string>(() =>
+    getStoredValue(storageKey, 'groupingConfig', 'none')
+  );
+
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return new Set(parsed.collapsedGroups || []);
-      }
-    } catch (error) {
-      console.warn('Failed to load preferences from localStorage:', error);
-    }
-    return new Set();
+    const storedGroups = getStoredValue(storageKey, 'collapsedGroups', []);
+    return new Set(storedGroups);
   });
 
-  // Save to localStorage whenever state changes
-  const savePreferences = useCallback(() => {
-    try {
-      const preferences = {
-        columnVisibility,
-        sortField,
-        sortDirection,
-        groupingConfig,
-        collapsedGroups: Array.from(collapsedGroups),
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(preferences));
-      console.log('💾 Saved preferences to localStorage');
-    } catch (error) {
-      console.warn('Failed to save preferences to localStorage:', error);
-    }
-  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups]);
-
-  // Debounced save
+  // Debounced save to localStorage
   useEffect(() => {
-    const timeoutId = setTimeout(savePreferences, 250);
+    const timeoutId = setTimeout(() => {
+      try {
+        const settings = {
+          columnVisibility,
+          sortField,
+          sortDirection,
+          groupingConfig,
+          collapsedGroups: Array.from(collapsedGroups),
+        };
+        localStorage.setItem(storageKey, JSON.stringify(settings));
+      } catch {
+        // Ignore errors
+      }
+    }, 250);
+
     return () => clearTimeout(timeoutId);
-  }, [savePreferences]);
+  }, [columnVisibility, sortField, sortDirection, groupingConfig, collapsedGroups]);
 
   const state = usePreviewPanelState({
     selectedFiles,
@@ -247,8 +485,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       })
       .filter((item): item is TableRowData => item !== null);
   }, [deferredFlatListItems, decodeFileSelection]);
-
-  // Using local state variables defined above
 
   // Toggle group collapse
   const toggleGroupCollapse = useCallback((groupKey: GroupKey) => {
@@ -366,37 +602,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       ? flattenedData.slice(pagination.startIndex, pagination.endIndex)
       : [];
 
-  // Group header component wrapper
-  const GroupHeaderWrapper = memo(({ group }: { group: GroupedData<TableRowData> }) => {
-    const handleSelectionChange = (checked: boolean) => {
-      if (checked) {
-        handleGroupSelectAll(group);
-      } else {
-        handleGroupDeselectAll(group);
-      }
-    };
-
-    return (
-      <TableGroupHeader
-        groupKey={group.groupKey}
-        groupLabel={group.groupLabel}
-        isCollapsed={collapsedGroups.has(String(group.groupKey))}
-        isFullySelected={isGroupFullySelected(group)}
-        isPartiallySelected={isGroupPartiallySelected(group)}
-        onToggleCollapse={() => toggleGroupCollapse(group.groupKey)}
-        onSelectionChange={handleSelectionChange}
-        icon={<FolderOpen className="size-4 text-muted-foreground" />}
-        stats={
-          <>
-            <span>{group.count} files</span>
-            <span>{formatTokenCount(group.totalTokens)}</span>
-            <span>{(group.totalSize / 1024).toFixed(1)} KB</span>
-          </>
-        }
-      />
-    );
-  });
-
   // Helper to render group items within pagination bounds
   const renderGroupItems = useCallback(
     (group: GroupedData<TableRowData>, itemCount: number, elements: React.ReactNode[]) => {
@@ -429,32 +634,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       onFileClick,
     ]
   );
-
-  // Grouped table body renderer
-  const GroupedTableBody = memo(() => {
-    const elements: React.ReactNode[] = [];
-    let itemCount = 0;
-
-    for (const group of groupedData) {
-      const isCollapsed = collapsedGroups.has(String(group.groupKey));
-
-      // Add group header if within page bounds
-      if (itemCount >= pagination.startIndex && itemCount < pagination.endIndex) {
-        elements.push(<GroupHeaderWrapper key={`group-${group.groupKey}`} group={group} />);
-      }
-      itemCount++;
-
-      // Add group items if not collapsed
-      if (!isCollapsed) {
-        itemCount = renderGroupItems(group, itemCount, elements);
-      }
-
-      // Stop if we've reached the end of the page
-      if (itemCount >= pagination.endIndex) break;
-    }
-
-    return <>{elements}</>;
-  });
 
   // Helper to collect visible items from a group
   const collectVisibleGroupItems = useCallback(
@@ -627,41 +806,10 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               <ArrowUp className="size-3.5" />
               <span className="hidden sm:inline ml-1">Collapse</span>
             </Button>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Columns3 className="size-3.5 mr-1" />
-                  Columns
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-48 p-2">
-                <div className="space-y-1">
-                  {COLUMN_CONFIGS.filter((col) => col.canHide).map((column) => (
-                    <div
-                      key={column.id}
-                      className="flex items-center space-x-2 py-1.5 px-2 rounded hover:bg-accent cursor-pointer"
-                    >
-                      <Checkbox
-                        id={`column-${column.id}`}
-                        checked={columnVisibility[column.id] ?? false}
-                        onCheckedChange={(checked) => {
-                          setColumnVisibility(prev => ({
-                            ...prev,
-                            [column.id]: !!checked
-                          }));
-                        }}
-                      />
-                      <label
-                        htmlFor={`column-${column.id}`}
-                        className="text-sm select-none cursor-pointer"
-                      >
-                        {column.label}
-                      </label>
-                    </div>
-                  ))}
-                </div>
-              </PopoverContent>
-            </Popover>
+            <ColumnVisibilityControls
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+            />
           </div>
         </div>
 
@@ -695,7 +843,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))}
+                onClick={() =>
+                  setCollapsedGroups(new Set(groupedData.map((g) => String(g.groupKey))))
+                }
                 title="Collapse all groups"
               >
                 Collapse All Groups
@@ -706,98 +856,36 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       </div>
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <div className="min-w-full">
-          <table className="w-full border-collapse">
-            <thead className="sticky top-0 bg-background border-b">
-              <tr>
-                {columnVisibility['checkbox'] && (
-                  <th className="px-4 py-3 w-12" scope="col">
-                    <Checkbox
-                      checked={isAllCurrentPageSelected}
-                      onCheckedChange={(checked) =>
-                        checked ? selectAllOnPage(getVisibleFilesOnPage()) : deselectAll()
-                      }
-                      aria-label="Select all files on current page"
-                      title="Select all files on current page"
-                    />
-                  </th>
-                )}
-                {columnVisibility['rootFolderId'] && (
-                  <SortableTableHeader
-                    field="rootFolderId"
-                    title="Folder"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                  />
-                )}
-                {columnVisibility['path'] && (
-                  <SortableTableHeader
-                    field="path"
-                    title="File Path"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                    className="min-w-0 flex-1"
-                  />
-                )}
-                {columnVisibility['type'] && (
-                  <SortableTableHeader
-                    field="type"
-                    title="Type"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                    className="w-20"
-                  />
-                )}
-                {columnVisibility['tokens'] && (
-                  <SortableTableHeader
-                    field="tokens"
-                    title="Tokens"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                    className="w-24"
-                  />
-                )}
-                {columnVisibility['size'] && (
-                  <SortableTableHeader
-                    field="size"
-                    title="Size"
-                    sortField={sortField}
-                    sortDirection={sortDirection}
-                    onSort={handleSort}
-                    className="w-24"
-                  />
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {groupingConfig === 'none' ? (
-                currentPageData.map((item) => (
-                  <PreviewTableRow
-                    key={item.compositeKey}
-                    item={item}
-                    isSelected={previewSelections.has(item.compositeKey)}
-                    onToggleSelection={toggleItemSelection}
-                    columnVisibility={columnVisibility}
-                    {...(onFileClick && { onFileClick })}
-                  />
-                ))
-              ) : (
-                <GroupedTableBody />
-              )}
-            </tbody>
-          </table>
-          {flattenedData.length === 0 && (
-            <div className="p-8 text-center text-muted-foreground">
-              No files match your selection criteria
-            </div>
-          )}
+      <PreviewTable
+        columnVisibility={columnVisibility}
+        sortField={sortField}
+        sortDirection={sortDirection}
+        groupingConfig={groupingConfig}
+        groupedData={groupedData}
+        currentPageData={currentPageData}
+        collapsedGroups={collapsedGroups}
+        isAllCurrentPageSelected={isAllCurrentPageSelected}
+        previewSelections={previewSelections}
+        onSort={handleSort}
+        onToggleSelection={toggleItemSelection}
+        onSelectAllOnPage={selectAllOnPage}
+        onDeselectAll={deselectAll}
+        getVisibleFilesOnPage={getVisibleFilesOnPage}
+        {...(onFileClick && { onFileClick })}
+        toggleGroupCollapse={toggleGroupCollapse}
+        isGroupFullySelected={isGroupFullySelected}
+        isGroupPartiallySelected={isGroupPartiallySelected}
+        handleGroupSelectAll={handleGroupSelectAll}
+        handleGroupDeselectAll={handleGroupDeselectAll}
+        renderGroupItems={renderGroupItems}
+        pagination={pagination}
+      />
+
+      {flattenedData.length === 0 && (
+        <div className="p-8 text-center text-muted-foreground">
+          No files match your selection criteria
         </div>
-      </div>
+      )}
 
       {/* Pagination */}
       <TablePagination

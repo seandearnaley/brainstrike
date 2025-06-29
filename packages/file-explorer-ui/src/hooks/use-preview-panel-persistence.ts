@@ -7,8 +7,18 @@ import { createDebounce } from './debounce';
 const STORAGE_KEY = 'previewPanelPreferences.v1';
 const SAVE_DEBOUNCE_MS = 250;
 
+// Define specific column visibility keys
+export interface ColumnVisibility {
+  checkbox: boolean;
+  rootFolderId: boolean;
+  path: boolean;
+  type: boolean;
+  tokens: boolean;
+  size: boolean;
+}
+
 export interface PreviewPanelPreferences<T = Record<string, unknown>> {
-  columnVisibility: Record<string, boolean>;
+  columnVisibility: ColumnVisibility;
   sortField: keyof T;
   sortDirection: 'asc' | 'desc';
   groupingConfig: string;
@@ -17,7 +27,7 @@ export interface PreviewPanelPreferences<T = Record<string, unknown>> {
 }
 
 export interface UsePreviewPanelPersistenceOptions<T = Record<string, unknown>> {
-  defaultColumnVisibility: Record<string, boolean>;
+  defaultColumnVisibility: ColumnVisibility;
   defaultSortField: keyof T;
   defaultSortDirection: 'asc' | 'desc';
   defaultGroupingConfig: string;
@@ -27,7 +37,6 @@ export interface UsePreviewPanelPersistenceOptions<T = Record<string, unknown>> 
 export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   options: UsePreviewPanelPersistenceOptions<T>
 ) {
-  console.log('🚀 Preview panel persistence hook initializing');
   const { storageAdapter } = useAdapters();
   const [isLoading, setIsLoading] = useState(true);
   const [preferences, setPreferences] = useState<PreviewPanelPreferences<T>>(() => ({
@@ -57,7 +66,6 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
           collapsedGroups: Array.isArray(parsed.collapsedGroups) ? parsed.collapsedGroups : [],
           pageSize: parsed.pageSize || options.defaultPageSize,
         };
-        console.log('📂 Loaded preferences from storage:', validated);
         return validated;
       }
     } catch (error) {
@@ -72,12 +80,12 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   const savePreferences = useCallback(
     async (preferencesToSave: PreviewPanelPreferences<T>) => {
       try {
-        console.log('💿 Actually saving to storage:', STORAGE_KEY);
         await storageAdapter.setItem(STORAGE_KEY, JSON.stringify(preferencesToSave));
         lastSavedRef.current = preferencesToSave;
-        console.log('✅ Saved successfully to storage');
       } catch (error) {
-        console.error('❌ Failed to save preview panel preferences:', error);
+        if (isDevEnv()) {
+          console.error('Failed to save preview panel preferences:', error);
+        }
       }
     },
     [storageAdapter]
@@ -104,36 +112,30 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   // Persist preferences with optimization to avoid unnecessary saves
   const persist = useCallback(
     (newPreferences: PreviewPanelPreferences<T>) => {
-      console.log('💾 persist called');
       if (pendingRef.current && preferencesEqual(pendingRef.current, newPreferences)) {
-        console.log('⏭️ Skipping - equal to pending');
         return;
       }
       if (!pendingRef.current && preferencesEqual(lastSavedRef.current, newPreferences)) {
-        console.log('⏭️ Skipping - equal to last saved');
         return;
       }
 
-      console.log('⏰ Scheduling debounced save');
       pendingRef.current = newPreferences;
       debouncedSave(newPreferences);
     },
     [debouncedSave, preferencesEqual]
   );
 
-  // Update preferences and persist
-  const updatePreferences = useCallback(
-    (updates: Partial<PreviewPanelPreferences<T>>) => {
-      console.log('🔧 updatePreferences called with:', updates);
-      setPreferences(currentPrefs => {
-        const newPreferences = { ...currentPrefs, ...updates };
-        console.log('📝 New preferences:', newPreferences);
-        persist(newPreferences);
-        return newPreferences;
-      });
-    },
-    [persist]
-  );
+  // Update preferences
+  const updatePreferences = useCallback((updates: Partial<PreviewPanelPreferences<T>>) => {
+    setPreferences((currentPrefs) => ({ ...currentPrefs, ...updates }));
+  }, []);
+
+  // Persist preferences when they change
+  useEffect(() => {
+    if (!isLoading) {
+      persist(preferences);
+    }
+  }, [preferences, persist, isLoading]);
 
   // Reset to defaults
   const resetPreferences = useCallback(() => {
