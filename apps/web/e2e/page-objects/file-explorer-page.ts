@@ -33,7 +33,11 @@ export class FileExplorerPage {
   }
 
   get copyReportButton(): Locator {
-    return this.page.locator('button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))').first();
+    return this.page
+      .locator(
+        'button:has-text("Copy Report"), button:has-text("Copy"):not(:has-text("Copy Report"))'
+      )
+      .first();
   }
 
   get selectAllButton(): Locator {

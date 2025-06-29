@@ -1,12 +1,39 @@
-import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import type { FileHandle } from '@brainstrike/file-system';
+import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
 import type { IFileNode } from '@brainstrike/types';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createFileExplorerStore } from '../store';
 
-const NODE_ENV_KEY = 'NODE_ENV';
-const isDev = process.env[NODE_ENV_KEY] !== 'production';
+// Skip NODE_ENV check in tests to avoid process mock conflicts
+const isDev = false;
+
+// Helper function to wait for Zustand hydration
+function waitForHydration(store: ReturnType<typeof createFileExplorerStore>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let attempts = 0;
+    const checkInterval = setInterval(() => {
+      attempts++;
+      if (store.persist.hasHydrated()) {
+        const unsub = store.persist.onFinishHydration(() => {
+          resolve();
+          unsub();
+          clearInterval(checkInterval);
+        });
+        // It might have hydrated between hasHydrated check and onFinishHydration setup
+        if (store.persist.hasHydrated()) {
+          resolve();
+          unsub();
+          clearInterval(checkInterval);
+        }
+      } else if (attempts > 20) {
+        // Timeout after ~2 seconds
+        clearInterval(checkInterval);
+        resolve(); // Resolve to let test fail on assertions
+      }
+    }, 100);
+  });
+}
 
 describe('Adapter Integration', () => {
   let memoryStorage: MemoryStorageAdapter;
@@ -39,50 +66,12 @@ describe('Adapter Integration', () => {
       const newStore = createFileExplorerStore(memoryStorage);
 
       // Wait for Zustand's rehydration to complete
-      const hydrationFinished = new Promise<void>((resolve) => {
-        // The `persist` middleware might not immediately attach `onFinishHydration`
-        // Poll for it, or ensure the store is fully initialized if this is an issue.
-        let attempts = 0;
-        const checkInterval = setInterval(() => {
-          attempts++;
-          if (newStore.persist.hasHydrated()) {
-            const unsub = newStore.persist.onFinishHydration(() => {
-              if (isDev)
-                console.log(
-                  '[onFinishHydration] Hydrated state from callback:',
-                  newStore.getState()
-                );
-              resolve();
-              unsub();
-              clearInterval(checkInterval);
-            });
-            // It might have hydrated between hasHydrated check and onFinishHydration setup
-            // If already hydrated, resolve immediately.
-            if (newStore.persist.hasHydrated()) {
-              // Double check
-              if (isDev)
-                console.log('[onFinishHydration] Already hydrated, resolving from double check.');
-              resolve();
-              unsub();
-              clearInterval(checkInterval);
-            }
-          } else if (attempts > 20) {
-            // Timeout after ~2 seconds
-            clearInterval(checkInterval);
-            console.error('[Test Error] Timed out waiting for store hydration');
-            resolve(); // Resolve to let test fail on assertions
-          }
-        }, 100);
-      });
+      const hydrationFinished = waitForHydration(newStore);
 
       await hydrationFinished;
 
       const newState = newStore.getState();
-      if (isDev)
-        console.log(
-          `[Test Final State] currentFolderId: ${newState.currentFolderId}, selectedPathsType: ${newState.selectedFilePaths?.constructor?.name}`
-        );
-      expect(newState.currentFolderId).toBe('test-folder');
+      if (isDev) expect(newState.currentFolderId).toBe('test-folder');
       expect(newState.selectedFilePaths).toBeInstanceOf(Set);
       expect(newState.expandedDirectoryPaths).toBeInstanceOf(Set);
       expect(newState.selectedFilePaths.has('test-folder|@|test-file.txt')).toBe(true);

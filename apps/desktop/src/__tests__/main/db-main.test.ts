@@ -28,7 +28,6 @@ describe('initializeMainDatabase', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
-    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket notation
     process.env['NODE_ENV'] = 'test';
   });
 
@@ -45,7 +44,6 @@ describe('initializeMainDatabase', () => {
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
     const firstCall = PGliteMock.mock.calls[0] as [Record<string, unknown>] | undefined;
-    // biome-ignore lint/complexity/useLiteralKeys: index signature requires bracket notation
     expect(firstCall?.[0]['fs']).toBe(fsInstance);
     expect(migrateMock).toHaveBeenCalledWith(db1);
 

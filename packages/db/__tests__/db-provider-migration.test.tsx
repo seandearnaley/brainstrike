@@ -1,9 +1,9 @@
+import { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
-import React from 'react';
+import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import type { FileRecord } from '../src/models/file-record';
-import { PGlite } from '@electric-sql/pglite';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -30,16 +30,16 @@ describe('DbProvider integration', () => {
 
   it('migrates, creates and retrieves records via context repository', async () => {
     // Mock the wasmLoader to return a real PGlite instance without WASM loading
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite();
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-    const { result } = renderHook(() => {
-      try {
-        return useFileRecordRepository();
-      } catch {
-        return null;
-      }
-    }, { wrapper });
-    
+    const { result } = renderHook(
+      () => {
+        const repo = useFileRecordRepository();
+        return repo;
+      },
+      { wrapper }
+    );
+
     await waitFor(
       () => {
         expect(result.current).not.toBeNull();
@@ -49,8 +49,11 @@ describe('DbProvider integration', () => {
         timeout: 30000, // Allow slower CI runners (up to 30 s)
       }
     );
-    
-    const repo = result.current!;
+
+    if (!result.current) {
+      throw new Error('Repository should be available after migration');
+    }
+    const repo = result.current;
 
     const record = createTestRecord();
     await repo.create(record);
@@ -58,4 +61,3 @@ describe('DbProvider integration', () => {
     expect(found).toEqual(record);
   });
 });
-

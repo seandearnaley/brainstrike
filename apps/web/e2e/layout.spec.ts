@@ -1,12 +1,12 @@
-import { test, expect } from '@playwright/test';
-import {
-  getPanelElements,
-  waitForAppLoad,
-  verifyDefaultLayout,
-  togglePanelVisibility,
-} from './utils/layout-helpers';
+import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
 import { resetAppState } from './utils/app-state';
+import {
+  getPanelElements,
+  togglePanelVisibility,
+  verifyDefaultLayout,
+  waitForAppLoad,
+} from './utils/layout-helpers';
 
 test.describe('Application Layout', () => {
   test('should render the main layout correctly', async ({ page }) => {
@@ -66,45 +66,47 @@ test.describe('Application Layout', () => {
 
     test('should allow toggling left panel visibility', async ({ page }) => {
       const elements = getPanelElements(page);
-      
+
       // Initially visible
       await expect(elements.leftPanel).toBeVisible();
-      
+
       // Hide panel
       await togglePanelVisibility(elements.hideExplorerButton, elements.leftPanel, false);
       await expect(elements.showExplorerShim).toBeVisible();
-      
+
       // Show panel again
       await togglePanelVisibility(elements.showExplorerShim, elements.leftPanel, true);
     });
 
     test('should allow toggling console panel visibility', async ({ page }) => {
       const elements = getPanelElements(page);
-      
+
       // Initially hidden
       await expect(elements.consolePanel).not.toBeVisible();
       await expect(elements.showConsoleShim).toBeVisible();
-      
+
       // Show console (now tabbed file editor)
       await togglePanelVisibility(elements.showConsoleShim, elements.consolePanel, true);
       await expect(page.getByText('No files open')).toBeVisible();
-      await expect(page.getByText('Click on a file in the preview panel to open it here')).toBeVisible();
-      
+      await expect(
+        page.getByText('Click on a file in the preview panel to open it here')
+      ).toBeVisible();
+
       // Hide console
       await togglePanelVisibility(elements.hideConsoleButton, elements.consolePanel, false);
     });
 
     test('should have resizable panels', async ({ page }) => {
       const elements = getPanelElements(page);
-      
+
       // Verify resize handles are present
       const resizeHandles = page.locator('[data-panel-resize-handle-enabled="true"]');
       await expect(resizeHandles.first()).toBeVisible(); // Left panel resize handle
-      
+
       // Show console to get more resize handles
       await elements.showConsoleShim.click();
       await expect(elements.consolePanel).toBeVisible();
-      
+
       // Should have console resize handle too
       await expect(resizeHandles.last()).toBeVisible();
     });
@@ -115,7 +117,7 @@ test.describe('Application Layout', () => {
       await elements.showRightPanelShim.click(); // Show right panel first since it's hidden by default
       await elements.hideRightPanelButton.click(); // Now we can hide it
       await elements.showRightPanelShim.click(); // And show it again
-      
+
       // Verify all main layout containers exist
       await expect(page.locator('[data-panel-id="left-panel"]')).toBeAttached();
       await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();

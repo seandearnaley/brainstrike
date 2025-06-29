@@ -129,7 +129,7 @@ describe('Model Registry Tests', () => {
     it('should have required properties for all models', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [key, model] of Object.entries(models)) {
+      for (const [_key, model] of Object.entries(models)) {
         expect(model.id).toBeDefined();
         expect(model.name).toBeDefined();
         expect(model.dimensions).toBeGreaterThan(0);
@@ -138,15 +138,13 @@ describe('Model Registry Tests', () => {
         expect(Array.isArray(model.tags)).toBe(true);
         expect(model.origin).toBeDefined();
         expect(model.size).toBeDefined();
-
-        console.log(`Model ${key}: ${model.name} (${model.dimensions}D, ${model.size})`);
       }
     });
 
     it('should have consistent model IDs with proper prefixes', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [key, model] of Object.entries(models)) {
+      for (const [_key, model] of Object.entries(models)) {
         // Most models use Xenova/ prefix, but Jina uses jinaai/ prefix
         expect(model.id).toMatch(/^(Xenova|jinaai)\//);
       }
@@ -155,7 +153,7 @@ describe('Model Registry Tests', () => {
     it('should have reasonable dimension values', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [key, model] of Object.entries(models)) {
+      for (const [_key, model] of Object.entries(models)) {
         expect(model.dimensions).toBeGreaterThan(100);
         expect(model.dimensions).toBeLessThan(5000);
         expect(model.dimensions % 1).toBe(0); // Should be integer
@@ -165,7 +163,7 @@ describe('Model Registry Tests', () => {
     it('should have non-empty tags for all models', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [key, model] of Object.entries(models)) {
+      for (const [_key, model] of Object.entries(models)) {
         expect(model.tags.length).toBeGreaterThan(0);
         expect(model.tags.every((tag) => typeof tag === 'string' && tag.length > 0)).toBe(true);
       }

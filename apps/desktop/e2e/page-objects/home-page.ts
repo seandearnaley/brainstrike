@@ -36,13 +36,13 @@ export class HomePage {
   async waitForLoad() {
     // Wait for the root element to be present and app to be loaded
     await this.rootElement.waitFor({ state: 'attached' });
-    
+
     // Wait for loading indicator to disappear if present
     const loadingElement = this.loadingIndicator;
     if (await loadingElement.isVisible().catch(() => false)) {
       await loadingElement.waitFor({ state: 'hidden', timeout: 10000 });
     }
-    
+
     // Give the app a moment to fully initialize
     await this.page.waitForTimeout(1000);
   }
@@ -70,13 +70,13 @@ export class HomePage {
   async shouldBeVisible() {
     // Check that the app has loaded by verifying the root element exists
     await this.rootElement.waitFor({ state: 'attached' });
-    
+
     // Verify the app title
     const title = await this.page.title();
     if (!title.includes('BrainStrike')) {
       throw new Error(`Expected title to contain 'BrainStrike' but got: ${title}`);
     }
-    
+
     // Wait for any loading to complete
     await this.waitForLoad();
   }
@@ -106,4 +106,4 @@ export class HomePage {
       }
     }
   }
-} 
+}

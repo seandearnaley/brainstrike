@@ -1,29 +1,42 @@
 {
-	"extends": "../../packages/config/tsconfig/base.json",
-	"compilerOptions": {
-		"composite": true,
-		"incremental": true,
-		"allowImportingTsExtensions": true,
-		"emitDeclarationOnly": true,
-		"outDir": "dist",
-                "paths": {
-                        "@web/*": ["./src/*"]
-                },
-		"types": ["node", "vite/client"]
-	},
-        "include": ["src", "playwright.config.ts"],
-	"exclude": ["node_modules", "dist", "build", "coverage", "src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**", "e2e", "vite.config.mts", "vitest.config.ts", "vitest.config.unit.ts", "vitest.config.integration.ts"],
-	"references": [
-		{"path": "../../packages/app-shell"},
-		{"path": "../../packages/fonts"},
-		{"path": "../../packages/hooks"},
-		{"path": "../../packages/server-config"},
-		{"path": "../../packages/types"},
-		{"path": "../../packages/ui"},
-		{"path": "../../packages/utils"},
-		{"path": "../../packages/file-explorer"},
-		{"path": "../../packages/file-explorer-hooks"},
-		{"path": "../../packages/file-explorer-ui"},
-		{"path": "../../packages/db"}
-	]
+  "extends": "../../packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "composite": true,
+    "incremental": true,
+    "allowImportingTsExtensions": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist",
+    "paths": {
+      "@web/*": ["./src/*"]
+    },
+    "types": ["node", "vite/client"]
+  },
+  "include": ["src", "playwright.config.ts"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/__tests__/**",
+    "e2e",
+    "vite.config.mts",
+    "vitest.config.ts",
+    "vitest.config.unit.ts",
+    "vitest.config.integration.ts"
+  ],
+  "references": [
+    { "path": "../../packages/app-shell" },
+    { "path": "../../packages/fonts" },
+    { "path": "../../packages/hooks" },
+    { "path": "../../packages/server-config" },
+    { "path": "../../packages/types" },
+    { "path": "../../packages/ui" },
+    { "path": "../../packages/utils" },
+    { "path": "../../packages/file-explorer" },
+    { "path": "../../packages/file-explorer-hooks" },
+    { "path": "../../packages/file-explorer-ui" },
+    { "path": "../../packages/db" }
+  ]
 }

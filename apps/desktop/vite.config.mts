@@ -1,12 +1,12 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
-import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
+import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+import topLevelAwait from 'vite-plugin-top-level-await';
+import wasm from 'vite-plugin-wasm';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -17,7 +17,7 @@ function findPGliteWasm(): string | null {
     path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
     path.resolve(__dirname, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
   ];
-  
+
   // Also try to find in pnpm directory structure with any version
   try {
     const pnpmDir = path.resolve(__dirname, '../../node_modules/.pnpm');
@@ -25,22 +25,26 @@ function findPGliteWasm(): string | null {
       const entries = readdirSync(pnpmDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
-          const wasmPath = path.join(pnpmDir, entry.name, 'node_modules/@electric-sql/pglite/dist/pglite.wasm');
+          const wasmPath = path.join(
+            pnpmDir,
+            entry.name,
+            'node_modules/@electric-sql/pglite/dist/pglite.wasm'
+          );
           possiblePaths.push(wasmPath);
         }
       }
     }
-  } catch (err) {
+  } catch (_err) {
     // Ignore errors when scanning pnpm directory
   }
-  
+
   for (const wasmPath of possiblePaths) {
     if (existsSync(wasmPath)) {
       console.log(`Found PGLite WASM at: ${wasmPath}`);
       return wasmPath;
     }
   }
-  
+
   console.warn('PGLite WASM file not found in any expected location');
   return null;
 }
@@ -56,16 +60,18 @@ export default defineConfig({
     topLevelAwait(),
     react(),
     tailwindcss(),
-    ...(wasmPath ? [
-      viteStaticCopy({
-        targets: [
-          {
-            src: wasmPath,
-            dest: 'assets',
-          },
-        ],
-      })
-    ] : []),
+    ...(wasmPath
+      ? [
+          viteStaticCopy({
+            targets: [
+              {
+                src: wasmPath,
+                dest: 'assets',
+              },
+            ],
+          }),
+        ]
+      : []),
   ],
   build: {
     outDir: 'dist/renderer',
@@ -79,9 +85,9 @@ export default defineConfig({
       external: ['electron', 'chokidar'],
       output: {
         manualChunks: (id) => {
-          if (id.includes("node_modules")) {
+          if (id.includes('node_modules')) {
             // Group vendor dependencies
-            return "vendor";
+            return 'vendor';
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
           return undefined;
@@ -111,14 +117,14 @@ export default defineConfig({
       '@brainstrike/file-explorer-ui',
       '@brainstrike/file-system',
       '@brainstrike/storage',
-      '@brainstrike/app-shell'
-    ]
+      '@brainstrike/app-shell',
+    ],
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts
     headers: {
-      'Content-Security-Policy': getDevCSP()
-    }
+      'Content-Security-Policy': getDevCSP(),
+    },
   },
   publicDir: 'public',
 });

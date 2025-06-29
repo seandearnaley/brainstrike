@@ -5,4 +5,4 @@
       "outputs": ["tsconfig/**", "biome/**"]
     }
   }
-} 
+}

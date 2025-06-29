@@ -89,7 +89,6 @@ export class SimpleEmbeddingService implements EmbeddingService {
       await this._backend.initialize(this._config, onProgress);
       this._status = 'ready';
     } catch (error) {
-      console.error('Failed to initialize embedding service:', error);
       this._status = 'error';
       throw error;
     }

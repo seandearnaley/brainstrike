@@ -1,7 +1,7 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import {
-  type FileContentWorker,
   createFileContentWorker,
+  type FileContentWorker,
 } from '@brainstrike/workers/file-content-worker';
 
 export function getDefaultConcurrency(): number {

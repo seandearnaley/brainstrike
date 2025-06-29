@@ -10,7 +10,7 @@ export function createDebounce<T extends unknown[]>(
       clearTimeout(timeoutId);
     }
 
-    new Promise<void>((resolve) => {
+    return new Promise<void>((resolve) => {
       pendingResolve = resolve;
       timeoutId = setTimeout(async () => {
         try {

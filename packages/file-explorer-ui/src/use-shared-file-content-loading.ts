@@ -215,7 +215,6 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             processWorkerResults(results, store.getState().setFileContent);
           });
       } catch (err) {
-        console.error('Error loading files:', err);
         setError(err as Error);
       } finally {
         setIsLoading(false);
@@ -230,7 +229,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
 
     for (const compositeKey of selectedFilePaths) {
       if (!fileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
-        loadSingleFile(
+        void loadSingleFile(
           compositeKey,
           workerRef,
           prepareFileRead,

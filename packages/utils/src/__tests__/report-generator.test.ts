@@ -500,13 +500,13 @@ describe('generateReportFromAdapter', () => {
 
   it('flags symlinks, depth truncation, and ignores standard paths', async () => {
     // Minimal helper functions to create file and directory nodes
-    const dirNode = (path: string, name?: string): MockFileEntry => ({
+    const _dirNode = (path: string, name?: string): MockFileEntry => ({
       name: name ?? (path.split('/').pop() || ''),
       type: 'directory',
       children: {},
     });
 
-    const fileNode = (path: string): MockFileEntry => ({
+    const _fileNode = (path: string): MockFileEntry => ({
       name: path.split('/').pop() || '',
       type: 'file',
       content: '',

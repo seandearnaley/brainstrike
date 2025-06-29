@@ -11,4 +11,4 @@ export default defineConfig({
   // Copy the transpiled worker (Rollup/Vite emits ".worker.js") as a separate asset so
   // it can be loaded at runtime without bundling issues.
   loader: { '.worker.js': 'copy' },
-}); 
+});

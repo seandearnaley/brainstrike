@@ -54,7 +54,6 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     }, [tabs, updateTabContent, fileContents]);
 
     // Function to open a file in a tab (exposed globally for preview panel to use)
-    // biome-ignore lint/correctness/useExhaustiveDependencies: to prevent infinite loops
     const handleOpenFileInTab = useCallback(
       (compositeKey: string) => {
         const { path } = decodeFileSelection(compositeKey);
@@ -67,7 +66,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
           loadFileContent(compositeKey);
         }
       },
-      [openTab, loadFileContent, rootDirectoryHandle] // Remove fileContents and loadingFiles to prevent infinite loops
+      [openTab, loadFileContent, rootDirectoryHandle, fileContents, loadingFiles] // Remove fileContents and loadingFiles to prevent infinite loops
     );
 
     // Register the openFileInTab function with the IDE layout context

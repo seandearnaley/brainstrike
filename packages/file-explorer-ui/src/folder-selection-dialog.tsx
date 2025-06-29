@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
-import { Button } from '@brainstrike/ui';
 import {
+  Button,
   Dialog,
   DialogContent,
   DialogDescription,

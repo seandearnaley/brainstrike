@@ -4,14 +4,14 @@ import {
   DEFAULT_PORT,
   DEFAULT_WEB_PORT,
   DESKTOP_PORT_RANGE,
-  PORT_RANGE,
-  WEB_PORT_RANGE,
   getBaseUrl,
   getDesktopBaseUrl,
   getDesktopPortsToCheck,
   getPortsToCheck,
   getWebBaseUrl,
   getWebPortsToCheck,
+  PORT_RANGE,
+  WEB_PORT_RANGE,
 } from '../server';
 
 describe('server configuration', () => {

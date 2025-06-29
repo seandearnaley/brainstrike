@@ -83,7 +83,11 @@ vi.mock('@brainstrike/ui', () => ({
     children,
     asChild,
     ...props
-  }: { children: React.ReactNode; asChild?: boolean; [key: string]: unknown }) => (
+  }: {
+    children: React.ReactNode;
+    asChild?: boolean;
+    [key: string]: unknown;
+  }) => (
     <div data-testid="popover-trigger" {...props}>
       {children}
     </div>
@@ -93,7 +97,12 @@ vi.mock('@brainstrike/ui', () => ({
     align,
     className,
     ...props
-  }: { children: React.ReactNode; align?: string; className?: string; [key: string]: unknown }) => (
+  }: {
+    children: React.ReactNode;
+    align?: string;
+    className?: string;
+    [key: string]: unknown;
+  }) => (
     <div data-testid="popover-content" data-align={align} className={className} {...props}>
       {children}
     </div>

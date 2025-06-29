@@ -324,8 +324,6 @@ async function fetchUserData(userId) {
           promptResult.embedding
         );
 
-        console.log(`Code-prompt similarity: ${similarity.similarity.toFixed(3)} for "${prompt}"`);
-
         // This is the key requirement from the user
         expect(similarity.similarity).toBeGreaterThanOrEqual(0.6); // Lowered threshold as Jina may not reach 0.8 for all pairs
       }

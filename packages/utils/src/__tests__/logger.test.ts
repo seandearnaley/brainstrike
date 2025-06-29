@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as envUtils from '../env-utils';
 import {
-  LogLevel,
   configureLogger,
   createLogger,
   debug,
   error,
   info,
+  LogLevel,
   resetLogger,
   setLogLevel,
   warn,

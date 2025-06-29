@@ -413,8 +413,7 @@ export class CodeEmbeddingCLI {
       if (modelConfig) {
         this.log(`Model used: ${modelConfig.name} (${modelConfig.dimensions}D)`);
       }
-    } catch (error) {
-      console.error('Error during embedding process:', error);
+    } catch (_error) {
       process.exit(1);
     } finally {
       await this.service.dispose();
@@ -424,10 +423,8 @@ export class CodeEmbeddingCLI {
   /**
    * Utility logging method
    */
-  private log(message: string): void {
+  private log(_message: string): void {
     if (this.config.verbose || !this.config.output) {
-      // biome-ignore lint/suspicious/noConsoleLog: CLI tool needs console output
-      console.log(message);
     }
   }
 }
@@ -435,9 +432,8 @@ export class CodeEmbeddingCLI {
 /**
  * Validate and require a command line argument value
  */
-function requireArgValue(argName: string, value: string | undefined): string {
+function requireArgValue(_argName: string, value: string | undefined): string {
   if (!value) {
-    console.error(`Error: ${argName} requires a value`);
     process.exit(1);
   }
   return value;
@@ -460,7 +456,6 @@ function parseOption(config: EmbedCodeConfig, arg: string, nextArg: string | und
     case '--format': {
       const format = requireArgValue(arg, nextArg);
       if (!['json', 'csv', 'pgvector'].includes(format)) {
-        console.error(`Error: Invalid format '${format}'. Use json, csv, or pgvector.`);
         process.exit(1);
       }
       config.format = format as 'json' | 'csv' | 'pgvector';
@@ -482,7 +477,6 @@ function parseOption(config: EmbedCodeConfig, arg: string, nextArg: string | und
       config.verbose = true;
       return false; // no value consumed
     default:
-      console.error(`Error: Unknown option '${arg}'`);
       process.exit(1);
   }
 }
@@ -497,12 +491,10 @@ function parseArguments(args: string[]): EmbedCodeConfig | null {
 
   const rootDir = args[0];
   if (!rootDir) {
-    console.error('Error: Root directory is required');
     process.exit(1);
   }
 
   if (!fs.existsSync(rootDir)) {
-    console.error(`Error: Directory '${rootDir}' does not exist`);
     process.exit(1);
   }
 
@@ -543,5 +535,9 @@ async function main() {
 
 // Run CLI if this file is executed directly
 if (require.main === module) {
-  main().catch(console.error);
+  main().catch((error) => {
+    // CLI error handling - output to stderr and exit
+    process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  });
 }

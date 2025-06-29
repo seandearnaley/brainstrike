@@ -24,8 +24,7 @@ export function startFsWatch(
       callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
     });
     return () => native.close();
-  } catch (e) {
-    console.warn('fs.watch fallback failed:', e);
+  } catch (_e) {
     return () => {};
   }
 }
@@ -46,7 +45,7 @@ export async function startChokidarWatch(
     ignoreInitial: true,
     persistent: true,
     awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 100 },
-    ignored: /(^|[\/\\])\../,
+    ignored: /(^|[/\\])\../,
     depth: 0,
   });
 
@@ -60,9 +59,7 @@ export async function startChokidarWatch(
     .on('change', (file: string) => toChange('modified', file, false))
     .on('unlink', (file: string) => toChange('removed', file, false))
     .on('unlinkDir', (dir: string) => toChange('removed', dir, true))
-    .on('error', (error: unknown) => {
-      console.error('Chokidar watcher error:', error);
-    });
+    .on('error', (_error: unknown) => {});
 
   return () => watcher.close();
 }
@@ -74,7 +71,6 @@ export function handleWatcherSetupError(
 ): () => void {
   const e = err as NodeJS.ErrnoException;
   if (e?.code !== 'MODULE_NOT_FOUND') {
-    console.warn('chokidar unavailable, falling back to fs.watch:', err);
   }
   return startFsWatch(handle, callback);
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import biome from '../biome/biome.json';
+import { describe, expect, it } from 'vitest';
+import biome from '../../../biome.json';
 import baseTsconfig from '../tsconfig/base.json';
 import reactLibrary from '../tsconfig/react-library.json';
 
@@ -9,13 +9,14 @@ it('imports package entry without throwing', () => {
 });
 
 describe('biome configuration', () => {
-  it('has recommended rules enabled', () => {
+  it('has linter enabled with recommended rules', () => {
     expect(biome.linter?.enabled).toBe(true);
     expect(biome.linter?.rules?.recommended).toBe(true);
+    expect(biome.linter?.rules?.correctness).toBeDefined();
   });
 
   it('includes node_modules in ignore list', () => {
-    expect(biome.files?.ignore).toContain('**/node_modules/**');
+    expect(biome.files?.includes).toContain('!**/node_modules/**');
   });
 });
 

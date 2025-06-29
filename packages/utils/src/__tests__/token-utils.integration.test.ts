@@ -34,8 +34,7 @@ describe('Token Utilities Integration', () => {
       // Document that real tokenizer would give different results
       // Real tokenizer: ~11 tokens for this URL
       // Heuristic: ~12 tokens (48 chars / 4)
-      const actualTokens = encode(url).length;
-      console.log(`URL token counts - Actual: ${actualTokens}, Heuristic: ${urlHeuristic}`);
+      const _actualTokens = encode(url).length;
     });
   });
 });

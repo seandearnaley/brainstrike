@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FileRecord } from '../src/models/file-record';
 import { ElectronFileRecordRepository } from '../src/repositories/electron-file-record-repository';
 

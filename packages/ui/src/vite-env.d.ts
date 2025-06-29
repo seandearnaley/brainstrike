@@ -6,7 +6,6 @@ interface ImportMetaEnv {
   readonly MODE: string;
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Global interface extension
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }

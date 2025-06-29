@@ -1,7 +1,6 @@
 {
   "extends": "../../packages/config/tsconfig/base.json",
   "compilerOptions": {
-
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
@@ -19,17 +18,7 @@
     "exactOptionalPropertyTypes": false,
     "types": ["node", "electron", "vite/client"]
   },
-  "include": [
-    "src/**/*",
-    "index.html"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "e2e/**/*",
-    "playwright.config.ts"
-  ],
-  "references": [
-    { "path": "../../packages/db" }
-  ]
+  "include": ["src/**/*", "index.html"],
+  "exclude": ["node_modules", "dist", "e2e/**/*", "playwright.config.ts"],
+  "references": [{ "path": "../../packages/db" }]
 }

@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Refresh Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -14,7 +14,9 @@ test.describe('Refresh Workflow', () => {
     await resetAppState(page);
     await page.reload();
 
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
   });
 

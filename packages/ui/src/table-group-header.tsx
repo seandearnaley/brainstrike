@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { type ReactNode, memo, useCallback } from 'react';
+import { memo, type ReactNode, useCallback } from 'react';
 import { Checkbox } from './checkbox';
 
 interface TableGroupHeaderProps {

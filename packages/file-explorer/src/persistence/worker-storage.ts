@@ -5,6 +5,10 @@
  * to a Web Worker to prevent UI blocking during large state saves.
  */
 
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('worker-storage');
+
 export interface WorkerMessage {
   id: string;
   type: 'save' | 'load' | 'remove';
@@ -59,7 +63,7 @@ export class WorkerStorage {
         this.registerWorkerListeners();
       }
     } catch (error) {
-      console.warn('Failed to initialize Web Worker for state persistence:', error);
+      logger.warn('Failed to initialize Web Worker for state persistence:', error);
       this.worker = null;
     }
   }
@@ -75,7 +79,7 @@ export class WorkerStorage {
     const { type } = event.data;
 
     if (type === 'storage_request') {
-      this.handleStorageRequest(event.data as StorageRequest);
+      void this.handleStorageRequest(event.data as StorageRequest);
     } else {
       this.handleWorkerResponse(event.data as WorkerResponse);
     }
@@ -162,7 +166,7 @@ export class WorkerStorage {
     try {
       localStorage.setItem(key, value);
     } catch (e) {
-      console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
+      logger.warn('localStorage setItem failed:', e);
     }
     this.worker?.postMessage({ id, type: 'storage_response', operation: 'setItem', success: true });
   }
@@ -172,7 +176,7 @@ export class WorkerStorage {
     try {
       rawValue = localStorage.getItem(key);
     } catch (e) {
-      console.warn(`Failed to getItem from localStorage for key "${key}":`, e);
+      logger.warn('localStorage getItem failed:', e);
     }
     this.worker?.postMessage({ id, type: 'storage_response', operation: 'getItem', rawValue });
   }
@@ -181,7 +185,7 @@ export class WorkerStorage {
     try {
       localStorage.removeItem(key);
     } catch (e) {
-      console.warn(`Failed to removeItem from localStorage for key "${key}":`, e);
+      logger.warn('localStorage removeItem failed:', e);
     }
     this.worker?.postMessage({
       id,
@@ -192,7 +196,7 @@ export class WorkerStorage {
   }
 
   private handleWorkerError(error: ErrorEvent) {
-    console.error('Worker error:', error);
+    logger.error('Worker error occurred:', error.error || error.message);
     // Reject all pending requests
     for (const [, request] of this.pendingRequests) {
       request.reject(new Error('Worker error occurred'));
@@ -242,7 +246,7 @@ export class WorkerStorage {
       const result = await this.sendMessage('load', key);
       return result as T | null;
     } catch (error) {
-      console.error('Worker getItem failed:', error);
+      logger.error('Worker getItem failed:', error);
       // Fallback to direct localStorage access
       const rawValue = localStorage.getItem(key);
       if (!rawValue) return null;
@@ -271,14 +275,13 @@ export class WorkerStorage {
           await this.sendMessage('save', key, value);
           resolve();
         } catch (error) {
-          console.error('Worker setItem failed:', error);
+          logger.error('Worker setItem failed:', error);
           // Fallback path, ensure we store stringified value
           const serialized = typeof value === 'string' ? value : JSON.stringify(value);
           try {
             localStorage.setItem(key, serialized);
             resolve();
           } catch (e) {
-            console.warn(`Failed to setItem in localStorage for key "${key}":`, e);
             reject(e);
           }
         }
@@ -292,7 +295,7 @@ export class WorkerStorage {
     try {
       await this.sendMessage('remove', key);
     } catch (error) {
-      console.error('Worker removeItem failed:', error);
+      logger.error('Worker removeItem failed:', error);
       // Fallback to direct localStorage access
       localStorage.removeItem(key);
     }

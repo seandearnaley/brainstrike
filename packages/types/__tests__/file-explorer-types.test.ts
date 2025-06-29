@@ -1,16 +1,10 @@
 /// <reference types="vitest/globals" />
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { DEFAULT_STATE } from '../src/file-explorer-types';
 
 describe('DEFAULT_STATE', () => {
   it('should have expected includeFilters', () => {
-    expect(DEFAULT_STATE.includeFilters).toEqual([
-      '*.tsx',
-      '*.ts',
-      '*.js',
-      '*.jsx',
-      '*.json',
-    ]);
+    expect(DEFAULT_STATE.includeFilters).toEqual(['*.tsx', '*.ts', '*.js', '*.jsx', '*.json']);
   });
 
   it('should have includeProjectTree set to true', () => {

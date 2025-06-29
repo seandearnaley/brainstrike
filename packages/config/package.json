@@ -1,30 +1,36 @@
 {
-	"name": "@brainstrike/config",
-	"version": "0.1.0",
-	"description": "Shared configuration for Brainstrike monorepo",
-	"private": true,
-        "main": "index.js",
-        "engines": {
-                "node": ">=22"
-        },
-        "files": ["biome/biome.json", "tsconfig"],
-        "exports": {
-		"./biome": "./biome/biome.json",
-		"./biome/base": "./biome/biome.json",
-		"./tsconfig/*": "./tsconfig/*.json",
-		"./playwright-environment": "./src/playwright-environment.ts"
-	},
-	"scripts": {
-        "clean": "rm -rf dist .tsbuildinfo",
-        "lint": "pnpm run --dir=../.. lint",
-        "test": "vitest run"
-        },
-	"dependencies": {},
-        "devDependencies": {
-                "typescript": "^5.8.3"
-        },
-        "license": "ISC",
-        "turbo": {
-                "outputs": ["tsconfig/**", "biome/**"]
-        }
+  "name": "@brainstrike/config",
+  "version": "0.1.0",
+  "description": "Shared configuration for Brainstrike monorepo",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "biome/biome.json",
+    "tsconfig"
+  ],
+  "exports": {
+    "./biome": "./biome/biome.json",
+    "./biome/base": "./biome/biome.json",
+    "./tsconfig/*": "./tsconfig/*.json",
+    "./playwright-environment": "./src/playwright-environment.ts"
+  },
+  "scripts": {
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "test": "vitest run"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "license": "ISC",
+  "turbo": {
+    "outputs": [
+      "tsconfig/**",
+      "biome/**"
+    ]
+  }
 }

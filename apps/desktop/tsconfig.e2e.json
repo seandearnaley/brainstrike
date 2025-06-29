@@ -17,12 +17,6 @@
     "exactOptionalPropertyTypes": false,
     "types": ["node", "@playwright/test"]
   },
-  "include": [
-    "e2e/**/*",
-    "playwright.config.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist"
-  ]
-} 
+  "include": ["e2e/**/*", "playwright.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import type { PGlite } from '@electric-sql/pglite';
-import { FileRecordRepository } from '../src/repositories/file-record-repository';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap';
 import type { FileRecord } from '../src/models/file-record';
+import { FileRecordRepository } from '../src/repositories/file-record-repository';
 import { wasmLoader } from '../src/wasm-loader';
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
@@ -103,7 +103,7 @@ describe('FileRecordRepository', () => {
       id: 'other',
       name: 'changed',
       bogus: 'ignored',
-    } as any);
+    } as Partial<FileRecord> & { bogus: string });
     const found = await repo.findById(record.id);
     expect(found).toEqual({ ...record, name: 'changed' });
   });

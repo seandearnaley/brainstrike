@@ -1,7 +1,7 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { fileFilter } from '@brainstrike/utils';
-import { type ReadTreeFn, type SortFn, processDirectoryEntry } from './process-directory-entry';
+import { processDirectoryEntry, type ReadTreeFn, type SortFn } from './process-directory-entry';
 import { processFileEntry } from './process-file-entry';
 
 export async function readFullTree(

@@ -2,5 +2,5 @@
 // Configurations are accessed via exports in package.json
 
 module.exports = {
-  biome: require('./biome/biome.json')
-}; 
+  biome: require('../../biome.json'),
+};

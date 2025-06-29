@@ -1,9 +1,9 @@
+import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import {
   DEFAULT_FOLDER_SUMMARY_THRESHOLD,
   DEFAULT_MAX_SELECTION_COUNT,
   MAX_FOLDER_STATES,
 } from '@brainstrike/types';
-import type { FileExplorerData, FolderState } from '@brainstrike/types';
 import { describe, expect, it } from 'vitest';
 import {
   cleanupOldFolderStates,

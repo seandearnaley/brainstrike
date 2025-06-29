@@ -2,14 +2,22 @@ import type { FileExplorerState } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFilterActions } from '../filter-actions';
 
+// Mock the logger using vi.hoisted
+const mockLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
 describe('filter-actions', () => {
   // Setup common mocks
   const mockSet = vi.fn();
-  const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
   beforeEach(() => {
     mockSet.mockClear();
-    consoleSpy.mockClear();
+    mockLogger.warn.mockClear();
   });
 
   describe('setFilters', () => {
@@ -215,7 +223,7 @@ describe('filter-actions', () => {
       filterActions.setFolderSummaryThreshold(-50);
 
       // Assert
-      expect(consoleSpy).toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalled();
       expect(mockSet).toHaveBeenCalledTimes(1);
       expect(mockSet.mock.calls.length).toBeGreaterThan(0);
       const arg = mockSet.mock.calls[0]?.[0];

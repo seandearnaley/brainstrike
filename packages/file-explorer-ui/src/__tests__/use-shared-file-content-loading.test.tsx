@@ -58,7 +58,7 @@ describe('useSharedFileContentLoading - caching', () => {
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
-            } catch (error) {
+            } catch (_error) {
               results[req.compositeKey] = 'Error accessing file';
             }
           }
@@ -122,7 +122,7 @@ describe('useSharedFileContentLoading - caching', () => {
               if (progressCallback) {
                 progressCallback({ key: req.compositeKey });
               }
-            } catch (error) {
+            } catch (_error) {
               results[req.compositeKey] = 'Error accessing file';
             }
           }
@@ -222,6 +222,24 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 
     // Setup worker mock to properly simulate async loading with progress callbacks
     const { createFileContentWorker } = await import('@brainstrike/workers/file-content-worker');
+    const processRequest = async (
+      req: FileReadRequest,
+      progressCallback?: (event: { key: string }) => void
+    ) => {
+      try {
+        const content = await adapter.readFile(req.handle);
+        if (progressCallback) {
+          progressCallback({ key: req.compositeKey });
+        }
+        return content;
+      } catch (_error) {
+        if (progressCallback) {
+          progressCallback({ key: req.compositeKey });
+        }
+        return 'Error accessing file';
+      }
+    };
+
     const mockWorker = vi
       .fn()
       .mockImplementation(
@@ -233,18 +251,7 @@ describe('useSharedFileContentLoading - error handling and loading state', () =>
 
           // Process each request and wait for its resolver
           for (const req of requests) {
-            try {
-              const content = await adapter.readFile(req.handle);
-              results[req.compositeKey] = content;
-              if (progressCallback) {
-                progressCallback({ key: req.compositeKey });
-              }
-            } catch (error) {
-              results[req.compositeKey] = 'Error accessing file';
-              if (progressCallback) {
-                progressCallback({ key: req.compositeKey });
-              }
-            }
+            results[req.compositeKey] = await processRequest(req, progressCallback);
           }
 
           return results;
@@ -320,7 +327,6 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
 
   it('retries when handle is missing on first lookup', async () => {
     const adapter = new MockFileSystemAdapter();
-    const readSpy = vi.spyOn(adapter, 'readFile').mockResolvedValue('retry');
 
     const withHandle = createFileNode({ path: '/retry.txt', rootFolderId: 'root1' });
     const withoutHandle = { ...withHandle, handle: undefined as unknown as FileSystemFileHandle };

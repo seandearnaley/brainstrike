@@ -3,6 +3,18 @@ import type { FileFilterOptions } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import { fileFilter } from '../path-filter';
 
+// Mock the logger
+const mockLogger = {
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+};
+
+vi.mock('../logger', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
 describe('fileFilter', () => {
   describe('shouldIgnorePath', () => {
     it('should ignore paths containing default patterns', () => {
@@ -107,13 +119,9 @@ describe('fileFilter', () => {
     });
 
     it('should handle invalid regex patterns gracefully', () => {
-      // Spy on console.warn to prevent test output pollution
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       expect(fileFilter.matchRegex('test-string', '[')).toBe(false);
 
-      expect(consoleWarnSpy).toHaveBeenCalled();
-      consoleWarnSpy.mockRestore();
+      expect(mockLogger.warn).toHaveBeenCalled();
     });
   });
 
@@ -244,8 +252,9 @@ describe('fileFilter', () => {
       expect(result).not.toBeNull();
       if (result) {
         expect(result.children?.length).toBe(1);
-
-        expect(result.children?.[0].name).toBe('app.js');
+        if (result.children?.[0]) {
+          expect(result.children[0].name).toBe('app.js');
+        }
       }
     });
 
@@ -273,9 +282,13 @@ describe('fileFilter', () => {
       if (result) {
         expect(result.children?.length).toBe(1);
         const subDir = result.children?.[0];
-        expect(subDir?.name).toBe('sub');
-        expect(subDir?.children?.length).toBe(1);
-        expect(subDir?.children?.[0].name).toBe('app.js');
+        if (subDir) {
+          expect(subDir.name).toBe('sub');
+          expect(subDir.children?.length).toBe(1);
+          if (subDir.children?.[0]) {
+            expect(subDir.children[0].name).toBe('app.js');
+          }
+        }
       }
     });
   });

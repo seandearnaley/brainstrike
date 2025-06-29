@@ -4,9 +4,9 @@ import type { IFileNode } from '@brainstrike/types';
 import { FileContentError } from '@brainstrike/types';
 import { fileContent, fileExplorer } from '@brainstrike/utils';
 import {
+  createFileContentWorker,
   type FileContentWorker,
   type FileReadRequest,
-  createFileContentWorker,
 } from '@brainstrike/workers/file-content-worker';
 
 export interface FileContentProcessor {

@@ -1,6 +1,6 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Explorer - Filter Functionality', () => {
   test.beforeEach(async ({ page }) => {
@@ -29,21 +29,27 @@ test.describe('File Explorer - Filter Functionality', () => {
     await resetAppState(page);
     await page.reload();
 
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
 
     await page.getByTestId('select-root-button').click();
-    
-    await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible({ timeout: 10000 });
+
+    await expect(
+      page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
+    ).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('No directory selected')).not.toBeVisible();
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
   });
 
   test('should filter files using text search', async ({ page }) => {
     const fileTree = page.getByRole('tree', { name: 'File tree' });
-    const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+    const filterInput = page.getByPlaceholder(
+      "Type to filter files... (e.g. 'test component -spec')"
+    );
 
     // Search for "Button"
     await filterInput.fill('Button');
@@ -70,4 +76,4 @@ test.describe('File Explorer - Filter Functionality', () => {
     await expect(fileTree.getByText('utils.test.ts')).not.toBeVisible();
     await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();
   });
-}); 
+});

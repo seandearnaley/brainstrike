@@ -1,5 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { stableHash } from './hash-utils';
+import { createLogger } from './logger';
 
 interface ExperimentalFileSystemFeatures {
   isSameEntry(other: FileSystemHandle): Promise<boolean>;
@@ -35,7 +36,8 @@ export const fileSystem = {
       try {
         return await (handle1 as unknown as ExperimentalFileSystemFeatures).isSameEntry(handle2);
       } catch (_error) {
-        console.warn('isSameEntry failed, falling back to path comparison', _error);
+        const logger = createLogger('fileSystem');
+        logger.warn('isSameEntry API failed, falling back to path comparison', _error);
       }
     }
 
@@ -107,7 +109,6 @@ export const fileSystem = {
 
           // Check for circular references
           if (visitedHandles.has(parent)) {
-            console.warn('Circular reference detected in directory structure');
             break;
           }
           visitedHandles.add(parent);
@@ -125,8 +126,6 @@ export const fileSystem = {
       const fullPath = pathSegments.join('/');
       return `h${await stableHash(fullPath)}`;
     } catch (_error) {
-      // Ultimate fallback: use handle name with a unique prefix
-      console.warn('Using fallback ID generation strategy:', _error);
       return `h${await stableHash(`fallback/${handle.name}_${Date.now()}`)}`;
     }
   },

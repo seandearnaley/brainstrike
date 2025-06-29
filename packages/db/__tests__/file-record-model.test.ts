@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { FileRecord } from '../src/models/file-record';
 
 describe('FileRecord model', () => {
@@ -21,7 +21,7 @@ describe('FileRecord model', () => {
     expect(validFileRecord).toHaveProperty('size');
     expect(validFileRecord).toHaveProperty('createdAt');
     expect(validFileRecord).toHaveProperty('updatedAt');
-    
+
     // Verify types
     expect(typeof validFileRecord.id).toBe('string');
     expect(typeof validFileRecord.name).toBe('string');
@@ -45,7 +45,7 @@ describe('FileRecord model', () => {
     // Verify dates can be parsed back
     expect(() => new Date(fileRecord.createdAt)).not.toThrow();
     expect(() => new Date(fileRecord.updatedAt)).not.toThrow();
-    
+
     // Verify ISO format
     expect(fileRecord.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/);
     expect(fileRecord.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/);

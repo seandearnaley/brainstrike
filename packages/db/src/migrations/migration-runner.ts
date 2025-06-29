@@ -68,11 +68,9 @@ export class MigrationRunner {
   async runMigration(migration: Migration): Promise<void> {
     const isApplied = await this.isApplied(migration.version);
     if (isApplied) {
-      console.info(`Migration ${migration.version}: ${migration.name} already applied`);
+      console.info(`Migration ${migration.version} is already applied, skipping`);
       return;
     }
-
-    console.info(`Running migration ${migration.version}: ${migration.name}`);
 
     try {
       // Start transaction
@@ -90,7 +88,6 @@ export class MigrationRunner {
 
       // Commit transaction
       await this.db.exec('COMMIT');
-      console.info(`Migration ${migration.version} completed successfully`);
     } catch (error) {
       // Rollback on error
       await this.db.exec('ROLLBACK');
@@ -121,11 +118,9 @@ export class MigrationRunner {
 
     const isApplied = await this.isApplied(migration.version);
     if (!isApplied) {
-      console.info(`Migration ${migration.version} is not applied`);
+      console.info(`Migration ${migration.version} is not applied, skipping rollback`);
       return;
     }
-
-    console.info(`Rolling back migration ${migration.version}: ${migration.name}`);
 
     try {
       // Start transaction
@@ -141,7 +136,6 @@ export class MigrationRunner {
 
       // Commit transaction
       await this.db.exec('COMMIT');
-      console.info(`Migration ${migration.version} rolled back successfully`);
     } catch (error) {
       // Rollback on error
       await this.db.exec('ROLLBACK');
@@ -188,7 +182,7 @@ export class MigrationRunner {
 
         if (storedChecksum && storedChecksum !== currentChecksum) {
           console.warn(
-            `Migration ${migration.version} checksum mismatch. This could indicate the migration has been modified after being applied.`
+            `Migration ${migration.version} checksum mismatch: stored=${storedChecksum}, current=${currentChecksum}`
           );
           return false;
         }

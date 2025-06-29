@@ -12,7 +12,7 @@ export async function mockBrowserApis(
   page: Page,
   rootName: string,
   tree: FileTree,
-  options: Options = {},
+  options: Options = {}
 ): Promise<void> {
   await page.addInitScript(
     ({ rootName: rn, tree: t, enableClipboard }) => {
@@ -55,10 +55,7 @@ export async function mockBrowserApis(
                 data += await chunk.text();
                 return;
               }
-              if (
-                chunk instanceof ArrayBuffer ||
-                ArrayBuffer.isView(chunk)
-              ) {
+              if (chunk instanceof ArrayBuffer || ArrayBuffer.isView(chunk)) {
                 const buf = chunk instanceof ArrayBuffer ? chunk : chunk.buffer;
                 data += new TextDecoder().decode(buf as ArrayBuffer);
                 return;
@@ -69,12 +66,8 @@ export async function mockBrowserApis(
                   data += value;
                 } else if (value instanceof Blob) {
                   data += await value.text();
-                } else if (
-                  value instanceof ArrayBuffer ||
-                  ArrayBuffer.isView(value)
-                ) {
-                  const buf =
-                    value instanceof ArrayBuffer ? value : value.buffer;
+                } else if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
+                  const buf = value instanceof ArrayBuffer ? value : value.buffer;
                   data += new TextDecoder().decode(buf as ArrayBuffer);
                 }
                 return;
@@ -170,6 +163,6 @@ export async function mockBrowserApis(
       }
       /* eslint-enable */
     },
-    { rootName, tree, enableClipboard: options.clipboard ?? false },
+    { rootName, tree, enableClipboard: options.clipboard ?? false }
   );
 }

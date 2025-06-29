@@ -1,39 +1,41 @@
 {
-	"name": "@brainstrike/types",
-        "version": "0.1.0",
-        "engines": {
-                "node": ">=22"
-        },
-        "description": "Shared TypeScript types for Brainstrike monorepo",
-        "private": true,
-	"main": "./dist/index.js",
-	"module": "./dist/index.mjs",
-	"types": "./dist/index.d.ts",
-	"exports": {
-		".": {
-			"types": "./dist/index.d.ts",
-			"import": "./dist/index.mjs",
-			"require": "./dist/index.js"
-		}
-	},
-	"scripts": {
-		"build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
-		"dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
-		"clean": "rm -rf dist .tsbuildinfo",
-		"lint": "pnpm run --dir=../.. lint",
-		"type-check": "tsc --noEmit",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"test:coverage": "vitest run --coverage"
-	},
-        "devDependencies": {
-        "@swc/core": "^1.12.1",
-        "@types/node": "^24",
-        "typescript": "^5.8.3",
-                "vitest": "^3.2.3"
-        },
-        "license": "ISC",
-        "turbo": {
-                "outputs": ["dist/**"]
-        }
+  "name": "@brainstrike/types",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "description": "Shared TypeScript types for Brainstrike monorepo",
+  "private": true,
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "dev": "tsup src/index.ts --format esm,cjs --watch --out-dir dist",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.12.1",
+    "@types/node": "^24",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  },
+  "license": "ISC",
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  }
 }
