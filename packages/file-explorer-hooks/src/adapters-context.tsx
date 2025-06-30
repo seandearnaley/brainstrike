@@ -1,6 +1,6 @@
 import type { FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
-import React, { type ReactNode, createContext, useContext, useMemo } from 'react';
+import React, { createContext, type ReactNode, useContext, useMemo } from 'react';
 
 export interface AdaptersContextValue {
   fileSystemAdapter: FileSystemAdapter;

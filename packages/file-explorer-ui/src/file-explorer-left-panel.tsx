@@ -17,8 +17,7 @@ import {
 import { encodeFileSelection } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Suspense, lazy } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
