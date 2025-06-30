@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
-import { resetFileExplorerSettings } from './utils/layout-helpers';
-import { HomePage } from './page-objects/home-page';
+import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
+import { HomePage } from './page-objects/home-page';
+import { resetFileExplorerSettings } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Explorer Settings', () => {
   test.beforeEach(async ({ page }) => {

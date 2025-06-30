@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import baseConfig from '../tailwind.config';
 
 describe('tailwind configuration', () => {
@@ -30,9 +30,7 @@ describe('tailwind configuration', () => {
     };
 
     expect(merged.theme.extend.colors.brand).toBe('#fff');
-    expect(merged.theme.extend.colors.primary.DEFAULT).toBe(
-      'hsl(var(--primary))'
-    );
+    expect(merged.theme.extend.colors.primary.DEFAULT).toBe('hsl(var(--primary))');
     expect(merged.plugins).toContain(plugin);
   });
 });

@@ -1,12 +1,12 @@
-import { defineConfig } from "tsup";
+import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ["src/index.ts"],
-  format: ["cjs", "esm"],
+  entry: ['src/index.ts'],
+  format: ['cjs', 'esm'],
   dts: false,
   clean: false,
   sourcemap: true,
   target: 'es2020',
   outDir: 'dist',
-  external: ["@huggingface/transformers"],
-}); 
+  external: ['@huggingface/transformers'],
+});

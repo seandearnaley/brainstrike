@@ -8,4 +8,4 @@ export default defineConfig({
     include: ['__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
   },
-}); 
+});

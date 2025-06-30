@@ -1,9 +1,7 @@
-import { FileExplorerErrorBoundary } from '@brainstrike/file-explorer-ui';
-import { FileExplorerHeader } from '@brainstrike/file-explorer-ui';
+import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useUndoableAction } from '@brainstrike/hooks';
 import { useIdeFileEditor } from '@brainstrike/ui';
-import { decodeFileSelection } from '@brainstrike/utils';
-import { countTokensHeuristic, estimateTokenCost } from '@brainstrike/utils';
+import { countTokensHeuristic, decodeFileSelection, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback } from 'react';
 import { PreviewPanel } from './preview-panel';
 import { useFileExplorer } from './use-file-explorer-context';

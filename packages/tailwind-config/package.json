@@ -10,7 +10,9 @@
   "exports": {
     ".": "./tailwind.config.js"
   },
-  "files": ["tailwind.config.js"],
+  "files": [
+    "tailwind.config.js"
+  ],
   "license": "ISC",
   "scripts": {
     "test": "vitest run"

@@ -27,9 +27,8 @@ const loadInitialState = (
         }
       }
     }
-  } catch (error) {
+  } catch (_error) {
     if (isDevEnv()) {
-      console.warn('Failed to load panel layout from localStorage:', error);
     }
   }
   return {
@@ -70,15 +69,14 @@ export function useLoadPanelState(
           setState(electronState);
           lastSavedStateRef.current = electronState;
         }
-      } catch (error) {
+      } catch (_error) {
         if (isDevEnv()) {
-          console.warn('Failed to load panel layout from Electron:', error);
         }
       }
     };
 
     if (hasElectronAPI()) {
-      loadElectronLayout();
+      void loadElectronLayout();
     }
   }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel]);
 

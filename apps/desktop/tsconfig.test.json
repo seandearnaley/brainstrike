@@ -3,9 +3,5 @@
   "compilerOptions": {
     "types": ["node", "electron", "vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": [
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
-    "src/**/__tests__/**/*"
-  ]
-} 
+  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/__tests__/**/*"]
+}

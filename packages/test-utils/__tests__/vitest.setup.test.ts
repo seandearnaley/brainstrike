@@ -23,8 +23,12 @@ describe('vitest.setup TextEncoder handling', () => {
   });
 
   it('assigns a mock TextEncoder when missing', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (global as any).TextEncoder = undefined;
+    // Temporarily remove TextEncoder to simulate it being missing
+    Object.defineProperty(global, 'TextEncoder', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
 
     await import(setupPath);
 

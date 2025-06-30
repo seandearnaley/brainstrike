@@ -1,6 +1,6 @@
 import { isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
-import React, { useCallback, useEffect, useRef, createContext, useContext, useMemo } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
@@ -42,9 +42,8 @@ function syncPanelState(
           panel.collapse();
         }
       }
-    } catch (error) {
+    } catch (_error) {
       if (isDevEnv()) {
-        console.warn('Panel state operation failed:', error);
       }
     }
   });

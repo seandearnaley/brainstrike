@@ -1,6 +1,4 @@
-import { Button } from '@brainstrike/ui';
-import { Input } from '@brainstrike/ui';
-import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { Button, Input, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Info, X } from 'lucide-react';
 import * as React from 'react';
 

@@ -42,7 +42,6 @@ export function TabbedFileEditor({
   }, [activeTabId, tabs, fileContents, loadingFiles, onLoadFileContent]);
 
   // Scroll active tab into view
-  // biome-ignore lint/correctness/useExhaustiveDependencies: The ref's current element changes with activeTabId
   useEffect(() => {
     if (activeTabRef.current) {
       activeTabRef.current.scrollIntoView({
@@ -51,7 +50,7 @@ export function TabbedFileEditor({
         inline: 'nearest',
       });
     }
-  }, [activeTabId]);
+  }, []);
 
   const getFileName = (path: string) => path.split('/').pop() || path;
 

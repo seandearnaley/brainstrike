@@ -1,4 +1,4 @@
-import { type Platform, detectPlatform } from '@brainstrike/platform-utils';
+import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
 import { ElectronStorageAdapter } from './adapters/electron-storage-adapter';
 import { MemoryStorageAdapter } from './adapters/memory-storage-adapter';
 import { WebStorageAdapter } from './adapters/web-storage-adapter';

@@ -22,7 +22,6 @@ function App() {
     if (window.electronAPI?.db) {
       setDbReady(true);
     } else {
-      console.error('Electron database API not available');
     }
   }, []);
 

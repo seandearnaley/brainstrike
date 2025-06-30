@@ -2,9 +2,9 @@ import type { FileSystemAdapter } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  createFileContentProcessor,
   DirectFileContentProcessor,
   WorkerFileContentProcessor,
-  createFileContentProcessor,
 } from '../file-content-processor';
 
 // Mock the worker
@@ -35,8 +35,16 @@ const mockFileNode = {
   name: 'test.txt',
   path: '/test.txt',
   type: 'file' as const,
-  handle: { kind: 'file' as const },
+  handle: {
+    kind: 'file' as const,
+    name: 'test.txt',
+    createWritable: vi.fn(),
+    getFile: vi.fn(),
+    isSameEntry: vi.fn(),
+  } as unknown as FileSystemFileHandle,
   rootFolderId: 'root1',
+  depth: 0,
+  selectionState: 'unchecked' as const,
 };
 
 const mockRequest = {
@@ -228,9 +236,7 @@ describe('createFileContentProcessor', () => {
   });
 
   it('should pass concurrency option to WorkerFileContentProcessor', () => {
-    const { createFileContentWorker } = vi.mocked(
-      import('@brainstrike/workers/file-content-worker')
-    );
+    vi.mocked(import('@brainstrike/workers/file-content-worker'));
 
     createFileContentProcessor(mockFileSystemAdapter, { concurrency: 5 });
 

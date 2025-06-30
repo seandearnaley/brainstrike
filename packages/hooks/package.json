@@ -63,6 +63,8 @@
     "access": "public"
   },
   "turbo": {
-    "outputs": ["dist/**"]
+    "outputs": [
+      "dist/**"
+    ]
   }
 }

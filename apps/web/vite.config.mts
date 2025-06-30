@@ -1,16 +1,15 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { codecovVitePlugin } from '@codecov/vite-plugin';
+import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vitest/config";
-import tailwindcss from "@tailwindcss/vite";
-import { existsSync } from "node:fs";
-import { codecovVitePlugin } from "@codecov/vite-plugin";
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
-import wasm from "vite-plugin-wasm";
-import topLevelAwait from "vite-plugin-top-level-await";
-import { viteStaticCopy } from "vite-plugin-static-copy";
-import { getDevCSP } from "./src/csp-utils";
+import react from '@vitejs/plugin-react';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
+import topLevelAwait from 'vite-plugin-top-level-await';
+import wasm from 'vite-plugin-wasm';
+import { defineConfig } from 'vitest/config';
+import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
@@ -21,7 +20,7 @@ function findPGliteWasm(): string | null {
     path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
     path.resolve(__dirname, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
   ];
-  
+
   // Also try to find in pnpm directory structure with any version
   try {
     const pnpmDir = path.resolve(__dirname, '../../node_modules/.pnpm');
@@ -29,15 +28,19 @@ function findPGliteWasm(): string | null {
       const entries = readdirSync(pnpmDir, { withFileTypes: true });
       for (const entry of entries) {
         if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
-          const wasmPath = path.join(pnpmDir, entry.name, 'node_modules/@electric-sql/pglite/dist/pglite.wasm');
+          const wasmPath = path.join(
+            pnpmDir,
+            entry.name,
+            'node_modules/@electric-sql/pglite/dist/pglite.wasm'
+          );
           possiblePaths.push(wasmPath);
         }
       }
     }
-  } catch (err) {
+  } catch (_err) {
     // Ignore errors when scanning pnpm directory
   }
-  
+
   for (const wasmPath of possiblePaths) {
     if (existsSync(wasmPath)) {
       if (isDev) {
@@ -46,7 +49,7 @@ function findPGliteWasm(): string | null {
       return wasmPath;
     }
   }
-  
+
   console.warn('PGLite WASM file not found in any expected location');
   return null;
 }
@@ -58,10 +61,10 @@ function debugPlugin() {
       if (isDev) {
         console.log('=== DEBUG PLUGIN BUILDSTART ===');
         console.log('Build starting, CWD:', process.cwd());
-        console.log("Vercel env:", process.env["VERCEL"]);
+        console.log('Vercel env:', process.env['VERCEL']);
         console.log('=== END DEBUG PLUGIN ===');
       }
-    }
+    },
   };
 }
 
@@ -73,7 +76,7 @@ function copyFontsPlugin() {
       const fontsPackagePath = path.resolve(__dirname, '../../packages/fonts/src/inter');
       const publicFontsPath = path.resolve(__dirname, 'public/fonts/inter');
       const distFontsPath = path.resolve(__dirname, 'dist/fonts/inter');
-      
+
       // Create the public fonts directory if it doesn't exist
       if (!existsSync(path.resolve(__dirname, 'public/fonts'))) {
         mkdirSync(path.resolve(__dirname, 'public/fonts'), { recursive: true });
@@ -84,10 +87,10 @@ function copyFontsPlugin() {
       if (!existsSync(distFontsPath)) {
         mkdirSync(distFontsPath, { recursive: true });
       }
-      
+
       // Copy font files
       const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
-      fontFiles.forEach(file => {
+      fontFiles.forEach((file) => {
         const src = path.join(fontsPackagePath, file);
         const destPublic = path.join(publicFontsPath, file);
         const destDist = path.join(distFontsPath, file);
@@ -99,7 +102,7 @@ function copyFontsPlugin() {
           }
         }
       });
-    }
+    },
   };
 }
 
@@ -110,8 +113,8 @@ if (isDev) {
   console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
   console.log('Current working directory:', process.cwd());
   console.log('__dirname:', __dirname);
-  console.log("process.env.VERCEL:", process.env["VERCEL"]);
-  console.log("process.env.CI:", process.env["CI"]);
+  console.log('process.env.VERCEL:', process.env['VERCEL']);
+  console.log('process.env.CI:', process.env['CI']);
   console.log('=== VITE CONFIG DEBUG END ===');
 }
 
@@ -157,22 +160,24 @@ export default defineConfig({
     react(),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     copyFontsPlugin(),
-    ...(wasmPath ? [
-      viteStaticCopy({
-        targets: [
-          {
-            src: wasmPath,
-            dest: 'assets',
-          },
-        ],
-      })
-    ] : []),
+    ...(wasmPath
+      ? [
+          viteStaticCopy({
+            targets: [
+              {
+                src: wasmPath,
+                dest: 'assets',
+              },
+            ],
+          }),
+        ]
+      : []),
     // Conditionally configure Codecov plugin
     ...(process.env['CODECOV_TOKEN']
       ? [
           codecovVitePlugin({
             enableBundleAnalysis: true,
-            bundleName: "brainstrike-web-bundle",
+            bundleName: 'brainstrike-web-bundle',
             uploadToken: process.env['CODECOV_TOKEN'],
           }),
         ]
@@ -180,12 +185,12 @@ export default defineConfig({
   ],
   assetsInclude: ['**/*.png'],
   build: {
-    minify: "terser", // Use terser for better minification
+    minify: 'terser', // Use terser for better minification
     terserOptions: {
       compress: { drop_console: false },
     },
-    outDir: "dist", // Output directory for the build - cache bust
-    assetsDir: "assets", // Directory for static assets within the build output
+    outDir: 'dist', // Output directory for the build - cache bust
+    assetsDir: 'assets', // Directory for static assets within the build output
     sourcemap: false, // Disable sourcemaps for production build
     target: 'es2020',
     assetsInlineLimit: 0,
@@ -193,9 +198,9 @@ export default defineConfig({
       external: ['electron', 'chokidar'],
       output: {
         manualChunks: (id) => {
-          if (id.includes("node_modules")) {
+          if (id.includes('node_modules')) {
             // Group vendor dependencies
-            return "vendor";
+            return 'vendor';
           }
           // Explicitly return undefined for other modules to keep them in the default chunk
           return undefined;
@@ -205,12 +210,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
-      src: path.resolve(__dirname, "./src"),
+      '@': path.resolve(__dirname, './src'),
+      src: path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
     },
-  },  
+  },
   worker: {
     format: 'es',
     plugins: () => [],
@@ -227,7 +232,7 @@ export default defineConfig({
       '@brainstrike/file-explorer-ui',
       '@brainstrike/file-system',
       '@brainstrike/storage',
-      '@brainstrike/app-shell'
+      '@brainstrike/app-shell',
     ],
     esbuildOptions: {
       define: {
@@ -237,50 +242,46 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: "happy-dom",
-    setupFiles: ["@brainstrike/test-utils/vitest.setup"],
+    environment: 'happy-dom',
+    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: [
-      "src/**/__tests__/**/*.test.{ts,tsx}",
-      "src/**/__tests__/**/*.spec.{ts,tsx}",
-      "src/**/*.test.{ts,tsx}",
-      "src/**/*.spec.{ts,tsx}",
+      'src/**/__tests__/**/*.test.{ts,tsx}',
+      'src/**/__tests__/**/*.spec.{ts,tsx}',
+      'src/**/*.test.{ts,tsx}',
+      'src/**/*.spec.{ts,tsx}',
     ],
     exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/e2e/**",
-      "**/cypress/**",
-      "**/.{idea,git,cache,output,temp}/**",
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/e2e/**',
+      '**/cypress/**',
+      '**/.{idea,git,cache,output,temp}/**',
     ],
-    reporters: ["default", "hanging-process"],
+    reporters: ['default', 'hanging-process'],
     silent: true,
     onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {
-      if (
-        type === "stderr" &&
-        log.includes("ERROR") &&
-        !log.includes("Error: Not implemented")
-      ) {
+      if (type === 'stderr' && log.includes('ERROR') && !log.includes('Error: Not implemented')) {
         return true;
       }
       return false;
     },
     coverage: {
-      provider: "v8",
-      reporter: ["text", "json", "json-summary", "html"],
+      provider: 'v8',
+      reporter: ['text', 'json', 'json-summary', 'html'],
       exclude: [
-        "coverage/**",
-        "dist/**",
-        "**/[.]**",
-        "packages/*/test{,s}/**",
-        "**/*.d.ts",
-        "cypress/**",
-        "test{,s}/**",
-        "test{,-*}.{js,cjs,mjs,ts,tsx,jsx}",
-        "**/*{.,-}test.{js,cjs,mjs,ts,tsx,jsx}",
-        "**/*{.,-}spec.{js,cjs,mjs,ts,tsx,jsx}",
-        "**/__tests__/**",
-        "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress}.config.*",
-        "**/.{eslint,mocha,prettier}rc.{js,cjs,yml}",
+        'coverage/**',
+        'dist/**',
+        '**/[.]**',
+        'packages/*/test{,s}/**',
+        '**/*.d.ts',
+        'cypress/**',
+        'test{,s}/**',
+        'test{,-*}.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/*{.,-}test.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/*{.,-}spec.{js,cjs,mjs,ts,tsx,jsx}',
+        '**/__tests__/**',
+        '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress}.config.*',
+        '**/.{eslint,mocha,prettier}rc.{js,cjs,yml}',
       ],
       all: true,
       thresholds: {
@@ -292,12 +293,7 @@ export default defineConfig({
     },
     mockReset: true,
     deps: {
-      inline: [
-        '@brainstrike/types',
-        '@brainstrike/hooks',
-        '@brainstrike/ui',
-        '@brainstrike/utils'
-      ],
+      inline: ['@brainstrike/types', '@brainstrike/hooks', '@brainstrike/ui', '@brainstrike/utils'],
     },
   },
 });

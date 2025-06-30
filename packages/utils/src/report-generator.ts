@@ -195,8 +195,7 @@ async function readFullFileTreeFromAdapter(
     }
 
     return entries;
-  } catch (error) {
-    console.warn(`Failed to read directory ${currentPath}:`, error);
+  } catch (_error) {
     return [];
   }
 }

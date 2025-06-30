@@ -4,7 +4,6 @@ import { FileExplorerMiddlePanel } from '../file-explorer-middle-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 let previewSnapshot: Set<string>;
-// biome-ignore lint/style/noVar: var required for hoisted mock assignment
 var previewPanelMock: ReturnType<typeof vi.fn> | undefined;
 interface MockPreviewPanelProps {
   onSelectionChange: (files: Set<string>) => void;

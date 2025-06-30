@@ -480,13 +480,10 @@ describe('file-explorer-persistence', () => {
 
       const merged = mergeFn(persisted, initialCurrentState);
 
-      // biome-ignore lint/complexity/useLiteralKeys: index signature access
       expect(merged.folderStates['unknown']).toBeDefined();
-      // biome-ignore lint/complexity/useLiteralKeys: index signature access
       expect(Array.from((merged.folderStates['unknown'] as FolderState).selectedFilePaths)).toEqual(
         ['u.txt']
       );
-      // biome-ignore lint/complexity/useLiteralKeys: index signature access
       expect((merged.folderStates['unknown'] as unknown as Record<string, unknown>)['extra']).toBe(
         'val'
       );

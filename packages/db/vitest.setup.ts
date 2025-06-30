@@ -1,6 +1,6 @@
-import { afterAll } from 'vitest';
-import { rmSync, existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { afterAll } from 'vitest';
 
 const memoryDir = resolve(__dirname, ':memory:');
 

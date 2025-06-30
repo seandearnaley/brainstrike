@@ -121,20 +121,11 @@ export const getEnvironmentConfig = (): EnvironmentConfig => {
  * Log environment configuration for debugging
  */
 export const logEnvironmentConfig = (
-  appName: string,
-  config: EnvironmentConfig,
+  _appName: string,
+  _config: EnvironmentConfig,
   baseURL?: string
 ) => {
-  console.info(`${appName} Playwright config:`);
-  console.info(`  Codex: ${config.isCodex}`);
-  console.info(`  GitHub Actions: ${config.isGitHubActions}`);
-  console.info(`  General CI: ${config.isCI}`);
-  console.info(`  Workers: ${config.workers}`);
-  console.info(`  Global timeout: ${config.globalTimeout / 1000}s`);
-  console.info(`  Retries: ${config.retries}`);
-  console.info(`  Headless: ${config.headless}`);
   if (baseURL) {
-    console.info(`  Base URL: ${baseURL}`);
   }
 };
 
@@ -156,8 +147,7 @@ export const validateEnvironmentConfig = (config: EnvironmentConfig) => {
   }
 
   // Log warnings
-  for (const warning of warnings) {
-    console.warn(`⚠️  ${warning}`);
+  for (const _warning of warnings) {
   }
 
   return warnings;

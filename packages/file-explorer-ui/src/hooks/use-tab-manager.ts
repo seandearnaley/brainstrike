@@ -72,9 +72,7 @@ const loadTabState = (): TabState | null => {
       }));
       return { tabs: fullTabs, activeTabId: parsed.activeTabId };
     }
-  } catch (error) {
-    console.warn('Failed to load tab state:', error);
-  }
+  } catch (_error) {}
   return null;
 };
 

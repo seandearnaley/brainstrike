@@ -68,9 +68,8 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
         };
         return validated;
       }
-    } catch (error) {
+    } catch (_error) {
       if (isDevEnv()) {
-        console.error('Failed to load preview panel preferences:', error);
       }
     }
     return null;
@@ -82,9 +81,8 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
       try {
         await storageAdapter.setItem(STORAGE_KEY, JSON.stringify(preferencesToSave));
         lastSavedRef.current = preferencesToSave;
-      } catch (error) {
+      } catch (_error) {
         if (isDevEnv()) {
-          console.error('Failed to save preview panel preferences:', error);
         }
       }
     },
@@ -166,7 +164,7 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
       }
     };
 
-    loadAndSetPreferences();
+    void loadAndSetPreferences();
 
     return () => {
       mounted = false;

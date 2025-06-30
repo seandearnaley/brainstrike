@@ -7,6 +7,18 @@ vi.mock('../hash-utils', () => ({
   stableHash: vi.fn().mockImplementation(async (input: string) => `hash-${input}`),
 }));
 
+// Mock the logger
+const mockLogger = {
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+};
+
+vi.mock('../logger', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
 describe('fileSystem', () => {
   // Mock directory handles
   let mockDirectoryHandle1: FileSystemDirectoryHandle;
@@ -104,8 +116,6 @@ describe('fileSystem', () => {
     });
 
     it('should warn and compare names when isSameEntry throws and no path info', async () => {
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       Object.defineProperty(mockDirectoryHandle1, 'isSameEntry', {
         value: vi.fn().mockRejectedValue(new Error('boom')),
       });
@@ -114,9 +124,8 @@ describe('fileSystem', () => {
 
       const result = await fileSystem.isSameDirectory(mockDirectoryHandle1, mockDirectoryHandle2);
 
-      expect(warnSpy).toHaveBeenCalled();
+      expect(mockLogger.warn).toHaveBeenCalled();
       expect(result).toBe(true);
-      warnSpy.mockRestore();
     });
   });
 
@@ -161,7 +170,7 @@ describe('fileSystem', () => {
       });
 
       // Mock the stableHash function to return a specific value for this test
-      (stableHash as jest.Mock).mockResolvedValueOnce('test-id');
+      vi.mocked(stableHash).mockResolvedValueOnce('test-id');
 
       const folderId = await fileSystem.generateUniqueFolderId(mockDirectoryHandle1);
 

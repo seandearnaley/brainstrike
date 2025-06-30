@@ -14,12 +14,7 @@
       "groupName": "UI Component Libraries"
     },
     {
-      "matchPackageNames": [
-        "react",
-        "react-dom",
-        "react-router-dom",
-        "react-helmet-async"
-      ],
+      "matchPackageNames": ["react", "react-dom", "react-router-dom", "react-helmet-async"],
       "groupName": "React Core & Router"
     },
     {
@@ -63,11 +58,7 @@
       "groupName": "Tailwind CSS"
     },
     {
-      "matchPackageNames": [
-        "electron",
-        "electron-builder",
-        "electron-builder-squirrel-windows"
-      ],
+      "matchPackageNames": ["electron", "electron-builder", "electron-builder-squirrel-windows"],
       "groupName": "Electron Platform"
     },
     {

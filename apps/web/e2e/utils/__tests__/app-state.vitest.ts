@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import type { Page } from '@playwright/test';
+import { describe, expect, it, vi } from 'vitest';
 import { resetAppState } from '../app-state';
 
 describe('resetAppState', () => {

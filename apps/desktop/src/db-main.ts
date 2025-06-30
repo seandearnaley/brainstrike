@@ -11,6 +11,7 @@ const getPGlite = async () => {
   // @ts-ignore - TypeScript can't resolve the submodule with CommonJS resolution
   const { NodeFS } = await import('@electric-sql/pglite/nodefs');
   const { migrate } = await import('@brainstrike/db');
+  // biome-ignore lint/style/useNamingConvention: PGlite and NodeFS are external library class names
   return { PGlite, NodeFS, migrate };
 };
 
@@ -23,7 +24,7 @@ let db: any | null = null;
  * Uses a different directory for development vs production
  */
 function getDatabasePath(): string {
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
   const isProduction = process.env['NODE_ENV'] === 'production';
   const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
   return path.join(app.getPath('documents'), dbDirName, 'pgdata');
@@ -40,34 +41,21 @@ export async function initializeMainDatabase(): Promise<any> {
   }
 
   const dataDir = getDatabasePath();
-
-  // Ensure the directory exists
-  try {
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-      logger.info(`Created database directory: ${dataDir}`);
-    }
-  } catch (error) {
-    console.error('Failed to create database directory:', error);
-    throw error;
+  if (!existsSync(dataDir)) {
+    mkdirSync(dataDir, { recursive: true });
+    logger.info(`Created database directory: ${dataDir}`);
   }
+  // Get ESM modules
+  const { PGlite, NodeFS, migrate } = await getPGlite();
 
-  try {
-    // Get ESM modules
-    const { PGlite, NodeFS, migrate } = await getPGlite();
+  // Initialize PGlite with NodeFS
+  db = new PGlite({ fs: new NodeFS(dataDir) });
 
-    // Initialize PGlite with NodeFS
-    db = new PGlite({ fs: new NodeFS(dataDir) });
+  // Run migrations
+  await migrate(db);
 
-    // Run migrations
-    await migrate(db);
-
-    logger.info(`Database initialized successfully at: ${dataDir}`);
-    return db;
-  } catch (error) {
-    console.error('Failed to initialize database:', error);
-    throw error;
-  }
+  logger.info(`Database initialized successfully at: ${dataDir}`);
+  return db;
 }
 
 /**

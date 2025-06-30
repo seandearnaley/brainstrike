@@ -3,9 +3,9 @@ import { decodeFileSelection, fileExplorer } from '@brainstrike/utils';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 import {
+  createFileContentProcessor,
   type FileContentProcessor,
   type FileContentRequest,
-  createFileContentProcessor,
 } from './file-content-processor';
 
 const MAX_CONCURRENT_LOADS = 3; // Reduced to prevent main thread saturation and WorkerStorage timeouts

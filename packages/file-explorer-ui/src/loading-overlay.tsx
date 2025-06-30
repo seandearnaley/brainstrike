@@ -1,4 +1,4 @@
-import { Button, Progress, cn } from '@brainstrike/ui';
+import { Button, cn, Progress } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
 import {

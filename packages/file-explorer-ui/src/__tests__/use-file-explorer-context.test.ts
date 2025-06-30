@@ -1,5 +1,4 @@
-import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import type { StorageAdapter } from '@brainstrike/storage';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';

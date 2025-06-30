@@ -147,9 +147,7 @@ const SimilarityInterface = ({
     if (similarity !== null) {
       try {
         await navigator.clipboard.writeText((similarity * 100).toFixed(3));
-      } catch (error) {
-        console.warn('Failed to copy to clipboard:', error);
-      }
+      } catch (_error) {}
     }
   };
 
@@ -296,7 +294,6 @@ export function EmbeddingsPanel() {
         setSelectedDevice(config.selectedDevice);
       }
     } catch (err) {
-      console.error('Failed to initialize model:', err);
       const currentModel = AVAILABLE_MODELS[selectedModel];
       const errorMessage = formatInitializationError(err, currentModel?.name || selectedModel);
       setError(errorMessage);
@@ -325,7 +322,6 @@ export function EmbeddingsPanel() {
       const errorMessage = err instanceof Error ? err.message : 'Failed to calculate similarity';
       setError(errorMessage);
       setStatus('ready');
-      console.error('Failed to calculate similarity:', err);
     }
   };
 
@@ -339,9 +335,7 @@ export function EmbeddingsPanel() {
       setProgress(0);
       setProgressMessage('');
       setError(null);
-    } catch (err) {
-      console.error('Failed to dispose service:', err);
-    }
+    } catch (_err) {}
   };
 
   return (

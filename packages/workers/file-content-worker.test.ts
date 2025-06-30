@@ -1,6 +1,6 @@
 import { createFileNode } from '@brainstrike/test-utils';
-import { fileContent } from '@brainstrike/utils';
 import * as utils from '@brainstrike/utils';
+import { fileContent } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createFileContentWorker } from './file-content-worker';
 import { MockFileSystemAdapter } from './test-helpers';
@@ -91,9 +91,7 @@ describe('file-content-worker', () => {
       '/4.txt': 10,
     };
     const adapter = new DelayedAdapter(delays);
-    Object.keys(delays).forEach((p) =>
-      MockFileSystemAdapter.setMockFileContent(p, p.slice(1))
-    );
+    Object.keys(delays).forEach((p) => MockFileSystemAdapter.setMockFileContent(p, p.slice(1)));
     const worker = createFileContentWorker({
       fileSystemAdapter: adapter,
       concurrency: 2,

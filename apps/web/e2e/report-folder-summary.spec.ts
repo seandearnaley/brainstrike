@@ -1,12 +1,12 @@
-import { test, expect } from '@playwright/test';
-import { mockBrowserApis, type FileTree } from './utils/mock-fs';
+import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Report Folder Summary Threshold', () => {
   test.beforeEach(async ({ page }) => {
     const tree: FileTree = {
       'test.ts': null,
-      'src': {
+      src: {
         'file1.ts': null,
         'file2.ts': null,
         'file3.ts': null,
@@ -25,7 +25,9 @@ test.describe('Report Folder Summary Threshold', () => {
     await page.reload();
 
     // Wait for the app to load completely
-    await expect(page.getByRole('heading', { name: 'Context Explorer', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Context Explorer', exact: true })
+    ).toBeVisible();
     await expect(page.getByTestId('select-root-button')).toBeVisible();
     await expect(page.getByText('No directory selected')).toBeVisible();
   });
@@ -35,7 +37,9 @@ test.describe('Report Folder Summary Threshold', () => {
     await page.getByTestId('select-root-button').click();
 
     // Wait for file tree to load
-    await expect(page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")).toBeVisible();
+    await expect(
+      page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')")
+    ).toBeVisible();
     await expect(page.getByText('No directory selected')).not.toBeVisible();
     await expect(page.getByRole('tree', { name: 'File tree' })).toBeVisible();
 
@@ -54,15 +58,12 @@ test.describe('Report Folder Summary Threshold', () => {
     const downloadButton = page.getByRole('button', { name: 'Download Report' });
     await expect(downloadButton).toBeEnabled();
 
-    const [download1] = await Promise.all([
-      page.waitForEvent('download'),
-      downloadButton.click(),
-    ]);
+    const [download1] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
 
     // Read the downloaded file content
-    const content1 = await download1.path().then(path => 
-      require('fs').readFileSync(path!, 'utf8')
-    );
+    const content1 = await download1
+      .path()
+      .then((path) => require('node:fs').readFileSync(path!, 'utf8'));
 
     // Verify default threshold behavior (5 files shown, then summary)
     expect(content1).toContain('<project_tree>');
@@ -86,16 +87,13 @@ test.describe('Report Folder Summary Threshold', () => {
     await expect(dialog).not.toBeVisible();
 
     // Download another report
-    const [download2] = await Promise.all([
-      page.waitForEvent('download'),
-      downloadButton.click(),
-    ]);
+    const [download2] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
 
     // Read the new downloaded file content
-    const content2 = await download2.path().then(path => 
-      require('fs').readFileSync(path!, 'utf8')
-    );
-    
+    const content2 = await download2
+      .path()
+      .then((path) => require('node:fs').readFileSync(path!, 'utf8'));
+
     // Verify new threshold behavior (2 files shown, then summary)
     expect(content2).toContain('src/');
     expect(content2).toContain('file1.ts');
@@ -103,4 +101,4 @@ test.describe('Report Folder Summary Threshold', () => {
     expect(content2).toContain('... 6 more items');
     expect(content2).not.toContain('file3.ts');
   });
-}); 
+});

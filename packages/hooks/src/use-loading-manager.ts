@@ -54,7 +54,7 @@ export function useLoadingManager<K>(
     for (const key of keys) {
       // The guard against re-initiating an already active load is now within handleLoad.
       if (!isLoaded(key)) {
-        handleLoad(key);
+        void handleLoad(key);
       }
     }
     // Dependencies: keys, isLoaded, and handleLoad (which depends on loadFn).

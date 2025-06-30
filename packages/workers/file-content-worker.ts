@@ -1,11 +1,6 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
-import {
-  fileContent,
-  fileExplorer,
-  isBinaryExtension,
-  isTextExtension,
-} from '@brainstrike/utils';
+import { fileContent, fileExplorer, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
 
 export interface FileReadRequest {
   compositeKey: string;
@@ -41,10 +36,10 @@ export function createFileContentWorker({
           const req = queue[index] as FileReadRequest;
           index += 1;
           active += 1;
-          
+
           // Yield to main thread to prevent blocking WorkerStorage communication
-          await new Promise(resolve => setTimeout(resolve, 0));
-          
+          await new Promise((resolve) => setTimeout(resolve, 0));
+
           processRequest(req)
             .then(({ key, content }) => {
               results[key] = content;

@@ -3,13 +3,13 @@ import {
   AccessError,
   DialogError,
   FileSystemError,
-  PermissionError,
-  UserCancelledError,
   isAccessError,
   isDialogError,
   isFileSystemError,
   isPermissionError,
   isUserCancelledError,
+  PermissionError,
+  UserCancelledError,
 } from '../errors';
 
 // Tests for error class instantiation and properties

@@ -1,13 +1,193 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "extends": ["./packages/config/biome/biome.json"],
+  "$schema": "https://biomejs.dev/schemas/2.0.6/schema.json",
   "files": {
-    "include": [
+    "includes": [
       "apps/**/src/**/*",
       "packages/**/src/**/*",
       "**/*.config.{ts,mts}",
-      "**/*.test.{ts,tsx}"
-    ],
-    "ignore": ["**/node_modules/**", "**/dist/**", "**/.turbo/**", "**/build/**", "**/coverage/**"]
+      "**/*.test.{ts,tsx}",
+      "!**/node_modules/**",
+      "!**/dist/**",
+      "!**/.turbo/**",
+      "!**/build/**",
+      "!**/coverage/**",
+      "!**/playwright-report/**",
+      "!**/test-results/**",
+      "!**/.vite/**",
+      "!**/.nyc_output/**",
+      "!**/blob-report/**",
+      "!**/*.db/**"
+    ]
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUndeclaredVariables": "error",
+        "noUnusedFunctionParameters": "error",
+        "useValidForDirection": "error",
+        "useYield": "error",
+        "noUnreachable": "error",
+        "useHookAtTopLevel": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noDebugger": "error",
+        "noDuplicateParameters": "error",
+        "noConsole": "warn"
+      },
+      "style": {
+        "useConst": "error",
+        "noInferrableTypes": "error",
+        "useNodejsImportProtocol": "error",
+        "noParameterAssign": "error",
+        "useAsConstAssertion": "error",
+        "useDefaultParameterLast": "error",
+        "useEnumInitializers": "error",
+        "useSelfClosingElements": "error",
+        "useSingleVarDeclarator": "error",
+        "noUnusedTemplateLiteral": "error",
+        "useNumberNamespace": "error",
+        "noUselessElse": "error",
+        "useNamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": false
+          }
+        },
+        "useFilenamingConvention": {
+          "level": "error",
+          "options": {
+            "strictCase": true,
+            "filenameCases": ["kebab-case"]
+          }
+        }
+      },
+      "complexity": {
+        "noExcessiveCognitiveComplexity": "error",
+        "noUselessCatch": "error",
+        "noUselessConstructor": "error",
+        "useLiteralKeys": "warn"
+      },
+      "performance": {
+        "noDelete": "error"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "error"
+      },
+      "nursery": {
+        "noFloatingPromises": "error"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": true,
+    "formatWithErrors": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "trailingCommas": "es5",
+      "semicolons": "always"
+    },
+    "globals": [
+      "React",
+      "describe",
+      "it",
+      "test",
+      "expect",
+      "beforeEach",
+      "afterEach",
+      "beforeAll",
+      "afterAll",
+      "vi",
+      "jest",
+      "Electron"
+    ]
+  },
+  "overrides": [
+    {
+      "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off",
+            "useNamingConvention": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "warn"
+          },
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/e2e/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useFilenamingConvention": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/scripts/**", "**/global.d.ts", "**/env.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off",
+            "useNodejsImportProtocol": "off",
+            "noNamespace": "off"
+          },
+          "correctness": {
+            "noUnusedVariables": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "**/constants/**",
+        "**/use-toast.ts",
+        "**/logger.ts",
+        "**/*.config.js",
+        "**/*.config.{ts,mts}",
+        "**/setup-security.ts",
+        "**/vitest.setup.ts",
+        "**/use-tab-manager.ts",
+        "**/migration-runner.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          },
+          "suspicious": {
+            "noConsole": "off"
+          },
+          "correctness": {
+            "useHookAtTopLevel": "off"
+          },
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    }
+  ],
+  "vcs": {
+    "enabled": false
   }
 }

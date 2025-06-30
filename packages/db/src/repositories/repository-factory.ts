@@ -6,6 +6,9 @@ import {
 import { FileRecordRepository } from './file-record-repository.js';
 import type { IFileRecordRepository } from './interfaces.js';
 
+// Re-export types for consumers
+export type { ElectronDbAPI } from './electron-file-record-repository.js';
+
 /**
  * Create a FileRecordRepository for the given database
  */

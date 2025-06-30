@@ -18,23 +18,22 @@ export class MemoryStorageAdapter implements StorageAdapter {
     if (this.storage.has(key)) {
       const value = this.storage.get(key) as string;
       if (this.debug) {
-        console.debug(
-          `[MemoryStorageAdapter] getItem - key: ${key}, value: ${value === '' ? '""' : value ? `${value.substring(0, 50)}...` : 'null (should not happen if key exists)'}`
-        );
+        // biome-ignore lint/suspicious/noConsole: Debug logging for development
+        console.debug(`MemoryStorageAdapter: getItem(${key}) -> ${value}`);
       }
       return value;
     }
     if (this.debug) {
-      console.debug(`[MemoryStorageAdapter] getItem - key: ${key}, value: null (key not found)`);
+      // biome-ignore lint/suspicious/noConsole: Debug logging for development
+      console.debug(`MemoryStorageAdapter: getItem(${key}) -> null`);
     }
     return null;
   }
 
   async setItem(key: string, value: string): Promise<void> {
     if (this.debug) {
-      console.debug(
-        `[MemoryStorageAdapter] setItem - key: ${key}, value: ${value.substring(0, 50)}...`
-      );
+      // biome-ignore lint/suspicious/noConsole: Debug logging for development
+      console.debug(`MemoryStorageAdapter: setItem(${key}, ${value})`);
     }
     this.storage.set(key, value);
   }

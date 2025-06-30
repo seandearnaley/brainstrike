@@ -2,11 +2,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// biome-ignore lint/style/noVar: var required for hoisted mock assignment
 var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
-// biome-ignore lint/style/noVar: var required for hoisted mock assignment
 var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
-// biome-ignore lint/style/noVar: var required for hoisted mock assignment
 var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
 
 // Mock UI components that are lazy loaded or used within the panel
@@ -94,13 +91,12 @@ vi.mock('@brainstrike/hooks', () => ({
   })),
 }));
 
-import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
-import { FileExplorerTestWrapper } from './test-helpers';
-
 import { useQuickFilter } from '@brainstrike/hooks';
+import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
+import { FileExplorerTestWrapper } from './test-helpers';
 
 let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
 let showToastMock: ReturnType<typeof vi.fn>;

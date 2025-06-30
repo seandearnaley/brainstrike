@@ -5,6 +5,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerStorage } from '../worker-storage';
 
+// Mock the logger using vi.hoisted
+const mockLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
 // Mock Worker global
 class MockWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -76,6 +86,8 @@ describe('WorkerStorage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLocalStorage.data.clear();
+    mockLogger.warn.mockClear();
+    mockLogger.error.mockClear();
 
     // Save original Worker if it exists
     originalWorker = (global as unknown as { Worker?: typeof Worker }).Worker;
@@ -139,16 +151,13 @@ describe('WorkerStorage', () => {
         })
       );
 
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const storage = new WorkerStorage();
 
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(mockLogger.warn).toHaveBeenCalledWith(
         'Failed to initialize Web Worker for state persistence:',
         expect.any(Error)
       );
       expect(storage.isWorkerAvailable).toBe(false);
-
-      consoleSpy.mockRestore();
     });
   });
 
@@ -202,15 +211,11 @@ describe('WorkerStorage', () => {
         }
       }, 10);
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       const result = await storage.getItem('fallback-key');
 
       expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
-      expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
     });
 
     it('should return null when key does not exist', async () => {
@@ -296,14 +301,10 @@ describe('WorkerStorage', () => {
         }
       }, 120); // Wait longer than the 100ms debounce
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       await storage.setItem('fallback-key', testValue);
 
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith('fallback-key', testValue);
-      expect(consoleSpy).toHaveBeenCalledWith('Worker setItem failed:', expect.any(Error));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker setItem failed:', expect.any(Error));
     });
 
     it('should handle worker not available', async () => {
@@ -363,14 +364,10 @@ describe('WorkerStorage', () => {
         }
       }, 10);
 
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
       await storage.removeItem('fallback-key');
 
       expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('fallback-key');
-      expect(consoleSpy).toHaveBeenCalledWith('Worker removeItem failed:', expect.any(Error));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker removeItem failed:', expect.any(Error));
     });
 
     it('should handle worker not available', async () => {
@@ -386,7 +383,6 @@ describe('WorkerStorage', () => {
   describe('error handling', () => {
     it('should handle worker error events', async () => {
       const storage = new WorkerStorage();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       // Create a promise that will fall back to localStorage
       const promise = storage.getItem('test');
@@ -401,14 +397,11 @@ describe('WorkerStorage', () => {
       // Should fall back to localStorage and return null for non-existent key
       const result = await promise;
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith('Worker error:', expect.any(MockErrorEvent));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker error occurred:', expect.any(String));
     });
 
     it('should handle unknown response IDs gracefully', () => {
       new WorkerStorage();
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       // Send response with unknown ID
       if (mockWorker.onmessage) {
@@ -424,15 +417,12 @@ describe('WorkerStorage', () => {
       }
 
       // Should silently ignore unknown response IDs (no console warning)
-      expect(consoleSpy).not.toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.warn).not.toHaveBeenCalled();
     });
 
     it('should timeout long-running requests', async () => {
       vi.useFakeTimers();
       const storage = new WorkerStorage();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const promise = storage.getItem('test');
 
@@ -442,19 +432,18 @@ describe('WorkerStorage', () => {
       // Should fall back to localStorage after timeout
       const result = await promise;
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
 
-      consoleSpy.mockRestore();
       vi.useRealTimers();
     });
 
     it('should handle missing error message in worker response', async () => {
       const storage = new WorkerStorage();
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const promise = storage.getItem('test');
 
       // Immediately trigger error response without message
+      await // Immediately trigger error response without message
       Promise.resolve().then(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -472,9 +461,7 @@ describe('WorkerStorage', () => {
       // Should fall back to localStorage after worker error
       const result = await promise;
       expect(result).toBeNull();
-      expect(consoleSpy).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith('Worker getItem failed:', expect.any(Error));
     });
   });
 
@@ -483,8 +470,8 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
 
       // Add some pending requests
-      storage.getItem('test1');
-      storage.getItem('test2');
+      void storage.getItem('test1');
+      void storage.getItem('test2');
 
       storage.destroy();
 
@@ -512,7 +499,7 @@ describe('WorkerStorage', () => {
         responses[id] = `result-${id}`;
 
         // Respond immediately
-        Promise.resolve().then(() => {
+        void Promise.resolve().then(() => {
           if (mockWorker.onmessage) {
             mockWorker.onmessage(
               new MessageEvent('message', {
@@ -543,7 +530,7 @@ describe('WorkerStorage', () => {
       mockWorker.postMessage = vi.fn((data) => {
         sentIds.add(data.id);
         // Respond immediately
-        Promise.resolve().then(() => {
+        void Promise.resolve().then(() => {
           if (mockWorker.onmessage) {
             mockWorker.onmessage(
               new MessageEvent('message', {
@@ -718,7 +705,7 @@ describe('WorkerStorage', () => {
       mockLocalStorage.removeItem.mockImplementationOnce(() => {
         throw new Error('fail');
       });
-      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const warnSpy = vi.spyOn(mockLogger, 'warn').mockImplementation(() => {});
 
       if (mockWorker.onmessage) {
         mockWorker.onmessage(

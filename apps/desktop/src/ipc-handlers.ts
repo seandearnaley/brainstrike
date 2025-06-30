@@ -6,8 +6,8 @@ import type {
 } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
-import { app, ipcMain } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
 import { getDatabase } from './db-main';
 
@@ -39,9 +39,9 @@ export function registerIpcHandlers(
 
   ipcMain.handle('fs:requestDirectoryAccess', async () => {
     // Check if we're in test mode to avoid native dialogs
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     const nodeEnv = process.env['NODE_ENV'];
     const isTestMode =
       process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
@@ -96,7 +96,6 @@ export function registerIpcHandlers(
       p.startsWith('/usr/') ||
       p.startsWith('/var/')
     ) {
-      console.warn('Rejected potentially unsafe path access:', p);
       return false;
     }
     return fileSystem.exists(p);
@@ -123,23 +122,13 @@ export function registerIpcHandlers(
 
   // Database IPC handlers
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
-    try {
-      const db = getDatabase();
-      return await db.query(sql, params);
-    } catch (error) {
-      console.error('Database query error:', error);
-      throw error;
-    }
+    const db = getDatabase();
+    return await db.query(sql, params);
   });
 
   ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
-    try {
-      const db = getDatabase();
-      return await db.exec(sql);
-    } catch (error) {
-      console.error('Database exec error:', error);
-      throw error;
-    }
+    const db = getDatabase();
+    return await db.exec(sql);
   });
 
   // Database test handler for connection validation
@@ -149,7 +138,7 @@ export function registerIpcHandlers(
       const result = await db.query('SELECT 1 as test, current_timestamp as timestamp');
       const dbPath = path.join(
         app.getPath('documents'),
-        // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+        // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
         process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev',
         'pgdata'
       );

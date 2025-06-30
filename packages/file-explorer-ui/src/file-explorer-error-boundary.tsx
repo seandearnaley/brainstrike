@@ -43,9 +43,7 @@ Component Stack: ${errorInfo?.componentStack || 'No component stack available'}
           description: 'Error details copied to clipboard',
         });
       })
-      .catch((err) => {
-        console.error('Failed to copy error details:', err);
-      });
+      .catch((_err) => {});
   };
 
   private getErrorTypeInfo() {

@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { Page } from '@playwright/test';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mockBrowserApis } from '../mock-fs';
 
 // Mock File and Blob APIs for jsdom environment
@@ -8,18 +8,20 @@ beforeEach(() => {
   global.File = class MockFile {
     private content: string;
     public name: string;
-    
+
     constructor(fileBits: BlobPart[], fileName: string, _options?: FilePropertyBag) {
       this.name = fileName;
       // Convert fileBits to string
-      this.content = fileBits.map(bit => {
-        if (typeof bit === 'string') return bit;
-        if (bit instanceof ArrayBuffer) return new TextDecoder().decode(bit);
-        if (ArrayBuffer.isView(bit)) return new TextDecoder().decode(bit);
-        return String(bit);
-      }).join('');
+      this.content = fileBits
+        .map((bit) => {
+          if (typeof bit === 'string') return bit;
+          if (bit instanceof ArrayBuffer) return new TextDecoder().decode(bit);
+          if (ArrayBuffer.isView(bit)) return new TextDecoder().decode(bit);
+          return String(bit);
+        })
+        .join('');
     }
-    
+
     async text(): Promise<string> {
       return this.content;
     }
@@ -28,17 +30,19 @@ beforeEach(() => {
   // Mock Blob with text() method
   global.Blob = class MockBlob {
     private content: string;
-    
+
     constructor(blobParts?: BlobPart[], _options?: BlobPropertyBag) {
       // Convert blobParts to string
-      this.content = (blobParts || []).map(part => {
-        if (typeof part === 'string') return part;
-        if (part instanceof ArrayBuffer) return new TextDecoder().decode(part);
-        if (ArrayBuffer.isView(part)) return new TextDecoder().decode(part);
-        return String(part);
-      }).join('');
+      this.content = (blobParts || [])
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          if (part instanceof ArrayBuffer) return new TextDecoder().decode(part);
+          if (ArrayBuffer.isView(part)) return new TextDecoder().decode(part);
+          return String(part);
+        })
+        .join('');
     }
-    
+
     async text(): Promise<string> {
       return this.content;
     }
@@ -61,14 +65,11 @@ describe('mockBrowserApis', () => {
     await mockBrowserApis(page, 'root', { foo: null });
 
     expect(addInitScript).toHaveBeenCalledTimes(1);
-    expect(addInitScript).toHaveBeenCalledWith(
-      expect.any(Function),
-      {
-        rootName: 'root',
-        tree: { foo: null },
-        enableClipboard: false,
-      },
-    );
+    expect(addInitScript).toHaveBeenCalledWith(expect.any(Function), {
+      rootName: 'root',
+      tree: { foo: null },
+      enableClipboard: false,
+    });
   });
 
   it('passes clipboard option', async () => {
@@ -78,21 +79,18 @@ describe('mockBrowserApis', () => {
     await mockBrowserApis(page, 'root', { foo: null }, { clipboard: true });
 
     expect(addInitScript).toHaveBeenCalledTimes(1);
-    expect(addInitScript).toHaveBeenCalledWith(
-      expect.any(Function),
-      {
-        rootName: 'root',
-        tree: { foo: null },
-        enableClipboard: true,
-      },
-    );
+    expect(addInitScript).toHaveBeenCalledWith(expect.any(Function), {
+      rootName: 'root',
+      tree: { foo: null },
+      enableClipboard: true,
+    });
   });
 });
 
 describe('Mock File System Logic', () => {
   const getInjectedScript = async (
     tree: import('../mock-fs').FileTree,
-    options: { clipboard?: boolean } = {},
+    options: { clipboard?: boolean } = {}
   ) => {
     const addInitScript = vi.fn();
     const page = { addInitScript } as unknown as Page;
@@ -103,9 +101,9 @@ describe('Mock File System Logic', () => {
 
   it('should build a nested file system and read files', async () => {
     const runScript = await getInjectedScript({
-      'dir1': {
+      dir1: {
         'file1.txt': null,
-        'dir2': {
+        dir2: {
           'file2.txt': null,
         },
       },
@@ -165,7 +163,7 @@ describe('Mock File System Logic', () => {
   });
 
   it('should iterate over entries', async () => {
-    const runScript = await getInjectedScript({ 'file.txt': null, 'dir': {} });
+    const runScript = await getInjectedScript({ 'file.txt': null, dir: {} });
     runScript();
 
     const rootHandle = await (window as any).showDirectoryPicker();
@@ -185,7 +183,9 @@ describe('Mock File System Logic', () => {
     runScript();
     const rootHandle = await (window as any).showDirectoryPicker();
     await expect(rootHandle.getFileHandle('nonexistent.txt')).rejects.toThrow('File not found');
-    await expect(rootHandle.getDirectoryHandle('nonexistent-dir')).rejects.toThrow('Directory not found');
+    await expect(rootHandle.getDirectoryHandle('nonexistent-dir')).rejects.toThrow(
+      'Directory not found'
+    );
   });
 
   it('should handle various data types for writing', async () => {
@@ -194,13 +194,13 @@ describe('Mock File System Logic', () => {
     const rootHandle = await (window as any).showDirectoryPicker();
     const fileHandle = await rootHandle.getFileHandle('test.bin', { create: true });
     const writable = await fileHandle.createWritable();
-    
+
     // Write string
     await writable.write('hello');
-    
+
     // Write Blob
     await writable.write(new Blob([' world']));
-    
+
     // Write object with data property (string)
     await writable.write({ type: 'write', data: '!' });
 

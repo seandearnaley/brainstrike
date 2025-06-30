@@ -230,10 +230,11 @@ const FileTreeRow = memo<FileTreeRowProps>(
     ]);
 
     return (
-      <li
+      <div
         className="list-none"
         role="treeitem"
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
+        tabIndex={0}
         style={style}
       >
         <div
@@ -295,9 +296,9 @@ const FileTreeRow = memo<FileTreeRowProps>(
             )}
           </div>
         </div>
-        {/* Render children in a nested ul if they exist */}
-        {isExpanded && children && <ul className="">{children}</ul>}
-      </li>
+        {/* Render children in a nested div if they exist */}
+        {isExpanded && children && <div className="">{children}</div>}
+      </div>
     );
   },
   areFileTreeRowPropsEqual

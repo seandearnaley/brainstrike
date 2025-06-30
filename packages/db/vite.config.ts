@@ -1,8 +1,8 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
@@ -10,7 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
-      'src': path.resolve(__dirname, 'src'),
+      src: path.resolve(__dirname, 'src'),
       '@brainstrike/types': path.resolve(__dirname, '../types/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../utils/src'),
       '@brainstrike/platform-utils': path.resolve(__dirname, '../platform-utils/src'),
@@ -21,9 +21,7 @@ export default defineConfig({
       '@brainstrike/ui': path.resolve(__dirname, '../ui/src'),
     },
   },
-  plugins: [
-    wasm(),
-  ],
+  plugins: [wasm()],
   optimizeDeps: {
     exclude: ['@electric-sql/pglite'],
   },

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { type Mock, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
 import { IdeLayout } from '../layout/ide-layout';
 

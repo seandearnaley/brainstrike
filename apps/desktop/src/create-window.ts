@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDevEnv } from '@brainstrike/utils';
-import { BrowserWindow, app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 
 /**
  * Configure security settings for the browser window.
@@ -33,7 +33,6 @@ function configureSecurity(win: BrowserWindow) {
  */
 function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
   if (isDevEnv()) {
-    console.info('📦 Loading built renderer files');
   }
   win.loadFile(rendererPath);
 }
@@ -43,7 +42,6 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
  */
 async function connectToDevServer(win: BrowserWindow) {
   if (isDevEnv()) {
-    console.info('🔧 Development mode - connecting to Vite dev server');
   }
 
   const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
@@ -52,15 +50,12 @@ async function connectToDevServer(win: BrowserWindow) {
     try {
       await win.loadURL(`http://localhost:${port}`);
       if (isDevEnv()) {
-        console.info(`✅ Connected to Vite dev server on port ${port}`);
       }
       return;
     } catch (error) {
       if (isDevEnv()) {
-        console.info(`❌ Failed to connect to port ${port}`);
       }
       if (port === devPorts[devPorts.length - 1]) {
-        console.error('❌ Could not connect to any Vite dev server port');
         throw error;
       }
     }
@@ -88,7 +83,7 @@ async function loadRenderer(win: BrowserWindow) {
  */
 export async function createWindow() {
   // Check if running in headless mode (for tests) - prefer CI env var over command line flags
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
   const isHeadless = process.env['CI'] || process.argv.includes('--test-mode');
 
   const win = new BrowserWindow({

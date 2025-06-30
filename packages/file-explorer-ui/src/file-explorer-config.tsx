@@ -1,5 +1,4 @@
-import { Button } from '@brainstrike/ui';
-import { Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
 import { useEffect, useState } from 'react';

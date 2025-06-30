@@ -1,5 +1,4 @@
-import { Label } from '@brainstrike/ui';
-import { Switch } from '@brainstrike/ui';
+import { Label, Switch } from '@brainstrike/ui';
 import type React from 'react';
 
 interface IncludeProjectTreeSettingProps {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Platform, detectPlatform } from '../index';
+import { detectPlatform, type Platform } from '../index';
 
 describe('Platform Utils', () => {
   describe('detectPlatform', () => {

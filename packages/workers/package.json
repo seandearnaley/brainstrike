@@ -4,7 +4,10 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "files": ["dist/**/*.js", "dist/**/*.d.ts"],
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
+  ],
   "exports": {
     "./file-content-worker": {
       "types": "./dist/file-content-worker.d.ts",

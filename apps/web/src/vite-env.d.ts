@@ -11,7 +11,6 @@ interface ImportMetaEnv {
   readonly MODE: string;
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Global interface extension for Vite
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
