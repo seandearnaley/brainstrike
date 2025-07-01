@@ -15,9 +15,7 @@ import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
-interface UseFileExplorerProps {
-  onDisplayedFilePathsChange: (displayedFilePaths: Set<string>) => void;
-}
+type UseFileExplorerProps = Record<string, never>;
 
 interface UseFileExplorerReturn {
   fileTree: IFileNode[];
@@ -47,9 +45,7 @@ interface UseFileExplorerReturn {
   isCancelling: boolean;
 }
 
-export function useFileExplorer({
-  onDisplayedFilePathsChange,
-}: UseFileExplorerProps): UseFileExplorerReturn {
+export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   const store = useFileExplorerStoreContext();
   const {
     includeFilters,
@@ -66,10 +62,8 @@ export function useFileExplorer({
     shallow
   );
 
-  // Call the core hook with only the props it now accepts
-  const coreExplorer = useCoreFileExplorer({
-    onDisplayedFilePathsChange,
-  });
+  // Call the core hook
+  const coreExplorer = useCoreFileExplorer();
 
   const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
 
@@ -144,25 +138,6 @@ export function useFileExplorer({
     },
     [applyFiltersUtil, fileTree]
   );
-
-  const collectVisiblePaths = useCallback((nodes: IFileNode[]): Set<string> => {
-    const paths = new Set<string>();
-    const collect = (innerNodes: IFileNode[]) => {
-      for (const node of innerNodes) {
-        if (node.type === 'file') {
-          paths.add(node.path);
-        } else if (node.type === 'directory' && node.children) {
-          collect(node.children);
-        }
-      }
-    };
-    collect(nodes);
-    return paths;
-  }, []);
-
-  useEffect(() => {
-    onDisplayedFilePathsChange(collectVisiblePaths(filteredTree));
-  }, [filteredTree, onDisplayedFilePathsChange, collectVisiblePaths]);
 
   // Construct the return object, carefully combining local state/logic with coreExplorer where needed.
   // This needs to satisfy UseFileExplorerReturn type.

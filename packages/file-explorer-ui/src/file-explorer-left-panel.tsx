@@ -73,11 +73,6 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleDisplayedFilesChange = useCallback((_displayedPaths: Set<string>) => {
-    // This callback intentionally does nothing but provides stability
-    // to prevent re-renders in useFileExplorer
-  }, []);
-
   const {
     fileTree,
     handleRootDirectorySelect,
@@ -95,9 +90,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancellable,
     cancelOperation,
     isCancelling,
-  } = useFileExplorer({
-    onDisplayedFilePathsChange: handleDisplayedFilesChange,
-  });
+  } = useFileExplorer();
 
   const onSelectionLimitExceeded = useCallback(() => {
     // Selection limit handling is managed by action buttons

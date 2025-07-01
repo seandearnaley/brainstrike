@@ -43,7 +43,6 @@ describe('useFileExplorer', () => {
   };
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
-  let onDisplayedFilePathsChange: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -113,12 +112,10 @@ describe('useFileExplorer', () => {
       handleFileContentLoading: mockHandleFileContentLoading,
       clearFileContents: mockClearFileContents,
     });
-
-    onDisplayedFilePathsChange = vi.fn();
   });
 
   it('should select root directory', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     let handle: DirectoryHandle | null = null;
     await act(async () => {
@@ -131,7 +128,7 @@ describe('useFileExplorer', () => {
   });
 
   it('should load file content', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     await act(async () => {
       await result.current.actions.loadFileContent('/file1.ts');
@@ -142,15 +139,13 @@ describe('useFileExplorer', () => {
   });
 
   it('should apply filters and update displayed files', () => {
-    renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    renderHook(() => useFileExplorer());
 
     expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, [], [], false);
-
-    expect(onDisplayedFilePathsChange).toHaveBeenCalledWith(new Set(['/file1.ts']));
   });
 
   it('should refresh file explorer', async () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     await act(async () => {
       await result.current.actions.refreshFileExplorer();
@@ -167,7 +162,7 @@ describe('useFileExplorer', () => {
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
     });
 
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     expect(result.current.rootDirectoryHandle).toBeNull();
 

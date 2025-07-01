@@ -1,5 +1,8 @@
 import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
-import { generateReport, generateReportFromAdapter } from '@brainstrike/utils';
+import {
+  createReportGenerationWorker,
+  type ProgressEvent as ReportProgressEvent,
+} from '@brainstrike/workers/report-generation-worker';
 import { useCallback, useState } from 'react';
 
 interface UseReportGenerationProps {
@@ -26,6 +29,7 @@ export function useReportGeneration({
   folderSummaryThreshold,
 }: UseReportGenerationProps) {
   const [isGenerating, setIsGenerating] = useState(false);
+  const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 
   const generateReportWithContent = useCallback(async () => {
     if (!rootDirectoryHandle) {
@@ -33,33 +37,21 @@ export function useReportGeneration({
     }
 
     setIsGenerating(true);
+    setProgress({ loaded: 0, total: 1 });
     try {
-      // Check if we have our adapter pattern (DirectoryHandle with platform property)
-      if (fileSystemAdapter && 'platform' in rootDirectoryHandle) {
-        // Use platform-agnostic version
-        return await generateReportFromAdapter(
+      const worker = createReportGenerationWorker(fileSystemAdapter ? { fileSystemAdapter } : {});
+      return await worker(
+        {
           selectedFiles,
           fileContents,
-          fileSystemAdapter,
-          rootDirectoryHandle as DirectoryHandle,
+          rootDirectoryHandle,
           includeFilters,
           excludeFilters,
           useRegex,
           includeProjectTree,
-          folderSummaryThreshold
-        );
-      }
-
-      // Use original web-only version for backward compatibility
-      return await generateReport(
-        selectedFiles,
-        fileContents,
-        rootDirectoryHandle as FileSystemDirectoryHandle,
-        includeFilters,
-        excludeFilters,
-        useRegex,
-        includeProjectTree,
-        folderSummaryThreshold
+          folderSummaryThreshold,
+        },
+        (e: ReportProgressEvent) => setProgress(e)
       );
     } finally {
       setIsGenerating(false);
@@ -79,5 +71,6 @@ export function useReportGeneration({
   return {
     generateReportWithContent,
     isGenerating,
+    progress,
   };
 }

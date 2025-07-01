@@ -83,4 +83,24 @@ describe('useQuickFilter', () => {
     expect(result.current.quickFilter).toBe('');
     expect(result.current.filteredTree).toEqual(mockTree);
   });
+
+  it('performs quickly on large trees', () => {
+    const largeChildren = Array.from({ length: 5000 }, (_, i) =>
+      fileNode(`file${i}.txt`, `src/file${i}.txt`)
+    );
+    const largeTree: IFileNode[] = [dirNode('src', 'src', largeChildren)];
+
+    const { result } = renderHook(() => useQuickFilter(largeTree));
+
+    const start = performance.now();
+    act(() => {
+      result.current.setQuickFilter('file4999');
+    });
+    const duration = performance.now() - start;
+
+    const children = result.current.filteredTree[0].children ?? [];
+    expect(children).toHaveLength(1);
+    expect(children[0].name).toBe('file4999.txt');
+    expect(duration).toBeLessThan(200);
+  });
 });
