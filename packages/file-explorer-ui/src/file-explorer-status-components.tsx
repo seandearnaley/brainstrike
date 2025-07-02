@@ -2,11 +2,11 @@ import { FolderBadge } from '@brainstrike/file-explorer-ui';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
-import type * as React from 'react';
+import * as React from 'react';
 
 export const DirectoryStatus: React.FC<{
   rootDirectoryHandle: DirectoryHandle | null;
-}> = ({ rootDirectoryHandle }) => {
+}> = React.memo(({ rootDirectoryHandle }) => {
   if (!rootDirectoryHandle) return null;
   return (
     <div className="flex items-center gap-2 text-sm text-muted-foreground px-2 py-2 border-b">
@@ -14,13 +14,13 @@ export const DirectoryStatus: React.FC<{
       <FolderBadge folderId={rootDirectoryHandle.name} />
     </div>
   );
-};
+});
 
 const FilterBadge: React.FC<{
   label: string;
   value: string;
   variant?: 'default' | 'secondary' | 'destructive' | 'outline';
-}> = ({ label, value, variant = 'secondary' }) => (
+}> = React.memo(({ label, value, variant = 'secondary' }) => (
   <Tooltip>
     <TooltipTrigger>
       <Badge variant={variant} className="cursor-help">
@@ -31,14 +31,14 @@ const FilterBadge: React.FC<{
       <p>{`${label}: ${value}`}</p>
     </TooltipContent>
   </Tooltip>
-);
+));
 
 export const FilterStatus: React.FC<{
   includeFilters: string[];
   excludeFilters: string[];
   useRegex: boolean;
   quickFilter: string;
-}> = ({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
+}> = React.memo(({ includeFilters, excludeFilters, useRegex, quickFilter }) => {
   const hasFilters = includeFilters.length > 0 || excludeFilters.length > 0 || quickFilter;
 
   if (!hasFilters) return null;
@@ -82,4 +82,4 @@ export const FilterStatus: React.FC<{
       )}
     </div>
   );
-};
+});

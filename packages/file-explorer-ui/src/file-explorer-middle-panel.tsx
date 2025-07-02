@@ -12,11 +12,7 @@ import { useSelectionManager } from './use-selection-manager-context';
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanel: React.FC = () => {
-  const handleDisplayedFilesChange = useCallback(() => {}, []);
-
-  const { fileContents, loadingFiles } = useFileExplorer({
-    onDisplayedFilePathsChange: handleDisplayedFilesChange,
-  });
+  const { fileContents, loadingFiles } = useFileExplorer();
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => {}, // Handled by left panel

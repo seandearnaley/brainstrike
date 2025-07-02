@@ -16,6 +16,7 @@ import {
 } from '@brainstrike/ui';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
+import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -41,7 +42,7 @@ const ActionButtons = lazy(() =>
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout
  */
-export const FileExplorerLeftPanel: React.FC = () => {
+export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const {
@@ -72,8 +73,6 @@ export const FileExplorerLeftPanel: React.FC = () => {
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const handleDisplayedFilesChange = useCallback(() => {}, []);
-
   const {
     fileTree,
     handleRootDirectorySelect,
@@ -91,12 +90,14 @@ export const FileExplorerLeftPanel: React.FC = () => {
     cancellable,
     cancelOperation,
     isCancelling,
-  } = useFileExplorer({
-    onDisplayedFilePathsChange: handleDisplayedFilesChange,
-  });
+  } = useFileExplorer();
+
+  const onSelectionLimitExceeded = useCallback(() => {
+    // Selection limit handling is managed by action buttons
+  }, []);
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
-    onSelectionLimitExceeded: () => {}, // Will be handled by action buttons
+    onSelectionLimitExceeded,
   });
 
   const { generateReportWithContent } = useReportGeneration({
@@ -132,12 +133,14 @@ export const FileExplorerLeftPanel: React.FC = () => {
     return new Error(filterError);
   }, [filterError]);
 
+  const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
+
   const {
     quickFilter,
     setQuickFilter,
     clearFilter,
     filteredTree: quickFilteredTree,
-  } = useQuickFilter(fileTree || []);
+  } = useQuickFilter(stableFileTree);
 
   // Calculate displayed files from the quick filtered tree
   const displayedFiles = useMemo(() => {
@@ -382,4 +385,6 @@ export const FileExplorerLeftPanel: React.FC = () => {
       </div>
     </FileExplorerErrorBoundary>
   );
-};
+});
+
+FileExplorerLeftPanel.displayName = 'FileExplorerLeftPanel';

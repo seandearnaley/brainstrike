@@ -12,9 +12,7 @@ export interface TabbedFileEditorPanelProps {
 export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
   function TabbedFileEditorPanel({ className }) {
     const { registerOpenFileInTab } = useIdeFileEditor();
-    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer({
-      onDisplayedFilePathsChange: () => {},
-    });
+    const { rootDirectoryHandle, fileContents, loadingFiles, loadFileContent } = useFileExplorer();
 
     const { tabs, activeTabId, openTab, closeTab, setActiveTab, updateTabContent } =
       useTabManager();

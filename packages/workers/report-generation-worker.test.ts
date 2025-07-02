@@ -1,0 +1,62 @@
+import * as utils from '@brainstrike/utils';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { createReportGenerationWorker } from './report-generation-worker';
+import { MockFileSystemAdapter } from './test-helpers';
+
+vi.spyOn(console, 'error').mockImplementation(() => {});
+
+const baseRequest = {
+  selectedFiles: new Set(['a.ts']),
+  fileContents: { 'a.ts': 'content' },
+  includeFilters: [],
+  excludeFilters: [],
+  useRegex: false,
+  includeProjectTree: false,
+  folderSummaryThreshold: 5,
+};
+
+describe('report-generation-worker', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('uses adapter version when adapter provided', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createReportGenerationWorker({ fileSystemAdapter: adapter });
+    const rootHandle = await adapter.requestDirectoryAccess();
+    const spy = vi.spyOn(utils, 'generateReportFromAdapter').mockResolvedValue('report');
+
+    const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
+
+    expect(spy).toHaveBeenCalled();
+    expect(result).toBe('report');
+  });
+
+  it('uses web version when no adapter', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createReportGenerationWorker();
+    const rootHandle =
+      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    const spy = vi.spyOn(utils, 'generateReport').mockResolvedValue('report');
+
+    const result = await worker({ ...baseRequest, rootDirectoryHandle: rootHandle });
+
+    expect(spy).toHaveBeenCalled();
+    expect(result).toBe('report');
+  });
+
+  it('emits progress events', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createReportGenerationWorker();
+    const rootHandle =
+      (await adapter.requestDirectoryAccess()) as unknown as FileSystemDirectoryHandle;
+    vi.spyOn(utils, 'generateReport').mockResolvedValue('done');
+
+    const progress: number[] = [];
+    await worker({ ...baseRequest, rootDirectoryHandle: rootHandle }, (e) =>
+      progress.push(e.loaded)
+    );
+
+    expect(progress).toEqual([0, 1]);
+  });
+});

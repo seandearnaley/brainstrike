@@ -7,10 +7,11 @@ import { useFileSystem } from './use-file-system';
 import { useFileTree } from './use-file-tree';
 
 export interface UseFileExplorerParams {
-  onDisplayedFilePathsChange: (paths: Set<string>) => void;
+  onDisplayedFilePathsChange?: (paths: Set<string>) => void;
 }
 
-export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams) {
+export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
+  const callback = onDisplayedFilePathsChange ?? (() => {});
   const store = useFileExplorerStore();
   const {
     // currentFolderId, // Commented out if not immediately used
@@ -55,18 +56,11 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
       const newDisplayedPaths = new Set<string>(
         newDisplayedFileNodes.map((node: IFileNode) => node.path)
       );
-      onDisplayedFilePathsChange(newDisplayedPaths);
+      callback(newDisplayedPaths);
     } else {
-      onDisplayedFilePathsChange(new Set<string>());
+      callback(new Set<string>());
     }
-  }, [
-    fileTree,
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    applyFileFilters,
-    onDisplayedFilePathsChange,
-  ]);
+  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters, callback]);
 
   const handleRootDirectorySelect = async () => {
     const handle = await selectRootDirectory();

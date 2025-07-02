@@ -65,7 +65,6 @@ describe('useFileExplorer (context)', () => {
 
   let initialFileTree: IFileNode[];
   let filteredTree: IFileNode[];
-  let onDisplayedFilePathsChange: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -168,19 +167,16 @@ describe('useFileExplorer (context)', () => {
       } as Partial<FileSystemAdapter> as FileSystemAdapter,
       storageAdapter: {} as StorageAdapter,
     });
-
-    onDisplayedFilePathsChange = vi.fn();
   });
 
   it('returns values combined from context hooks', () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     expect(result.current.fileTree).toBe(filteredTree);
     expect(result.current.rootDirectoryHandle).toBe(rootHandle);
     expect(result.current.isLoading).toBe(false);
     expect(result.current.fileContents['/file1.ts']).toBe('content');
     expect(mockApplyFileFilters).toHaveBeenCalledWith(initialFileTree, [], [], false);
-    expect(onDisplayedFilePathsChange).toHaveBeenCalledWith(new Set(['/file1.ts']));
 
     act(() => {
       result.current.handleRootDirectorySelect();
@@ -192,7 +188,7 @@ describe('useFileExplorer (context)', () => {
   });
 
   it('applyFileFilters updates the filtered tree', () => {
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     const newFiltered = [initialFileTree[1] as IFileNode];
     mockApplyFileFilters.mockReturnValueOnce(newFiltered);
@@ -213,7 +209,7 @@ describe('useFileExplorer (context)', () => {
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
     });
 
-    const { result } = renderHook(() => useFileExplorer({ onDisplayedFilePathsChange }));
+    const { result } = renderHook(() => useFileExplorer());
 
     expect(result.current.rootDirectoryHandle).toBeNull();
     await expect(result.current.refreshFileExplorer()).rejects.toBeInstanceOf(Error);
