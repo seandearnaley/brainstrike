@@ -68,5 +68,3 @@ export function createReportGenerationWorker({
     return report;
   };
 }
-
-export type ReportGenerationWorker = ReturnType<typeof createReportGenerationWorker>;
