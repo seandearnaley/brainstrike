@@ -38,6 +38,16 @@ const ActionButtons = lazy(() =>
   }))
 );
 
+function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
+  for (const node of nodes) {
+    if (node.type === 'file' && node.isVisible !== false) {
+      fileSet.add(node.path);
+    } else if (node.type === 'directory' && node.children) {
+      collectVisibleFiles(node.children, fileSet);
+    }
+  }
+}
+
 /**
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout
@@ -143,21 +153,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   } = useQuickFilter(stableFileTree);
 
   // Calculate displayed files from the quick filtered tree
+  const displayedFilesRef = React.useRef<Set<string>>(new Set());
   const displayedFiles = useMemo(() => {
-    const allVisibleFiles = new Set<string>();
-    const collectVisibleFiles = (nodes: IFileNode[]) => {
-      for (const node of nodes) {
-        if (node.type === 'file' && node.isVisible !== false) {
-          allVisibleFiles.add(node.path);
-        } else if (node.type === 'directory' && node.children) {
-          collectVisibleFiles(node.children);
-        }
-      }
-    };
+    const visible = new Set<string>();
     if (quickFilteredTree) {
-      collectVisibleFiles(quickFilteredTree);
+      collectVisibleFiles(quickFilteredTree, visible);
     }
-    return allVisibleFiles;
+    displayedFilesRef.current = visible;
+    return visible;
   }, [quickFilteredTree]);
 
   const handleRefresh = useCallback(async () => {

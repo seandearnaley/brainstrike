@@ -40,34 +40,29 @@ export interface UndoableActionOptions<T, S = unknown> {
  */
 export function useUndoableAction<T, S = unknown>() {
   const { toast, dismiss } = useToast();
-  const [undoTimeouts, setUndoTimeouts] = React.useState<
+  const undoTimeoutsRef = React.useRef<
     Map<string, { timeoutId: number; toastId: string; item: T; snapshot: S }>
   >(new Map());
 
   React.useEffect(() => {
     return () => {
       // Clear all timeouts on unmount
-      for (const { timeoutId } of undoTimeouts.values()) {
+      for (const { timeoutId } of undoTimeoutsRef.current.values()) {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [undoTimeouts]);
+  }, []);
 
   const clearUndoTimeout = React.useCallback(
     (key: string) => {
-      const timeoutDetails = undoTimeouts.get(key);
+      const timeoutDetails = undoTimeoutsRef.current.get(key);
       if (timeoutDetails) {
         window.clearTimeout(timeoutDetails.timeoutId);
         dismiss(timeoutDetails.toastId);
-
-        setUndoTimeouts((prev) => {
-          const next = new Map(prev);
-          next.delete(key);
-          return next;
-        });
+        undoTimeoutsRef.current.delete(key);
       }
     },
-    [undoTimeouts, dismiss]
+    [dismiss]
   );
 
   const performUndoableAction = React.useCallback(
@@ -106,15 +101,7 @@ export function useUndoableAction<T, S = unknown>() {
         clearUndoTimeout(key);
       }, options.duration ?? 5000);
 
-      setUndoTimeouts((prev) => {
-        const next = new Map(prev);
-        // Ensure snapshot is defined, falling back to a default if necessary
-        // (though TS implies S could be undefined if not provided by getStateSnapshot and not void)
-        // For safety, especially if S isn't explicitly `| undefined`.
-        // However, the original code had `snapshot: S` which implies S should be defined.
-        next.set(key, { timeoutId, toastId, item, snapshot });
-        return next;
-      });
+      undoTimeoutsRef.current.set(key, { timeoutId, toastId, item, snapshot });
     },
     [toast, clearUndoTimeout] // Added clearUndoTimeout to dependency array
   );

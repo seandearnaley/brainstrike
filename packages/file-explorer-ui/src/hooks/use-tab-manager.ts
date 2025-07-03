@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const TAB_STATE_STORAGE_KEY = 'fileEditorTabs.v1';
 
@@ -89,14 +89,17 @@ export interface UseTabManagerReturn {
 }
 
 export function useTabManager(): UseTabManagerReturn {
-  // Initialize state from localStorage
+  // Cache initial state from localStorage so loadTabState is called only once
+  const initialStateRef = useRef<TabState | null>(null);
+  if (initialStateRef.current === null) {
+    initialStateRef.current = loadTabState();
+  }
+
   const [tabs, setTabs] = useState<FileTab[]>(() => {
-    const saved = loadTabState();
-    return saved?.tabs || [];
+    return initialStateRef.current?.tabs ?? [];
   });
   const [activeTabId, setActiveTabId] = useState<string | null>(() => {
-    const saved = loadTabState();
-    return saved?.activeTabId || null;
+    return initialStateRef.current?.activeTabId ?? null;
   });
 
   // Save state to localStorage whenever it changes (throttled)

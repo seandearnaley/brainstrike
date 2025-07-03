@@ -243,9 +243,6 @@ export function EmbeddingsPanel() {
   const [error, setError] = useState<string | null>(null);
   const serviceRef = useRef<SimpleEmbeddingService | null>(null);
 
-  // Debug logging for status changes
-  useEffect(() => {}, []);
-
   useEffect(() => {
     // Initialize the service
     const service = new SimpleEmbeddingService();
