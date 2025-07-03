@@ -33,7 +33,10 @@ export function RootLayoutContent({
       currentPath={activeTab === 'explorer' ? '/' : '/settings'}
       onNavigationClick={handleNavigationClick}
     >
-      <div style={{ display: activeTab === 'explorer' ? 'block' : 'none', height: '100%' }}>
+      <div
+        data-testid="explorer-section"
+        className={activeTab === 'explorer' ? 'block h-full' : 'hidden h-full'}
+      >
         <IdeLayout
           leftPanelContent={sidebarContent}
           rightPanelContent={rightPanelContent}
@@ -43,7 +46,10 @@ export function RootLayoutContent({
         </IdeLayout>
       </div>
 
-      <div style={{ display: activeTab === 'settings' ? 'block' : 'none', height: '100%' }}>
+      <div
+        data-testid="settings-section"
+        className={activeTab === 'settings' ? 'block h-full' : 'hidden h-full'}
+      >
         {settingsPageContent}
       </div>
     </AppLayout>

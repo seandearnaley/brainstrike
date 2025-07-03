@@ -45,11 +45,11 @@ const DbContext = createContext<DbContextValue | undefined>(undefined);
 
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
-  const [contextValue, setContextValue] = useState<DbContextValue>({
-    fileRecordRepository: null,
-    error: null,
-    ready: false,
-  });
+  const [fileRecordRepository, setFileRecordRepository] = useState<
+    FileRecordRepository | ElectronFileRecordRepository | null
+  >(null);
+  const [error, setError] = useState<Error | null>(null);
+  const [ready, setReady] = useState(false);
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
@@ -90,11 +90,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       });
 
       if (!cancelled.value) {
-        setContextValue({
-          fileRecordRepository: repository,
-          error: null,
-          ready: true,
-        });
+        setFileRecordRepository(repository);
+        setError(null);
+        setReady(true);
       }
       return true;
     },
@@ -111,7 +109,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const repository = new FileRecordRepository(db);
 
       if (!cancelled.value) {
-        setContextValue({ fileRecordRepository: repository, error: null, ready: true });
+        setFileRecordRepository(repository);
+        setError(null);
+        setReady(true);
       }
     },
     [resolvedPath]
@@ -136,7 +136,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       } catch (err) {
         logger.error('Failed to initialize database:', err);
         if (!cancelled.value) {
-          setContextValue({ fileRecordRepository: null, error: err as Error, ready: true });
+          setFileRecordRepository(null);
+          setError(err as Error);
+          setReady(true);
         }
       } finally {
         initializingRef.current = false;
@@ -171,9 +173,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     };
   }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
-  const memoizedValue = useMemo(() => contextValue, [contextValue]);
+  const contextValue = useMemo(
+    () => ({ fileRecordRepository, error, ready }),
+    [fileRecordRepository, error, ready]
+  );
 
-  return <DbContext.Provider value={memoizedValue}>{children}</DbContext.Provider>;
+  return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
 }
 
 export function useFileRecordRepository():

@@ -29,6 +29,21 @@ interface ProgressInfo {
   file?: string;
 }
 
+// Cache the imported module to avoid duplicate imports across instances
+let transformersModule: TransformersModule | null = null;
+let transformersModulePromise: Promise<TransformersModule> | null = null;
+
+async function getTransformersModule(): Promise<TransformersModule> {
+  if (transformersModule) {
+    return transformersModule;
+  }
+  if (!transformersModulePromise) {
+    transformersModulePromise = import('@huggingface/transformers') as Promise<TransformersModule>;
+  }
+  transformersModule = await transformersModulePromise;
+  return transformersModule;
+}
+
 /**
  * Determine the appropriate device for the current environment
  */
@@ -82,8 +97,8 @@ export class TransformersBackend {
       message: 'Loading transformers.js...',
     });
 
-    // Dynamic import to avoid bundling issues
-    this._transformers = (await import('@huggingface/transformers')) as TransformersModule;
+    // Dynamic import to avoid bundling issues (cached across instances)
+    this._transformers = await getTransformersModule();
 
     onProgress?.({
       stage: 'downloading',
