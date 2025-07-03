@@ -26,12 +26,51 @@ export interface PreviewPanelPreferences<T = Record<string, unknown>> {
   pageSize: number;
 }
 
+function columnsMatch(a: ColumnVisibility, b: ColumnVisibility): boolean {
+  return (
+    a.checkbox === b.checkbox &&
+    a.rootFolderId === b.rootFolderId &&
+    a.path === b.path &&
+    a.type === b.type &&
+    a.tokens === b.tokens &&
+    a.size === b.size
+  );
+}
+
+function arraysMatch(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 export interface UsePreviewPanelPersistenceOptions<T = Record<string, unknown>> {
   defaultColumnVisibility: ColumnVisibility;
   defaultSortField: keyof T;
   defaultSortDirection: 'asc' | 'desc';
   defaultGroupingConfig: string;
   defaultPageSize: number;
+}
+
+export function preferencesEqual<T>(
+  a: PreviewPanelPreferences<T> | null,
+  b: PreviewPanelPreferences<T> | null
+): boolean {
+  if (a === null || b === null) return a === b;
+
+  if (!columnsMatch(a.columnVisibility, b.columnVisibility)) return false;
+
+  if (
+    a.sortField !== b.sortField ||
+    a.sortDirection !== b.sortDirection ||
+    a.groupingConfig !== b.groupingConfig ||
+    a.pageSize !== b.pageSize
+  ) {
+    return false;
+  }
+
+  return arraysMatch(a.collapsedGroups, b.collapsedGroups);
 }
 
 export function usePreviewPanelPersistence<T = Record<string, unknown>>(
@@ -91,22 +130,6 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
 
   const { run: debouncedSave, flush } = createDebounce(savePreferences, SAVE_DEBOUNCE_MS);
 
-  // Helper to check if preferences are equal
-  const preferencesEqual = useCallback(
-    (a: PreviewPanelPreferences<T> | null, b: PreviewPanelPreferences<T> | null): boolean => {
-      if (a === null || b === null) return a === b;
-      return (
-        JSON.stringify(a.columnVisibility) === JSON.stringify(b.columnVisibility) &&
-        a.sortField === b.sortField &&
-        a.sortDirection === b.sortDirection &&
-        a.groupingConfig === b.groupingConfig &&
-        JSON.stringify(a.collapsedGroups) === JSON.stringify(b.collapsedGroups) &&
-        a.pageSize === b.pageSize
-      );
-    },
-    []
-  );
-
   // Persist preferences with optimization to avoid unnecessary saves
   const persist = useCallback(
     (newPreferences: PreviewPanelPreferences<T>) => {
@@ -120,7 +143,7 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
       pendingRef.current = newPreferences;
       debouncedSave(newPreferences);
     },
-    [debouncedSave, preferencesEqual]
+    [debouncedSave]
   );
 
   // Update preferences

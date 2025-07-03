@@ -1,6 +1,6 @@
 import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
 import { IdeLayout } from '@brainstrike/ui';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { RightPanel } from './right-panel';
@@ -18,10 +18,10 @@ export function RootLayoutContent({
   const [activeTab, setActiveTab] = useState('explorer');
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
 
-  const handleNavigationClick = (path: string) => {
+  const handleNavigationClick = useCallback((path: string) => {
     const tab = path === '/' ? 'explorer' : 'settings';
     setActiveTab(tab);
-  };
+  }, []);
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
