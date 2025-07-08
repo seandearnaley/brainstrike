@@ -156,6 +156,29 @@ export function registerIpcHandlers(
     }
   });
 
+  // Bulk database cleanup handler for testing
+  ipcMain.handle('db:clearAll', async () => {
+    try {
+      const db = getDatabase();
+      // Delete all records from the file_records table
+      const result = await db.exec('DELETE FROM file_records');
+      const countResult = await db.query('SELECT COUNT(*) as count FROM file_records');
+      const remainingCount = countResult.rows[0]?.count || 0;
+
+      return {
+        success: true,
+        message: `Cleared all database records. Remaining count: ${remainingCount}`,
+        clearedCount: result.affectedRows || 0,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `Failed to clear database: ${error}`,
+        clearedCount: 0,
+      };
+    }
+  });
+
   // Database path IPC handler (legacy - kept for compatibility)
   ipcMain.handle('db:getUserDataPath', async () => {
     return path.join(app.getPath('userData'), 'brainstrike.db');

@@ -159,10 +159,16 @@ async function processBulkImport(
   selectedFilesCount: number,
   initialErrorsCount: number,
   onProgress?: (completed: number, total: number, current?: string) => void
-): Promise<FileImportResult[]> {
+): Promise<{ results: FileImportResult[]; requestMap: Map<number, FileImportRequest> }> {
   if (!repository) {
     throw new Error('Repository not available');
   }
+
+  // Create a map to track requests by their index for error mapping
+  const requestMap = new Map<number, FileImportRequest>();
+  requests.forEach((request, index) => {
+    requestMap.set(index, request);
+  });
 
   const results = await repository.bulkImport?.(
     requests,
@@ -181,13 +187,13 @@ async function processBulkImport(
     throw new Error('Bulk import not supported by repository');
   }
 
-  return results;
+  return { results, requestMap };
 }
 
 // Helper to process final results and errors
 function processFinalResults(
   results: FileImportResult[],
-  requests: FileImportRequest[],
+  requestMap: Map<number, FileImportRequest>,
   initialErrors: Array<{ file: string; error: string }>,
   selectedFilesCount: number,
   setProgress: (progress: ImportProgress) => void,
@@ -196,11 +202,20 @@ function processFinalResults(
   const allErrors = [
     ...initialErrors,
     ...results
-      .filter((r) => r.error)
-      .map((r) => ({
-        file: requests.find((req) => req.name === r.id)?.name || 'Unknown',
-        error: r.error || 'Import failed',
-      })),
+      .map((result, index) => {
+        if (!result.error) return null;
+
+        // Map back to original request using the index
+        const originalRequest = requestMap.get(index);
+        const fileName =
+          originalRequest?.name || originalRequest?.path.split('/').pop() || 'Unknown';
+
+        return {
+          file: fileName,
+          error: result.error || 'Import failed',
+        };
+      })
+      .filter((error): error is { file: string; error: string } => error !== null),
   ];
 
   const finalProgress: ImportProgress = {
@@ -355,7 +370,7 @@ export function useFileImportService(
         }
 
         // Import files using repository bulk import
-        const results = await processBulkImport(
+        const { results, requestMap } = await processBulkImport(
           repository,
           requests,
           selectedFilePaths.size,
@@ -375,7 +390,7 @@ export function useFileImportService(
         // Process final results
         processFinalResults(
           results,
-          requests,
+          requestMap,
           initialProgress.errors,
           selectedFilePaths.size,
           setProgress,

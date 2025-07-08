@@ -1,3 +1,4 @@
+import { generateContentHash, generateUUID } from '@brainstrike/utils';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
 
@@ -197,7 +198,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
       try {
         // Generate content hash for deduplication
-        const contentHash = await this.generateContentHash(request.content);
+        const contentHash = await generateContentHash(request.content);
 
         // Check if file with same content already exists
         const existing = await this.findByContentHash(contentHash);
@@ -216,7 +217,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
         // Create new record
         const now = new Date().toISOString();
-        const id = crypto.randomUUID();
+        const id = generateUUID();
 
         const record: FileRecord = {
           id,
@@ -250,17 +251,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
     onProgress?.(requests.length, requests.length);
     return results;
-  }
-
-  /**
-   * Generate SHA-256 hash of content for deduplication
-   */
-  private async generateContentHash(content: string): Promise<string> {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(content);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
   }
 
   /**
