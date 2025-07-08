@@ -20,6 +20,7 @@ export { default as ErrorBoundary } from './error-boundary';
 export * from './error-fallback';
 export * from './hooks';
 export type { PanelPersistenceState } from './hooks/use-panel-persistence';
+export * from './import-progress';
 export * from './input';
 export * from './label';
 // Export layout components

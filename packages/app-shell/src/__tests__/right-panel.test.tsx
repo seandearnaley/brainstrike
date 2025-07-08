@@ -19,6 +19,33 @@ vi.mock('@brainstrike/ui', async () => {
   };
 });
 
+// Mock the file import service
+vi.mock('../file-import-service', () => ({
+  useFileImportService: () => ({
+    isImporting: false,
+    progress: null,
+  }),
+}));
+
+// Mock the file explorer hooks
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({
+    fileSystemAdapter: null,
+    databaseAdapter: null,
+  }),
+}));
+
+// Mock the file explorer UI hooks
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  useFileExplorer: () => ({
+    fileContents: {},
+    fileTree: [],
+  }),
+  useSelectionManager: () => ({
+    selectedFilePaths: new Set(),
+  }),
+}));
+
 describe('RightPanel', () => {
   test('renders with all tabs', () => {
     render(<RightPanel />);

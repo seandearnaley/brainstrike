@@ -100,7 +100,7 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
 export function getDatabasePanelElements(page: Page) {
   return {
     panel: page.locator('[data-testid="database-demo-panel"]'),
-    addButton: page.locator('button:has-text("Add Test Record")'),
+    importButton: page.locator('button:has-text("Import Selected Files")'),
     refreshButton: page.locator('button:has-text("Refresh")'),
     tableRows: page.locator('tbody tr'),
     deleteButtons: page.locator('tbody tr button[title="Remove record"]'),

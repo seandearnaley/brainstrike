@@ -17,7 +17,7 @@ export function RightPanel() {
   return (
     <div className="h-full flex flex-col">
       <Tabs defaultValue="properties" className="flex-1 flex flex-col">
-        <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2">
+        <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="properties" className="flex items-center gap-1">
             <FileText className="h-3 w-3" />
             <span className="hidden sm:inline">Props</span>
@@ -36,8 +36,8 @@ export function RightPanel() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 px-2 pb-2">
-          <TabsContent value="properties" className="h-full mt-0">
+        <div className="flex-1 px-2 pb-2 flex flex-col min-h-0">
+          <TabsContent value="properties" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <Card className="h-full">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Properties</CardTitle>
@@ -66,11 +66,11 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="embeddings" className="h-full mt-0">
+          <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <EmbeddingsPanel />
           </TabsContent>
 
-          <TabsContent value="search" className="h-full mt-0">
+          <TabsContent value="search" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <Card className="h-full">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Search</CardTitle>
@@ -98,7 +98,7 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="database" className="h-full mt-0">
+          <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <DatabaseDemoPanel />
           </TabsContent>
         </div>

@@ -1,5 +1,6 @@
 import type { FileRecord } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db';
+import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
   Button,
   Card,
@@ -7,7 +8,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  createDebounce,
+  ImportProgress as ImportProgressComponent,
   Table,
   TableBody,
   TableCell,
@@ -16,32 +17,70 @@ import {
   TableRow,
   useToast,
 } from '@brainstrike/ui';
-import { Database, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Database, FileText, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useFileImportService } from './file-import-service';
 
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
   const { toast } = useToast();
   const [records, setRecords] = useState<FileRecord[]>([]);
-  const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showImportProgress, setShowImportProgress] = useState(false);
   const [dbInfo, setDbInfo] = useState<{
     location: string;
     testResult: string;
     connected: boolean;
   } | null>(null);
 
-  // Use a ref to track if an add operation is currently in progress
-  // This prevents rapid successive calls even in React Strict Mode
-  const isAddingRef = useRef(false);
+  // Access file explorer context
+  const { fileContents, fileTree } = useFileExplorer();
+  const { selectedFilePaths } = useSelectionManager({
+    onSelectionLimitExceeded: () => {
+      toast({
+        title: 'Selection Limit Reached',
+        description: 'You have reached the maximum number of files that can be selected.',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  // File import service
+  const { isImporting, progress, importFiles } = useFileImportService({
+    onProgress: () => {
+      setShowImportProgress(true);
+    },
+    onComplete: (results) => {
+      const successful = results.filter((r) => r.imported).length;
+      const failed = results.filter((r) => r.error).length;
+
+      toast({
+        title: 'Import Complete',
+        description: `${successful} files imported${failed > 0 ? `, ${failed} failed` : ''}`,
+        variant: failed > 0 ? 'destructive' : 'default',
+      });
+
+      // Refresh the records to show new imports
+      void loadRecords();
+    },
+    onError: (error) => {
+      toast({
+        title: 'Import Failed',
+        description: error.message,
+        variant: 'destructive',
+      });
+    },
+  });
 
   const loadRecords = useCallback(async () => {
     if (!repository) return;
 
     try {
       setRefreshing(true);
-      const allRecords = await repository.findAll();
-      setRecords(allRecords);
+      // Load only records with content (imported files)
+      const importedRecords =
+        (await repository.findAllWithContent?.()) || (await repository.findAll());
+      setRecords(importedRecords);
     } catch (_error) {
       toast({
         title: 'Error',
@@ -89,74 +128,6 @@ export function DatabaseDemoPanel() {
     }
   }, [repository, loadRecords, testDatabaseConnection]);
 
-  // Internal function that actually performs the record creation
-  const performAddTestRecord = useCallback(async () => {
-    if (!repository || isAddingRef.current) {
-      // If we can't proceed, reset loading state
-      setLoading(false);
-      return;
-    }
-
-    try {
-      isAddingRef.current = true;
-      // Note: loading is already set to true in addTestRecord
-
-      const now = new Date().toISOString();
-      const randomId = Math.random().toString(36).substring(2, 15);
-      const testRecord: FileRecord = {
-        id: `demo-${randomId}`,
-        name: `test-file-${randomId}.txt`,
-        path: `/demo/test-file-${randomId}.txt`,
-        size: Math.floor(Math.random() * 10000) + 100,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      await repository.create(testRecord);
-      await loadRecords();
-
-      toast({
-        title: 'Success',
-        description: `Added test record: ${testRecord.name}`,
-      });
-    } catch (_error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to add test record',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-      isAddingRef.current = false;
-    }
-  }, [repository, loadRecords, toast]);
-
-  // Create a debounced version of the add function to prevent rapid successive calls
-  const { run: debouncedAddTestRecord } = useMemo(
-    () => createDebounce(performAddTestRecord, 300),
-    [performAddTestRecord]
-  );
-
-  // Public interface that handles the button click
-  const addTestRecord = useCallback(
-    (event: React.MouseEvent) => {
-      // Prevent event bubbling and default behavior
-      event.preventDefault();
-      event.stopPropagation();
-
-      // Additional protection against rapid clicks
-      if (loading || isAddingRef.current) {
-        return;
-      }
-
-      // Set loading immediately to disable the button
-      setLoading(true);
-
-      debouncedAddTestRecord();
-    },
-    [loading, debouncedAddTestRecord]
-  );
-
   const removeRecord = useCallback(
     async (id: string, name: string) => {
       if (!repository) return;
@@ -194,6 +165,21 @@ export function DatabaseDemoPanel() {
     }
   };
 
+  // Handle import button click with actual integration
+  const handleImportClick = useCallback(() => {
+    if (selectedFilePaths.size === 0) {
+      toast({
+        title: 'No Files Selected',
+        description: 'Please select files in the explorer before importing.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Trigger the import with required parameters
+    importFiles(selectedFilePaths, fileTree, fileContents);
+  }, [selectedFilePaths, fileTree, fileContents, importFiles, toast]);
+
   if (!repository) {
     return (
       <Card className="h-full">
@@ -212,15 +198,15 @@ export function DatabaseDemoPanel() {
   }
 
   return (
-    <Card className="h-full flex flex-col" data-testid="database-demo-panel">
-      <CardHeader className="pb-3 flex-shrink-0">
-        <CardTitle className="text-sm flex items-center gap-2">
+    <div className="h-full flex flex-col" data-testid="database-demo-panel">
+      <div className="p-4 border-b flex-shrink-0">
+        <div className="text-sm font-medium flex items-center gap-2 mb-1">
           <Database className="h-4 w-4" />
           Database Demo
-        </CardTitle>
-        <CardDescription className="text-xs">
+        </div>
+        <div className="text-xs text-muted-foreground mb-3">
           PGlite WASM database with file records table
-        </CardDescription>
+        </div>
         {dbInfo && (
           <div className="mt-2 p-2 bg-muted rounded text-xs">
             <div className="font-medium">Storage: {dbInfo.location}</div>
@@ -232,12 +218,12 @@ export function DatabaseDemoPanel() {
         <div className="flex gap-2 pt-2">
           <Button
             size="sm"
-            onClick={addTestRecord}
-            disabled={loading}
+            onClick={handleImportClick}
+            disabled={isImporting}
             className="flex items-center gap-1"
           >
-            <Plus className="h-3 w-3" />
-            Add Test Record
+            <FileText className="h-3 w-3" />
+            Import Selected Files ({selectedFilePaths.size})
           </Button>
           <Button
             size="sm"
@@ -250,12 +236,22 @@ export function DatabaseDemoPanel() {
             Refresh
           </Button>
         </div>
-      </CardHeader>
 
-      <CardContent className="flex-1 overflow-hidden p-0">
+        {showImportProgress && progress && (
+          <div className="mt-4">
+            <ImportProgressComponent
+              progress={progress}
+              onClose={() => setShowImportProgress(false)}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className="flex-1" style={{ maxHeight: '400px', overflow: 'auto' }}>
         {records.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-            No records found. Click "Add Test Record" to create some data.
+          <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-4">
+            No imported files found. Select files in the explorer and click "Import Selected Files"
+            to add them to the database.
           </div>
         ) : (
           <Table>
@@ -265,7 +261,8 @@ export function DatabaseDemoPanel() {
                 <TableHead>Name</TableHead>
                 <TableHead>Path</TableHead>
                 <TableHead className="w-20">Size</TableHead>
-                <TableHead className="w-32">Created</TableHead>
+                <TableHead className="w-16">Tokens</TableHead>
+                <TableHead className="w-32">Imported</TableHead>
                 <TableHead className="w-12">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -279,7 +276,12 @@ export function DatabaseDemoPanel() {
                   </TableCell>
                   <TableCell className="text-xs">{formatFileSize(record.size)}</TableCell>
                   <TableCell className="text-xs text-muted-foreground">
-                    {formatDate(record.createdAt)}
+                    {record.tokenCount || '-'}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {record.processedAt
+                      ? formatDate(record.processedAt)
+                      : formatDate(record.createdAt)}
                   </TableCell>
                   <TableCell>
                     <Button
@@ -297,7 +299,7 @@ export function DatabaseDemoPanel() {
             </TableBody>
           </Table>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }
