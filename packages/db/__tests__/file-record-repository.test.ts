@@ -14,6 +14,7 @@ function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
     size: overrides.size ?? 1234,
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
+    tokenCount: overrides.tokenCount ?? 0,
     ...overrides,
   };
 }

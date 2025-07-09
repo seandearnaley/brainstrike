@@ -66,6 +66,7 @@ describe('Migration System Integration', () => {
         size: 1024,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        tokenCount: 0,
       };
 
       await repository.create(testRecord);
@@ -97,6 +98,7 @@ describe('Migration System Integration', () => {
         size: 512,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        tokenCount: 0,
       };
       await repository.create(testRecord);
 
