@@ -41,13 +41,15 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
-    "@brainstrike/utils": "workspace:*"
+    "@brainstrike/utils": "workspace:*",
+    "file-saver": "2.0.5"
   },
   "license": "ISC",
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.5.2",
+    "@types/file-saver": "2.0.7",
     "@types/node": "^24",
     "@types/react": "^19.1.8",
     "jsdom": "^26.1.0",

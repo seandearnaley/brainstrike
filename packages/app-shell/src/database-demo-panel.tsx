@@ -17,8 +17,10 @@ import {
   TableRow,
   useToast,
 } from '@brainstrike/ui';
-import { Database, FileText, RefreshCw, Trash2 } from 'lucide-react';
+import { saveAs } from 'file-saver';
+import { Database, Download, FileText, RefreshCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import { createCSVBlob, generateCSV, generateCSVFilename } from './csv-export-utils';
 import { useFileImportService } from './file-import-service';
 
 export function DatabaseDemoPanel() {
@@ -180,6 +182,37 @@ export function DatabaseDemoPanel() {
     importFiles(selectedFilePaths, fileTree, fileContents);
   }, [selectedFilePaths, fileTree, fileContents, importFiles, toast]);
 
+  // Handle CSV export
+  const handleExportCSV = useCallback(() => {
+    if (records.length === 0) {
+      toast({
+        title: 'No Data to Export',
+        description: 'Import some files first before exporting to CSV.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      const csvContent = generateCSV(records);
+      const blob = createCSVBlob(csvContent);
+      const filename = generateCSVFilename('database-records');
+
+      saveAs(blob, filename);
+
+      toast({
+        title: 'Export Successful',
+        description: `Exported ${records.length} records to ${filename}`,
+      });
+    } catch (error) {
+      toast({
+        title: 'Export Failed',
+        description: error instanceof Error ? error.message : 'Failed to export CSV',
+        variant: 'destructive',
+      });
+    }
+  }, [records, toast]);
+
   if (!repository) {
     return (
       <Card className="h-full">
@@ -234,6 +267,16 @@ export function DatabaseDemoPanel() {
           >
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportCSV}
+            disabled={records.length === 0}
+            className="flex items-center gap-1"
+          >
+            <Download className="h-3 w-3" />
+            Export CSV ({records.length})
           </Button>
         </div>
 
