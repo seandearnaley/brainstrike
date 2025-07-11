@@ -10,8 +10,8 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { Brain, Database, FileText, Search } from 'lucide-react';
-import { DatabaseDemoPanel } from './database-demo-panel';
 import { EmbeddingsPanel } from './embeddings-panel';
+import { EnhancedDatabaseDemoPanel } from './enhanced-database-demo-panel';
 
 export function RightPanel() {
   return (
@@ -99,7 +99,7 @@ export function RightPanel() {
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
-            <DatabaseDemoPanel />
+            <EnhancedDatabaseDemoPanel />
           </TabsContent>
         </div>
       </Tabs>

@@ -6,7 +6,7 @@ export {
   type ElectronDbAPI,
   ElectronFileRecordRepository,
 } from './electron-file-record-repository.js';
-
+export { FileChunkRepository } from './file-chunk-repository.js';
 // Implementations
 export { FileRecordRepository } from './file-record-repository.js';
 export type { IDatabase, IFileRecordRepository } from './interfaces.js';

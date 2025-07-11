@@ -34,8 +34,9 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           "'unsafe-eval'",
           'http://localhost:*',
           'https://cdn.jsdelivr.net',
+          'blob:', // Allow blob URLs for ONNX.js WASM loading
         ]
-      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
+      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'blob:'],
 
     'worker-src': ["'self'", 'blob:'],
 

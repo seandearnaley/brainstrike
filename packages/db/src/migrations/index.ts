@@ -2,6 +2,7 @@
 import { migration001InitialSchema } from './001-initial-schema.js';
 import { migration002AddVectorColumns } from './002-add-vector-columns.js';
 import { migration003AddIndexes } from './003-add-indexes.js';
+import { migration004AddChunksTable } from './004-add-chunks-table.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -9,6 +10,7 @@ export const migrations: Migration[] = [
   migration001InitialSchema,
   migration002AddVectorColumns,
   migration003AddIndexes,
+  migration004AddChunksTable,
 ];
 
 export type { Migration } from './migration-runner';

@@ -63,7 +63,9 @@
       "@tailwindcss/oxide",
       "electron",
       "electron-winstaller",
-      "esbuild"
+      "esbuild",
+      "protobufjs",
+      "sharp"
     ],
     "overrides": {
       "react-helmet-async>react": "^19.0.0",

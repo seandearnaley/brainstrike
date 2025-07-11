@@ -10,6 +10,9 @@ export interface FileRecord {
   tokenCount?: number; // Number of tokens in content
   processedAt?: string; // ISO date when file was processed/imported
   embedding?: number[]; // Vector embedding for semantic search
+  chunksProcessedAt?: string; // ISO date when file was chunked
+  chunksCount?: number; // Number of chunks created for this file
+  chunkingStrategy?: 'sentence' | 'token' | 'recursive'; // Strategy used for chunking
 }
 
 export interface FileImportRequest {

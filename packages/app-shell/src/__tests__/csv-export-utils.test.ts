@@ -95,7 +95,7 @@ describe('CSV Export Utils', () => {
       const csv = generateCSV([record]);
       const lines = csv.split('\n');
 
-      expect(lines[1]).toContain('x'.repeat(500) + '...');
+      expect(lines[1]).toContain(`${'x'.repeat(500)}...`);
       expect(lines[1]).not.toContain('x'.repeat(501));
     });
 

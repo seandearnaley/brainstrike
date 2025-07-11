@@ -158,7 +158,15 @@
       "Bash(sed:*)",
       "Bash(pnpm --filter config test)",
       "Bash(biome:*)",
-      "Bash(pnpm exec:*)"
+      "Bash(pnpm exec:*)",
+      "Bash(timeout 30 pnpm dev)",
+      "Bash(npx dpdm:*)",
+      "Bash(pnpm --filter=@brainstrike/app-shell type-check)",
+      "Bash(pnpm --filter=web dev)",
+      "Bash(pnpm --filter=@brainstrike/db build)",
+      "Bash(pnpm --filter=@brainstrike/db update chonkie)",
+      "Bash(pnpm --filter=@brainstrike/app-shell build)",
+      "Bash(pnpm --filter=@brainstrike/web build)"
     ],
     "deny": []
   },

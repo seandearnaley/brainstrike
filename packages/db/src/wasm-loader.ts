@@ -1,4 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
+import { vector } from '@electric-sql/pglite/vector';
 
 class WasmLoader {
   private static instance: WasmLoader;
@@ -33,7 +34,9 @@ class WasmLoader {
       // Use browser-compatible storage to avoid Node.js filesystem conflicts
       const isBrowser = typeof window !== 'undefined';
       const tempDbPath = isBrowser ? 'memory://' : ':memory:';
-      const tempDb = new PGlite(tempDbPath);
+      const tempDb = new PGlite(tempDbPath, {
+        extensions: { vector },
+      });
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');
@@ -50,7 +53,9 @@ class WasmLoader {
 
   async createPGlite(dataDir?: string): Promise<PGlite> {
     await this.ensureWasmLoaded();
-    return new PGlite(dataDir);
+    return new PGlite(dataDir, {
+      extensions: { vector },
+    });
   }
 }
 
