@@ -1,10 +1,14 @@
 import type { ChunkingStrategy, FileChunk, FileImportResult, FileRecord } from '@brainstrike/db';
-import { ChunkingService, FileChunkRepository, useFileRecordRepository } from '@brainstrike/db';
+import {
+  CHUNKING_CONFIG,
+  ChunkingService,
+  useFileChunkRepository,
+  useFileRecordRepository,
+} from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { IFileNode } from '@brainstrike/types';
 import type { ImportProgress } from '@brainstrike/ui';
 import { fileExplorer } from '@brainstrike/utils';
-import type { PGlite } from '@electric-sql/pglite';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileImportService } from './file-import-service';
 
@@ -54,7 +58,7 @@ interface EnhancedFileImportServiceReturn {
   ) => Promise<void>;
   isImporting: boolean;
   progress: EnhancedImportProgress | null;
-  chunkRepository: FileChunkRepository | null;
+  chunkRepository: ReturnType<typeof useFileChunkRepository>;
 }
 
 export function useEnhancedFileImportService(
@@ -62,24 +66,13 @@ export function useEnhancedFileImportService(
 ): EnhancedFileImportServiceReturn {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<EnhancedImportProgress | null>(null);
-  const [chunkRepository, setChunkRepository] = useState<FileChunkRepository | null>(null);
   const [embeddingService, setEmbeddingService] = useState<SimpleEmbeddingService | null>(null);
 
   const repository = useFileRecordRepository();
-
-  // Initialize chunk repository when database is available
-  useMemo(() => {
-    if (repository) {
-      const fileRecordRepo = repository as unknown as { db?: unknown };
-      if (fileRecordRepo.db) {
-        const chunkRepo = new FileChunkRepository(fileRecordRepo.db as PGlite);
-        setChunkRepository(chunkRepo);
-      }
-    }
-  }, [repository]);
+  const chunkRepository = useFileChunkRepository();
 
   // Initialize embedding service if enabled
-  useMemo(() => {
+  useEffect(() => {
     if (options.enableEmbedding && options.embeddingModel) {
       const service = new SimpleEmbeddingService();
       setEmbeddingService(service);
@@ -214,16 +207,16 @@ export function useEnhancedFileImportService(
     const chunkingService = new ChunkingService();
     console.log('[CHUNK DEBUG] Starting chunking with options:', {
       strategy,
-      maxTokens: options.chunkSize || 500,
-      overlap: options.chunkOverlap || 50,
+      maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
+      overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
       fileName: fileRecord.name,
       filePath: fileRecord.path,
     });
 
     const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
       strategy,
-      maxTokens: options.chunkSize || 500,
-      overlap: options.chunkOverlap || 50,
+      maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
+      overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
       fileName: fileRecord.name,
       filePath: fileRecord.path,
     });
@@ -424,7 +417,9 @@ export function useEnhancedFileImportService(
 
     try {
       await embeddingService.initializeWithModel(options.embeddingModel);
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await new Promise((resolve) =>
+        setTimeout(resolve, CHUNKING_CONFIG.embeddingInitializationDelay)
+      );
       return true;
     } catch {
       return false;
@@ -485,7 +480,7 @@ export function useEnhancedFileImportService(
                 embeddingProgress: {
                   chunksProcessed: i,
                   totalChunks: chunks.length,
-                  currentChunk: `${chunk.content.substring(0, 50)}...`,
+                  currentChunk: `${chunk.content.substring(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
                   modelName: options.embeddingModel || 'default',
                 },
               }
@@ -496,7 +491,9 @@ export function useEnhancedFileImportService(
         if (success) chunksWithEmbeddings++;
 
         if (i < chunks.length - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
+          await new Promise((resolve) =>
+            setTimeout(resolve, CHUNKING_CONFIG.embeddingProcessingDelay)
+          );
         }
       }
 

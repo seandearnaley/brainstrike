@@ -1,4 +1,7 @@
 // Provider and utilities
+
+// Configuration
+export { CHUNKING_CONFIG } from './config/chunking-config.js';
 export * from './db-provider.js';
 
 // Legacy migration export

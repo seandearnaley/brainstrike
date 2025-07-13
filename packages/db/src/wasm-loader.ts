@@ -60,7 +60,7 @@ class WasmLoader {
 
       // Use basic PGlite if vector extension is not available
       const tempDb = vector
-        ? new PGlite(tempDbPath, { extensions: { vector } })
+        ? new PGlite({ dataDir: tempDbPath, extensions: { vector } })
         : new PGlite(tempDbPath);
 
       // Ensure the database is ready (this loads the WASM)
@@ -83,7 +83,9 @@ class WasmLoader {
     const vector = await loadVectorExtension();
 
     // Use vector extension if available, otherwise use basic PGlite
-    return vector ? new PGlite(dataDir, { extensions: { vector } }) : new PGlite(dataDir);
+    return vector
+      ? new PGlite(dataDir ? { dataDir, extensions: { vector } } : { extensions: { vector } })
+      : new PGlite(dataDir);
   }
 }
 

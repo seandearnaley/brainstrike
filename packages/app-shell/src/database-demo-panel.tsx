@@ -1,5 +1,9 @@
 import type { ChunkingStrategy, FileChunk, FileRecord } from '@brainstrike/db';
-import { type FileChunkRepository, useFileRecordRepository } from '@brainstrike/db';
+import { 
+  type ElectronFileChunkRepository,
+  type FileChunkRepository, 
+  useFileRecordRepository 
+} from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
@@ -430,7 +434,7 @@ function useImportSettings() {
 // Custom hook for managing search functionality
 function useSearchFunctionality(
   embeddingService: SimpleEmbeddingService | null,
-  chunkRepository: FileChunkRepository | null,
+  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
   repository: ReturnType<typeof useFileRecordRepository>,
   selectedModel: string,
   toast: ReturnType<typeof useToast>['toast']

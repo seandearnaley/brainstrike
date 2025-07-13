@@ -315,13 +315,31 @@ export class FileChunkRepository {
 
   private parseEmbedding(embeddingString: string): number[] | undefined {
     if (!embeddingString) return undefined;
+
     try {
       // Handle both array-like strings and actual arrays
       if (typeof embeddingString === 'string') {
-        return JSON.parse(embeddingString);
+        const parsed = JSON.parse(embeddingString);
+
+        // Validate that the parsed result is an array of numbers
+        if (!Array.isArray(parsed)) {
+          console.warn('FileChunkRepository: Parsed embedding is not an array:', typeof parsed);
+          return undefined;
+        }
+
+        if (parsed.some((item) => typeof item !== 'number')) {
+          console.warn('FileChunkRepository: Embedding array contains non-numeric values');
+          return undefined;
+        }
+
+        return parsed;
       }
       return embeddingString as number[];
-    } catch {
+    } catch (error) {
+      console.warn(
+        'FileChunkRepository: Failed to parse embedding JSON:',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
       return undefined;
     }
   }

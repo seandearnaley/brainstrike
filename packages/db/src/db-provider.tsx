@@ -13,7 +13,9 @@ import {
   useState,
 } from 'react';
 import { migrate } from './migrations/bootstrap.js';
+import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-repository.js';
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
+import { FileChunkRepository } from './repositories/file-chunk-repository.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
 import { wasmLoader } from './wasm-loader.js';
 
@@ -21,8 +23,10 @@ const logger = createLogger('DbProvider');
 
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
+  chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
   error: Error | null;
   ready: boolean;
+  db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
 }
 
 interface DbProviderProps {
@@ -47,6 +51,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [fileRecordRepository, setFileRecordRepository] = useState<
     FileRecordRepository | ElectronFileRecordRepository | null
+  >(null);
+  const [chunkRepository, setChunkRepository] = useState<
+    FileChunkRepository | ElectronFileChunkRepository | null
   >(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
@@ -88,9 +95,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         query: electronDB.query,
         exec: electronDB.exec,
       });
+      const chunkRepo = new ElectronFileChunkRepository({
+        query: electronDB.query,
+        exec: electronDB.exec,
+      });
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
+        setChunkRepository(chunkRepo);
         setError(null);
         setReady(true);
       }
@@ -115,9 +127,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       const repository = new FileRecordRepository(db);
       console.log('[DB PROVIDER DEBUG] FileRecordRepository created');
+      
+      const chunkRepo = new FileChunkRepository(db);
+      console.log('[DB PROVIDER DEBUG] FileChunkRepository created');
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
+        setChunkRepository(chunkRepo);
         setError(null);
         setReady(true);
         console.log('[DB PROVIDER DEBUG] Database initialization completed successfully');
@@ -165,6 +181,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         logger.error('Failed to initialize database:', err);
         if (!cancelled.value) {
           setFileRecordRepository(null);
+          setChunkRepository(null);
           setError(err as Error);
           setReady(true);
         }
@@ -203,8 +220,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
   const contextValue = useMemo(
-    () => ({ fileRecordRepository, error, ready }),
-    [fileRecordRepository, error, ready]
+    () => ({ fileRecordRepository, chunkRepository, error, ready, db: dbRef.current }),
+    [fileRecordRepository, chunkRepository, error, ready]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
@@ -223,4 +240,24 @@ export function useFileRecordRepository():
   }
   // Only return the repository if the DB is ready and there's no error
   return ctx.ready && !ctx.error ? ctx.fileRecordRepository : null;
+}
+
+export function usePGliteDatabase(): PGlite | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    logger.warn('usePGliteDatabase must be used within a DbProvider');
+    return null;
+  }
+  // Only return the database if it's ready, no error, and it's actually a PGlite instance
+  return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    logger.warn('useFileChunkRepository must be used within a DbProvider');
+    return null;
+  }
+  // Only return the repository if the DB is ready and there's no error
+  return ctx.ready && !ctx.error ? ctx.chunkRepository : null;
 }

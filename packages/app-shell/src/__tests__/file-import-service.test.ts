@@ -7,6 +7,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => ({
     bulkImport: vi.fn(),
   }),
+  usePGliteDatabase: () => null,
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({

@@ -26,6 +26,7 @@ const mockToast = vi.fn();
 
 vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => mockRepository,
+  usePGliteDatabase: () => null,
 }));
 
 vi.mock('@brainstrike/ui', async () => {

@@ -3,6 +3,7 @@ import {
   RecursiveCharacterTextSplitter,
   TokenTextSplitter,
 } from '@langchain/textsplitters';
+import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
 export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
@@ -48,8 +49,8 @@ const LARGE_STRUCTURED_PATTERNS = [
   /\.log$/i,
 ];
 
-// Maximum file size for chunking (500KB)
-const MAX_CHUNKABLE_SIZE = 500 * 1024;
+// Import the maximum file size from config
+const { maxChunkableSize } = CHUNKING_CONFIG;
 
 export class ChunkingService {
   async chunkContent(
@@ -132,7 +133,7 @@ export class ChunkingService {
             `[CHUNKING DEBUG] Creating token chunker with chunk size: ${adjustedOptions.maxTokens}, overlap: ${adjustedOptions.overlap}`
           );
           chunkTexts = await tokenChunker.splitText(content);
-          chunkType = 'text';
+          chunkType = 'text'; // Token strategy produces text chunks
           console.log(
             `[CHUNKING DEBUG] Token chunking completed - got ${chunkTexts.length} chunks`
           );
@@ -207,7 +208,7 @@ export class ChunkingService {
     }
 
     console.log(`[CHUNKING DEBUG] Starting chunk processing for ${chunkTexts.length} chunks`);
-    return this.processChunks(chunkTexts, fileRecordId, chunkType, adjustedOptions.maxTokens);
+    return await this.processChunks(chunkTexts, fileRecordId, chunkType, adjustedOptions.maxTokens);
   }
 
   private shouldSkipChunking(
@@ -226,11 +227,11 @@ export class ChunkingService {
     }
 
     // Check content size
-    if (content.length > MAX_CHUNKABLE_SIZE) {
+    if (content.length > maxChunkableSize) {
       return {
         skip: true,
         reason: `File too large: ${Math.round(content.length / 1024)}KB (max: ${Math.round(
-          MAX_CHUNKABLE_SIZE / 1024
+          maxChunkableSize / 1024
         )}KB)`,
       };
     }
@@ -255,34 +256,33 @@ export class ChunkingService {
     const fileName = options.fileName || options.filePath || '';
 
     // Use much smaller default chunk sizes appropriate for code and text
-    let maxTokens = options.maxTokens || 500; // Reduced from 3000 to 500
-    let overlap = options.overlap || 50; // Reduced from 300 to 50
+    let maxTokens = options.maxTokens || CHUNKING_CONFIG.defaultMaxTokens;
+    let overlap = options.overlap || CHUNKING_CONFIG.defaultOverlap;
 
     // For large structured files, use smaller chunks
     for (const pattern of LARGE_STRUCTURED_PATTERNS) {
       if (pattern.test(fileName)) {
-        maxTokens = Math.min(maxTokens, 1500); // Smaller chunks for structured data
-        overlap = Math.min(overlap, 150);
+        maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.largeStructuredMaxTokens);
+        overlap = Math.min(overlap, CHUNKING_CONFIG.largeStructuredOverlap);
         break;
       }
     }
 
     // For very large content, use even smaller chunks
-    if (content.length > 100000) {
-      // 100KB+
-      maxTokens = Math.min(maxTokens, 1000);
-      overlap = Math.min(overlap, 100);
+    if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
+      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.veryLargeMaxTokens);
+      overlap = Math.min(overlap, CHUNKING_CONFIG.veryLargeOverlap);
     }
 
     return { maxTokens, overlap };
   }
 
-  private processChunks(
+  private async processChunks(
     chunkTexts: string[],
     fileRecordId: string,
     chunkType: 'text' | 'code' | 'sentence' | 'recursive',
     maxTokens: number
-  ): ChunkingResult {
+  ): Promise<ChunkingResult> {
     const chunks: FileChunkInsert[] = [];
     let totalTokens = 0;
 
@@ -294,7 +294,7 @@ export class ChunkingService {
 
       // Note: We no longer log warnings for large chunks as they're handled by skipping logic above
 
-      const contentHash = this.generateContentHash(content);
+      const contentHash = await this.generateContentHash(content);
       const now = new Date().toISOString();
       const chunkId = `${fileRecordId}_chunk_${i}`;
 
@@ -330,15 +330,10 @@ export class ChunkingService {
     return Math.ceil(charCount / 4);
   }
 
-  private generateContentHash(content: string): string {
-    // Simple hash function for content
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-      const char = content.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(36);
+  private async generateContentHash(content: string): Promise<string> {
+    // Use the proper crypto utility for content hashing
+    const { generateContentHash } = await import('@brainstrike/utils');
+    return generateContentHash(content);
   }
 
   async dispose(): Promise<void> {
