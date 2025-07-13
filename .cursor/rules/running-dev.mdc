@@ -1,0 +1,7 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+
+Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.

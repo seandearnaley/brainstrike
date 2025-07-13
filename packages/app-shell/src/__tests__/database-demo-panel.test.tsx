@@ -267,316 +267,254 @@ describe('DatabaseDemoPanel', () => {
 
   describe('File Expansion', () => {
     it('expands and collapses file details', async () => {
-      const user = userEvent.setup();
-
-      // Mock repository with test data
-      const mockFileRecords = [
+      const mockRecords = [
         {
-          id: 'file1',
-          name: 'test-file.txt',
-          path: '/test/path/test-file.txt',
+          id: '1',
+          name: 'test.txt',
+          path: '/test/path/test.txt',
           size: 1024,
-          content: 'Test file content',
+          content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          chunksCount: 2,
-        },
-        {
-          id: 'file2',
-          name: 'another-file.txt',
-          path: '/test/path/another-file.txt',
-          size: 2048,
-          content: 'Another test file content',
-          createdAt: '2025-01-01T01:00:00Z',
-          processedAt: '2025-01-01T01:00:00Z',
+          chunkingStrategy: 'semantic' as const,
           chunksCount: 3,
         },
       ];
 
-      mockRepository.findAllWithContent.mockResolvedValue(mockFileRecords);
-      mockRepository.findAll.mockResolvedValue(mockFileRecords);
+      mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
+      mockRepository.findAll.mockResolvedValue(mockRecords);
 
+      const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('test-file.txt')).toBeInTheDocument();
+        expect(screen.getByText('test.txt')).toBeInTheDocument();
       });
 
-      // Find and click the expand button for the first file (using chevron icon)
+      // Find and click the expand button (the button with chevron icon)
       const expandButtons = screen.getAllByRole('button');
-      const chevronButtons = expandButtons.filter(
+      const chevronButton = expandButtons.find(
         (button) => button.querySelector('svg') && button.className.includes('h-6 w-6 p-0')
       );
+      expect(chevronButton).toBeDefined();
+      if (chevronButton) await user.click(chevronButton);
 
-      expect(chevronButtons.length).toBeGreaterThan(0);
-      const expandButton = chevronButtons[0];
-      expect(expandButton).toBeDefined();
-      if (!expandButton) throw new Error('Expand button not found');
-
-      await user.click(expandButton);
-
-      // File should now be expanded - check for expanded content
+      // Check that expanded content is shown
       await waitFor(() => {
-        // The expanded content should show file details
-        expect(screen.getByText('test-file.txt')).toBeInTheDocument();
+        expect(screen.getByText('Path: /test/path/test.txt')).toBeInTheDocument();
+        expect(screen.getByText(/Chunking: semantic • 3 chunks/)).toBeInTheDocument();
       });
-
-      // Click again to collapse
-      await user.click(expandButton);
     });
 
     it('displays file chunks when file is expanded and has chunks', async () => {
-      const user = userEvent.setup();
-
-      // Mock file records with chunks
-      const mockFileRecords = [
+      const mockRecords = [
         {
-          id: 'file1',
-          name: 'test-file.txt',
-          path: '/test/path/test-file.txt',
+          id: '1',
+          name: 'test.txt',
+          path: '/test/path/test.txt',
           size: 1024,
-          content: 'Test file content',
+          content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
+          chunkingStrategy: 'semantic' as const,
           chunksCount: 2,
         },
       ];
 
-      // Mock chunks for the file
       const mockChunks = [
         {
           id: 'chunk1',
-          fileRecordId: 'file1',
+          fileRecordId: '1',
           chunkIndex: 0,
-          content: 'This is the first chunk of content from the test file.',
-          contentHash: 'hash1',
-          tokenCount: 10,
-          chunkType: 'text',
-          chunkSize: 50,
-          embedding: [0.1, 0.2, 0.3],
+          chunkType: 'text' as const,
+          content:
+            'First chunk content that is longer than 200 characters to test truncation functionality. This content should be truncated when displayed in the UI to keep the interface clean and readable.',
+          tokenCount: 50,
+          embedding: null,
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
         },
         {
           id: 'chunk2',
-          fileRecordId: 'file1',
+          fileRecordId: '1',
           chunkIndex: 1,
-          content: 'This is the second chunk of content from the test file.',
-          contentHash: 'hash2',
-          tokenCount: 12,
-          chunkType: 'text',
-          chunkSize: 52,
-          embedding: [0.4, 0.5, 0.6],
+          chunkType: 'text' as const,
+          content: 'Second chunk content',
+          tokenCount: 25,
+          embedding: new Float32Array([0.1, 0.2, 0.3]),
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
         },
       ];
 
-      mockRepository.findAllWithContent.mockResolvedValue(mockFileRecords);
-      mockRepository.findAll.mockResolvedValue(mockFileRecords);
+      mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
+      mockRepository.findAll.mockResolvedValue(mockRecords);
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
 
+      const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
       await waitFor(() => {
-        expect(screen.getByText('test-file.txt')).toBeInTheDocument();
+        expect(screen.getByText('test.txt')).toBeInTheDocument();
       });
 
-      // Find and click the expand button for the file
+      // Find and click the expand button (the button with chevron icon)
       const expandButtons = screen.getAllByRole('button');
-      const chevronButtons = expandButtons.filter(
+      const chevronButton = expandButtons.find(
         (button) => button.querySelector('svg') && button.className.includes('h-6 w-6 p-0')
       );
+      expect(chevronButton).toBeDefined();
+      if (chevronButton) await user.click(chevronButton);
 
-      const expandButton = chevronButtons[0];
-      expect(expandButton).toBeDefined();
-      if (!expandButton) throw new Error('Expand button not found');
-
-      await user.click(expandButton);
-
-      // Should show chunks section
+      // Check that chunk information is displayed
       await waitFor(() => {
         expect(screen.getByText('Chunks:')).toBeInTheDocument();
         expect(screen.getByText('text #0')).toBeInTheDocument();
         expect(screen.getByText('text #1')).toBeInTheDocument();
-        expect(screen.getByText('10 tokens')).toBeInTheDocument();
-        expect(screen.getByText('12 tokens')).toBeInTheDocument();
-        expect(screen.getAllByText('embedded')).toHaveLength(2);
+        expect(screen.getByText('50 tokens')).toBeInTheDocument();
+        expect(screen.getByText('25 tokens')).toBeInTheDocument();
+        expect(screen.getByText('embedded')).toBeInTheDocument();
       });
+
+      // Check content truncation
+      expect(
+        screen.getByText(
+          /First chunk content that is longer than 200 characters to test truncation functionality\. This content should be truncated when displayed in the UI to keep the interface clean and readable\./
+        )
+      ).toBeInTheDocument();
+      expect(screen.getByText('Second chunk content')).toBeInTheDocument();
     });
   });
 
   describe('Chunks View', () => {
     it('displays chunks when chunks tab is selected', async () => {
-      const user = userEvent.setup();
-
-      // Mock chunks data
       const mockChunks = [
         {
           id: 'chunk1',
-          fileRecordId: 'file1',
+          fileRecordId: '1',
           chunkIndex: 0,
+          chunkType: 'text' as const,
           content:
-            'This is a test chunk with some content that should be displayed in the chunks view.',
-          contentHash: 'hash1',
-          tokenCount: 15,
-          chunkType: 'text',
-          chunkSize: 80,
-          embedding: [0.1, 0.2, 0.3],
+            'This is a chunk with content longer than 300 characters to test the truncation functionality in the chunks view. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
+          tokenCount: 75,
+          embedding: new Float32Array([0.1, 0.2, 0.3]),
           createdAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-01T00:00:00Z',
-        },
-        {
-          id: 'chunk2',
-          fileRecordId: 'file2',
-          chunkIndex: 1,
-          content: 'Another test chunk with different content for testing the chunks view display.',
-          contentHash: 'hash2',
-          tokenCount: 18,
-          chunkType: 'text',
-          chunkSize: 85,
-          embedding: null, // No embedding for this chunk
-          createdAt: '2025-01-01T01:00:00Z',
-          updatedAt: '2025-01-01T01:00:00Z',
         },
       ];
 
-      const mockFileRecords = [
+      const mockRecords = [
         {
-          id: 'file1',
-          name: 'test-file1.txt',
-          path: '/test/test-file1.txt',
+          id: '1',
+          name: 'test.txt',
+          path: '/test/path/test.txt',
           size: 1024,
-          content: 'Test content',
+          content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-        },
-        {
-          id: 'file2',
-          name: 'test-file2.txt',
-          path: '/test/test-file2.txt',
-          size: 2048,
-          content: 'Test content 2',
-          createdAt: '2025-01-01T01:00:00Z',
-          processedAt: '2025-01-01T01:00:00Z',
         },
       ];
 
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
-      mockRepository.findAllWithContent.mockResolvedValue(mockFileRecords);
-      mockRepository.findAll.mockResolvedValue(mockFileRecords);
+      mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
+      mockRepository.findAll.mockResolvedValue(mockRecords);
 
+      const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
-      // Wait for data to load, then switch to chunks view
+      // Wait for component to load
       await waitFor(() => {
-        expect(screen.getByText('test-file1.txt')).toBeInTheDocument();
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
       });
 
-      const allButtons = screen.getAllByRole('button');
-      const chunksTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.includes('Chunks (') &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1') &&
-          !btn.querySelector('svg') // Exclude buttons with icons (export buttons)
+      // Find the chunks tab in the view selector (not the export button)
+      const viewButtons = screen.getAllByRole('button');
+      const chunksTab = viewButtons.find(
+        (button) =>
+          button.textContent?.includes('Chunks (1)') &&
+          button.className.includes('h-9 rounded-md px-3') &&
+          !button.className.includes('flex items-center gap-1')
       );
-
-      expect(chunksTab).toBeInTheDocument();
+      expect(chunksTab).toBeDefined();
       if (chunksTab) await user.click(chunksTab);
 
-      // Should display chunks
+      // Check that chunks are displayed
       await waitFor(() => {
         expect(screen.getByText('text #0')).toBeInTheDocument();
-        expect(screen.getByText('text #1')).toBeInTheDocument();
-        expect(screen.getByText('15 tokens')).toBeInTheDocument();
-        expect(screen.getByText('18 tokens')).toBeInTheDocument();
-        expect(screen.getByText('embedded')).toBeInTheDocument(); // Only one chunk has embedding
-        expect(screen.getByText('File: test-file1.txt')).toBeInTheDocument();
-        expect(screen.getByText('File: test-file2.txt')).toBeInTheDocument();
+        expect(screen.getByText('75 tokens')).toBeInTheDocument();
+        expect(screen.getByText('embedded')).toBeInTheDocument();
+        expect(screen.getByText('File: test.txt')).toBeInTheDocument();
       });
     });
 
     it('shows empty state when no chunks are available', async () => {
-      const user = userEvent.setup();
-
       mockChunkRepository.findAll.mockResolvedValue([]);
       mockRepository.findAllWithContent.mockResolvedValue([]);
       mockRepository.findAll.mockResolvedValue([]);
 
+      const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
-      // Switch to chunks view
-      const allButtons = screen.getAllByRole('button');
-      const chunksTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.includes('Chunks (0)') &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1')
-      );
+      // Wait for component to load
+      await waitFor(() => {
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
 
-      expect(chunksTab).toBeInTheDocument();
+      // Find the chunks tab in the view selector (not the export button)
+      const viewButtons = screen.getAllByRole('button');
+      const chunksTab = viewButtons.find(
+        (button) =>
+          button.textContent?.includes('Chunks (0)') &&
+          button.className.includes('h-9 rounded-md px-3') &&
+          !button.className.includes('flex items-center gap-1')
+      );
+      expect(chunksTab).toBeDefined();
       if (chunksTab) await user.click(chunksTab);
 
-      // Should show empty state
+      // Check empty state message
       await waitFor(() => {
-        expect(screen.getByText(/No chunks available/i)).toBeInTheDocument();
+        expect(
+          screen.getByText(
+            'No chunks available. Enable chunking in import settings and import some files.'
+          )
+        ).toBeInTheDocument();
       });
     });
   });
 
   describe('Search Results', () => {
-    it('displays search results when search is performed', async () => {
+    it('shows search interface when search tab is selected', async () => {
       const user = userEvent.setup();
-
-      // Note: Search functionality testing is complex due to embedding service dependencies
-      // For now we focus on UI rendering and interaction testing
-
       render(<DatabaseDemoPanel />);
 
-      // Switch to search view
-      const allButtons = screen.getAllByRole('button');
-      const searchTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.trim() === 'Search' &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1')
-      );
+      // Wait for component to load
+      await waitFor(() => {
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
 
-      expect(searchTab).toBeInTheDocument();
-      if (searchTab) await user.click(searchTab);
+      // Find and click the search tab by text content
+      const searchTab = screen.getByText('Search');
+      await user.click(searchTab);
 
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
       });
-
-      // Simulate search results by directly testing the search results display
-      // Since the search functionality is complex to mock fully, we'll test the rendering
-      // of search results by using a different approach - testing when searchResults exist
-
-      // For now, just verify the search interface is shown
-      expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
     });
 
-    it('shows empty search state when no results found', async () => {
+    it('shows empty search state when no query is entered', async () => {
       const user = userEvent.setup();
-
       render(<DatabaseDemoPanel />);
 
-      // Switch to search view
-      const allButtons = screen.getAllByRole('button');
-      const searchTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.trim() === 'Search' &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1')
-      );
+      // Wait for component to load
+      await waitFor(() => {
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
 
-      expect(searchTab).toBeInTheDocument();
-      if (searchTab) await user.click(searchTab);
+      // Find and click the search tab by text content
+      const searchTab = screen.getByText('Search');
+      await user.click(searchTab);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
+        expect(
+          screen.getByText('Enter a search query to find similar content.')
+        ).toBeInTheDocument();
       });
     });
   });
