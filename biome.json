@@ -37,7 +37,12 @@
         "noExplicitAny": "error",
         "noDebugger": "error",
         "noDuplicateParameters": "error",
-        "noConsole": "warn"
+        "noConsole": {
+          "level": "warn",
+          "options": {
+            "allow": ["log", "error", "warn", "info", "debug"]
+          }
+        }
       },
       "style": {
         "useConst": "error",

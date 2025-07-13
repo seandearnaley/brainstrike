@@ -9,7 +9,8 @@ import type { PanelPersistenceState } from '@brainstrike/ui';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
-import { getDatabase } from './db-main';
+
+// import { getDatabase } from './db-main'; // Disabled - using renderer process database
 
 interface StoreSchema {
   panelLayout: {
@@ -122,11 +123,13 @@ export function registerIpcHandlers(
 
   // Database IPC handlers
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
+    const { getDatabase } = await import('./db-main');
     const db = getDatabase();
     return await db.query(sql, params);
   });
 
   ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
+    const { getDatabase } = await import('./db-main');
     const db = getDatabase();
     return await db.exec(sql);
   });
@@ -134,24 +137,19 @@ export function registerIpcHandlers(
   // Database test handler for connection validation
   ipcMain.handle('db:test', async () => {
     try {
+      const { getDatabase } = await import('./db-main');
       const db = getDatabase();
-      const result = await db.query('SELECT 1 as test, current_timestamp as timestamp');
-      const dbPath = path.join(
-        app.getPath('documents'),
-        // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
-        process.env['NODE_ENV'] === 'production' ? 'BrainStrike' : 'BrainStrike-dev',
-        'pgdata'
-      );
+      await db.query('SELECT 1');
       return {
         success: true,
-        message: `Database connected successfully. Test query returned: ${JSON.stringify(result.rows[0])}`,
-        dbLocation: `NodeFS: ${dbPath}`,
+        message: 'Database connection successful',
+        dbLocation: 'Main Process',
       };
     } catch (error) {
       return {
         success: false,
-        message: `Database test failed: ${error}`,
-        dbLocation: 'Unknown',
+        message: `Database connection failed: ${error}`,
+        dbLocation: 'Main Process',
       };
     }
   });
@@ -159,28 +157,29 @@ export function registerIpcHandlers(
   // Bulk database cleanup handler for testing
   ipcMain.handle('db:clearAll', async () => {
     try {
+      const { getDatabase } = await import('./db-main');
       const db = getDatabase();
-      // Delete all records from the file_records table
-      const result = await db.exec('DELETE FROM file_records');
-      const countResult = await db.query('SELECT COUNT(*) as count FROM file_records');
-      const remainingCount = countResult.rows[0]?.count || 0;
-
+      await db.exec('DELETE FROM file_chunks');
+      await db.exec('DELETE FROM file_records');
       return {
         success: true,
-        message: `Cleared all database records. Remaining count: ${remainingCount}`,
-        clearedCount: result.affectedRows || 0,
+        message: 'Database cleared successfully',
+        clearedCount: 0, // Could count rows if needed
       };
     } catch (error) {
       return {
         success: false,
-        message: `Failed to clear database: ${error}`,
+        message: `Database clear failed: ${error}`,
         clearedCount: 0,
       };
     }
   });
 
-  // Database path IPC handler (legacy - kept for compatibility)
+  // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
-    return path.join(app.getPath('userData'), 'brainstrike.db');
+    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
+    const isProduction = process.env['NODE_ENV'] === 'production';
+    const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
+    return path.join(app.getPath('documents'), dbDirName, 'pgdata');
   });
 }

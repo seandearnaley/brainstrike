@@ -17,9 +17,7 @@ const closeMock = vi.fn();
 const PGliteMock = vi.fn(function (this: { close: () => void }) {
   this.close = closeMock;
 });
-const NodeFSMock = vi.fn();
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
-vi.mock('@electric-sql/pglite/nodefs', () => ({ NodeFS: NodeFSMock }));
 vi.mock('@brainstrike/db', () => ({ migrate: migrateMock }));
 
 vi.mock('@brainstrike/utils', () => ({ createLogger: () => ({ info: vi.fn() }) }));
@@ -37,14 +35,15 @@ describe('initializeMainDatabase', () => {
     const { initializeMainDatabase } = await import('../../db-main');
     const db1 = await initializeMainDatabase();
     const expectedPath = path.join('/mock/documents', 'BrainStrike-dev', 'pgdata');
-    const fsInstance = NodeFSMock.mock.instances[0];
 
     expect(appGetPathMock).toHaveBeenCalledWith('documents');
-    expect(NodeFSMock).toHaveBeenCalledWith(expectedPath);
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
-    const firstCall = PGliteMock.mock.calls[0] as [Record<string, unknown>] | undefined;
-    expect(firstCall?.[0]['fs']).toBe(fsInstance);
+    // Verify PGlite was called with options object containing dataDir and extensions
+    expect(PGliteMock).toHaveBeenCalledWith({
+      dataDir: expectedPath,
+      extensions: { vector: expect.any(Object) },
+    });
     expect(migrateMock).toHaveBeenCalledWith(db1);
 
     const db2 = await initializeMainDatabase();

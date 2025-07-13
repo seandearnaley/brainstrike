@@ -6,11 +6,19 @@ import { migration004AddChunksTable } from './004-add-chunks-table.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
+// Migration 004 is conditionally included based on pgvector availability
 export const migrations: Migration[] = [
   migration001InitialSchema,
   migration002AddVectorColumns,
   migration003AddIndexes,
   migration004AddChunksTable,
+];
+
+// Export base migrations (without chunks table) for test environments
+export const baseMigrations: Migration[] = [
+  migration001InitialSchema,
+  migration002AddVectorColumns,
+  migration003AddIndexes,
 ];
 
 export type { Migration } from './migration-runner';

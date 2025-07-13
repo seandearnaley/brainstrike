@@ -101,17 +101,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
+      console.log('[DB PROVIDER DEBUG] Starting direct PGlite initialization');
       logger.info('Using direct PGlite connection');
+
+      console.log('[DB PROVIDER DEBUG] Creating PGlite instance with path:', resolvedPath);
       const db = await wasmLoader.createPGlite(resolvedPath);
       dbRef.current = db;
+      console.log('[DB PROVIDER DEBUG] PGlite instance created successfully');
 
+      console.log('[DB PROVIDER DEBUG] Starting database migrations');
       await migrate(db);
+      console.log('[DB PROVIDER DEBUG] Database migrations completed');
+
       const repository = new FileRecordRepository(db);
+      console.log('[DB PROVIDER DEBUG] FileRecordRepository created');
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
         setError(null);
         setReady(true);
+        console.log('[DB PROVIDER DEBUG] Database initialization completed successfully');
+      } else {
+        console.log('[DB PROVIDER DEBUG] Initialization was cancelled');
       }
     },
     [resolvedPath]
@@ -122,18 +133,35 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
     // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This function needs to handle both Electron and web initialization paths
     const initializeDb = async () => {
+      console.log('[DB PROVIDER DEBUG] initializeDb called');
+      console.log('[DB PROVIDER DEBUG] Current state:', {
+        initializing: initializingRef.current,
+        hasDb: !!dbRef.current,
+        useElectronIPC,
+        cancelled: cancelled.value,
+      });
+
       if (initializingRef.current || (dbRef.current && !useElectronIPC)) {
+        console.log(
+          '[DB PROVIDER DEBUG] Skipping initialization - already initializing or DB exists'
+        );
         return;
       }
 
       initializingRef.current = true;
+      console.log('[DB PROVIDER DEBUG] Starting database initialization');
 
       try {
+        console.log('[DB PROVIDER DEBUG] Checking Electron IPC initialization');
         const isElectronInitialized = await initializeElectronIPC(cancelled);
+        console.log('[DB PROVIDER DEBUG] Electron IPC initialized:', isElectronInitialized);
+
         if (!isElectronInitialized) {
+          console.log('[DB PROVIDER DEBUG] Electron IPC not available, using direct PGlite');
           await initializeDirectPGlite(cancelled);
         }
       } catch (err) {
+        console.error('[DB PROVIDER DEBUG] Database initialization failed:', err);
         logger.error('Failed to initialize database:', err);
         if (!cancelled.value) {
           setFileRecordRepository(null);
@@ -142,6 +170,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         }
       } finally {
         initializingRef.current = false;
+        console.log('[DB PROVIDER DEBUG] Database initialization finished');
       }
     };
 

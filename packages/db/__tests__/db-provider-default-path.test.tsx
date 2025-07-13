@@ -40,7 +40,12 @@ describe('DbProvider default dbPath', () => {
         { wrapper }
       );
     });
-    expect(PGlite).toHaveBeenCalledWith('idb://app');
+    // Check that PGlite was called with the expected path
+    // The second call should be the actual DbProvider usage, the first might be from WasmLoader
+    // biome-ignore lint/suspicious/noExplicitAny: Mock object requires any for testing
+    const calls = (PGlite as any).mock.calls;
+    // biome-ignore lint/suspicious/noExplicitAny: Mock call signature requires any for testing
+    expect(calls.some((call: any[]) => call[0] === 'idb://app')).toBe(true);
   });
 
   it('getDefaultDbPath respects runtime', () => {

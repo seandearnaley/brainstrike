@@ -33,7 +33,6 @@ export async function generateContentHash(content: string): Promise<string> {
       return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     } catch (error) {
       // Fall through to fallback if crypto.subtle fails
-      // biome-ignore lint/suspicious/noConsole: Intentional warning for crypto fallback
       console.warn('crypto.subtle.digest failed, using fallback hash:', error);
     }
   }

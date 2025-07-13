@@ -13,26 +13,45 @@ const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
+// Add global error handlers to catch silent crashes
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception:', error);
+  console.error('Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled promise rejection:', reason);
+  console.error('Unhandled promise rejection at:', promise, 'reason:', reason);
+});
+
 interface StoreSchema {
   panelLayout: {
     v1: PanelPersistenceState;
   };
 }
 
-const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>();
+const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
+  name: 'brainstrike-settings',
+});
 
+logger.info('Setting up IPC handlers...');
 registerIpcHandlers(fileSystem, storage, store);
+logger.info('IPC handlers registered successfully');
 
 app.whenReady().then(async () => {
   try {
-    // Initialize database before creating windows
-    await initializeMainDatabase();
-    logger.info('Main database initialized successfully');
+    logger.info('App ready, starting initialization...');
 
     // Setup security before creating windows
     setupSecurity();
+    logger.info('Security setup complete');
 
+    // Initialize database in main process
+    await initializeMainDatabase();
+
+    logger.info('Creating main window...');
     await createWindow();
+    logger.info('Main window created successfully');
 
     app.on('activate', async () => {
       if (BrowserWindow.getAllWindows().length === 0) await createWindow();
@@ -49,7 +68,11 @@ app.on('window-all-closed', () => {
 
 // Clean shutdown
 app.on('before-quit', async () => {
-  await closeDatabase();
+  try {
+    await closeDatabase();
+  } catch (error) {
+    logger.error('Error closing database:', error);
+  }
 });
 
 export { createWindow, setupSecurity, registerIpcHandlers };

@@ -57,13 +57,23 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'sentence' }
   ): Promise<ChunkingResult> {
+    console.log(`[CHUNKING DEBUG] Starting chunkContent for fileRecordId: ${fileRecordId}`);
+    console.log(`[CHUNKING DEBUG] Content length: ${content?.length || 0}`);
+    console.log('[CHUNKING DEBUG] Options:', options);
+
     if (!content || !fileRecordId) {
+      console.error('[CHUNKING DEBUG] Missing required parameters:', {
+        hasContent: !!content,
+        fileRecordId,
+      });
       throw new Error('Content and fileRecordId are required for chunking');
     }
 
     // Check if we should skip this file
+    console.log('[CHUNKING DEBUG] Checking if file should be skipped');
     const skipResult = this.shouldSkipChunking(content, options);
     if (skipResult.skip) {
+      console.log(`[CHUNKING DEBUG] File will be skipped: ${skipResult.reason}`);
       return {
         chunks: [],
         totalTokens: 0,
@@ -74,19 +84,25 @@ export class ChunkingService {
     }
 
     const { strategy } = options;
+    console.log(`[CHUNKING DEBUG] Using strategy: ${strategy}`);
 
     // Adjust chunking parameters based on file type and size
     const adjustedOptions = this.adjustChunkingForFileType(content, options);
+    console.log('[CHUNKING DEBUG] Adjusted options:', adjustedOptions);
 
     // Use more generous character limits for modern embedding models
     // 1 token ≈ 4 characters for English text (standard GPT tokenization)
     const maxCharacters = Math.floor(adjustedOptions.maxTokens * 4);
     const overlapCharacters = Math.floor(adjustedOptions.overlap * 4);
+    console.log(
+      `[CHUNKING DEBUG] Character limits - max: ${maxCharacters}, overlap: ${overlapCharacters}`
+    );
 
     let chunkTexts: string[];
     let chunkType: 'text' | 'code' | 'sentence' | 'recursive';
 
     try {
+      console.log(`[CHUNKING DEBUG] Starting chunking with strategy: ${strategy}`);
       switch (strategy) {
         case 'sentence': {
           // Use CharacterTextSplitter with conservative limits for sentences
@@ -95,8 +111,14 @@ export class ChunkingService {
             chunkOverlap: overlapCharacters,
             separator: '. ',
           });
+          console.log(
+            `[CHUNKING DEBUG] Creating sentence chunker with chunk size: ${maxCharacters}, overlap: ${overlapCharacters}`
+          );
           chunkTexts = await sentenceChunker.splitText(content);
           chunkType = 'sentence';
+          console.log(
+            `[CHUNKING DEBUG] Sentence chunking completed - got ${chunkTexts.length} chunks`
+          );
           break;
         }
 
@@ -106,25 +128,51 @@ export class ChunkingService {
             chunkSize: adjustedOptions.maxTokens,
             chunkOverlap: adjustedOptions.overlap,
           });
+          console.log(
+            `[CHUNKING DEBUG] Creating token chunker with chunk size: ${adjustedOptions.maxTokens}, overlap: ${adjustedOptions.overlap}`
+          );
           chunkTexts = await tokenChunker.splitText(content);
           chunkType = 'text';
+          console.log(
+            `[CHUNKING DEBUG] Token chunking completed - got ${chunkTexts.length} chunks`
+          );
           break;
         }
 
         case 'recursive': {
-          // Enhanced separators for code content with conservative character limits
+          // Enhanced separators for code content, prioritizing TypeScript/JavaScript syntax
           const codeSeparators = [
-            '\n\n', // Paragraph breaks
+            '\n\n', // Paragraph breaks (blank lines)
+
+            // TypeScript/JavaScript specific patterns
+            '\nexport class ', // Class exports
             '\nclass ', // Class definitions
-            '\ndef ', // Function definitions
-            '\nif ', // Conditional blocks
-            '\nfor ', // Loop blocks
-            '\nwhile ', // Loop blocks
-            '\ntry ', // Exception blocks
+            '\nexport function ', // Function exports
+            '\nfunction ', // Function definitions
+            '\nexport const ', // Const exports
+            '\nconst ', // Const declarations
+            '\nlet ', // Let declarations
+            '\nvar ', // Var declarations
+            '\nexport interface ', // Interface exports
+            '\ninterface ', // Interface definitions
+            '\ntype ', // Type definitions
+            '\nimport ', // Import statements
+
+            // Control structures
+            '\nif (', // Conditional blocks
+            '\nfor (', // For loops
+            '\nwhile (', // While loops
+            '\ntry {', // Try blocks
+            '\ncatch (', // Catch blocks
+            '\nfinally {', // Finally blocks
+            '\nswitch (', // Switch statements
+
+            // Code blocks and separators
+            '\n}', // End of blocks
+            '\n};', // End of object/interface
             '\n', // Line breaks
-            '. ', // Sentence ends
-            '; ', // Statement ends
-            ', ', // Comma pauses
+            ';', // Statement ends
+            ',', // Comma separators
             ' ', // Word boundaries
             '', // Character boundaries
           ];
@@ -135,21 +183,30 @@ export class ChunkingService {
             chunkOverlap: overlapCharacters,
             separators: options.separators || codeSeparators,
           });
+          console.log(
+            `[CHUNKING DEBUG] Creating recursive chunker with chunk size: ${maxCharacters}, overlap: ${overlapCharacters}`
+          );
           chunkTexts = await recursiveChunker.splitText(content);
           chunkType = 'recursive';
+          console.log(
+            `[CHUNKING DEBUG] Recursive chunking completed - got ${chunkTexts.length} chunks`
+          );
           break;
         }
 
         default: {
+          console.error(`[CHUNKING DEBUG] Unsupported chunking strategy: ${strategy}`);
           throw new Error(`Unsupported chunking strategy: ${strategy}`);
         }
       }
     } catch (error) {
+      console.error('[CHUNKING DEBUG] Chunking strategy execution failed:', error);
       throw new Error(
         `Chunking failed: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
 
+    console.log(`[CHUNKING DEBUG] Starting chunk processing for ${chunkTexts.length} chunks`);
     return this.processChunks(chunkTexts, fileRecordId, chunkType, adjustedOptions.maxTokens);
   }
 
@@ -196,8 +253,10 @@ export class ChunkingService {
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
     const fileName = options.fileName || options.filePath || '';
-    let maxTokens = options.maxTokens || 3000;
-    let overlap = options.overlap || 300;
+
+    // Use much smaller default chunk sizes appropriate for code and text
+    let maxTokens = options.maxTokens || 500; // Reduced from 3000 to 500
+    let overlap = options.overlap || 50; // Reduced from 300 to 50
 
     // For large structured files, use smaller chunks
     for (const pattern of LARGE_STRUCTURED_PATTERNS) {

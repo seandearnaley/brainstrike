@@ -8,11 +8,20 @@ const logger = createLogger('DatabaseMain');
 // Dynamic imports for ESM packages
 const getPGlite = async () => {
   const { PGlite } = await import('@electric-sql/pglite');
-  // @ts-ignore - TypeScript can't resolve the submodule with CommonJS resolution
-  const { NodeFS } = await import('@electric-sql/pglite/nodefs');
   const { migrate } = await import('@brainstrike/db');
-  // biome-ignore lint/style/useNamingConvention: PGlite and NodeFS are external library class names
-  return { PGlite, NodeFS, migrate };
+  // Try to load pgvector extension
+  let vector = null;
+  try {
+    // @ts-ignore - TypeScript can't resolve the submodule with CommonJS resolution
+    const vectorModule = await import('@electric-sql/pglite/vector');
+    vector = vectorModule.vector;
+    logger.info('pgvector extension loaded successfully');
+  } catch (_e) {
+    logger.info('pgvector extension not available, using basic PGlite');
+  }
+
+  // biome-ignore lint/style/useNamingConvention: PGlite is external library class name
+  return { PGlite, migrate, vector };
 };
 
 // Database instance for main process
@@ -46,10 +55,21 @@ export async function initializeMainDatabase(): Promise<any> {
     logger.info(`Created database directory: ${dataDir}`);
   }
   // Get ESM modules
-  const { PGlite, NodeFS, migrate } = await getPGlite();
+  const { PGlite, migrate, vector } = await getPGlite();
 
-  // Initialize PGlite with NodeFS
-  db = new PGlite({ fs: new NodeFS(dataDir) });
+  // Initialize PGlite with filesystem path (Node.js mode)
+  if (vector) {
+    db = new PGlite({
+      dataDir,
+      extensions: { vector },
+    });
+    logger.info('Database initialized with pgvector extension at:', dataDir);
+  } else {
+    db = new PGlite({
+      dataDir,
+    });
+    logger.info('Database initialized without pgvector extension at:', dataDir);
+  }
 
   // Run migrations
   await migrate(db);

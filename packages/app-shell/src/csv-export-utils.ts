@@ -1,68 +1,23 @@
 import type { FileRecord } from '@brainstrike/db';
+import {
+  type CSVColumn,
+  createCSVBlob as createCSVBlobCore,
+  formatDate,
+  formatFileSize,
+  generateCSV as generateCSVCore,
+  generateCSVFilename as generateCSVFilenameCore,
+  truncateContent,
+} from './csv-export-core';
 
 /**
- * CSV Export Utilities
+ * CSV Export Utilities for FileRecord
  *
  * Provides functionality for exporting FileRecord data to CSV format
  * with proper escaping and extensibility for future fields.
  */
 
-/**
- * Escapes a value for CSV format
- * - Wraps in quotes if contains comma, newline, or quotes
- * - Escapes quotes by doubling them
- */
-function escapeCSVValue(value: string | number | undefined | null): string {
-  if (value === null || value === undefined) {
-    return '';
-  }
-
-  const stringValue = String(value);
-
-  // Check if value needs escaping
-  if (stringValue.includes(',') || stringValue.includes('\n') || stringValue.includes('"')) {
-    // Escape quotes by doubling them
-    const escaped = stringValue.replace(/"/g, '""');
-    return `"${escaped}"`;
-  }
-
-  return stringValue;
-}
-
-/**
- * Truncates content to specified character limit
- */
-function truncateContent(content: string | undefined, maxLength: number): string {
-  if (!content) return '';
-  return content.length > maxLength ? `${content.substring(0, maxLength)}...` : content;
-}
-
-/**
- * Format bytes to human-readable size
- */
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/**
- * Format ISO date string to readable format
- */
-function formatDate(isoString: string | undefined): string {
-  if (!isoString) return '';
-  try {
-    return new Date(isoString).toLocaleString();
-  } catch {
-    return isoString;
-  }
-}
-
-// Define the CSV column configuration
-export interface CSVColumn<T = FileRecord> {
-  header: string;
-  getValue: (record: T) => string | number | undefined | null;
-}
+// Re-export the CSVColumn type for backward compatibility
+export type { CSVColumn };
 
 /**
  * Default columns for FileRecord CSV export
@@ -126,35 +81,178 @@ export function generateCSV<T = FileRecord>(
   records: T[],
   columns: CSVColumn<T>[] = DEFAULT_FILE_RECORD_COLUMNS as CSVColumn<T>[]
 ): string {
-  // Generate header row
-  const headers = columns.map((col) => escapeCSVValue(col.header)).join(',');
-
-  // Generate data rows
-  const rows = records.map((record) => {
-    const values = columns.map((col) => {
-      const value = col.getValue(record);
-      return escapeCSVValue(value);
-    });
-    return values.join(',');
-  });
-
-  // Combine headers and rows
-  return [headers, ...rows].join('\n');
+  return generateCSVCore(records, columns);
 }
 
 /**
  * Creates a CSV blob ready for download
  */
 export function createCSVBlob(csvContent: string): Blob {
-  // Add BOM for Excel compatibility with UTF-8
-  const Bom = '\uFEFF';
-  return new Blob([Bom + csvContent], { type: 'text/csv;charset=utf-8' });
+  return createCSVBlobCore(csvContent, true);
 }
 
 /**
  * Generates a filename for the CSV export with timestamp
  */
 export function generateCSVFilename(prefix = 'file-records'): string {
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  return `${prefix}-${timestamp}.csv`;
+  return generateCSVFilenameCore(prefix);
+}
+
+// Enhanced CSV export functions for files with chunk and embedding metadata
+import type { FileChunk } from '@brainstrike/db';
+import { saveAs } from 'file-saver';
+import { escapeCSVValue } from './csv-export-core';
+
+/**
+ * Enhanced CSV export for files with chunk metadata
+ */
+export function generateFilesWithChunksCSV(records: FileRecord[]): string {
+  const headers = [
+    'ID',
+    'Name',
+    'Path',
+    'Size',
+    'Created At',
+    'Updated At',
+    'Token Count',
+    'Processed At',
+    'Chunks Count',
+    'Chunking Strategy',
+    'Chunks Processed At',
+    'Has Embedding',
+    'Content Hash',
+  ];
+
+  const csvRows = [headers.map(escapeCSVValue).join(',')];
+
+  for (const record of records) {
+    const row = [
+      escapeCSVValue(record.id),
+      escapeCSVValue(record.name),
+      escapeCSVValue(record.path),
+      escapeCSVValue(record.size),
+      escapeCSVValue(record.createdAt),
+      escapeCSVValue(record.updatedAt),
+      escapeCSVValue(record.tokenCount || 0),
+      escapeCSVValue(record.processedAt || ''),
+      escapeCSVValue(record.chunksCount || 0),
+      escapeCSVValue(record.chunkingStrategy || ''),
+      escapeCSVValue(record.chunksProcessedAt || ''),
+      escapeCSVValue(record.embedding ? 'Yes' : 'No'),
+      escapeCSVValue(record.contentHash || ''),
+    ];
+    csvRows.push(row.join(','));
+  }
+
+  return csvRows.join('\n');
+}
+
+/**
+ * CSV export for chunks with embeddings
+ */
+export function generateChunksCSV(chunks: FileChunk[]): string {
+  const headers = [
+    'ID',
+    'File Record ID',
+    'Chunk Index',
+    'Chunk Type',
+    'Token Count',
+    'Chunk Size',
+    'Content Hash',
+    'Has Embedding',
+    'Embedding Dimensions',
+    'Created At',
+    'Updated At',
+    'Content Preview',
+  ];
+
+  const csvRows = [headers.map(escapeCSVValue).join(',')];
+
+  for (const chunk of chunks) {
+    const contentPreview = chunk.content.substring(0, 100);
+    const row = [
+      escapeCSVValue(chunk.id),
+      escapeCSVValue(chunk.fileRecordId),
+      escapeCSVValue(chunk.chunkIndex),
+      escapeCSVValue(chunk.chunkType),
+      escapeCSVValue(chunk.tokenCount),
+      escapeCSVValue(chunk.chunkSize),
+      escapeCSVValue(chunk.contentHash),
+      escapeCSVValue(chunk.embedding ? 'Yes' : 'No'),
+      escapeCSVValue(chunk.embedding ? chunk.embedding.length : 0),
+      escapeCSVValue(chunk.createdAt),
+      escapeCSVValue(chunk.updatedAt),
+      escapeCSVValue(`${contentPreview}...`),
+    ];
+    csvRows.push(row.join(','));
+  }
+
+  return csvRows.join('\n');
+}
+
+/**
+ * CSV export for embeddings with vectors
+ */
+export function generateEmbeddingsCSV(chunks: FileChunk[]): string {
+  const chunksWithEmbeddings = chunks.filter((chunk) => chunk.embedding);
+
+  if (chunksWithEmbeddings.length === 0) {
+    return 'No embeddings found';
+  }
+
+  const embeddingDimensions = chunksWithEmbeddings[0]?.embedding?.length || 0;
+  const headers = [
+    'Chunk ID',
+    'File Record ID',
+    'Chunk Index',
+    'Content Hash',
+    'Token Count',
+    ...Array.from({ length: embeddingDimensions }, (_, i) => `dim_${i}`),
+  ];
+
+  const csvRows = [headers.map(escapeCSVValue).join(',')];
+
+  for (const chunk of chunksWithEmbeddings) {
+    if (!chunk.embedding) continue;
+
+    const row = [
+      escapeCSVValue(chunk.id),
+      escapeCSVValue(chunk.fileRecordId),
+      escapeCSVValue(chunk.chunkIndex),
+      escapeCSVValue(chunk.contentHash),
+      escapeCSVValue(chunk.tokenCount),
+      ...chunk.embedding.map((val) => escapeCSVValue(val)),
+    ];
+    csvRows.push(row.join(','));
+  }
+
+  return csvRows.join('\n');
+}
+
+/**
+ * Export all data in a zip file
+ */
+export async function exportAllDataAsZip(
+  records: FileRecord[],
+  chunks: FileChunk[]
+): Promise<void> {
+  const { default: JSZip } = await import('jszip');
+  const zip = new JSZip();
+
+  // Add files CSV
+  const filesCSV = generateFilesWithChunksCSV(records);
+  zip.file('files.csv', filesCSV);
+
+  // Add chunks CSV
+  const chunksCSV = generateChunksCSV(chunks);
+  zip.file('chunks.csv', chunksCSV);
+
+  // Add embeddings CSV
+  const embeddingsCSV = generateEmbeddingsCSV(chunks);
+  zip.file('embeddings.csv', embeddingsCSV);
+
+  // Generate and download zip
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const filename = generateCSVFilename('database_export').replace('.csv', '.zip');
+  saveAs(zipBlob, filename);
 }

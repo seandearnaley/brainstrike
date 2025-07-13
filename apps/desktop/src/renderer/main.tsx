@@ -8,30 +8,25 @@ import './styles.css';
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
 
-// Electron renderer adapters are defined in a separate module
-
 // Create renderer-specific adapters that use IPC
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
 
 function App() {
-  const [dbReady, setDbReady] = useState(false);
+  const [dbPath, setDbPath] = useState<string | null>(null);
 
   useEffect(() => {
-    // Verify Electron API is available
-    if (window.electronAPI?.db) {
-      setDbReady(true);
-    } else {
-    }
+    // Use IndexedDB storage for desktop app (renderer process can't access filesystem directly)
+    setDbPath('idb://brainstrike-desktop');
   }, []);
 
-  if (!dbReady) {
+  if (!dbPath) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-center">
           <div className="text-lg font-semibold">Initializing Database...</div>
           <div className="text-sm text-muted-foreground mt-2">
-            Setting up PGlite with NodeFS persistence
+            Setting up PGlite with persistent storage
           </div>
         </div>
       </div>
@@ -39,7 +34,7 @@ function App() {
   }
 
   return (
-    <DbProvider useElectronIPC={true}>
+    <DbProvider useElectronIPC={true} dbPath={dbPath}>
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
         <RootLayoutContent />
       </AdaptersProvider>

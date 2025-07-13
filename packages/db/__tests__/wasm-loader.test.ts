@@ -8,6 +8,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
     // Clear all modules and reset state before each test
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
+    vi.unmock('@electric-sql/pglite/vector');
 
     vi.doMock('@electric-sql/pglite', () => {
       PGliteMock = vi.fn(() => ({
@@ -16,6 +17,11 @@ describe('wasmLoader.ensureWasmLoaded', () => {
       }));
       return { PGlite: PGliteMock };
     });
+
+    // Mock the vector extension
+    vi.doMock('@electric-sql/pglite/vector', () => ({
+      vector: {},
+    }));
 
     // Import fresh module after mocking
     const wasmLoaderModule = await import('../src/wasm-loader');
@@ -33,6 +39,7 @@ describe('wasmLoader.ensureWasmLoaded', () => {
   afterEach(() => {
     vi.resetModules();
     vi.unmock('@electric-sql/pglite');
+    vi.unmock('@electric-sql/pglite/vector');
   });
 
   it('returns the same promise when called twice', async () => {

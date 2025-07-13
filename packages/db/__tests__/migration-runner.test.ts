@@ -28,6 +28,7 @@ describe('MigrationRunner', () => {
   };
 
   beforeEach(async () => {
+    // Use basic PGlite without extensions to avoid pgvector dependency in tests
     db = new PGlite();
     runner = new MigrationRunner(db);
     await runner.initialize();
