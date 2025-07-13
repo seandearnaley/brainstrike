@@ -10,7 +10,7 @@ import type { IFileNode } from '@brainstrike/types';
 import type { ImportProgress } from '@brainstrike/ui';
 import { fileExplorer } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useFileImportService } from './file-import-service';
+import { useFileImportService } from './base-file-import-service';
 
 // Extended progress interface for chunking and embedding
 interface EnhancedImportProgress extends ImportProgress {

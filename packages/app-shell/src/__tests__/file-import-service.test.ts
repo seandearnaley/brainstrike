@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { useFileImportService } from '../file-import-service';
+import { useFileImportService } from '../base-file-import-service';
 
 // Mock dependencies to avoid complex setup
 vi.mock('@brainstrike/db', () => ({

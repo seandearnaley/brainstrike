@@ -1,5 +1,7 @@
 import type { FileRecord } from '@brainstrike/db';
 import { describe, expect, it, vi } from 'vitest';
+// Import csv-export-core functions for testing
+import { escapeCSVValue, formatDate, formatFileSize, truncateContent } from '../csv-export-core';
 import {
   createCSVBlob,
   DEFAULT_FILE_RECORD_COLUMNS,
@@ -10,9 +12,6 @@ import {
   generateEmbeddingsCSV,
   generateFilesWithChunksCSV,
 } from '../csv-export-utils';
-
-// Import csv-export-core functions for testing
-import { escapeCSVValue, formatDate, formatFileSize, truncateContent } from '../csv-export-core';
 
 // Mock file-saver
 vi.mock('file-saver', () => ({
