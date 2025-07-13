@@ -127,7 +127,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       const repository = new FileRecordRepository(db);
       console.log('[DB PROVIDER DEBUG] FileRecordRepository created');
-      
+
       const chunkRepo = new FileChunkRepository(db);
       console.log('[DB PROVIDER DEBUG] FileChunkRepository created');
 

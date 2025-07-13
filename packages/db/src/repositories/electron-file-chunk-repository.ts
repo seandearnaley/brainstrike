@@ -131,7 +131,9 @@ export class ElectronFileChunkRepository {
         chunk.updatedAt,
       ]);
 
-      console.log(`[ELECTRON CHUNK REPO DEBUG] Executing database insert for ${chunks.length} chunks`);
+      console.log(
+        `[ELECTRON CHUNK REPO DEBUG] Executing database insert for ${chunks.length} chunks`
+      );
       const result = await this.db.query(
         `INSERT INTO file_chunks (
           id, file_record_id, chunk_index, content, content_hash, 
@@ -323,7 +325,10 @@ export class ElectronFileChunkRepository {
 
         // Validate that the parsed result is an array of numbers
         if (!Array.isArray(parsed)) {
-          console.warn('ElectronFileChunkRepository: Parsed embedding is not an array:', typeof parsed);
+          console.warn(
+            'ElectronFileChunkRepository: Parsed embedding is not an array:',
+            typeof parsed
+          );
           return undefined;
         }
 

@@ -1,8 +1,8 @@
 import type { ChunkingStrategy, FileChunk, FileRecord } from '@brainstrike/db';
-import { 
+import {
   type ElectronFileChunkRepository,
-  type FileChunkRepository, 
-  useFileRecordRepository 
+  type FileChunkRepository,
+  useFileRecordRepository,
 } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
