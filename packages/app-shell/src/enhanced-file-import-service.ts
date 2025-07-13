@@ -121,11 +121,16 @@ export function useEnhancedFileImportService(
       throw new Error('Repository not available');
     }
 
-    if (!result.imported || result.error) {
-      console.log(`[CHUNK DEBUG] Skipping file ${result.id} - not imported or has error:`, {
-        imported: result.imported,
-        error: result.error,
-      });
+    // Skip only if the file wasn't imported AND didn't exist, OR if there was an error
+    if ((!result.imported && !result.existed) || result.error) {
+      console.log(
+        `[CHUNK DEBUG] Skipping file ${result.id} - failed to import or has error:`,
+        {
+          imported: result.imported,
+          existed: result.existed,
+          error: result.error,
+        }
+      );
       return false;
     }
     return true;
