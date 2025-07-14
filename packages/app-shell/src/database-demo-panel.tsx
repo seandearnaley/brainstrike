@@ -25,6 +25,7 @@ import {
   SearchInterface,
   SearchView,
   SettingsPanel,
+  useDatabaseErrorBoundary,
   useExportHandlers,
   useImportSettings,
   useSearchFunctionality,
@@ -36,6 +37,13 @@ export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
   const clearAllData = useClearAllData();
   const { toast } = useToast();
+  const errorBoundary = useDatabaseErrorBoundary({
+    toast,
+    onError: (error) => {
+      // Log critical errors for monitoring in production
+      console.error('Database operation error:', error);
+    },
+  });
 
   // State
   const [records, setRecords] = useState<FileRecord[]>([]);
@@ -213,30 +221,49 @@ export function DatabaseDemoPanel() {
       return;
     }
 
-    setClearing(true);
     setShowClearDialog(false);
-    try {
-      const result = await clearAllData();
 
-      toast({
-        title: 'Database Cleared',
-        description: `Deleted ${result.deletedFiles} files and ${result.deletedChunks} chunks`,
-      });
-
-      await loadRecords();
-      if (chunkRepository) {
-        await loadChunks();
+    // Use error boundary with multiple operations for comprehensive error handling
+    await errorBoundary.executeMultipleOperations(
+      [
+        {
+          operation: async () => {
+            const clearResult = await clearAllData();
+            return clearResult;
+          },
+          name: 'Clear Database',
+          critical: true, // If clear fails, don't try to reload data
+        },
+        {
+          operation: async () => {
+            await loadRecords();
+            return { deletedFiles: 0, deletedChunks: 0 };
+          },
+          name: 'Reload File Records',
+          critical: false,
+        },
+        ...(chunkRepository
+          ? [
+              {
+                operation: async () => {
+                  await loadChunks();
+                  return { deletedFiles: 0, deletedChunks: 0 };
+                },
+                name: 'Reload Chunks',
+                critical: false,
+              },
+            ]
+          : []),
+      ],
+      setClearing,
+      {
+        successTitle: 'Database Cleared',
+        successMessage: 'Database has been cleared and data reloaded successfully',
+        partialSuccessTitle: 'Database Cleared',
+        partialSuccessMessage: 'Database was cleared but some data reload operations failed',
       }
-    } catch (error) {
-      toast({
-        title: 'Clear Failed',
-        description: error instanceof Error ? error.message : 'Unknown error occurred',
-        variant: 'destructive',
-      });
-    } finally {
-      setClearing(false);
-    }
-  }, [clearAllData, toast, loadRecords, loadChunks, chunkRepository]);
+    );
+  }, [clearAllData, toast, loadRecords, loadChunks, chunkRepository, errorBoundary]);
 
   const toggleFileExpansion = useCallback((fileId: string) => {
     setExpandedFiles((prev) => {

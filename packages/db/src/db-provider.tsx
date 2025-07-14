@@ -114,32 +114,21 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
-      console.log('[DB PROVIDER DEBUG] Starting direct PGlite initialization');
       logger.info('Using direct PGlite connection');
 
-      console.log('[DB PROVIDER DEBUG] Creating PGlite instance with path:', resolvedPath);
       const db = await wasmLoader.createPGlite(resolvedPath);
       dbRef.current = db;
-      console.log('[DB PROVIDER DEBUG] PGlite instance created successfully');
 
-      console.log('[DB PROVIDER DEBUG] Starting database migrations');
       await migrate(db);
-      console.log('[DB PROVIDER DEBUG] Database migrations completed');
 
       const repository = new FileRecordRepository(db);
-      console.log('[DB PROVIDER DEBUG] FileRecordRepository created');
-
       const chunkRepo = new FileChunkRepository(db);
-      console.log('[DB PROVIDER DEBUG] FileChunkRepository created');
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setError(null);
         setReady(true);
-        console.log('[DB PROVIDER DEBUG] Database initialization completed successfully');
-      } else {
-        console.log('[DB PROVIDER DEBUG] Initialization was cancelled');
       }
     },
     [resolvedPath]
@@ -221,15 +210,26 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
   const clearAllData = useCallback(async () => {
-    if (!fileRecordRepository || !chunkRepository) {
+    if (!fileRecordRepository || !chunkRepository || !dbRef.current) {
       throw new Error('Database repositories not available');
     }
 
-    // Clear chunks first due to foreign key constraints
-    const deletedChunks = await chunkRepository.clearAll();
-    const deletedFiles = (await fileRecordRepository.clearAll?.()) || 0;
+    // Use transaction to ensure atomic clearing operation
+    return await dbRef.current.transaction(async (tx) => {
+      // Clear chunks first due to foreign key constraints
+      const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
+      const chunksRow = chunksResult.rows[0] as { count: string | number } | undefined;
+      const deletedChunks = chunksRow?.count || 0;
+      await tx.query('DELETE FROM file_chunks');
 
-    return { deletedFiles, deletedChunks };
+      // Then clear files
+      const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
+      const filesRow = filesResult.rows[0] as { count: string | number } | undefined;
+      const deletedFiles = filesRow?.count || 0;
+      await tx.query('DELETE FROM file_records');
+
+      return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
+    });
   }, [fileRecordRepository, chunkRepository]);
 
   const contextValue = useMemo(

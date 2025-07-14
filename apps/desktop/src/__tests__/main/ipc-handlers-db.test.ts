@@ -11,6 +11,7 @@ const { handlers, mockIpcMain, mockDb, getDatabaseMock, mockApp } = vi.hoisted((
   const mockDb = {
     query: vi.fn(),
     exec: vi.fn(),
+    transaction: vi.fn(),
   };
 
   const getDatabaseMock = vi.fn(() => mockDb);
@@ -118,6 +119,99 @@ describe('database IPC handlers', () => {
       success: false,
       message: 'Database connection failed: Error: oops',
       dbLocation: 'Main Process',
+    });
+  });
+
+  describe('db:clearAll handler', () => {
+    it('requires confirmation token', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      const result = await handler?.({} as unknown);
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Unauthorized: Invalid or missing confirmation token',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(getDatabaseMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid confirmation token', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      const result = await handler?.({} as unknown, 'invalid_token');
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Unauthorized: Invalid or missing confirmation token',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+      expect(getDatabaseMock).not.toHaveBeenCalled();
+    });
+
+    it('successfully clears database with valid token', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      // Mock transaction to call the callback immediately
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi
+            .fn()
+            .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
+            .mockResolvedValueOnce({ rows: [{ count: '3' }] }) // files count
+            .mockResolvedValueOnce(undefined) // DELETE chunks
+            .mockResolvedValueOnce(undefined), // DELETE files
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(getDatabaseMock).toHaveBeenCalled();
+      expect(mockDb.transaction).toHaveBeenCalled();
+      expect(result).toEqual({
+        success: true,
+        message: 'Database cleared successfully',
+        deletedFiles: 3,
+        deletedChunks: 5,
+      });
+    });
+
+    it('handles database errors gracefully', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockRejectedValue(new Error('Database connection failed'));
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Database clear failed: Database connection failed',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
+    });
+
+    it('handles transaction callback errors', async () => {
+      const handler = handlers.get('db:clearAll');
+
+      mockDb.transaction.mockImplementation(async (callback) => {
+        const mockTx = {
+          query: vi.fn().mockRejectedValue(new Error('Query failed')),
+        };
+        return await callback(mockTx);
+      });
+
+      const result = await handler?.({} as unknown, 'CONFIRM_CLEAR_DATABASE');
+
+      expect(result).toEqual({
+        success: false,
+        message: 'Database clear failed: Query failed',
+        deletedFiles: 0,
+        deletedChunks: 0,
+      });
     });
   });
 });

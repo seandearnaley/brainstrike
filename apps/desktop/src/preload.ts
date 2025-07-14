@@ -27,7 +27,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
     exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
     test: () => ipcRenderer.invoke('db:test'),
-    clearAll: () => ipcRenderer.invoke('db:clearAll'),
+    clearAll: (confirmationToken?: string) => ipcRenderer.invoke('db:clearAll', confirmationToken),
   },
   // Database path (legacy - kept for compatibility)
   getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),

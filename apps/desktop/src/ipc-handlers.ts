@@ -154,23 +154,54 @@ export function registerIpcHandlers(
     }
   });
 
-  // Bulk database cleanup handler for testing
-  ipcMain.handle('db:clearAll', async () => {
+  // Bulk database cleanup handler - requires confirmation token for security
+  ipcMain.handle('db:clearAll', async (_, confirmationToken?: string) => {
     try {
+      // Require confirmation token to prevent unauthorized clearing
+      if (!confirmationToken || confirmationToken !== 'CONFIRM_CLEAR_DATABASE') {
+        return {
+          success: false,
+          message: 'Unauthorized: Invalid or missing confirmation token',
+          deletedFiles: 0,
+          deletedChunks: 0,
+        };
+      }
+
       const { getDatabase } = await import('./db-main');
       const db = getDatabase();
-      await db.exec('DELETE FROM file_chunks');
-      await db.exec('DELETE FROM file_records');
-      return {
-        success: true,
-        message: 'Database cleared successfully',
-        clearedCount: 0, // Could count rows if needed
-      };
+
+      // Use transaction for atomic operation
+      return await db.transaction(
+        async (tx: { query: (sql: string) => Promise<{ rows: unknown[] }> }) => {
+          // Count before deleting for feedback
+          const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
+          const deletedChunks = Number(
+            (chunksResult.rows[0] as { count: string | number })?.count || 0
+          );
+
+          const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
+          const deletedFiles = Number(
+            (filesResult.rows[0] as { count: string | number })?.count || 0
+          );
+
+          // Clear chunks first due to foreign key constraints
+          await tx.query('DELETE FROM file_chunks');
+          await tx.query('DELETE FROM file_records');
+
+          return {
+            success: true,
+            message: 'Database cleared successfully',
+            deletedFiles,
+            deletedChunks,
+          };
+        }
+      );
     } catch (error) {
       return {
         success: false,
-        message: `Database clear failed: ${error}`,
-        clearedCount: 0,
+        message: `Database clear failed: ${error instanceof Error ? error.message : String(error)}`,
+        deletedFiles: 0,
+        deletedChunks: 0,
       };
     }
   });
