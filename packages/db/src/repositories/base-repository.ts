@@ -253,6 +253,16 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     return results;
   }
 
+  async clearAll(): Promise<number> {
+    const countResult = await this.db.query(`SELECT COUNT(*) as count FROM ${this.tableName}`);
+    const countRow = countResult.rows[0];
+    const totalCount =
+      countRow && typeof countRow === 'object' && 'count' in countRow ? Number(countRow.count) : 0;
+
+    await this.db.query(`DELETE FROM ${this.tableName}`);
+    return totalCount;
+  }
+
   /**
    * Simple heuristic token counting (4 chars per token)
    */

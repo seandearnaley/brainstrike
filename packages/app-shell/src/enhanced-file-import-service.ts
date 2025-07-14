@@ -236,7 +236,9 @@ export function useEnhancedFileImportService(
       return await handleSkippedChunking(result, strategy, chunkingResult);
     }
 
-    logger.debug(`Successfully processed ${chunkingResult.chunks.length} chunks for ${fileRecord.name}`);
+    logger.debug(
+      `Successfully processed ${chunkingResult.chunks.length} chunks for ${fileRecord.name}`
+    );
     return await processSuccessfulChunking(result, strategy, chunkingResult);
   };
 
@@ -250,7 +252,9 @@ export function useEnhancedFileImportService(
     chunksCreated: number;
     chunks?: FileChunk[];
   }> => {
-    logger.debug(`Starting processFileChunking for file ${index + 1}/${totalFiles}, ID: ${result.id}`);
+    logger.debug(
+      `Starting processFileChunking for file ${index + 1}/${totalFiles}, ID: ${result.id}`
+    );
 
     if (!validateChunkingPrerequisites(result)) {
       return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
@@ -266,7 +270,9 @@ export function useEnhancedFileImportService(
       return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
     }
 
-    logger.debug(`Found file record: ${fileRecord.name}, content length: ${fileRecord.content.length}`);
+    logger.debug(
+      `Found file record: ${fileRecord.name}, content length: ${fileRecord.content.length}`
+    );
 
     updateChunkingProgress(index, totalFiles, fileRecord.name, totalChunksCreated);
 
@@ -327,7 +333,9 @@ export function useEnhancedFileImportService(
 
         enhancedResults.push(enhancedResult);
         totalChunksCreated += chunksCreated;
-        logger.debug(`File ${result.id} processed successfully. Total chunks so far: ${totalChunksCreated}`);
+        logger.debug(
+          `File ${result.id} processed successfully. Total chunks so far: ${totalChunksCreated}`
+        );
       } catch (error) {
         logger.error(`ERROR processing file ${result.id}`, error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';

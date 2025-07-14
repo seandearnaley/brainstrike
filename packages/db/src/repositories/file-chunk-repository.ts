@@ -91,63 +91,39 @@ export class FileChunkRepository {
   }
 
   async insertMany(chunks: FileChunkInsert[]): Promise<FileChunk[]> {
-    console.log(`[CHUNK REPO DEBUG] insertMany called with ${chunks.length} chunks`);
-
     if (chunks.length === 0) {
-      console.log('[CHUNK REPO DEBUG] No chunks to insert, returning empty array');
       return [];
     }
+    const values = chunks
+      .map((_, index) => {
+        const baseIndex = index * 11;
+        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11})`;
+      })
+      .join(', ');
 
-    console.log('[CHUNK REPO DEBUG] Sample chunk data:', {
-      firstChunk: {
-        id: chunks[0]?.id,
-        fileRecordId: chunks[0]?.fileRecordId,
-        chunkIndex: chunks[0]?.chunkIndex,
-        contentLength: chunks[0]?.content?.length,
-        chunkType: chunks[0]?.chunkType,
-        tokenCount: chunks[0]?.tokenCount,
-      },
-    });
+    const params = chunks.flatMap((chunk) => [
+      chunk.id,
+      chunk.fileRecordId,
+      chunk.chunkIndex,
+      chunk.content,
+      chunk.contentHash,
+      chunk.tokenCount,
+      chunk.chunkType,
+      chunk.chunkSize,
+      chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+      chunk.createdAt,
+      chunk.updatedAt,
+    ]);
 
-    try {
-      const values = chunks
-        .map((_, index) => {
-          const baseIndex = index * 11;
-          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11})`;
-        })
-        .join(', ');
-
-      const params = chunks.flatMap((chunk) => [
-        chunk.id,
-        chunk.fileRecordId,
-        chunk.chunkIndex,
-        chunk.content,
-        chunk.contentHash,
-        chunk.tokenCount,
-        chunk.chunkType,
-        chunk.chunkSize,
-        chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
-        chunk.createdAt,
-        chunk.updatedAt,
-      ]);
-
-      console.log(`[CHUNK REPO DEBUG] Executing database insert for ${chunks.length} chunks`);
-      const result = await this.db.query(
-        `INSERT INTO file_chunks (
+    const result = await this.db.query(
+      `INSERT INTO file_chunks (
           id, file_record_id, chunk_index, content, content_hash, 
           token_count, chunk_type, chunk_size, embedding, created_at, updated_at
         ) VALUES ${values} RETURNING *`,
-        params
-      );
+      params
+    );
 
-      console.log(
-        `[CHUNK REPO DEBUG] Database insert successful, returned ${result.rows.length} rows`
-      );
-      return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
-    } catch (error) {
-      console.error('[CHUNK REPO DEBUG] Database insert failed:', error);
-      throw error;
-    }
+    return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
   }
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
@@ -294,6 +270,18 @@ export class FileChunkRepository {
     }
 
     return stats;
+  }
+
+  async clearAll(): Promise<number> {
+    const countResult = await this.db.query('SELECT COUNT(*) as count FROM file_chunks');
+    const countRow = countResult.rows[0];
+    const totalCount =
+      countRow && typeof countRow === 'object' && 'count' in countRow
+        ? Number((countRow as { count: string }).count)
+        : 0;
+
+    await this.db.query('DELETE FROM file_chunks');
+    return totalCount;
   }
 
   private mapRowToChunk(row: FileChunkRow): FileChunk {

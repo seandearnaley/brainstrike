@@ -27,6 +27,7 @@ interface DbContextValue {
   error: Error | null;
   ready: boolean;
   db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
+  clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
 }
 
 interface DbProviderProps {
@@ -113,32 +114,21 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeDirectPGlite = useCallback(
     async (cancelled: { value: boolean }) => {
-      console.log('[DB PROVIDER DEBUG] Starting direct PGlite initialization');
       logger.info('Using direct PGlite connection');
 
-      console.log('[DB PROVIDER DEBUG] Creating PGlite instance with path:', resolvedPath);
       const db = await wasmLoader.createPGlite(resolvedPath);
       dbRef.current = db;
-      console.log('[DB PROVIDER DEBUG] PGlite instance created successfully');
 
-      console.log('[DB PROVIDER DEBUG] Starting database migrations');
       await migrate(db);
-      console.log('[DB PROVIDER DEBUG] Database migrations completed');
 
       const repository = new FileRecordRepository(db);
-      console.log('[DB PROVIDER DEBUG] FileRecordRepository created');
-
       const chunkRepo = new FileChunkRepository(db);
-      console.log('[DB PROVIDER DEBUG] FileChunkRepository created');
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setError(null);
         setReady(true);
-        console.log('[DB PROVIDER DEBUG] Database initialization completed successfully');
-      } else {
-        console.log('[DB PROVIDER DEBUG] Initialization was cancelled');
       }
     },
     [resolvedPath]
@@ -219,9 +209,39 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     };
   }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
+  const clearAllData = useCallback(async () => {
+    if (!fileRecordRepository || !chunkRepository || !dbRef.current) {
+      throw new Error('Database repositories not available');
+    }
+
+    // Use transaction to ensure atomic clearing operation
+    return await dbRef.current.transaction(async (tx) => {
+      // Clear chunks first due to foreign key constraints
+      const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
+      const chunksRow = chunksResult.rows[0] as { count: string | number } | undefined;
+      const deletedChunks = chunksRow?.count || 0;
+      await tx.query('DELETE FROM file_chunks');
+
+      // Then clear files
+      const filesResult = await tx.query('SELECT COUNT(*) as count FROM file_records');
+      const filesRow = filesResult.rows[0] as { count: string | number } | undefined;
+      const deletedFiles = filesRow?.count || 0;
+      await tx.query('DELETE FROM file_records');
+
+      return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
+    });
+  }, [fileRecordRepository, chunkRepository]);
+
   const contextValue = useMemo(
-    () => ({ fileRecordRepository, chunkRepository, error, ready, db: dbRef.current }),
-    [fileRecordRepository, chunkRepository, error, ready]
+    () => ({
+      fileRecordRepository,
+      chunkRepository,
+      error,
+      ready,
+      db: dbRef.current,
+      clearAllData,
+    }),
+    [fileRecordRepository, chunkRepository, error, ready, clearAllData]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
@@ -260,4 +280,16 @@ export function useFileChunkRepository(): FileChunkRepository | ElectronFileChun
   }
   // Only return the repository if the DB is ready and there's no error
   return ctx.ready && !ctx.error ? ctx.chunkRepository : null;
+}
+
+export function useClearAllData():
+  | (() => Promise<{ deletedFiles: number; deletedChunks: number }>)
+  | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    logger.warn('useClearAllData must be used within a DbProvider');
+    return null;
+  }
+  // Only return the function if the DB is ready and there's no error
+  return ctx.ready && !ctx.error ? ctx.clearAllData : null;
 }
