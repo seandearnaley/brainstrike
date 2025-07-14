@@ -1,4 +1,5 @@
 import type { FileRecord } from '@brainstrike/db';
+import { CHUNKING_CONFIG } from '@brainstrike/db';
 import {
   type CSVColumn,
   createCSVBlob as createCSVBlobCore,
@@ -169,7 +170,7 @@ export function generateChunksCSV(chunks: FileChunk[]): string {
   const csvRows = [headers.map(escapeCSVValue).join(',')];
 
   for (const chunk of chunks) {
-    const contentPreview = chunk.content.substring(0, 100);
+    const contentPreview = chunk.content.substring(0, CHUNKING_CONFIG.csvContentPreviewLength);
     const row = [
       escapeCSVValue(chunk.id),
       escapeCSVValue(chunk.fileRecordId),

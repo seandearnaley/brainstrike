@@ -3,8 +3,11 @@ import {
   RecursiveCharacterTextSplitter,
   TokenTextSplitter,
 } from '@langchain/textsplitters';
+import { createLogger } from '@brainstrike/utils';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
+
+const logger = createLogger('ChunkingService');
 
 export type ChunkingStrategy = 'sentence' | 'token' | 'recursive';
 
@@ -58,12 +61,12 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'sentence' }
   ): Promise<ChunkingResult> {
-    console.log(`[CHUNKING DEBUG] Starting chunkContent for fileRecordId: ${fileRecordId}`);
-    console.log(`[CHUNKING DEBUG] Content length: ${content?.length || 0}`);
-    console.log('[CHUNKING DEBUG] Options:', options);
+    logger.debug(`Starting chunkContent for fileRecordId: ${fileRecordId}`);
+    logger.debug(`Content length: ${content?.length || 0}`);
+    logger.debug('Options', options);
 
     if (!content || !fileRecordId) {
-      console.error('[CHUNKING DEBUG] Missing required parameters:', {
+      logger.error('Missing required parameters', {
         hasContent: !!content,
         fileRecordId,
       });
@@ -92,12 +95,10 @@ export class ChunkingService {
     console.log('[CHUNKING DEBUG] Adjusted options:', adjustedOptions);
 
     // Use more generous character limits for modern embedding models
-    // 1 token ≈ 4 characters for English text (standard GPT tokenization)
-    const maxCharacters = Math.floor(adjustedOptions.maxTokens * 4);
-    const overlapCharacters = Math.floor(adjustedOptions.overlap * 4);
-    console.log(
-      `[CHUNKING DEBUG] Character limits - max: ${maxCharacters}, overlap: ${overlapCharacters}`
-    );
+    // Use configured character-to-token ratio
+    const maxCharacters = Math.floor(adjustedOptions.maxTokens * CHUNKING_CONFIG.averageCharsPerToken);
+    const overlapCharacters = Math.floor(adjustedOptions.overlap * CHUNKING_CONFIG.averageCharsPerToken);
+    logger.debug(`Character limits - max: ${maxCharacters}, overlap: ${overlapCharacters}`);
 
     let chunkTexts: string[];
     let chunkType: 'text' | 'code' | 'sentence' | 'recursive';

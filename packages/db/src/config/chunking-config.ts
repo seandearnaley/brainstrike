@@ -21,6 +21,10 @@ export const CHUNKING_CONFIG = {
 
   // Preview and display limits
   chunkPreviewLength: 50, // Characters to show in chunk preview
+  csvContentPreviewLength: 100, // Characters to show in CSV export content preview
+
+  // Token estimation constants
+  averageCharsPerToken: 4, // Rough approximation of characters per token for English text
 
   // Timing constants
   embeddingInitializationDelay: 500, // Delay after embedding service initialization (ms)

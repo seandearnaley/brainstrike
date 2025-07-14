@@ -8,9 +8,11 @@ import {
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { IFileNode } from '@brainstrike/types';
 import type { ImportProgress } from '@brainstrike/ui';
-import { fileExplorer } from '@brainstrike/utils';
+import { createLogger, fileExplorer } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileImportService } from './base-file-import-service';
+
+const logger = createLogger('EnhancedFileImport');
 
 // Extended progress interface for chunking and embedding
 interface EnhancedImportProgress extends ImportProgress {
@@ -112,18 +114,16 @@ export function useEnhancedFileImportService(
 
   const validateChunkingPrerequisites = (result: FileImportResult) => {
     if (!repository || !chunkRepository) {
-      console.error(
-        '[CHUNK DEBUG] Repository not available - repository:',
-        !!repository,
-        'chunkRepository:',
-        !!chunkRepository
-      );
+      logger.error('Repository not available', {
+        repository: !!repository,
+        chunkRepository: !!chunkRepository,
+      });
       throw new Error('Repository not available');
     }
 
     // Skip only if the file wasn't imported AND didn't exist, OR if there was an error
     if ((!result.imported && !result.existed) || result.error) {
-      console.log(`[CHUNK DEBUG] Skipping file ${result.id} - failed to import or has error:`, {
+      logger.debug(`Skipping file ${result.id} - failed to import or has error`, {
         imported: result.imported,
         existed: result.existed,
         error: result.error,
@@ -182,11 +182,11 @@ export function useEnhancedFileImportService(
     strategy: ChunkingStrategy,
     chunkingResult: { chunks: FileChunk[] }
   ) => {
-    console.log(`[CHUNK DEBUG] Inserting ${chunkingResult.chunks.length} chunks into database`);
+    logger.debug(`Inserting ${chunkingResult.chunks.length} chunks into database`);
     await chunkRepository?.insertMany(chunkingResult.chunks);
 
     const now = new Date().toISOString();
-    console.log('[CHUNK DEBUG] Updating file record with chunk metadata');
+    logger.debug('Updating file record with chunk metadata');
     await repository?.update(result.id, {
       chunksProcessedAt: now,
       chunksCount: chunkingResult.chunks.length,
@@ -207,7 +207,7 @@ export function useEnhancedFileImportService(
     strategy: ChunkingStrategy
   ) => {
     const chunkingService = new ChunkingService();
-    console.log('[CHUNK DEBUG] Starting chunking with options:', {
+    logger.debug('Starting chunking with options', {
       strategy,
       maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
       overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
@@ -223,7 +223,7 @@ export function useEnhancedFileImportService(
       filePath: fileRecord.path,
     });
 
-    console.log('[CHUNK DEBUG] Chunking result:', {
+    logger.debug('Chunking result', {
       skipped: chunkingResult.skipped,
       skipReason: chunkingResult.skipReason,
       chunksCount: chunkingResult.chunks.length,
@@ -232,15 +232,11 @@ export function useEnhancedFileImportService(
     });
 
     if (chunkingResult.skipped) {
-      console.log(
-        `[CHUNK DEBUG] Chunking was skipped for ${fileRecord.name}: ${chunkingResult.skipReason}`
-      );
+      logger.debug(`Chunking was skipped for ${fileRecord.name}: ${chunkingResult.skipReason}`);
       return await handleSkippedChunking(result, strategy, chunkingResult);
     }
 
-    console.log(
-      `[CHUNK DEBUG] Successfully processed ${chunkingResult.chunks.length} chunks for ${fileRecord.name}`
-    );
+    logger.debug(`Successfully processed ${chunkingResult.chunks.length} chunks for ${fileRecord.name}`);
     return await processSuccessfulChunking(result, strategy, chunkingResult);
   };
 
@@ -254,32 +250,28 @@ export function useEnhancedFileImportService(
     chunksCreated: number;
     chunks?: FileChunk[];
   }> => {
-    console.log(
-      `[CHUNK DEBUG] Starting processFileChunking for file ${index + 1}/${totalFiles}, ID: ${result.id}`
-    );
+    logger.debug(`Starting processFileChunking for file ${index + 1}/${totalFiles}, ID: ${result.id}`);
 
     if (!validateChunkingPrerequisites(result)) {
       return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
     }
 
-    console.log(`[CHUNK DEBUG] Looking up file record for ID: ${result.id}`);
+    logger.debug(`Looking up file record for ID: ${result.id}`);
     const fileRecord = await repository?.findById(result.id);
     if (!fileRecord || !fileRecord.content) {
-      console.error('[CHUNK DEBUG] File record not found or has no content:', {
+      logger.warn('File record not found or has no content', {
         found: !!fileRecord,
         hasContent: fileRecord?.content ? fileRecord.content.length : 0,
       });
       return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
     }
 
-    console.log(
-      `[CHUNK DEBUG] Found file record: ${fileRecord.name}, content length: ${fileRecord.content.length}`
-    );
+    logger.debug(`Found file record: ${fileRecord.name}, content length: ${fileRecord.content.length}`);
 
     updateChunkingProgress(index, totalFiles, fileRecord.name, totalChunksCreated);
 
     const strategy = getChunkingStrategy(fileRecord.path, options.chunkingStrategy);
-    console.log(`[CHUNK DEBUG] Using chunking strategy: ${strategy} for file: ${fileRecord.name}`);
+    logger.debug(`Using chunking strategy: ${strategy} for file: ${fileRecord.name}`);
 
     try {
       return await executeChunkingOperation(
@@ -288,24 +280,20 @@ export function useEnhancedFileImportService(
         strategy
       );
     } catch (chunkingError) {
-      console.error(`[CHUNK DEBUG] Chunking failed for ${fileRecord.name}:`, chunkingError);
+      logger.error(`Chunking failed for ${fileRecord.name}`, chunkingError);
       throw chunkingError;
     }
   };
 
   // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex but necessary for file import orchestration
   const processChunking = async (importResults: FileImportResult[]) => {
-    console.log(
-      `[CHUNK DEBUG] Starting processChunking for ${importResults.length} import results`
-    );
+    logger.debug(`Starting processChunking for ${importResults.length} import results`);
 
     if (!repository || !chunkRepository) {
-      console.error(
-        '[CHUNK DEBUG] Repository not available for chunking - repository:',
-        !!repository,
-        'chunkRepository:',
-        !!chunkRepository
-      );
+      logger.error('Repository not available for chunking', {
+        repository: !!repository,
+        chunkRepository: !!chunkRepository,
+      });
       options.onError?.(new Error('Repository not available for chunking'));
       return;
     }
@@ -316,11 +304,11 @@ export function useEnhancedFileImportService(
     for (let i = 0; i < importResults.length; i++) {
       const result = importResults[i];
       if (!result) {
-        console.warn(`[CHUNK DEBUG] Skipping undefined result at index ${i}`);
+        logger.warn(`Skipping undefined result at index ${i}`);
         continue;
       }
 
-      console.log(`[CHUNK DEBUG] Processing file ${i + 1}/${importResults.length}: ${result.id}`);
+      logger.debug(`Processing file ${i + 1}/${importResults.length}: ${result.id}`);
 
       try {
         const { enhancedResult, chunksCreated, chunks } = await processFileChunking(
@@ -331,23 +319,19 @@ export function useEnhancedFileImportService(
         );
 
         if (options.enableEmbedding && chunks && chunks.length > 0) {
-          console.log(`[CHUNK DEBUG] Processing embeddings for ${chunks.length} chunks`);
+          logger.debug(`Processing embeddings for ${chunks.length} chunks`);
           await processEmbeddings(chunks, enhancedResult);
         } else if (options.enableEmbedding) {
-          console.log(
-            `[CHUNK DEBUG] Embedding enabled but no chunks to process for file: ${result.id}`
-          );
+          logger.debug(`Embedding enabled but no chunks to process for file: ${result.id}`);
         }
 
         enhancedResults.push(enhancedResult);
         totalChunksCreated += chunksCreated;
-        console.log(
-          `[CHUNK DEBUG] File ${result.id} processed successfully. Total chunks so far: ${totalChunksCreated}`
-        );
+        logger.debug(`File ${result.id} processed successfully. Total chunks so far: ${totalChunksCreated}`);
       } catch (error) {
-        console.error(`[CHUNK DEBUG] ERROR processing file ${result.id}:`, error);
+        logger.error(`ERROR processing file ${result.id}`, error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('[CHUNK DEBUG] Full error details:', {
+        logger.error('Full error details', {
           name: error instanceof Error ? error.name : 'Unknown',
           message: errorMessage,
           stack: error instanceof Error ? error.stack : undefined,
