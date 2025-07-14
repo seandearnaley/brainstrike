@@ -296,6 +296,18 @@ export class FileChunkRepository {
     return stats;
   }
 
+  async clearAll(): Promise<number> {
+    const countResult = await this.db.query('SELECT COUNT(*) as count FROM file_chunks');
+    const countRow = countResult.rows[0];
+    const totalCount =
+      countRow && typeof countRow === 'object' && 'count' in countRow
+        ? Number((countRow as { count: string }).count)
+        : 0;
+
+    await this.db.query('DELETE FROM file_chunks');
+    return totalCount;
+  }
+
   private mapRowToChunk(row: FileChunkRow): FileChunk {
     const embedding = row.embedding ? this.parseEmbedding(row.embedding) : undefined;
     return {

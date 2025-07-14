@@ -24,6 +24,7 @@ export interface IFileRecordRepository {
     requests: FileImportRequest[],
     onProgress?: (completed: number, total: number, current?: string) => void
   ): Promise<FileImportResult[]>;
+  clearAll?(): Promise<number>;
 }
 
 /**

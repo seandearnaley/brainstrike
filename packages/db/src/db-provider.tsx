@@ -27,6 +27,7 @@ interface DbContextValue {
   error: Error | null;
   ready: boolean;
   db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
+  clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
 }
 
 interface DbProviderProps {
@@ -219,9 +220,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     };
   }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
 
+  const clearAllData = useCallback(async () => {
+    if (!fileRecordRepository || !chunkRepository) {
+      throw new Error('Database repositories not available');
+    }
+
+    // Clear chunks first due to foreign key constraints
+    const deletedChunks = await chunkRepository.clearAll();
+    const deletedFiles = (await fileRecordRepository.clearAll?.()) || 0;
+
+    return { deletedFiles, deletedChunks };
+  }, [fileRecordRepository, chunkRepository]);
+
   const contextValue = useMemo(
-    () => ({ fileRecordRepository, chunkRepository, error, ready, db: dbRef.current }),
-    [fileRecordRepository, chunkRepository, error, ready]
+    () => ({
+      fileRecordRepository,
+      chunkRepository,
+      error,
+      ready,
+      db: dbRef.current,
+      clearAllData,
+    }),
+    [fileRecordRepository, chunkRepository, error, ready, clearAllData]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
@@ -260,4 +280,16 @@ export function useFileChunkRepository(): FileChunkRepository | ElectronFileChun
   }
   // Only return the repository if the DB is ready and there's no error
   return ctx.ready && !ctx.error ? ctx.chunkRepository : null;
+}
+
+export function useClearAllData():
+  | (() => Promise<{ deletedFiles: number; deletedChunks: number }>)
+  | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    logger.warn('useClearAllData must be used within a DbProvider');
+    return null;
+  }
+  // Only return the function if the DB is ready and there's no error
+  return ctx.ready && !ctx.error ? ctx.clearAllData : null;
 }

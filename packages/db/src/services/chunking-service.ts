@@ -1,9 +1,9 @@
+import { createLogger } from '@brainstrike/utils';
 import {
   CharacterTextSplitter,
   RecursiveCharacterTextSplitter,
   TokenTextSplitter,
 } from '@langchain/textsplitters';
-import { createLogger } from '@brainstrike/utils';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
@@ -96,8 +96,12 @@ export class ChunkingService {
 
     // Use more generous character limits for modern embedding models
     // Use configured character-to-token ratio
-    const maxCharacters = Math.floor(adjustedOptions.maxTokens * CHUNKING_CONFIG.averageCharsPerToken);
-    const overlapCharacters = Math.floor(adjustedOptions.overlap * CHUNKING_CONFIG.averageCharsPerToken);
+    const maxCharacters = Math.floor(
+      adjustedOptions.maxTokens * CHUNKING_CONFIG.averageCharsPerToken
+    );
+    const overlapCharacters = Math.floor(
+      adjustedOptions.overlap * CHUNKING_CONFIG.averageCharsPerToken
+    );
     logger.debug(`Character limits - max: ${maxCharacters}, overlap: ${overlapCharacters}`);
 
     let chunkTexts: string[];

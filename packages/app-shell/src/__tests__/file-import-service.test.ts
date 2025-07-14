@@ -1,7 +1,7 @@
-import { renderHook, act } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { useFileImportService } from '../base-file-import-service';
 import type { IFileNode } from '@brainstrike/types';
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useFileImportService } from '../base-file-import-service';
 
 // Mock dependencies to avoid complex setup
 const mockBulkImport = vi.fn();
@@ -13,6 +13,7 @@ vi.mock('@brainstrike/db', () => ({
   }),
   usePGliteDatabase: () => null,
   useFileChunkRepository: () => null,
+  useClearAllData: () => null,
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -89,9 +90,11 @@ describe('useFileImportService', () => {
         await result.current.importFiles(new Set(), [], {});
       });
 
-      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'No files selected for import'
-      }));
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'No files selected for import',
+        })
+      );
     });
   });
 
@@ -101,24 +104,22 @@ describe('useFileImportService', () => {
       const { result } = renderHook(() => useFileImportService({ onComplete }));
 
       const fileContents = {
-        'test-folder:/test/path': 'test file content'
+        'test-folder:/test/path': 'test file content',
       };
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          fileContents
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], fileContents);
       });
 
       expect(mockBulkImport).toHaveBeenCalledWith(
-        [expect.objectContaining({
-          path: '/test/path',
-          name: 'path',
-          content: 'test file content',
-          size: 17
-        })],
+        [
+          expect.objectContaining({
+            path: '/test/path',
+            name: 'path',
+            content: 'test file content',
+            size: 17,
+          }),
+        ],
         expect.any(Function)
       );
       expect(onComplete).toHaveBeenCalled();
@@ -129,15 +130,11 @@ describe('useFileImportService', () => {
       const { result } = renderHook(() => useFileImportService({ onProgress }));
 
       const fileContents = {
-        'test-folder:/test/path': 'test content'
+        'test-folder:/test/path': 'test content',
       };
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          fileContents
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], fileContents);
       });
 
       expect(onProgress).toHaveBeenCalled();
@@ -148,40 +145,40 @@ describe('useFileImportService', () => {
   describe('Error handling', () => {
     it('should handle database errors', async () => {
       mockBulkImport.mockRejectedValue(new Error('Database error'));
-      
+
       const onError = vi.fn();
       const { result } = renderHook(() => useFileImportService({ onError }));
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
-      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'Database error'
-      }));
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Database error',
+        })
+      );
     });
 
     it('should handle bulk import returning null', async () => {
       mockBulkImport.mockResolvedValue(null);
-      
+
       const onError = vi.fn();
       const { result } = renderHook(() => useFileImportService({ onError }));
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
-      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'Bulk import not supported by repository'
-      }));
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Bulk import not supported by repository',
+        })
+      );
     });
   });
 
@@ -193,7 +190,7 @@ describe('useFileImportService', () => {
         path: '/test/path',
         type: 'file',
         size: 100,
-        handle: { platform: 'web' }
+        handle: { platform: 'web' },
       };
 
       // Re-mock to return our file node
@@ -204,21 +201,19 @@ describe('useFileImportService', () => {
       const { result } = renderHook(() => useFileImportService());
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [mockFileNode],
-          {}
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [mockFileNode], {});
       });
 
       expect(mockReadFile).toHaveBeenCalled();
       expect(mockBulkImport).toHaveBeenCalledWith(
-        [expect.objectContaining({
-          path: '/test/path',
-          name: 'test.txt',
-          content: 'file content from disk',
-          size: 100
-        })],
+        [
+          expect.objectContaining({
+            path: '/test/path',
+            name: 'test.txt',
+            content: 'file content from disk',
+            size: 100,
+          }),
+        ],
         expect.any(Function)
       );
     });
@@ -230,32 +225,28 @@ describe('useFileImportService', () => {
         path: '/test/path',
         type: 'file',
         size: 100,
-        handle: { platform: 'web' }
+        handle: { platform: 'web' },
       };
 
       const utils = await import('@brainstrike/utils');
       vi.mocked(utils.fileExplorer.findNodeByPath).mockReturnValue(mockFileNode);
       mockReadFile.mockRejectedValue(new Error('File read error'));
-      
+
       const { result } = renderHook(() => useFileImportService());
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [mockFileNode],
-          {}
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [mockFileNode], {});
       });
 
       expect(result.current.progress?.errors).toEqual([
         {
           file: '/test/path',
-          error: 'Failed to read file: File read error'
+          error: 'Failed to read file: File read error',
         },
         {
           file: 'Import Process',
-          error: 'No valid files to import'
-        }
+          error: 'No valid files to import',
+        },
       ]);
     });
   });

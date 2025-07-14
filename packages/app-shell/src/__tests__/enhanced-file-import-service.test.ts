@@ -1,5 +1,5 @@
-import { renderHook, act } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
 // Mock the base service to prevent provider issues
@@ -21,6 +21,7 @@ vi.mock('@brainstrike/db', () => ({
     insertMany: vi.fn(),
     update: vi.fn(),
   }),
+  useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,
     defaultOverlap: 200,
@@ -98,24 +99,20 @@ describe('useEnhancedFileImportService', () => {
       const { result } = renderHook(() => useEnhancedFileImportService());
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
-      expect(mockBaseImport).toHaveBeenCalledWith(
-        new Set(['test-folder:/test/path']),
-        [],
-        { 'test-folder:/test/path': 'test content' }
-      );
+      expect(mockBaseImport).toHaveBeenCalledWith(new Set(['test-folder:/test/path']), [], {
+        'test-folder:/test/path': 'test content',
+      });
     });
 
     it('should handle import errors', async () => {
       const mockBaseImport = vi.fn().mockRejectedValue(new Error('Import failed'));
       const onError = vi.fn();
-      
+
       const baseService = await import('../base-file-import-service');
       vi.mocked(baseService.useFileImportService).mockReturnValue({
         importFiles: mockBaseImport,
@@ -126,22 +123,22 @@ describe('useEnhancedFileImportService', () => {
       const { result } = renderHook(() => useEnhancedFileImportService({ onError }));
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
-      expect(onError).toHaveBeenCalledWith(expect.objectContaining({
-        message: 'Import failed'
-      }));
+      expect(onError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Import failed',
+        })
+      );
     });
 
     it('should handle chunking disabled', async () => {
       const onComplete = vi.fn();
       const mockBaseImport = vi.fn();
-      
+
       const baseService = await import('../base-file-import-service');
       vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
         importFiles: mockBaseImport.mockImplementation(async () => {
@@ -153,31 +150,31 @@ describe('useEnhancedFileImportService', () => {
         progress: null,
       }));
 
-      const { result } = renderHook(() => useEnhancedFileImportService({ 
-        onComplete,
-        enableChunking: false 
-      }));
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onComplete,
+          enableChunking: false,
+        })
+      );
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
       expect(onComplete).toHaveBeenCalledWith([
-        expect.objectContaining({ 
+        expect.objectContaining({
           id: 'file1',
-          chunksCreated: 0 
-        })
+          chunksCreated: 0,
+        }),
       ]);
     });
 
     it('should handle chunking enabled', async () => {
       const onComplete = vi.fn();
       const mockBaseImport = vi.fn();
-      
+
       const baseService = await import('../base-file-import-service');
       vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
         importFiles: mockBaseImport.mockImplementation(async () => {
@@ -189,20 +186,20 @@ describe('useEnhancedFileImportService', () => {
         progress: null,
       }));
 
-      const { result } = renderHook(() => useEnhancedFileImportService({ 
-        onComplete,
-        enableChunking: true 
-      }));
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          onComplete,
+          enableChunking: true,
+        })
+      );
 
       await act(async () => {
-        await result.current.importFiles(
-          new Set(['test-folder:/test/path']),
-          [],
-          { 'test-folder:/test/path': 'test content' }
-        );
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
       });
 
-      // Since chunking processing would fail due to missing repository setup, 
+      // Since chunking processing would fail due to missing repository setup,
       // we just check that the service was called
       expect(mockBaseImport).toHaveBeenCalled();
     });
