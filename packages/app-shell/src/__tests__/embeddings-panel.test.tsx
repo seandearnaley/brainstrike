@@ -56,26 +56,48 @@ vi.mock('@brainstrike/embeddings', () => {
 
   const mockGetDefaultModelKey = vi.fn(() => 'jina-code');
 
-  const MockSimpleEmbeddingService = vi.fn().mockImplementation(() => {
-    mockServiceInstance = {
-      initializeWithModel: vi.fn().mockResolvedValue(undefined),
-      generateEmbedding: vi.fn().mockResolvedValue({ embedding: [1, 0, 0] }),
-      calculateSimilarity: vi.fn().mockReturnValue({ similarity: 0.85 }),
-      getStatus: vi.fn().mockReturnValue('idle'),
-      getConfig: vi.fn().mockReturnValue({
-        modelId: 'jinaai/jina-embeddings-v3',
-        device: 'webgpu',
-        selectedDevice: 'webgpu',
-      }),
-      dispose: vi.fn().mockResolvedValue(undefined),
-      getCurrentModelKey: vi.fn().mockReturnValue('jina-code'),
-      getCurrentModelConfig: vi.fn().mockReturnValue(null),
-    };
-    return mockServiceInstance;
-  });
+  // Create a proper mock class with static methods
+  class MockSimpleEmbeddingService {
+    static listModels = mockListModels;
+    static getDefaultModelKey = mockGetDefaultModelKey;
 
-  MockSimpleEmbeddingService.listModels = mockListModels;
-  MockSimpleEmbeddingService.getDefaultModelKey = mockGetDefaultModelKey;
+    constructor() {
+      mockServiceInstance = {
+        initializeWithModel: vi.fn().mockResolvedValue(undefined),
+        generateEmbedding: vi.fn().mockResolvedValue({ embedding: [1, 0, 0] }),
+        calculateSimilarity: vi.fn().mockReturnValue({ similarity: 0.85 }),
+        getStatus: vi.fn().mockReturnValue('idle'),
+        getConfig: vi.fn().mockReturnValue({
+          modelId: 'jinaai/jina-embeddings-v3',
+          device: 'webgpu',
+          selectedDevice: 'webgpu',
+        }),
+        dispose: vi.fn().mockResolvedValue(undefined),
+        getCurrentModelKey: vi.fn().mockReturnValue('jina-code'),
+        getCurrentModelConfig: vi.fn().mockReturnValue(null),
+      };
+
+      // Bind instance methods to the mock
+      this.initializeWithModel = mockServiceInstance.initializeWithModel;
+      this.generateEmbedding = mockServiceInstance.generateEmbedding;
+      this.calculateSimilarity = mockServiceInstance.calculateSimilarity;
+      this.getStatus = mockServiceInstance.getStatus;
+      this.getConfig = mockServiceInstance.getConfig;
+      this.dispose = mockServiceInstance.dispose;
+      this.getCurrentModelKey = mockServiceInstance.getCurrentModelKey;
+      this.getCurrentModelConfig = mockServiceInstance.getCurrentModelConfig;
+    }
+
+    // Instance method declarations
+    initializeWithModel!: ReturnType<typeof vi.fn>;
+    generateEmbedding!: ReturnType<typeof vi.fn>;
+    calculateSimilarity!: ReturnType<typeof vi.fn>;
+    getStatus!: ReturnType<typeof vi.fn>;
+    getConfig!: ReturnType<typeof vi.fn>;
+    dispose!: ReturnType<typeof vi.fn>;
+    getCurrentModelKey!: ReturnType<typeof vi.fn>;
+    getCurrentModelConfig!: ReturnType<typeof vi.fn>;
+  }
 
   return {
     SimpleEmbeddingService: MockSimpleEmbeddingService,

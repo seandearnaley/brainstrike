@@ -55,7 +55,7 @@ export function LeftPanel({
               <ChevronLeft className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)] overflow-hidden">{content}</div>
+          <div className="h-[calc(100%-2.5rem)] overflow-auto">{content}</div>
         </div>
       </Panel>
       <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />

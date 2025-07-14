@@ -6,6 +6,8 @@ import { RightPanel } from '../right-panel';
 // Mock the database dependencies
 vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => null, // Return null to simulate loading state
+  usePGliteDatabase: () => null,
+  useFileChunkRepository: () => null,
 }));
 
 // Mock the UI toast functionality

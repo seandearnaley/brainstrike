@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { handlers, mockIpcMain, mockDb, getDatabaseMock, mockApp } = vi.hoisted(() => {
@@ -101,12 +100,11 @@ describe('database IPC handlers', () => {
 
     const result = await handler?.({} as unknown);
 
-    const dbPath = path.join('/mock/documents', 'BrainStrike-dev', 'pgdata');
-    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1 as test, current_timestamp as timestamp');
+    expect(mockDb.query).toHaveBeenCalledWith('SELECT 1');
     expect(result).toEqual({
       success: true,
-      message: `Database connected successfully. Test query returned: ${JSON.stringify(row)}`,
-      dbLocation: `NodeFS: ${dbPath}`,
+      message: 'Database connection successful',
+      dbLocation: 'Main Process',
     });
   });
 
@@ -118,8 +116,8 @@ describe('database IPC handlers', () => {
 
     expect(result).toEqual({
       success: false,
-      message: 'Database test failed: Error: oops',
-      dbLocation: 'Unknown',
+      message: 'Database connection failed: Error: oops',
+      dbLocation: 'Main Process',
     });
   });
 });

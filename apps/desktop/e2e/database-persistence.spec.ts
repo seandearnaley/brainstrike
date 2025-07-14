@@ -10,7 +10,7 @@ import {
 // Configure this test suite to run in serial mode to avoid database interference
 test.describe.configure({ mode: 'serial' });
 
-test.describe('Database Persistence with NodeFS', () => {
+test.describe('Database Persistence', () => {
   let appContext: ElectronAppContext;
 
   test.beforeAll(async () => {
@@ -148,13 +148,12 @@ test.describe('Database Persistence with NodeFS', () => {
     await showDatabaseDemoPanel(page);
     await waitForDatabaseReady(page);
 
-    // Check for NodeFS indicator in desktop app
-    await expect(page.locator('text=NodeFS:')).toBeVisible();
-    await expect(page.locator('text=/BrainStrike')).toBeVisible();
+    // Check for database connection indicator in desktop app
+    await expect(page.locator('text=Database connected via DbProvider')).toBeVisible();
 
     // Verify connection success
     await expect(page.locator('text=✓')).toBeVisible();
-    await expect(page.locator('text=Database connected successfully')).toBeVisible();
+    await expect(page.locator('text=Successfully connected')).toBeVisible();
   });
 
   test('should perform CRUD operations through UI', async () => {
@@ -194,17 +193,17 @@ test.describe('Database Persistence with NodeFS', () => {
     await page.waitForTimeout(500);
 
     // Verify the empty state message is shown (table is not rendered when empty)
-    await expect(page.locator('text=No imported files found')).toBeVisible();
+    await expect(page.locator('text=No files imported yet')).toBeVisible();
 
     // Verify the database panel structure and functionality
     await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
-    await expect(page.locator('text=Database Demo')).toBeVisible();
-    await expect(page.locator('text=PGlite WASM database')).toBeVisible();
+    await expect(page.locator('text=Enhanced Database Demo')).toBeVisible();
+    await expect(page.locator('text=PGlite WASM with pgvector')).toBeVisible();
     
     console.log('✅ Database UI functionality verified');
   });
 
-  test('should persist data between app restarts using NodeFS', async () => {
+  test('should persist data between app restarts', async () => {
     // Increase timeout for this test since it involves app restart
     test.setTimeout(120000); // 2 minutes instead of 3
 
@@ -219,9 +218,8 @@ test.describe('Database Persistence with NodeFS', () => {
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(500);
 
-    // Verify NodeFS storage is being used
-    await expect(page.locator('text=NodeFS:')).toBeVisible();
-    await expect(page.locator('text=/BrainStrike')).toBeVisible();
+    // Verify database connection is established
+    await expect(page.locator('text=Database connected via DbProvider')).toBeVisible();
 
     // Verify we start with 0 records after cleanup
     await expect(page.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
@@ -232,7 +230,7 @@ test.describe('Database Persistence with NodeFS', () => {
     
     // Verify database is connected and ready
     await expect(page.locator('text=✓')).toBeVisible();
-    await expect(page.locator('text=Database connected successfully')).toBeVisible();
+    await expect(page.locator('text=Successfully connected')).toBeVisible();
 
     // Close and restart the app to test persistence
     await closeElectronApp(appContext);
@@ -256,11 +254,10 @@ test.describe('Database Persistence with NodeFS', () => {
 
     // Verify database connection persisted after restart
     await expect(newPage.locator('text=✓')).toBeVisible({ timeout: 15000 });
-    await expect(newPage.locator('text=Database connected successfully')).toBeVisible({ timeout: 5000 });
+    await expect(newPage.locator('text=Successfully connected')).toBeVisible({ timeout: 5000 });
     
-    // Verify NodeFS storage is still being used
-    await expect(newPage.locator('text=NodeFS:')).toBeVisible();
-    await expect(newPage.locator('text=/BrainStrike')).toBeVisible();
+    // Verify database connection is still established after restart
+    await expect(newPage.locator('text=Database connected via DbProvider')).toBeVisible();
 
     // Verify the database UI is functional after restart
     await expect(newPage.locator('button:has-text("Import Selected Files")')).toBeVisible();

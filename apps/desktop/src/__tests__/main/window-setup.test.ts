@@ -73,8 +73,8 @@ describe('window setup', () => {
     const { setupSecurity } = await import('../../main');
     setupSecurity();
 
-    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(1);
-    const handler = onHeadersReceivedMock.mock.calls[0]?.[0] as (
+    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(2);
+    const handler = onHeadersReceivedMock.mock.calls.at(-1)?.[0] as (
       details: { responseHeaders?: Record<string, string[]> },
       callback: (r: { responseHeaders: Record<string, string[]> }) => void
     ) => void;
@@ -94,8 +94,8 @@ describe('window setup', () => {
     const { setupSecurity } = await import('../../main');
     setupSecurity();
 
-    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(1);
-    const handler = onHeadersReceivedMock.mock.calls[0]?.[0] as (
+    expect(onHeadersReceivedMock).toHaveBeenCalledTimes(2);
+    const handler = onHeadersReceivedMock.mock.calls.at(-1)?.[0] as (
       details: { responseHeaders?: Record<string, string[]> },
       callback: (r: { responseHeaders: Record<string, string[]> }) => void
     ) => void;

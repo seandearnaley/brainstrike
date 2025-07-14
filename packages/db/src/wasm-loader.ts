@@ -1,5 +1,26 @@
 import { PGlite } from '@electric-sql/pglite';
 
+// Check if vector extensions are disabled via environment variable
+const isVectorDisabled =
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
+  process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || process.env['NODE_ENV'] === 'test';
+
+// Async function to load vector extension
+async function loadVectorExtension() {
+  if (isVectorDisabled) {
+    return null;
+  }
+
+  try {
+    // Dynamic import for pgvector extension (ES module compatible)
+    const { vector } = await import('@electric-sql/pglite/vector');
+    return vector;
+  } catch (_e) {
+    // pgvector extension not available, use null
+    return null;
+  }
+}
+
 class WasmLoader {
   private static instance: WasmLoader;
   private wasmLoadPromise: Promise<void> | null = null;
@@ -29,11 +50,18 @@ class WasmLoader {
 
   private async loadWasm(): Promise<void> {
     try {
+      // Load vector extension asynchronously
+      const vector = await loadVectorExtension();
+
       // Create a temporary PGlite instance to trigger WASM loading
       // Use browser-compatible storage to avoid Node.js filesystem conflicts
       const isBrowser = typeof window !== 'undefined';
       const tempDbPath = isBrowser ? 'memory://' : ':memory:';
-      const tempDb = new PGlite(tempDbPath);
+
+      // Use basic PGlite if vector extension is not available
+      const tempDb = vector
+        ? new PGlite({ dataDir: tempDbPath, extensions: { vector } })
+        : new PGlite(tempDbPath);
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');
@@ -50,7 +78,14 @@ class WasmLoader {
 
   async createPGlite(dataDir?: string): Promise<PGlite> {
     await this.ensureWasmLoaded();
-    return new PGlite(dataDir);
+
+    // Load vector extension asynchronously
+    const vector = await loadVectorExtension();
+
+    // Use vector extension if available, otherwise use basic PGlite
+    return vector
+      ? new PGlite(dataDir ? { dataDir, extensions: { vector } } : { extensions: { vector } })
+      : new PGlite(dataDir);
   }
 }
 

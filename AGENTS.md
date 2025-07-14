@@ -178,3 +178,10 @@ The `check` script runs the following steps sequentially:
 Only if this entire sequence is successful is the code considered ready for a Pull Request.
 
 By following these guidelines, we can maintain a high-quality, consistent, and efficient development workflow for the `brainstrike` project. 
+
+IMPORTANT:
+
+Never downgrade to get something working.
+Don't use defensive fallbacks, if something is not working, we need to fail fast and fix it- Do not disable, reward hack or any false workaround, turning something off is not a solution- always do your solutions PROPERLY.
+
+SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.  

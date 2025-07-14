@@ -56,7 +56,7 @@ describe('db:getUserDataPath IPC handler', () => {
   });
 
   it('returns the user database path', async () => {
-    const expected = path.join(mockApp.getPath('userData'), 'brainstrike.db');
+    const expected = path.join(mockApp.getPath('documents'), 'BrainStrike-dev', 'pgdata');
     const result = await mockIpcRenderer.invoke('db:getUserDataPath');
     expect(result).toBe(expected);
   });

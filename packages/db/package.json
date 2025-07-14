@@ -25,8 +25,9 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.3",
-    "@brainstrike/utils": "workspace:*"
+    "@langchain/textsplitters": "^0.1.0"
   },
   "peerDependencies": {
     "react": "^19.0.0",
@@ -38,9 +39,9 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "jsdom": "^26.1.0",
-    "vitest": "^3.2.3",
     "typescript": "^5.8.3",
-    "vite-plugin-wasm": "^3.4.1"
+    "vite-plugin-wasm": "^3.4.1",
+    "vitest": "^3.2.3"
   },
   "engines": {
     "node": ">=22"

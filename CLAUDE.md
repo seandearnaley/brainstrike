@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-BrainStrike is a sophisticated AI-powered productivity suite built as a Turborepo monorepo with React 19, Vite, and TypeScript. It features both web and desktop applications with a comprehensive file explorer system and IDE-style interface.
+BrainStrike is a suite of tools for context management to be used with LLMs. It is a Turborepo monorepo with React 19, Vite, and TypeScript apps+packages. It features both web and desktop versions with a file explorer system and IDE-style interface.
+
+Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
+
 
 ## Development Commands
 
@@ -23,7 +26,7 @@ pnpm start --filter desktop  # Launch Electron after dev server
 # Build all packages and applications
 pnpm build
 
-# Full validation pipeline (required before commits)
+# Full validation pipeline (required before commits, note over 10 minutes to run)
 pnpm run check  # install → lint → build → type-check → test → e2e
 ```
 
@@ -73,7 +76,7 @@ Critical architectural pattern enabling cross-platform functionality:
 - **Frontend**: React 19, Vite 6, TypeScript 5
 - **Styling**: Tailwind CSS v4 with shared configuration
 - **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome (replaces ESLint/Prettier)
+- **Linting**: Biome 2.0 (release June 2025)
 
 ### Code Standards
 - **TypeScript**: Strict mode enabled across all packages
@@ -134,27 +137,11 @@ The `pnpm run check` command runs comprehensive validation:
 
 Always run this before submitting changes.
 
-## Special Considerations
-
-### Tokenizer Worker
-- Located in `@brainstrike/utils`
-- Requires Node.js 18+ with ESM support
-- Uses OpenAI's tiktoken for accurate token counting
-- Set `DISABLE_TOKEN_WORKER=1` to force heuristic mode
-- Only available in Node.js environments (Electron main process)
-
-### Performance
-- Large directory handling requires virtualization
-- Use `React.memo` for expensive component renders
-- Implement proper error boundaries
-- Zustand store updates should minimize re-renders
-
-### IDE Layout System
-- Multi-panel workspace with persistent panel states
-- Left/right sidebars and console panel
-- State preservation across sessions
-- Documented in `docs/ide-layout.md`
-
-
 
 ALWAYS CONSULT THE WEB FOR BEST PRACTICES WITH THE TECHNOLOGY STACK.
+
+SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.  
+
+Never downgrade to get something working.
+
+Don't use defensive fallbacks, if something is not working, we need to fail fast and fix it- Do not disable, reward hack or any false workaround, turning something off is not a solution- always do your solutions PROPERLY.
