@@ -28,16 +28,11 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/ui": "workspace:*",
-    "react": "^19.1.0"
+    "@brainstrike/ui": "workspace:*"
   },
   "devDependencies": {
-    "@types/react": "^19.1.8",
     "@types/node": "^24.0.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.3"
-  },
-  "peerDependencies": {
-    "react": "^19.0.0"
   }
 }

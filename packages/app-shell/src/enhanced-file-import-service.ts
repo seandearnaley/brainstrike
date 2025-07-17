@@ -73,31 +73,35 @@ export function useEnhancedFileImportService(
     },
     onComplete: async (results) => {
       if (options.enableChunking) {
-        const enhanced = await processChunking(
-          results,
-          { repository, chunkRepository },
-          {
-            ...(options.chunkingStrategy !== undefined && {
-              chunkingStrategy: options.chunkingStrategy,
-            }),
-            ...(options.chunkSize !== undefined && { chunkSize: options.chunkSize }),
-            ...(options.chunkOverlap !== undefined && { chunkOverlap: options.chunkOverlap }),
-            updateProgress: setProgress,
-            ...(options.enableEmbedding !== undefined && {
-              enableEmbedding: options.enableEmbedding,
-            }),
-            processEmbeddings: (chunks, result) =>
-              processEmbeddings(
-                chunks,
-                result,
-                chunkRepository,
-                embeddingService,
-                options.embeddingModel,
-                setProgress
-              ),
-          }
-        );
-        options.onComplete?.(enhanced);
+        try {
+          const enhanced = await processChunking(
+            results,
+            { repository, chunkRepository },
+            {
+              ...(options.chunkingStrategy !== undefined && {
+                chunkingStrategy: options.chunkingStrategy,
+              }),
+              ...(options.chunkSize !== undefined && { chunkSize: options.chunkSize }),
+              ...(options.chunkOverlap !== undefined && { chunkOverlap: options.chunkOverlap }),
+              updateProgress: setProgress,
+              ...(options.enableEmbedding !== undefined && {
+                enableEmbedding: options.enableEmbedding,
+              }),
+              processEmbeddings: (chunks, result) =>
+                processEmbeddings(
+                  chunks,
+                  result,
+                  chunkRepository,
+                  embeddingService,
+                  options.embeddingModel,
+                  setProgress
+                ),
+            }
+          );
+          options.onComplete?.(enhanced);
+        } catch (error) {
+          options.onError?.(error instanceof Error ? error : new Error('Chunking failed'));
+        }
       } else {
         options.onComplete?.(results.map((r) => ({ ...r, chunksCreated: 0 })));
       }
