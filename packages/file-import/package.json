@@ -1,0 +1,43 @@
+{
+  "name": "@brainstrike/file-import",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b .",
+    "clean": "rimraf dist",
+    "type-check": "tsc --noEmit",
+    "lint": "pnpm run --dir=../.. lint",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "@brainstrike/ui": "workspace:*",
+    "react": "^19.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.8",
+    "@types/node": "^24.0.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

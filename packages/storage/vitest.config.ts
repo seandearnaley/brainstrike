@@ -9,8 +9,10 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/__tests__/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    deps: {
-      external: ['electron'],
+    server: {
+      deps: {
+        external: ['electron'],
+      },
     },
   },
   resolve: {
