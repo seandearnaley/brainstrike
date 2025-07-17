@@ -27,11 +27,12 @@
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.1",
+    "jsdom": "^25.0.0",
+    "rimraf": "^6.0.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.3"
   }
