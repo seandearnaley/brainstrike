@@ -87,15 +87,16 @@ export function useEnhancedFileImportService(
               ...(options.enableEmbedding !== undefined && {
                 enableEmbedding: options.enableEmbedding,
               }),
-              processEmbeddings: (chunks, result) =>
-                processEmbeddings(
+              processEmbeddings: async (chunks, result) => {
+                await processEmbeddings(
                   chunks,
                   result,
                   chunkRepository,
                   embeddingService,
                   options.embeddingModel,
                   setProgress
-                ),
+                );
+              },
             }
           );
           options.onComplete?.(enhanced);

@@ -192,14 +192,12 @@ test.describe('Database Persistence', () => {
     }
 
     // Check if there's existing data
-    let hasExistingData = false;
     const fileRows = await page.locator('.border.rounded.p-3').count(); // File items in the UI
     const tableRows = await page.locator('tbody tr').count(); // Table rows
     
     console.log(`📊 Found ${fileRows} file items and ${tableRows} table rows`);
     
     if (fileRows > 0 || tableRows > 0) {
-      hasExistingData = true;
       console.log('⚠️ Database has existing data, attempting cleanup...');
       
       // Try to use the Clear Database button if available
