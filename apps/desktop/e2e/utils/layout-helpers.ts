@@ -59,6 +59,19 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
     timeout: 15000, // Increased timeout for slower startup
   });
 
+  // Wait for any loading states to complete
+  const loadingIndicator = page.locator('text=Loading PGlite database...');
+  try {
+    // If loading indicator is visible, wait for it to disappear
+    if (await loadingIndicator.isVisible({ timeout: 1000 })) {
+      console.log('⏳ Waiting for database to finish loading...');
+      await loadingIndicator.waitFor({ state: 'hidden', timeout: 30000 });
+    }
+  } catch (error) {
+    // Loading indicator might not appear if database loads quickly
+    console.log('⚡ Database loaded quickly or loading indicator not found');
+  }
+
   // Wait for connection status to be ready (either success or failure indicator)
   // Try multiple approaches to detect database readiness
   try {
@@ -69,8 +82,9 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
   } catch (error) {
     console.warn('⚠️ Database status indicator not found, trying alternative detection...');
     
-    // Alternative: wait for any database-related text
-    await page.locator('text=Database').or(page.locator('text=connected')).first().waitFor({
+    // Alternative: wait for any database-related text or UI elements
+    const databaseReady = page.locator('text=Database').or(page.locator('text=connected')).or(page.locator('[data-testid="database-content"]'));
+    await databaseReady.first().waitFor({
       state: 'visible',
       timeout: 10000,
     });
@@ -78,6 +92,14 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
 
   // Additional wait to ensure database operations are ready
   await page.waitForTimeout(2000); // Increased from 1s to 2s
+  
+  // Final check: ensure the panel is interactive
+  try {
+    await page.locator('button:has-text("Refresh")').waitFor({ state: 'visible', timeout: 5000 });
+    console.log('✅ Database panel is ready and interactive');
+  } catch (error) {
+    console.warn('⚠️ Refresh button not found, database panel might not be fully loaded');
+  }
 }
 
 /**
