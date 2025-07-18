@@ -30,5 +30,3 @@ export const CHUNKING_CONFIG = {
   embeddingInitializationDelay: 500, // Delay after embedding service initialization (ms)
   embeddingProcessingDelay: 10, // Delay between processing chunks (ms)
 } as const;
-
-export type ChunkingConfig = typeof CHUNKING_CONFIG;

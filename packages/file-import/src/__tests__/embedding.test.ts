@@ -1,0 +1,373 @@
+import type { FileChunk } from '@brainstrike/db';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { initializeEmbeddingService, processChunkEmbedding, processEmbeddings } from '../embedding';
+import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
+
+type MockEmbeddingService = {
+  getStatus: ReturnType<typeof vi.fn>;
+  initializeWithModel: ReturnType<typeof vi.fn>;
+  generateEmbedding: ReturnType<typeof vi.fn>;
+};
+
+type MockChunkRepository = {
+  update: ReturnType<typeof vi.fn>;
+};
+
+describe('initializeEmbeddingService', () => {
+  let mockEmbeddingService: MockEmbeddingService;
+
+  beforeEach(() => {
+    mockEmbeddingService = {
+      getStatus: vi.fn().mockReturnValue('idle'),
+      initializeWithModel: vi.fn().mockResolvedValue(undefined),
+      generateEmbedding: vi.fn(),
+    };
+  });
+
+  it('returns false when embeddingService is null', async () => {
+    const result = await initializeEmbeddingService(null, 'model');
+    expect(result).toBe(false);
+  });
+
+  it('returns false when model is undefined', async () => {
+    const result = await initializeEmbeddingService(mockEmbeddingService as never, undefined);
+    expect(result).toBe(false);
+  });
+
+  it('returns true when service is already ready', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('ready');
+    const result = await initializeEmbeddingService(mockEmbeddingService as never, 'model');
+    expect(result).toBe(true);
+    expect(mockEmbeddingService.initializeWithModel).not.toHaveBeenCalled();
+  });
+
+  it('initializes service when not ready', async () => {
+    const result = await initializeEmbeddingService(mockEmbeddingService as never, 'model');
+    expect(result).toBe(true);
+    expect(mockEmbeddingService.initializeWithModel).toHaveBeenCalledWith('model');
+  });
+
+  it('returns false when initialization fails', async () => {
+    mockEmbeddingService.initializeWithModel = vi.fn().mockRejectedValue(new Error('Init failed'));
+    const result = await initializeEmbeddingService(mockEmbeddingService as never, 'model');
+    expect(result).toBe(false);
+  });
+});
+
+describe('processChunkEmbedding', () => {
+  let mockChunk: FileChunk;
+  let mockChunkRepository: MockChunkRepository;
+  let mockEmbeddingService: MockEmbeddingService;
+
+  beforeEach(() => {
+    mockChunk = {
+      id: 'chunk-1',
+      fileRecordId: 'file-1',
+      content: 'Test content',
+      chunkIndex: 0,
+      contentHash: 'hash',
+      tokenCount: 10,
+      chunkType: 'text',
+      chunkSize: 11,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    mockChunkRepository = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+
+    mockEmbeddingService = {
+      getStatus: vi.fn().mockReturnValue('ready'),
+      initializeWithModel: vi.fn(),
+      generateEmbedding: vi.fn().mockResolvedValue({
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+      }),
+    };
+  });
+
+  it('returns false when embeddingService is null', async () => {
+    const result = await processChunkEmbedding(mockChunk, mockChunkRepository as never, null);
+    expect(result).toBe(false);
+  });
+
+  it('returns false when chunkRepository is null', async () => {
+    const result = await processChunkEmbedding(mockChunk, null, mockEmbeddingService as never);
+    expect(result).toBe(false);
+  });
+
+  it('returns false when service is not ready', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('idle');
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+    expect(result).toBe(false);
+  });
+
+  it('successfully processes chunk embedding', async () => {
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+    expect(result).toBe(true);
+    expect(mockEmbeddingService.generateEmbedding).toHaveBeenCalledWith('Test content');
+    expect(mockChunkRepository.update).toHaveBeenCalledWith({
+      id: 'chunk-1',
+      embedding: new Float32Array([0.1, 0.2, 0.3]),
+      updatedAt: expect.any(String),
+    });
+  });
+
+  it('handles webgpu errors gracefully', async () => {
+    mockEmbeddingService.generateEmbedding = vi
+      .fn()
+      .mockRejectedValue(new Error('webgpu not available'));
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+    expect(result).toBe(false);
+  });
+
+  it('handles tensor errors gracefully', async () => {
+    mockEmbeddingService.generateEmbedding = vi
+      .fn()
+      .mockRejectedValue(new Error('tensor shape mismatch'));
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+    expect(result).toBe(false);
+  });
+
+  it('handles invalid data location errors gracefully', async () => {
+    mockEmbeddingService.generateEmbedding = vi
+      .fn()
+      .mockRejectedValue(new Error('invalid data location'));
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+    expect(result).toBe(false);
+  });
+
+  it('rethrows non-webgpu errors', async () => {
+    mockEmbeddingService.generateEmbedding = vi.fn().mockRejectedValue(new Error('Network error'));
+    await expect(
+      processChunkEmbedding(mockChunk, mockChunkRepository as never, mockEmbeddingService as never)
+    ).rejects.toThrow('Network error');
+  });
+});
+
+describe('processEmbeddings', () => {
+  let mockChunks: FileChunk[];
+  let mockResult: EnhancedImportResult;
+  let mockChunkRepository: MockChunkRepository;
+  let mockEmbeddingService: MockEmbeddingService;
+  let mockUpdateProgress: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockChunks = [
+      {
+        id: 'chunk-1',
+        fileRecordId: 'file-1',
+        content: 'First chunk content',
+        chunkIndex: 0,
+        contentHash: 'hash1',
+        tokenCount: 15,
+        chunkType: 'text',
+        chunkSize: 18,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'chunk-2',
+        fileRecordId: 'file-1',
+        content: 'Second chunk content',
+        chunkIndex: 1,
+        contentHash: 'hash2',
+        tokenCount: 16,
+        chunkType: 'text',
+        chunkSize: 19,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    mockResult = {
+      id: 'file-1',
+      imported: true,
+      existed: false,
+      chunksCreated: 2,
+    };
+
+    mockChunkRepository = {
+      update: vi.fn().mockResolvedValue(undefined),
+    };
+
+    mockEmbeddingService = {
+      getStatus: vi.fn().mockReturnValue('ready'),
+      initializeWithModel: vi.fn().mockResolvedValue(undefined),
+      generateEmbedding: vi.fn().mockResolvedValue({
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+      }),
+    };
+
+    mockUpdateProgress = vi.fn();
+  });
+
+  it('returns early when embeddingService is null', async () => {
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      null,
+      'model',
+      mockUpdateProgress
+    );
+    expect(mockResult.chunksWithEmbeddings).toBeUndefined();
+  });
+
+  it('returns early when chunkRepository is null', async () => {
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      null,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress
+    );
+    expect(mockResult.chunksWithEmbeddings).toBeUndefined();
+  });
+
+  it('returns early when embeddingModel is undefined', async () => {
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      undefined,
+      mockUpdateProgress
+    );
+    expect(mockResult.chunksWithEmbeddings).toBeUndefined();
+  });
+
+  it('sets error when initialization fails', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('idle');
+    mockEmbeddingService.initializeWithModel = vi.fn().mockRejectedValue(new Error('Init failed'));
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress
+    );
+
+    expect(mockResult.error).toBe('Embedding initialization failed');
+  });
+
+  it('processes all chunks successfully', async () => {
+    mockEmbeddingService.getStatus = vi
+      .fn()
+      .mockReturnValueOnce('idle') // First call during initialization check
+      .mockReturnValue('ready'); // All subsequent calls after initialization
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress
+    );
+
+    expect(mockResult.chunksWithEmbeddings).toBe(2);
+    expect(mockChunkRepository.update).toHaveBeenCalledTimes(2);
+    expect(mockUpdateProgress).toHaveBeenCalled();
+  });
+
+  it('updates progress correctly during processing', async () => {
+    mockEmbeddingService.getStatus = vi
+      .fn()
+      .mockReturnValueOnce('idle') // First call during initialization check
+      .mockReturnValue('ready'); // All subsequent calls after initialization
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'test-model',
+      mockUpdateProgress
+    );
+
+    const progressCall = mockUpdateProgress.mock.calls[0]?.[0];
+    const progress = progressCall?.({
+      phase: 'chunking',
+    } as EnhancedImportProgress);
+
+    expect(progress?.phase).toBe('embedding');
+    expect(progress?.embeddingProgress).toBeDefined();
+    expect(progress?.embeddingProgress?.totalChunks).toBe(2);
+    expect(progress?.embeddingProgress?.modelName).toBe('test-model');
+  });
+
+  it('handles errors during processing', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('ready');
+    mockEmbeddingService.generateEmbedding = vi.fn().mockRejectedValue(new Error('Network error'));
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress
+    );
+
+    expect(mockResult.error).toBe('Embedding failed: Network error');
+  });
+
+  it('continues processing when some chunks fail', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('ready');
+    mockEmbeddingService.generateEmbedding = vi
+      .fn()
+      .mockResolvedValueOnce({ embedding: new Float32Array([0.1, 0.2, 0.3]) })
+      .mockRejectedValueOnce(new Error('webgpu error'));
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress
+    );
+
+    expect(mockResult.chunksWithEmbeddings).toBe(1);
+    expect(mockResult.error).toBeUndefined();
+  });
+
+  it('handles null progress callback', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValue('ready');
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      (updater) => updater(null)
+    );
+
+    expect(mockResult.chunksWithEmbeddings).toBe(2);
+  });
+});

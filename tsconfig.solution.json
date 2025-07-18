@@ -47,6 +47,9 @@
       "path": "packages/db"
     },
     {
+      "path": "packages/file-import"
+    },
+    {
       "path": "apps/web"
     },
     {

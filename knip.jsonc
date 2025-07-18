@@ -5,16 +5,10 @@
     "apps/web": {
       "entry": [
         "index.html", // Entry for the web app
-        "src/main.tsx", // Main entry point
-        "vite.config.mts", // Vite config for web app
-        "vitest.setup.ts",
-        "playwright.config.ts",
-        "src/test/**/*.{ts,tsx}",
-        "src/config/server.ts"
+        "src/main.tsx" // Main entry point
       ],
       "project": [
-        "src/**/*.{ts,tsx}", // Source files
-        "tests/**/*.{ts,tsx}" // App-specific tests (if any separate from src)
+        "src/**/*.{ts,tsx}" // Source files
       ],
       "ignore": [
         // Keep specific ignores relevant to this app
@@ -34,8 +28,7 @@
       "entry": [
         "src/main.ts", // Electron main process
         "src/preload.ts", // Electron preload script
-        "src/renderer/main.tsx", // Renderer entry point
-        "vitest.setup.ts"
+        "src/renderer/main.tsx" // Renderer entry point
       ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
@@ -43,7 +36,6 @@
         "**/*.test.{ts,tsx}"
       ],
       "ignoreDependencies": [
-        "@brainstrike/ui", // Used in CSS imports which knip doesn't detect
         "electron-builder-squirrel-windows" // Required peer dependency for electron-builder Windows builds
       ],
       "typescript": {
@@ -51,9 +43,6 @@
       }
     },
     "packages/ui": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -65,9 +54,6 @@
       }
     },
     "packages/hooks": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -78,9 +64,6 @@
       }
     },
     "packages/utils": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -109,9 +92,6 @@
       }
     },
     "packages/app-shell": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -122,9 +102,6 @@
       }
     },
     "packages/file-explorer": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -135,9 +112,6 @@
       }
     },
     "packages/file-explorer-hooks": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -148,9 +122,6 @@
       }
     },
     "packages/file-explorer-ui": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -161,9 +132,6 @@
       }
     },
     "packages/file-system": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -174,9 +142,6 @@
       }
     },
     "packages/storage": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -187,9 +152,6 @@
       }
     },
     "packages/server-config": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -200,9 +162,6 @@
       }
     },
     "packages/test-utils": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",
@@ -226,9 +185,6 @@
       }
     },
     "packages/fonts": {
-      "entry": [
-        "src/index.ts"
-      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [],
       "typescript": {
@@ -236,9 +192,6 @@
       }
     },
     "packages/tailwind-config": {
-      "entry": [
-        "index.js"
-      ],
       "project": ["**/*.{js,ts}"],
       "ignore": [],
       "typescript": {
@@ -246,10 +199,36 @@
       }
     },
     "packages/embeddings": {
-      "entry": [
-        "src/index.ts",
-        "src/cli/embed-code.ts"
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
       ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/file-import": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/db": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}"
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
+    "packages/platform-utils": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": [
         "**/__tests__/**",

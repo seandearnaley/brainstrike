@@ -42,6 +42,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/file-import": "workspace:*",
     "file-saver": "2.0.5",
     "jszip": "^3.10.1"
   },

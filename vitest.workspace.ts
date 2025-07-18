@@ -20,4 +20,5 @@ export default defineWorkspace([
   './packages/server-config/vitest.config.ts',
   './packages/platform-utils/vitest.config.ts',
   './packages/db/vitest.config.ts',
+  './packages/file-import/vitest.config.ts',
 ]);
