@@ -93,23 +93,27 @@ export function registerIpcHandlers(
     return fileSystem.readFile(handle);
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
-    // Enhanced path validation - prevent path traversal attacks
+    // Basic path validation - prevent obvious security issues
     try {
-      const resolvedPath = path.resolve(p);
-      const relativePath = path.relative(process.cwd(), resolvedPath);
-
-      // Reject paths that attempt to escape the current working directory
-      if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+      // Reject null bytes and other control characters that could be used maliciously
+      if (p.includes('\0') || p.includes('\x00')) {
         return false;
       }
 
-      // Additional security checks for sensitive system directories
-      if (
-        resolvedPath.startsWith('/etc/') ||
-        resolvedPath.startsWith('/usr/') ||
-        resolvedPath.startsWith('/var/')
-      ) {
+      // Reject paths with excessive traversal attempts (likely malicious)
+      const traversalCount = (p.match(/\.\./g) || []).length;
+      if (traversalCount > 10) {
         return false;
+      }
+
+      // Additional security checks for sensitive system directories on Unix systems
+      const resolvedPath = path.resolve(p);
+      if (process.platform !== 'win32') {
+        // Only block these on Unix-like systems, and only if they're actual system directories
+        const sensitiveDirectories = ['/etc/', '/usr/bin/', '/usr/sbin/', '/sbin/', '/boot/'];
+        if (sensitiveDirectories.some((dir) => resolvedPath.startsWith(dir))) {
+          return false;
+        }
       }
     } catch (_error) {
       // Invalid path format
