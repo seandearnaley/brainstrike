@@ -23,6 +23,8 @@ declare global {
         readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
         readFile: (handle: FileHandle) => Promise<string>;
         exists: (path: string) => Promise<boolean>;
+        restoreLastFolder: () => Promise<DirectoryHandle | null>;
+        saveLastFolder: (folderPath: string) => Promise<void>;
       };
       // Database operations
       db: {

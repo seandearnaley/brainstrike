@@ -139,7 +139,10 @@ export function useFileFilters() {
       excludeFilters: string[] = [],
       useRegex = false
     ): IFileNode[] => {
-      setFilterError(null);
+      // Only clear error if there was one, to avoid unnecessary state updates
+      if (filterError !== null) {
+        setFilterError(null);
+      }
       regexCache.current = { include: [], exclude: [] };
 
       const processedIncludeFilters = useRegex ? includeFilters : includeFilters.map(processFilter);
@@ -166,7 +169,7 @@ export function useFileFilters() {
 
       return processTree(fileTree);
     },
-    []
+    [filterError]
   );
 
   return { applyFileFilters, filterError };

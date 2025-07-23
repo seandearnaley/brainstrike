@@ -28,6 +28,12 @@ export interface FileSystemAdapter {
     handle: DirectoryHandle,
     callback: (changes: FileSystemChange[]) => void
   ): () => void;
+
+  /**
+   * Restore the last selected folder (if supported and available)
+   * Used for desktop apps to auto-restore previously opened folders
+   */
+  restoreLastFolder?(): Promise<DirectoryHandle | null>;
 }
 
 export interface DirectoryHandle {

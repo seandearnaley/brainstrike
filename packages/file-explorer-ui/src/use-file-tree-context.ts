@@ -125,7 +125,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
     });
   }, []);
 
-  const updateProgress = useCallback((path?: string) => {
+  // Use ref to avoid recreating the callback on every render
+  const updateProgressRef = useRef((path?: string) => {
     progressRef.current.loaded += 1;
     if (path) {
       progressRef.current.currentPath = path;
@@ -143,7 +144,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       currentPath: progressRef.current.currentPath,
       phase: progressRef.current.phase,
     });
-  }, []);
+  });
 
   const readFullTree = useCallback(
     (
@@ -171,11 +172,11 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
         parentPath,
         isRoot,
         abortSignal,
-        updateProgress,
+        updateProgressRef.current,
         sortFileNodes
       );
     },
-    [fileSystemAdapter, sortFileNodes, updateProgress]
+    [fileSystemAdapter, sortFileNodes]
   );
 
   const loadTree = useCallback(async () => {

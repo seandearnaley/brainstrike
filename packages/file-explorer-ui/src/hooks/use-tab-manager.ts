@@ -49,8 +49,9 @@ const saveTabStateThrottled = (() => {
           activeTabId: state.activeTabId,
         };
         localStorage.setItem(TAB_STATE_STORAGE_KEY, JSON.stringify(persistedState));
-      } catch (error) {
-        console.warn('Failed to save tab state:', error);
+      } catch (_error) {
+        // Silently fail - tab state persistence is non-critical
+        // Users can still work normally without persisted tabs
       }
     }, 500); // 500ms throttle
   };

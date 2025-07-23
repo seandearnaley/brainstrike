@@ -12,6 +12,9 @@ import type ElectronStore from 'electron-store';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
 
+// Storage keys for persistent data
+const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
+
 interface StoreSchema {
   panelLayout: {
     v1: PanelPersistenceState;
@@ -90,16 +93,96 @@ export function registerIpcHandlers(
     return fileSystem.readFile(handle);
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
-    // Basic path validation - reject obviously malicious paths
-    if (
-      p.includes('..') ||
-      p.startsWith('/etc/') ||
-      p.startsWith('/usr/') ||
-      p.startsWith('/var/')
-    ) {
+    // Basic path validation - prevent obvious security issues
+    try {
+      // Reject null bytes and other control characters that could be used maliciously
+      if (p.includes('\0') || p.includes('\x00')) {
+        return false;
+      }
+
+      // Reject paths with excessive traversal attempts (likely malicious)
+      const traversalCount = (p.match(/\.\./g) || []).length;
+      if (traversalCount > 10) {
+        return false;
+      }
+
+      // Additional security checks for sensitive system directories on Unix systems
+      const resolvedPath = path.resolve(p);
+      if (process.platform !== 'win32') {
+        // Only block these on Unix-like systems, and only if they're actual system directories
+        const sensitiveDirectories = ['/etc/', '/usr/bin/', '/usr/sbin/', '/sbin/', '/boot/'];
+        if (sensitiveDirectories.some((dir) => resolvedPath.startsWith(dir))) {
+          return false;
+        }
+      }
+    } catch (_error) {
+      // Invalid path format
       return false;
     }
+
     return fileSystem.exists(p);
+  });
+
+  // Auto-restore last folder functionality for desktop
+
+  /**
+   * Attempts to restore the last opened folder if it still exists
+   * @returns DirectoryHandle if successful, null if no folder or folder missing
+   */
+  ipcMain.handle('fs:restoreLastFolder', async () => {
+    try {
+      const lastFolderPath = await storage.getItem(LAST_FOLDER_STORAGE_KEY);
+
+      if (!lastFolderPath) {
+        return null;
+      }
+
+      // Verify the folder still exists and is accessible
+      const exists = await fileSystem.exists(lastFolderPath);
+
+      if (!exists) {
+        // Clean up invalid path
+        await storage.removeItem(LAST_FOLDER_STORAGE_KEY);
+        return null;
+      }
+
+      // Return a DirectoryHandle for the last folder
+      const handle: DirectoryHandle = {
+        path: lastFolderPath,
+        name: path.basename(lastFolderPath),
+        kind: 'directory' as const,
+        platform: 'electron' as const,
+      };
+      return handle;
+    } catch (error) {
+      // Debug logging in development only
+      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+      const nodeEnv = process.env['NODE_ENV'];
+      if (nodeEnv === 'development') {
+        console.debug('Auto-restore failed:', error);
+      }
+      // If there's any error, just return null and let user select manually
+      return null;
+    }
+  });
+
+  /**
+   * Saves the folder path for auto-restore on next application launch
+   * @param folderPath - The folder path to save for future restoration
+   */
+  ipcMain.handle('fs:saveLastFolder', async (_e: IpcMainInvokeEvent, folderPath: string) => {
+    try {
+      await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
+    } catch (error) {
+      // Debug logging in development only
+      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+      const nodeEnv = process.env['NODE_ENV'];
+      if (nodeEnv === 'development') {
+        console.debug('Failed to save last folder:', error);
+      }
+      // Non-critical error, silently fail
+      // The worst case is the user needs to select folder again on next launch
+    }
   });
 
   // Layout persistence IPC handlers

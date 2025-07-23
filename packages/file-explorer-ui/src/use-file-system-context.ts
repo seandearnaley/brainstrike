@@ -6,7 +6,7 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 // Error message mappings for consistent user experience
@@ -80,6 +80,20 @@ export function useFileSystem() {
   const { setCurrentFolderId } = store((s) => ({ setCurrentFolderId: s.setCurrentFolderId }));
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
+
+  // Sync with core hook's auto-restored state
+  useEffect(() => {
+    if (coreApi.rootDirectoryHandle && !rootDirectoryHandle) {
+      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
+    }
+  }, [coreApi.rootDirectoryHandle, rootDirectoryHandle]);
+
+  // Also sync loading state
+  useEffect(() => {
+    if (coreApi.isAccessLoading !== isAccessLoading) {
+      setIsAccessLoading(coreApi.isAccessLoading);
+    }
+  }, [coreApi.isAccessLoading, isAccessLoading]);
 
   const isFileSystemAccessSupported = (): {
     supported: boolean;
