@@ -46,8 +46,6 @@ interface UseFileExplorerReturn {
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
-  console.log('[useFileExplorer] Hook called');
-  
   const store = useFileExplorerStoreContext();
   const {
     includeFilters,
@@ -64,7 +62,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     shallow
   );
 
-  console.log('[useFileExplorer] Calling core hook');
   // Call the core hook
   const coreExplorer = useCoreFileExplorer();
 
@@ -165,7 +162,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
 
   const approximatedIsInitialLoad = !coreExplorer.rootDirectoryHandle && coreExplorer.isLoading;
 
-  const result = {
+  return {
     fileTree: filteredTree,
     handleRootDirectorySelect,
     isLoading: isTreeLoading || coreExplorer.isLoading,
@@ -187,13 +184,4 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelOperation,
     isCancelling,
   };
-  
-  console.log('[useFileExplorer] Returning:', {
-    fileTreeLength: result.fileTree?.length,
-    isLoading: result.isLoading,
-    hasError: !!result.error,
-    rootDirectoryHandle: result.rootDirectoryHandle?.name,
-  });
-  
-  return result;
 }

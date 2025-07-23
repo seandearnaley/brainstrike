@@ -104,51 +104,42 @@ export function registerIpcHandlers(
 
   // Auto-restore last folder functionality for desktop
   ipcMain.handle('fs:restoreLastFolder', async () => {
-    console.log('[IPC] fs:restoreLastFolder called');
     try {
       const lastFolderPath = await storage.getItem('lastFolderPath');
-      console.log('[IPC] Last folder path from storage:', lastFolderPath);
-      
+
       if (!lastFolderPath) {
-        console.log('[IPC] No last folder path found');
         return null;
       }
 
       // Verify the folder still exists and is accessible
       const exists = await fileSystem.exists(lastFolderPath);
-      console.log('[IPC] Folder exists check:', exists, 'for path:', lastFolderPath);
-      
+
       if (!exists) {
         // Clean up invalid path
-        console.log('[IPC] Folder no longer exists, cleaning up');
         await storage.removeItem('lastFolderPath');
         return null;
       }
 
       // Return a DirectoryHandle for the last folder
-      const handle = {
+      const handle: DirectoryHandle = {
         path: lastFolderPath,
         name: path.basename(lastFolderPath),
-        kind: 'directory',
-        platform: 'electron',
+        kind: 'directory' as const,
+        platform: 'electron' as const,
       };
-      console.log('[IPC] Returning restored handle:', handle);
       return handle;
-    } catch (error) {
+    } catch (_error) {
       // If there's any error, just return null and let user select manually
-      console.error('[IPC] Error in restoreLastFolder:', error);
       return null;
     }
   });
 
   ipcMain.handle('fs:saveLastFolder', async (_e: IpcMainInvokeEvent, folderPath: string) => {
-    console.log('[IPC] fs:saveLastFolder called with path:', folderPath);
     try {
       await storage.setItem('lastFolderPath', folderPath);
-      console.log('[IPC] Successfully saved last folder path');
-    } catch (error) {
-      // Non-critical error, just log it
-      console.warn('[IPC] Failed to save last folder path:', error);
+    } catch (_error) {
+      // Non-critical error, silently fail
+      // The worst case is the user needs to select folder again on next launch
     }
   });
 

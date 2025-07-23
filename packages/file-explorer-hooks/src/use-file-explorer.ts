@@ -11,8 +11,6 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
-  console.log('[Core useFileExplorer] Hook called');
-  
   const callback = useMemo(
     () => onDisplayedFilePathsChange ?? (() => {}),
     [onDisplayedFilePathsChange]

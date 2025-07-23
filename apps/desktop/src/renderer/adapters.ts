@@ -4,13 +4,10 @@ import type { IFileNode } from '@brainstrike/types';
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
-    console.log('[Renderer] requestDirectoryAccess called');
     const handle = await window.electronAPI.fileSystem.requestDirectoryAccess();
-    console.log('[Renderer] Got directory handle:', handle);
-    
+
     // Save the selected folder path for future auto-restore
     if (handle?.path) {
-      console.log('[Renderer] Saving folder path for auto-restore:', handle.path);
       await window.electronAPI.fileSystem.saveLastFolder(handle.path);
     }
     return handle;
@@ -29,10 +26,7 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   }
 
   async restoreLastFolder(): Promise<DirectoryHandle | null> {
-    console.log('[Renderer] restoreLastFolder called');
-    const result = await window.electronAPI.fileSystem.restoreLastFolder();
-    console.log('[Renderer] restoreLastFolder result:', result);
-    return result;
+    return window.electronAPI.fileSystem.restoreLastFolder();
   }
 }
 
