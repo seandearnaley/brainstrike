@@ -25,6 +25,36 @@ describe('ElectronRendererFileSystemAdapter', () => {
         platform: 'electron',
       });
     });
+
+    it('should save folder path when handle has path', async () => {
+      const mockHandle = {
+        path: '/test/folder/path',
+        name: 'test-directory',
+        kind: 'directory' as const,
+        platform: 'electron' as const,
+      };
+
+      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce(mockHandle);
+
+      await adapter.requestDirectoryAccess();
+
+      expect(mockElectronAPI.fileSystem.saveLastFolder).toHaveBeenCalledWith('/test/folder/path');
+    });
+
+    it('should not save folder path when handle has no path', async () => {
+      const mockHandle = {
+        path: '',
+        name: 'test-directory',
+        kind: 'directory' as const,
+        platform: 'electron' as const,
+      };
+
+      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce(mockHandle);
+
+      await adapter.requestDirectoryAccess();
+
+      expect(mockElectronAPI.fileSystem.saveLastFolder).not.toHaveBeenCalled();
+    });
   });
 
   describe('readDirectory', () => {
@@ -93,6 +123,39 @@ describe('ElectronRendererFileSystemAdapter', () => {
       const result = await adapter.exists(testPath);
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('restoreLastFolder', () => {
+    it('should call electronAPI.fileSystem.restoreLastFolder', async () => {
+      const mockHandle = {
+        path: '/restored/folder/path',
+        name: 'restored-folder',
+        kind: 'directory' as const,
+        platform: 'electron' as const,
+      };
+
+      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue(mockHandle);
+
+      const result = await adapter.restoreLastFolder();
+
+      expect(mockElectronAPI.fileSystem.restoreLastFolder).toHaveBeenCalledOnce();
+      expect(result).toEqual(mockHandle);
+    });
+
+    it('should return null when no folder to restore', async () => {
+      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue(null);
+
+      const result = await adapter.restoreLastFolder();
+
+      expect(mockElectronAPI.fileSystem.restoreLastFolder).toHaveBeenCalledOnce();
+      expect(result).toBeNull();
+    });
+
+    it('should handle errors gracefully', async () => {
+      mockElectronAPI.fileSystem.restoreLastFolder.mockRejectedValue(new Error('Restore failed'));
+
+      await expect(adapter.restoreLastFolder()).rejects.toThrow('Restore failed');
     });
   });
 });

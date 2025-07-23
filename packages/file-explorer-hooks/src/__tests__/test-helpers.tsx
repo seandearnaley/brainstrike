@@ -11,6 +11,8 @@ class MockFileSystemAdapter implements FileSystemAdapter {
   static mockErrors: Map<string, Error> = new Map();
   static mockReadFileErrors: Map<string, Error> = new Map();
   static mockFileContents: Map<string, string> = new Map();
+  static mockLastFolderPath: string | null = null;
+  static mockRestoreError: Error | null = null;
 
   static setMockDirectoryData(path: string, entries: IFileNode[]) {
     MockFileSystemAdapter.mockDirectoryData.set(path, entries);
@@ -28,11 +30,21 @@ class MockFileSystemAdapter implements FileSystemAdapter {
     MockFileSystemAdapter.mockFileContents.set(filePath, content);
   }
 
+  static setMockLastFolderPath(path: string | null) {
+    MockFileSystemAdapter.mockLastFolderPath = path;
+  }
+
+  static setMockRestoreError(error: Error | null) {
+    MockFileSystemAdapter.mockRestoreError = error;
+  }
+
   static clearMockData() {
     MockFileSystemAdapter.mockDirectoryData.clear();
     MockFileSystemAdapter.mockErrors.clear();
     MockFileSystemAdapter.mockReadFileErrors.clear();
     MockFileSystemAdapter.mockFileContents.clear();
+    MockFileSystemAdapter.mockLastFolderPath = null;
+    MockFileSystemAdapter.mockRestoreError = null;
   }
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
@@ -77,6 +89,23 @@ class MockFileSystemAdapter implements FileSystemAdapter {
 
   async exists(_path: string): Promise<boolean> {
     return true;
+  }
+
+  async restoreLastFolder(): Promise<DirectoryHandle | null> {
+    if (MockFileSystemAdapter.mockRestoreError) {
+      throw MockFileSystemAdapter.mockRestoreError;
+    }
+
+    if (!MockFileSystemAdapter.mockLastFolderPath) {
+      return null;
+    }
+
+    return {
+      path: MockFileSystemAdapter.mockLastFolderPath,
+      name: MockFileSystemAdapter.mockLastFolderPath.split('/').pop() || 'unknown',
+      kind: 'directory',
+      platform: 'web',
+    };
   }
 }
 

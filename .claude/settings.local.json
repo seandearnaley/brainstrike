@@ -173,7 +173,10 @@
       "Bash(NODE_ENV=development DEBUG=* npm run build:main)",
       "Bash(NODE_ENV=development npm run build:main)",
       "Bash(timeout 10 npx electron dist/main.js)",
-      "Bash(NODE_ENV=development pnpm dev:renderer)"
+      "Bash(NODE_ENV=development pnpm dev:renderer)",
+      "Bash(pnpm --filter @brainstrike/desktop test src/__tests__/main/ipc-handlers-folder-restore.test.ts)",
+      "Bash(pnpm --filter @brainstrike/file-explorer-hooks test src/__tests__/use-file-system.test.ts)",
+      "Bash(pnpm --filter @brainstrike/desktop test src/__tests__/renderer/adapters.test.ts)"
     ],
     "deny": []
   },

@@ -291,4 +291,173 @@ describe('useFileSystem', () => {
       MockFileSystemAdapter.prototype.requestDirectoryAccess = originalRequestDirectoryAccess;
     });
   });
+
+  describe('auto-restore functionality', () => {
+    beforeEach(() => {
+      MockFileSystemAdapter.clearMockData();
+    });
+
+    it('should not attempt restore when adapter does not support restoreLastFolder', () => {
+      // This test verifies that the hook gracefully handles adapters without restoreLastFolder
+      // The web adapter doesn't have this method, so the hook should just skip auto-restore
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      expect(result.current).toBeDefined();
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+    });
+
+    it('should restore last folder when available and exists', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for the effect to run
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(result.current).toBeDefined();
+      expect(result.current?.rootDirectoryHandle).toEqual({
+        path: '/test/restored/path',
+        name: 'path',
+        kind: 'directory',
+        platform: 'web',
+      });
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith('path');
+    });
+
+    it('should not restore when no last folder is available', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath(null);
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for the effect to run
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(result.current).toBeDefined();
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+    });
+
+    it('should handle restore errors gracefully', async () => {
+      MockFileSystemAdapter.setMockRestoreError(new Error('Restore failed'));
+
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for the effect to run
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(result.current).toBeDefined();
+      expect(result.current?.rootDirectoryHandle).toBeNull();
+      expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
+    });
+
+    it('should not attempt restore if folder is already selected', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      const { result, rerender } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // First, manually select a directory
+      await act(async () => {
+        await result.current?.selectRootDirectory();
+      });
+
+      expect(result.current?.rootDirectoryHandle).toEqual({
+        path: 'mock-root',
+        name: 'mock-root',
+        kind: 'directory',
+        platform: 'web',
+      });
+
+      // Clear the mock and rerender - should not attempt restore
+      vi.clearAllMocks();
+      rerender();
+
+      // Wait for potential effect runs
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // Should still have the manually selected directory, not the restored one
+      expect(result.current?.rootDirectoryHandle).toEqual({
+        path: 'mock-root',
+        name: 'mock-root',
+        kind: 'directory',
+        platform: 'web',
+      });
+    });
+
+    it('should only attempt restore once', async () => {
+      const restoreSpy = vi.spyOn(MockFileSystemAdapter.prototype, 'restoreLastFolder');
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      const { rerender } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for the effect to run
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(restoreSpy).toHaveBeenCalledTimes(1);
+
+      // Rerender and wait again
+      rerender();
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      // Should not be called again
+      expect(restoreSpy).toHaveBeenCalledTimes(1);
+
+      restoreSpy.mockRestore();
+    });
+
+    it('should handle setCurrentFolderId being undefined gracefully', async () => {
+      MockFileSystemAdapter.setMockLastFolderPath('/test/restored/path');
+
+      const { result } = renderHook(
+        () =>
+          useFileSystem({
+            setCurrentFolderId: undefined as unknown as (id: string | null) => void,
+          }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      // Wait for the effect to run
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(result.current).toBeDefined();
+      expect(result.current?.rootDirectoryHandle).toEqual({
+        path: '/test/restored/path',
+        name: 'path',
+        kind: 'directory',
+        platform: 'web',
+      });
+      // Should not throw even with undefined setCurrentFolderId
+    });
+  });
 });

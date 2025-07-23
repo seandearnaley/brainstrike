@@ -377,8 +377,6 @@ describe('useTabManager', () => {
         throw new Error('Storage quota exceeded');
       });
 
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       const { result } = renderHook(() => useTabManager());
 
       act(() => {
@@ -390,9 +388,15 @@ describe('useTabManager', () => {
         await new Promise((resolve) => setTimeout(resolve, 600));
       });
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith('Failed to save tab state:', expect.any(Error));
-
-      consoleWarnSpy.mockRestore();
+      // The tab should still be opened despite the storage error
+      expect(result.current.tabs).toHaveLength(1);
+      expect(result.current.tabs[0]).toEqual({
+        id: 'file1',
+        path: '/src/index.ts',
+        compositeKey: 'file1',
+        content: null,
+        isLoading: true,
+      });
     });
   });
 });

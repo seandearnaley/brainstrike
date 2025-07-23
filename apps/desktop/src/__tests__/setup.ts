@@ -20,6 +20,8 @@ const mockElectronAPI = {
     readDirectory: vi.fn().mockResolvedValue([]),
     readFile: vi.fn().mockResolvedValue('mock file content'),
     exists: vi.fn().mockResolvedValue(true),
+    restoreLastFolder: vi.fn().mockResolvedValue(null),
+    saveLastFolder: vi.fn().mockResolvedValue(undefined),
   },
   getUserDataPath: vi.fn().mockResolvedValue('/mock/user/data'),
 };

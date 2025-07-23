@@ -75,6 +75,8 @@ describe('IPC Handlers Expected Behavior', () => {
         'fs:readDirectory',
         'fs:readFile',
         'fs:exists',
+        'fs:restoreLastFolder',
+        'fs:saveLastFolder',
       ];
 
       for (const handler of expectedFileSystemHandlers) {
@@ -129,6 +131,8 @@ describe('IPC Handlers Expected Behavior', () => {
         'fs:readDirectory',
         'fs:readFile',
         'fs:exists',
+        'fs:restoreLastFolder',
+        'fs:saveLastFolder',
       ];
 
       for (const channel of storageChannels) {
