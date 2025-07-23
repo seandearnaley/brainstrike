@@ -18,6 +18,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readDirectory: (handle: DirectoryHandle) => ipcRenderer.invoke('fs:readDirectory', handle),
     readFile: (handle: FileHandle) => ipcRenderer.invoke('fs:readFile', handle),
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
+    restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
+    saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
   },
   // Panel layout persistence
   saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),

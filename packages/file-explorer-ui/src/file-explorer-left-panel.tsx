@@ -53,6 +53,8 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
  * This component can be used independently in the left panel of an IDE layout
  */
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
+  console.log('[FileExplorerLeftPanel] Component rendering');
+  
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const {
@@ -83,6 +85,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   // Local state for UI
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  console.log('[FileExplorerLeftPanel] Calling useFileExplorer hook');
+  
   const {
     fileTree,
     handleRootDirectorySelect,
@@ -101,6 +105,13 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
   } = useFileExplorer();
+  
+  console.log('[FileExplorerLeftPanel] useFileExplorer hook returned:', {
+    fileTreeLength: fileTree?.length,
+    isLoading,
+    error,
+    rootDirectoryHandle: rootDirectoryHandle?.name,
+  });
 
   const onSelectionLimitExceeded = useCallback(() => {
     // Selection limit handling is managed by action buttons

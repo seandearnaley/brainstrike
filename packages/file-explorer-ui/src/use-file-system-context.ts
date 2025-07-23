@@ -6,7 +6,7 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 // Error message mappings for consistent user experience
@@ -74,12 +74,31 @@ async function selectDirectoryWithErrorHandling(
 }
 
 export function useFileSystem() {
+  console.log('[Context useFileSystem] Hook initialized');
   const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
   const [isAccessLoading, setIsAccessLoading] = useState(false);
   const store = useFileExplorerStoreContext();
   const { setCurrentFolderId } = store((s) => ({ setCurrentFolderId: s.setCurrentFolderId }));
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
+  console.log('[Context useFileSystem] Core API:', { hasRootHandle: !!coreApi.rootDirectoryHandle, isLoading: coreApi.isAccessLoading });
+
+  // Sync with core hook's auto-restored state
+  useEffect(() => {
+    console.log('[Context Hook] Core hook state changed:', { coreHandle: !!coreApi.rootDirectoryHandle, localHandle: !!rootDirectoryHandle });
+    if (coreApi.rootDirectoryHandle && !rootDirectoryHandle) {
+      console.log('[Context Hook] Syncing auto-restored directory from core hook:', coreApi.rootDirectoryHandle);
+      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
+    }
+  }, [coreApi.rootDirectoryHandle, rootDirectoryHandle]);
+
+  // Also sync loading state
+  useEffect(() => {
+    if (coreApi.isAccessLoading !== isAccessLoading) {
+      console.log('[Context Hook] Syncing loading state:', coreApi.isAccessLoading);
+      setIsAccessLoading(coreApi.isAccessLoading);
+    }
+  }, [coreApi.isAccessLoading, isAccessLoading]);
 
   const isFileSystemAccessSupported = (): {
     supported: boolean;
