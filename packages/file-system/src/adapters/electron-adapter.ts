@@ -156,8 +156,23 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
   async readFile(_handle: FileHandle): Promise<string> {
     try {
+      // Check file size before reading
+      const stats = await fsPromises.stat(_handle.path);
+      const maxSize = 1024 * 1024; // 1MB limit
+
+      if (stats.size > maxSize) {
+        throw new AccessError(
+          `File too large: ${Math.round(stats.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+          _handle.path,
+          'read'
+        );
+      }
+
       return await fsPromises.readFile(_handle.path, 'utf-8');
     } catch (error) {
+      if (error instanceof AccessError) {
+        throw error;
+      }
       throw new AccessError(
         `Failed to read file: ${error instanceof Error ? error.message : 'Unknown error'}`,
         _handle.path,

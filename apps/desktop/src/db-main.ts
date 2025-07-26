@@ -80,12 +80,13 @@ export async function initializeMainDatabase(): Promise<any> {
 
 /**
  * Get the database instance
- * Throws if database hasn't been initialized
+ * Automatically initializes if not already done (lazy loading)
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export function getDatabase(): any {
+export async function getDatabase(): Promise<any> {
   if (!db) {
-    throw new Error('Database not initialized. Call initializeMainDatabase() first.');
+    logger.info('🚀 Lazy-loading database (triggered by IPC usage)');
+    await initializeMainDatabase();
   }
   return db;
 }

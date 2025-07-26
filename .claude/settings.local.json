@@ -176,7 +176,15 @@
       "Bash(NODE_ENV=development pnpm dev:renderer)",
       "Bash(pnpm --filter @brainstrike/desktop test src/__tests__/main/ipc-handlers-folder-restore.test.ts)",
       "Bash(pnpm --filter @brainstrike/file-explorer-hooks test src/__tests__/use-file-system.test.ts)",
-      "Bash(pnpm --filter @brainstrike/desktop test src/__tests__/renderer/adapters.test.ts)"
+      "Bash(pnpm --filter @brainstrike/desktop test src/__tests__/renderer/adapters.test.ts)",
+      "Bash(chmod:*)",
+      "Bash(./scripts/run-performance-tests.sh:*)",
+      "Bash(timeout 60s pnpm exec playwright test performance-benchmarks.spec.ts -g \"baseline performance benchmark\" --headed)",
+      "Bash(./scripts/performance-benchmark.sh:*)",
+      "Bash(CI=true npx playwright test performance-benchmarks.spec.ts -g \"baseline performance benchmark\" --timeout=20000)",
+      "Bash(pkill:*)",
+      "Bash(timeout:*)",
+      "Bash(pnpm:*)"
     ],
     "deny": []
   },

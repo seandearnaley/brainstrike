@@ -90,17 +90,18 @@ test.describe('Complete File Explorer Workflow', () => {
 
     // Apply filter first (this is the key!)
     await filterInput.fill('Button');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500); // Allow more time for filter
 
     // Then expand all
     await page.getByTestId('expand-all-button-small').click();
+    await page.waitForTimeout(500); // Allow time for expansion
 
     // Verify nested file is now visible
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
 
     // Clear filter to see full tree again
     await filterInput.fill('');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500); // Allow time for filter to clear
 
     // Step 8: Select the nested file
     const nestedCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });

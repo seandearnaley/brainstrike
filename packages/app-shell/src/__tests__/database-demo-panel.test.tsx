@@ -21,12 +21,15 @@ const mockChunkRepository = {
   update: vi.fn(),
   delete: vi.fn(),
   findByFileRecordId: vi.fn(),
+  searchSimilar: vi.fn(),
 };
 
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
   search: vi.fn(),
+  getStatus: vi.fn().mockReturnValue('ready'),
+  initializeWithModel: vi.fn(),
 };
 
 const mockToast = vi.fn();
@@ -617,7 +620,7 @@ describe('DatabaseDemoPanel', () => {
   });
 
   describe('Search Functionality', () => {
-    it.skip('displays search results with similarity scores', async () => {
+    it('displays search results with similarity scores', async () => {
       const mockSearchResults = [
         {
           chunk: {
@@ -691,8 +694,23 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockChunkRepository.findAll.mockResolvedValue([]);
 
-      // Mock the embedding service search method
-      mockEmbeddingService.search.mockResolvedValue(mockSearchResults);
+      // Mock the embedding service generateEmbedding method
+      mockEmbeddingService.generateEmbedding.mockResolvedValue({
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+      });
+
+      // Mock the chunk repository searchSimilar method
+      mockChunkRepository.searchSimilar.mockResolvedValue(
+        mockSearchResults.map((result) => ({
+          chunk: result.chunk,
+          similarity: result.similarity,
+        }))
+      );
+
+      // Mock repository findById to return file records for enriching results
+      mockRepository.findById.mockImplementation((id) => {
+        return Promise.resolve(mockRecords.find((record) => record.id === id));
+      });
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -700,6 +718,24 @@ describe('DatabaseDemoPanel', () => {
       // Wait for component to load
       await waitFor(() => {
         expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
+
+      // First enable embeddings in settings
+      const settingsButton = screen.getByRole('button', { name: /import settings/i });
+      await user.click(settingsButton);
+
+      // Enable embeddings - find by looking for the checkbox in the Embeddings section
+      const checkboxes = screen.getAllByRole('checkbox');
+      const embeddingCheckbox = checkboxes[1]; // Second checkbox is for embeddings
+      await user.click(embeddingCheckbox);
+
+      // Close settings
+      await user.click(settingsButton);
+
+      // Wait a bit for state changes to propagate
+      await waitFor(() => {
+        // Just verify the checkbox is checked
+        expect(embeddingCheckbox).toBeChecked();
       });
 
       // Switch to search tab
