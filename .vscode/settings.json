@@ -22,5 +22,8 @@
   "typescript.preferences.includePackageJsonAutoImports": "on",
   "typescript.enablePromptUseWorkspaceTsdk": true,
   "typescript.preferences.useAliasesForRenames": false,
-  "typescript.workspaceSymbols.scope": "allOpenProjects"
+  "typescript.workspaceSymbols.scope": "allOpenProjects",
+  "[jsonc]": {
+    "editor.defaultFormatter": "biomejs.biome"
+  }
 }
