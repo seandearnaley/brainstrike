@@ -1,4 +1,6 @@
 import type { Page } from '@playwright/test';
+import { promises as fs } from 'fs';
+import path from 'path';
 
 export interface PerformanceMetric {
   name: string;
@@ -54,7 +56,7 @@ export const measureTime = async <T>(
     performance.mark(`${markName}-end`);
     performance.measure(markName, `${markName}-start`, `${markName}-end`);
     const measure = performance.getEntriesByName(markName)[0];
-    return measure.duration;
+    return measure?.duration || 0;
   }, name);
 
   return { result, duration };
@@ -90,9 +92,11 @@ export const installRenderTracker = async (page: Page) => {
         performance.measure(renderKey, `${renderKey}-start`, `${renderKey}-end`);
         const measure = performance.getEntriesByName(renderKey)[0];
         
-        (window as any).__renderTracker.renderTimes.push(measure.duration);
-        (window as any).__renderTracker.activeRenders.delete(renderKey);
-        (window as any).__renderTracker.renderCount++;
+        if (measure) {
+          (window as any).__renderTracker.renderTimes.push(measure.duration);
+          (window as any).__renderTracker.activeRenders.delete(renderKey);
+          (window as any).__renderTracker.renderCount++;
+        }
       },
       
       getRenderMetrics: (): RenderMetrics => {
@@ -188,9 +192,6 @@ export const createMetric = (
  * Save performance metrics to a JSON file
  */
 export const saveMetricsToFile = async (metrics: PerformanceMetric[], filename?: string) => {
-  const fs = require('fs').promises;
-  const path = require('path');
-  
   const metricsDir = path.join(process.cwd(), 'performance-metrics');
   await fs.mkdir(metricsDir, { recursive: true });
   

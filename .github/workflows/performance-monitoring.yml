@@ -80,57 +80,7 @@ jobs:
       - name: Process performance results
         run: |
           cd apps/web
-          node -e "
-          const fs = require('fs');
-          const path = require('path');
-          
-          // Collect all performance metrics files
-          const metricsDir = 'performance-metrics';
-          const files = fs.readdirSync(metricsDir).filter(f => f.endsWith('.json') && f.startsWith('metrics-'));
-          
-          if (files.length === 0) {
-            console.log('No performance metrics found');
-            process.exit(0);
-          }
-          
-          // Merge all metrics
-          const allMetrics = [];
-          files.forEach(file => {
-            const data = JSON.parse(fs.readFileSync(path.join(metricsDir, file), 'utf8'));
-            if (data.metrics) {
-              allMetrics.push(...data.metrics);
-            } else if (Array.isArray(data)) {
-              allMetrics.push(...data);
-            }
-          });
-          
-          // Create summary
-          const summary = {
-            timestamp: new Date().toISOString(),
-            commit: process.env.GITHUB_SHA,
-            branch: process.env.GITHUB_REF_NAME,
-            metrics: allMetrics,
-            summary: {
-              total: allMetrics.length,
-              passed: allMetrics.filter(m => m.passed !== false).length,
-              failed: allMetrics.filter(m => m.passed === false).length,
-            }
-          };
-          
-          // Save consolidated metrics
-          fs.writeFileSync(path.join(metricsDir, 'consolidated-metrics.json'), JSON.stringify(summary, null, 2));
-          
-          console.log('Performance Summary:');
-          console.log(\`Total metrics: \${summary.summary.total}\`);
-          console.log(\`Passed: \${summary.summary.passed}\`);
-          console.log(\`Failed: \${summary.summary.failed}\`);
-          
-          // Output for GitHub Actions
-          allMetrics.forEach(metric => {
-            const status = metric.passed !== false ? '✅' : '❌';
-            console.log(\`\${status} \${metric.name}: \${metric.value.toFixed(2)}\${metric.unit} (threshold: \${metric.threshold}\${metric.unit})\`);
-          });
-          "
+          node e2e/utils/consolidate-metrics.js
 
       - name: Update baseline on main branch
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -252,15 +202,6 @@ jobs:
       - name: Fail job if performance thresholds exceeded
         run: |
           cd apps/web
-          if [ -f performance-metrics/consolidated-metrics.json ]; then
-            node -e "
-            const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('performance-metrics/consolidated-metrics.json', 'utf8'));
-            const failedCount = data.summary?.failed || 0;
-            if (failedCount > 0) {
-              console.error(\`Performance test failed: \${failedCount} metrics exceeded thresholds\`);
-              process.exit(1);
-            }
-            console.log('All performance tests passed!');
-            "
-          fi
+          # The consolidate-metrics.js script already exits with code 1 if metrics failed
+          # This step will fail the job if any performance thresholds were exceeded
+          node e2e/utils/consolidate-metrics.js

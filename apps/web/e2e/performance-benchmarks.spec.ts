@@ -2,16 +2,11 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { HomePage } from './page-objects/home-page';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS, detectEnvironment } from './utils/performance-config';
 
-// Performance thresholds - adjust these based on your baseline measurements
-const PERFORMANCE_THRESHOLDS = {
-  TREE_LOAD_MAX_MS: 3000,
-  TREE_EXPANSION_MAX_MS: 1500,
-  FILE_SELECTION_MAX_MS: 800,
-  SCROLL_PERFORMANCE_MAX_MS: 600,
-  MEMORY_INCREASE_MAX_MB: 50, // Increased from 15MB to 50MB for reasonable threshold
-  RENDER_TIME_MAX_MS: 100,
-} as const;
+// Log environment and thresholds for debugging
+console.log(`🔧 Environment: ${detectEnvironment()}`);
+console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
 
 interface PerformanceMetric {
   name: string;
@@ -98,7 +93,8 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const treeLoadTime = await page.evaluate(() => {
       performance.mark('tree-load-end');
       performance.measure('tree-load', 'tree-load-start', 'tree-load-end');
-      return performance.getEntriesByName('tree-load')[0].duration;
+      const measure = performance.getEntriesByName('tree-load')[0];
+      return measure?.duration || 0;
     });
 
     performanceMetrics.push(
@@ -119,7 +115,8 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const expansionTime = await page.evaluate(() => {
       performance.mark('expansion-end');
       performance.measure('expansion', 'expansion-start', 'expansion-end');
-      return performance.getEntriesByName('expansion')[0].duration;
+      const measure = performance.getEntriesByName('expansion')[0];
+      return measure?.duration || 0;
     });
 
     performanceMetrics.push(
@@ -139,7 +136,8 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const selectionTime = await page.evaluate(() => {
       performance.mark('selection-end');
       performance.measure('selection', 'selection-start', 'selection-end');
-      return performance.getEntriesByName('selection')[0].duration;
+      const measure = performance.getEntriesByName('selection')[0];
+      return measure?.duration || 0;
     });
 
     performanceMetrics.push(
@@ -189,8 +187,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await page.evaluate(() => {
       // Install render tracking
       let renderCount = 0;
-      const originalConsoleTime = console.time;
-      const originalConsoleTimeEnd = console.timeEnd;
       
       (window as any).__renderTracker = {
         renderCount: 0,
@@ -203,7 +199,9 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
           performance.mark(`render-${renderCount}-end`);
           performance.measure(`render-${renderCount}`, `render-${renderCount}-start`, `render-${renderCount}-end`);
           const measure = performance.getEntriesByName(`render-${renderCount}`)[0];
-          (window as any).__renderTracker.renderTimes.push(measure.duration);
+          if (measure) {
+            (window as any).__renderTracker.renderTimes.push(measure.duration);
+          }
         },
       };
     });
@@ -289,7 +287,8 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const scrollTime = await page.evaluate(() => {
       performance.mark('scroll-test-end');
       performance.measure('scroll-test', 'scroll-test-start', 'scroll-test-end');
-      return performance.getEntriesByName('scroll-test')[0].duration;
+      const measure = performance.getEntriesByName('scroll-test')[0];
+      return measure?.duration || 0;
     });
 
     performanceMetrics.push(

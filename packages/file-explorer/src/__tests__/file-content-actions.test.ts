@@ -134,7 +134,6 @@ describe('file-content-actions', () => {
   it('should prevent race conditions by using atomic cache snapshots', () => {
     // Simulate a scenario where cache eviction happens during state building
     const content1 = 'x'.repeat(100 * 1024); // 100KB
-    const content2 = 'y'.repeat(100 * 1024); // 100KB
 
     // Add multiple files quickly to stress test atomic operations
     const promises = [];
