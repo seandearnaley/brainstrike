@@ -52,13 +52,19 @@ describe('initializeMainDatabase', () => {
     expect(migrateMock).toHaveBeenCalledTimes(1);
   });
 
-  it('getDatabase throws before initialization and returns instance after', async () => {
-    const { getDatabase, initializeMainDatabase } = await import('../../db-main');
-
-    expect(() => getDatabase()).toThrowError('Database not initialized');
+  it('getDatabase auto-initializes when called (lazy loading)', async () => {
+    const { getDatabase } = await import('../../db-main');
 
     existsSyncMock.mockReturnValue(true);
-    const db = await initializeMainDatabase();
-    expect(getDatabase()).toBe(db);
+
+    // getDatabase now auto-initializes when called
+    const db = await getDatabase();
+    expect(db).toBeDefined();
+    expect(PGliteMock).toHaveBeenCalled();
+    expect(migrateMock).toHaveBeenCalled();
+
+    // Subsequent calls return the same instance
+    const db2 = await getDatabase();
+    expect(db2).toBe(db);
   });
 });

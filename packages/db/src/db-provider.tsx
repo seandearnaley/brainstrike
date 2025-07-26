@@ -28,6 +28,7 @@ interface DbContextValue {
   ready: boolean;
   db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
+  initializeDatabase: () => Promise<void>; // Lazy initialization trigger
 }
 
 interface DbProviderProps {
@@ -58,6 +59,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   >(null);
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
+  const [lazyInitialized, setLazyInitialized] = useState(false);
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
@@ -134,66 +136,42 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     [resolvedPath]
   );
 
+  const initializeDatabase = useCallback(async () => {
+    if (lazyInitialized || initializingRef.current || (dbRef.current && !useElectronIPC)) {
+      return;
+    }
+
+    setLazyInitialized(true);
+    initializingRef.current = true;
+    logger.info('🚀 Lazy-loading database (triggered by actual usage)');
+
+    try {
+      const isElectronInitialized = await initializeElectronIPC({ value: false });
+
+      if (!isElectronInitialized) {
+        await initializeDirectPGlite({ value: false });
+      }
+    } catch (err) {
+      logger.error('Failed to initialize database:', err);
+      setFileRecordRepository(null);
+      setChunkRepository(null);
+      setError(err as Error);
+      setReady(true);
+    } finally {
+      initializingRef.current = false;
+    }
+  }, [lazyInitialized, useElectronIPC, initializeElectronIPC, initializeDirectPGlite]);
+
   useEffect(() => {
-    const cancelled = { value: false };
-
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This function needs to handle both Electron and web initialization paths
-    const initializeDb = async () => {
-      console.log('[DB PROVIDER DEBUG] initializeDb called');
-      console.log('[DB PROVIDER DEBUG] Current state:', {
-        initializing: initializingRef.current,
-        hasDb: !!dbRef.current,
-        useElectronIPC,
-        cancelled: cancelled.value,
-      });
-
-      if (initializingRef.current || (dbRef.current && !useElectronIPC)) {
-        console.log(
-          '[DB PROVIDER DEBUG] Skipping initialization - already initializing or DB exists'
-        );
-        return;
-      }
-
-      initializingRef.current = true;
-      console.log('[DB PROVIDER DEBUG] Starting database initialization');
-
-      try {
-        console.log('[DB PROVIDER DEBUG] Checking Electron IPC initialization');
-        const isElectronInitialized = await initializeElectronIPC(cancelled);
-        console.log('[DB PROVIDER DEBUG] Electron IPC initialized:', isElectronInitialized);
-
-        if (!isElectronInitialized) {
-          console.log('[DB PROVIDER DEBUG] Electron IPC not available, using direct PGlite');
-          await initializeDirectPGlite(cancelled);
-        }
-      } catch (err) {
-        console.error('[DB PROVIDER DEBUG] Database initialization failed:', err);
-        logger.error('Failed to initialize database:', err);
-        if (!cancelled.value) {
-          setFileRecordRepository(null);
-          setChunkRepository(null);
-          setError(err as Error);
-          setReady(true);
-        }
-      } finally {
-        initializingRef.current = false;
-        console.log('[DB PROVIDER DEBUG] Database initialization finished');
-      }
-    };
-
-    void initializeDb();
+    // No automatic initialization - only when explicitly requested
+    setReady(true); // Provider is ready, but database is not yet loaded
 
     return () => {
-      cancelled.value = true;
       const db = dbRef.current;
       if (db) {
-        // In development, avoid closing the database during Fast Refresh
-        // This prevents expensive re-initialization during HMR cycles
         if (!isDevEnv()) {
-          // Use a timeout to avoid blocking the cleanup and handle potential race conditions
           setTimeout(() => {
             db.close().catch((err) => {
-              // Only log the error if it's not a "database already closed" type error
               const errorMessage = err?.message || '';
               if (!errorMessage.includes('closed') && !errorMessage.includes('PGlite is closed')) {
                 logger.error('Failed to close database:', err);
@@ -202,12 +180,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           }, 0);
           dbRef.current = null;
         }
-        // In development, we keep the database open but still reset the initialization flag
-        // The database will be reused if the same path is requested again
       }
       initializingRef.current = false;
     };
-  }, [initializeElectronIPC, initializeDirectPGlite, useElectronIPC]);
+  }, []);
 
   const clearAllData = useCallback(async () => {
     if (!fileRecordRepository || !chunkRepository || !dbRef.current) {
@@ -240,8 +216,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       ready,
       db: dbRef.current,
       clearAllData,
+      initializeDatabase,
     }),
-    [fileRecordRepository, chunkRepository, error, ready, clearAllData]
+    [fileRecordRepository, chunkRepository, error, ready, clearAllData, initializeDatabase]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
@@ -252,33 +229,61 @@ export function useFileRecordRepository():
   | ElectronFileRecordRepository
   | null {
   const ctx = useContext(DbContext);
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (ctx && !ctx.fileRecordRepository && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+
   if (!ctx) {
-    // This case should ideally not be hit if the hook is used correctly
-    // within a component tree wrapped by DbProvider.
     logger.warn('useFileRecordRepository must be used within a DbProvider');
     return null;
   }
-  // Only return the repository if the DB is ready and there's no error
+
   return ctx.ready && !ctx.error ? ctx.fileRecordRepository : null;
 }
 
 export function usePGliteDatabase(): PGlite | null {
   const ctx = useContext(DbContext);
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (ctx && !ctx.db && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+
   if (!ctx) {
     logger.warn('usePGliteDatabase must be used within a DbProvider');
     return null;
   }
-  // Only return the database if it's ready, no error, and it's actually a PGlite instance
+
   return ctx.ready && !ctx.error ? ctx.db : null;
 }
 
 export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {
   const ctx = useContext(DbContext);
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (ctx && !ctx.chunkRepository && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+
   if (!ctx) {
     logger.warn('useFileChunkRepository must be used within a DbProvider');
     return null;
   }
-  // Only return the repository if the DB is ready and there's no error
+
   return ctx.ready && !ctx.error ? ctx.chunkRepository : null;
 }
 
@@ -286,10 +291,20 @@ export function useClearAllData():
   | (() => Promise<{ deletedFiles: number; deletedChunks: number }>)
   | null {
   const ctx = useContext(DbContext);
+
+  // Trigger lazy initialization when first accessed
+  useEffect(() => {
+    if (ctx && !ctx.fileRecordRepository && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+
   if (!ctx) {
     logger.warn('useClearAllData must be used within a DbProvider');
     return null;
   }
-  // Only return the function if the DB is ready and there's no error
+
   return ctx.ready && !ctx.error ? ctx.clearAllData : null;
 }

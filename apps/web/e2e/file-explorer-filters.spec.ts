@@ -53,6 +53,7 @@ test.describe('File Explorer - Filter Functionality', () => {
 
     // Search for "Button"
     await filterInput.fill('Button');
+    await page.waitForTimeout(500); // Allow filter to take effect
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Button.test.tsx')).toBeVisible();
     await expect(fileTree.getByText('utils.ts')).not.toBeVisible();
@@ -60,11 +61,13 @@ test.describe('File Explorer - Filter Functionality', () => {
 
     // Clear filter
     await filterInput.fill('');
+    await page.waitForTimeout(500); // Allow filter to clear
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('utils.ts')).toBeVisible();
 
     // Search for ".test"
     await filterInput.fill('.test');
+    await page.waitForTimeout(500); // Allow filter to take effect
     await expect(fileTree.getByText('Button.test.tsx')).toBeVisible();
     await expect(fileTree.getByText('utils.test.ts')).toBeVisible();
     await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();
@@ -72,6 +75,7 @@ test.describe('File Explorer - Filter Functionality', () => {
 
     // Search for "utils -test" (exclude test files)
     await filterInput.fill('utils -test');
+    await page.waitForTimeout(500); // Allow filter to take effect
     await expect(fileTree.getByText('utils.ts')).toBeVisible();
     await expect(fileTree.getByText('utils.test.ts')).not.toBeVisible();
     await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();

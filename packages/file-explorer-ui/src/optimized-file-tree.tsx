@@ -47,7 +47,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       shallow
     );
 
-    // Memoize the file selection handler to prevent unnecessary re-renders
+    // Immediate file selection for better responsiveness
     const handleToggleFileSelection = useCallback(
       (path: string) => {
         const encodedPath = encodeFileSelection(folderId, path);
@@ -86,7 +86,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const { containerRef, range, offset, totalHeight } = useVirtualList(
       visibleNodes.length,
       ROW_HEIGHT,
-      { overscan: 5 } // Increased overscan for smoother scrolling
+      { overscan: 2 } // Reduced overscan to decrease memory usage
     );
 
     // Optimized row rendering with better memoization
@@ -140,12 +140,15 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       onRender?.();
     }, [onRender]);
 
+    // No cleanup needed anymore
+
     return (
       <div ref={containerRef} className="h-full relative flex-1 min-h-0">
         <div
           className="relative file-tree"
           role="tree"
           aria-label="File tree"
+          data-testid="file-tree"
           style={{
             height: totalHeight,
             transform: `translateY(${offset}px)`,
@@ -163,4 +166,34 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
 OptimizedFileTree.displayName = 'OptimizedFileTree';
 
-export default OptimizedFileTree;
+// Enhanced memoization comparison
+const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
+  // Only re-render if essential props changed
+  if (prevProps.folderId !== nextProps.folderId) return false;
+  if (prevProps.onRender !== nextProps.onRender) return false;
+
+  // Deep comparison for fileTree (expensive but necessary)
+  if (prevProps.fileTree.length !== nextProps.fileTree.length) return false;
+
+  // Check if fileTree structure actually changed
+  for (let i = 0; i < prevProps.fileTree.length; i++) {
+    const prevNode = prevProps.fileTree[i];
+    const nextNode = nextProps.fileTree[i];
+
+    if (prevNode?.path !== nextNode?.path) return false;
+    if (prevNode?.type !== nextNode?.type) return false;
+    if (prevNode?.isVisible !== nextNode?.isVisible) return false;
+  }
+
+  // Check loading files set
+  if (prevProps.loadingFiles.size !== nextProps.loadingFiles.size) return false;
+
+  // Quick set comparison for loading files
+  for (const file of prevProps.loadingFiles) {
+    if (!nextProps.loadingFiles.has(file)) return false;
+  }
+
+  return true; // Props are equal, skip re-render
+});
+
+export default OptimizedFileTreeMemoized;

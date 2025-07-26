@@ -207,13 +207,13 @@ export function registerIpcHandlers(
   // Database IPC handlers
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
     const { getDatabase } = await import('./db-main');
-    const db = getDatabase();
+    const db = await getDatabase();
     return await db.query(sql, params);
   });
 
   ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
     const { getDatabase } = await import('./db-main');
-    const db = getDatabase();
+    const db = await getDatabase();
     return await db.exec(sql);
   });
 
@@ -221,7 +221,7 @@ export function registerIpcHandlers(
   ipcMain.handle('db:test', async () => {
     try {
       const { getDatabase } = await import('./db-main');
-      const db = getDatabase();
+      const db = await getDatabase();
       await db.query('SELECT 1');
       return {
         success: true,
@@ -251,7 +251,7 @@ export function registerIpcHandlers(
       }
 
       const { getDatabase } = await import('./db-main');
-      const db = getDatabase();
+      const db = await getDatabase();
 
       // Use transaction for atomic operation
       return await db.transaction(

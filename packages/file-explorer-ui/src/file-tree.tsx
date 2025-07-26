@@ -23,28 +23,34 @@ interface IFileTreeProps {
  */
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
   const store = useFileExplorerStoreContext();
-  const { expandedDirectoryPaths, toggleDirectoryExpansion, addSelectedFile, removeSelectedFile } =
-    store(
-      (s) => ({
-        expandedDirectoryPaths: s.expandedDirectoryPaths,
-        toggleDirectoryExpansion: s.toggleDirectoryExpansion,
-        addSelectedFile: s.addSelectedFile,
-        removeSelectedFile: s.removeSelectedFile,
-      }),
-      shallow
-    );
+  const {
+    expandedDirectoryPaths,
+    selectedFilePaths,
+    toggleDirectoryExpansion,
+    addSelectedFile,
+    removeSelectedFile,
+  } = store(
+    (s) => ({
+      expandedDirectoryPaths: s.expandedDirectoryPaths,
+      selectedFilePaths: s.selectedFilePaths,
+      toggleDirectoryExpansion: s.toggleDirectoryExpansion,
+      addSelectedFile: s.addSelectedFile,
+      removeSelectedFile: s.removeSelectedFile,
+    }),
+    shallow
+  );
 
   const handleToggleFileSelection = useCallback(
     (path: string) => {
       const encodedPath = encodeFileSelection(folderId, path);
-      const isSelected = store.getState().selectedFilePaths.has(encodedPath);
+      const isSelected = selectedFilePaths.has(encodedPath);
       if (isSelected) {
         removeSelectedFile(folderId, path);
       } else {
         addSelectedFile(folderId, path);
       }
     },
-    [folderId, addSelectedFile, removeSelectedFile, store]
+    [folderId, addSelectedFile, removeSelectedFile, selectedFilePaths]
   );
 
   const flattenTree = useCallback(
@@ -112,6 +118,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         className="relative file-tree"
         role="tree"
         aria-label="File tree"
+        data-testid="file-tree"
         style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
       >
         {renderedRows}

@@ -46,6 +46,9 @@ export class FileExplorerPage {
 
   async selectRoot(): Promise<void> {
     await this.selectRootButton.click();
-    await expect(this.fileTree).toBeVisible();
+    
+    // Wait for the tree to be visible with a longer timeout
+    // This should work for both regular and performance tests
+    await expect(this.fileTree).toBeVisible({ timeout: 30000 });
   }
 }

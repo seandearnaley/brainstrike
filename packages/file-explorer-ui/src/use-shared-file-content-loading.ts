@@ -242,7 +242,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   }, [selectedFilePaths, prepareFileRead, store]);
 
   // Use zustand selector to get fileContents with proper memoization
-  const fileContents = store((state) => state.fileContents);
+  const fileContents = store((state) => state.fileContents, shallow);
 
   return {
     fileContents,

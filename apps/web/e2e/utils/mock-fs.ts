@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 export interface FileTree {
-  [key: string]: FileTree | null;
+  [key: string]: FileTree | null | string;
 }
 
 interface Options {
@@ -21,15 +21,17 @@ export async function mockBrowserApis(
         | { kind: 'file'; name: string; _content: string }
         | { kind: 'directory'; name: string; _entries: Record<string, FsNode> };
 
-      function buildFs(name: string, obj: Record<string, any> | null): FsNode {
-        if (obj) {
+      function buildFs(name: string, obj: Record<string, any> | null | string): FsNode {
+        if (obj && typeof obj === 'object') {
           const children: Record<string, FsNode> = {};
           for (const [childName, child] of Object.entries(obj)) {
             children[childName] = buildFs(childName, child);
           }
           return { kind: 'directory', name, _entries: children };
         }
-        return { kind: 'file', name, _content: `${name} content` };
+        // If obj is a string, use it as file content; if null, use default content
+        const content = typeof obj === 'string' ? obj : `${name} content`;
+        return { kind: 'file', name, _content: content };
       }
 
       class FileSystemFileHandle {

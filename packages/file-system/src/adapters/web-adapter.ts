@@ -1,4 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
+import { AccessError } from '../errors';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '../types';
 
 // Type declarations for File System Access API
@@ -89,6 +90,18 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   async readFile(handle: FileHandle): Promise<string> {
     const fileHandle = handle._internal as FileSystemFileHandle;
     const file = await fileHandle.getFile();
+
+    // Check file size before reading
+    const maxSize = 1024 * 1024; // 1MB limit
+
+    if (file.size > maxSize) {
+      throw new AccessError(
+        `File too large: ${Math.round(file.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+        handle.path,
+        'read'
+      );
+    }
+
     return await file.text();
   }
 

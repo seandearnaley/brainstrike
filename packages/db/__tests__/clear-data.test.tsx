@@ -72,13 +72,25 @@ describe('Database clearing functionality', () => {
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => useClearAllData(), { wrapper });
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository(); // Trigger lazy initialization
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
 
-      await waitFor(() => {
-        expect(result.current).not.toBeNull();
-      });
+      // Wait for the database to be initialized
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
-      const clearResult = await result.current?.();
+      const clearResult = await result.current.clearData?.();
       if (!clearResult) throw new Error('Clear function returned undefined');
 
       expect(clearResult).toEqual({
@@ -109,13 +121,25 @@ describe('Database clearing functionality', () => {
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => useClearAllData(), { wrapper });
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository(); // Trigger lazy initialization
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
 
-      await waitFor(() => {
-        expect(result.current).not.toBeNull();
-      });
+      // Wait for the database to be initialized
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
-      const clearResult = await result.current?.();
+      const clearResult = await result.current.clearData?.();
       if (!clearResult) throw new Error('Clear function returned undefined');
 
       expect(clearResult).toEqual({
@@ -134,14 +158,26 @@ describe('Database clearing functionality', () => {
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => useClearAllData(), { wrapper });
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository(); // Trigger lazy initialization
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
 
-      await waitFor(() => {
-        expect(result.current).not.toBeNull();
-      });
+      // Wait for the database to be initialized
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
-      if (!result.current) throw new Error('Clear function is null');
-      await expect(result.current()).rejects.toThrow('Transaction failed');
+      if (!result.current.clearData) throw new Error('Clear function is null');
+      await expect(result.current.clearData()).rejects.toThrow('Transaction failed');
     });
 
     it('should throw error when repositories are not available', async () => {
@@ -179,15 +215,27 @@ describe('Database clearing functionality', () => {
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
 
-      const { result } = renderHook(() => useClearAllData(), { wrapper });
+      const { result } = renderHook(
+        () => {
+          const repo = useFileRecordRepository(); // Trigger lazy initialization
+          const clearData = useClearAllData();
+          return { repo, clearData };
+        },
+        { wrapper }
+      );
 
-      await waitFor(() => {
-        expect(result.current).not.toBeNull();
-      });
+      // Wait for the database to be initialized
+      await waitFor(
+        () => {
+          expect(result.current.repo).not.toBeNull();
+          expect(result.current.clearData).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
       // Should fail and not partially clear data
-      if (!result.current) throw new Error('Clear function is null');
-      await expect(result.current()).rejects.toThrow('Delete chunks failed');
+      if (!result.current.clearData) throw new Error('Clear function is null');
+      await expect(result.current.clearData()).rejects.toThrow('Delete chunks failed');
       expect(mockTransaction).toHaveBeenCalled();
     });
   });

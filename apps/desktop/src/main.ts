@@ -5,7 +5,7 @@ import { createLogger } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 import ElectronStore from 'electron-store';
 import { createWindow } from './create-window';
-import { closeDatabase, initializeMainDatabase } from './db-main';
+import { closeDatabase } from './db-main';
 import { registerIpcHandlers } from './ipc-handlers';
 import { setupSecurity } from './setup-security';
 
@@ -46,8 +46,7 @@ app.whenReady().then(async () => {
     setupSecurity();
     logger.info('Security setup complete');
 
-    // Initialize database in main process
-    await initializeMainDatabase();
+    // Database will be lazy-loaded when first accessed via IPC
 
     logger.info('Creating main window...');
     await createWindow();
