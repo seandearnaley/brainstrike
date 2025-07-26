@@ -80,6 +80,13 @@ export interface FileExplorerData {
   fileContents: Record<string, string>;
 }
 
+export interface CacheStats {
+  totalSize: number;
+  entryCount: number;
+  hitRate: number;
+  evictionCount: number;
+}
+
 // Store interface extends data with actions
 export interface FileExplorerState extends FileExplorerData {
   // Folder state management
@@ -113,8 +120,11 @@ export interface FileExplorerState extends FileExplorerData {
 
   // File content actions
   setFileContent: (compositeKey: string, content: string) => void;
+  getFileContent: (compositeKey: string) => string | undefined;
   clearFileContents: (compositeKeys: string[]) => void;
   clearAllFileContents: () => void;
+  getFileContentCacheStats: () => CacheStats;
+  evictOldFileContents: (count?: number) => void;
 }
 
 // Constants

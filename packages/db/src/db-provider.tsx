@@ -141,7 +141,6 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       return;
     }
 
-    setLazyInitialized(true);
     initializingRef.current = true;
     logger.info('🚀 Lazy-loading database (triggered by actual usage)');
 
@@ -151,12 +150,17 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (!isElectronInitialized) {
         await initializeDirectPGlite({ value: false });
       }
+
+      // Only set lazyInitialized to true after successful initialization
+      setLazyInitialized(true);
     } catch (err) {
       logger.error('Failed to initialize database:', err);
       setFileRecordRepository(null);
       setChunkRepository(null);
       setError(err as Error);
       setReady(true);
+      // Reset lazyInitialized to allow retry attempts
+      setLazyInitialized(false);
     } finally {
       initializingRef.current = false;
     }

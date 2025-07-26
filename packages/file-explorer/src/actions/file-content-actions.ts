@@ -8,6 +8,41 @@ const fileContentCache = new FileContentCache(
   50 // 50 files max (20x reduction)
 );
 
+/**
+ * Build filtered file contents for memory-constrained state
+ */
+function buildFilteredContents(compositeKey: string, content: string): Record<string, string> {
+  // Get current cache snapshot atomically to prevent race conditions
+  const currentCacheKeys = new Set(fileContentCache.getKeys());
+  const recentEntries = fileContentCache.getEntriesByAccess().slice(0, 10); // Keep top 10 recent files in state (5x reduction)
+
+  // Build filtered state only from entries that are confirmed to exist in cache
+  const filteredContents: Record<string, string> = {};
+
+  // Add recent entries that still exist in cache
+  for (const entry of recentEntries) {
+    if (currentCacheKeys.has(entry.key)) {
+      const cachedContent = fileContentCache.get(entry.key);
+      if (cachedContent !== undefined) {
+        filteredContents[entry.key] = cachedContent;
+      }
+    }
+  }
+
+  // Always ensure current file is in state (it's guaranteed to be in cache)
+  filteredContents[compositeKey] = content;
+
+  return filteredContents;
+}
+
+/**
+ * Determine if cache-aware state management should be used
+ */
+function shouldUseFilteredState(): boolean {
+  const cacheStats = fileContentCache.getStats();
+  return cacheStats.totalSize > 2 * 1024 * 1024; // 2MB threshold (15x reduction)
+}
+
 export function createFileContentActions(
   set: Parameters<StateCreator<FileExplorerState>>[0],
   get: Parameters<StateCreator<FileExplorerState>>[1]
@@ -19,30 +54,8 @@ export function createFileContentActions(
 
       // Update state with cache-aware logic
       set((state) => {
-        // Check if we should keep this in state or rely on cache
-        const cacheStats = fileContentCache.getStats();
-
-        // If cache is getting full, only keep essential files in state
-        if (cacheStats.totalSize > 2 * 1024 * 1024) {
-          // 2MB threshold (15x reduction)
-          // Only keep recently accessed files in state
-          const recentKeys = fileContentCache
-            .getEntriesByAccess()
-            .slice(0, 10) // Keep top 10 recent files in state (5x reduction)
-            .map((entry) => entry.key);
-
-          const filteredContents: Record<string, string> = {};
-          for (const key of recentKeys) {
-            const cachedContent = fileContentCache.get(key);
-            if (cachedContent) {
-              filteredContents[key] = cachedContent;
-            }
-          }
-
-          // Add current file
-          filteredContents[compositeKey] = content;
-
-          return { fileContents: filteredContents };
+        if (shouldUseFilteredState()) {
+          return { fileContents: buildFilteredContents(compositeKey, content) };
         }
 
         // Normal case - add to state
@@ -56,14 +69,16 @@ export function createFileContentActions(
     },
 
     getFileContent: (compositeKey: string): string | undefined => {
-      // First check state
-      const state = get();
-      if (state.fileContents[compositeKey]) {
-        return state.fileContents[compositeKey];
+      // Check cache first for most up-to-date content, then fall back to state
+      // This ensures we always get the latest content and prevents split-brain scenarios
+      const cachedContent = fileContentCache.get(compositeKey);
+      if (cachedContent !== undefined) {
+        return cachedContent;
       }
 
-      // Then check cache
-      return fileContentCache.get(compositeKey);
+      // Fall back to state if not in cache (should be rare with current logic)
+      const state = get();
+      return state.fileContents[compositeKey];
     },
 
     clearFileContents: (compositeKeys: string[]) => {
