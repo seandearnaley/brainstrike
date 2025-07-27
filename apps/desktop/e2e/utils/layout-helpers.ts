@@ -117,7 +117,7 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
         // biome-ignore lint/suspicious/noExplicitAny: Window object type varies by environment
         if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
           // biome-ignore lint/suspicious/noExplicitAny: Window object type varies by environment
-          return await (window as any).electronAPI.db.clearAll();
+          return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
         }
         return { success: false, message: 'Bulk delete API not available' };
       });
