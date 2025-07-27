@@ -1,17 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Theme Switching', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
-
-    // Wait for the main layout to load
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
+    await waitForAppLoad(page);
   });
 
   test('should switch themes via settings page and persist across navigation', async ({ page }) => {

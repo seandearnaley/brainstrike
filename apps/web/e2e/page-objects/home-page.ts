@@ -1,11 +1,13 @@
 import type { Locator, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
+import { waitForAppLoad } from '../utils/layout-helpers';
 
 export class HomePage {
   constructor(public readonly page: Page) {}
 
   async goto(): Promise<void> {
     await this.page.goto('/');
+    await waitForAppLoad(this.page);
   }
 
   get contextExplorerHeading(): Locator {

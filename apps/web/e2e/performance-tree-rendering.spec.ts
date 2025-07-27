@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { HomePage } from './page-objects/home-page';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from './utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   // Create a large file tree for stress testing
@@ -27,7 +28,6 @@ test.describe('Performance: Tree Rendering', () => {
     
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
   });
 
   test('initial tree load performance', async ({ page }) => {
@@ -56,7 +56,7 @@ test.describe('Performance: Tree Rendering', () => {
     console.log(`Tree load time: ${loadTime}ms`);
     
     // Assert reasonable load time (adjust based on baseline)
-    expect(loadTime).toBeLessThan(5000); // 5 seconds max
+    expect(loadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
   });
 
   test('tree expansion performance', async ({ page }) => {
@@ -90,7 +90,7 @@ test.describe('Performance: Tree Rendering', () => {
     });
     
     console.log(`Tree expansion time: ${expansionTime}ms`);
-    expect(expansionTime).toBeLessThan(2000); // 2 seconds max for 5 expansions
+    expect(expansionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
   });
 
   test('tree scrolling performance with virtualization', async ({ page }) => {
@@ -135,7 +135,7 @@ test.describe('Performance: Tree Rendering', () => {
     });
     
     console.log(`Tree scroll time: ${scrollTime}ms`);
-    expect(scrollTime).toBeLessThan(1000); // 1 second max
+    expect(scrollTime).toBeLessThan(PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS);
   });
 
 
@@ -191,7 +191,7 @@ test.describe('Performance: Tree Rendering', () => {
     console.log(`Memory increase: ${Math.round(memoryIncrease / 1024 / 1024)}MB`);
     
     // Assert reasonable performance under stress
-    expect(stressTime).toBeLessThan(15000); // 15 seconds max
-    expect(memoryIncrease).toBeLessThan(50 * 1024 * 1024); // 50MB max increase
+    expect(stressTime).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS);
+    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB * 1024 * 1024);
   });
 });

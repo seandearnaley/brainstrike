@@ -19,7 +19,6 @@ test.describe('File Explorer', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });

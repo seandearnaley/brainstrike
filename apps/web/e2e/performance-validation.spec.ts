@@ -20,7 +20,6 @@ test.describe('Performance Validation - Simple Tests', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     // Track render count to validate shallow comparison fix
     await page.evaluate(() => {
@@ -112,7 +111,6 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
 
     // The size validation we added should prevent large files from being loaded
     console.log('✅ File size validation is implemented and will prevent large files from loading');
@@ -133,7 +131,6 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
 
     // Measure initial memory
     const initialMemory = await page.evaluate(() => {
@@ -163,7 +160,6 @@ test.describe('Performance Validation - Simple Tests', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     const startTime = performance.now();
 

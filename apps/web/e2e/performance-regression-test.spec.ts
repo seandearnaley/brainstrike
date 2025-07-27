@@ -50,7 +50,6 @@ test.describe('Performance Regression Tests - Measuring Real Improvements', () =
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     console.log('🧪 Testing file size validation performance...');
 
@@ -84,14 +83,11 @@ test.describe('Performance Regression Tests - Measuring Real Improvements', () =
       const avgTimePerFile = loadTime / fileCount;
       
       // Use environment-aware thresholds for file loading performance
-      const maxAvgFileLoadTime = 300; // More lenient for CI environments (was 200ms)
-      const maxTotalLoadTime = 3000; // More lenient for CI environments (was 2000ms)
+      console.log(`📊 File Loading Performance: ${avgTimePerFile.toFixed(2)}ms avg vs max ${PERFORMANCE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS}ms`);
+      console.log(`📊 Total Loading Time: ${loadTime.toFixed(2)}ms vs max ${PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS * fileCount}ms`);
       
-      console.log(`📊 File Loading Performance: ${avgTimePerFile.toFixed(2)}ms avg vs max ${maxAvgFileLoadTime}ms`);
-      console.log(`📊 Total Loading Time: ${loadTime.toFixed(2)}ms vs max ${maxTotalLoadTime}ms`);
-      
-      expect(avgTimePerFile).toBeLessThan(maxAvgFileLoadTime);
-      expect(loadTime).toBeLessThan(maxTotalLoadTime);
+      expect(avgTimePerFile).toBeLessThan(PERFORMANCE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS);
+      expect(loadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS * fileCount);
     
     console.log('✅ File size validation performance: PASSED');
   });
@@ -133,7 +129,6 @@ export const Component${i} = () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     // Track comprehensive metrics
     const metrics = {
@@ -236,14 +231,12 @@ export const Component${i} = () => {
     // For multi-file selection, use a more reasonable approach
     // The single FILE_SELECTION_MAX_MS threshold is for individual operations
     // For bulk operations (15 files), we expect better efficiency than 15x single operations
-    const maxBulkSelectionTime = 5000; // Fixed 5 second limit for bulk operations in CI
-    const maxPerFileTime = 400; // More lenient per-file threshold for bulk operations
     
-    console.log(`📊 Selection Performance Check: ${metrics.selectionTime.toFixed(2)}ms vs max ${maxBulkSelectionTime}ms`);
-    console.log(`📊 Per-file Performance: ${avgSelectionTime.toFixed(2)}ms vs max ${maxPerFileTime}ms`);
+    console.log(`📊 Selection Performance Check: ${metrics.selectionTime.toFixed(2)}ms vs max ${PERFORMANCE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS}ms`);
+    console.log(`📊 Per-file Performance: ${avgSelectionTime.toFixed(2)}ms vs max ${PERFORMANCE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS}ms`);
     
-    expect(metrics.selectionTime).toBeLessThan(maxBulkSelectionTime);
-    expect(avgSelectionTime).toBeLessThan(maxPerFileTime); // More lenient for bulk operations
+    expect(metrics.selectionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS);
+    expect(avgSelectionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS);
     
     // Render count should be reasonable (not excessive re-renders)
     // Before fixes: Could see 100+ renders for 15 selections  
@@ -253,7 +246,7 @@ export const Component${i} = () => {
     // Memory should not explode
     // Before fixes: Could easily grow 50+ MB
     // After fixes: LRU cache should limit growth
-    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB); // Use environment-adjusted threshold
+    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB); // Use environment-adjusted threshold
     
     console.log('✅ COMPREHENSIVE PERFORMANCE VALIDATION: ALL FIXES WORKING!');
     

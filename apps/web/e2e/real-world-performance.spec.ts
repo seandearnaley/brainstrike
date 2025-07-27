@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 /**
  * Real-world performance tests that measure actual improvements
@@ -9,6 +10,7 @@ test.describe('Real-World Performance Validation', () => {
   
   test('validate shallow comparison fix prevents excessive re-renders', async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     
     // Install render tracking that actually works
     await page.evaluate(() => {
@@ -142,6 +144,7 @@ test.describe('Real-World Performance Validation', () => {
 
   test('validate memory management improvements', async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     
     const getMemoryUsage = async () => {
       return await page.evaluate(() => {
@@ -245,6 +248,7 @@ test.describe('Real-World Performance Validation', () => {
 
   test('validate overall application responsiveness', async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     
     console.log('🧪 Testing overall application responsiveness');
     
@@ -349,6 +353,7 @@ test.describe('Real-World Performance Validation', () => {
 
   test('measure baseline performance metrics for future comparison', async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     
     console.log('📊 Establishing baseline performance metrics');
     

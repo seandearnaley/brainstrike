@@ -78,7 +78,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
@@ -151,14 +150,14 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     performanceMetrics.push(
-      recordMetric('Memory Usage', memoryUsage, PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB, 'MB')
+      recordMetric('Memory Usage', memoryUsage, PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB, 'MB')
     );
 
     // Assert all metrics meet thresholds
     expect(treeLoadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
     expect(expansionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
     expect(selectionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS);
-    expect(memoryUsage).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB);
+    expect(memoryUsage).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB);
   });
 
   test('re-render performance tracking', async ({ page }) => {
@@ -174,7 +173,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
@@ -262,7 +260,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });

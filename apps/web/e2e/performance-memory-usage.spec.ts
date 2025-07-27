@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { HomePage } from './page-objects/home-page';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from './utils/performance-config';
 
 test.describe('Performance: Memory Usage', () => {
   // Helper to create file with specific content size
@@ -45,7 +46,6 @@ test.describe('Performance: Memory Usage', () => {
     const explorer = new FileExplorerPage(page);
     
     await home.goto();
-    await home.expectLoaded();
     
     // Get baseline memory
     const baselineMemory = await getMemoryUsage(page);
@@ -86,8 +86,8 @@ test.describe('Performance: Memory Usage', () => {
     
     console.log(`Total memory increase: ${Math.round(totalIncrease / 1024 / 1024)}MB`);
     
-    // Memory should not increase more than 10MB for test files
-    expect(totalIncrease).toBeLessThan(10 * 1024 * 1024);
+    // Memory should not increase more than the threshold for test files
+    expect(totalIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB * 1024 * 1024);
     
     // Check that memory isn't growing exponentially
     if (memoryReadings.length > 2) {
@@ -129,7 +129,6 @@ test.describe('Performance: Memory Usage', () => {
     const explorer = new FileExplorerPage(page);
     
     await home.goto();
-    await home.expectLoaded();
     
     await explorer.selectRoot();
     // Wait for file tree to load with initial UI state
@@ -153,6 +152,6 @@ test.describe('Performance: Memory Usage', () => {
     console.log(`Memory increase from navigation: ${Math.round(increase / 1024 / 1024)}MB`);
     
     // Navigation should not cause excessive memory growth
-    expect(increase).toBeLessThan(3 * 1024 * 1024); // 3MB max
+    expect(increase).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * 1024 * 1024);
   });
 });

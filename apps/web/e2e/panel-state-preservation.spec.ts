@@ -28,6 +28,7 @@ test.describe('Panel State Preservation', () => {
 
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
     await waitForAppLoad(page);
