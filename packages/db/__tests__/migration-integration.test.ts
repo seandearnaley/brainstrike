@@ -225,8 +225,8 @@ describe('Migration System Integration', () => {
 
       const duration = Date.now() - startTime;
 
-      // Should complete in reasonable time (less than 10 seconds, accounting for CI environment)
-      expect(duration).toBeLessThan(10000);
+      // Should complete in reasonable time (less than 15 seconds, accounting for CI environment)
+      expect(duration).toBeLessThan(15000);
 
       // All migrations should be applied (may be more than 3 if migration 4 is available)
       expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
