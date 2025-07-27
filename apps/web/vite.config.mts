@@ -122,7 +122,7 @@ if (isDev) {
 // The @tailwindcss/vite plugin will automatically pick it up.
 
 export default defineConfig({
-  cacheDir: path.resolve(__dirname, '../../.vite'),
+  cacheDir: path.resolve(__dirname, '.vite'),
   server: {
     port: 8080,
     host: true,
@@ -233,6 +233,9 @@ export default defineConfig({
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',
+    ],
+    include: [
+      'react-helmet-async', // Explicitly include to prevent cache issues
     ],
     esbuildOptions: {
       define: {
