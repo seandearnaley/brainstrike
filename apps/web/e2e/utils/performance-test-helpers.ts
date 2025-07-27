@@ -1,6 +1,9 @@
 /**
  * Shared utilities for performance testing
  */
+import { promises as fs } from 'node:fs';
+import { resolve } from 'node:path';
+import type { Page } from '@playwright/test';
 
 export interface PerformanceMetric {
   name: string;
@@ -20,7 +23,11 @@ export const recordMetric = (
   unit: string
 ): PerformanceMetric => {
   const metric = { name, value, threshold, unit, timestamp: Date.now() };
-  console.log(`📊 ${name}: ${value}${unit} (threshold: ${threshold}${unit})`);
+  // Only log in debug mode or when explicitly requested
+  const isDebug = (globalThis as any).process?.env?.DEBUG || (globalThis as any).process?.env?.PERFORMANCE_LOGGING;
+  if (isDebug) {
+    console.log(`📊 ${name}: ${value}${unit} (threshold: ${threshold}${unit})`);
+  }
   return metric;
 };
 
@@ -28,23 +35,28 @@ export const recordMetric = (
  * Saves performance metrics to file for CI tracking
  */
 export const saveMetricsToFile = async (metrics: PerformanceMetric[]): Promise<void> => {
-  const fs = require('fs').promises;
-  const path = require('path');
+  try {
+    const metricsDir = resolve(process.cwd(), 'performance-metrics');
+    await fs.mkdir(metricsDir, { recursive: true });
 
-  const metricsDir = path.join(process.cwd(), 'performance-metrics');
-  await fs.mkdir(metricsDir, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = resolve(metricsDir, `metrics-${timestamp}.json`);
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = path.join(metricsDir, `metrics-${timestamp}.json`);
-
-  await fs.writeFile(filename, JSON.stringify(metrics, null, 2));
-  console.log(`📁 Metrics saved to: ${filename}`);
+    await fs.writeFile(filename, JSON.stringify(metrics, null, 2));
+    const isDebug = (globalThis as any).process?.env?.DEBUG || (globalThis as any).process?.env?.PERFORMANCE_LOGGING;
+    if (isDebug) {
+      console.log(`📁 Metrics saved to: ${filename}`);
+    }
+  } catch (error) {
+    console.error('❌ Failed to save metrics:', error);
+    // Don't throw to avoid breaking tests - metrics saving is not critical
+  }
 };
 
 /**
  * Gets memory usage information from the browser
  */
-export const getMemoryUsage = async (page: any) => {
+export const getMemoryUsage = async (page: Page) => {
   return await page.evaluate(() => {
     const memory = (performance as any).memory;
     if (!memory) {
@@ -62,17 +74,17 @@ export const getMemoryUsage = async (page: any) => {
  * Creates a performance measurement around a function
  */
 export const measurePerformance = async (
-  page: any,
+  page: Page,
   name: string,
   fn: () => Promise<void>
 ): Promise<number> => {
-  await page.evaluate((measureName) => {
+  await page.evaluate((measureName: string) => {
     performance.mark(`${measureName}-start`);
   }, name);
 
   await fn();
 
-  return await page.evaluate((measureName) => {
+  return await page.evaluate((measureName: string) => {
     performance.mark(`${measureName}-end`);
     performance.measure(measureName, `${measureName}-start`, `${measureName}-end`);
     const measure = performance.getEntriesByName(measureName)[0];
@@ -83,7 +95,7 @@ export const measurePerformance = async (
 /**
  * Sets up render tracking for performance tests
  */
-export const setupRenderTracking = async (page: any) => {
+export const setupRenderTracking = async (page: Page) => {
   await page.evaluate(() => {
     let renderCount = 0;
 
@@ -125,8 +137,17 @@ export const setupRenderTracking = async (page: any) => {
 /**
  * Gets render tracking statistics
  */
-export const getRenderStats = async (page: any) => {
+export const getRenderStats = async (page: Page) => {
   return await page.evaluate(
     () => (window as any).__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
   );
+};
+
+/**
+ * Cleans up render tracking to prevent global state pollution
+ */
+export const cleanupRenderTracking = async (page: Page) => {
+  await page.evaluate(() => {
+    delete (window as any).__renderTracker;
+  });
 };

@@ -192,6 +192,6 @@ test.describe('Performance: Tree Rendering', () => {
     
     // Assert reasonable performance under stress
     expect(stressTime).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS);
-    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB * 1024 * 1024);
+    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * 1024 * 1024);
   });
 });

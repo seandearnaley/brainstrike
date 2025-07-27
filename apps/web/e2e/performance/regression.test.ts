@@ -246,7 +246,7 @@ export const Component${i} = () => {
     // Memory should not explode
     // Before fixes: Could easily grow 50+ MB
     // After fixes: LRU cache should limit growth
-    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB); // Use environment-adjusted threshold
+    expect(memoryIncrease).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB); // Use memory increase threshold, not total
     
     console.log('✅ COMPREHENSIVE PERFORMANCE VALIDATION: ALL FIXES WORKING!');
     

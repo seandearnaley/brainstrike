@@ -11,11 +11,16 @@ console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
 
 
 test.describe('Performance: Benchmarks & Regression Detection', () => {
+  // Use beforeEach to ensure fresh metrics array for each test
   let performanceMetrics: PerformanceMetric[] = [];
   
+  test.beforeEach(() => {
+    // Reset metrics before each test to prevent test isolation issues
+    performanceMetrics = [];
+  });
   
-  test.afterAll(async () => {
-    // Save all collected metrics
+  test.afterEach(async () => {
+    // Save metrics after each test to avoid shared state
     if (performanceMetrics.length > 0) {
       await saveMetricsToFile(performanceMetrics);
     }

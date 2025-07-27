@@ -75,6 +75,9 @@ export function detectEnvironment(): 'local' | 'ci' | 'github-actions' {
  */
 export const PERFORMANCE_THRESHOLDS = getEnvironmentThresholds(detectEnvironment());
 
-// Log environment and thresholds for debugging
-console.log(`🔧 Environment: ${detectEnvironment()}`);
-console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS); 
+// Log environment and thresholds for debugging (only in debug mode)
+const isDebug = (globalThis as any).process?.env?.DEBUG || (globalThis as any).process?.env?.PERFORMANCE_LOGGING;
+if (isDebug) {
+  console.log(`🔧 Environment: ${detectEnvironment()}`);
+  console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
+} 
