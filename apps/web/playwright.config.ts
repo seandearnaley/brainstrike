@@ -74,29 +74,51 @@ export default defineConfig({
     testIdAttribute: 'data-testid',
   },
 
-  // Projects configuration - Chromium only by default, all browsers for full coverage
+  // Projects configuration with test type separation
   projects: useFullBrowserCoverage
     ? [
+        // Functional tests - all browsers
         {
-          name: 'chromium',
+          name: 'functional-chromium',
+          testMatch: '**/!(performance)/*.test.ts',
           use: { channel: 'chromium' },
+          timeout: 60_000,
         },
         {
-          name: 'firefox',
+          name: 'functional-firefox',
+          testMatch: '**/!(performance)/*.test.ts',
           use: { channel: 'firefox' },
+          timeout: 60_000,
         },
         {
-          name: 'webkit',
+          name: 'functional-webkit',
+          testMatch: '**/!(performance)/*.test.ts',
           use: { channel: 'webkit' },
+          timeout: 60_000,
+        },
+        // Performance tests - Chromium only (most stable for performance measurements)
+        {
+          name: 'performance',
+          testMatch: '**/performance/*.test.ts',
+          use: { channel: 'chromium' },
+          timeout: 120_000, // 2 minutes for performance tests
+          retries: 1, // Fewer retries for performance tests
         },
       ]
     : [
+        // Default: Chromium only with test type separation
         {
-          name: 'chromium',
-          use: {
-            // Use Chromium with CI-optimized settings
-            channel: 'chromium',
-          },
+          name: 'functional',
+          testMatch: '**/!(performance)/*.test.ts',
+          use: { channel: 'chromium' },
+          timeout: 60_000,
+        },
+        {
+          name: 'performance',
+          testMatch: '**/performance/*.test.ts',
+          use: { channel: 'chromium' },
+          timeout: 120_000, // 2 minutes for performance tests
+          retries: 1, // Fewer retries for performance tests
         },
       ],
 

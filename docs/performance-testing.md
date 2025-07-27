@@ -15,13 +15,26 @@ The performance testing suite includes:
 
 ### Core Test Suites
 
-1. **`performance-benchmarks.test.ts`** - Main benchmark suite with thresholds
-2. **`performance-memory-usage.test.ts`** - Memory leak and usage tests
-3. **`performance-tree-rendering.test.ts`** - Tree-specific performance tests
+Located in `apps/web/e2e/performance/`:
+
+1. **`benchmarks.test.ts`** - Main benchmark suite with thresholds
+2. **`memory-usage.test.ts`** - Memory leak and usage tests  
+3. **`tree-rendering.test.ts`** - Tree-specific performance tests
+4. **`regression.test.ts`** - Performance regression detection
+5. **`validation.test.ts`** - Simple validation tests
+
+### Test Organization Benefits
+
+- **Cleaner Directory Structure**: Performance tests are organized in dedicated subdirectory
+- **Project Separation**: Playwright projects allow running performance tests independently
+- **Optimized Timeouts**: Performance tests have longer timeouts (2 minutes vs 1 minute)
+- **Fewer Retries**: Performance tests retry less to avoid skewing measurements
+- **Shared Utilities**: Common performance testing code is extracted to reusable helpers
 
 ### Utilities
 
-- **`utils/performance-helpers.ts`** - Shared utilities for metrics collection
+- **`utils/performance-helpers.ts`** - General performance utilities for all tests
+- **`utils/performance-test-helpers.ts`** - Performance-specific test utilities
 - **`scripts/run-performance-tests.sh`** - CLI tool for running tests
 
 ## Performance Thresholds
@@ -67,16 +80,25 @@ const PERFORMANCE_THRESHOLDS = {
 ```bash
 cd apps/web
 
-# Run specific test files
-pnpm exec playwright test performance-benchmarks.test.ts
-pnpm exec playwright test performance-memory-usage.test.ts
-pnpm exec playwright test performance-tree-rendering.test.ts
+# Run all performance tests (organized in performance/ directory)
+pnpm exec playwright test --project=performance
+
+# Run all functional tests (excluding performance tests)
+pnpm exec playwright test --project=functional
+
+# Run specific performance test files
+pnpm exec playwright test performance/benchmarks.test.ts
+pnpm exec playwright test performance/memory-usage.test.ts
+pnpm exec playwright test performance/tree-rendering.test.ts
 
 # Run with headed browser for debugging
-pnpm exec playwright test performance-benchmarks.test.ts --headed
+pnpm exec playwright test performance/benchmarks.test.ts --headed
 
 # Run with debug mode
-pnpm exec playwright test performance-benchmarks.test.ts --debug
+pnpm exec playwright test performance/benchmarks.test.ts --debug
+
+# Run performance tests with full browser coverage
+PLAYWRIGHT_FULL_BROWSER_COVERAGE=true pnpm exec playwright test --project=performance
 ```
 
 ## CI Integration
@@ -156,11 +178,15 @@ Update baselines when:
 ```
 apps/web/
 ├── e2e/
-│   ├── performance-benchmarks.test.ts     # Main benchmark tests
-│   ├── performance-memory-usage.test.ts   # Memory monitoring
-│   ├── performance-tree-rendering.test.ts # Tree performance
+│   ├── performance/                        # Performance tests directory
+│   │   ├── benchmarks.test.ts             # Main benchmark tests
+│   │   ├── memory-usage.test.ts           # Memory monitoring
+│   │   ├── tree-rendering.test.ts         # Tree performance
+│   │   ├── regression.test.ts             # Regression detection
+│   │   └── validation.test.ts             # Simple validation tests
 │   └── utils/
-│       └── performance-helpers.ts          # Shared utilities
+│       ├── performance-helpers.ts          # Shared utilities
+│       └── performance-test-helpers.ts     # Performance-specific utilities
 ├── performance-metrics/                    # Generated metrics
 │   ├── baseline.json                      # Baseline measurements
 │   ├── consolidated-metrics.json          # Latest results
