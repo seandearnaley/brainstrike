@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
-import { PERFORMANCE_THRESHOLDS, detectEnvironment } from './utils/performance-config';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS, detectEnvironment } from '../utils/performance-config';
 
 // Log environment and thresholds for debugging
 console.log(`🔧 Environment: ${detectEnvironment()}`);

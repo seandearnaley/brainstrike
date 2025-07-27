@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
-import { PERFORMANCE_THRESHOLDS } from './utils/performance-config';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Memory Usage', () => {
   // Helper to create file with specific content size
@@ -22,7 +22,7 @@ test.describe('Performance: Memory Usage', () => {
     });
   };
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async () => {
     // Proper setup: mockBrowserApis first, then home.goto(), then home.expectLoaded()
     // Note: Each test will have its own mockBrowserApis call with specific tree data
   });

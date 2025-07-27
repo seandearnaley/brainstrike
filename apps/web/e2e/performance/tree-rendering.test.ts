@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
-import { PERFORMANCE_THRESHOLDS } from './utils/performance-config';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
 
 test.describe('Performance: Tree Rendering', () => {
   // Create a large file tree for stress testing
@@ -50,7 +50,7 @@ test.describe('Performance: Tree Rendering', () => {
       performance.mark('tree-load-end');
       performance.measure('tree-load', 'tree-load-start', 'tree-load-end');
       const measure = performance.getEntriesByName('tree-load')[0];
-      return measure.duration;
+      return measure?.duration || 0;
     });
     
     console.log(`Tree load time: ${loadTime}ms`);
@@ -86,7 +86,7 @@ test.describe('Performance: Tree Rendering', () => {
       performance.mark('expansion-end');
       performance.measure('expansion', 'expansion-start', 'expansion-end');
       const measure = performance.getEntriesByName('expansion')[0];
-      return measure.duration;
+      return measure?.duration || 0;
     });
     
     console.log(`Tree expansion time: ${expansionTime}ms`);
@@ -131,7 +131,7 @@ test.describe('Performance: Tree Rendering', () => {
       performance.mark('scroll-end');
       performance.measure('scroll', 'scroll-start', 'scroll-end');
       const measure = performance.getEntriesByName('scroll')[0];
-      return measure.duration;
+      return measure?.duration || 0;
     });
     
     console.log(`Tree scroll time: ${scrollTime}ms`);
@@ -145,7 +145,7 @@ test.describe('Performance: Tree Rendering', () => {
     
     await page.evaluate(() => {
       // Clear existing mocks
-      delete window.__mockFileSystemApi;
+      delete (window as any).__mockFileSystemApi;
     });
     
     await mockBrowserApis(page, 'stress-test', stressTree);
@@ -178,7 +178,7 @@ test.describe('Performance: Tree Rendering', () => {
       performance.mark('stress-test-end');
       performance.measure('stress-test', 'stress-test-start', 'stress-test-end');
       const measure = performance.getEntriesByName('stress-test')[0];
-      return measure.duration;
+      return measure?.duration || 0;
     });
     
     const finalMemory = await page.evaluate(() => {

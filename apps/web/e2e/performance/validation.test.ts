@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 
 test.describe('Performance Validation - Simple Tests', () => {
   test('validate shallow comparison fix works', async ({ page }) => {
@@ -23,9 +23,6 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     // Track render count to validate shallow comparison fix
     await page.evaluate(() => {
-      let renderCount = 0;
-      const originalCreateElement = document.createElement;
-      
       // Simple render tracking
       (window as any).__renderCounter = {
         count: 0,
