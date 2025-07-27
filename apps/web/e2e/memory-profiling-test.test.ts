@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
   
   test('profile memory growth to identify actual sources', async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
     
     // Install comprehensive memory profiler
     await page.evaluate(() => {

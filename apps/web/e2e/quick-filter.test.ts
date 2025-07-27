@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Quick Filter and Tree Expansion', () => {
   test.beforeEach(async ({ page }) => {
@@ -21,13 +22,10 @@ test.describe('Quick Filter and Tree Expansion', () => {
     await mockBrowserApis(page, 'test-project', tree);
 
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
-
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
+    await waitForAppLoad(page);
     await page.getByTestId('select-root-button').click();
 
     await expect(

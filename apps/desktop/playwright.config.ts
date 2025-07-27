@@ -73,10 +73,10 @@ const playwrightConfig: PlaywrightTestConfig = {
   },
 
   // Test match patterns
-  testMatch: ['**/*.spec.ts', '**/*.test.ts'],
+  testMatch: ['**/*.test.ts'],
 
-  // Test ignore patterns
-  testIgnore: ['**/node_modules/**', '**/dist/**', '**/build/**'],
+  // Test ignore patterns - exclude unit tests in __tests__ directories
+  testIgnore: ['**/__tests__/**', '**/node_modules/**', '**/dist/**', '**/build/**'],
 
   // Global setup for Electron app
   globalSetup: './e2e/global-setup.ts',

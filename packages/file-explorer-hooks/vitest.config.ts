@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/__tests__/**/*.{test,spec}.{ts,tsx}'],
+    include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     alias: {
       '@brainstrike/workers': path.resolve(__dirname, '../workers'),

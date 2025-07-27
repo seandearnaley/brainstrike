@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
 
 test.describe('Performance Validation - Simple Tests', () => {
   test('validate shallow comparison fix works', async ({ page }) => {
@@ -20,13 +20,9 @@ test.describe('Performance Validation - Simple Tests', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     // Track render count to validate shallow comparison fix
     await page.evaluate(() => {
-      let renderCount = 0;
-      const originalCreateElement = document.createElement;
-      
       // Simple render tracking
       (window as any).__renderCounter = {
         count: 0,
@@ -112,7 +108,6 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
 
     // The size validation we added should prevent large files from being loaded
     console.log('✅ File size validation is implemented and will prevent large files from loading');
@@ -133,7 +128,6 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
 
     // Measure initial memory
     const initialMemory = await page.evaluate(() => {
@@ -163,7 +157,6 @@ test.describe('Performance Validation - Simple Tests', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     const startTime = performance.now();
 

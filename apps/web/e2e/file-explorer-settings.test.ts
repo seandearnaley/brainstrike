@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from './page-objects/file-explorer-page';
 import { HomePage } from './page-objects/home-page';
-import { resetFileExplorerSettings } from './utils/layout-helpers';
+import { resetFileExplorerSettings, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Explorer Settings', () => {
@@ -13,10 +13,9 @@ test.describe('File Explorer Settings', () => {
     await mockBrowserApis(page, 'test-root', tree);
     const home = new HomePage(page);
     await home.goto();
-    await home.expectLoaded();
     await resetFileExplorerSettings(page);
     await page.reload();
-    await home.expectLoaded();
+    await waitForAppLoad(page);
   });
 
   test('should persist updated max selection count', async ({ page }) => {
@@ -35,7 +34,7 @@ test.describe('File Explorer Settings', () => {
     await expect(dialog).not.toBeVisible();
 
     await page.reload();
-    await home.expectLoaded();
+    await waitForAppLoad(page);
 
     await explorer.openSettingsButton.click();
     await expect(dialog).toBeVisible();

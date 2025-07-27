@@ -1,6 +1,7 @@
 import path from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
 export default defineConfig({
   plugins: [react()],
@@ -8,6 +9,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
+    testTimeout: getAdjustedTimeout('UI_COMPONENT'),
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

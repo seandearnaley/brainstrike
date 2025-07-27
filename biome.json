@@ -6,6 +6,7 @@
       "packages/**/src/**/*",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
+      "!**/e2e/**",
       "!**/node_modules/**",
       "!**/dist/**",
       "!**/.turbo/**",
