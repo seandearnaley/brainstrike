@@ -16,7 +16,7 @@
     "format-and-lint": "biome check .",
     "format-and-lint:fix": "biome check . --write",
     "lint-all": "pnpm lint && pnpm format",
-    "postinstall": "lefthook install",
+    "postinstall": "node scripts/postinstall.js",
     "test": "turbo run test --summarize --log-order=grouped",
     "test:coverage": "turbo run test:coverage --summarize --log-order=grouped",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
