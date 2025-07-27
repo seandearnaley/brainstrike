@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Complete File Explorer Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -23,15 +24,10 @@ test.describe('Complete File Explorer Workflow', () => {
     await mockBrowserApis(page, 'test-root', tree, { clipboard: true });
 
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
-
-    // Wait for the app to load completely
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible();
-    await expect(page.getByText('No directory selected')).toBeVisible();
+    await waitForAppLoad(page);
   });
 
   test('should complete the full file selection and report generation workflow', async ({

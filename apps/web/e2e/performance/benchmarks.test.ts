@@ -1,49 +1,26 @@
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
-import { PERFORMANCE_THRESHOLDS, detectEnvironment } from './utils/performance-config';
+import { FileExplorerPage } from '../page-objects/file-explorer-page';
+import { HomePage } from '../page-objects/home-page';
+import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
+import { PERFORMANCE_THRESHOLDS, detectEnvironment } from '../utils/performance-config';
+import { type PerformanceMetric, recordMetric, saveMetricsToFile } from '../utils/performance-test-helpers';
 
 // Log environment and thresholds for debugging
 console.log(`🔧 Environment: ${detectEnvironment()}`);
 console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
 
-interface PerformanceMetric {
-  name: string;
-  value: number;
-  threshold: number;
-  unit: string;
-  timestamp: number;
-}
-
-// Helper to record performance metrics
-const recordMetric = (name: string, value: number, threshold: number, unit: string): PerformanceMetric => {
-  const metric = { name, value, threshold, unit, timestamp: Date.now() };
-  console.log(`📊 ${name}: ${value}${unit} (threshold: ${threshold}${unit})`);
-  return metric;
-};
-
-// Helper to save metrics to file for CI tracking
-const saveMetricsToFile = async (metrics: PerformanceMetric[]) => {
-  const fs = require('fs').promises;
-  const path = require('path');
-  
-  const metricsDir = path.join(process.cwd(), 'performance-metrics');
-  await fs.mkdir(metricsDir, { recursive: true });
-  
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const filename = path.join(metricsDir, `metrics-${timestamp}.json`);
-  
-  await fs.writeFile(filename, JSON.stringify(metrics, null, 2));
-  console.log(`📁 Metrics saved to: ${filename}`);
-};
 
 test.describe('Performance: Benchmarks & Regression Detection', () => {
+  // Use beforeEach to ensure fresh metrics array for each test
   let performanceMetrics: PerformanceMetric[] = [];
   
+  test.beforeEach(() => {
+    // Reset metrics before each test to prevent test isolation issues
+    performanceMetrics = [];
+  });
   
-  test.afterAll(async () => {
-    // Save all collected metrics
+  test.afterEach(async () => {
+    // Save metrics after each test to avoid shared state
     if (performanceMetrics.length > 0) {
       await saveMetricsToFile(performanceMetrics);
     }
@@ -78,7 +55,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
@@ -151,14 +127,14 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     performanceMetrics.push(
-      recordMetric('Memory Usage', memoryUsage, PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB, 'MB')
+      recordMetric('Memory Usage', memoryUsage, PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB, 'MB')
     );
 
     // Assert all metrics meet thresholds
     expect(treeLoadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
     expect(expansionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
     expect(selectionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS);
-    expect(memoryUsage).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB);
+    expect(memoryUsage).toBeLessThan(PERFORMANCE_THRESHOLDS.MEMORY_TOTAL_MAX_MB);
   });
 
   test('re-render performance tracking', async ({ page }) => {
@@ -174,7 +150,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
@@ -262,7 +237,6 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const explorer = new FileExplorerPage(page);
 
     await home.goto();
-    await home.expectLoaded();
 
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });

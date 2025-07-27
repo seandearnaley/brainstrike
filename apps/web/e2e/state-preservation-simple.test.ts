@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Simple State Preservation Test', () => {
   test.beforeEach(async ({ page }) => {
@@ -10,13 +11,10 @@ test.describe('Simple State Preservation Test', () => {
 
     await mockBrowserApis(page, 'test-root', tree);
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
-
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible();
+    await waitForAppLoad(page);
   });
 
   test('should preserve root directory selection when toggling left panel', async ({ page }) => {

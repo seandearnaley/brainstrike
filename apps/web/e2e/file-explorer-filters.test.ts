@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('File Explorer - Filter Functionality', () => {
   test.beforeEach(async ({ page }) => {
@@ -26,13 +27,11 @@ test.describe('File Explorer - Filter Functionality', () => {
     await mockBrowserApis(page, 'test-project', tree);
 
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
+    await waitForAppLoad(page);
 
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
     await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
 

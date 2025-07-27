@@ -184,7 +184,16 @@
       "Bash(CI=true npx playwright test performance-benchmarks.spec.ts -g \"baseline performance benchmark\" --timeout=20000)",
       "Bash(pkill:*)",
       "Bash(timeout:*)",
-      "Bash(pnpm:*)"
+      "Bash(pnpm:*)",
+      "Bash(for file in apps/desktop/e2e/*.spec.ts)",
+      "Bash(do mv \"$file\" \"$file%.spec.ts.test.ts\")",
+      "Bash(for file in apps/web/e2e/*.spec.ts)",
+      "Bash(do [ -f \"$file\" ])",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(if [ -f \"$file\" ])",
+      "Bash(then)",
+      "Bash(fi)"
     ],
     "deny": []
   },

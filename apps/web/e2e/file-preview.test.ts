@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { getPanelElements, togglePanelVisibility } from './utils/layout-helpers';
+import { getPanelElements, togglePanelVisibility, waitForAppLoad } from './utils/layout-helpers';
 import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Tabbed Editor', () => {
@@ -12,15 +12,10 @@ test.describe('File Tabbed Editor', () => {
     await mockBrowserApis(page, 'test-root', tree);
 
     await page.goto('/');
+    await waitForAppLoad(page);
     await resetAppState(page);
     await page.reload();
-
-    await expect(
-      page.getByRole('heading', { name: 'Context Explorer', exact: true })
-    ).toBeVisible();
-    await expect(page.getByTestId('select-root-button')).toBeVisible({
-      timeout: 10000,
-    });
+    await waitForAppLoad(page);
   });
 
   test('should open file in tabbed editor', async ({ page }) => {

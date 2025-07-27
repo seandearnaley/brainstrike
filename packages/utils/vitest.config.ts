@@ -5,7 +5,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['src/__tests__/**/*.{test,spec}.{ts,tsx}'],
+    include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
   },
 });
