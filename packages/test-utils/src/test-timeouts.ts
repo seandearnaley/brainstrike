@@ -4,25 +4,25 @@
 
 export const TEST_TIMEOUTS = {
   // Unit tests - fast, isolated tests
-  UNIT: 10000, // 10 seconds
+  unit: 10000, // 10 seconds
 
   // Integration tests - tests involving multiple components
-  INTEGRATION: 15000, // 15 seconds
+  integration: 15000, // 15 seconds
 
   // Database tests - tests involving database operations
-  DATABASE: 20000, // 20 seconds
+  database: 20000, // 20 seconds
 
   // UI component tests - tests involving rendering and interactions
-  UI_COMPONENT: 15000, // 15 seconds
+  uiComponent: 15000, // 15 seconds
 
   // E2E tests - full application tests
-  E2E: 60000, // 60 seconds
+  e2e: 60000, // 60 seconds
 
   // Performance tests - performance measurement tests
-  PERFORMANCE: 120000, // 2 minutes
+  performance: 120000, // 2 minutes
 
   // Heavy/slow tests - computationally intensive tests
-  HEAVY: 30000, // 30 seconds
+  heavy: 30000, // 30 seconds
 } as const;
 
 /**
@@ -36,10 +36,12 @@ export const getTestTimeout = (type: keyof typeof TEST_TIMEOUTS): number => {
  * Environment-specific timeout multipliers
  */
 export const getTimeoutMultiplier = (): number => {
-  if (process.env.CI) {
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+  if (process.env['CI']) {
     return 2; // Double timeouts in CI
   }
-  if (process.env.DEBUG) {
+  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
+  if (process.env['DEBUG']) {
     return 5; // 5x timeouts when debugging
   }
   return 1; // Default multiplier
