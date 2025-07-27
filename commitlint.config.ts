@@ -39,7 +39,7 @@ const Configuration: UserConfig = {
       ],
     ],
     'header-max-length': [RuleConfigSeverity.Error, 'always', 100],
-    'body-max-line-length': [RuleConfigSeverity.Error, 'always', 100],
+    'body-max-line-length': [RuleConfigSeverity.Error, 'always', 400],
     'footer-max-line-length': [RuleConfigSeverity.Error, 'always', 100],
   },
   defaultIgnores: true,
