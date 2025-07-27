@@ -21,6 +21,23 @@ import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
+interface ElectronAPI {
+  db?: {
+    clearAll?: (confirmationToken?: string) => Promise<{
+      success: boolean;
+      deletedFiles?: number;
+      deletedChunks?: number;
+      message?: string;
+    }>;
+  };
+}
+
+declare global {
+  interface Window {
+    electronAPI?: ElectronAPI;
+  }
+}
+
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
@@ -207,8 +224,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   }, []);
 
   const clearViaPGlite = useCallback(async () => {
-    if (!fileRecordRepository || !chunkRepository || !dbRef.current) {
-      throw new Error('Database repositories not available');
+    if (!dbRef.current) {
+      throw new Error('Database not available');
     }
 
     return await dbRef.current.transaction(async (tx) => {
@@ -226,7 +243,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
-  }, [fileRecordRepository, chunkRepository]);
+  }, []);
 
   const clearAllData = useCallback(async () => {
     // Initialize database if not already initialized
@@ -234,8 +251,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await initializeDatabase();
     }
 
-    // For Electron IPC, use the direct IPC call
-    if (useElectronIPC && typeof window !== 'undefined') {
+    // Check if Electron IPC is actually available (not just configured)
+    const isElectronIPCAvailable =
+      useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db?.clearAll;
+
+    if (isElectronIPCAvailable) {
       return await clearViaElectronIPC();
     }
 
