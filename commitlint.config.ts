@@ -38,9 +38,6 @@ const Configuration: UserConfig = {
         'dx', // Developer experience improvements
       ],
     ],
-    'header-max-length': [RuleConfigSeverity.Error, 'always', 100],
-    'body-max-line-length': [RuleConfigSeverity.Error, 'always', 100],
-    'footer-max-line-length': [RuleConfigSeverity.Error, 'always', 100],
   },
   defaultIgnores: true,
   helpUrl: 'https://github.com/conventional-changelog/commitlint/#what-is-commitlint',

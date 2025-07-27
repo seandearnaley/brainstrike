@@ -189,12 +189,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     };
   }, []);
 
-  const clearAllData = useCallback(async () => {
-    if (!fileRecordRepository || !chunkRepository || !dbRef.current) {
-      throw new Error('Database repositories not available');
+  const clearViaElectronIPC = useCallback(async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+    const electronDB = (window as any).electronAPI?.db;
+    if (!electronDB?.clearAll) {
+      throw new Error('Electron IPC clearAll method not available');
     }
 
-    // Use transaction to ensure atomic clearing operation
+    const result = await electronDB.clearAll('CONFIRM_CLEAR_DATABASE');
+    if (result.success) {
+      return {
+        deletedFiles: result.deletedFiles || 0,
+        deletedChunks: result.deletedChunks || 0,
+      };
+    }
+    throw new Error(result.message || 'Failed to clear database via Electron IPC');
+  }, []);
+
+  const clearViaPGlite = useCallback(async () => {
+    if (!dbRef.current) {
+      throw new Error('Database not available');
+    }
+
     return await dbRef.current.transaction(async (tx) => {
       // Clear chunks first due to foreign key constraints
       const chunksResult = await tx.query('SELECT COUNT(*) as count FROM file_chunks');
@@ -210,7 +226,35 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
-  }, [fileRecordRepository, chunkRepository]);
+  }, []);
+
+  const clearAllData = useCallback(async () => {
+    // Initialize database if not already initialized
+    if (!lazyInitialized) {
+      await initializeDatabase();
+    }
+
+    // Check if Electron IPC is actually available (not just configured)
+    interface WindowWithElectronAPI extends Window {
+      electronAPI?: {
+        db?: {
+          clearAll?: (confirmationToken?: string) => Promise<unknown>;
+        };
+      };
+    }
+
+    const isElectronIPCAvailable =
+      useElectronIPC &&
+      typeof window !== 'undefined' &&
+      (window as WindowWithElectronAPI).electronAPI?.db?.clearAll;
+
+    if (isElectronIPCAvailable) {
+      return await clearViaElectronIPC();
+    }
+
+    // For direct PGlite, use transaction
+    return await clearViaPGlite();
+  }, [useElectronIPC, lazyInitialized, initializeDatabase, clearViaElectronIPC, clearViaPGlite]);
 
   const contextValue = useMemo(
     () => ({
