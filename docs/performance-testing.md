@@ -15,9 +15,9 @@ The performance testing suite includes:
 
 ### Core Test Suites
 
-1. **`performance-benchmarks.spec.ts`** - Main benchmark suite with thresholds
-2. **`performance-memory-usage.spec.ts`** - Memory leak and usage tests  
-3. **`performance-tree-rendering.spec.ts`** - Tree-specific performance tests
+1. **`performance-benchmarks.test.ts`** - Main benchmark suite with thresholds
+2. **`performance-memory-usage.test.ts`** - Memory leak and usage tests
+3. **`performance-tree-rendering.test.ts`** - Tree-specific performance tests
 
 ### Utilities
 
@@ -68,15 +68,15 @@ const PERFORMANCE_THRESHOLDS = {
 cd apps/web
 
 # Run specific test files
-pnpm exec playwright test performance-benchmarks.spec.ts
-pnpm exec playwright test performance-memory-usage.spec.ts  
-pnpm exec playwright test performance-tree-rendering.spec.ts
+pnpm exec playwright test performance-benchmarks.test.ts
+pnpm exec playwright test performance-memory-usage.test.ts
+pnpm exec playwright test performance-tree-rendering.test.ts
 
 # Run with headed browser for debugging
-pnpm exec playwright test performance-benchmarks.spec.ts --headed
+pnpm exec playwright test performance-benchmarks.test.ts --headed
 
 # Run with debug mode
-pnpm exec playwright test performance-benchmarks.spec.ts --debug
+pnpm exec playwright test performance-benchmarks.test.ts --debug
 ```
 
 ## CI Integration
@@ -156,9 +156,9 @@ Update baselines when:
 ```
 apps/web/
 ├── e2e/
-│   ├── performance-benchmarks.spec.ts     # Main benchmark tests
-│   ├── performance-memory-usage.spec.ts   # Memory monitoring
-│   ├── performance-tree-rendering.spec.ts # Tree performance  
+│   ├── performance-benchmarks.test.ts     # Main benchmark tests
+│   ├── performance-memory-usage.test.ts   # Memory monitoring
+│   ├── performance-tree-rendering.test.ts # Tree performance
 │   └── utils/
 │       └── performance-helpers.ts          # Shared utilities
 ├── performance-metrics/                    # Generated metrics
@@ -193,13 +193,13 @@ scripts/
 
 ```bash
 # View detailed test output
-DEBUG=pw:test pnpm exec playwright test performance-benchmarks.spec.ts
+DEBUG=pw:test pnpm exec playwright test performance-benchmarks.test.ts
 
 # Run single test with full output  
-pnpm exec playwright test performance-benchmarks.spec.ts -g "baseline performance"
+pnpm exec playwright test performance-benchmarks.test.ts -g "baseline performance"
 
 # Generate trace files for analysis
-pnpm exec playwright test performance-benchmarks.spec.ts --trace on
+pnpm exec playwright test performance-benchmarks.test.ts --trace on
 ```
 
 ## Contributing

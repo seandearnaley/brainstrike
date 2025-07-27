@@ -100,6 +100,10 @@ export default defineConfig({
         },
       ],
 
+  // Test match patterns - exclude unit tests in __tests__ directories
+  testMatch: '**/*.test.ts',
+  testIgnore: ['**/__tests__/**', '**/node_modules/**'],
+
   globalSetup: './e2e/global-setup.ts',
 
   // Web server configuration - optimized for CI

@@ -406,7 +406,7 @@ test.describe('IDE Layout Persistence', () => {
       if (isCollapsed) {
         // Panel collapsed, try to expand it back
         const showExplorerButton = page.locator('button[aria-label="Show explorer"]');
-        
+
         // Check if the show explorer button exists within a reasonable timeout
         try {
           await expect(showExplorerButton).toBeVisible({ timeout: 2000 });
@@ -415,7 +415,9 @@ test.describe('IDE Layout Persistence', () => {
         } catch (error) {
           // If show explorer button is not available, we can't test constraints on collapsed panel
           // This might happen if leftPanelContent is null. Let's skip this test scenario.
-          console.warn('Show explorer button not found, skipping constraint test for collapsed panel');
+          console.warn(
+            'Show explorer button not found, skipping constraint test for collapsed panel'
+          );
           return;
         }
       }

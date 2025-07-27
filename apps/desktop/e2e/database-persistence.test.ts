@@ -16,30 +16,32 @@ test.describe('Database Persistence', () => {
   test.beforeAll(async () => {
     // Increase timeout for beforeAll hook to accommodate Electron startup and database initialization
     test.setTimeout(150000); // 2.5 minutes for setup - increased due to database operations
-    
+
     console.log('🚀 Starting database persistence test suite setup...');
-    
+
     // Clean the database before running any tests in this suite
     // This is critical because NodeFS persistence means data survives between test runs
     let setupApp;
     try {
       console.log('📱 Launching Electron app for setup...');
       setupApp = await launchElectronApp();
-      
+
       console.log('⏳ Waiting for app to be ready...');
       await waitForAppReady(setupApp.window);
-      
+
       console.log('🗄️ Setting up database demo panel...');
       await showDatabaseDemoPanel(setupApp.window);
-      
+
       console.log('⏳ Waiting for database to be ready...');
       await waitForDatabaseReady(setupApp.window);
 
       // Verify database connection first before attempting cleanup
       console.log('🔍 Verifying database connection...');
-      const connectionElement = setupApp.window.locator('text=✓').or(setupApp.window.locator('text=connected'));
+      const connectionElement = setupApp.window
+        .locator('text=✓')
+        .or(setupApp.window.locator('text=connected'));
       await connectionElement.first().waitFor({ state: 'visible', timeout: 10000 });
-      
+
       console.log('🧹 Starting database cleanup...');
       // Initial cleanup before any tests run
       await clearDatabaseRecords(setupApp.window);
@@ -56,32 +58,34 @@ test.describe('Database Persistence', () => {
         console.log('🔄 Additional cleanup needed, attempting second cleanup...');
         // One more cleanup attempt if records remain
         await clearDatabaseRecords(setupApp.window);
-        
+
         // Final count verification
         await setupApp.window.click('button:has-text("Refresh")');
         await setupApp.window.waitForTimeout(500);
         const finalCount = await setupApp.window.locator('tbody tr').count();
         console.log(`📊 Final record count: ${finalCount}`);
       }
-      
+
       console.log('✅ Database setup completed successfully');
     } catch (error) {
       console.error('❌ Error during database setup:', error);
-      
+
       // Provide more detailed error information
       if (setupApp) {
         try {
           console.log('🔍 Attempting to diagnose app state...');
-          const isVisible = await setupApp.window.locator('[data-testid="database-demo-panel"]').isVisible();
+          const isVisible = await setupApp.window
+            .locator('[data-testid="database-demo-panel"]')
+            .isVisible();
           console.log(`Database panel visible: ${isVisible}`);
-          
+
           const url = setupApp.window.url();
           console.log(`App URL: ${url}`);
         } catch (diagError) {
           console.log('⚠️ Unable to diagnose app state:', diagError);
         }
       }
-      
+
       throw error;
     } finally {
       if (setupApp) {
