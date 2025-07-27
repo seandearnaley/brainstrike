@@ -69,6 +69,7 @@
       "electron",
       "electron-winstaller",
       "esbuild",
+      "lefthook",
       "onnxruntime-node",
       "protobufjs",
       "sharp"
