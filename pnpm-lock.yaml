@@ -39,6 +39,9 @@ importers:
       knip:
         specifier: ^5.60.2
         version: 5.61.0(@types/node@22.15.32)(typescript@5.8.3)
+      lefthook:
+        specifier: ^1.12.2
+        version: 1.12.2
       nyc:
         specifier: ^17.1.0
         version: 17.1.0
@@ -483,7 +486,7 @@ importers:
         version: 5.8.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer:
     dependencies:
@@ -4870,6 +4873,60 @@ packages:
   lazy-val@1.0.5:
     resolution: {integrity: sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==}
 
+  lefthook-darwin-arm64@1.12.2:
+    resolution: {integrity: sha512-fTxeI9tEskrHjc3QyEO+AG7impBXY2Ed8V5aiRc3fw9POfYtVh9b5jRx90fjk2+ld5hf+Z1DsyyLq/vOHDFskQ==}
+    cpu: [arm64]
+    os: [darwin]
+
+  lefthook-darwin-x64@1.12.2:
+    resolution: {integrity: sha512-T1dCDKAAfdHgYZ8qtrS02SJSHoR52RFcrGArFNll9Mu4ZSV19Sp8BO+kTwDUOcLYdcPGNaqOp9PkRBQGZWQC7g==}
+    cpu: [x64]
+    os: [darwin]
+
+  lefthook-freebsd-arm64@1.12.2:
+    resolution: {integrity: sha512-2n9z7Q4BKeMBoB9cuEdv0UBQH82Z4GgBQpCrfjCtyzpDnYQwrH8Tkrlnlko4qPh9MM6nLLGIYMKsA5nltzo8Cg==}
+    cpu: [arm64]
+    os: [freebsd]
+
+  lefthook-freebsd-x64@1.12.2:
+    resolution: {integrity: sha512-1hNY/irY+/3kjRzKoJYxG+m3BYI8QxopJUK1PQnknGo1Wy5u302SdX+tR7pnpz6JM5chrNw4ozSbKKOvdZ5VEw==}
+    cpu: [x64]
+    os: [freebsd]
+
+  lefthook-linux-arm64@1.12.2:
+    resolution: {integrity: sha512-1W4swYIVRkxq/LFTuuK4oVpd6NtTKY4E3VY2Uq2JDkIOJV46+8qGBF+C/QA9K3O9chLffgN7c+i+NhIuGiZ/Vw==}
+    cpu: [arm64]
+    os: [linux]
+
+  lefthook-linux-x64@1.12.2:
+    resolution: {integrity: sha512-J6VGuMfhq5iCsg1Pv7xULbuXC63gP5LaikT0PhkyBNMi3HQneZFDJ8k/sp0Ue9HkQv6QfWIo3/FgB9gz38MCFw==}
+    cpu: [x64]
+    os: [linux]
+
+  lefthook-openbsd-arm64@1.12.2:
+    resolution: {integrity: sha512-wncDRW3ml24DaOyH22KINumjvCohswbQqbxyH2GORRCykSnE859cTjOrRIchTKBIARF7PSeGPUtS7EK0+oDbaw==}
+    cpu: [arm64]
+    os: [openbsd]
+
+  lefthook-openbsd-x64@1.12.2:
+    resolution: {integrity: sha512-2jDOkCHNnc/oK/vR62hAf3vZb1EQ6Md2GjIlgZ/V7A3ztOsM8QZ5IxwYN3D1UOIR5ZnwMBy7PtmTJC/HJrig5w==}
+    cpu: [x64]
+    os: [openbsd]
+
+  lefthook-windows-arm64@1.12.2:
+    resolution: {integrity: sha512-ZMH/q6UNSidhHEG/1QoqIl1n4yPTBWuVmKx5bONtKHicoz4QCQ+QEiNjKsG5OO4C62nfyHGThmweCzZVUQECJw==}
+    cpu: [arm64]
+    os: [win32]
+
+  lefthook-windows-x64@1.12.2:
+    resolution: {integrity: sha512-TqT2jIPcTQ9uwaw+v+DTmvnUHM/p7bbsSrPoPX+fRXSGLzFjyiY+12C9dObSwfCQq6rT70xqQJ9AmftJQsa5/Q==}
+    cpu: [x64]
+    os: [win32]
+
+  lefthook@1.12.2:
+    resolution: {integrity: sha512-2CeTu5NcmoT9YnqsHTq/TF36MlqlzHzhivGx3DrXHwcff4TdvrkIwUTA56huM3Nlo5ODAF/0hlPzaKLmNHCBnQ==}
+    hasBin: true
+
   lie@3.3.0:
     resolution: {integrity: sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ==}
 
@@ -8949,7 +9006,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@22.15.32)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -8983,14 +9040,6 @@ snapshots:
       magic-string: 0.30.17
     optionalDependencies:
       vite: 6.3.5(@types/node@22.15.32)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0)
-
-  '@vitest/mocker@3.2.3(vite@6.3.5(@types/node@24.0.3)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0))':
-    dependencies:
-      '@vitest/spy': 3.2.3
-      estree-walker: 3.0.3
-      magic-string: 0.30.17
-    optionalDependencies:
-      vite: 6.3.5(@types/node@24.0.3)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0)
 
   '@vitest/pretty-format@2.1.9':
     dependencies:
@@ -9040,7 +9089,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.14
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@22.15.32)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   '@vitest/utils@2.1.9':
     dependencies:
@@ -10901,6 +10950,49 @@ snapshots:
 
   lazy-val@1.0.5: {}
 
+  lefthook-darwin-arm64@1.12.2:
+    optional: true
+
+  lefthook-darwin-x64@1.12.2:
+    optional: true
+
+  lefthook-freebsd-arm64@1.12.2:
+    optional: true
+
+  lefthook-freebsd-x64@1.12.2:
+    optional: true
+
+  lefthook-linux-arm64@1.12.2:
+    optional: true
+
+  lefthook-linux-x64@1.12.2:
+    optional: true
+
+  lefthook-openbsd-arm64@1.12.2:
+    optional: true
+
+  lefthook-openbsd-x64@1.12.2:
+    optional: true
+
+  lefthook-windows-arm64@1.12.2:
+    optional: true
+
+  lefthook-windows-x64@1.12.2:
+    optional: true
+
+  lefthook@1.12.2:
+    optionalDependencies:
+      lefthook-darwin-arm64: 1.12.2
+      lefthook-darwin-x64: 1.12.2
+      lefthook-freebsd-arm64: 1.12.2
+      lefthook-freebsd-x64: 1.12.2
+      lefthook-linux-arm64: 1.12.2
+      lefthook-linux-x64: 1.12.2
+      lefthook-openbsd-arm64: 1.12.2
+      lefthook-openbsd-x64: 1.12.2
+      lefthook-windows-arm64: 1.12.2
+      lefthook-windows-x64: 1.12.2
+
   lie@3.3.0:
     dependencies:
       immediate: 3.0.6
@@ -12614,7 +12706,7 @@ snapshots:
       lightningcss: 1.30.1
       terser: 5.42.0
 
-  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
+  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.19(@types/node@24.0.3)(lightningcss@1.30.1)(terser@5.42.0))
@@ -12749,7 +12841,7 @@ snapshots:
     dependencies:
       '@types/chai': 5.2.2
       '@vitest/expect': 3.2.3
-      '@vitest/mocker': 3.2.3(vite@6.3.5(@types/node@24.0.3)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0))
+      '@vitest/mocker': 3.2.3(vite@6.3.5(@types/node@22.15.32)(jiti@2.4.2)(lightningcss@1.30.1)(terser@5.42.0))
       '@vitest/pretty-format': 3.2.3
       '@vitest/runner': 3.2.3
       '@vitest/snapshot': 3.2.3
