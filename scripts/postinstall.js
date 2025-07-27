@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { exec } = require('child_process');
+import { exec } from 'child_process';
 
 // Skip lefthook installation in CI/build environments
 if (process.env.CI || process.env.VERCEL || process.env.NETLIFY || process.env.GITHUB_ACTIONS) {
@@ -10,7 +10,7 @@ if (process.env.CI || process.env.VERCEL || process.env.NETLIFY || process.env.G
 
 // Install lefthook in development environments
 console.log('🔧 Installing lefthook git hooks...');
-exec('lefthook install', (error, stdout, stderr) => {
+exec('pnpm exec lefthook install', (error, stdout, stderr) => {
   if (error) {
     console.warn(`⚠️  Lefthook installation failed: ${error.message}`);
     console.warn('This is not critical - git hooks will not be available');
