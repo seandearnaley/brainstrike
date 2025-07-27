@@ -21,23 +21,6 @@ import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
 
-interface ElectronAPI {
-  db?: {
-    clearAll?: (confirmationToken?: string) => Promise<{
-      success: boolean;
-      deletedFiles?: number;
-      deletedChunks?: number;
-      message?: string;
-    }>;
-  };
-}
-
-declare global {
-  interface Window {
-    electronAPI?: ElectronAPI;
-  }
-}
-
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
@@ -252,8 +235,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     // Check if Electron IPC is actually available (not just configured)
+    interface WindowWithElectronAPI extends Window {
+      electronAPI?: {
+        db?: {
+          clearAll?: (confirmationToken?: string) => Promise<unknown>;
+        };
+      };
+    }
+
     const isElectronIPCAvailable =
-      useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db?.clearAll;
+      useElectronIPC &&
+      typeof window !== 'undefined' &&
+      (window as WindowWithElectronAPI).electronAPI?.db?.clearAll;
 
     if (isElectronIPCAvailable) {
       return await clearViaElectronIPC();

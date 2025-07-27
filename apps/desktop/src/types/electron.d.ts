@@ -31,7 +31,12 @@ declare global {
         query: (sql: string, params?: unknown[]) => Promise<QueryResult>;
         exec: (sql: string) => Promise<void>;
         test: () => Promise<{ success: boolean; message: string; dbLocation: string }>;
-        clearAll: () => Promise<{ success: boolean; message: string; clearedCount: number }>;
+        clearAll: (confirmationToken?: string) => Promise<{
+          success: boolean;
+          message?: string;
+          deletedFiles?: number;
+          deletedChunks?: number;
+        }>;
       };
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<void>;
