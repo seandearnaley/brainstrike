@@ -60,6 +60,19 @@ describe('fileFilter', () => {
         expect(fileFilter.shouldIgnorePath(path)).toBe(false);
       }
     });
+
+    // NEW: Test edge cases for empty/root paths
+    it('should handle empty and root paths correctly', () => {
+      expect(fileFilter.shouldIgnorePath('')).toBe(false);
+      expect(fileFilter.shouldIgnorePath('/')).toBe(false);
+      expect(fileFilter.shouldIgnorePath('///')).toBe(false);
+    });
+
+    // NEW: Test nested ignored paths
+    it('should ignore deeply nested default patterns', () => {
+      expect(fileFilter.shouldIgnorePath('a/b/c/node_modules/d/e')).toBe(true);
+      expect(fileFilter.shouldIgnorePath('project/src/.git/hooks/pre-commit')).toBe(true);
+    });
   });
 
   describe('matchWildcard', () => {
@@ -90,6 +103,20 @@ describe('fileFilter', () => {
 
     it('should correctly handle dot files with the dot option', () => {
       expect(fileFilter.matchWildcard('.hidden-file', '*')).toBe(true);
+    });
+
+    // NEW: Test edge cases for wildcard matching
+    it('should handle empty strings and patterns', () => {
+      expect(fileFilter.matchWildcard('', '')).toBe(true);
+      expect(fileFilter.matchWildcard('file.js', '')).toBe(false);
+      expect(fileFilter.matchWildcard('', '*.js')).toBe(false);
+    });
+
+    // NEW: Test complex wildcard patterns
+    it('should handle complex wildcard patterns', () => {
+      expect(fileFilter.matchWildcard('test/a/b/file.tsx', '**/test/**/*.tsx')).toBe(true);
+      expect(fileFilter.matchWildcard('test/a/b/file.tsx', 'test/**/*.tsx')).toBe(true);
+      expect(fileFilter.matchWildcard('file.test.js', '*.test.*')).toBe(true);
     });
   });
 
@@ -123,6 +150,25 @@ describe('fileFilter', () => {
 
       expect(mockLogger.warn).toHaveBeenCalled();
     });
+
+    // NEW: Test more invalid regex patterns
+    it('should handle various invalid regex patterns', () => {
+      mockLogger.warn.mockClear();
+
+      const invalidPatterns = ['[', '(', '+', '*', '(?'];
+      for (const pattern of invalidPatterns) {
+        expect(fileFilter.matchRegex('test', pattern)).toBe(false);
+      }
+
+      expect(mockLogger.warn).toHaveBeenCalledTimes(invalidPatterns.length);
+    });
+
+    // NEW: Test edge cases for empty strings
+    it('should handle empty strings in regex matching', () => {
+      expect(fileFilter.matchRegex('', '^$')).toBe(true);
+      expect(fileFilter.matchRegex('', '.*')).toBe(true);
+      expect(fileFilter.matchRegex('', '.+')).toBe(false);
+    });
   });
 
   describe('filterNode', () => {
@@ -142,6 +188,23 @@ describe('fileFilter', () => {
 
       const result = fileFilter.filterNode(fileNode, options);
       expect(result).not.toBeNull();
+    });
+
+    // NEW: Test ignored path filtering at node level
+    it('should filter out ignored paths using shouldIgnorePath logic', () => {
+      const ignoredFileNode = createFileNode({
+        name: 'package.json',
+        path: '/node_modules/package.json',
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(ignoredFileNode, options);
+      expect(result).toBeNull();
     });
 
     it('should apply include filters correctly', () => {
@@ -178,6 +241,23 @@ describe('fileFilter', () => {
       const result = fileFilter.filterNode(fileNode, options);
       expect(result).not.toBeNull();
       expect(result?.path).toBe('/test.css');
+    });
+
+    // NEW: Test exclude filter that DOES match
+    it('should exclude files that match exclude filters', () => {
+      const fileNode = createFileNode({
+        name: 'test.js',
+        path: '/test.js',
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: [],
+        excludeFilters: ['**/*.js'],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(fileNode, options);
+      expect(result).toBeNull();
     });
 
     it('should apply regex filters when useRegex is true', () => {
@@ -290,6 +370,84 @@ describe('fileFilter', () => {
           }
         }
       }
+    });
+
+    // NEW: Test directory that matches include filters but has no valid children
+    it('should include empty directories that match include filters', () => {
+      const emptyDir = createDirectoryNode({
+        name: 'src',
+        path: '/src',
+        children: [],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: ['**/src'],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(emptyDir, options);
+      expect(result).not.toBeNull();
+      expect(result?.children).toEqual([]);
+    });
+
+    // NEW: Test directory that doesn't match include filters and has no matching children
+    it('should exclude directories that do not match include filters and have no matching children', () => {
+      const ignoredFile = createFileNode({ name: 'temp.tmp', path: '/cache/temp.tmp' });
+      const cacheDir = createDirectoryNode({
+        name: 'cache',
+        path: '/cache',
+        children: [ignoredFile],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: ['**/*.js', '**/*.ts'],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(cacheDir, options);
+      expect(result).toBeNull();
+    });
+
+    // NEW: Test complex directory filtering with mixed children
+    it('should handle directories with mixed filtered and unfiltered children', () => {
+      const jsFile = createFileNode({ name: 'app.js', path: '/src/app.js' });
+      const cssFile = createFileNode({ name: 'style.css', path: '/src/style.css' });
+      const srcDir = createDirectoryNode({
+        name: 'src',
+        path: '/src',
+        children: [jsFile, cssFile],
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: ['**/*.js'],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(srcDir, options);
+      expect(result).not.toBeNull();
+      expect(result?.children).toHaveLength(1);
+      expect(result?.children?.[0]?.name).toBe('app.js');
+    });
+
+    // NEW: Test directory with undefined children
+    it('should handle directories with undefined children', () => {
+      const dirWithoutChildren = createDirectoryNode({
+        name: 'empty',
+        path: '/empty',
+        // children property omitted to test undefined case
+      });
+
+      const options: FileFilterOptions = {
+        includeFilters: [],
+        excludeFilters: [],
+        useRegex: false,
+      };
+
+      const result = fileFilter.filterNode(dirWithoutChildren, options);
+      expect(result).not.toBeNull();
     });
   });
 });

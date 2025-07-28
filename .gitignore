@@ -13,6 +13,11 @@ playwright-report-merged/
 test-results/
 merged-tests/
 
+# Mutation testing reports and artifacts
+**/reports/mutation/
+*.stryker-tmp/
+.stryker-tmp/
+
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 

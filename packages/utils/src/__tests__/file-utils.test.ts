@@ -12,9 +12,93 @@ describe('file-utils', () => {
     expect(getBaseFilename('file')).toBe('file');
   });
 
-  it('formats file sizes', () => {
-    expect(formatFileSize(0)).toBe('0 Bytes');
-    expect(formatFileSize(1024)).toBe('1 KB');
-    expect(formatFileSize(1536, 2)).toBe('1.5 KB');
+  describe('formatFileSize', () => {
+    it('formats zero and negative bytes correctly', () => {
+      expect(formatFileSize(0)).toBe('0 Bytes');
+      expect(formatFileSize(-1)).toBe('0 Bytes');
+      expect(formatFileSize(-100)).toBe('0 Bytes');
+    });
+
+    it('formats bytes correctly', () => {
+      expect(formatFileSize(1)).toBe('1 Bytes');
+      expect(formatFileSize(500)).toBe('500 Bytes');
+      expect(formatFileSize(1023)).toBe('1023 Bytes');
+    });
+
+    it('formats kilobytes correctly', () => {
+      expect(formatFileSize(1024)).toBe('1 KB');
+      expect(formatFileSize(1536, 1)).toBe('1.5 KB');
+      expect(formatFileSize(2048)).toBe('2 KB');
+      expect(formatFileSize(512 * 1024)).toBe('512 KB'); // Large KB value that stays in KB
+    });
+
+    it('formats megabytes correctly', () => {
+      expect(formatFileSize(1024 * 1024)).toBe('1 MB');
+      expect(formatFileSize(1.5 * 1024 * 1024, 1)).toBe('1.5 MB');
+      expect(formatFileSize(2.5 * 1024 * 1024, 1)).toBe('2.5 MB');
+    });
+
+    it('formats gigabytes correctly', () => {
+      expect(formatFileSize(1024 * 1024 * 1024)).toBe('1 GB');
+      expect(formatFileSize(2.5 * 1024 * 1024 * 1024, 1)).toBe('2.5 GB');
+    });
+
+    it('formats terabytes correctly', () => {
+      expect(formatFileSize(1024 * 1024 * 1024 * 1024)).toBe('1 TB');
+      expect(formatFileSize(1.2 * 1024 * 1024 * 1024 * 1024, 1)).toBe('1.2 TB');
+    });
+
+    it('formats petabytes correctly', () => {
+      expect(formatFileSize(1024 ** 5)).toBe('1 PB');
+      expect(formatFileSize(1.3 * 1024 ** 5, 1)).toBe('1.3 PB');
+    });
+
+    it('formats exabytes correctly', () => {
+      expect(formatFileSize(1024 ** 6)).toBe('1 EB');
+      expect(formatFileSize(2.1 * 1024 ** 6, 1)).toBe('2.1 EB');
+    });
+
+    it('formats zettabytes correctly', () => {
+      expect(formatFileSize(1024 ** 7)).toBe('1 ZB');
+      expect(formatFileSize(1.7 * 1024 ** 7, 1)).toBe('1.7 ZB');
+    });
+
+    it('formats yottabytes correctly', () => {
+      expect(formatFileSize(1024 ** 8)).toBe('1 YB');
+      expect(formatFileSize(1.9 * 1024 ** 8, 1)).toBe('1.9 YB');
+    });
+
+    it('handles very large numbers correctly (bounds checking)', () => {
+      // Test the boundary condition where index might exceed array length
+      const veryLargeNumber = 1024 ** 20; // Much larger than YB
+      const result = formatFileSize(veryLargeNumber);
+      expect(result).toContain('YB'); // Should use the last unit (YB)
+      expect(result).not.toContain('undefined');
+    });
+
+    it('respects decimal places parameter', () => {
+      const size = 1.23456 * 1024 * 1024; // ~1.23 MB
+      expect(formatFileSize(size, 0)).toBe('1 MB');
+      expect(formatFileSize(size, 1)).toBe('1.2 MB');
+      expect(formatFileSize(size, 2)).toBe('1.23 MB');
+      expect(formatFileSize(size, 3)).toBe('1.235 MB');
+    });
+
+    it('handles negative decimal places', () => {
+      const size = 1.5 * 1024; // 1.5 KB
+      expect(formatFileSize(size, -1)).toBe('2 KB'); // Should default to 0 decimals, round up
+      expect(formatFileSize(size, -5)).toBe('2 KB'); // Should default to 0 decimals, round up
+    });
+
+    it('correctly calculates unit index for edge cases', () => {
+      // Test specific boundaries that could reveal index calculation bugs
+      const justUnder1KB = 1023;
+      const exactly1KB = 1024;
+      const justOver1KB = 1025;
+
+      expect(formatFileSize(justUnder1KB)).toBe('1023 Bytes');
+      expect(formatFileSize(exactly1KB)).toBe('1 KB');
+      expect(formatFileSize(justOver1KB, 3)).toBe('1.001 KB');
+    });
   });
 });
