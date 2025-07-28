@@ -47,9 +47,9 @@ Add these dev dependencies to your package:
 ```json
 {
   "devDependencies": {
-    "@stryker-mutator/core": "^8.8.0",
-    "@stryker-mutator/vitest-runner": "^8.8.0",
-    "@stryker-mutator/typescript-checker": "^8.8.0"
+    "@stryker-mutator/core": "^9.0.1",
+    "@stryker-mutator/vitest-runner": "^9.0.1",
+    "@stryker-mutator/typescript-checker": "^9.0.1"
   }
 }
 ```
