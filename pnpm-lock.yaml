@@ -98,7 +98,7 @@ importers:
         version: link:../../packages/utils
       '@electric-sql/pglite':
         specifier: ^0.3.3
-        version: 0.3.3
+        version: 0.3.6
       electron-store:
         specifier: ^10.1.0
         version: 10.1.0
@@ -424,7 +424,7 @@ importers:
         version: link:../utils
       '@electric-sql/pglite':
         specifier: ^0.3.3
-        version: 0.3.3
+        version: 0.3.6
       '@langchain/textsplitters':
         specifier: ^0.1.0
         version: 0.1.0(@langchain/core@0.3.62)
@@ -486,7 +486,7 @@ importers:
         version: 5.8.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer:
     dependencies:
@@ -1558,8 +1558,8 @@ packages:
     resolution: {integrity: sha512-0dEVyRLM/lG4gp1R/Ik5bfPl/1wX00xFwd5KcNH602tzBa09oF7pbTKETEhR1GjZ75K6OJnYFu8II2dyMhONMw==}
     engines: {node: '>=16'}
 
-  '@electric-sql/pglite@0.3.3':
-    resolution: {integrity: sha512-JrvHOx9q0yvKEby0bK8qzGTVw6K+yEg8enxDWb2IwNKr5XZxRrBb+GNIqoAIP7yXyhRg5jcENWmdHmtnAT87vA==}
+  '@electric-sql/pglite@0.3.6':
+    resolution: {integrity: sha512-KFIoLIhiOzYQzT2TOxqWH9eAMZcZd4tzSGXDY+6qRboZY2P76yFDNTKS4SB2c3hy6vRqIrHSh24VDPi9FyNhlA==}
 
   '@electron/asar@3.2.18':
     resolution: {integrity: sha512-2XyvMe3N3Nrs8cV39IKELRHTYUWFKrmqqSY1U+GMlc0jvqjIVnoxhNd2H4JolWQncbJi1DCvb5TNxZuI2fEjWg==}
@@ -7952,7 +7952,7 @@ snapshots:
     dependencies:
       '@edge-runtime/primitives': 4.1.0
 
-  '@electric-sql/pglite@0.3.3': {}
+  '@electric-sql/pglite@0.3.6': {}
 
   '@electron/asar@3.2.18':
     dependencies:
@@ -9824,7 +9824,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@22.15.32)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -9915,7 +9915,7 @@ snapshots:
       sirv: 3.0.1
       tinyglobby: 0.2.14
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@22.15.32)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   '@vitest/utils@2.1.9':
     dependencies:
@@ -13687,7 +13687,7 @@ snapshots:
       lightningcss: 1.30.1
       terser: 5.42.0
 
-  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
+  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.19(@types/node@24.0.3)(lightningcss@1.30.1)(terser@5.42.0))
