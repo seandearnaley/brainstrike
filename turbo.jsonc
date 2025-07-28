@@ -85,6 +85,18 @@
       ]
     },
 
+    // --- Mutation Testing Task --- //
+    "mutation": {
+      // Ensures the package is built before mutation testing is run.
+      "dependsOn": ["build"],
+      // Mutation testing reports are output artifacts.
+      "outputs": ["reports/mutation/**"],
+      // Mutation testing should not be cached as it should always re-run to ensure fresh analysis.
+      "cache": false,
+      // Show full logs for mutation testing as they contain important analysis information
+      "outputLogs": "full"
+    },
+
     // --- Composite Check Task (for CI) --- //
     "check": {
       // Runs lint, type-check, and test tasks within the same package.
