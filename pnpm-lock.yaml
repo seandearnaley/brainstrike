@@ -486,7 +486,7 @@ importers:
         version: 5.8.3
       vitest:
         specifier: ^2.0.0
-        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+        version: 2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer:
     dependencies:
@@ -512,12 +512,30 @@ importers:
         specifier: ^5
         version: 5.0.5(@types/react@19.1.8)(react@19.1.0)(use-sync-external-store@1.5.0(react@19.1.0))
     devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@stryker-mutator/core':
+        specifier: ^9.0.1
+        version: 9.0.1(@types/node@24.0.3)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.0.1
+        version: 9.0.1(@stryker-mutator/core@9.0.1(@types/node@24.0.3))(typescript@5.8.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.0.1
+        version: 9.0.1(@stryker-mutator/core@9.0.1(@types/node@24.0.3))(vitest@3.2.3)
       '@types/node':
         specifier: ^24
         version: 24.0.3
       tsup:
         specifier: ^8
         version: 8.5.0(@swc/core@1.12.1)(jiti@2.4.2)(postcss@8.5.6)(typescript@5.8.3)
+      typescript:
+        specifier: ^5.8.3
+        version: 5.8.3
+      vitest:
+        specifier: ^3.2.3
+        version: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
 
   packages/file-explorer-hooks:
     dependencies:
@@ -9806,7 +9824,7 @@ snapshots:
       std-env: 3.9.0
       test-exclude: 7.0.1
       tinyrainbow: 2.0.0
-      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@22.15.32)(@vitest/ui@3.2.3)(happy-dom@17.6.3)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
+      vitest: 3.2.3(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jiti@2.4.2)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0)
     transitivePeerDependencies:
       - supports-color
 
@@ -13669,7 +13687,7 @@ snapshots:
       lightningcss: 1.30.1
       terser: 5.42.0
 
-  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3(vitest@3.2.3))(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
+  vitest@2.1.9(@edge-runtime/vm@3.2.0)(@types/node@24.0.3)(@vitest/ui@3.2.3)(happy-dom@18.0.1)(jsdom@26.1.0)(lightningcss@1.30.1)(terser@5.42.0):
     dependencies:
       '@vitest/expect': 2.1.9
       '@vitest/mocker': 2.1.9(vite@5.4.19(@types/node@24.0.3)(lightningcss@1.30.1)(terser@5.42.0))

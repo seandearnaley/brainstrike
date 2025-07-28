@@ -1,5 +1,4 @@
 // @ts-check
-/** @type {import('@stryker-mutator/api/core').PartialStrykerOptions} */
 const config = {
   // Specify which plugins to load
   plugins: [

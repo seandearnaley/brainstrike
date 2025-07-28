@@ -29,7 +29,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "mutation": "stryker run"
+    "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
     "gpt-tokenizer": "^3.0.1",
