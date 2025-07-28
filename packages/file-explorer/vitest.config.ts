@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
@@ -27,6 +29,12 @@ export default defineConfig({
         branches: 60,
         statements: 60,
       },
+    },
+  },
+  resolve: {
+    alias: {
+      '@brainstrike/storage': path.resolve(__dirname, '../storage/src'),
+      '@brainstrike/file-system': path.resolve(__dirname, '../file-system/src'),
     },
   },
 });
