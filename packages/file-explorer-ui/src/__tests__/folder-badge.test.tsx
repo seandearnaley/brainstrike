@@ -80,7 +80,7 @@ describe('FolderBadge', () => {
       const styleAttr = badgeElement.getAttribute('style');
       expect(styleAttr).toContain('--folder-bg: #ff0000');
       expect(styleAttr).toContain('--folder-text: #ffffff');
-      expect(styleAttr).toContain('backgound-color: var(--folder-bg)');
+      expect(styleAttr).toContain('background-color: var(--folder-bg)');
       expect(styleAttr).toContain('color: var(--folder-text)');
     }
   });

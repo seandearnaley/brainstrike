@@ -40,8 +40,8 @@
   "devDependencies": {
     "tsup": "^8",
     "@types/node": "^24",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.3",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4",
     "@brainstrike/test-utils": "workspace:*",
     "@stryker-mutator/core": "^9.0.1",
     "@stryker-mutator/vitest-runner": "^9.0.1",
