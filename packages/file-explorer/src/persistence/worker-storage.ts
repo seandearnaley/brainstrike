@@ -34,6 +34,8 @@ export interface StorageRequest {
 
 export class WorkerStorage {
   private worker: Worker | null = null;
+  // biome-ignore lint/correctness/noUnusedPrivateClassMembers: messageId is used in sendMessage method
+  private messageId = 0;
   private pendingRequests = new Map<
     string,
     {

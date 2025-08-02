@@ -1,5 +1,4 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import type React from 'react';
 import { useLayoutEffect } from 'react';
 import { describe, expect, it } from 'vitest';
 import { useVirtualList } from '../use-virtual-list';
@@ -12,8 +11,7 @@ interface TestComponentProps {
 }
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
-  // biome-ignore lint/correctness/noUnusedVariables: containerRef is used in ref callback
-  const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan });
+  const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan: overscan ?? 0 });
 
   useLayoutEffect(() => {
     onUpdate(range);
@@ -25,7 +23,9 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
         if (element) {
           Object.defineProperty(element, 'clientHeight', { value: 50 });
         }
-        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
+        if (containerRef) {
+          (containerRef as { current: HTMLDivElement | null }).current = element;
+        }
       }}
       data-testid="container"
     />
