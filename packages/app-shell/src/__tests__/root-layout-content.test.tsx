@@ -2,15 +2,15 @@ import { MemoryStorageAdapter } from '@brainstrike/storage';
 import { act, render, screen } from '@testing-library/react';
 
 import type React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootLayoutContent } from '../root-layout-content';
 import type { NavigationItem } from '../types';
 
-// Mock dependencies
+// Mock dependencies - avoid duplicate mocks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({
     storageAdapter: new MemoryStorageAdapter(),
-    fileSystemAdapter: null, // Or a mock adapter if needed
+    fileSystemAdapter: null,
   }),
   useFileExplorer: () => ({}),
 }));
@@ -18,7 +18,9 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 // Mock the file-explorer-ui package to avoid worker issues
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
-  TabbedFileEditorPanel: () => <div data-testid="tabbed-file-editor-panel" />,
+  TabbedFileEditorPanel: ({ className }: { className?: string }) => (
+    <div data-testid="tabbed-file-editor-panel" className={className} />
+  ),
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="file-explorer-provider">{children}</div>
   ),
@@ -42,21 +44,6 @@ vi.mock('../app-layout', () => ({
     return <div>{children}</div>;
   },
 }));
-
-vi.mock('@brainstrike/file-explorer-hooks', () => ({
-  useAdapters: () => ({ storageAdapter: {} }),
-}));
-
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const original = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...original,
-    FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
-    TabbedFileEditorPanel: ({ className }: { className?: string }) => (
-      <div data-testid="tabbed-file-editor-panel" className={className} />
-    ),
-  };
-});
 
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
