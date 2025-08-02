@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.0.6/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.1.3/schema.json",
   "files": {
     "includes": [
       "apps/**/src/**/*",
@@ -124,7 +124,8 @@
         "rules": {
           "style": {
             "useFilenamingConvention": "off",
-            "useNamingConvention": "off"
+            "useNamingConvention": "off",
+            "noParameterAssign": "off"
           },
           "correctness": {
             "noUnusedVariables": "warn"
@@ -188,6 +189,16 @@
           },
           "complexity": {
             "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/ui/src/**", "packages/file-explorer-ui/src/loading-overlay.tsx"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noParameterAssign": "off"
           }
         }
       }

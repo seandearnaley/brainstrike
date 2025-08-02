@@ -36,7 +36,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
     // Handle loading file content for tabs
     const handleLoadFileContent = useCallback(
       (compositeKey: string) => {
-        loadFileContent(compositeKey);
+        void loadFileContent(compositeKey);
       },
       [loadFileContent]
     );
@@ -62,7 +62,7 @@ export const TabbedFileEditorPanel = memo<TabbedFileEditorPanelProps>(
 
         // Load content if not already loaded or loading
         if (!fileContents[compositeKey] && !loadingFiles.has(compositeKey)) {
-          loadFileContent(compositeKey);
+          void loadFileContent(compositeKey);
         }
       },
       [openTab, loadFileContent, rootDirectoryHandle] // Remove fileContents and loadingFiles to prevent infinite loops

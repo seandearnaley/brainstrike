@@ -12,6 +12,7 @@ interface TestComponentProps {
 }
 
 function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestComponentProps) {
+  // biome-ignore lint/correctness/noUnusedVariables: containerRef is used in ref callback
   const { containerRef, range } = useVirtualList(itemCount, rowHeight, { overscan });
 
   useLayoutEffect(() => {
@@ -20,11 +21,11 @@ function TestComponent({ itemCount, rowHeight, overscan, onUpdate }: TestCompone
 
   return (
     <div
-      ref={(el) => {
-        if (el) {
-          Object.defineProperty(el, 'clientHeight', { value: 50 });
+      ref={(element) => {
+        if (element) {
+          Object.defineProperty(element, 'clientHeight', { value: 50 });
         }
-        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+        (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = element;
       }}
       data-testid="container"
     />
