@@ -193,7 +193,10 @@
       "Bash(do)",
       "Bash(if [ -f \"$file\" ])",
       "Bash(then)",
-      "Bash(fi)"
+      "Bash(fi)",
+      "Bash(CI=true pnpm --filter @brainstrike/db test __tests__/bootstrap.test.ts)",
+      "Bash(CI=true pnpm --filter @brainstrike/db test:coverage)",
+      "Bash(CI=true pnpm run test:coverage)"
     ],
     "deny": []
   },
