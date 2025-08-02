@@ -15,6 +15,15 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useFileExplorer: () => ({}),
 }));
 
+// Mock the file-explorer-ui package to avoid worker issues
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  FileExplorerLeftPanel: () => <div data-testid="file-explorer-left-panel" />,
+  TabbedFileEditorPanel: () => <div data-testid="tabbed-file-editor-panel" />,
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-explorer-provider">{children}</div>
+  ),
+}));
+
 // Create a stable object to hold the mock function.
 const mockHandlers = {
   onNavigationClick: (_path: string) => {},

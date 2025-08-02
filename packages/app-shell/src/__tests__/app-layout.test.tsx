@@ -4,6 +4,21 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
+// Mock the file-explorer-ui package to avoid worker issues
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-explorer-provider">{children}</div>
+  ),
+}));
+
+// Mock the file-explorer-hooks package
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  useAdapters: () => ({
+    fileSystemAdapter: null,
+    storageAdapter: null,
+  }),
+}));
+
 // Mock the UI package
 vi.mock('@brainstrike/ui', () => ({
   ThemeProvider: ({ children }: { children: React.ReactNode }) => (

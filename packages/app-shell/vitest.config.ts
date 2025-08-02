@@ -9,6 +9,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    unstubGlobals: true,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {
@@ -39,6 +40,15 @@ export default defineConfig({
     alias: {
       electron: path.resolve(__dirname, '../storage/__mocks__/electron.ts'),
       '@brainstrike/storage': path.resolve(__dirname, '../storage/dist'),
+      '/worker-storage.worker.js': path.resolve(__dirname, '__mocks__/worker-storage.worker.js'),
+    },
+  },
+  define: {
+    'import.meta.url': JSON.stringify('file:///mock/url'),
+  },
+  server: {
+    fs: {
+      allow: ['.'],
     },
   },
 });

@@ -55,6 +55,30 @@ if (typeof window !== 'undefined') {
     configurable: true,
     value: MockResizeObserver,
   });
+
+  // Mock Worker
+  class MockWorker {
+    onmessage: ((this: Worker, ev: MessageEvent) => void) | null = null;
+    onerror: ((this: AbstractWorker, ev: ErrorEvent) => void) | null = null;
+    onmessageerror: ((this: Worker, ev: MessageEvent) => void) | null = null;
+
+    postMessage = vi.fn();
+    terminate = vi.fn();
+    addEventListener = vi.fn();
+    removeEventListener = vi.fn();
+    dispatchEvent = vi.fn();
+
+    constructor(url: string | URL, options?: WorkerOptions) {
+      void url;
+      void options;
+    }
+  }
+
+  Object.defineProperty(window, 'Worker', {
+    writable: true,
+    configurable: true,
+    value: MockWorker,
+  });
 }
 
 // Mock TextDecoder/TextEncoder
@@ -80,6 +104,17 @@ if (typeof global.TextDecoder === 'undefined') {
 }
 if (typeof global.TextEncoder === 'undefined') {
   global.TextEncoder = MockTextEncoder as unknown as typeof global.TextEncoder;
+}
+
+// Mock import.meta for worker URL resolution
+if (typeof global.import === 'undefined') {
+  Object.defineProperty(global, 'import', {
+    value: {
+      meta: {
+        url: 'file:///mock/url',
+      },
+    },
+  });
 }
 
 // Configure console to handle test output better
