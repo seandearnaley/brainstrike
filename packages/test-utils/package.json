@@ -32,14 +32,14 @@
     "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
-    "@swc/core": "^1.12.1",
-    "@testing-library/jest-dom": "^6.6.3",
-    "@types/node": "^24.0.1",
+    "@swc/core": "^1.13.3",
+    "@testing-library/jest-dom": "^6.6.4",
+    "@types/node": "^24.1.0",
     "jsdom": "^26.1.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.3"
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
   },
   "publishConfig": {
     "access": "public"

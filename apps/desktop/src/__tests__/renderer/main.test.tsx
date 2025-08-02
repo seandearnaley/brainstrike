@@ -1,6 +1,23 @@
 import type { ReactElement } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Mock file-explorer packages to avoid Worker import issues
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  AdaptersProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="adapters-provider">{children}</div>
+  ),
+  useAdapters: () => ({
+    storageAdapter: {},
+    fileSystemAdapter: {},
+  }),
+}));
+
+vi.mock('@brainstrike/file-explorer-ui', () => ({
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="file-explorer-provider">{children}</div>
+  ),
+}));
+
 // Mock createRoot from react-dom/client
 const mockRender = vi.fn();
 const mockCreateRoot = vi.fn(() => ({ render: mockRender }));

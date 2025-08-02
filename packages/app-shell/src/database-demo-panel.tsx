@@ -208,7 +208,7 @@ export function DatabaseDemoPanel() {
       });
       return;
     }
-    importFiles(selectedFilePaths, fileTree, fileContents);
+    void importFiles(selectedFilePaths, fileTree, fileContents);
   }, [selectedFilePaths, fileTree, fileContents, importFiles, toast]);
 
   const handleClearDatabase = useCallback(async () => {

@@ -1,12 +1,29 @@
 import '@testing-library/jest-dom';
-import { beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
 // Configure React 19 test environment
 
+// Track all created mock workers for cleanup
+const createdWorkers: Set<Worker> = new Set();
+const MAX_WORKERS = 10; // Prevent runaway worker creation
+
 // Reset store before each test
 beforeEach(() => {
   resetStore();
+  // Clear any workers from previous tests
+  createdWorkers.clear();
+});
+
+// Clean up after each test
+afterEach(() => {
+  // Terminate any mock workers that were created
+  createdWorkers.forEach((worker) => {
+    if (worker && typeof worker.terminate === 'function') {
+      worker.terminate();
+    }
+  });
+  createdWorkers.clear();
 });
 
 // The import '@testing-library/jest-dom' at the top should handle extending expect.
@@ -54,6 +71,58 @@ if (typeof window !== 'undefined') {
     writable: true,
     configurable: true,
     value: MockResizeObserver,
+  });
+
+  // Mock Worker - prevent real Workers from being created in tests
+  class MockWorker {
+    onmessage: ((this: Worker, ev: MessageEvent) => void) | null = null;
+    onerror: ((this: AbstractWorker, ev: ErrorEvent) => void) | null = null;
+    onmessageerror: ((this: Worker, ev: MessageEvent) => void) | null = null;
+    private _terminated = false;
+
+    postMessage = vi.fn();
+    terminate = vi.fn(() => {
+      this._terminated = true;
+      createdWorkers.delete(this);
+    });
+    addEventListener = vi.fn();
+    removeEventListener = vi.fn();
+    dispatchEvent = vi.fn();
+
+    constructor(url: string | URL, options?: WorkerOptions) {
+      void url;
+      void options;
+
+      // Prevent too many workers from being created
+      if (createdWorkers.size >= MAX_WORKERS) {
+        throw new Error(
+          `Too many workers created (${MAX_WORKERS}). Possible worker leak in tests.`
+        );
+      }
+
+      // Track this worker instance
+      createdWorkers.add(this);
+
+      // Don't simulate messages if already terminated
+      setTimeout(() => {
+        if (!this._terminated && this.onmessage) {
+          this.onmessage(new MessageEvent('message', { data: { type: 'ready' } }));
+        }
+      }, 0);
+    }
+  }
+
+  Object.defineProperty(window, 'Worker', {
+    writable: true,
+    configurable: true,
+    value: MockWorker,
+  });
+
+  // Also set it on global for Node.js environments
+  Object.defineProperty(global, 'Worker', {
+    writable: true,
+    configurable: true,
+    value: MockWorker,
   });
 }
 
