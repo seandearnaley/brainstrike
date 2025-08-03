@@ -65,21 +65,17 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 *   **Primary Language**: TypeScript. Adhere to strict mode.
 *   **UI Framework**: React 19+ with functional components and hooks.
 *   **Styling**: TailwindCSS v4. Utilize shared components from `@brainstrike/ui`.
-*   **State Management (`apps/web`)**: Zustand. For an example, see `apps/web/src/stores/useFileExplorerStore.ts`.
-*   **Linting & Formatting**: Biome is used for linting and formatting.
-    *   Check for issues:
+*   **State Management**: Zustand is used for global state. For a canonical example, see the file explorer store in `packages/file-explorer/src/store.ts`.
+*   **Linting & Formatting**: Biome is used for linting and formatting. The following commands are run from the root of the monorepo.
+    *   Check for issues and apply safe fixes:
         ```bash
         pnpm lint
         ```
-    *   Auto-fix simple problems (recommended before committing):
-        ```bash
-        pnpm lint --fix # runs `biome check --fix`
-        ```
-    *   Format code:
+    *   Format all files:
         ```bash
         pnpm format
         ```
-    These commands run Biome across the entire monorepo. Ensure your code is compliant before committing.
+    Ensure your code is compliant before committing.
 *   **File & Directory Naming**:
     *   **General**: kebab-case for files and directories (e.g., `my-feature/`, `utility-functions.ts`).
     *   **React Components**: kebab-case for filenames (e.g., `file-explorer.tsx`, `user-profile.tsx`), but PascalCase for component exports (e.g., `export function FileExplorer()`).
@@ -169,11 +165,11 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
 
 The `check` script runs the following steps sequentially:
 1.  **Dependency Installation**: `pnpm install` ensures all dependencies are correctly installed.
-2.  **Building**: `pnpm run build` builds the entire monorepo.
-3.  **Linting**: `pnpm run lint` (use `pnpm run lint --fix` to auto-fix issues).
-4.  **Type Checking**: `pnpm run type-check` resolves TypeScript errors.
-5.  **Unit & Integration Testing**: `pnpm run test` runs all unit and integration tests.
-6.  **End-to-End Testing**: `pnpm run test:e2e` executes Playwright E2E tests.
+2.  **Linting & Formatting**: `pnpm lint-all` runs the linter and formatter.
+3.  **Building**: `pnpm build` builds the entire monorepo.
+4.  **Type Checking**: `pnpm type-check` resolves TypeScript errors.
+5.  **Unit & Integration Testing**: `pnpm test` runs all unit and integration tests.
+6.  **End-to-End Testing**: `pnpm test:e2e` executes Playwright E2E tests.
 
 Only if this entire sequence is successful is the code considered ready for a Pull Request.
 

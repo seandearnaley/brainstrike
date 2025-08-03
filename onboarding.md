@@ -29,20 +29,20 @@ brainstrike/
 │   └── web/                 # The main frontend application
 │       ├── public/          # Static assets
 │       ├── src/             # Application source code (React, Vite, TypeScript)
-│       ├── tests/           # End-to-end tests (Playwright)
+│       ├── e2e/             # End-to-end tests (Playwright)
 │       ├── vite.config.ts   # Vite configuration
 │       ├── tsconfig.json    # App-specific TypeScript config
 │       └── package.json     # App dependencies and scripts
 ├── packages/
 │   ├── config/              # Shared configuration files (reusable across packages)
-│   │   ├── biome/           # Shared Biome (lint/format) configuration
+│   │   ├── biome.json       # Shared Biome (lint/format) configuration
 │   │   └── tsconfig/        # Shared TypeScript base configurations (base.json, react-library.json)
 │   ├── hooks/               # Reusable React hooks (e.g., useAuth, useFetch)
 │   ├── types/               # Shared TypeScript interfaces and types
 │   ├── ui/                  # Core UI component library (built with React/Tailwind/Radix?)
 │   └── utils/               # Common utility functions (e.g., date formatting, validation)
 ├── node_modules/            # Project dependencies (managed by pnpm, ignored by Git)
-├── biome.json               # Root Biome configuration (extends packages/config/biome)
+├── biome.json               # Root Biome configuration (extends packages/config/biome.json)
 ├── commitlint.config.ts     # Configuration for commit message linting
 ├── knip.jsonc               # Configuration for Knip (detecting unused files/exports)
 ├── package.json             # Root project configuration: scripts, devDeps, workspace definition
@@ -50,7 +50,7 @@ brainstrike/
 ├── pnpm-workspace.yaml      # Defines pnpm workspace locations (apps/*, packages/*)
 ├── README.md                # High-level project overview and quick start
 ├── tsconfig.json            # Root TypeScript configuration (references workspaces, sets paths)
-├── turbo.json               # Turborepo pipeline and task configuration
+├── turbo.jsonc              # Turborepo pipeline and task configuration
 └── vitest.workspace.ts      # Configuration for running Vitest across the workspace
 ```
 
@@ -66,39 +66,39 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `^2.5.0`**: Manages the monorepo build system, task execution, and caching. ([`turbo.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/turbo.json:0:0-0:0))
+  - **Turborepo `2.5.5`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
-  - **pnpm `10.8.1`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/pnpm-workspace.yaml:0:0-0:0), root [`package.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/package.json:0:0-0:0))
+  - **pnpm `10.14.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
-  - **Node.js `v22`**: Specified in [`.nvmrc`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/.nvmrc:0:0-0:0). Use `nvm use` to switch.
-  - **TypeScript `^5.8.3`**: Provides static typing across the entire codebase. ([`tsconfig.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/tsconfig.json:0:0-0:0), [`packages/config/tsconfig/base.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/packages/config/tsconfig/base.json:0:0-0:0))
+  - **Node.js `v22`**: Specified in [`.nvmrc`](./.nvmrc). Use `nvm use` to switch.
+  - **TypeScript `5.9.2`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
 - **Frontend Framework (`apps/web`)**:
   - **React `19.x`**: UI library using functional components and hooks.
   - **Vite**: Next-generation frontend tooling for extremely fast HMR and optimized builds. (See `apps/web/vite.config.ts`)
   - **React Router**: Handles client-side routing. (Setup likely in `apps/web/src/main.tsx` or similar)
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
-  - **Vitest `^3.1.1`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.workspace.ts`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/vitest.workspace.ts:0:0-0:0))
-  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/tests/`). See [docs/e2e-guidelines.md](docs/e2e-guidelines.md) for unified rules.
-  - **NYC `^17.1.0`**: Generates code coverage reports.
+  - **Vitest `3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.workspace.ts`](./vitest.workspace.ts))
+  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/e2e-guidelines.md](./docs/e2e-guidelines.md) for unified rules.
+  - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-  - **Biome `^1.9.4`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/biome.json:0:0-0:0), [`packages/config/biome/biome.json`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/packages/config/biome/biome.json:0:0-0:0))
+  - **Biome `2.1.3`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
 - **Commit Linting**:
-  - **Commitlint `^19.8.0`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/commitlint.config.ts:0:0-0:0))
+  - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
   - **Husky**: Manages Git hooks to run linters (like commitlint) automatically. (`.husky/`)
 - **Code Health**:
-  - **Knip `^5.50.2`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/knip.jsonc:0:0-0:0))
+  - **Knip `5.62.0`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
 
 ---
 
 ## 4. Workspace & Build System Explained
 
-### 4.1 Turborepo (`turbo.json`)
+### 4.1 Turborepo (`turbo.jsonc`)
 
 Turborepo orchestrates tasks across the monorepo, optimizing builds through caching and understanding task dependencies.
 
 - **`globalDependencies`**: Changes to `tsconfig.json` will invalidate caches for tasks depending on it.
-- **`pipeline` (defined via `tasks`)**: Defines the relationships and caching behavior for common scripts (`build`, `lint`, `test`, `dev`, etc.).
+- **`pipeline`**: Defines the relationships and caching behavior for common scripts (`build`, `lint`, `test`, `dev`, etc.).
   - **`build`**: Depends on the `build` task of its dependencies (`^build`). Outputs generated files to `dist/`.
   - **`lint`**: Depends on `^build`. Caching enabled. No output artifacts expected.
   - **`test`**: Depends on `^build`. Defines specific input file patterns (`src/**/*.ts`, `__tests__/**/*.tsx`, etc.).
@@ -111,12 +111,12 @@ Turborepo orchestrates tasks across the monorepo, optimizing builds through cach
 
 ### 4.2 pnpm Workspaces (`pnpm-workspace.yaml`, `package.json`)
 
-pnpm manages dependencies efficiently within the monorepo structure defined in [`pnpm-workspace.yaml`](cci:7://file:///Users/seandearnaley/Documents/GitHub/brainstrike/pnpm-workspace.yaml:0:0-0:0).
-- **Workspaces**: `apps/*`, `packages/*`, and `packages/config/*` are recognized package locations.
+pnpm manages dependencies efficiently within the monorepo structure defined in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
+- **Workspaces**: `apps/*` and `packages/*` are recognized package locations.
 - **Root `package.json`**:
   - Defines scripts that use `turbo run ...` to execute tasks across workspaces (e.g., `pnpm build` runs `turbo run build`).
   - Lists root-level `devDependencies` essential for the monorepo tooling (turbo, biome, typescript, commitlint, knip, nyc).
-  - Specifies the exact `packageManager` version (`pnpm@10.8.1+sha...`).
+  - Specifies the exact `packageManager` version (`pnpm@10.14.0`).
   - `workspaces` field mirrors `pnpm-workspace.yaml`.
   - `pnpm.onlyBuiltDependencies` might optimize installations for certain native packages.
 
@@ -126,9 +126,9 @@ pnpm manages dependencies efficiently within the monorepo structure defined in [
 
 Consistency is maintained through automated tooling.
 
-### 5.1 Biome (`biome.json`, `packages/config/biome/biome.json`)
+### 5.1 Biome (`biome.json`, `packages/config/biome.json`)
 
-Biome enforces linting rules and code formatting. The root config extends the shared config in `packages/config/biome`.
+Biome enforces linting rules and code formatting. The root config extends the shared config in `packages/config/biome.json`.
 
 **Key Rules & Settings:**
 - **Formatting**: Enabled, 2-space indent, 100 line width, single quotes, trailing commas (`es5`), semicolons required. Formats `.ts, .tsx, .js, .jsx, .json`.
@@ -200,7 +200,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 
     # Run E2E tests (requires the web app to be built or running)
     # Ensure the web app is built first: pnpm --filter web build
-    pnpm test:e2e # Runs Playwright tests defined in apps/web/tests
+    pnpm test:e2e # Runs Playwright tests defined in apps/web/e2e
 
     # Run E2E tests with Playwright UI mode
     pnpm test:e2e:ui
@@ -210,13 +210,10 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
     ```
 5.  **Linting and Formatting**:
     ```bash
-    # Check for lint errors and formatting issues
+    # Check for lint errors and formatting issues and apply safe fixes
     pnpm lint
 
-    # Automatically fix common lint issues
-    pnpm lint --fix
-
-    # Automatically fix remaining formatting issues
+    # Format all files
     pnpm format
     ```
 6.  **Type Checking**:
@@ -250,7 +247,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 - **Configuration Management**: Shared configurations (`packages/config`) ensure consistency in tooling (TypeScript, Biome) across the repository.
 - **Testing Strategy**:
   - **Unit/Integration**: Vitest is used for fast testing, colocated within `src/` or `__tests__` directories.
-  - **E2E**: Playwright tests user flows directly in the browser (`apps/web/tests/`).
+  - **E2E**: Playwright tests user flows directly in the browser (`apps/web/e2e/`).
   - **Coverage**: NYC aggregates coverage data from Vitest runs across packages.
 - **CI/CD**: GitHub Actions workflows (`.github/workflows`) likely handle automated testing, linting, building, and potentially deployment on pushes/PRs. (Specific workflow details should be checked in the `.github` folder).
 - **Git Hooks**: Husky (`.husky/`) ensures code quality checks (e.g., commit message linting) run automatically before commits or pushes.

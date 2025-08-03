@@ -170,7 +170,7 @@ Below is a simplified overview of our monorepo structure, highlighting key areas
 ├── packages/
 │   ├── app-shell/      # 🖼️ Core application layout and navigation
 │   ├── config/         # ⚙️ Shared configurations (Biome, TSConfig, etc.)
-│   │   ├── biome/
+│   │   ├── biome.json
 │   │   └── tsconfig/
 │   ├── file-explorer/  # Core file analysis logic (platform-agnostic)
 │   ├── file-explorer-hooks/ # 🎣 React hooks for file explorer features
@@ -178,7 +178,6 @@ Below is a simplified overview of our monorepo structure, highlighting key areas
 │   ├── file-system/    # Abstraction for file system operations
 │   │   └── src/
 │   │       └── adapters/   # (e.g., Node.js, Web, In-memory)
-│   │                       # Note: Electron live-watch requires optional chokidar dep; fallback to fs.watch is automatic but less robust
 │   ├── fonts/          # 🖋️ Shared font assets
 │   ├── hooks/          # 🎣 General-purpose React hooks
 │   ├── server-config/  # 🔩 Configuration for server-side aspects
@@ -268,7 +267,7 @@ This diagram illustrates how the `file-explorer-hooks` (representing the core lo
 
 ### ✅ Prerequisites
 *   **Node.js:** Version 22+ (check `.nvmrc` for the exact version).
-*   **pnpm:** Version 10+.
+*   **pnpm:** Version 10.14.0+ (check `packageManager` in `package.json`).
 *   Verify that each `package.json` within `apps/*` and `packages/*` declares `"engines": { "node": ">=22" }`.
 
 ### 📦 Installation
@@ -325,19 +324,18 @@ Our choice of technologies is geared towards building a modern, scalable, and ma
 
 ### Common Commands
 
-| Command                   | Description                                         |
-|---------------------------|-----------------------------------------------------|
-| `pnpm dev --filter web`   | Start local development for the 🌐 web app.         |
-| `pnpm dev --filter desktop` | Start local development for the 💻 desktop app (Vite dev server). |
-| `pnpm start --filter desktop`| Launch the Electron shell for the 💻 desktop app.   |
-| `pnpm build`                | Build all apps and packages.                        |
-| `pnpm test`                 | Run unit and integration tests across the monorepo. |
-| `pnpm test:e2e`             | Run Playwright E2E tests for the 🌐 web app.      |
-| `pnpm turbo run lint`       | Lint the entire codebase with Biome.                |
-| `pnpm lint --fix`           | Auto-fix lint issues with Biome.                    |
-| `pnpm turbo run type-check` | Run TypeScript type checks for all packages.        |
-| `pnpm format`               | Auto-format source files using Biome.               |
-| `pnpm run check`            | Run full validation: lint, type-check, build, test. |
+| Command                     | Description                                                          |
+|-----------------------------|----------------------------------------------------------------------|
+| `pnpm dev --filter web`     | Start local development for the 🌐 web app.                          |
+| `pnpm dev --filter desktop`   | Start local development for the 💻 desktop app (Vite dev server).      |
+| `pnpm start --filter desktop` | Launch the Electron shell for the 💻 desktop app.                    |
+| `pnpm build`                  | Build all apps and packages.                                         |
+| `pnpm test`                   | Run unit and integration tests across the monorepo.                  |
+| `pnpm test:e2e`               | Run Playwright E2E tests for the 🌐 web app.                       |
+| `pnpm lint`                   | Lint the codebase and apply safe fixes with Biome.                   |
+| `pnpm format`                 | Auto-format source files using Biome.                                |
+| `pnpm type-check`             | Run TypeScript type checks for all packages.                         |
+| `pnpm check`                  | Run full validation suite (lint, format, build, test, etc.).         |
 
 
 ### Tailwind Configuration
