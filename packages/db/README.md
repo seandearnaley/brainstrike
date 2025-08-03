@@ -32,10 +32,9 @@ const db = new PGlite('app.db');
 await migrate(db);
 
 export function Root() {
-  // DbProvider will close the database on unmount once implemented
   return (
     <DbProvider>
-      {/* application components */}
+      <MyComponent />
     </DbProvider>
   );
 }

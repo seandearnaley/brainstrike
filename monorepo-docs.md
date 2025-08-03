@@ -35,43 +35,28 @@ brainstrike/
 - **No cross-imports between apps—only apps import from packages.**
 - **Shared config** (e.g., Biome, TS) is centralized in `packages/config`.
 
-## 2.1 apps/web/src: Anatomy & Migration Considerations
+## 2.1 apps/web/src: Current Structure
 
-Detailed breakdown of the application code structure and key pointers for extraction:
+The `apps/web/src` directory has been significantly streamlined. Most of the original UI components, hooks, and utilities have been extracted into their respective `packages/` libraries, following the migration strategy this document once outlined.
+
+The current structure is lean, primarily containing application-level setup and routing.
 
 **apps/web/src/**
 ```
-├── app/            # Root layouts, page wrappers (uses React Helmet, imports globals.css)
-├── components/     # Local UI components
-│   ├── Presentational (buttons, dialogs, inputs)
-│   └── custom/     # Feature modules (file-explorer)
-├── hooks/          # App-specific hooks (data fetching, selectors, side-effects)
-├── stores/         # Global state stores, actions, persistence logic
-├── lib/            # Core services (API clients, git analysis logic)
-├── utils/          # Pure helper functions (formatters, validators)
-├── providers/      # React context providers (Theme, Toast, Auth)
-├── constants/      # Enums and literal values
-└── icons/          # SVG icon components
+├── __tests__/      # Tests for application-level utilities (e.g., csp-utils.ts)
+├── app/            # Core application routing, layouts, and pages
+│   ├── __tests__/  # Tests for layouts and pages
+│   ├── settings/   # Components for the settings page
+│   ├── globals.css # Global styles imported into the application
+│   ├── layout.tsx  # The root layout component
+│   └── ...         # Other page-level components
+├── csp-utils.ts    # Content Security Policy utilities
+├── main.tsx        # The main entry point for the React application
+└── vite-env.d.ts   # Vite-specific TypeScript environment types
 ```
 
-**Migration Guidance per folder:**
-- **app/**: Entry-point logic; refactor layouts/pages to consume migrated components via props/hooks.
-- **components/**: Split container (data logic) vs presentational. Move pure UI to `packages/ui`, containers to `packages/hooks` or new domain packages.
-- **hooks/**: Migrate to `packages/hooks`, ensure generic API signatures and remove UI dependencies.
-- **stores/**: Extract domain stores into `packages/hooks` (or new `packages/store-<domain>`), isolate persistence logic.
-- **lib/**: Consider moving to `packages/utils` or create specialized package (e.g., `packages/analysis`) for heavy business logic.
-- **utils/**: Directly migrate pure functions to `packages/utils` with minimal changes.
-- **providers/**: Generic providers can live in `packages/ui` or a new `packages/providers`; app-specific setup stays in app.
-- **constants/**: Move shared types and enums to `packages/types`, use type-only imports.
-- **icons/**: Migrate atomic icon components to `packages/ui/icons`.
-
-**Key Migration Considerations:**
-- **UI vs Logic**: Always separate presentational components from stateful/container logic before extraction.
-- **Type-only imports**: Centralize interfaces/constants in `packages/types` and use `import type`.
-- **Dependency discovery**: Use `grep_search` or IDE search to identify cross-folder imports and external dependencies.
-- **Domain packages**: For complex features (analysis, file-explorer), consider dedicated packages rather than forcing into `ui`.
-- **Adapter Pattern**: File explorer functionality is decoupled from platform APIs via `@brainstrike/storage` and `@brainstrike/file-system`. Web, memory, and mock adapters provide browser support and robust tests while keeping the door open for an Electron implementation.
-- **Peer dependency sync**: Ensure React, Tailwind, and other peer deps match across migrated packages via package.json alignment.
+**Architectural Note:**
+This structure reflects a mature state of the monorepo where the `web` app acts as a consumer and integrator of shared packages rather than a monolithic source of components and logic. Any new, reusable functionality should be developed within a suitable package from the start.
 
 ## 3. Turborepo Pipeline & Task Conventions
 
@@ -82,56 +67,36 @@ Detailed breakdown of the application code structure and key pointers for extrac
 - **Composite `check` task** runs lint, type-check, and test for CI and local validation.
 
 **Key scripts:** (from root `package.json`)
-- `pnpm install` — install all dependencies
-- `pnpm dev` — start all dev servers/watchers
-- `pnpm build` — full build across all workspaces
-- `pnpm test` — run all tests
-- `pnpm turbo run lint` — run linter
-- `pnpm lint --fix` — auto-fix lint issues using Biome
-- `pnpm turbo run type-check` — run type checks
+- `pnpm install` — Install all dependencies.
+- `pnpm dev --filter <app-name>` — Start a dev server for a specific app (e.g., `@brainstrike/web`).
+- `pnpm build` — Build all packages and applications.
+- `pnpm test` — Run all unit and integration tests.
+- `pnpm lint` — Check for lint errors and apply safe fixes.
+- `pnpm format` — Format all source files.
+- `pnpm type-check` — Run TypeScript type checks across the monorepo.
+- `pnpm check` — Run the full validation pipeline (lint, build, type-check, test, etc.).
 
-## 4. Component Extraction & Migration Workflow
+## 4. Guiding Principles for Code Extraction
 
-This repo is designed for extracting UI (and other) components from `apps/web` into canonical packages (usually `packages/ui`).
+While the initial large-scale migration of components from `apps/web` to `packages/` is complete, the principles behind it remain relevant for ongoing development. This section serves as a guide for maintaining the modular architecture.
 
-### **Migration Steps (Best Practice)**
+### **Best Practices for New Development**
 
-1. **Identify Component**
-   - Locate the component in `apps/web/src` (or other app source).
-   - Review all usages, props, and dependencies.
+- **Default to `packages`**: New, potentially reusable logic, components, or types should be created within an appropriate shared package from the start, rather than in `apps/web`.
+- **Single Responsibility**: Packages should have a clear and focused purpose (e.g., UI components, hooks, type definitions).
+- **App as Integrator**: The `apps/web` application should primarily consume and integrate functionality from the shared `packages/`. Avoid adding complex business logic or reusable components directly to the app.
 
-2. **Extract to Package**
-   - Create a new file in `packages/ui/src/<Component>.tsx` (or appropriate package).
-   - Refactor:
-     - Remove app-specific imports (stores, utils, hooks not meant for UI lib).
-     - Define a `Props` interface for all inputs/callbacks.
-     - Ensure component is pure and only uses props/state.
-   - Export as a named export in `packages/ui/src/index.ts`.
+### **Workflow for Extracting Existing Code**
+If you identify code within an app that should be shared, follow this workflow:
 
-3. **Move/Update Tests**
-   - Move or duplicate tests to `packages/ui/src/__tests__`.
-   - Update imports to use named exports from `@brainstrike/ui`.
-   - Ensure `import React` and `import '@testing-library/jest-dom'` are present.
-   - Use type-only imports for props where possible.
-
-4. **Update App Imports**
-   - Replace all local imports in `apps/web` with `import { Component } from '@brainstrike/ui'`.
-   - For dynamic imports, cast to `React.ComponentType` if needed.
-   - Pass all required props from app state/store.
-
-5. **Validation**
-   - Run `pnpm build`, `pnpm test`, and `pnpm turbo run type-check` across all workspaces.
-   - Fix any errors or type issues.
-
-6. **Cleanup**
-   - Use code search (`grep`, IDE, or `turbo run lint`) to ensure no references remain to the old component file.
-   - Add a deprecation comment to the old file before deleting.
-   - Remove the old file and any related test/mocks/utilities.
-   - Re-run all CI steps to confirm a clean migration.
-
-**See also:**
-- [Component Migration Memory](#)
-- [UI Migration and Test Cleanup Lessons Learned](#)
+1.  **Identify and Isolate**: Locate the component, hook, or utility in the app source. Refactor it to be self-contained, removing any app-specific dependencies or state management logic. All communication should be through props or function arguments.
+2.  **Move to a Package**:
+    *   Create a new file in the appropriate package (e.g., `packages/ui/src/new-component.tsx`).
+    *   Add a corresponding test file (e.g., `packages/ui/src/__tests__/new-component.test.tsx`).
+    *   Export the new module from the package's main entry point (e.g., `packages/ui/src/index.ts`).
+3.  **Update Consumers**: Refactor the original app code to import and use the new module from the shared package.
+4.  **Validate**: Run the full check suite (`pnpm check`) to ensure the change hasn't introduced any regressions, type errors, or lint issues.
+5.  **Cleanup**: Once validated, remove the old file from the app's source code.
 
 ## 5. Shared UI Library (`@brainstrike/ui`)
 
@@ -188,13 +153,14 @@ mocking packages like `@brainstrike/hooks` and `@brainstrike/ui`.
 
 | Task                        | Command                          |
 |-----------------------------|----------------------------------|
-| Install deps                | `pnpm install`                   |
-| Start dev server (web)      | `cd apps/web && pnpm dev`        |
-| Build all                   | `pnpm build`                     |
-| Test all                    | `pnpm test`                      |
-| Lint all                    | `pnpm turbo run lint`             |
-| Fix lint issues             | `pnpm lint --fix`             |
-| Type-check all              | `pnpm turbo run type-check`      |
+| Install dependencies        | `pnpm install`                   |
+| Start dev server (web)      | `pnpm dev --filter @brainstrike/web` |
+| Build all packages          | `pnpm build`                     |
+| Test all packages           | `pnpm test`                      |
+| Lint & fix issues           | `pnpm lint`                      |
+| Format code                 | `pnpm format`                    |
+| Type-check all packages     | `pnpm type-check`                |
+| Run full validation suite   | `pnpm check`                     |
 
 ## 9. Further Reading
 - `onboarding.md`: Deep-dive onboarding, architecture, and rationale

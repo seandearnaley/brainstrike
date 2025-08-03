@@ -27,7 +27,7 @@ pnpm start --filter desktop  # Launch Electron after dev server
 pnpm build
 
 # Full validation pipeline (required before commits, note over 10 minutes to run)
-pnpm run check  # install → lint → build → type-check → test → e2e
+pnpm check  # install → lint → build → type-check → test → e2e
 ```
 
 ### Testing & Quality
@@ -41,7 +41,7 @@ pnpm test:e2e:ui     # With UI
 pnpm test:e2e:debug  # Debug mode
 
 # Code quality
-pnpm lint           # Biome linting
+pnpm lint           # Lint and apply safe fixes with Biome
 pnpm format         # Auto-format with Biome
 pnpm type-check     # TypeScript validation
 ```
@@ -71,12 +71,12 @@ Critical architectural pattern enabling cross-platform functionality:
 
 ### Technology Stack
 - **Node.js**: 22+ required (check `.nvmrc`)
-- **Package Manager**: pnpm 10+ with workspaces
+- **Package Manager**: pnpm 10.14.0+ with workspaces
 - **Build System**: Turborepo with intelligent caching
-- **Frontend**: React 19, Vite 6, TypeScript 5
+- **Frontend**: React 19, Vite 7, TypeScript 5.9
 - **Styling**: Tailwind CSS v4 with shared configuration
 - **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome 2.0 (release June 2025)
+- **Linting**: Biome 2.1.3
 
 ### Code Standards
 - **TypeScript**: Strict mode enabled across all packages
@@ -127,13 +127,13 @@ When working with file operations:
 - Filtered builds: `--filter web` or `--filter desktop`
 
 ### Validation Pipeline
-The `pnpm run check` command runs comprehensive validation:
-1. Fresh dependency installation
-2. Biome linting
-3. Complete build of all packages/apps
-4. TypeScript type checking
-5. Unit and integration tests
-6. End-to-end test suite
+The `pnpm check` command runs comprehensive validation:
+1.  **Dependency Installation**: `pnpm install` ensures all dependencies are correctly installed.
+2.  **Linting & Formatting**: `pnpm lint-all` runs the linter and formatter.
+3.  **Building**: `pnpm build` builds the entire monorepo.
+4.  **Type Checking**: `pnpm type-check` resolves TypeScript errors.
+5.  **Unit & Integration Testing**: `pnpm test` runs all unit and integration tests.
+6.  **End-to-End Testing**: `pnpm test:e2e` executes Playwright E2E tests.
 
 Always run this before submitting changes.
 
