@@ -23,7 +23,7 @@
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
     "src/**/__tests__/**",
-    "vitest.config.ts"
+    "vitest.config.*"
   ],
   "references": [
     { "path": "../types" },

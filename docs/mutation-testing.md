@@ -76,6 +76,7 @@ Create a `stryker.config.ts` file in your package root:
 const config = {
   testRunner: 'vitest',
   vitest: {
+    // Root config aggregates all projects
     configFile: 'vitest.config.ts'
   },
   checkers: ['typescript'],

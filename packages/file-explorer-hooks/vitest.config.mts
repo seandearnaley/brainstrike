@@ -8,6 +8,16 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        singleThread: true,
+      },
+    },
+    isolate: true,
+    testTimeout: 30000,
+  },
+  resolve: {
     alias: {
       '@brainstrike/workers': path.resolve(__dirname, '../workers'),
       '@brainstrike/workers/file-content-worker': path.resolve(

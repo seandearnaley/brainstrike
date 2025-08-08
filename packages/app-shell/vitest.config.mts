@@ -20,7 +20,7 @@ export default defineConfig({
         '**/dist/**',
         '**/*.d.ts',
         '**/__tests__/**',
-        '**/vitest.config.ts',
+        '**/vitest.config.*',
         '**/src/types.ts', // Type definitions only
         '**/src/index.ts', // Re-export file
         // '**/src/app-layout.tsx', // Simple wrapper component -- Commenting out for coverage

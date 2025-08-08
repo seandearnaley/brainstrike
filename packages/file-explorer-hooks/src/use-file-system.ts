@@ -62,16 +62,14 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     supported: boolean;
     reason: string;
   } => {
-    try {
-      // Try to create an adapter to check if the platform is supported
-      // This will throw if the platform doesn't support file system access
-      return { supported: true, reason: '' };
-    } catch (error) {
-      return {
-        supported: false,
-        reason: error instanceof Error ? error.message : 'File system access not supported',
-      };
-    }
+    const hasWebAPI =
+      typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
+    const hasAdapterAPI = typeof fileSystemAdapter?.requestDirectoryAccess === 'function';
+    if (hasWebAPI || hasAdapterAPI) return { supported: true, reason: '' };
+    return {
+      supported: false,
+      reason: 'File system access not supported in this environment',
+    };
   };
 
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {

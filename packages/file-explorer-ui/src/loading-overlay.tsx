@@ -1,3 +1,4 @@
+import { calculateProgressPercentage } from '@brainstrike/file-explorer-hooks';
 import { Button, cn, Progress } from '@brainstrike/ui';
 import { Loader2, RefreshCw, X } from 'lucide-react';
 import React, { useCallback, useMemo } from 'react';
@@ -7,7 +8,6 @@ import {
   useProgressDescription,
   useProgressMessage,
 } from './hooks';
-import { calculateProgressPercentage } from './use-file-tree-context';
 
 export interface LoadingProgressState {
   loaded: number;

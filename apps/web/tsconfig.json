@@ -22,7 +22,7 @@
     "src/**/__tests__/**",
     "e2e",
     "vite.config.mts",
-    "vitest.config.ts",
+    "vitest.config.*",
     "vitest.config.unit.ts",
     "vitest.config.integration.ts"
   ],

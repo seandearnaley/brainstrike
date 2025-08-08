@@ -24,10 +24,13 @@ export default defineConfig({
     setupFiles: ['./vitest.setup.ts'],
     include: ['__tests__/**/*.test.{ts,tsx}'],
     exclude: excludePatterns,
-    pool: 'forks',
+    env: {
+      TEST_PGLITE_MOCK: 'true',
+    },
+    pool: 'threads',
     poolOptions: {
-      forks: {
-        singleFork: true,
+      threads: {
+        singleThread: true,
       },
     },
     hookTimeout: 30000, // 30 seconds for hooks

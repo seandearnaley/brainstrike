@@ -1,6 +1,7 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useFileContentLoading } from './use-file-content-loading';
 import { useFileSystem } from './use-file-system';
@@ -101,7 +102,10 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     actions: {
       handleRootDirectorySelect,
       loadFileContent: async (path: string) => {
-        return handleFileContentLoading([path]);
+        const folderId = rootDirectoryHandle?.name;
+        if (!folderId) return;
+        const key = encodeFileSelection(folderId, path);
+        return handleFileContentLoading([key]);
       },
       clearFileContents,
       refreshFileExplorer,
