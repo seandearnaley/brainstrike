@@ -30,6 +30,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
     toggleDirectoryExpansion,
     addSelectedFile,
     removeSelectedFile,
+    _expandedVersion,
   } = store(
     (s) => ({
       expandedDirectoryPaths: s.expandedDirectoryPaths,
@@ -37,6 +38,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
       toggleDirectoryExpansion: s.toggleDirectoryExpansion,
       addSelectedFile: s.addSelectedFile,
       removeSelectedFile: s.removeSelectedFile,
+      _expandedVersion: s._expandedVersion,
     }),
     shallow
   );
@@ -55,8 +57,8 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   );
 
   const visibleNodes = useMemo(
-    () => getVisibleNodes(fileTree, expandedDirectoryPaths),
-    [fileTree, expandedDirectoryPaths]
+    () => getVisibleNodes(fileTree, expandedDirectoryPaths, _expandedVersion),
+    [fileTree, expandedDirectoryPaths, _expandedVersion]
   );
 
   const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
@@ -108,7 +110,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         role="tree"
         aria-label="File tree"
         data-testid="file-tree"
-        style={{ height: totalHeight }}
+        style={{ height: totalHeight, contain: 'layout style paint' }}
       >
         {renderedRows}
       </div>

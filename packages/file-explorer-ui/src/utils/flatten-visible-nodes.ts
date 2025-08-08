@@ -6,7 +6,9 @@ export interface VisibleNodeEntry {
 }
 
 // Cache flattened visible nodes by (tree identity, expanded set identity)
-const treeCache = new WeakMap<IFileNode[], WeakMap<ReadonlySet<string>, VisibleNodeEntry[]>>();
+// Include an expansion version to tolerate in-place Set mutations.
+type ExpandedSetCacheEntry = { v: number | undefined; list: VisibleNodeEntry[] };
+const treeCache = new WeakMap<IFileNode[], WeakMap<ReadonlySet<string>, ExpandedSetCacheEntry>>();
 
 function computeVisibleNodes(
   fileTree: IFileNode[],
@@ -48,19 +50,21 @@ function computeVisibleNodes(
 
 export function getVisibleNodes(
   fileTree: IFileNode[],
-  expanded: ReadonlySet<string>
+  expanded: ReadonlySet<string>,
+  _expansionVersion?: number
 ): VisibleNodeEntry[] {
   let expandedMap = treeCache.get(fileTree);
   if (!expandedMap) {
-    expandedMap = new WeakMap<ReadonlySet<string>, VisibleNodeEntry[]>();
+    expandedMap = new WeakMap<ReadonlySet<string>, ExpandedSetCacheEntry>();
     treeCache.set(fileTree, expandedMap);
   }
 
+  // If a version token is provided, only return cache when versions match.
   const cached = expandedMap.get(expanded);
-  if (cached) return cached;
+  if (cached && cached.v === _expansionVersion) return cached.list;
 
   const flattened = computeVisibleNodes(fileTree, expanded);
-  expandedMap.set(expanded, flattened);
+  expandedMap.set(expanded, { v: _expansionVersion, list: flattened });
   return flattened;
 }
 

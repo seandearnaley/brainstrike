@@ -38,12 +38,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       toggleDirectoryExpansion,
       addSelectedFile,
       removeSelectedFile,
+      _expandedVersion,
     } = store(
       (s) => ({
         expandedDirectoryPaths: s.expandedDirectoryPaths,
         toggleDirectoryExpansion: s.toggleDirectoryExpansion,
         addSelectedFile: s.addSelectedFile,
         removeSelectedFile: s.removeSelectedFile,
+        _expandedVersion: s._expandedVersion,
       }),
       shallow
     );
@@ -64,8 +66,8 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Cached visible nodes calculation keyed by tree identity and expanded set
     const visibleNodes = useMemo(
-      () => getVisibleNodes(fileTree, expandedDirectoryPaths),
-      [fileTree, expandedDirectoryPaths]
+      () => getVisibleNodes(fileTree, expandedDirectoryPaths, _expandedVersion),
+      [fileTree, expandedDirectoryPaths, _expandedVersion]
     );
 
     // Enhanced virtualization with improved performance
@@ -133,8 +135,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         className="h-full relative flex-1 min-h-0 overflow-y-auto"
         data-testid="file-tree-scroll-container"
       >
-        <ul
+        <div
           className="relative file-tree"
+          role="tree"
           aria-label="File tree"
           data-testid="file-tree"
           style={{
@@ -143,7 +146,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           }}
         >
           {renderedRows}
-        </ul>
+        </div>
       </div>
     );
   }

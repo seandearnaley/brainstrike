@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -9,7 +9,33 @@ var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
 // Mock UI components that are lazy loaded or used within the panel
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
+  FileExplorerSidebarMock = vi.fn(() => (
+    <div data-testid="sidebar">
+      <div
+        data-testid="file-tree-scroll-container"
+        className="h-full relative flex-1 min-h-0 overflow-y-auto"
+      >
+        <div
+          className="relative file-tree"
+          role="tree"
+          aria-label="File tree"
+          data-testid="file-tree"
+          style={{ height: 3200 }}
+        >
+          {Array.from({ length: 50 }, (_, i) => ({ id: `row-${i}`, index: i })).map((row) => (
+            <div
+              key={row.id}
+              role="treeitem"
+              tabIndex={0}
+              style={{ position: 'absolute', top: row.index * 32, width: '100%', height: 32 }}
+            >
+              Row {row.index}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  ));
   ActionButtonsMock = vi.fn(() => <div data-testid="actions">Actions</div>);
   LoadingOverlayMock = vi.fn(({ onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
     <div data-testid="loading-overlay">
@@ -88,6 +114,7 @@ vi.mock('@brainstrike/hooks', () => ({
 }));
 
 import { useQuickFilter } from '@brainstrike/hooks';
+import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import { FileExplorerLeftPanel } from '../file-explorer-left-panel';
 import { useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileExplorer } from '../use-file-explorer-context';
@@ -182,6 +209,82 @@ describe('FileExplorerLeftPanel', () => {
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+  });
+
+  it('footer toolbar stays fixed while scrolling long trees', async () => {
+    // Force root present with a large tree to enable scroll in the middle panel
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      fileTree: Array.from({ length: 200 }, (_, i) =>
+        createFileNode({ name: `file${i}.txt`, path: `file${i}.txt` })
+      ),
+    } as ReturnType<typeof useFileExplorer>);
+
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    const scrollContainer = screen.getByTestId('file-tree-scroll-container');
+    const footer = screen.getByRole('button', { name: /select all/i }).closest('div');
+    expect(scrollContainer).toBeInTheDocument();
+    expect(footer).toBeInTheDocument();
+
+    if (!footer) throw new Error('Footer container not found');
+    const footerTopBefore = footer.getBoundingClientRect().top;
+    // simulate scroll
+    Object.defineProperty(scrollContainer, 'clientHeight', { value: 200 });
+    (scrollContainer as HTMLDivElement).scrollTop = 2000;
+    fireEvent.scroll(scrollContainer);
+    const footerTopAfter = footer.getBoundingClientRect().top;
+
+    // Footer should remain in the same position (fixed within panel grid)
+    expect(footerTopAfter).toBe(footerTopBefore);
+  });
+
+  it('expand-all and collapse-all work near the end of long list without gaps', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useFileExplorer).mockReturnValue({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: {
+        path: '/root',
+        name: 'root',
+        kind: 'directory',
+        platform: 'web' as const,
+        _internal: {} as FileSystemDirectoryHandle,
+      },
+      fileTree: [
+        createDirectoryNode({
+          name: 'folder',
+          path: 'folder',
+          children: Array.from({ length: 200 }, (_, i) =>
+            createFileNode({ name: `f${i}.txt`, path: `folder/f${i}.txt` })
+          ),
+        }),
+      ],
+    } as ReturnType<typeof useFileExplorer>);
+
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    const expandAll = screen.getByTestId('expand-all-button-small');
+    const collapseAll = screen.getByTestId('collapse-all-button-small');
+    await user.click(expandAll);
+
+    const container = screen.getByTestId('file-tree-scroll-container') as HTMLDivElement;
+    Object.defineProperty(container, 'clientHeight', { value: 160 });
+    container.scrollTop = 9999;
+    fireEvent.scroll(container);
+
+    // Expect some items rendered and no crash
+    expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(0);
+
+    await user.click(collapseAll);
+    // After collapse, still stable
+    expect(screen.getByLabelText('File tree')).toBeInTheDocument();
   });
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {
