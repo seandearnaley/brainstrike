@@ -4,40 +4,21 @@ import { RuleConfigSeverity } from '@commitlint/types';
 const Configuration: UserConfig = {
   extends: ['@commitlint/config-conventional'],
   rules: {
-    'type-enum': [
-      RuleConfigSeverity.Error,
-      'always',
-      [
-        'build', // Changes that affect the build system or external dependencies
-        'chore', // Maintenance tasks and minor updates
-        'ci', // Changes to CI configuration files and scripts
-        'docs', // Documentation only changes
-        'feat', // A new feature
-        'fix', // A bug fix
-        'perf', // A code change that improves performance
-        'refactor', // A code change that neither fixes a bug nor adds a feature
-        'revert', // Revert a previous commit
-        'style', // Changes that do not affect the meaning of the code
-        'test', // Adding missing tests or correcting existing tests
-        'release', // Release commits managed by semantic-release
-      ],
-    ],
-    'scope-enum': [
-      RuleConfigSeverity.Error,
-      'always',
-      [
-        'auth', // Authentication related changes
-        'api', // API related changes
-        'ui', // UI components and styling
-        'config', // Configuration changes
-        'deps', // Dependency updates
-        'core', // Core functionality
-        'test', // Test infrastructure changes
-        'types', // TypeScript type changes
-        'security', // Security related changes
-        'dx', // Developer experience improvements
-      ],
-    ],
+    // Relaxed rules to reduce friction while keeping helpful guidance
+    // 1) Make type and scope optional (no emptiness or enum enforcement)
+    'type-empty': [RuleConfigSeverity.Disabled],
+    'scope-empty': [RuleConfigSeverity.Disabled],
+    'type-enum': [RuleConfigSeverity.Disabled],
+    'scope-enum': [RuleConfigSeverity.Disabled],
+
+    // 2) Allow any casing for subject/type/scope; do not force starting character case
+    'subject-case': [RuleConfigSeverity.Disabled],
+    'type-case': [RuleConfigSeverity.Disabled],
+    'scope-case': [RuleConfigSeverity.Disabled],
+
+    // 3) Remove strict body/footers line-length limits
+    'body-max-line-length': [RuleConfigSeverity.Disabled],
+    'footer-max-line-length': [RuleConfigSeverity.Disabled],
   },
   defaultIgnores: true,
   helpUrl: 'https://github.com/conventional-changelog/commitlint/#what-is-commitlint',

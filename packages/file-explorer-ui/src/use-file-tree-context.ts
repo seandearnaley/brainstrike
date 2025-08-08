@@ -8,6 +8,7 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
+import { primeFileNodeIndex } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readFullTree as readFullTreeUtil } from './utils/read-full-tree';
 
@@ -204,6 +205,8 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
 
       // Only update state if not cancelled
       if (!abortController.signal.aborted) {
+        // Prime the fast path index for O(1) path lookups
+        primeFileNodeIndex(tree);
         setFileTree(tree);
       }
     } catch (err) {

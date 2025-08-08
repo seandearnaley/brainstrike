@@ -1,6 +1,57 @@
 import type { IFileNode } from '@brainstrike/types';
 import { fileFilter } from './path-filter';
 
+// Build and cache an index for fast O(1) path lookups per tree instance
+type FileNodeIndex = Map<string, Map<string, IFileNode>>; // folderId -> (path -> node)
+const treeToIndex = new WeakMap<IFileNode[], FileNodeIndex>();
+
+function buildFileNodeIndex(roots: IFileNode[]): FileNodeIndex {
+  const index: FileNodeIndex = new Map();
+
+  const addToIndex = (node: IFileNode) => {
+    const folderId = node.rootFolderId;
+    let folderMap = index.get(folderId);
+    if (!folderMap) {
+      folderMap = new Map<string, IFileNode>();
+      index.set(folderId, folderMap);
+    }
+    folderMap.set(node.path, node);
+  };
+
+  const stack: IFileNode[] = [...roots];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    addToIndex(current);
+    if (current.type === 'directory' && current.children && current.children.length > 0) {
+      for (const child of current.children) {
+        stack.push(child);
+      }
+    }
+  }
+
+  return index;
+}
+
+/**
+ * Ensures the index for a given tree is built and cached.
+ */
+export function primeFileNodeIndex(roots: IFileNode[]): void {
+  if (!treeToIndex.has(roots)) {
+    const index = buildFileNodeIndex(roots);
+    treeToIndex.set(roots, index);
+  }
+}
+
+/**
+ * Invalidates the cached index for a given tree (use if the same array instance
+ * is structurally mutated or paths change). Typically unnecessary if you replace
+ * the tree array, since WeakMap keys are by identity.
+ */
+export function invalidateFileNodeIndex(roots: IFileNode[]): void {
+  treeToIndex.delete(roots);
+}
+
 /**
  * Utilities for exploring and manipulating file trees
  */
@@ -33,25 +84,23 @@ export const fileExplorer = {
    * Finds a node in the file tree by its path and optionally root folder ID
    */
   findNodeByPath(roots: IFileNode[], path: string, rootFolderId?: string): IFileNode | null {
-    const queue = [...roots];
-
-    while (queue.length > 0) {
-      const node = queue.shift();
-      if (!node) continue;
-
-      if (node.path === path) {
-        // If rootFolderId is provided, ensure it matches
-        if (rootFolderId && node.rootFolderId !== rootFolderId) {
-          continue;
-        }
-        return node;
-      }
-
-      if (node.type === 'directory' && node.children) {
-        queue.push(...node.children);
-      }
+    // Fast path: use cached index per tree
+    let index = treeToIndex.get(roots);
+    if (!index) {
+      index = buildFileNodeIndex(roots);
+      treeToIndex.set(roots, index);
     }
 
+    if (rootFolderId) {
+      const folderMap = index.get(rootFolderId);
+      return folderMap?.get(path) ?? null;
+    }
+
+    // Fallback: if no folderId provided, check all folder maps
+    for (const [, folderMap] of index) {
+      const found = folderMap.get(path);
+      if (found) return found;
+    }
     return null;
   },
 
