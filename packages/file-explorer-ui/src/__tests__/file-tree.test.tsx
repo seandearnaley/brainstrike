@@ -94,11 +94,11 @@ describe('FileTree', () => {
       wrapper: FileExplorerTestWrapper,
     });
 
-    const container = screen.getByRole('tree', { name: 'File tree' })
-      .parentElement as HTMLDivElement;
+    const container = screen.getByTestId('file-tree-scroll-container') as HTMLDivElement;
     Object.defineProperty(container, 'clientHeight', { value: 56 });
-
-    expect(container.querySelectorAll('li').length).toBeLessThan(bigTree.length);
+    const initialCount = screen.queryAllByRole('treeitem').length;
+    expect(initialCount).toBeGreaterThan(0);
+    expect(initialCount).toBeLessThan(bigTree.length);
 
     act(() => {
       container.scrollTop = 280;

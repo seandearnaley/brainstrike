@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 export interface VirtualRange {
@@ -10,7 +11,7 @@ export interface UseVirtualListOptions {
 }
 
 export interface UseVirtualListReturn {
-  containerRef: React.RefObject<HTMLDivElement | null>;
+  containerRef: RefObject<HTMLDivElement | null>;
   range: VirtualRange;
   offset: number;
   totalHeight: number;

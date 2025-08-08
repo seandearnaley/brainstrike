@@ -2,6 +2,7 @@ import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createFileNode } from '@brainstrike/test-utils';
 import type { FileExplorerState, IFileNode } from '@brainstrike/types';
+import { encodeFileSelection } from '@brainstrike/utils';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileContentLoading } from '../use-file-content-loading';
@@ -106,7 +107,7 @@ describe('useFileExplorer', () => {
     });
 
     vi.mocked(useFileContentLoading).mockReturnValue({
-      fileContents: { '/file1.ts': 'content1' },
+      fileContents: { [encodeFileSelection('mock-root', '/file1.ts')]: 'content1' },
       isLoading: false,
       error: null,
       handleFileContentLoading: mockHandleFileContentLoading,
@@ -134,8 +135,9 @@ describe('useFileExplorer', () => {
       await result.current.actions.loadFileContent('/file1.ts');
     });
 
-    expect(mockHandleFileContentLoading).toHaveBeenCalledWith(['/file1.ts']);
-    expect(result.current.fileContents['/file1.ts']).toBe('content1');
+    const key = encodeFileSelection('mock-root', '/file1.ts');
+    expect(mockHandleFileContentLoading).toHaveBeenCalledWith([key]);
+    expect(result.current.fileContents[key]).toBe('content1');
   });
 
   it('should apply filters and update displayed files', () => {

@@ -80,7 +80,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // 2. Tree Expansion Performance
     await page.evaluate(() => performance.mark('expansion-start'));
     
-    const expandButtons = page.locator('[data-testid^="expand-button-"]');
+    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
     const expandCount = await expandButtons.count();
     
     for (let i = 0; i < Math.min(3, expandCount); i++) {
@@ -102,7 +102,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // 3. File Selection Performance
     await page.evaluate(() => performance.mark('selection-start'));
     
-    const fileCheckboxes = page.locator('[data-testid^="file-checkbox-"]');
+    const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
     const selectionCount = Math.min(5, await fileCheckboxes.count());
     
     for (let i = 0; i < selectionCount; i++) {
@@ -182,7 +182,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     // Trigger multiple state changes that might cause re-renders
-    const fileCheckboxes = page.locator('[data-testid^="file-checkbox-"]');
+    const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
     const checkboxCount = await fileCheckboxes.count();
 
     for (let i = 0; i < checkboxCount; i++) {
@@ -245,7 +245,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
 
-    const treeContainer = explorer.fileTree;
+    const treeContainer = explorer.fileTreeScrollContainer;
 
     // Measure scroll performance
     await page.evaluate(() => performance.mark('scroll-test-start'));

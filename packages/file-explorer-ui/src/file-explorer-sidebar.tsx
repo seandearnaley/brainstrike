@@ -1,3 +1,4 @@
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type * as React from 'react';
 import OptimizedFileTree from './optimized-file-tree';
@@ -10,7 +11,7 @@ const NoFilesSelected = () => (
 );
 
 interface FileExplorerSidebarProps {
-  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
   treeError: Error | null;
   filterError: Error | null;
   quickFilteredTree: IFileNode[] | null;
@@ -45,7 +46,7 @@ const EmptyState = ({
 }: {
   isLoading: boolean;
   quickFilteredTree: IFileNode[] | null;
-  rootDirectoryHandle: FileSystemDirectoryHandle | null;
+  rootDirectoryHandle: DirectoryHandle | null;
 }) => (
   <div className="text-center text-muted-foreground py-8">
     {isLoading ? 'Loading files...' : 'No matching files found'}

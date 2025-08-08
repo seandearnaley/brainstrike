@@ -16,6 +16,10 @@ export class FileExplorerPage {
     return this.page.getByRole('tree', { name: 'File tree' });
   }
 
+  get fileTreeScrollContainer(): Locator {
+    return this.page.locator('[data-testid="file-tree-scroll-container"]');
+  }
+
   get noDirectoryText(): Locator {
     return this.page.getByText('No directory selected');
   }

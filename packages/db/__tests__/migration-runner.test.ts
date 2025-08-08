@@ -36,20 +36,17 @@ describe('MigrationRunner', () => {
 
   describe('initialization', () => {
     it('should create migration tracking table', async () => {
-      const result = await db.query(
-        "SELECT tablename FROM pg_tables WHERE tablename='_migrations'"
-      );
-      expect(result.rows).toHaveLength(1);
+      // Verify via API that depends on the table
+      const applied = await runner.getAppliedMigrations();
+      expect(applied).toEqual([]);
     });
 
     it('should handle repeated initialization calls', async () => {
       await runner.initialize();
       await runner.initialize();
 
-      const result = await db.query(
-        "SELECT tablename FROM pg_tables WHERE tablename='_migrations'"
-      );
-      expect(result.rows).toHaveLength(1);
+      const applied = await runner.getAppliedMigrations();
+      expect(applied).toEqual([]);
     });
   });
 

@@ -12,6 +12,13 @@ export class MigrationRunner {
 
   constructor(private db: PGlite) {}
 
+  private static isTransactionalDb(db: PGlite): db is PGlite & {
+    transaction: (fn: (tx: Pick<PGlite, 'exec' | 'query'>) => Promise<void>) => Promise<void>;
+  } {
+    // Narrow the type by checking the transaction function at runtime
+    return typeof (db as unknown as { transaction?: unknown }).transaction === 'function';
+  }
+
   /**
    * Initialize migration tracking table
    */
@@ -66,30 +73,41 @@ export class MigrationRunner {
    * Run a single migration
    */
   async runMigration(migration: Migration): Promise<void> {
-    const isApplied = await this.isApplied(migration.version);
-    if (isApplied) {
-      console.info(`Migration ${migration.version} is already applied, skipping`);
+    const hasTx = MigrationRunner.isTransactionalDb(this.db);
+    const execWith = async (dbi: Pick<PGlite, 'exec' | 'query'>) => {
+      const appliedResult = await dbi.query<{ count: number }>(
+        `SELECT COUNT(*) as count FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
+        [migration.version]
+      );
+      const appliedCount = Number(appliedResult.rows[0]?.count ?? 0);
+      if (appliedCount > 0) {
+        console.info(`Migration ${migration.version} is already applied, skipping`);
+        return;
+      }
+      await dbi.exec(migration.up);
+      const checksum = this.calculateChecksum(migration.up);
+      await dbi.exec(
+        `INSERT INTO ${MigrationRunner.MIGRATION_TABLE} (version, name, checksum) VALUES (${migration.version}, '${migration.name}', '${checksum}')`
+      );
+    };
+
+    if (hasTx) {
+      await this.db.transaction(async (tx: Pick<PGlite, 'exec' | 'query'>) => {
+        try {
+          await execWith(tx);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          throw new Error(`Migration ${migration.version} failed: ${errorMessage}`);
+        }
+      });
       return;
     }
 
     try {
-      // Start transaction
       await this.db.exec('BEGIN');
-
-      // Execute migration
-      await this.db.exec(migration.up);
-
-      // Record migration
-      const checksum = this.calculateChecksum(migration.up);
-      await this.db.query(
-        `INSERT INTO ${MigrationRunner.MIGRATION_TABLE} (version, name, checksum) VALUES ($1, $2, $3)`,
-        [migration.version, migration.name, checksum]
-      );
-
-      // Commit transaction
+      await execWith(this.db);
       await this.db.exec('COMMIT');
     } catch (error) {
-      // Rollback on error
       await this.db.exec('ROLLBACK');
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Migration ${migration.version} failed: ${errorMessage}`);
@@ -116,28 +134,42 @@ export class MigrationRunner {
       throw new Error(`Migration ${migration.version} does not support rollback`);
     }
 
-    const isApplied = await this.isApplied(migration.version);
-    if (!isApplied) {
-      console.info(`Migration ${migration.version} is not applied, skipping rollback`);
+    const hasTx = MigrationRunner.isTransactionalDb(this.db);
+    const downSql = migration.down as string; // safe due to guard above
+    const execWith = async (dbi: Pick<PGlite, 'exec' | 'query'>) => {
+      const appliedResult = await dbi.query<{ count: number }>(
+        `SELECT COUNT(*) as count FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`,
+        [migration.version]
+      );
+      const appliedCount = Number(appliedResult.rows[0]?.count ?? 0);
+      if (appliedCount === 0) {
+        console.info(`Migration ${migration.version} is not applied, skipping rollback`);
+        return;
+      }
+
+      await dbi.exec(downSql);
+      await dbi.exec(
+        `DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = ${migration.version}`
+      );
+    };
+
+    if (hasTx) {
+      await this.db.transaction(async (tx: Pick<PGlite, 'exec' | 'query'>) => {
+        try {
+          await execWith(tx);
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          throw new Error(`Rollback of migration ${migration.version} failed: ${errorMessage}`);
+        }
+      });
       return;
     }
 
     try {
-      // Start transaction
       await this.db.exec('BEGIN');
-
-      // Execute rollback
-      await this.db.exec(migration.down);
-
-      // Remove migration record
-      await this.db.query(`DELETE FROM ${MigrationRunner.MIGRATION_TABLE} WHERE version = $1`, [
-        migration.version,
-      ]);
-
-      // Commit transaction
+      await execWith(this.db);
       await this.db.exec('COMMIT');
     } catch (error) {
-      // Rollback on error
       await this.db.exec('ROLLBACK');
       const errorMessage = error instanceof Error ? error.message : String(error);
       throw new Error(`Rollback of migration ${migration.version} failed: ${errorMessage}`);

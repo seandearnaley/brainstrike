@@ -217,12 +217,18 @@ export function useFileTree(
         context.rootNodesRef.current.push(node);
         const newBatchCounter = currentBatchCounter + 1;
         const updatedBatchCounter = await handleBatchUpdate(newBatchCounter, isRoot);
-        stats.successCount++;
+        // Count only files as successful content units
+        if (node.type === 'file') {
+          stats.successCount++;
+        }
         context.updateProgress(relativePath);
         return updatedBatchCounter;
       }
 
-      stats.successCount++;
+      // Count only files as successful content units
+      if (node.type === 'file') {
+        stats.successCount++;
+      }
       context.updateProgress(relativePath);
       return currentBatchCounter;
     },
@@ -270,10 +276,7 @@ export function useFileTree(
             _internal: entry.handle,
           };
 
-          // Test if we can read the directory before counting it as a success
-          await context.fileSystemAdapter.readDirectory(dirHandle);
-
-          // If we can read it, add it to the stack for processing
+          // Defer reading until the stack pop; failures handled centrally
           if (node.children) {
             stack.push({
               handle: dirHandle,

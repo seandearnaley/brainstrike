@@ -1,386 +1,116 @@
-# BrainStrike Monorepo 🚀
+# BrainStrike Monorepo
 
 ![BrainStrike Logo](icon.png)
 
-**BrainStrike is a 2025-ready, AI-powered productivity suite built on a robust monorepo architecture. We leverage modern technologies like Vite, React 19, and Turborepo to deliver cutting-edge tools for the future of work.**
+Future‑ready, AI‑assisted productivity apps built with React 19, Vite, Turborepo, and a typed TypeScript stack. This repo contains the Web app, Desktop app, and shared packages powering them.
 
-[![Test](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml/badge.svg)](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml)
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](https://opensource.org/licenses/ISC)
-[![Version](https://img.shields.io/npm/v/brainstrike)](https://www.npmjs.com/package/brainstrike)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](AGENTS.md)
-
----
-
-## 🌟 Overview
-
-BrainStrike aims to revolutionize productivity by providing intelligent tools that streamline workflows and enhance creativity. This monorepo houses our core applications (🌐 Web and 💻 Desktop) and a suite of shared packages that power them. Our architecture emphasizes speed, maintainability, and scalability.
-
-## ✨ Features
-
-*   🧠 **AI-Powered Productivity:** Leverage the latest AI advancements.
-*   🖥️ **Cross-Platform:** Access BrainStrike on the Web and via a dedicated Desktop application.
-*   🛠️ **Modern Tech Stack:** Built with React 19, Vite, TypeScript, and Tailwind CSS.
-*   ⚡ **High Performance:** Optimized for speed and efficiency.
-*   🧩 **Modular Design:** Shared packages ensure consistency and rapid development.
-*   🔌 **Extensible:** Adapter patterns for file system and storage allow for easy expansion.
+[![CI](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml/badge.svg)](https://github.com/seandearnaley/brainstrike/actions/workflows/test.yml)
+[![Node >= 22](https://img.shields.io/badge/node-%3E%3D22.x-3C873A?logo=node.js&logoColor=white)](./.nvmrc)
+[![pnpm](https://img.shields.io/badge/pnpm-10.x-F69220?logo=pnpm&logoColor=white)](https://pnpm.io)
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](LICENSE)
 
 ---
 
-## 🏗️ Architecture
+## Quick Start
 
-Our monorepo is structured to support multiple applications and shared libraries efficiently.
+- Prereqs: Node 22.x+, pnpm 10.x (`corepack enable` recommended).
+- Install deps: `pnpm install`
+- Web dev server: `pnpm dev --filter @brainstrike/web`
+- Desktop dev: `pnpm dev --filter @brainstrike/desktop`
+- Build all workspaces: `pnpm build`
 
-```mermaid
-%%{init: {'theme':'dark'}}%%
-%%{
-  init: {
-    'theme': 'base',
-    'fontFamily': 'Inter, sans-serif',
-    'themeVariables': {
-      'primaryColor': '#ffffff',
-      'primaryTextColor': '#111827',
-      'primaryBorderColor': '#d1d5db',
-      'lineColor': '#6b7280',
-      'secondaryColor': '#f3f4f6',
-      'tertiaryColor': '#e5e7eb'
-    }
-  }
-}%%
-graph LR
-    %% Root Node
-    subgraph "Monorepo"
-        direction LR
-        A((Root)):::rootStyle
-    end
+Tip: Use `--filter <workspace>` to scope any script to a single app/package.
 
-    %% Application Nodes
-    subgraph " "
-      direction TB
-      APPS_LABEL[Applications]:::subgraphLabel
-      subgraph " "
-        WEB[apps/web]:::appStyle
-        DESKTOP[apps/desktop]:::appStyle
-      end
-    end
+---
 
-
-    %% Package Nodes
-    subgraph " "
-      direction LR
-      PACKAGES_LABEL[Packages]:::subgraphLabel
-        subgraph "UI & Hooks"
-            direction TB
-            UI[packages/ui]:::uiStyle
-            HOOKS[packages/hooks]:::uiStyle
-        end
-
-        subgraph "File System"
-            direction TB
-            FEXPLORE_UI[packages/file-explorer-ui]:::featureStyle
-            FEXPLORE_HOOKS[packages/file-explorer-hooks]:::featureStyle
-            FEXPLORE[packages/file-explorer]:::featureStyle
-            FILESYS[packages/file-system]:::coreStyle
-            STORAGE[packages/storage]:::coreStyle
-        end
-
-        subgraph "Core & Config"
-            direction TB
-            UTILS[packages/utils]:::coreStyle
-            TYPES[packages/types]:::coreStyle
-            SERVER_CONFIG[packages/server-config]:::configStyle
-            TAILWIND[packages/tailwind-config]:::configStyle
-            FONTS[packages/fonts]:::configStyle
-            CONFIG[packages/config]:::configStyle
-            DB[packages/db]:::coreStyle
-        end
-    end
-
-
-    %% Define Connections
-    A --> APPS_LABEL
-    A --> PACKAGES_LABEL
-
-
-    %% App Dependencies
-    WEB --> UI
-    WEB --> HOOKS
-    WEB --> UTILS
-    WEB --> TYPES
-    WEB --> FEXPLORE_UI
-    WEB --> DB
-    WEB --> SERVER_CONFIG
-    DESKTOP --> DB
-
-    DESKTOP --> WEB
-    DESKTOP --> UTILS
-
-
-    %% Package Dependencies
-    UI --> TAILWIND
-    UI --> FONTS
-    UI --> TYPES
-
-    FEXPLORE_UI --> UI
-    FEXPLORE_UI --> FEXPLORE_HOOKS
-    FEXPLORE_UI --> TYPES
-    FEXPLORE_UI --> UTILS
-
-    FEXPLORE_HOOKS --> FEXPLORE
-    FEXPLORE_HOOKS --> TYPES
-    FEXPLORE_HOOKS --> UTILS
-    FEXPLORE_HOOKS --> STORAGE
-    FEXPLORE_HOOKS --> FILESYS
-
-    FEXPLORE --> TYPES
-    FEXPLORE --> UTILS
-    UTILS --> TYPES
-
-
-    %% Define Styles
-    classDef rootStyle fill:#be185d,stroke:#9d174d,color:#ffffff,font-weight:bold
-    classDef appStyle fill:#4f46e5,stroke:#3730a3,color:#ffffff,font-weight:bold,stroke-width:2px
-    classDef uiStyle fill:#16a34a,stroke:#14532d,color:#ffffff
-    classDef featureStyle fill:#c026d3,stroke:#86198f,color:#ffffff
-    classDef coreStyle fill:#d97706,stroke:#9a3412,color:#ffffff
-    classDef configStyle fill:#64748b,stroke:#475569,color:#ffffff
-    classDef subgraphLabel fill:#ffffff,stroke:#ffffff,color:#000000,font-weight:bold,font-size:18px
-
-    %% Make label nodes invisible
-    style APPS_LABEL stroke-width:0
-    style PACKAGES_LABEL stroke-width:0
-```
-
-### Repository Layout
-
-Below is a simplified overview of our monorepo structure, highlighting key areas:
+## Monorepo Layout
 
 ```
-.
-├── apps/
-│   ├── desktop/        # 💻 Electron wrapper for the desktop application
-│   │   └── src/
-│   │       ├── main.ts         # Electron main process
-│   │       └── preload.ts      # Electron preload script
-│   └── web/            # 🌐 Main Vite + React web application
-│       ├── src/
-│       │   ├── app/            # Core application components and routes
-│       │   └── main.tsx        # Entry point for the web app
-│       └── e2e/            # Playwright End-to-End tests
-│
-├── packages/
-│   ├── app-shell/      # 🖼️ Core application layout and navigation
-│   ├── config/         # ⚙️ Shared configurations (Biome, TSConfig, etc.)
-│   │   ├── biome.json
-│   │   └── tsconfig/
-│   ├── file-explorer/  # Core file analysis logic (platform-agnostic)
-│   ├── file-explorer-hooks/ # 🎣 React hooks for file explorer features
-│   ├── file-explorer-ui/ # 🖼️ UI components for file explorer
-│   ├── file-system/    # Abstraction for file system operations
-│   │   └── src/
-│   │       └── adapters/   # (e.g., Node.js, Web, In-memory)
-│   ├── fonts/          # 🖋️ Shared font assets
-│   ├── hooks/          # 🎣 General-purpose React hooks
-│   ├── server-config/  # 🔩 Configuration for server-side aspects
-│   ├── storage/        # 💾 Abstraction for data persistence
-│   │   └── src/
-│   │       └── adapters/   # (e.g., LocalStorage, Electron-store)
-│   ├── db/             # 🗄️ Local database helpers ([packages/db](./packages/db/README.md))
-│   ├── tailwind-config/# 🎨 Shared Tailwind CSS configuration
-│   ├── test-utils/     # 🧪 Utilities for testing
-│   ├── types/          # 🏷️ Shared TypeScript types and interfaces
-│   ├── ui/             # 🧱 Shared React UI components (buttons, dialogs, etc.)
-│   ├── utils/          # 🛠️ Common utility functions (tokenizers, etc.)
-│   └── workers/        # 👷 Web workers (e.g., file content processing)
-│
-├── .github/            # 🤖 GitHub Actions workflows
-├── .husky/             # 🐶 Git hooks
-├── docs/               # 📚 Project documentation
-├── scripts/            # 📜 Utility scripts for the repository
-├── README.md           # 👈 This file!
-├── package.json        # Root package.json
-├── pnpm-workspace.yaml # Defines pnpm workspace packages
-├── tsconfig.json       # Root TypeScript configuration
-└── turbo.jsonc         # Turborepo configuration
-```
-This structure helps us maintain a clean separation of concerns, allowing for independent development and testing of different parts of the application suite.
-
-### Key Architectural Patterns
-*   **Monorepo:** Managed with `pnpm` workspaces and Turborepo for optimized build and dependency management.
-*   **Shared Packages:** Core logic, UI components, utilities, and types are shared across applications to promote consistency and code reuse.
-*   **Adapter Pattern:** `packages/file-system` and `packages/storage` use adapters, allowing them to work seamlessly in different environments (browser, Node.js/Electron, and for testing). This is crucial for platform flexibility.
-
-```mermaid
-%%{init: {'theme':'dark'}}%%
-graph LR;
-    subgraph CoreLogic[File Explorer Core]
-        direction LR
-        FXH[file-explorer-hooks]
-    end
-
-    subgraph Abstractions
-        direction LR
-        FS[packages/file-system]
-        S[packages/storage]
-    end
-
-    subgraph Adapters_FileSystem[File System Adapters]
-        direction TB
-        FS_Node[NodeFSAdapter]
-        FS_Web[WebFSAdapter e.g., via API]
-        FS_Mem[InMemoryFSAdapter for tests]
-    end
-
-    subgraph Adapters_Storage[Storage Adapters]
-        direction TB
-        S_Local[LocalStorageAdapter Web]
-        S_Electron[ElectronStoreAdapter Desktop]
-        S_Mem[InMemoryStorageAdapter for tests]
-    end
-
-    FXH --> FS;
-    FXH --> S;
-
-    FS --> FS_Node;
-    FS --> FS_Web;
-    FS --> FS_Mem;
-
-    S --> S_Local;
-    S --> S_Electron;
-    S --> S_Mem;
-
-    APPS[Applications Web/Desktop] --> FXH;
-    TESTS[Tests] --> FXH;
-
-    style FS_Node fill:#D4E6F1,stroke:#2E86C1
-    style FS_Web fill:#D4E6F1,stroke:#2E86C1
-    style FS_Mem fill:#D4E6F1,stroke:#2E86C1
-
-    style S_Local fill:#D1F2EB,stroke:#1ABC9C
-    style S_Electron fill:#D1F2EB,stroke:#1ABC9C
-    style S_Mem fill:#D1F2EB,stroke:#1ABC9C
-```
-This diagram illustrates how the `file-explorer-hooks` (representing the core logic consuming these abstractions) interact with `packages/file-system` and `packages/storage`. These packages, in turn, delegate operations to specific adapters based on the runtime environment (Node.js for desktop/CLI, Web APIs for browsers, or in-memory versions for testing). This keeps the core logic decoupled from the underlying platform specifics.
-
----
-
-## 🚀 Getting Started
-
-### ✅ Prerequisites
-*   **Node.js:** Version 22+ (check `.nvmrc` for the exact version).
-*   **pnpm:** Version 10.14.0+ (check `packageManager` in `package.json`).
-*   Verify that each `package.json` within `apps/*` and `packages/*` declares `"engines": { "node": ">=22" }`.
-
-### 📦 Installation
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/seandearnaley/brainstrike
-    cd brainstrike-monorepo
-    ```
-2.  **Install dependencies:**
-    ```bash
-    pnpm install
-    ```
-
-### ▶️ Running the Applications
-*   **Web App (Development):**
-    ```bash
-    pnpm dev --filter web
-    ```
-    Access at `http://localhost:8080`.
-
-*   **Desktop App (Development):**
-    ```bash
-    # In one terminal:
-    pnpm dev --filter desktop
-    # In another terminal:
-    pnpm start --filter desktop
-    ```
-    _The desktop app is an Electron wrapper around the web UI, offering a native experience._
-
-### 💡 Token Counting (Heuristic Only)
-Token counting in `@brainstrike/utils` now relies solely on a heuristic approach. In earlier versions a tokenizer worker leveraged `tiktoken` for more accurate counts, but that worker has been removed. The old `DISABLE_TOKEN_WORKER` environment variable is obsolete and no worker process will be spawned.
-
----
-
-## 🛠️ Tech Stack & Toolchain
-
-Our choice of technologies is geared towards building a modern, scalable, and maintainable application suite with a great developer experience.
-
-| Category          | Technology / Tool                 | Description                                                                 |
-|-------------------|-----------------------------------|-----------------------------------------------------------------------------|
-| **Core Framework**| React 19                          | For building dynamic and responsive user interfaces.                        |
-| **Build Tool**    | Vite                              | Fast development server and optimized builds.                               |
-| **Monorepo Mgmt** | Turborepo                         | High-performance build system for monorepos.                                |
-| **Package Manager**| pnpm                              | Fast, disk space-efficient package manager.                                 |
-| **Language**      | TypeScript 5                      | Strong typing for enhanced code quality and maintainability.                |
-| **Styling**       | Tailwind CSS v4                   | Utility-first CSS framework for rapid UI development.                       |
-| **Lint & Format** | Biome                             | Fast and comprehensive linter and formatter.                                |
-| **Unit Testing**  | Vitest                            | Vite-native unit testing framework.                                         |
-| **E2E Testing**   | Playwright                        | For robust end-to-end testing of the web application.                     |
-| **Routing**       | React Router                      | Declarative routing for React applications.                                 |
-| **Head Mgmt**     | `react-helmet-async`              | Manage document head changes asynchronously.                                |
-| **Desktop App**   | Electron                          | Build cross-platform desktop apps with web technologies.                    |
-| **Key Docs**      | [IDE Layout](./docs/ide-layout.md)| Guidelines for building multi-panel workspaces.                             |
-
-### Common Commands
-
-| Command                     | Description                                                          |
-|-----------------------------|----------------------------------------------------------------------|
-| `pnpm dev --filter web`     | Start local development for the 🌐 web app.                          |
-| `pnpm dev --filter desktop`   | Start local development for the 💻 desktop app (Vite dev server).      |
-| `pnpm start --filter desktop` | Launch the Electron shell for the 💻 desktop app.                    |
-| `pnpm build`                  | Build all apps and packages.                                         |
-| `pnpm test`                   | Run unit and integration tests across the monorepo.                  |
-| `pnpm test:e2e`               | Run Playwright E2E tests for the 🌐 web app.                       |
-| `pnpm lint`                   | Lint the codebase and apply safe fixes with Biome.                   |
-| `pnpm format`                 | Auto-format source files using Biome.                                |
-| `pnpm type-check`             | Run TypeScript type checks for all packages.                         |
-| `pnpm check`                  | Run full validation suite (lint, format, build, test, etc.).         |
-
-
-### Tailwind Configuration
-To use the shared Tailwind configuration (`@brainstrike/tailwind-config`) in any package:
-1.  **Extend the base configuration.**
-2.  **Specify `content` globs** to include all files that contain Tailwind classes.
-
-Example (`tailwind.config.js` in a package):
-```javascript
-const base = require('@brainstrike/tailwind-config');
-
-module.exports = {
-  ...base,
-  content: [
-    './index.html', // If your package has an index.html
-    './src/**/*.{js,ts,jsx,tsx}',
-    // Ensure paths to shared UI packages are included if their components are used directly
-    '../../packages/ui/src/**/*.{js,ts,jsx,tsx}',
-  ],
-};
+apps/
+  web/       # Vite + React web app (Playwright E2E)
+  desktop/   # Electron desktop app (Playwright E2E)
+packages/
+  ui/                 # Shared React components (shadcn/ui + Radix)
+  hooks/              # Reusable React hooks
+  utils/              # Common utilities
+  types/              # Shared types
+  app-shell/          # App layout and navigation
+  file-explorer/      # Core file explorer state/logic
+  file-explorer-ui/   # File explorer UI components
+  file-explorer-hooks/# File explorer hooks
+  file-system/        # FS abstractions/adapters
+  storage/            # Storage abstractions/adapters
+  server-config/      # Server config utilities
+  tailwind-config/    # Shared Tailwind v4 config
+  config/             # Biome + TSConfig
+  db/                 # Local DB helpers
+  test-utils/, fonts/, workers/, styles/, platform-utils/, embeddings/, file-* ...
 ```
 
----
-
-## ⚙️ Configuration
-
-*   For detailed information about configuring the file explorer's behavior and settings, please refer to [docs/file-explorer-settings.md](./docs/file-explorer-settings.md).
+See also: `onboarding.md` and `monorepo-docs.md` for deep dives.
 
 ---
 
-## 🤝 Contributing
+## Common Scripts
 
-We enthusiastically welcome contributions! To ensure a smooth collaboration, please adhere to the following:
+- `pnpm dev`: Run all dev servers as defined.
+- `pnpm build`: Build every workspace (fails if any one fails).
+- `pnpm type-check`: Run TypeScript checks across the repo.
+- `pnpm lint`: Biome lint (safe fixes on) and `pnpm format` to write formatting.
+- `pnpm test`: Vitest unit/integration tests through Turborepo.
+- `pnpm test:e2e`: Playwright E2E (web). Desktop E2E: `pnpm test:e2e:desktop`.
+- `pnpm clean`: Clean outputs via Turborepo.
 
-*   📖 **Coding Standards & Workflow:** Follow the guidelines outlined in [AGENTS.md](./AGENTS.md).
-*   ✍️ **Commit Messages:** Employ the [Conventional Commits](https://www.conventionalcommits.org/) format for clear and consistent commit history.
-*   ✅ **Validation:** Before submitting any changes, run `pnpm run check` to ensure all tests, linting, and type checks pass.
-*    Deep Dive Technical Guides:
-    *   [onboarding.md](./onboarding.md) - For new contributors getting started with the project.
-    *   [monorepo-docs.md](./monorepo-docs.md) - For in-depth understanding of the monorepo architecture and practices.
-
-The file explorer's adaptability across platforms (web, desktop, testing environments) is made possible by the `@brainstrike/storage` and `@brainstrike/file-system` packages, which implement a platform-aware adapter pattern. This design is key to our cross-platform strategy.
+Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`.
 
 ---
 
-## 📜 License
+## Development
 
-This project is licensed under the **ISC License**. See the [LICENSE](LICENSE) file at the repository root for full details.
+- Language: TypeScript (strict). Framework: React 19+ with hooks.
+- Styling: Tailwind CSS v4 and `@brainstrike/ui` components.
+- State: Zustand where global state is required (see `packages/file-explorer/src/store.ts`).
+- Lint/Format: Biome. Run `pnpm lint` and `pnpm format` before committing.
+- File naming: kebab-case files/dirs; components export PascalCase; hooks file `use-kebab-case.ts` and export camelCase.
+- Commits: Conventional Commits (`feat(ui): add modal`, etc.).
+- Never downgrade to “make it work”; fail fast and fix root causes.
+
+More context and expectations for humans and AI agents: `AGENTS.md`.
+
+---
+
+## Testing
+
+- Unit/Integration (Vitest): `pnpm test` or `pnpm test --filter <pkg>`.
+- Focus tests in a package: run inside the package `pnpm vitest run -t "test name"`, or from root `pnpm turbo run test --filter <pkg> -- -- -t "pattern"`.
+- E2E (Playwright): `pnpm test:e2e` for Web, `pnpm test:e2e:desktop` for Desktop.
+- Type checking: `pnpm type-check` must pass.
+
+CI details: `.github/workflows/test.yml` runs lint → type‑check → build (with Tailwind sanity checks) → unit tests with coverage → E2E shards (web + desktop) → report merge.
+
+---
+
+## Contributing
+
+- Install: `pnpm install` at repo root.
+- Add deps to a package: `pnpm add <dep> --filter @brainstrike/<pkg>`.
+- Create a new package under `apps/` or `packages/`, set a unique `name` in its `package.json`, ensure it matches workspace globs, then run `pnpm install` to link.
+- PRs: include tests, keep TypeScript clean, and ensure `pnpm run check` is green locally.
+
+Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
+
+---
+
+## Troubleshooting
+
+- Node version errors: ensure you’re on Node 22.x (`nvm use` reads `.nvmrc`).
+- Playwright prompts: run `pnpm exec playwright install --with-deps chromium` if needed locally.
+- Tailwind CSS checks failing in CI: ensure only one `@import "tailwindcss"` per package stylesheet and that the web app scans sources from shared packages; use `TAILWIND_DEBUG=1 pnpm build` to inspect.
+- Turborepo caching oddities: `pnpm clean` then retry the command.
+
+---
+
+## License
+
+ISC © BrainStrike contributors. See `LICENSE`.
+

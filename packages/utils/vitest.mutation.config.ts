@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    silent: true,
+    reporters: 'basic',
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: [
