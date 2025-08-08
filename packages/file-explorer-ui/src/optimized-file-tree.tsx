@@ -5,6 +5,7 @@ import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
+import { getVisibleNodes } from './utils/flatten-visible-nodes';
 
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
@@ -61,29 +62,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [folderId, addSelectedFile, removeSelectedFile, store]
     );
 
-    // Optimized tree flattening with better memoization
-    const flattenTree = useCallback(
-      (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
-        for (const n of nodes) {
-          acc.push({ node: n, depth });
-          if (n.type === 'directory' && expandedDirectoryPaths.has(n.path) && n.children) {
-            flattenTree(
-              n.children.filter((c) => c.isVisible !== false),
-              depth + 1,
-              acc
-            );
-          }
-        }
-        return acc;
-      },
-      [expandedDirectoryPaths]
+    // Cached visible nodes calculation keyed by tree identity and expanded set
+    const visibleNodes = useMemo(
+      () => getVisibleNodes(fileTree, expandedDirectoryPaths),
+      [fileTree, expandedDirectoryPaths]
     );
 
-    // Memoize visible nodes calculation
-    const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
-
     // Enhanced virtualization with improved performance
-    const { containerRef, range, offset, totalHeight } = useVirtualList(
+    const { containerRef, range, totalHeight } = useVirtualList(
       visibleNodes.length,
       ROW_HEIGHT,
       { overscan: 2 } // Reduced overscan to decrease memory usage
@@ -114,7 +100,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             folderId={folderId}
             style={{
               position: 'absolute',
-              top: (startIndex + rowIndex) * ROW_HEIGHT - offset,
+              top: (startIndex + rowIndex) * ROW_HEIGHT,
               width: '100%',
               height: ROW_HEIGHT,
             }}
@@ -132,7 +118,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       handleToggleFileSelection,
       loadingFiles,
       folderId,
-      offset,
     ]);
 
     // This effect will run if the onRender callback itself changes.
@@ -148,21 +133,17 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         className="h-full relative flex-1 min-h-0 overflow-y-auto"
         data-testid="file-tree-scroll-container"
       >
-        <div
+        <ul
           className="relative file-tree"
-          role="tree"
           aria-label="File tree"
           data-testid="file-tree"
           style={{
             height: totalHeight,
-            transform: `translateY(${offset}px)`,
-            // Optimize for performance
-            willChange: 'transform',
             contain: 'layout style paint',
           }}
         >
           {renderedRows}
-        </div>
+        </ul>
       </div>
     );
   }

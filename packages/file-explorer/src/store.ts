@@ -37,12 +37,30 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     folderAccessOrder: [],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
+    // Internal, not persisted: increments when expansion set changes
+    _expandedVersion: 0,
   };
 
   const actions = {
     ...createFolderStateActions(set, get),
     ...createFileSelectionActions(set, get),
-    ...createDirectoryExpansionActions(set, get),
+    ...createDirectoryExpansionActions(
+      (updater) =>
+        set((state) => {
+          const partial =
+            typeof updater === 'function' ? updater(state as FileExplorerState) : updater;
+          if ('expandedDirectoryPaths' in partial && partial.expandedDirectoryPaths) {
+            // Bump version whenever expansion set is replaced
+            const currentVersion = (state as FileExplorerState)._expandedVersion ?? 0;
+            return {
+              ...partial,
+              _expandedVersion: currentVersion + 1,
+            } as Partial<FileExplorerState>;
+          }
+          return partial as Partial<FileExplorerState>;
+        }),
+      get
+    ),
     ...createSettingsActions(set, get),
     ...createFileContentActions(set, get),
   };

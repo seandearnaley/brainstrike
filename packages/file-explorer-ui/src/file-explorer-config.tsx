@@ -8,6 +8,7 @@ import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
 import MaxSelectionCountSetting from './max-selection-count-setting';
+import { useFileSystem } from './use-file-system-context';
 import UseRegexSetting from './use-regex-setting';
 
 // Types
@@ -59,6 +60,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
     );
 
     const [isOpen, setIsOpen] = useState(false);
+    const { clearRootDirectory } = useFileSystem();
     const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
       includeFilters,
       excludeFilters,
@@ -173,7 +175,17 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
                     onChange={(checked) => handleSettingChange('includeProjectTree', checked)}
                   />
                 </div>
-                <div className="flex justify-end pt-2 border-t mt-2">
+                <div className="flex justify-between items-center pt-2 border-t mt-2">
+                  <Button
+                    variant="destructive"
+                    onClick={() => {
+                      // Factory reset: clear state and root selection
+                      clearRootDirectory();
+                      setIsOpen(false);
+                    }}
+                  >
+                    Factory Reset
+                  </Button>
                   <Button onClick={handleApplySettings}>Apply Settings</Button>
                 </div>
               </div>

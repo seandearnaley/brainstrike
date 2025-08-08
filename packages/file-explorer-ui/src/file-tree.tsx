@@ -5,6 +5,7 @@ import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useVirtualList } from './use-virtual-list';
+import { getVisibleNodes } from './utils/flatten-visible-nodes';
 
 interface IFileTreeProps {
   fileTree: IFileNode[];
@@ -53,59 +54,43 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
     [folderId, addSelectedFile, removeSelectedFile, selectedFilePaths]
   );
 
-  const flattenTree = useCallback(
-    (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
-      for (const n of nodes) {
-        acc.push({ node: n, depth });
-        if (n.type === 'directory' && expandedDirectoryPaths.has(n.path) && n.children) {
-          flattenTree(
-            n.children.filter((c) => c.isVisible !== false),
-            depth + 1,
-            acc
-          );
-        }
-      }
-      return acc;
-    },
-    [expandedDirectoryPaths]
+  const visibleNodes = useMemo(
+    () => getVisibleNodes(fileTree, expandedDirectoryPaths),
+    [fileTree, expandedDirectoryPaths]
   );
 
-  const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
+  const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
+    overscan: 3,
+  });
 
-  const { containerRef, range, offset, totalHeight } = useVirtualList(
-    visibleNodes.length,
-    ROW_HEIGHT,
-    { overscan: 3 }
-  );
-
-  const renderedRows = useMemo(
-    () =>
-      visibleNodes
-        .slice(range.start, range.end + 1)
-        .map(({ node, depth }, index) => (
-          <FileTreeRow
-            key={node.path}
-            node={node}
-            depth={depth}
-            isExpanded={expandedDirectoryPaths.has(node.path)}
-            onToggleDirectoryExpansion={toggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
-            folderId={folderId}
-            style={{ position: 'absolute', top: (range.start + index) * ROW_HEIGHT - offset }}
-          />
-        )),
-    [
-      visibleNodes,
-      range,
-      expandedDirectoryPaths,
-      toggleDirectoryExpansion,
-      handleToggleFileSelection,
-      loadingFiles,
-      folderId,
-      offset,
-    ]
-  );
+  const renderedRows = useMemo(() => {
+    const startIndex = range.start;
+    const endIndex = range.end;
+    return visibleNodes
+      .slice(startIndex, endIndex + 1)
+      .map(({ node, depth }, index) => (
+        <FileTreeRow
+          key={node.path}
+          node={node}
+          depth={depth}
+          isExpanded={expandedDirectoryPaths.has(node.path)}
+          onToggleDirectoryExpansion={toggleDirectoryExpansion}
+          onToggleFileSelection={handleToggleFileSelection}
+          isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
+          folderId={folderId}
+          style={{ position: 'absolute', top: index * ROW_HEIGHT }}
+        />
+      ));
+  }, [
+    visibleNodes,
+    range.start,
+    range.end,
+    expandedDirectoryPaths,
+    toggleDirectoryExpansion,
+    handleToggleFileSelection,
+    loadingFiles,
+    folderId,
+  ]);
 
   // This effect will run if the onRender callback itself changes.
   useEffect(() => {
@@ -123,7 +108,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         role="tree"
         aria-label="File tree"
         data-testid="file-tree"
-        style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
+        style={{ height: totalHeight }}
       >
         {renderedRows}
       </div>

@@ -24,9 +24,10 @@ export const createDirectoryExpansionActions = (
       const newExpandedPaths = new Set(state.expandedDirectoryPaths);
       if (newExpandedPaths.has(path)) {
         newExpandedPaths.delete(path);
-        // Optimization: Remove child paths when parent is collapsed
-        for (const childPath of Array.from(newExpandedPaths)) {
-          if (childPath.startsWith(`${path}/`)) {
+        // Optimization: Remove child paths when parent is collapsed without copying the Set
+        const prefix = `${path}/`;
+        for (const childPath of newExpandedPaths) {
+          if (childPath.startsWith(prefix)) {
             newExpandedPaths.delete(childPath);
           }
         }

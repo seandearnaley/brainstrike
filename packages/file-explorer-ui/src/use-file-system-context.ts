@@ -106,10 +106,22 @@ export function useFileSystem() {
     return selectDirectoryWithErrorHandling(coreApi, setRootDirectoryHandle, setIsAccessLoading);
   };
 
+  const clearRootDirectory = (): void => {
+    // Reset local handle; downstream hooks will observe this and stop loading
+    setRootDirectoryHandle(null);
+    try {
+      // Also clear current folder state in the store so UI resets cleanly
+      setCurrentFolderId(null);
+    } catch {
+      // no-op safeguard
+    }
+  };
+
   return {
     rootDirectoryHandle,
     isAccessLoading,
     selectRootDirectory,
     isFileSystemAccessSupported,
+    clearRootDirectory,
   };
 }

@@ -227,7 +227,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     }, [node.type, node.name, isExpanded, isLoading]);
 
     return (
-      <div
+      <li
         className="list-none"
         role="treeitem"
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
@@ -289,8 +289,8 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
           </div>
         </div>
         {/* Render children in a nested div if they exist */}
-        {isExpanded && children && <div className="">{children}</div>}
-      </div>
+        {isExpanded && children && <ul className="pl-6">{children}</ul>}
+      </li>
     );
   },
   areOptimizedFileTreeRowPropsEqual

@@ -16,6 +16,7 @@ interface FileExplorerToolbarProps {
   clearQuickFilter: () => void;
   isLoading: boolean;
   rootDirectoryHandle: DirectoryHandle | null;
+  onClearRoot?: () => void;
 }
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
@@ -28,6 +29,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     clearQuickFilter,
     isLoading,
     rootDirectoryHandle,
+    onClearRoot,
   }) => {
     return (
       <div className="flex flex-col gap-2 px-2 py-2 border-b">
@@ -43,6 +45,18 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
               <Folder className="h-4 w-4 mr-2" />
               {FileExplorerStrings.selectRoot}
             </Button>
+            {rootDirectoryHandle && onClearRoot && (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="clear-root-button"
+                onClick={onClearRoot}
+                disabled={isLoading}
+                aria-label="Clear root"
+              >
+                Clear
+              </Button>
+            )}
             <FileExplorerConfig filterError={filterError} onFilterChange={onFilterChange} />
           </div>
           <SelectionCounter />

@@ -78,6 +78,8 @@ export interface FileExplorerData {
   maxSelectionCount: number;
   lastActiveTab: string;
   fileContents: Record<string, string>;
+  /** Internal counter for expansion changes; not persisted */
+  _expandedVersion?: number;
 }
 
 export interface CacheStats {

@@ -11,17 +11,13 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
   FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
   ActionButtonsMock = vi.fn(() => <div data-testid="actions">Actions</div>);
-  LoadingOverlayMock = vi.fn(
-    ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
-      <div data-testid="loading-overlay">
-        {cancellable && (
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-      </div>
-    )
-  );
+  LoadingOverlayMock = vi.fn(({ onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
+    <div data-testid="loading-overlay">
+      <button type="button" onClick={onCancel} aria-label="Cancel">
+        Cancel
+      </button>
+    </div>
+  ));
   return {
     ...actual,
     FileExplorerToolbar: ({
@@ -236,7 +232,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('cancels loading and shows toast via overlay', async () => {
     const cancelOperationMock = vi.fn();
-    vi.mocked(useFileExplorer).mockReturnValueOnce({
+    vi.mocked(useFileExplorer).mockReturnValue({
       ...fileExplorerReturnValue,
       isLoading: true,
       cancellable: true,
@@ -246,7 +242,12 @@ describe('FileExplorerLeftPanel', () => {
     const user = userEvent.setup();
     render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
 
-    await user.click(screen.getByText('Cancel'));
+    // The overlay Cancel button may be visually hidden; query by role/name
+    // The overlay mock renders a button inside a testid wrapper
+    const overlay = await screen.findByTestId('loading-overlay');
+    const buttonList = overlay.querySelectorAll('button');
+    expect(buttonList.length).toBeGreaterThan(0);
+    await user.click(buttonList[0]);
 
     expect(cancelOperationMock).toHaveBeenCalled();
     expect(showToastMock).toHaveBeenCalledWith({

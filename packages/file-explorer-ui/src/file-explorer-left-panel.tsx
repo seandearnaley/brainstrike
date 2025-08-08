@@ -22,6 +22,7 @@ import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
 import { useFileExplorer } from './use-file-explorer-context';
+import { useFileSystem } from './use-file-system-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 // Lazy load the sidebar component
@@ -101,6 +102,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancelOperation,
     isCancelling,
   } = useFileExplorer();
+  const { clearRootDirectory } = useFileSystem();
 
   const onSelectionLimitExceeded = useCallback(() => {
     // Selection limit handling is managed by action buttons
@@ -279,6 +281,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             clearQuickFilter={clearFilter}
             isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
+            onClearRoot={clearRootDirectory}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus
@@ -290,7 +293,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         </div>
 
         {/* Scrollable Middle Content */}
-        <div className="relative flex-1 min-h-0">
+        <div className="relative flex-1 min-h-0 overflow-hidden">
           {/* Fixed buttons overlay - outside scrollable area */}
           {rootDirectoryHandle && (
             <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
@@ -352,7 +355,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           )}
 
           {/* Scrollable content */}
-          <div className="h-full">
+          <div className="h-full min-h-0">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
                 rootDirectoryHandle={rootDirectoryHandle}

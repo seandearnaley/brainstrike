@@ -75,12 +75,12 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
 
   return (
-    <div className="w-full">
+    <div className="w-full h-full min-h-0 overflow-hidden">
       {showError && <ErrorDisplay treeError={treeError} filterError={filterError} />}
       {!rootDirectoryHandle ? (
         <NoFilesSelected />
       ) : (
-        <div className="px-3 pt-4">
+        <div className="px-3 pt-4 h-full min-h-0">
           {hasContent ? (
             <OptimizedFileTree
               fileTree={quickFilteredTree}

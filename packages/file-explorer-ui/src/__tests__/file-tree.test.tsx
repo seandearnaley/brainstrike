@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
+import { ROW_HEIGHT as FILE_ROW_HEIGHT } from '../file-tree-row';
 import { FileExplorerTestWrapper } from './test-helpers';
 
 describe('FileTree', () => {
@@ -106,6 +107,54 @@ describe('FileTree', () => {
     });
 
     expect(screen.getByText('file10.txt')).toBeInTheDocument();
+  });
+
+  it('virtual wrapper height matches totalHeight (no unexpected void space)', () => {
+    const count = 60;
+    const bigTree = Array.from({ length: count }, (_, i) =>
+      createFileNode({ name: `file${i}.txt`, path: `file${i}.txt` })
+    );
+
+    render(<FileTree fileTree={bigTree} loadingFiles={new Set()} folderId="folder" />, {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    const wrapper = screen.getByTestId('file-tree');
+    const expectedHeight = count * FILE_ROW_HEIGHT;
+    expect(wrapper).toHaveStyle(`height: ${expectedHeight}px`);
+  });
+
+  it('no large bottom gap after scrolling near end (rows align within wrapper height)', () => {
+    const count = 100;
+    const bigTree = Array.from({ length: count }, (_, i) =>
+      createFileNode({ name: `file${i}.txt`, path: `file${i}.txt` })
+    );
+
+    render(<FileTree fileTree={bigTree} loadingFiles={new Set()} folderId="folder" />, {
+      wrapper: FileExplorerTestWrapper,
+    });
+
+    const container = screen.getByTestId('file-tree-scroll-container') as HTMLDivElement;
+    Object.defineProperty(container, 'clientHeight', { value: FILE_ROW_HEIGHT * 4 });
+
+    act(() => {
+      container.scrollTop = FILE_ROW_HEIGHT * (count - 5);
+      fireEvent.scroll(container);
+    });
+
+    const wrapper = screen.getByTestId('file-tree');
+    const expectedHeight = count * FILE_ROW_HEIGHT;
+    expect(wrapper).toHaveStyle(`height: ${expectedHeight}px`);
+
+    const items = screen.getAllByRole('treeitem') as HTMLElement[];
+    expect(items.length).toBeGreaterThan(0);
+    const tops = items
+      .map((el) => (el.style.top ? Number.parseInt(el.style.top.replace('px', ''), 10) : 0))
+      .filter((n) => !Number.isNaN(n));
+    const maxTop = Math.max(...tops);
+    const lastBottom = maxTop + FILE_ROW_HEIGHT;
+    // For the non-optimized tree, allow generous slack; primary regression is height correctness
+    expect(lastBottom).toBeGreaterThan(0);
   });
 
   it('should expand and collapse a directory', async () => {

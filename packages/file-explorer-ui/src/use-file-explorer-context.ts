@@ -160,12 +160,14 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   };
   const displayError = deriveDisplayError();
 
-  const approximatedIsInitialLoad = !coreExplorer.rootDirectoryHandle && coreExplorer.isLoading;
+  // Initial load should be tied to our context tree loader, not the legacy core hook
+  const approximatedIsInitialLoad = !rootDirectoryHandle && isTreeLoading;
 
   return {
     fileTree: filteredTree,
     handleRootDirectorySelect,
-    isLoading: isTreeLoading || coreExplorer.isLoading,
+    // Only reflect the context tree loading state so cancel truly hides the overlay
+    isLoading: isTreeLoading,
     error: displayError,
     fileContents,
     loadingFiles: contentLoadingFiles,

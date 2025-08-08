@@ -39,7 +39,8 @@ export function useVirtualList(
       const start = Math.max(0, baseStart - overscan);
       const end = Math.min(itemCount - 1, baseEnd + overscan);
       setRange({ start, end });
-      setOffset(baseStart * rowHeight);
+      // Use start-based offset so the wrapper doesn't visually drift and cause blank space perception
+      setOffset(start * rowHeight);
     };
 
     handleScroll();

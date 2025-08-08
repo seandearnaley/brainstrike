@@ -49,7 +49,8 @@ describe('FileExplorerSidebar', () => {
     render(<FileExplorerSidebar {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
 
     // Check that the file tree is rendered
-    expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
+    // OptimizedFileTree uses a UL with aria-label rather than role=tree
+    expect(screen.getByLabelText('File tree')).toBeInTheDocument();
   });
 
   it('displays "No directory selected" when rootDirectoryHandle is null', () => {
