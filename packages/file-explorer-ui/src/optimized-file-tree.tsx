@@ -107,11 +107,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         const { node, depth } = item;
         const rowIndex = i - startIndex;
 
-        if (node.type === 'file') {
-          const key = encodeFileSelection(folderId, node.path);
-          const existing = priorityQueueRef.current.filter((k) => k !== key);
-          priorityQueueRef.current = [key, ...existing];
-        }
+        // No side effects during render. Priority queue updates are handled in an effect.
 
         rows.push(
           <OptimizedFileTreeRow
@@ -143,8 +139,31 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       handleToggleFileSelection,
       loadingFiles,
       folderId,
-      priorityQueueRef,
     ]);
+
+    // Keep file-content priority queue ordered by current viewport after render.
+    // This avoids side-effects during render while maintaining the same prioritization behavior.
+    useEffect(() => {
+      const startIndex = range.start;
+      const endIndex = range.end;
+      if (startIndex > endIndex) return;
+
+      const newKeys: string[] = [];
+      for (let i = startIndex; i <= endIndex; i++) {
+        const item = visibleNodes[i];
+        if (!item) continue;
+        const node = item.node;
+        if (node.type === 'file') {
+          const key = encodeFileSelection(folderId, node.path);
+          newKeys.push(key);
+        }
+      }
+
+      if (newKeys.length === 0) return;
+
+      const filtered = priorityQueueRef.current.filter((k) => !newKeys.includes(k));
+      priorityQueueRef.current = [...newKeys, ...filtered];
+    }, [range.start, range.end, visibleNodes, folderId, priorityQueueRef]);
 
     // This effect will run if the onRender callback itself changes.
     useEffect(() => {
