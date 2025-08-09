@@ -1,4 +1,4 @@
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
 
@@ -269,10 +269,10 @@ describe('usePanelPersistence', () => {
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
   });
 
-  // This test is skipped due to timing issues with async Electron API operations and fake timers.
-  // The async loading functionality is tested in integration tests and works correctly in production.
-  // Mock interactions with timers create complex timing scenarios that are difficult to test reliably.
-  it.skip('should load from Electron API on mount', async () => {
+  it('should load from Electron API on mount', async () => {
+    // Use real timers to avoid interactions between fake timers and async effects
+    vi.useRealTimers();
+
     const electronData = {
       sizes: [30, 40],
       showConsole: true,
@@ -288,16 +288,14 @@ describe('usePanelPersistence', () => {
     expect(result.current.sizes).toEqual([20, 30]);
     expect(result.current.showConsole).toBe(false);
 
-    // Wait for the async effect to complete with a simple microtask flush
-    await act(async () => {
-      await Promise.resolve();
+    // Wait for the async effect to populate from Electron API
+    await waitFor(() => {
+      expect(electronAPIMock.loadLayout).toHaveBeenCalled();
+      expect(result.current.sizes).toEqual([30, 40]);
+      expect(result.current.showConsole).toBe(true);
+      expect(result.current.showLeftPanel).toBe(false);
+      expect(result.current.showRightPanel).toBe(true);
     });
-
-    expect(electronAPIMock.loadLayout).toHaveBeenCalled();
-    expect(result.current.sizes).toEqual([30, 40]);
-    expect(result.current.showConsole).toBe(true);
-    expect(result.current.showLeftPanel).toBe(false);
-    expect(result.current.showRightPanel).toBe(true);
   });
 
   it('should not load from Electron API when unavailable', () => {
