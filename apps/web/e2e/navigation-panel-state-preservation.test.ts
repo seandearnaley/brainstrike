@@ -215,13 +215,13 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(page.getByRole('tree', { name: 'File tree' }).getByRole('checkbox', { checked: true }).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('3/10')).toBeVisible();
 
-    // Select a new file to open in tabbed editor
-    const inputFile = page.getByRole('button', { name: 'Input.tsx' });
-    await inputFile.click();
+    // Select a new file to open in tabbed editor (choose a near-top visible item)
+    const headerFile = page.getByRole('button', { name: 'Header.tsx' });
+    await headerFile.click();
     // Verify the file opens in a tab in the tabbed editor (look specifically in console panel)
     const panelElements = getPanelElements(page);
-    const inputTab = panelElements.consolePanel.getByRole('button', { name: /Input\.tsx/ }).first();
-    await expect(inputTab).toBeVisible();
+    const headerTab = panelElements.consolePanel.getByRole('button', { name: /Header\.tsx/ }).first();
+    await expect(headerTab).toBeVisible();
   });
 
   test('should preserve filter state when toggling navigation panel', async ({ page }) => {
