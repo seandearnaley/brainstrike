@@ -1,6 +1,14 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
+
+// Local ignore logic to avoid depending on @brainstrike/utils (prevents cyclical build refs)
+const DEFAULT_IGNORE_PATTERNS = ['.git', 'node_modules', '.next', 'dist', 'build', '.DS_Store'];
+function shouldIgnorePath(pathString: string): boolean {
+  const normalizedPath = pathString.replace(/\\/g, '/');
+  return DEFAULT_IGNORE_PATTERNS.some((pattern) => normalizedPath.split('/').includes(pattern));
+}
+
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
 import { validateDirectoryPath } from '../utils';
@@ -98,45 +106,49 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
       for (const entry of entries) {
         const fullPath = path.join(_handle.path, entry.name);
-        try {
-          const stat = await fsPromises.stat(fullPath);
-          if (entry.isDirectory()) {
-            result.push({
-              name: entry.name,
+
+        // Skip ignored paths early to reduce IPC payload and processing
+        if (shouldIgnorePath(fullPath)) {
+          continue;
+        }
+
+        if (entry.isDirectory()) {
+          result.push({
+            name: entry.name,
+            path: fullPath,
+            type: 'directory',
+            depth: 0,
+            selectionState: 'unchecked',
+            children: [],
+            rootFolderId: _handle.name,
+            isVisible: true,
+            isSymbolicLink: entry.isSymbolicLink?.() ?? false,
+            handle: {
               path: fullPath,
-              type: 'directory',
-              depth: 0,
-              selectionState: 'unchecked',
-              children: [],
-              rootFolderId: _handle.name,
-              isVisible: true,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'directory',
-                platform: 'electron',
-              } as unknown as FileSystemDirectoryHandle,
-            });
-          } else {
-            result.push({
               name: entry.name,
+              kind: 'directory',
+              platform: 'electron',
+            } as unknown as FileSystemDirectoryHandle,
+          });
+        } else {
+          result.push({
+            name: entry.name,
+            path: fullPath,
+            type: 'file',
+            depth: 0,
+            selectionState: 'unchecked',
+            rootFolderId: _handle.name,
+            isVisible: true,
+            isSymbolicLink: entry.isSymbolicLink?.() ?? false,
+            // size and lastModified intentionally omitted for performance; fetched on demand when reading file
+            handle: {
               path: fullPath,
-              type: 'file',
-              depth: 0,
-              selectionState: 'unchecked',
-              rootFolderId: _handle.name,
-              isVisible: true,
-              size: stat.size,
-              lastModified: stat.mtimeMs,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'file',
-                platform: 'electron',
-              } as unknown as FileSystemFileHandle,
-            });
-          }
-        } catch (_statError) {}
+              name: entry.name,
+              kind: 'file',
+              platform: 'electron',
+            } as unknown as FileSystemFileHandle,
+          });
+        }
       }
 
       return result.sort((a, b) => {
