@@ -25,6 +25,24 @@ declare global {
         exists: (path: string) => Promise<boolean>;
         restoreLastFolder: () => Promise<DirectoryHandle | null>;
         saveLastFolder: (folderPath: string) => Promise<void>;
+        readSubtree: (args: {
+          path: string;
+          name: string;
+          depth?: number;
+          ignore?: string[];
+        }) => Promise<
+          Array<{
+            name: string;
+            path: string;
+            type: 'file' | 'directory';
+            children?: {
+              name: string;
+              path: string;
+              type: 'file' | 'directory';
+              children?: unknown[];
+            }[];
+          }>
+        >;
       };
       // Database operations
       db: {

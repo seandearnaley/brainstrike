@@ -1,5 +1,5 @@
 import type { IFileNode } from '@brainstrike/types';
-import { createContext, useContext, useMemo } from 'react';
+import { createContext, useContext, useMemo, useRef } from 'react';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
 
 interface FileContentContextType {
@@ -10,6 +10,8 @@ interface FileContentContextType {
 }
 
 const FileContentContext = createContext<FileContentContextType | null>(null);
+// Separate, optional context for prioritization queue
+const FileContentPriorityContext = createContext<React.MutableRefObject<string[]> | null>(null);
 
 export interface FileContentProviderProps {
   fileTree: IFileNode[];
@@ -34,7 +36,13 @@ export function FileContentProvider({ fileTree, children }: FileContentProviderP
     ]
   );
 
-  return <FileContentContext.Provider value={contextValue}>{children}</FileContentContext.Provider>;
+  return (
+    <FileContentContext.Provider value={contextValue}>
+      <FileContentPriorityContext.Provider value={fileContentState.priorityQueueRef}>
+        {children}
+      </FileContentPriorityContext.Provider>
+    </FileContentContext.Provider>
+  );
 }
 
 export function useFileContentContext(): FileContentContextType {
@@ -43,4 +51,12 @@ export function useFileContentContext(): FileContentContextType {
     throw new Error('useFileContentContext must be used within a FileContentProvider');
   }
   return context;
+}
+
+// Optional hook for priority queue. Returns a safe local ref when not under provider.
+export function useFileContentPriority(): React.MutableRefObject<string[]> {
+  const ctx = useContext(FileContentPriorityContext);
+  // Always call hooks in a consistent order
+  const localRef = useRef<string[]>([]);
+  return ctx ?? localRef;
 }

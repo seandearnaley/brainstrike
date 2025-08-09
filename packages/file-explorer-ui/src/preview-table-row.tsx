@@ -1,6 +1,7 @@
 import { Badge, Checkbox } from '@brainstrike/ui';
 import { FolderOpen } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useCallback } from 'react';
+import { useFileContentPriority } from './file-content-context';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { formatTokenCount } from './use-preview-panel-state';
 import type { TableRowData } from './utils/grouping-configs';
@@ -20,11 +21,18 @@ export const PreviewTableRow = memo<PreviewTableRowProps>(function PreviewTableR
   onFileClick,
   columnVisibility,
 }) {
+  const priorityQueueRef = useFileContentPriority();
   const fileName = item.path.split('/').pop() || item.path;
   const dirPath = item.path.substring(0, item.path.lastIndexOf('/'));
 
+  const handleMouseEnter = useCallback(() => {
+    // Move this key to the front of the priority queue
+    const existing = priorityQueueRef.current.filter((k) => k !== item.compositeKey);
+    priorityQueueRef.current = [item.compositeKey, ...existing];
+  }, [item.compositeKey, priorityQueueRef]);
+
   return (
-    <tr className="border-b transition-colors hover:bg-muted/50">
+    <tr className="border-b transition-colors hover:bg-muted/50" onMouseEnter={handleMouseEnter}>
       {columnVisibility.checkbox && (
         <td className="p-4 w-12">
           <Checkbox

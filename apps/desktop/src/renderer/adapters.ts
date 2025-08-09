@@ -17,6 +17,23 @@ export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
     return window.electronAPI.fileSystem.readDirectory(handle);
   }
 
+  // Desktop-only optimization to fetch a subtree in one call
+  async readSubtree(args: {
+    path: string;
+    name: string;
+    depth?: number;
+    ignore?: string[];
+  }): Promise<
+    Array<{
+      name: string;
+      path: string;
+      type: 'file' | 'directory';
+      children?: { name: string; path: string; type: 'file' | 'directory'; children?: unknown[] }[];
+    }>
+  > {
+    return window.electronAPI.fileSystem.readSubtree(args);
+  }
+
   async readFile(handle: FileHandle): Promise<string> {
     return window.electronAPI.fileSystem.readFile(handle);
   }

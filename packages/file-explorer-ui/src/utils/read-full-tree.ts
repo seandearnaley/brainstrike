@@ -12,7 +12,8 @@ export async function readFullTree(
   _isRoot = true,
   abortSignal?: AbortSignal,
   updateProgress?: (path?: string) => void,
-  sortFileNodes: SortFn = (nodes) => nodes
+  sortFileNodes: SortFn = (nodes) => nodes,
+  maxDepth: number = Number.POSITIVE_INFINITY
 ): Promise<IFileNode[]> {
   const rootFolderId = rootHandle.name;
 
@@ -49,17 +50,35 @@ export async function readFullTree(
     if (entry.type === 'file') {
       yield processFileEntry(entry, relativePath, dir, rootFolderId);
     } else if (entry.type === 'directory') {
-      const dirNode = await processDirectoryEntry(
-        entry,
-        relativePath,
-        dir,
-        rootHandle,
-        rootFolderId,
-        boundRead,
-        sortFileNodes,
-        abortSignal
-      );
-      yield dirNode;
+      // Calculate current depth from the relative path (0-based for root children)
+      const currentDepth = relativePath.split('/').length - 1;
+
+      // If we've reached the depth limit, yield a truncated directory node
+      if (currentDepth >= maxDepth) {
+        const finalPath = dir.platform === 'electron' ? entry.path : relativePath;
+        const truncatedNode: IFileNode = {
+          ...entry,
+          path: finalPath,
+          depth: currentDepth,
+          children: [],
+          selectionState: 'unchecked',
+          rootFolderId,
+          isDepthTruncated: true,
+        };
+        yield truncatedNode;
+      } else {
+        const dirNode = await processDirectoryEntry(
+          entry,
+          relativePath,
+          dir,
+          rootHandle,
+          rootFolderId,
+          boundRead,
+          sortFileNodes,
+          abortSignal
+        );
+        yield dirNode;
+      }
     }
   }
 

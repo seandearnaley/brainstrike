@@ -20,6 +20,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exists: (path: string) => ipcRenderer.invoke('fs:exists', path),
     restoreLastFolder: () => ipcRenderer.invoke('fs:restoreLastFolder'),
     saveLastFolder: (folderPath: string) => ipcRenderer.invoke('fs:saveLastFolder', folderPath),
+    readSubtree: (args: { path: string; name: string; depth?: number; ignore?: string[] }) =>
+      ipcRenderer.invoke('fs:readSubtree', args),
   },
   // Panel layout persistence
   saveLayout: (state: PanelPersistenceState) => ipcRenderer.invoke('layout:save', state),

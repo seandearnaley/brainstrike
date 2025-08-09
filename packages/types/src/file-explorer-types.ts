@@ -122,6 +122,7 @@ export interface FileExplorerState extends FileExplorerData {
 
   // File content actions
   setFileContent: (compositeKey: string, content: string) => void;
+  setFileContentsBatch: (entries: Record<string, string>) => void;
   getFileContent: (compositeKey: string) => string | undefined;
   clearFileContents: (compositeKeys: string[]) => void;
   clearAllFileContents: () => void;

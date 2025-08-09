@@ -8,12 +8,15 @@ import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explor
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
 import { useSharedFileContentLoading } from './use-shared-file-content-loading';
+import { phaseExpandedPaths } from './utils/phase-expanded-paths';
+
+// (phased expansion impl lives in utils/phase-expanded-paths)
 
 type UseFileExplorerProps = Record<string, never>;
 
@@ -43,6 +46,8 @@ interface UseFileExplorerReturn {
   cancelOperation: () => void;
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
+  /** On-demand loader for a directory path that was truncated at initial scan */
+  loadChildren: (dirPath: string) => Promise<void>;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -77,6 +82,41 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancelOperation,
     isCancelling,
   } = useFileTree(rootDirectoryHandle);
+  const { loadChildren } = useFileTree(rootDirectoryHandle);
+
+  // Phased expansion on Electron restore: apply only a subset of expanded paths initially
+  // and schedule the rest incrementally to keep UI responsive
+  const phasedExpansionAppliedForFolderRef = useRef<string | null>(null);
+
+  // (no local subset helpers)
+
+  useEffect(() => {
+    const platform = rootDirectoryHandle?.platform;
+    // Use bracket access for env to satisfy TS index signature
+    const envKey = 'NODE_ENV';
+    const isTestEnv =
+      typeof process !== 'undefined' && process.env && process.env[envKey] === 'test';
+    if (platform !== 'electron' || isTestEnv) return;
+    if (!rootDirectoryHandle) return;
+    if (phasedExpansionAppliedForFolderRef.current === rootDirectoryHandle.name) return;
+    if (fileTree.length === 0 || isTreeLoading) return;
+
+    const { expandedDirectoryPaths } = store.getState();
+    const original = expandedDirectoryPaths;
+    if (!original || original.size <= 30) {
+      phasedExpansionAppliedForFolderRef.current = rootDirectoryHandle.name;
+      return;
+    }
+    phaseExpandedPaths({
+      fileTree,
+      originalExpanded: original,
+      setExpandedPaths: (paths) => store.getState().setExpandedPaths(paths),
+      getExpandedPaths: () => store.getState().expandedDirectoryPaths,
+      applyExpandedPaths: (paths) => store.getState().setExpandedPaths(paths),
+      options: { initialCap: 30, chunkSize: 20, delayMs: 60 },
+    });
+    phasedExpansionAppliedForFolderRef.current = rootDirectoryHandle.name;
+  }, [fileTree, isTreeLoading, rootDirectoryHandle, store]);
 
   // Use shared file contents from store
   const { clearFileContents: storeClearFileContents } = store((s) => ({
@@ -185,5 +225,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancellable,
     cancelOperation,
     isCancelling,
+    loadChildren,
   };
 }

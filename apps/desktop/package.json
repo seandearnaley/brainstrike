@@ -31,8 +31,8 @@
     "type-check": "npm run type-check:main && npm run type-check:e2e",
     "type-check:main": "tsc --noEmit",
     "type-check:e2e": "tsc --noEmit --project tsconfig.e2e.json",
-    "lint": "pnpm --dir ../.. biome check apps/desktop/",
-    "lint:fix": "pnpm --dir ../.. biome check apps/desktop/ --write"
+    "lint": "biome check .",
+    "lint:fix": "biome check . --write"
   },
   "dependencies": {
     "@brainstrike/app-shell": "workspace:*",

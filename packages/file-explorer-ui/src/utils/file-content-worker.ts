@@ -12,8 +12,11 @@ export function getDefaultConcurrency(): number {
 }
 
 export function initFileContentWorker(adapter: FileSystemAdapter): FileContentWorker {
-  return createFileContentWorker({
-    fileSystemAdapter: adapter,
-    concurrency: getDefaultConcurrency(),
-  });
+  const platform = (adapter as unknown as { platform?: string }).platform;
+  const isElectron =
+    platform === 'electron' ||
+    (typeof process !== 'undefined' &&
+      !!(process as unknown as { versions?: { electron?: string } }).versions?.electron);
+  const concurrency = isElectron ? 3 : getDefaultConcurrency();
+  return createFileContentWorker({ fileSystemAdapter: adapter, concurrency });
 }

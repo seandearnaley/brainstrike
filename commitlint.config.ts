@@ -3,6 +3,13 @@ import { RuleConfigSeverity } from '@commitlint/types';
 
 const Configuration: UserConfig = {
   extends: ['@commitlint/config-conventional'],
+  // Treat the entire first line as the subject so freeform headers are allowed
+  parserPreset: {
+    parserOpts: {
+      headerPattern: /^(.*)$/,
+      headerCorrespondence: ['subject'],
+    },
+  },
   rules: {
     // Relaxed rules to reduce friction while keeping helpful guidance
     // 1) Make type and scope optional (no emptiness or enum enforcement)

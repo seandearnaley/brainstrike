@@ -2,8 +2,10 @@ import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
+import { useFileContentPriority } from './file-content-context';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
+import { useFileExplorer } from './use-file-explorer-context';
 import { useVirtualList } from './use-virtual-list';
 import { getVisibleNodes } from './utils/flatten-visible-nodes';
 
@@ -32,7 +34,9 @@ interface IOptimizedFileTreeProps {
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({ fileTree, loadingFiles, onRender, folderId }) => {
+    const priorityQueueRef = useFileContentPriority();
     const store = useFileExplorerStoreContext();
+    const { loadChildren } = useFileExplorer();
     const {
       expandedDirectoryPaths,
       toggleDirectoryExpansion,
@@ -71,13 +75,26 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
 
     // Enhanced virtualization with improved performance
-    const { containerRef, range, totalHeight } = useVirtualList(
-      visibleNodes.length,
-      ROW_HEIGHT,
-      { overscan: 2 } // Reduced overscan to decrease memory usage
-    );
+    const overscan = visibleNodes.length > 5000 ? 1 : 2;
+    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
+      overscan,
+    });
 
     // Optimized row rendering with better memoization
+    const handleToggleDirectoryExpansion = useCallback(
+      async (path: string) => {
+        const isExpanding = !expandedDirectoryPaths.has(path);
+        if (isExpanding) {
+          const node = visibleNodes.find((v) => v.node.path === path)?.node;
+          if (node && node.type === 'directory' && node.isDepthTruncated) {
+            await loadChildren(path);
+          }
+        }
+        toggleDirectoryExpansion(path);
+      },
+      [expandedDirectoryPaths, visibleNodes, loadChildren, toggleDirectoryExpansion]
+    );
+
     const renderedRows = useMemo(() => {
       const startIndex = range.start;
       const endIndex = range.end;
@@ -90,13 +107,19 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         const { node, depth } = item;
         const rowIndex = i - startIndex;
 
+        if (node.type === 'file') {
+          const key = encodeFileSelection(folderId, node.path);
+          const existing = priorityQueueRef.current.filter((k) => k !== key);
+          priorityQueueRef.current = [key, ...existing];
+        }
+
         rows.push(
           <OptimizedFileTreeRow
             key={node.path}
             node={node}
             depth={depth}
             isExpanded={expandedDirectoryPaths.has(node.path)}
-            onToggleDirectoryExpansion={toggleDirectoryExpansion}
+            onToggleDirectoryExpansion={handleToggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
             isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
             folderId={folderId}
@@ -116,10 +139,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       range.start,
       range.end,
       expandedDirectoryPaths,
-      toggleDirectoryExpansion,
+      handleToggleDirectoryExpansion,
       handleToggleFileSelection,
       loadingFiles,
       folderId,
+      priorityQueueRef,
     ]);
 
     // This effect will run if the onRender callback itself changes.

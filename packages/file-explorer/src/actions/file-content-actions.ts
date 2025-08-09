@@ -68,6 +68,33 @@ export function createFileContentActions(
       });
     },
 
+    setFileContentsBatch: (entries: Record<string, string>) => {
+      // Cache first (only small text entries are cached by FileContentCache rules)
+      for (const [key, content] of Object.entries(entries)) {
+        fileContentCache.set(key, content);
+      }
+
+      // If cache is large, reduce state payload
+      if (shouldUseFilteredState()) {
+        // Build minimal state including only batch keys (they are guaranteed in cache)
+        const filtered: Record<string, string> = {};
+        for (const [key, content] of Object.entries(entries)) {
+          filtered[key] = content;
+        }
+        set({ fileContents: filtered });
+        return;
+      }
+
+      // Merge batch into state in a single update to avoid render storms
+      set((state) => {
+        const newFileContents = { ...state.fileContents };
+        for (const [key, content] of Object.entries(entries)) {
+          newFileContents[key] = content;
+        }
+        return { fileContents: newFileContents };
+      });
+    },
+
     getFileContent: (compositeKey: string): string | undefined => {
       // Check cache first for most up-to-date content, then fall back to state
       // This ensures we always get the latest content and prevents split-brain scenarios

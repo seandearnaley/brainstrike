@@ -55,11 +55,9 @@ function updateLoadingState(
 
 function processWorkerResults(
   results: Record<string, string>,
-  setFileContent: (key: string, content: string) => void
+  setFileContentsBatch: (entries: Record<string, string>) => void
 ): void {
-  for (const [key, value] of Object.entries(results)) {
-    setFileContent(key, value);
-  }
+  setFileContentsBatch(results);
 }
 
 function shouldLoadFile(
@@ -149,7 +147,10 @@ async function loadSingleFile(
         updateLoadingState(key, loadingPathsRef, setLoadingFiles);
       })
       .then((results) => {
-        processWorkerResults(results, setFileContent);
+        // single-file path: results has one entry, write via single setter
+        for (const [k, v] of Object.entries(results)) {
+          setFileContent(k, v);
+        }
       });
   }
 }
@@ -159,6 +160,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   const [error, setError] = useState<Error | null>(null);
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
   const loadingPathsRef = useRef(new Set<string>());
+  const priorityQueueRef = useRef<string[]>([]);
   const nodeCacheRef = useRef<Map<string, Map<string, IFileNode>>>(new Map());
   const workerRef = useRef<FileContentWorker | null>(null);
 
@@ -201,8 +203,13 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
       setError(null);
 
       try {
+        // Prioritize keys by current queue (e.g., visible/hovered keys can be pushed there elsewhere)
+        const prioritized = [
+          ...priorityQueueRef.current.filter((k) => compositeKeys.includes(k)),
+          ...compositeKeys.filter((k) => !priorityQueueRef.current.includes(k)),
+        ];
         const requests: FileReadRequest[] = [];
-        for (const key of compositeKeys) {
+        for (const key of prioritized) {
           const req = await prepareFileRead(key);
           if (req) requests.push(req);
         }
@@ -212,7 +219,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
             updateLoadingState(key, loadingPathsRef, setLoadingFiles);
           })
           .then((results) => {
-            processWorkerResults(results, store.getState().setFileContent);
+            processWorkerResults(results, store.getState().setFileContentsBatch);
           });
       } catch (err) {
         setError(err as Error);
@@ -223,13 +230,67 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     [prepareFileRead, store]
   );
 
-  // Automatically load content for selected files
+  // Automatically load content for selected files with batching and throttling
   useEffect(() => {
     const { fileContents, setFileContent } = store.getState();
-
+    const pending: string[] = [];
     for (const compositeKey of selectedFilePaths) {
       if (!fileContents[compositeKey] && !loadingPathsRef.current.has(compositeKey)) {
-        void loadSingleFile(
+        pending.push(compositeKey);
+      }
+    }
+
+    if (pending.length === 0) return;
+
+    // If many files are pending (e.g., restore), prefer a single batched load
+    const batchThreshold = 8;
+    const chunkSize = 8;
+    const chunkDelayMs = 50;
+    const maxAutoPending = 24;
+
+    if (pending.length > batchThreshold) {
+      // Prioritize using the current priority queue ordering
+      const prioritized = [
+        ...priorityQueueRef.current.filter((k) => pending.includes(k)),
+        ...pending.filter((k) => !priorityQueueRef.current.includes(k)),
+      ];
+      // Hard cap auto-pending to avoid overwhelming UI during restore
+      const capped = prioritized.slice(0, maxAutoPending);
+
+      // Process in small chunks to keep UI responsive
+      let index = 0;
+      const processNextChunk = () => {
+        const slice = capped.slice(index, index + chunkSize);
+        index += chunkSize;
+        if (slice.length > 0) {
+          void handleFileContentLoading(slice).then(() => {
+            if (index < capped.length) {
+              // Prefer idle callbacks when available, fall back to timeout
+              if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+                (
+                  window as unknown as { requestIdleCallback: (cb: () => void) => void }
+                ).requestIdleCallback(processNextChunk);
+              } else {
+                setTimeout(processNextChunk, chunkDelayMs);
+              }
+            }
+          });
+        }
+      };
+      if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+        (
+          window as unknown as { requestIdleCallback: (cb: () => void) => void }
+        ).requestIdleCallback(processNextChunk);
+      } else {
+        setTimeout(processNextChunk, chunkDelayMs);
+      }
+      return;
+    }
+
+    // For small sets, keep the simple per-file path
+    void (async () => {
+      for (const compositeKey of pending) {
+        await loadSingleFile(
           compositeKey,
           workerRef,
           prepareFileRead,
@@ -238,8 +299,8 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
           setFileContent
         );
       }
-    }
-  }, [selectedFilePaths, prepareFileRead, store]);
+    })();
+  }, [selectedFilePaths, prepareFileRead, store, handleFileContentLoading]);
 
   // Use zustand selector to get fileContents with proper memoization
   const fileContents = store((state) => state.fileContents, shallow);
@@ -250,5 +311,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     error,
     loadingFiles,
     handleFileContentLoading,
+    // Expose priority queue so UI can push visible/hovered keys ahead of time
+    priorityQueueRef,
   };
 }

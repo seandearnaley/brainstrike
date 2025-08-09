@@ -21,6 +21,55 @@ interface StoreSchema {
   };
 }
 
+// Subtree node return type
+interface BasicNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: BasicNode[];
+}
+
+function makeIgnorePredicate(ignore: readonly string[] | undefined) {
+  const set = new Set(ignore ?? []);
+  return (rel: string): boolean => rel.split('/').some((part) => set.has(part));
+}
+
+async function walkSubtree(
+  fileSystem: ElectronFileSystemAdapter,
+  handle: DirectoryHandle,
+  depth: number,
+  maxDepth: number,
+  shouldIgnore: (rel: string) => boolean
+): Promise<BasicNode[]> {
+  if (depth > maxDepth) return [];
+  const entries = await fileSystem.readDirectory(handle);
+  const results: BasicNode[] = [];
+  for (const entry of entries) {
+    // Use absolute path from adapter entries to maintain consistency with renderer expectations
+    const absolutePath = entry.path;
+    if (shouldIgnore(absolutePath)) continue;
+    if (entry.type === 'directory') {
+      const childHandle: DirectoryHandle = {
+        path: absolutePath,
+        name: entry.name,
+        kind: 'directory',
+        platform: 'electron',
+      };
+      const children = await walkSubtree(
+        fileSystem,
+        childHandle,
+        depth + 1,
+        maxDepth,
+        shouldIgnore
+      );
+      results.push({ name: entry.name, path: absolutePath, type: 'directory', children });
+    } else {
+      results.push({ name: entry.name, path: absolutePath, type: 'file' });
+    }
+  }
+  return results;
+}
+
 /**
  * Register all IPC handlers used by the desktop application.
  */
@@ -79,6 +128,29 @@ export function registerIpcHandlers(
     }
     return fileSystem.readDirectory(handle);
   });
+
+  // Read a subtree in one IPC call (desktop optimization)
+  ipcMain.handle(
+    'fs:readSubtree',
+    async (
+      _e: IpcMainInvokeEvent,
+      args: { path: string; name: string; depth?: number; ignore?: string[] }
+    ): Promise<BasicNode[]> => {
+      const maxDepth = Math.max(0, Math.min(50, Number(args.depth ?? 10)));
+      const startHandle: DirectoryHandle = {
+        path: args.path,
+        name: args.name,
+        kind: 'directory',
+        platform: 'electron',
+      };
+      const shouldIgnore = makeIgnorePredicate(args.ignore);
+      try {
+        return await walkSubtree(fileSystem, startHandle, 0, maxDepth, shouldIgnore);
+      } catch {
+        return [];
+      }
+    }
+  );
 
   ipcMain.handle('fs:readFile', async (_e: IpcMainInvokeEvent, handle: FileHandle) => {
     // Check if this is a mock handle for testing
