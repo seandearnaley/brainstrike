@@ -180,13 +180,14 @@ export const Component${i} = () => {
     // 3. Measure file selection performance (the main problem area)
     const selectionStart = performance.now();
     
-    // Expand some folders first
-    const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
-    const expandCount = Math.min(3, await expandButtons.count());
-    for (let i = 0; i < expandCount; i++) {
-      await expandButtons.nth(i).click();
-      await page.waitForTimeout(50);
-    }
+    // Expand folders via the toolbar to avoid relying on virtualized offscreen buttons
+    const filterInput = page.getByPlaceholder("Type to filter files... (e.g. 'test component -spec')");
+    await filterInput.fill('tsx');
+    await page.waitForTimeout(200);
+    const expandAll = page.getByTestId('expand-all-button-small');
+    await expandAll.click();
+    await filterInput.fill('');
+    await page.waitForTimeout(200);
 
     // Select multiple files rapidly (this triggered the worst performance before)
     const fileCheckboxes = explorer.fileTree.getByRole('checkbox');

@@ -89,15 +89,16 @@ test.describe('Navigation Panel State Preservation', () => {
     await page.waitForTimeout(300);
 
     // Verify folders are expanded by checking if nested items are visible
+    // Use items that are reliably near the top of the virtualized list
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible();
+    await expect(fileTree.getByText('App.tsx')).toBeVisible();
 
     // Step 3: Select multiple files at different levels
     const buttonCheckbox = fileTree.getByRole('checkbox', { name: 'Select Button.tsx' });
     const inputCheckbox = fileTree.getByRole('checkbox', { name: 'Select Input.tsx' });
-    const helpersCheckbox = fileTree.getByRole('checkbox', { name: 'Select helpers.ts' });
+    const appCheckbox = fileTree.getByRole('checkbox', { name: 'Select App.tsx' });
     const packageCheckbox = fileTree.getByRole('checkbox', { name: 'Select package.json' });
 
     await buttonCheckbox.click({ force: true });
@@ -108,8 +109,8 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(inputCheckbox).toBeChecked();
     await expect(page.getByText('2/10')).toBeVisible();
 
-    await helpersCheckbox.click({ force: true });
-    await expect(helpersCheckbox).toBeChecked();
+    await appCheckbox.click({ force: true });
+    await expect(appCheckbox).toBeChecked();
     await expect(page.getByText('3/10')).toBeVisible();
 
     await packageCheckbox.click({ force: true });
@@ -164,7 +165,9 @@ test.describe('Navigation Panel State Preservation', () => {
     // 8c. Verify expanded folders are still expanded
     await expect(fileTree.getByText('Button.tsx')).toBeVisible();
     await expect(fileTree.getByText('Input.tsx')).toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible();
+    const appFile = fileTree.getByText('App.tsx');
+    await appFile.scrollIntoViewIfNeeded();
+    await expect(appFile).toBeVisible();
     await expect(fileTree.getByText('Header.tsx')).toBeVisible();
 
     // 8d. Verify selected files are still selected
@@ -290,6 +293,7 @@ test.describe('Navigation Panel State Preservation', () => {
     const appCheckbox = fileTree.getByRole('checkbox', { name: 'Select App.tsx' });
 
     await buttonCheckbox.click({ force: true });
+    await appCheckbox.scrollIntoViewIfNeeded();
     await appCheckbox.click({ force: true });
     await expect(page.getByText('2/10')).toBeVisible();
 
