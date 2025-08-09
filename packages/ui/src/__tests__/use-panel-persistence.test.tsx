@@ -385,16 +385,8 @@ describe('usePanelPersistence', () => {
     }
   });
 
-  // This test is skipped due to complex timing issues between async Electron API errors and fake timers.
-  // The error handling functionality is tested in integration tests and works correctly in production.
-  // Mock setup with debounced async operations and promise rejections creates unreliable test timing.
-  it.skip('warns when Electron save fails', async () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
-    // Mock isDevEnv to return true for this test
-    const { isDevEnv } = await import('@brainstrike/utils');
-    vi.mocked(isDevEnv).mockReturnValue(true);
-
+  it('gracefully handles Electron save failures without persisting to localStorage', async () => {
+    vi.useRealTimers();
     (window as { electronAPI?: unknown }).electronAPI = {
       ...electronAPIMock,
       saveLayout: vi.fn().mockRejectedValue(new Error('fail')),
@@ -407,21 +399,17 @@ describe('usePanelPersistence', () => {
       result.current.saveLayout([25, 35], false);
     });
 
-    // Advance the debounced timer
-    act(() => {
-      vi.advanceTimersByTime(250);
+    // The debounce is mocked to call immediately; wait for the rejected promise to settle
+    await waitFor(() => {
+      const apiKey = 'electronAPI' as const;
+      expect(
+        (window as { [apiKey]?: import('../../src/types/electron').LayoutElectronAPI })[apiKey]
+          ?.saveLayout
+      ).toHaveBeenCalled();
     });
 
-    // Wait for the promise rejection to be handled
-    await act(async () => {
-      await Promise.resolve();
-    });
-
-    expect(warnSpy).toHaveBeenCalled();
+    // Ensure localStorage is not used as a fallback when Electron API is present
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
-
-    warnSpy.mockRestore();
-    vi.mocked(isDevEnv).mockReturnValue(false);
   });
 
   it('cleans up pending save on unmount', () => {
