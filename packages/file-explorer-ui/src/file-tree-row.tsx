@@ -297,8 +297,8 @@ const FileTreeRow = memo<FileTreeRowProps>(
             )}
           </div>
         </div>
-        {/* Render children in a nested div if they exist */}
-        {isExpanded && children && <div className="">{children}</div>}
+        {/* Render children in a nested list if they exist */}
+        {isExpanded && children && <fieldset className="m-0 p-0 border-0">{children}</fieldset>}
       </div>
     );
   },

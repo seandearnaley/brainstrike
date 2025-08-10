@@ -58,7 +58,12 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
     let lazyRows: VisibleRowLike[] | null = null;
     // Hooks must be unconditional; use try/catch around mapping only
     const lazyContext = useLazyTree() as unknown as {
-      rows?: Array<{ path: string; depth: number; kind: string; expanded?: boolean }>;
+      rows?: Array<{
+        path: string;
+        depth: number;
+        kind: string;
+        expanded?: boolean;
+      }>;
       expand?: (paths: string[]) => void;
       collapse?: (paths: string[]) => void;
       expanded?: Set<string>;
@@ -190,14 +195,17 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
           role="tree"
           aria-label="File tree"
           data-testid="file-tree"
-          style={{
-            height: totalHeight,
-            transform: `translateY(${offset}px)`,
-            willChange: 'transform',
-            contain: 'layout style paint',
-          }}
         >
-          {renderedRows}
+          <fieldset
+            className="border-0 m-0 p-0"
+            style={{
+              position: 'relative',
+              height: totalHeight,
+              transform: `translateY(${offset}px)`,
+            }}
+          >
+            {renderedRows}
+          </fieldset>
         </div>
       </div>
     );

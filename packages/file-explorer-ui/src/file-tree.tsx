@@ -121,9 +121,13 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         role="tree"
         aria-label="File tree"
         data-testid="file-tree"
-        style={{ height: totalHeight }}
       >
-        {renderedRows}
+        <fieldset
+          className="border-0 m-0 p-0"
+          style={{ position: 'relative', height: totalHeight }}
+        >
+          {renderedRows}
+        </fieldset>
       </div>
     </div>
   );
