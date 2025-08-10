@@ -150,7 +150,10 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       applyFileFilters: vi.fn(() => []),
       filterError: null,
       rootDirectoryHandle: null,
-      isFileSystemAccessSupported: vi.fn(() => ({ supported: true, reason: '' })),
+      isFileSystemAccessSupported: vi.fn(() => ({
+        supported: true,
+        reason: '',
+      })),
       loadFileContent: vi.fn(),
       refreshFileExplorer: vi.fn(),
       isInitialLoad: false,
@@ -266,18 +269,18 @@ describe('FileExplorerMiddlePanelTabbed', () => {
   });
 
   it('should have proper container structure', () => {
-    const { container } = render(
+    render(
       <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
       </TestWrapper>
     );
 
-    // Check for the main container
-    const mainContainer = container.querySelector('.flex.flex-col.h-full.overflow-hidden');
+    // Check for the main container via test id (more robust than class chain)
+    const mainContainer = screen.getByTestId('middle-panel-container');
     expect(mainContainer).toBeInTheDocument();
 
-    // Check for content area with proper styling
-    const contentArea = container.querySelector('.flex-1.overflow-hidden.border-t');
+    // Check for content area with proper styling via test id
+    const contentArea = screen.getByTestId('middle-panel-content');
     expect(contentArea).toBeInTheDocument();
     expect(contentArea).toHaveClass('bg-card/50');
   });

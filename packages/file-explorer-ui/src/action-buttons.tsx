@@ -95,19 +95,25 @@ export const ActionButtons = React.memo(
           onClick={onDownloadReport}
           disabled={!hasSelectedFiles}
           className="flex items-center gap-1 h-8"
+          aria-label="Download Report"
         >
-          <Download className="size-3.5 hidden @md/buttons:block" />
-          <span>Download Report</span>
+          <Download aria-hidden="true" className="size-3.5 hidden @md/buttons:block" />
+          <span aria-hidden="true">Download Report</span>
         </Button>
         <Button
           variant="outline"
           onClick={onCopyReport}
           disabled={!hasSelectedFiles}
           className="flex items-center gap-1 h-8"
+          aria-label="Copy Report"
         >
-          <FileText className="size-3.5 hidden @md/buttons:block" />
-          <span className="hidden @sm/buttons:inline">Copy Report</span>
-          <span className="@sm/buttons:hidden">Copy</span>
+          <FileText aria-hidden="true" className="size-3.5 hidden @md/buttons:block" />
+          <span aria-hidden="true" className="hidden @sm/buttons:inline">
+            Copy Report
+          </span>
+          <span aria-hidden="true" className="@sm/buttons:hidden">
+            Copy
+          </span>
         </Button>
       </div>
     );

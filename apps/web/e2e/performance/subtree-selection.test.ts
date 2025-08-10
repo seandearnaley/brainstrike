@@ -52,12 +52,15 @@ test.describe('Performance: Subtree selection tri-state', () => {
       performance.mark('subtree-select-end');
       performance.measure('subtree-select', 'subtree-select-start', 'subtree-select-end');
       const m = performance.getEntriesByName('subtree-select')[0];
-      return m?.duration || 0;
+      const d = m?.duration || 0;
+      performance.clearMarks('subtree-select-start');
+      performance.clearMarks('subtree-select-end');
+      performance.clearMeasures('subtree-select');
+      return d;
     });
 
     console.log(`Subtree selection duration: ${duration}ms`);
     expect(duration).toBeLessThan(PERFORMANCE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS);
   });
 });
-
 

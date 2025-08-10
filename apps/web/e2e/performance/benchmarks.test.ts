@@ -70,7 +70,11 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       performance.mark('tree-load-end');
       performance.measure('tree-load', 'tree-load-start', 'tree-load-end');
       const measure = performance.getEntriesByName('tree-load')[0];
-      return measure?.duration || 0;
+      const d = measure?.duration || 0;
+      performance.clearMarks('tree-load-start');
+      performance.clearMarks('tree-load-end');
+      performance.clearMeasures('tree-load');
+      return d;
     });
 
     performanceMetrics.push(
@@ -92,7 +96,11 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       performance.mark('expansion-end');
       performance.measure('expansion', 'expansion-start', 'expansion-end');
       const measure = performance.getEntriesByName('expansion')[0];
-      return measure?.duration || 0;
+      const d = measure?.duration || 0;
+      performance.clearMarks('expansion-start');
+      performance.clearMarks('expansion-end');
+      performance.clearMeasures('expansion');
+      return d;
     });
 
     performanceMetrics.push(
@@ -113,7 +121,11 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       performance.mark('selection-end');
       performance.measure('selection', 'selection-start', 'selection-end');
       const measure = performance.getEntriesByName('selection')[0];
-      return measure?.duration || 0;
+      const d = measure?.duration || 0;
+      performance.clearMarks('selection-start');
+      performance.clearMarks('selection-end');
+      performance.clearMeasures('selection');
+      return d;
     });
 
     performanceMetrics.push(
@@ -176,6 +188,9 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
           const measure = performance.getEntriesByName(`render-${renderCount}`)[0];
           if (measure) {
             (window as any).__renderTracker.renderTimes.push(measure.duration);
+            performance.clearMarks(`render-${renderCount}-start`);
+            performance.clearMarks(`render-${renderCount}-end`);
+            performance.clearMeasures(`render-${renderCount}`);
           }
         },
       };
@@ -262,7 +277,11 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
       performance.mark('scroll-test-end');
       performance.measure('scroll-test', 'scroll-test-start', 'scroll-test-end');
       const measure = performance.getEntriesByName('scroll-test')[0];
-      return measure?.duration || 0;
+      const d = measure?.duration || 0;
+      performance.clearMarks('scroll-test-start');
+      performance.clearMarks('scroll-test-end');
+      performance.clearMeasures('scroll-test');
+      return d;
     });
 
     performanceMetrics.push(

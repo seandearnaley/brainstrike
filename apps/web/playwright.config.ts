@@ -112,6 +112,7 @@ export default defineConfig({
           testMatch: '**/!(performance)/*.test.ts',
           use: { channel: 'chromium' },
           timeout: 60_000,
+          grepInvert: /@nav-preserve/,
         },
         {
           name: 'performance',

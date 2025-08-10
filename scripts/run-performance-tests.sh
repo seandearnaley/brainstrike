@@ -273,7 +273,9 @@ compare_with_baseline() {
             return;
         }
         
-        const improvement = ((baseline.value - current.value) / baseline.value) * 100;
+        const improvement = baseline.value === 0
+          ? (current.value === 0 ? 0 : -Infinity)
+          : ((baseline.value - current.value) / baseline.value) * 100;
         let status, arrow;
         
         if (improvement > 5) {

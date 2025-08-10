@@ -31,7 +31,7 @@ export function useVirtualList(
     const container = containerRef.current;
     if (!container) return;
 
-    const handleScroll = () => {
+    const computeRange = () => {
       const scrollTop = container.scrollTop;
       const clientHeight = container.clientHeight;
       const baseStart = Math.floor(scrollTop / rowHeight);
@@ -42,9 +42,22 @@ export function useVirtualList(
       setOffset(baseStart * rowHeight);
     };
 
+    const handleScroll = () => {
+      computeRange();
+    };
+
+    // Recompute on resize (panel show/hide, container size changes)
+    const ro = new ResizeObserver(() => {
+      computeRange();
+    });
+    ro.observe(container);
+
     handleScroll();
     container.addEventListener('scroll', handleScroll);
-    return () => container.removeEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+      ro.disconnect();
+    };
   }, [itemCount, rowHeight, overscan]);
 
   const totalHeight = itemCount * rowHeight;

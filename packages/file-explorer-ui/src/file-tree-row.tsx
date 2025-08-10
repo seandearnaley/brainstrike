@@ -233,6 +233,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
       <div
         className="list-none"
         role="treeitem"
+        aria-label={node.name}
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
         tabIndex={0}
         style={style}

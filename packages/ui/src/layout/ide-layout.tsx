@@ -31,7 +31,10 @@ function syncPanelState(
 ): (() => void) | undefined {
   if (!hasContent || !panel) return;
 
-  const frameId = requestAnimationFrame(() => {
+  let frameId: number | null = null;
+  let afterId: number | null = null;
+
+  frameId = requestAnimationFrame(() => {
     try {
       if (shouldShow) {
         if (panel.isCollapsed()) {
@@ -45,10 +48,30 @@ function syncPanelState(
     } catch (_error) {
       if (isDevEnv()) {
       }
+    } finally {
+      // Nudge layout/virtualizers after the panel size actually changes.
+      afterId = requestAnimationFrame(() => {
+        try {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('resize'));
+            window.dispatchEvent(new Event('optimized-file-tree-nudge'));
+            window.dispatchEvent(new Event('file-tree-ready'));
+          }
+          const scrollers = document.querySelectorAll('[data-testid="file-tree-scroll-container"]');
+          scrollers.forEach((el) => {
+            el.dispatchEvent(new Event('scroll'));
+          });
+        } catch {
+          // ignore
+        }
+      });
     }
   });
 
-  return () => cancelAnimationFrame(frameId);
+  return () => {
+    if (frameId !== null) cancelAnimationFrame(frameId);
+    if (afterId !== null) cancelAnimationFrame(afterId);
+  };
 }
 
 // Custom hook for managing panel state effects
@@ -300,13 +323,17 @@ export const IdeLayout = React.memo(function IdeLayout({
   const { show: handleShowLeftPanel, hide: handleHideLeftPanel } = usePanelToggle(
     leftPanelRef,
     toggleLeftPanel,
-    { focusRef: hideExplorerButtonRef }
+    {
+      focusRef: hideExplorerButtonRef,
+    }
   );
 
   const { show: handleShowRightPanel, hide: handleHideRightPanel } = usePanelToggle(
     rightPanelRef,
     toggleRightPanel,
-    { focusRef: hideRightPanelButtonRef }
+    {
+      focusRef: hideRightPanelButtonRef,
+    }
   );
 
   const { show: handleShowConsole, hide: handleConsoleClose } = usePanelToggle(

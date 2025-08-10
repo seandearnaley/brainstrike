@@ -1,6 +1,7 @@
 import { Button, Label, Switch } from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { FEATURE_KEYS, isFileExplorerV2Enabled, setFileExplorerV2Enabled } from '../feature-flags';
+import { reloadWindow } from '../utils/window-utils';
 
 export function ExperimentsPanel() {
   const initialEnabled = useMemo(() => isFileExplorerV2Enabled(), []);
@@ -9,9 +10,7 @@ export function ExperimentsPanel() {
   const handleToggle = useCallback((checked: boolean) => {
     setEnabled(checked);
     setFileExplorerV2Enabled(checked);
-    try {
-      window.location.reload();
-    } catch {}
+    reloadWindow();
   }, []);
 
   const handleReset = useCallback(() => {
@@ -20,9 +19,7 @@ export function ExperimentsPanel() {
         localStorage.removeItem(FEATURE_KEYS.fileExplorerV2);
       }
     } catch {}
-    try {
-      window.location.reload();
-    } catch {}
+    reloadWindow();
   }, []);
 
   return (

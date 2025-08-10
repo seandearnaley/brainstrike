@@ -88,7 +88,11 @@ export const measurePerformance = async (
     performance.mark(`${measureName}-end`);
     performance.measure(measureName, `${measureName}-start`, `${measureName}-end`);
     const measure = performance.getEntriesByName(measureName)[0];
-    return measure?.duration || 0;
+    const d = measure?.duration || 0;
+    performance.clearMarks(`${measureName}-start`);
+    performance.clearMarks(`${measureName}-end`);
+    performance.clearMeasures(measureName);
+    return d;
   }, name);
 };
 

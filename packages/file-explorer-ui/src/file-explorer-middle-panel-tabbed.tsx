@@ -53,10 +53,16 @@ export const FileExplorerMiddlePanelTabbed: React.FC = () => {
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div
+        className="flex-1 min-h-0 flex flex-col overflow-hidden"
+        data-testid="middle-panel-container"
+      >
         <FileExplorerHeader />
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-hidden border-t md:border-t-0 md:border-l bg-card/50">
+          <div
+            className="flex-1 min-h-0 overflow-hidden border-t md:border-t-0 md:border-l bg-card/50"
+            data-testid="middle-panel-content"
+          >
             <PreviewPanel
               selectedFiles={selectedFilePaths}
               fileContents={fileContents}

@@ -34,7 +34,11 @@ test.describe('Performance: Expand all (guarded behavior)', () => {
       performance.mark('expand-ui-end');
       performance.measure('expand-ui', 'expand-ui-start', 'expand-ui-end');
       const m = performance.getEntriesByName('expand-ui')[0];
-      return m?.duration || 0;
+      const d = m?.duration || 0;
+      performance.clearMarks('expand-ui-start');
+      performance.clearMarks('expand-ui-end');
+      performance.clearMeasures('expand-ui');
+      return d;
     });
 
     console.log(`UI responsiveness under load (ms): ${duration}`);
@@ -42,5 +46,4 @@ test.describe('Performance: Expand all (guarded behavior)', () => {
     expect(duration).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
   });
 });
-
 

@@ -2,6 +2,7 @@
 
 # Run performance tests multiple times for reliable data
 set -e
+shopt -s nullglob
 
 # Colors for output
 RED='\033[0;31m'
@@ -143,10 +144,10 @@ echo "" >> "$RESULTS_DIR/consolidated_report.md"
 # Add results from each test
 for test_file in "$RESULTS_DIR"/*_summary.json; do
     if [[ -f "$test_file" ]]; then
-        local test_name=$(cat "$test_file" | grep '"test_name"' | cut -d'"' -f4)
-        local memory_avg=$(cat "$test_file" | grep '"average":' | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
-        local interaction_avg=$(cat "$test_file" | grep '"average":' | tail -2 | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
-        local page_load_avg=$(cat "$test_file" | grep '"average":' | tail -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
+        test_name=$(grep '"test_name"' "$test_file" | cut -d'"' -f4)
+        memory_avg=$(grep '"average":' "$test_file" | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
+        interaction_avg=$(grep '"average":' "$test_file" | tail -2 | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
+        page_load_avg=$(grep '"average":' "$test_file" | tail -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
         
         cat >> "$RESULTS_DIR/consolidated_report.md" << EOF
 
@@ -179,9 +180,9 @@ echo ""
 echo "📊 QUICK SUMMARY (averaged across $ITERATIONS runs):"
 for test_file in "$RESULTS_DIR"/*_summary.json; do
     if [[ -f "$test_file" ]]; then
-        local test_name=$(cat "$test_file" | grep '"test_name"' | cut -d'"' -f4)
-        local memory_avg=$(cat "$test_file" | grep '"average":' | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
-        local interaction_avg=$(cat "$test_file" | grep '"average":' | tail -2 | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
+        test_name=$(grep '"test_name"' "$test_file" | cut -d'"' -f4)
+        memory_avg=$(grep '"average":' "$test_file" | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
+        interaction_avg=$(grep '"average":' "$test_file" | tail -2 | head -1 | cut -d':' -f2 | cut -d',' -f1 | tr -d ' ')
         
         echo "  $test_name:"
         if [[ "$memory_avg" != "0" ]]; then

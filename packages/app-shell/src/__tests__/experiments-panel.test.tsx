@@ -3,13 +3,25 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExperimentsPanel } from '../settings/experiments-panel';
 
-const mockIsEnabled = vi.fn();
-const mockSetEnabled = vi.fn();
+// Define mocks in a hoisted block so they are available
+// to the vi.mock factory (which Vitest hoists to file top).
+const { mockIsEnabled, mockSetEnabled } = vi.hoisted(() => ({
+  mockIsEnabled: vi.fn(),
+  mockSetEnabled: vi.fn(),
+}));
+
+const { mockReload } = vi.hoisted(() => ({
+  mockReload: vi.fn(),
+}));
 
 vi.mock('../feature-flags', () => ({
   FEATURE_KEYS: { fileExplorerV2: 'FEATURE_FILE_EXPLORER_V2' },
   isFileExplorerV2Enabled: mockIsEnabled,
   setFileExplorerV2Enabled: mockSetEnabled,
+}));
+
+vi.mock('../utils/window-utils', () => ({
+  reloadWindow: mockReload,
 }));
 
 describe('ExperimentsPanel', () => {
@@ -31,19 +43,12 @@ describe('ExperimentsPanel', () => {
     const user = userEvent.setup();
     mockIsEnabled.mockReturnValueOnce(false);
 
-    // Prevent actual reloads
-    const origReload = window.location.reload;
-    // @ts-expect-error allow override in test
-    window.location.reload = vi.fn();
-
     render(<ExperimentsPanel />);
     const toggle = screen.getByTestId('ff-explorer-v2-toggle');
     await user.click(toggle);
 
     expect(mockSetEnabled).toHaveBeenCalledWith(true);
-
-    // Restore reload
-    window.location.reload = origReload;
+    expect(mockReload).toHaveBeenCalled();
   });
 
   it('Reset clears local override', async () => {
@@ -53,18 +58,11 @@ describe('ExperimentsPanel', () => {
     // Seed localStorage with override
     localStorage.setItem('FEATURE_FILE_EXPLORER_V2', '1');
 
-    // Mock reload
-    const origReload = window.location.reload;
-    // @ts-expect-error allow override in test
-    window.location.reload = vi.fn();
-
     render(<ExperimentsPanel />);
     const reset = screen.getByRole('button', { name: /reset/i });
     await user.click(reset);
 
     expect(localStorage.getItem('FEATURE_FILE_EXPLORER_V2')).toBeNull();
-
-    // Restore reload
-    window.location.reload = origReload;
+    expect(mockReload).toHaveBeenCalled();
   });
 });

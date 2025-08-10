@@ -11,6 +11,10 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'e2e/utils/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    // Stabilize in sandboxed CI by avoiding OS-level worker kills
+    pool: 'threads',
+    maxWorkers: 1,
+    minWorkers: 1,
   },
   resolve: {
     alias: {

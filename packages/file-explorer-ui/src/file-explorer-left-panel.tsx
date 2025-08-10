@@ -152,6 +152,31 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
     filteredTree: quickFilteredTree,
   } = useQuickFilter(stableFileTree);
 
+  // Ensure the virtualized list is reset when quick filter results change
+  useEffect(() => {
+    const el = document.querySelector(
+      '[data-testid="file-tree-scroll-container"]'
+    ) as HTMLElement | null;
+    if (el) {
+      // Reset scroll and nudge any virtualizer to recalc range.
+      // JSDOM may not implement Element.scrollTo on DIVs; fall back to scrollTop.
+      const maybeScrollable = el as HTMLElement &
+        Partial<{
+          scrollTo: (options: ScrollToOptions) => void;
+        }>;
+      if (typeof maybeScrollable.scrollTo === 'function') {
+        maybeScrollable.scrollTo({ top: 0 });
+      } else {
+        el.scrollTop = 0;
+      }
+      el.dispatchEvent(new Event('scroll'));
+    }
+    // Also notify layout observers
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('resize'));
+    }
+  }, []);
+
   // Calculate displayed files from the quick filtered tree
   const displayedFilesRef = React.useRef<Set<string>>(new Set());
   const displayedFiles = useMemo(() => {
@@ -233,11 +258,28 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
   const expandAll = useCallback(() => {
     if (fileTree && fileTree.length > 0) {
       store.getState().expandAllDirectories(fileTree);
+      // Nudge virtualizer and signal ready after expansion
+      requestAnimationFrame(() => {
+        try {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('optimized-file-tree-nudge'));
+            window.dispatchEvent(new Event('file-tree-ready'));
+          }
+        } catch {}
+      });
     }
   }, [fileTree, store]);
 
   const collapseAll = useCallback(() => {
     store.getState().collapseAllDirectories();
+    requestAnimationFrame(() => {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('optimized-file-tree-nudge'));
+          window.dispatchEvent(new Event('file-tree-ready'));
+        }
+      } catch {}
+    });
   }, [store]);
 
   const handleCancelOperation = useCallback(() => {
@@ -372,27 +414,25 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
           </Suspense>
         </div>
 
-        {/* Sticky Footer */}
-        {rootDirectoryHandle && (
-          <div
-            className="sticky bottom-0 z-10 px-4 py-3 border-t bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800"
-            data-testid="left-panel-action-toolbar"
-          >
-            <Suspense fallback={<LoadingFallback />}>
-              <ActionButtons
-                displayedFiles={displayedFiles}
-                selectedFilePaths={selectedFilePaths}
-                maxSelectionCount={maxSelectionCount}
-                currentFolderId={currentFolderId}
-                setSelectedFiles={handleSelectionChange}
-                encodeFileSelection={encodeFileSelection}
-                onSelectionLimitExceeded={() => {}}
-                onDownloadReport={handleDownloadReport}
-                onCopyReport={handleCopyReport}
-              />
-            </Suspense>
-          </div>
-        )}
+        {/* Sticky Footer (always mounted to avoid E2E flakiness and keep button locators stable) */}
+        <div
+          className="sticky bottom-0 z-10 px-4 py-3 border-t bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800"
+          data-testid="left-panel-action-toolbar"
+        >
+          <Suspense fallback={<LoadingFallback />}>
+            <ActionButtons
+              displayedFiles={displayedFiles}
+              selectedFilePaths={selectedFilePaths}
+              maxSelectionCount={maxSelectionCount}
+              currentFolderId={currentFolderId}
+              setSelectedFiles={handleSelectionChange}
+              encodeFileSelection={encodeFileSelection}
+              onSelectionLimitExceeded={() => {}}
+              onDownloadReport={handleDownloadReport}
+              onCopyReport={handleCopyReport}
+            />
+          </Suspense>
+        </div>
       </div>
     </FileExplorerErrorBoundary>
   );

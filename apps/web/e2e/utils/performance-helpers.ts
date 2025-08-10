@@ -56,7 +56,12 @@ export const measureTime = async <T>(
     performance.mark(`${markName}-end`);
     performance.measure(markName, `${markName}-start`, `${markName}-end`);
     const measure = performance.getEntriesByName(markName)[0];
-    return measure?.duration || 0;
+    const d = measure?.duration || 0;
+    // Clean up marks/measures to avoid accumulation across runs
+    performance.clearMarks(`${markName}-start`);
+    performance.clearMarks(`${markName}-end`);
+    performance.clearMeasures(markName);
+    return d;
   }, name);
 
   return { result, duration };
@@ -154,7 +159,8 @@ export const waitForPerformanceStabilization = async (page: Page, maxWaitMs = 20
     const currentMemory = await getMemoryUsage(page);
     
     // Check if memory usage has stabilized (less than 1% change)
-    const memoryChange = Math.abs(currentMemory.used - previousMemory.used) / previousMemory.used;
+    const denom = previousMemory.used || 1;
+    const memoryChange = Math.abs(currentMemory.used - previousMemory.used) / denom;
     if (memoryChange < 0.01) {
       break;
     }
@@ -238,7 +244,9 @@ export const compareWithBaseline = async (currentMetrics: PerformanceMetric[], b
         return { ...current, comparison: 'new', improvement: null };
       }
       
-      const improvement = ((baseline.value - current.value) / baseline.value) * 100;
+      const improvement = baseline.value === 0
+        ? (current.value === 0 ? 0 : -Infinity)
+        : ((baseline.value - current.value) / baseline.value) * 100;
       const comparison = improvement > 5 ? 'improved' : improvement < -5 ? 'regressed' : 'stable';
       
       return { ...current, comparison, improvement, baseline: baseline.value };

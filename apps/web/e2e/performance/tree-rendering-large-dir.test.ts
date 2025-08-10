@@ -37,12 +37,15 @@ test.describe('Performance: Expand large single directory', () => {
       performance.mark('expand-large-end');
       performance.measure('expand-large', 'expand-large-start', 'expand-large-end');
       const measure = performance.getEntriesByName('expand-large')[0];
-      return measure?.duration || 0;
+      const d = measure?.duration || 0;
+      performance.clearMarks('expand-large-start');
+      performance.clearMarks('expand-large-end');
+      performance.clearMeasures('expand-large');
+      return d;
     });
 
     console.log(`Expand large dir duration: ${duration}ms`);
     expect(duration).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
   });
 });
-
 

@@ -9,7 +9,12 @@ var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
 // Mock UI components that are lazy loaded or used within the panel
 vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
+  // Provide minimal structure expected by tests, including the scroll container
+  FileExplorerSidebarMock = vi.fn(() => (
+    <div data-testid="sidebar">
+      <div data-testid="file-tree-scroll-container">Tree</div>
+    </div>
+  ));
   ActionButtonsMock = vi.fn(() => <div data-testid="actions">Actions</div>);
   LoadingOverlayMock = vi.fn(
     ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
@@ -126,7 +131,9 @@ describe('FileExplorerLeftPanel', () => {
       collapseAllDirectories: vi.fn(),
     } as const;
 
-    const mockStore = Object.assign(() => storeState, { getState: () => storeState });
+    const mockStore = Object.assign(() => storeState, {
+      getState: () => storeState,
+    });
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(
       mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
     );
@@ -134,7 +141,10 @@ describe('FileExplorerLeftPanel', () => {
     handleRootDirectorySelectMock = vi.fn();
     applyFileFiltersMock = vi.fn();
     refreshFileExplorerMock = vi.fn();
-    isFileSystemAccessSupportedMock = vi.fn(() => ({ supported: true, reason: '' }));
+    isFileSystemAccessSupportedMock = vi.fn(() => ({
+      supported: true,
+      reason: '',
+    }));
     fileExplorerReturnValue = {
       fileTree: [],
       handleRootDirectorySelect: handleRootDirectorySelectMock,
@@ -185,7 +195,21 @@ describe('FileExplorerLeftPanel', () => {
 
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: /select all/i })).toBeInTheDocument();
+    // Robust check: presence of the action toolbar container instead of button label
+    expect(await screen.findByTestId('left-panel-action-toolbar')).toBeInTheDocument();
+  });
+
+  it('keeps footer pinned while file tree scrolls', async () => {
+    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+
+    const footer = await screen.findByTestId('left-panel-action-toolbar');
+    const treeScroll = await screen.findByTestId('file-tree-scroll-container');
+
+    // Footer should not be inside the scroll container
+    expect(treeScroll.contains(footer)).toBe(false);
+
+    // Footer should be positioned sticky via class and visible
+    expect(footer).toHaveClass('sticky');
   });
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {

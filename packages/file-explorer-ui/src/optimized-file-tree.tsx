@@ -1,10 +1,10 @@
-import type { IFileNode } from '@brainstrike/types';
-import { encodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useMemo } from 'react';
-import { shallow } from 'zustand/shallow';
-import { useFileExplorerStoreContext } from './file-explorer-provider';
-import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
-import { useVirtualList } from './use-virtual-list';
+import type { IFileNode } from "@brainstrike/types";
+import { encodeFileSelection } from "@brainstrike/utils";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo } from "react";
+import { shallow } from "zustand/shallow";
+import { useFileExplorerStoreContext } from "./file-explorer-provider";
+import OptimizedFileTreeRow, { ROW_HEIGHT } from "./optimized-file-tree-row";
+import { useVirtualList } from "./use-virtual-list";
 
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
@@ -63,10 +63,18 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
     // Optimized tree flattening with better memoization
     const flattenTree = useCallback(
-      (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
+      (
+        nodes: IFileNode[],
+        depth = 0,
+        acc: { node: IFileNode; depth: number }[] = []
+      ) => {
         for (const n of nodes) {
           acc.push({ node: n, depth });
-          if (n.type === 'directory' && expandedDirectoryPaths.has(n.path) && n.children) {
+          if (
+            n.type === "directory" &&
+            expandedDirectoryPaths.has(n.path) &&
+            n.children
+          ) {
             flattenTree(
               n.children.filter((c) => c.isVisible !== false),
               depth + 1,
@@ -80,14 +88,53 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     );
 
     // Memoize visible nodes calculation
-    const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
+    const visibleNodes = useMemo(
+      () => flattenTree(fileTree),
+      [fileTree, flattenTree]
+    );
 
     // Enhanced virtualization with improved performance
     const { containerRef, range, totalHeight } = useVirtualList(
       visibleNodes.length,
       ROW_HEIGHT,
-      { overscan: 2 } // Reduced overscan to decrease memory usage
+      {
+        overscan: 8,
+      }
     );
+
+    // Nudge virtualizer after significant visibility/layout changes (e.g., panel collapse/expand)
+    // Set up a stable listener tied to the element, and trigger via window events when data changes.
+    /* biome-ignore lint/correctness/useExhaustiveDependencies: containerRef.current intentionally read inside handler */
+    useLayoutEffect(() => {
+      const handler = () => {
+        const el = containerRef.current as HTMLElement | null;
+        if (el) el.dispatchEvent(new Event("scroll"));
+      };
+      window.addEventListener("optimized-file-tree-nudge", handler);
+      return () =>
+        window.removeEventListener("optimized-file-tree-nudge", handler);
+    }, []);
+
+    const nudgeToken = visibleNodes.length;
+    useLayoutEffect(() => {
+      const id = requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent("optimized-file-tree-nudge", { detail: nudgeToken })
+        );
+      });
+      return () => cancelAnimationFrame(id);
+    }, [nudgeToken]);
+
+    // Expose an explicit ready event when visibleNodes updates and first frame paints
+    /* biome-ignore lint/correctness/useExhaustiveDependencies: containerRef.current intentionally read inside rAF */
+    useLayoutEffect(() => {
+      const id = requestAnimationFrame(() => {
+        const el = containerRef.current as HTMLElement | null;
+        if (el) el.dispatchEvent(new Event("scroll"));
+        window.dispatchEvent(new Event("file-tree-ready"));
+      });
+      return () => cancelAnimationFrame(id);
+    }, [visibleNodes.length]);
 
     // Optimized row rendering with better memoization
     const renderedRows = useMemo(() => {
@@ -110,12 +157,14 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             isExpanded={expandedDirectoryPaths.has(node.path)}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
+            isLoading={loadingFiles.has(
+              encodeFileSelection(folderId, node.path)
+            )}
             folderId={folderId}
             style={{
-              position: 'absolute',
+              position: "absolute",
               top: (startIndex + rowIndex) * ROW_HEIGHT,
-              width: '100%',
+              width: "100%",
               height: ROW_HEIGHT,
             }}
           />
@@ -152,50 +201,57 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           role="tree"
           aria-label="File tree"
           data-testid="file-tree"
-          style={{
-            height: totalHeight,
-            // Optimize for performance
-            willChange: 'transform',
-            contain: 'layout style paint',
-          }}
         >
-          {renderedRows}
+          <div
+            style={{
+              position: "relative",
+              height: totalHeight,
+              willChange: "transform",
+              contain: "layout style paint",
+            }}
+          >
+            {renderedRows}
+          </div>
         </div>
       </div>
     );
   }
 );
 
-OptimizedFileTree.displayName = 'OptimizedFileTree';
+OptimizedFileTree.displayName = "OptimizedFileTree";
 
 // Enhanced memoization comparison
-const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
-  // Only re-render if essential props changed
-  if (prevProps.folderId !== nextProps.folderId) return false;
-  if (prevProps.onRender !== nextProps.onRender) return false;
+const OptimizedFileTreeMemoized = memo(
+  OptimizedFileTree,
+  (prevProps, nextProps) => {
+    // Only re-render if essential props changed
+    if (prevProps.folderId !== nextProps.folderId) return false;
+    if (prevProps.onRender !== nextProps.onRender) return false;
 
-  // Deep comparison for fileTree (expensive but necessary)
-  if (prevProps.fileTree.length !== nextProps.fileTree.length) return false;
+    // Deep comparison for fileTree (expensive but necessary)
+    if (prevProps.fileTree.length !== nextProps.fileTree.length) return false;
 
-  // Check if fileTree structure actually changed
-  for (let i = 0; i < prevProps.fileTree.length; i++) {
-    const prevNode = prevProps.fileTree[i];
-    const nextNode = nextProps.fileTree[i];
+    // Check if fileTree structure actually changed
+    for (let i = 0; i < prevProps.fileTree.length; i++) {
+      const prevNode = prevProps.fileTree[i];
+      const nextNode = nextProps.fileTree[i];
 
-    if (prevNode?.path !== nextNode?.path) return false;
-    if (prevNode?.type !== nextNode?.type) return false;
-    if (prevNode?.isVisible !== nextNode?.isVisible) return false;
+      if (prevNode?.path !== nextNode?.path) return false;
+      if (prevNode?.type !== nextNode?.type) return false;
+      if (prevNode?.isVisible !== nextNode?.isVisible) return false;
+    }
+
+    // Check loading files set
+    if (prevProps.loadingFiles.size !== nextProps.loadingFiles.size)
+      return false;
+
+    // Quick set comparison for loading files
+    for (const file of prevProps.loadingFiles) {
+      if (!nextProps.loadingFiles.has(file)) return false;
+    }
+
+    return true; // Props are equal, skip re-render
   }
-
-  // Check loading files set
-  if (prevProps.loadingFiles.size !== nextProps.loadingFiles.size) return false;
-
-  // Quick set comparison for loading files
-  for (const file of prevProps.loadingFiles) {
-    if (!nextProps.loadingFiles.has(file)) return false;
-  }
-
-  return true; // Props are equal, skip re-render
-});
+);
 
 export default OptimizedFileTreeMemoized;

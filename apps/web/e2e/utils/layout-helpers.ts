@@ -128,7 +128,7 @@ export function getLeftPanelResizeHandle(page: Page): ReturnType<Page['locator']
 }
 
 /**
- * Get the last (console panel) resize handle
+ * Get the first (console panel) resize handle in the vertical group
  */
 export function getConsolePanelResizeHandle(page: Page): ReturnType<Page['locator']> {
   // The console panel's resize handle is in the vertical group

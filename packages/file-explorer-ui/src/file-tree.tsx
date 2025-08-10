@@ -73,7 +73,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
   const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
   const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
-    overscan: 3,
+    overscan: 8,
   });
 
   const renderedRows = useMemo(
