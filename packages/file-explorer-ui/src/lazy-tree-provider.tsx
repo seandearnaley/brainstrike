@@ -29,8 +29,8 @@ export function LazyTreeProvider({
 
   useEffect(() => {
     // update source tree without dropping expansion
-    store.init(worker, sourceTree, store.expanded);
-  }, [store, worker, sourceTree, store.expanded]);
+    store.setSourceTree(sourceTree);
+  }, [store, sourceTree]);
 
   return <LazyTreeContext.Provider value={store}>{children}</LazyTreeContext.Provider>;
 }

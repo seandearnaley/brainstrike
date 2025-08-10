@@ -14,6 +14,8 @@ type State = {
 
 type Actions = {
   init(worker: Worker, tree: TreeNode[], initialExpanded?: Set<string>): void;
+  setSourceTree(tree: TreeNode[]): void;
+  setQuickFilter(quick: string): void;
   setFilters(filters: Partial<Filters>): void;
   expand(paths: string[]): void;
   collapse(paths: string[]): void;
@@ -48,7 +50,7 @@ export const useLazyTreeStore = create<LazyTreeStore>((set, get) => {
     ready: false,
 
     init(w, tree, initialExpanded = new Set<string>()) {
-      if (worker) {
+      if (worker && worker !== w) {
         worker.removeEventListener('message', onMsg as unknown as EventListener);
         worker.terminate();
       }
@@ -57,6 +59,18 @@ export const useLazyTreeStore = create<LazyTreeStore>((set, get) => {
       set({ expanded: new Set(initialExpanded) });
       post({ type: 'SET_SOURCE_TREE', tree });
       post({ type: 'REBUILD' });
+    },
+
+    setSourceTree(tree) {
+      post({ type: 'SET_SOURCE_TREE', tree });
+      post({ type: 'REBUILD' });
+    },
+
+    setQuickFilter(quick) {
+      const cur = get().filters;
+      const next = { ...cur, quick } as Filters;
+      set({ filters: next });
+      post({ type: 'SET_FILTERS', filters: next });
     },
 
     setFilters(partial) {
