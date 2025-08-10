@@ -1,7 +1,10 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type * as React from 'react';
+import { useMemo } from 'react';
+import { LazyTreeProvider } from './lazy-tree-provider';
 import OptimizedFileTree from './optimized-file-tree';
+import OptimizedFlatTree from './optimized-flat-tree';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
@@ -20,6 +23,8 @@ interface FileExplorerSidebarProps {
   isInitialLoad: boolean;
   currentFolderId: string | null;
   onTreeRender?: () => void;
+  // v2 feature flag (reserved for future lazy tree)
+  useV2?: boolean;
 }
 
 const ErrorDisplay = ({
@@ -70,9 +75,11 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   isInitialLoad,
   currentFolderId,
   onTreeRender,
+  useV2 = false,
 }) => {
   const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
   const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
+  const expandedPaths = useMemo(() => new Set<string>(), []);
 
   return (
     <div className="w-full">
@@ -82,12 +89,26 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
       ) : (
         <div className="px-3 pt-4">
           {hasContent ? (
-            <OptimizedFileTree
-              fileTree={quickFilteredTree}
-              loadingFiles={loadingFiles}
-              onRender={onTreeRender || undefined}
-              folderId={currentFolderId || ''}
-            />
+            useV2 ? (
+              <LazyTreeProvider
+                sourceTree={quickFilteredTree as unknown as import('./types/lazy-tree').TreeNode[]}
+                expandedPaths={expandedPaths}
+              >
+                <OptimizedFlatTree
+                  fileTree={quickFilteredTree}
+                  loadingFiles={loadingFiles}
+                  onRender={onTreeRender || undefined}
+                  folderId={currentFolderId || ''}
+                />
+              </LazyTreeProvider>
+            ) : (
+              <OptimizedFileTree
+                fileTree={quickFilteredTree}
+                loadingFiles={loadingFiles}
+                onRender={onTreeRender || undefined}
+                folderId={currentFolderId || ''}
+              />
+            )
           ) : (
             <EmptyState
               isLoading={isLoading}

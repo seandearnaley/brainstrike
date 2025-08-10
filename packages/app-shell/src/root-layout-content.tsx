@@ -3,6 +3,7 @@ import { IdeLayout } from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
+import { isFileExplorerV2Enabled } from './feature-flags';
 import { RightPanel } from './right-panel';
 import type { NavigationItem } from './types';
 
@@ -23,7 +24,8 @@ export function RootLayoutContent({
     setActiveTab(tab);
   }, []);
 
-  const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
+  const useV2 = isFileExplorerV2Enabled();
+  const sidebarContent = useMemo(() => <FileExplorerLeftPanel useV2={useV2} />, [useV2]);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
   const rightPanelContent = useMemo(() => <RightPanel />, []);
 

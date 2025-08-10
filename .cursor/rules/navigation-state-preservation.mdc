@@ -61,7 +61,7 @@ Lazy loading would cause component unmounting, which breaks:
 - Keep navigation components always mounted
 - Use CSS `display` property for tab switching
 - Preserve file handles in component state
-- Maintain Zustand store across navigation
+- Maintain store across navigation
 
 ### ❌ DON'T
 - Use React Router lazy loading for main app tabs

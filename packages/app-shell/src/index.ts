@@ -2,6 +2,7 @@ export * from './app-config';
 export * from './app-layout';
 export * from './csv-export-utils';
 export * from './database-demo-panel';
+export * from './feature-flags';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './right-panel';

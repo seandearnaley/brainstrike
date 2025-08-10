@@ -50,7 +50,7 @@ This rule defines the standardized naming conventions for files and directories 
 - Standard directory structure:
   - `src/components/` - UI components
   - `src/hooks/` - Custom React hooks
-  - `src/stores/` - Zustand stores
+  - `src/stores/` - Stores
   - `src/utils/` - Utility functions
   - `src/lib/` - Core libraries and integrations
   - `public/` - Static assets

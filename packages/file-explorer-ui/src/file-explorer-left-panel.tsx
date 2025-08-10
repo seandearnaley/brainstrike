@@ -52,7 +52,7 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
  * FileExplorerLeftPanel - Contains the file tree and toolbar
  * This component can be used independently in the left panel of an IDE layout
  */
-export const FileExplorerLeftPanel: React.FC = React.memo(() => {
+export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo(({ useV2 }) => {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const {
@@ -364,6 +364,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
                 isInitialLoad={isInitialLoad}
                 currentFolderId={currentFolderId}
                 onTreeRender={handleTreeRender}
+                // v2 flag plumbed for future use; UI unchanged for now
+                useV2={useV2 === true}
               />
             </Suspense>
           </div>
