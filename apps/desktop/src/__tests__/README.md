@@ -46,16 +46,16 @@ src/__tests__/
 
 ```bash
 # Run all tests
-npm test
+pnpm test
 
 # Run tests in watch mode
-npm run test:watch
+pnpm run test:watch
 
 # Run tests with coverage
-npm run test:coverage
+pnpm run test:coverage
 
 # Type check
-npm run type-check
+pnpm run type-check
 ```
 
 ### Test Coverage

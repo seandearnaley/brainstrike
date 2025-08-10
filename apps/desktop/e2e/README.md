@@ -6,19 +6,19 @@ This directory contains comprehensive end-to-end tests for the Brainstrike deskt
 
 ```bash
 # Run tests in UI mode (recommended for development)
-npm run test:e2e
+pnpm run test:e2e
 
 # Run tests headlessly (for CI)
-npm run test:e2e:headless
+pnpm run test:e2e:headless
 
 # Debug tests with inspector
-npm run test:e2e:debug
+pnpm run test:e2e:debug
 
 # Type check E2E tests
-npm run type-check:e2e
+pnpm run type-check:e2e
 
 # Lint E2E tests
-npm run lint
+pnpm run lint
 ```
 
 ## 📁 Project Structure
@@ -135,7 +135,7 @@ npx playwright show-trace test-results/trace.zip
 
 ### UI Mode (Recommended)
 ```bash
-npm run test:e2e
+pnpm run test:e2e
 ```
 - Visual test runner
 - Step-by-step execution
@@ -144,7 +144,7 @@ npm run test:e2e
 
 ### Debug Mode
 ```bash
-npm run test:e2e:debug
+pnpm run test:e2e:debug
 ```
 - Playwright Inspector
 - Breakpoint support
@@ -152,7 +152,7 @@ npm run test:e2e:debug
 
 ### Headless with Artifacts
 ```bash
-npm run test:e2e:headless
+pnpm run test:e2e:headless
 npx playwright show-report
 ```
 
@@ -167,17 +167,17 @@ The tests are configured for CI environments:
 Example GitHub Actions integration:
 ```yaml
 - name: Install dependencies
-  run: npm ci
+  run: pnpm install --frozen-lockfile
 
 - name: Install Playwright browsers
-  run: npx playwright install --with-deps
+  run: pnpm exec playwright install --with-deps
 
 - name: Build desktop app
-  run: npm run build
+  run: pnpm run build
   working-directory: apps/desktop
 
 - name: Run E2E tests
-  run: npm run test:e2e:headless
+  run: pnpm run test:e2e:headless
   working-directory: apps/desktop
 
 - name: Upload test artifacts
@@ -225,12 +225,12 @@ When updating Playwright:
 - Check that `setupDialogMocking` is called in test setup
 
 **App fails to launch:**
-- Verify the app is built: `npm run build`
+- Verify the app is built: `pnpm run build`
 - Check that `dist/main.js` exists
 - Review global setup logs
 
 **TypeScript errors:**
-- Use `npm run type-check:e2e` to check E2E types specifically
+- Use `pnpm run type-check:e2e` to check E2E types specifically
 - Ensure `tsconfig.e2e.json` includes the correct files
 
 **Resource conflicts:**

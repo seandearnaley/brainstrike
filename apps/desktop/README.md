@@ -37,7 +37,7 @@ cd apps/desktop
 #### Start Development Mode
 ```bash
 # Start both renderer dev server and Electron app
-npm run dev
+pnpm run dev
 
 # This will:
 # 1. Start Vite dev server on port 3001
@@ -48,33 +48,33 @@ npm run dev
 
 #### Individual Commands
 ```bash
-npm run dev:renderer  # Vite dev server on port 3001
-npm run dev:main      # Compile main process only
-npm run dev:electron  # Compile main + start Electron (requires dev server)
+pnpm run dev:renderer  # Vite dev server on port 3001
+pnpm run dev:main      # Compile main process only
+pnpm run dev:electron  # Compile main + start Electron (requires dev server)
 ```
 
 #### Build for Production
 ```bash
 # Build both renderer and main process
-npm run build
+pnpm run build
 
 # Or build individually:
-npm run build:renderer  # Vite production build
-npm run build:main      # TypeScript compilation
+pnpm run build:renderer  # Vite production build
+pnpm run build:main      # TypeScript compilation
 ```
 
 #### Package & Distribute
 ```bash
 # Create unpacked app in release/ directory
-npm run pack
+pnpm run pack
 
 # Create distributable packages (DMG, NSIS, AppImage)
-npm run dist
+pnpm run dist
 ```
 
 ### Development Workflow
 
-1. **Start Development**: `npm run dev`
+1. **Start Development**: `pnpm run dev`
    - Renderer runs on `http://localhost:3001` with hot reload
    - Main process compiles automatically
    - Electron launches when dev server is ready
@@ -82,9 +82,9 @@ npm run dist
 
 2. **Making Changes**: 
    - **Renderer changes**: Reload automatically via Vite hot reload
-   - **Main process changes**: Restart Electron (Ctrl+C and `npm run dev` again)
+   - **Main process changes**: Restart Electron (Ctrl+C and `pnpm run dev` again)
 
-3. **Testing Production Build**: `npm run build && npm start`
+3. **Testing Production Build**: `pnpm run build && pnpm start`
 
 ## Project Structure
 
@@ -189,21 +189,21 @@ Configured for cross-platform distribution:
 
 ### Development Issues
 
-**Problem**: `npm run dev` doesn't start Electron
+**Problem**: `pnpm run dev` doesn't start Electron
 **Solution**: Make sure both processes start:
 ```bash
 # Check if dev server starts
-npm run dev:renderer
+pnpm run dev:renderer
 
 # In another terminal, check if main compiles
-npm run dev:main
+pnpm run dev:main
 
 # Then try full dev mode
-npm run dev
+pnpm run dev
 ```
 
 **Problem**: "ERR_CONNECTION_REFUSED" when starting Electron
-**Solution**: This is normal if dev server isn't running. Use `npm run dev` instead of `npm start` for development.
+**Solution**: This is normal if dev server isn't running. Use `pnpm run dev` instead of `pnpm start` for development.
 
 **Problem**: "__dirname is not defined" error
 **Solution**: Fixed in current version using `import.meta.url`
@@ -211,7 +211,7 @@ npm run dev
 ### Debug Mode
 ```bash
 # Start with DevTools open
-npm run dev
+pnpm run dev
 
 # Or manually open DevTools in running app
 # View > Toggle Developer Tools
@@ -223,7 +223,7 @@ electron . --inspect=9229
 ### Performance Issues
 ```bash
 # If Electron is slow to start
-npm run dev:electron  # Skip renderer and start Electron directly
+pnpm run dev:electron  # Skip renderer and start Electron directly
 
 # If hot reload is slow
 # Check if any large files are being watched by Vite

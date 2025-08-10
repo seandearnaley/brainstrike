@@ -45,7 +45,6 @@
         "@swc/core",
         "ts-node",
         "@biomejs/biome",
-        "husky",
         "concurrently",
         "serve",
         "knip",

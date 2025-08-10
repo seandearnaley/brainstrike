@@ -114,7 +114,7 @@ import { Button, Input } from '@brainstrike/ui';
 
 ## 6. Testing, Linting, and Type Safety
 
-- **Vitest** is used for unit/integration tests (see `vitest.workspace.ts`).
+- **Vitest** is used for unit/integration tests (see `vitest.config.ts`).
 - **Playwright** for E2E tests (`apps/web/e2e`).
 - **NYC** aggregates coverage from all packages/apps.
 - **Biome** is used for linting and formatting (see `biome.json`).

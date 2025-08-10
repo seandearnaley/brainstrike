@@ -12,26 +12,26 @@ We've simplified the testing approach to make it easier to run tests in differen
 
 ```bash
 # Run all tests
-npm run test:e2e
+pnpm run test:e2e
 
 # Run tests with UI mode (for debugging)
-npm run test:e2e:ui
+pnpm run test:e2e:ui
 
 # Run tests with debug mode
-npm run test:e2e:debug
+pnpm run test:e2e:debug
 ```
 
 ### From the root directory
 
 ```bash
 # Run all tests 
-npm run test:e2e
+pnpm run test:e2e
 
 # Run tests with UI mode
-npm run test:e2e:ui
+pnpm run test:e2e:ui
 
 # Run tests with debug mode
-npm run test:e2e:debug
+pnpm run test:e2e:debug
 ```
 
 ## Configuration
@@ -105,6 +105,6 @@ Tests run automatically in CI via GitHub Actions. The configuration:
 If you encounter issues:
 
 1. Ensure Playwright is installed: `npx playwright install`
-2. Check if Vite is running correctly: `npm run dev` 
-3. Try running with debug mode: `npm run test:e2e:debug`
+2. Check if Vite is running correctly: `pnpm run dev` 
+3. Try running with debug mode: `pnpm run test:e2e:debug`
 4. Inspect the Playwright report: `npx playwright show-report` 

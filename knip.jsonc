@@ -242,7 +242,7 @@
   // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace
   "entry": [
     "e2e/**/*.ts", // Keep root E2E as requested for now
-    "vitest.workspace.ts" // Add the vitest workspace file as an entry point
+    "vitest.config.ts" // Root Vitest config aggregates workspace projects
   ],
   "project": [
     "e2e/**/*.ts" // Keep root E2E project files
@@ -254,8 +254,7 @@
     "**/build/**",
     "**/.turbo/**",
     "**/*.d.ts",
-    // Ignore husky hook file
-    ".husky/commit-msg.js",
+    // Ignore CI-only merge config used by Playwright report merging
     // Ignore Playwright merge config - used by CI workflows via shell commands
     "playwright-merge.config.js"
     // Removed specific file ignores from here as they are moved to apps/web workspace ignore
@@ -271,7 +270,6 @@
     "@babel/core",
     "@types/testing-library__jest-dom", // Likely used by root or app vitest.setup.ts
     "glob",
-    "husky",
     "identity-obj-proxy", // Likely used for test mocking
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs

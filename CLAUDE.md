@@ -17,11 +17,11 @@ Do not attempt to run dev unless instructed to do so.  The user usually runs thi
 pnpm install
 
 # Start web application (localhost:8080)
-pnpm dev --filter web
+pnpm dev --filter @brainstrike/web
 
 # Start desktop application (Electron)
-pnpm dev --filter desktop
-pnpm start --filter desktop  # Launch Electron after dev server
+pnpm dev --filter @brainstrike/desktop
+pnpm start --filter @brainstrike/desktop  # Launch Electron after dev server
 
 # Build all packages and applications
 pnpm build
@@ -84,6 +84,7 @@ Critical architectural pattern enabling cross-platform functionality:
 - **Components**: Functional components with hooks only
 - **State Management**: Zustand for global state in web app
 - **Commits**: Conventional Commits enforced via commitlint
+- **Git Hooks**: Managed by Lefthook (auto-installed on `pnpm install`)
 
 ### Package Dependencies
 - Use `workspace:*` protocol for internal package references
@@ -124,7 +125,7 @@ When working with file operations:
 - Topological builds with dependency awareness
 - Shared caching across local and CI environments
 - Parallel execution where possible
-- Filtered builds: `--filter web` or `--filter desktop`
+- Filtered builds: `--filter @brainstrike/web` or `--filter @brainstrike/desktop`
 
 ### Validation Pipeline
 The `pnpm check` command runs comprehensive validation:

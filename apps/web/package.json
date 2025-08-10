@@ -60,7 +60,6 @@
     "@vitest/ui": "^3.2.4",
     "glob": "^11.0.3",
     "happy-dom": "^18.0.1",
-    "husky": "^9.1.7",
     "identity-obj-proxy": "^3.0.0",
     "jsdom": "^26.1.0",
     "knip": "^5.62.0",

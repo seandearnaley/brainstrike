@@ -317,17 +317,17 @@ typescriptChecker: {
 
 ## Integration with Development Workflow
 
-### Pre-commit Hook (Optional)
-For critical packages, consider a pre-commit hook:
+### Pre-push Hook (Optional with Lefthook)
+For critical packages, consider a Lefthook pre-push hook (be cautious: mutation tests are slow):
 
-```json
-{
-  "husky": {
-    "hooks": {
-      "pre-push": "npx turbo run mutation --filter=@brainstrike/core"
-    }
-  }
-}
+```yaml
+# lefthook.yml
+pre-push:
+  commands:
+    mutation-critical:
+      run: pnpm exec turbo run mutation --filter=@brainstrike/utils
+      # Consider enabling only on main-protected branches or manual runs
+      # skip: true
 ```
 
 ### Code Review Process

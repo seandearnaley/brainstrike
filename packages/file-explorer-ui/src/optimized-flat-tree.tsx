@@ -1,6 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { memo, useMemo } from 'react';
+import { memo, useEffect, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useLazyTree } from './lazy-tree-provider';
@@ -59,6 +59,9 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
     // Hooks must be unconditional; use try/catch around mapping only
     const lazyContext = useLazyTree() as unknown as {
       rows?: Array<{ path: string; depth: number; kind: string; expanded?: boolean }>;
+      expand?: (paths: string[]) => void;
+      collapse?: (paths: string[]) => void;
+      expanded?: Set<string>;
     };
     if (lazyContext && Array.isArray(lazyContext.rows)) {
       const list = lazyContext.rows as Array<{
@@ -104,6 +107,27 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
       ROW_HEIGHT,
       { overscan: 2 }
     );
+
+    // Bridge legacy expandedDirectoryPaths -> lazy store expand/collapse
+    useEffect(() => {
+      const apiExpand = lazyContext?.expand as ((paths: string[]) => void) | undefined;
+      const apiCollapse = lazyContext?.collapse as ((paths: string[]) => void) | undefined;
+      if (!apiExpand || !apiCollapse) return;
+
+      const current = lazyContext.expanded ?? new Set<string>();
+      const next = expandedDirectoryPaths;
+
+      const [toExpand, toCollapse] = (() => {
+        const add: string[] = [];
+        for (const p of next) if (!current.has(p)) add.push(p);
+        const del: string[] = [];
+        for (const p of current) if (!next.has(p)) del.push(p);
+        return [add, del];
+      })();
+
+      if (toExpand.length) apiExpand(toExpand);
+      if (toCollapse.length) apiCollapse(toCollapse);
+    }, [lazyContext, expandedDirectoryPaths]);
 
     const renderedRows = useMemo(() => {
       const slice = effectiveRows.slice(range.start, range.end + 1);

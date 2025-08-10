@@ -403,7 +403,7 @@ Generate declarations separately from bundles:
   "scripts": {
     "build:types": "tsc --emitDeclarationOnly",
     "build:js": "tsup --dts false",
-    "build": "npm run build:types && npm run build:js"
+    "build": "pnpm run build:types && pnpm run build:js"
   }
 }
 ```

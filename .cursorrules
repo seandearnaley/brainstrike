@@ -1,4 +1,4 @@
-# Workspace Rules for brainstrike-web (Turborepo Monorepo)
+# Workspace Rules for brainstrike (Turborepo Monorepo)
 
 This project uses Turborepo to manage a monorepo containing shared packages and applications.
 Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant workspace packages.
@@ -17,7 +17,7 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
 
 1.  **TECHNOLOGY STACK & VERSIONS**
     *   Use Node.js >= 22.x (as required by `apps/web`)
-    *   Vite latest stable version (for `apps/web`)
+    *   Vite v7.x (for `apps/web`)
     *   TypeScript for all new code (Leverage shared types from `@brainstrike/types`)
     *   React 19+ with functional components and hooks only (Leverage shared hooks from `@brainstrike/hooks`)
     *   TailwindCSS v4 for styling (Use components and styles from `@brainstrike/ui`)
@@ -33,13 +33,13 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
     *   Use Biome for linting and formatting across the monorepo.
     *   Strict TypeScript mode enabled (Enforced by shared `tsconfig.json` from `@brainstrike/config`).
     *   Follow commitlint conventions for commit messages.
-    *   Maintain semantic versioning using semantic-release (configured at the root).
+    *   Semantic versioning and releases are managed via PRs; semantic-release is not configured at the root.
 
 4.  **FILE STRUCTURE & NAMING (Within Apps/Packages)**
     *   **`packages/`**: Structure based on package type (e.g., `ui/src/components`, `hooks/src`, `utils/src`).
     *   **`apps/web/`**:
         *   App-specific components: `src/components/`
-        *   State management (Zustand): `src/stores/`
+        *   State management (Zustand): prefer shared patterns. See `packages/file-explorer/src/store.ts` for a canonical example.
         *   Routing/Pages (React Router): Configured within `src/`
         *   Public assets: `public/`
     *   **Naming:** Use kebab-case for files/directories, PascalCase for React components.
@@ -47,7 +47,7 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
 5.  **STATE MANAGEMENT (apps/web)**
     *   Use Zustand for global state management.
     *   Implement persist middleware for persistent states where necessary.
-    *   Follow the store pattern example in `apps/web/src/stores/useFileExplorerStore`.
+    *   Follow the store pattern example in `packages/file-explorer/src/store.ts`.
 
 6.  **PERFORMANCE GUIDELINES**
     *   Implement proper code-splitting (Vite handles this mostly in `apps/web`).
@@ -68,8 +68,8 @@ Run `pnpm run test` (powered by Turborepo) to execute tests across the relevant 
 
 9.  **DEVELOPMENT WORKFLOW**
     *   Run type-check (`tsc --noEmit`) before commits.
-    *   Use husky pre-commit hooks (configured at the root).
-    *   Test changes locally using Turborepo: `npm run test`.
+    *   Git hooks managed by Lefthook (see `lefthook.yml`, auto-installed on `pnpm install`).
+    *   Test changes locally using Turborepo: `pnpm test`.
     *   Follow GitHub Actions CI/CD pipeline (defined in `.github/workflows`).
 
 10. **GOTCHAS & SPECIAL CONSIDERATIONS**

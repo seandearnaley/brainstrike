@@ -2,7 +2,7 @@
 
 Welcome to the `brainstrike` monorepo! This guide is designed to help both human developers and AI agents understand how to effectively contribute to this project.
 
-It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024/ I think there is misinformation going around.
+It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024; I think there is misinformation going around.
 
 ## Codebase Overview
 
@@ -16,8 +16,7 @@ This is a Turborepo-powered monorepo using `pnpm` as the package manager. The st
     *   `@brainstrike/hooks`: Reusable React hooks.
     *   `@brainstrike/utils`: Common utility functions.
     *   `@brainstrike/types`: Shared TypeScript types and interfaces.
-    *   `@brainstrike/config`: Shared configurations (e.g., Biome config).
-    *   `@brainstrike/tsconfig`: Shared TypeScript configurations (located in `packages/config/tsconfig`).
+    *   `@brainstrike/config`: Shared configurations (e.g., Biome, TS). Shared TypeScript base configs live under `packages/config/tsconfig` (not a separate package).
     *   `@brainstrike/app-shell`: Application shell components and layouts.
     *   `@brainstrike/file-explorer`: Core file explorer logic and state management.
     *   `@brainstrike/file-explorer-ui`: File explorer UI components.

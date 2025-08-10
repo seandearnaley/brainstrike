@@ -12,7 +12,7 @@ async function globalSetup(_config: FullConfig) {
   if (!process.env.CI) {
     console.log('📦 Building Electron app...');
     try {
-      await execAsync('npm run build', { cwd: process.cwd() });
+      await execAsync('pnpm run build', { cwd: process.cwd() });
       console.log('✅ Electron app built successfully');
     } catch (error) {
       console.error('❌ Failed to build Electron app:', error);
