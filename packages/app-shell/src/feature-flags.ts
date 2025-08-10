@@ -44,7 +44,7 @@ export const FEATURE_KEYS = {
 
 /**
  * Returns true if the File Explorer V2 should be enabled.
- * Precedence: URL param > localStorage > default (false)
+ * Precedence: URL param > localStorage > env > default (false)
  */
 export function isFileExplorerV2Enabled(): boolean {
   // 1) URL param name kept short for convenience
@@ -57,13 +57,13 @@ export function isFileExplorerV2Enabled(): boolean {
 
   // 3) Env-based toggle (supports Vite/Vitest)
   try {
+    const key = 'VITE_FILE_EXPLORER_V2';
     const viteEnv: unknown =
       // Vite injects import.meta.env at build/runtime in browser
       (typeof import.meta !== 'undefined' &&
-        (import.meta as unknown as { env?: Record<string, unknown> })?.env
-          ?.VITE_FILE_EXPLORER_V2) ??
+        (import.meta as unknown as { env?: Record<string, unknown> })?.env?.[key]) ??
       // Vitest/Node path
-      (typeof process !== 'undefined' && process.env?.VITE_FILE_EXPLORER_V2);
+      (typeof process !== 'undefined' && process.env?.[key]);
     if (viteEnv !== undefined) {
       const v = String(viteEnv);
       return v === '1' || v.toLowerCase() === 'true';

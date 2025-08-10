@@ -26,14 +26,26 @@ test.describe('Performance: Subtree selection tri-state', () => {
     await expandButtons.first().click();
     await page.waitForTimeout(100);
 
-    // Find the first checkbox and toggle selection of a few files
-    const fileCheckboxes = explorer.fileTree.getByRole('checkbox');
+    // Target only file checkboxes (exclude directory tri-state) and skip disabled ones
+    // Files have no aria-expanded on their treeitem; directories do.
+    const fileCheckboxes = explorer.fileTree.locator(
+      '[role="treeitem"]:not([aria-expanded]) [role="checkbox"], [role="treeitem"]:not([aria-expanded]) input[type="checkbox"]'
+    );
+
+    // Ensure at least one checkbox is present/visible
+    await expect(fileCheckboxes.first()).toBeVisible();
 
     await page.evaluate(() => performance.mark('subtree-select-start'));
 
-    const count = Math.min(10, await fileCheckboxes.count());
-    for (let i = 0; i < count; i++) {
-      await fileCheckboxes.nth(i).click();
+    const total = await fileCheckboxes.count();
+    const target = Math.min(10, total);
+    let clicked = 0;
+    for (let i = 0; i < total && clicked < target; i++) {
+      const cb = fileCheckboxes.nth(i);
+      if (await cb.isEnabled()) {
+        await cb.click();
+        clicked++;
+      }
     }
 
     const duration = await page.evaluate(() => {
