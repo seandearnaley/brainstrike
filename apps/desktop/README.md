@@ -40,7 +40,7 @@ cd apps/desktop
 pnpm run dev
 
 # This will:
-# 1. Start Vite dev server on port 3001
+# 1. Start Vite dev server on port 8081
 # 2. Compile main process
 # 3. Wait for dev server to be ready
 # 4. Launch Electron app
@@ -48,7 +48,7 @@ pnpm run dev
 
 #### Individual Commands
 ```bash
-pnpm run dev:renderer  # Vite dev server on port 3001
+pnpm run dev:renderer  # Vite dev server on port 8081
 pnpm run dev:main      # Compile main process only
 pnpm run dev:electron  # Compile main + start Electron (requires dev server)
 ```
@@ -75,7 +75,7 @@ pnpm run dist
 ### Development Workflow
 
 1. **Start Development**: `pnpm run dev`
-   - Renderer runs on `http://localhost:3001` with hot reload
+- Renderer runs on `http://localhost:8081` with hot reload
    - Main process compiles automatically
    - Electron launches when dev server is ready
    - DevTools open automatically in development
@@ -181,7 +181,7 @@ Configured for cross-platform distribution:
 
 ### Common Issues
 
-1. **Port Conflicts**: Desktop dev server uses port 3001 (web app uses 3000)
+1. **Port Conflicts**: Desktop dev server uses port 8081 (web app uses 8080)
 2. **Font Loading**: Ensure Inter fonts are in `public/fonts/inter/`
 3. **Module Resolution**: Electron adapters require Node.js modules (handled by IPC)
 4. **Hot Reload**: Only renderer supports hot reload; main process requires restart

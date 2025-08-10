@@ -1,7 +1,7 @@
 /**
  * Feature flag helpers shared by web and desktop apps.
  *
- * Flags are read from URL params first, then from localStorage.
+ * Flags are read from URL params first, then from localStorage, then env.
  * URL param format: ?ff_explorer_v2=1 (truthy values: 1, true, yes, on)
  * LocalStorage key: FEATURE_FILE_EXPLORER_V2 with values '1' | 'true' | 'yes' | 'on'.
  */
@@ -47,7 +47,15 @@ export const FEATURE_KEYS = {
  * Precedence: URL param > localStorage > default (false)
  */
 export function isFileExplorerV2Enabled(): boolean {
-  // 1) Env-based toggle (supports Vite/Vitest)
+  // 1) URL param name kept short for convenience
+  const urlValue = readFromUrl('ff_explorer_v2');
+  if (urlValue !== null) return urlValue;
+
+  // 2) LocalStorage override (persists between sessions)
+  const lsValue = readFromLocalStorage(FEATURE_KEYS.fileExplorerV2);
+  if (lsValue !== null) return lsValue;
+
+  // 3) Env-based toggle (supports Vite/Vitest)
   try {
     const viteEnv: unknown =
       // Vite injects import.meta.env at build/runtime in browser
@@ -63,14 +71,6 @@ export function isFileExplorerV2Enabled(): boolean {
   } catch {
     // ignore
   }
-
-  // URL param name kept short for convenience
-  const urlValue = readFromUrl('ff_explorer_v2');
-  if (urlValue !== null) return urlValue;
-
-  const lsValue = readFromLocalStorage(FEATURE_KEYS.fileExplorerV2);
-  if (lsValue !== null) return lsValue;
-
   return false;
 }
 

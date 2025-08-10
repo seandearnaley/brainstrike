@@ -71,6 +71,7 @@
       "esbuild",
       "lefthook",
       "onnxruntime-node",
+      "oxc-resolver",
       "protobufjs",
       "sharp"
     ],

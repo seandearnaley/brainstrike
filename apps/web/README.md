@@ -14,7 +14,7 @@ This directory contains the Vite-powered React application for BrainStrike, a su
     ```bash
     pnpm dev --filter @brainstrike/web
     ```
-    The application will typically be available at `http://localhost:3000` (or the port specified by the `PORT` environment variable).
+    The application will be available at `http://localhost:8080` (or the port specified by the `PORT` environment variable).
 
 ## Key Features
 
