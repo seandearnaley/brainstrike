@@ -285,7 +285,7 @@ const PreviewTable = memo<PreviewTableProps>(function PreviewTableComponent(prop
   });
 
   return (
-    <div className="flex-1 overflow-auto">
+    <div className="flex-1">
       <div className="min-w-full">
         <table className="w-full border-collapse">
           <thead className="sticky top-0 bg-background border-b">
@@ -748,9 +748,9 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full min-h-0 flex flex-col overflow-auto">
       {/* Header with stats and controls */}
-      <div className="p-3 border-b bg-background">
+      <div className="sticky top-0 z-10 p-3 border-b bg-background">
         {/* Top row - stats and main controls */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
@@ -888,19 +888,21 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       )}
 
       {/* Pagination */}
-      <TablePagination
-        currentPage={currentPage}
-        totalPages={pagination.totalPages}
-        totalItems={flattenedData.length}
-        onPageChange={goToPage}
-        {...(groupingConfig !== 'none' && groupedData.length > 1
-          ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
-          : {})}
-      />
+      <div className="sticky bottom-0 z-10 bg-background">
+        <TablePagination
+          currentPage={currentPage}
+          totalPages={pagination.totalPages}
+          totalItems={flattenedData.length}
+          onPageChange={goToPage}
+          {...(groupingConfig !== 'none' && groupedData.length > 1
+            ? { pageInfo: `(${flattenedData.length} total files, ${groupedData.length} groups)` }
+            : {})}
+        />
+      </div>
 
       {/* Fixed bottom action bar */}
       {previewSelections.size > 0 && (
-        <div className="flex-shrink-0 p-3 border-t bg-yellow-50 dark:bg-yellow-900/20 flex items-center justify-between">
+        <div className="sticky bottom-0 z-20 p-3 border-t bg-yellow-50 dark:bg-yellow-900/20 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-sm font-medium">
               {previewSelections.size} files selected in preview

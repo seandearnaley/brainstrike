@@ -38,7 +38,7 @@ export function LeftPanel({
         onExpand={onExpand}
         className="bg-background"
       >
-        <div className="h-full">
+        <div className="flex h-full flex-col">
           <div className="flex items-center justify-between px-2 py-2 border-b border-border bg-muted/30">
             <div className="flex items-center gap-2">
               <PanelLeft className="h-4 w-4" />
@@ -55,7 +55,12 @@ export function LeftPanel({
               <ChevronLeft className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)] overflow-auto">{content}</div>
+          {/**
+           * Important: Do not make the entire left panel a scroll container.
+           * Let inner content (e.g., file tree) control its own scrolling
+           * so fixed footers/headers within it remain pinned.
+           */}
+          <div className="flex-1 min-h-0">{content}</div>
         </div>
       </Panel>
       <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />

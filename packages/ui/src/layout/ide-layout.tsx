@@ -356,8 +356,12 @@ export const IdeLayout = React.memo(function IdeLayout({
 
   return (
     <IdeFileEditorContext.Provider value={fileEditorContextValue}>
-      <div className={cn('h-full flex-1 flex flex-col', className)}>
-        <PanelGroup direction="horizontal" onLayout={handleHorizontalLayout}>
+      <div className={cn('h-full min-h-0 flex-1 flex flex-col', className)}>
+        <PanelGroup
+          direction="horizontal"
+          onLayout={handleHorizontalLayout}
+          className="min-h-0 flex-1"
+        >
           {!showLeftPanel && leftPanelContent && (
             <div className="flex items-center justify-center p-2 border-r border-border bg-muted/30">
               <Button
@@ -382,16 +386,26 @@ export const IdeLayout = React.memo(function IdeLayout({
             />
           )}
 
-          <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
-            <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
+          <Panel
+            id="middle-panel"
+            data-panel-id="middle-panel"
+            order={2}
+            minSize={30}
+            className="min-h-0"
+          >
+            <PanelGroup
+              direction="vertical"
+              onLayout={handleVerticalLayout}
+              className="min-h-0 h-full flex-1"
+            >
               <Panel
                 id="main-content-panel"
                 data-panel-id="main-content-panel"
                 order={1}
                 minSize={30}
-                className="bg-background"
+                className="bg-background min-h-0"
               >
-                <div className="h-full">{children}</div>
+                <div className="h-full min-h-0 flex flex-col">{children}</div>
               </Panel>
 
               {!showConsole && consoleContent && (

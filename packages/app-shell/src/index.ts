@@ -7,5 +7,6 @@ export * from './navigation';
 export * from './page-wrapper';
 export * from './right-panel';
 export * from './root-layout-content';
+export * from './settings/experiments-panel';
 export * from './settings-page-content';
 export * from './types';

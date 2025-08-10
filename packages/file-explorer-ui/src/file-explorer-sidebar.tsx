@@ -82,12 +82,14 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
   const expandedPaths = useMemo(() => new Set<string>(), []);
 
   return (
-    <div className="w-full">
+    <div className="h-full min-h-0 w-full flex flex-col">
       {showError && <ErrorDisplay treeError={treeError} filterError={filterError} />}
       {!rootDirectoryHandle ? (
-        <NoFilesSelected />
+        <div className="flex-1 min-h-0">
+          <NoFilesSelected />
+        </div>
       ) : (
-        <div className="px-3 pt-4">
+        <div className="flex-1 min-h-0 px-3 pt-4 flex flex-col">
           {hasContent ? (
             useV2 ? (
               <LazyTreeProvider

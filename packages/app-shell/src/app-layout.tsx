@@ -16,7 +16,7 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
     <ThemeProvider defaultTheme="system" storageKey={config.themeStorageKey}>
       <TooltipProvider delayDuration={300} skipDelayDuration={100}>
         <FileExplorerProvider storageAdapter={storageAdapter}>
-          <div className="h-screen flex">
+          <div className="h-screen min-h-0 flex">
             <NavigationSidebar
               items={config.navigationItems}
               currentPath={currentPath}
@@ -24,7 +24,7 @@ export function AppLayout({ children, config, currentPath, onNavigationClick }: 
             >
               <ThemeToggle />
             </NavigationSidebar>
-            <main className="flex-1 h-full overflow-hidden">{children}</main>
+            <main className="flex-1 h-full min-h-0">{children}</main>
           </div>
           <Toaster />
         </FileExplorerProvider>

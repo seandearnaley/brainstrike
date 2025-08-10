@@ -25,7 +25,17 @@ export function RootLayoutContent({
   }, []);
 
   const useV2 = isFileExplorerV2Enabled();
-  const sidebarContent = useMemo(() => <FileExplorerLeftPanel useV2={useV2} />, [useV2]);
+  const sidebarContent = useMemo(
+    () => (
+      <div
+        data-testid={useV2 ? 'explorer-v2-enabled' : 'explorer-v2-disabled'}
+        className="h-full min-h-0"
+      >
+        <FileExplorerLeftPanel useV2={useV2} />
+      </div>
+    ),
+    [useV2]
+  );
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
   const rightPanelContent = useMemo(() => <RightPanel />, []);
 
@@ -37,7 +47,7 @@ export function RootLayoutContent({
     >
       <div
         data-testid="explorer-section"
-        className={activeTab === 'explorer' ? 'block h-full' : 'hidden h-full'}
+        className={activeTab === 'explorer' ? 'block h-full min-h-0' : 'hidden h-full min-h-0'}
       >
         <IdeLayout
           leftPanelContent={sidebarContent}
@@ -50,7 +60,7 @@ export function RootLayoutContent({
 
       <div
         data-testid="settings-section"
-        className={activeTab === 'settings' ? 'block h-full' : 'hidden h-full'}
+        className={activeTab === 'settings' ? 'block h-full min-h-0' : 'hidden h-full min-h-0'}
       >
         {settingsPageContent}
       </div>

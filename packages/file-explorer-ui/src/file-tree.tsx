@@ -72,29 +72,28 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
-  const { containerRef, range, offset, totalHeight } = useVirtualList(
-    visibleNodes.length,
-    ROW_HEIGHT,
-    { overscan: 3 }
-  );
+  const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
+    overscan: 3,
+  });
 
   const renderedRows = useMemo(
     () =>
-      visibleNodes
-        .slice(range.start, range.end + 1)
-        .map(({ node, depth }, index) => (
-          <FileTreeRow
-            key={node.path}
-            node={node}
-            depth={depth}
-            isExpanded={expandedDirectoryPaths.has(node.path)}
-            onToggleDirectoryExpansion={toggleDirectoryExpansion}
-            onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
-            folderId={folderId}
-            style={{ position: 'absolute', top: (range.start + index) * ROW_HEIGHT - offset }}
-          />
-        )),
+      visibleNodes.slice(range.start, range.end + 1).map(({ node, depth }, index) => (
+        <FileTreeRow
+          key={node.path}
+          node={node}
+          depth={depth}
+          isExpanded={expandedDirectoryPaths.has(node.path)}
+          onToggleDirectoryExpansion={toggleDirectoryExpansion}
+          onToggleFileSelection={handleToggleFileSelection}
+          isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
+          folderId={folderId}
+          style={{
+            position: 'absolute',
+            top: (range.start + index) * ROW_HEIGHT,
+          }}
+        />
+      )),
     [
       visibleNodes,
       range,
@@ -103,7 +102,6 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
       handleToggleFileSelection,
       loadingFiles,
       folderId,
-      offset,
     ]
   );
 
@@ -123,7 +121,7 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
         role="tree"
         aria-label="File tree"
         data-testid="file-tree"
-        style={{ height: totalHeight, transform: `translateY(${offset}px)` }}
+        style={{ height: totalHeight }}
       >
         {renderedRows}
       </div>

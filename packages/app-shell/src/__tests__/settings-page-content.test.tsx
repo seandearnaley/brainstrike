@@ -2,10 +2,14 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { SettingsPageContent } from '../settings-page-content';
 
-// Mock the UI components
-vi.mock('@brainstrike/ui', () => ({
-  ThemeSettings: () => 'theme-settings-mock',
-}));
+// Partially mock UI to keep real Switch/Button while stubbing ThemeSettings
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...actual,
+    ThemeSettings: () => 'theme-settings-mock',
+  };
+});
 
 describe('SettingsPageContent', () => {
   it('renders default sections and children', () => {

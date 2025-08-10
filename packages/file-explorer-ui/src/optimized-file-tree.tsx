@@ -83,7 +83,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
     // Enhanced virtualization with improved performance
-    const { containerRef, range, offset, totalHeight } = useVirtualList(
+    const { containerRef, range, totalHeight } = useVirtualList(
       visibleNodes.length,
       ROW_HEIGHT,
       { overscan: 2 } // Reduced overscan to decrease memory usage
@@ -114,7 +114,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             folderId={folderId}
             style={{
               position: 'absolute',
-              top: (startIndex + rowIndex) * ROW_HEIGHT - offset,
+              top: (startIndex + rowIndex) * ROW_HEIGHT,
               width: '100%',
               height: ROW_HEIGHT,
             }}
@@ -132,7 +132,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       handleToggleFileSelection,
       loadingFiles,
       folderId,
-      offset,
     ]);
 
     // This effect will run if the onRender callback itself changes.
@@ -155,7 +154,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
           data-testid="file-tree"
           style={{
             height: totalHeight,
-            transform: `translateY(${offset}px)`,
             // Optimize for performance
             willChange: 'transform',
             contain: 'layout style paint',

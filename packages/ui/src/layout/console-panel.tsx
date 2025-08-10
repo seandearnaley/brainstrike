@@ -39,8 +39,8 @@ export function ConsolePanel({
         onExpand={onExpand}
         className="bg-background"
       >
-        <div className="h-full border-t border-border">
-          <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">
+        <div className="h-full border-t border-border flex flex-col">
+          <div className="shrink-0 flex items-center justify-between p-2 border-b border-border bg-muted/30">
             <div className="flex items-center gap-2">
               <Terminal className="h-4 w-4" />
               <span className="text-sm font-medium">File Editor</span>
@@ -56,7 +56,7 @@ export function ConsolePanel({
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)] overflow-auto">{content}</div>
+          <div className="flex-1 min-h-0 overflow-auto">{content}</div>
         </div>
       </Panel>
     </>

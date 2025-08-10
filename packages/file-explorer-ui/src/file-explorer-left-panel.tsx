@@ -251,7 +251,7 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
 
   return (
     <FileExplorerErrorBoundary>
-      <div className="h-full grid grid-rows-[auto_1fr_auto]">
+      <div className="h-full min-h-0 flex flex-col overflow-auto">
         <LoadingOverlay
           isLoading={isLoading}
           isInitialLoad={isInitialLoad}
@@ -268,8 +268,8 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
           className="z-50"
         />
 
-        {/* Fixed Header */}
-        <div className="shrink-0">
+        {/* Sticky Header */}
+        <div className="sticky top-0 z-10 bg-background border-b">
           <FileExplorerToolbar
             onDirectorySelect={handleDirectorySelect}
             onFilterChange={handleFilterChange}
@@ -289,9 +289,9 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
           />
         </div>
 
-        {/* Scrollable Middle Content */}
+        {/* File tree content - takes remaining space and allows content to grow */}
         <div className="relative flex-1 min-h-0">
-          {/* Fixed buttons overlay - outside scrollable area */}
+          {/* Fixed buttons overlay - positioned over content */}
           {rootDirectoryHandle && (
             <div className="absolute top-2 right-6 flex items-center gap-1 z-20">
               <Tooltip>
@@ -305,7 +305,11 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
                     disabled={isLoading || isRefreshing}
                     aria-label="Refresh"
                   >
-                    <RefreshCw className={cn('h-3.5 w-3.5', { 'animate-spin': isRefreshing })} />
+                    <RefreshCw
+                      className={cn('h-3.5 w-3.5', {
+                        'animate-spin': isRefreshing,
+                      })}
+                    />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>
@@ -351,42 +355,44 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
             </div>
           )}
 
-          {/* Scrollable content */}
-          <div className="h-full">
-            <Suspense fallback={<LoadingFallback />}>
-              <FileExplorerSidebar
-                rootDirectoryHandle={rootDirectoryHandle}
-                treeError={error}
-                filterError={filterErrorAsError}
-                quickFilteredTree={quickFilteredTree}
-                loadingFiles={loadingFiles}
-                isLoading={isLoading}
-                isInitialLoad={isInitialLoad}
-                currentFolderId={currentFolderId}
-                onTreeRender={handleTreeRender}
-                // v2 flag plumbed for future use; UI unchanged for now
-                useV2={useV2 === true}
-              />
-            </Suspense>
-          </div>
-        </div>
-
-        {/* Fixed Footer */}
-        <div className="shrink-0 px-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
           <Suspense fallback={<LoadingFallback />}>
-            <ActionButtons
-              displayedFiles={displayedFiles}
-              selectedFilePaths={selectedFilePaths}
-              maxSelectionCount={maxSelectionCount}
+            <FileExplorerSidebar
+              rootDirectoryHandle={rootDirectoryHandle}
+              treeError={error}
+              filterError={filterErrorAsError}
+              quickFilteredTree={quickFilteredTree}
+              loadingFiles={loadingFiles}
+              isLoading={isLoading}
+              isInitialLoad={isInitialLoad}
               currentFolderId={currentFolderId}
-              setSelectedFiles={handleSelectionChange}
-              encodeFileSelection={encodeFileSelection}
-              onSelectionLimitExceeded={() => {}}
-              onDownloadReport={handleDownloadReport}
-              onCopyReport={handleCopyReport}
+              onTreeRender={handleTreeRender}
+              // v2 flag plumbed for future use; UI unchanged for now
+              useV2={useV2 === true}
             />
           </Suspense>
         </div>
+
+        {/* Sticky Footer */}
+        {rootDirectoryHandle && (
+          <div
+            className="sticky bottom-0 z-10 px-4 py-3 border-t bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800"
+            data-testid="left-panel-action-toolbar"
+          >
+            <Suspense fallback={<LoadingFallback />}>
+              <ActionButtons
+                displayedFiles={displayedFiles}
+                selectedFilePaths={selectedFilePaths}
+                maxSelectionCount={maxSelectionCount}
+                currentFolderId={currentFolderId}
+                setSelectedFiles={handleSelectionChange}
+                encodeFileSelection={encodeFileSelection}
+                onSelectionLimitExceeded={() => {}}
+                onDownloadReport={handleDownloadReport}
+                onCopyReport={handleCopyReport}
+              />
+            </Suspense>
+          </div>
+        )}
       </div>
     </FileExplorerErrorBoundary>
   );
