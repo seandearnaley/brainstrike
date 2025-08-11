@@ -8,6 +8,21 @@ let flatCache: FlatRow[] = [];
 
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 
+function safeErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  try {
+    // Vite exposes import.meta.env.PROD in browser/worker
+    // Fallback to NODE_ENV for non-Vite environments
+    const metaEnv = (import.meta as unknown as { env?: { prod?: boolean } })?.env;
+    const isProd =
+      (typeof import.meta !== 'undefined' && !!(metaEnv as { prod?: boolean } | undefined)?.prod) ||
+      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production');
+    return isProd ? 'Worker operation failed' : raw;
+  } catch {
+    return raw;
+  }
+}
+
 ctx.onmessage = (e: MessageEvent<ToWorker>) => {
   try {
     const msg = e.data;
@@ -48,8 +63,7 @@ ctx.onmessage = (e: MessageEvent<ToWorker>) => {
         break;
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    post({ type: 'ERROR', message, op: e.data?.type });
+    post({ type: 'ERROR', message: safeErrorMessage(err), op: e.data?.type });
   }
 };
 

@@ -77,11 +77,12 @@ export function isFileExplorerV2Enabled(): boolean {
 /**
  * Programmatically set the File Explorer V2 flag in localStorage.
  */
-export function setFileExplorerV2Enabled(enabled: boolean): void {
+export function setFileExplorerV2Enabled(enabled: boolean): boolean {
   try {
-    if (typeof localStorage === 'undefined') return;
+    if (typeof localStorage === 'undefined') return false;
     localStorage.setItem(FEATURE_KEYS.fileExplorerV2, enabled ? '1' : '0');
+    return true;
   } catch {
-    // no-op
+    return false;
   }
 }

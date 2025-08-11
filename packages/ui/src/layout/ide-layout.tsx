@@ -46,8 +46,7 @@ function syncPanelState(
         }
       }
     } catch (_error) {
-      if (isDevEnv()) {
-      }
+      if (isDevEnv()) console.debug('[IdeLayout] panel toggle error', _error);
     } finally {
       // Nudge layout/virtualizers after the panel size actually changes.
       afterId = requestAnimationFrame(() => {

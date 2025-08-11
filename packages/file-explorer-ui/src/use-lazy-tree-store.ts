@@ -99,14 +99,42 @@ export const useLazyTreeStore = create<LazyTreeStore>((set, get) => {
     },
 
     async getRange(start, end) {
-      return new Promise<FlatRow[]>((resolve) => {
-        const handler = (e: MessageEvent<FromWorker>) => {
-          if (e.data.type === 'RANGE_DATA' && e.data.start === start && e.data.end === end) {
-            worker?.removeEventListener('message', handler as unknown as EventListener);
-            resolve(e.data.rows);
-          }
+      const requestTimeoutMs = 4000;
+      return new Promise<FlatRow[]>((resolve, reject) => {
+        if (!worker) {
+          reject(new Error('Worker not initialized'));
+          return;
+        }
+        // Unique id based on start-end tuple and timestamp
+        // Note: id reserved for future correlation; not required with (start,end) matching
+
+        const onMessage = (e: MessageEvent<FromWorker>) => {
+          if (e.data?.type !== 'RANGE_DATA') return;
+          if (e.data.start !== start || e.data.end !== end) return;
+          cleanup();
+          resolve(e.data.rows);
         };
-        worker?.addEventListener('message', handler as unknown as EventListener);
+
+        const onError = () => {
+          cleanup();
+          reject(new Error('Worker error: getRange'));
+        };
+
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Worker timeout: getRange'));
+        }, requestTimeoutMs);
+
+        const cleanup = () => {
+          clearTimeout(timer);
+          worker?.removeEventListener('message', onMessage as unknown as EventListener);
+          worker?.removeEventListener('error', onError as unknown as EventListener);
+          worker?.removeEventListener('messageerror', onError as unknown as EventListener);
+        };
+
+        worker.addEventListener('message', onMessage as unknown as EventListener);
+        worker.addEventListener('error', onError as unknown as EventListener);
+        worker.addEventListener('messageerror', onError as unknown as EventListener);
         post({ type: 'GET_RANGE', start, end });
       });
     },

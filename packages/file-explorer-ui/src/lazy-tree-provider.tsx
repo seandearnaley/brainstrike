@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
+import type { LazyTreeApi } from './lazy-tree-types';
 import type { TreeNode } from './types/lazy-tree';
 import { useLazyTreeStore } from './use-lazy-tree-store';
 
-export const LazyTreeContext = React.createContext(
-  null as unknown as ReturnType<typeof useLazyTreeStore>
-);
+export const LazyTreeContext = React.createContext<LazyTreeApi | null>(null);
 export const useLazyTree = () => React.useContext(LazyTreeContext);
 
 export function LazyTreeProvider({
@@ -32,5 +31,9 @@ export function LazyTreeProvider({
     store.setSourceTree(sourceTree);
   }, [store, sourceTree]);
 
-  return <LazyTreeContext.Provider value={store}>{children}</LazyTreeContext.Provider>;
+  return (
+    <LazyTreeContext.Provider value={store as unknown as LazyTreeApi}>
+      {children}
+    </LazyTreeContext.Provider>
+  );
 }

@@ -9,7 +9,11 @@ export function ExperimentsPanel() {
 
   const handleToggle = useCallback((checked: boolean) => {
     setEnabled(checked);
-    setFileExplorerV2Enabled(checked);
+    const ok = setFileExplorerV2Enabled(checked);
+    if (!ok) {
+      console.warn('Could not persist setting');
+      return;
+    }
     reloadWindow();
   }, []);
 

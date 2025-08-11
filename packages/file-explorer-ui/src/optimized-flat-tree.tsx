@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo } from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useLazyTree } from './lazy-tree-provider';
+import type { LazyTreeApi } from './lazy-tree-types';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
 
@@ -57,25 +58,9 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
     // If provided by LazyTreeProvider, prefer computed rows
     let lazyRows: VisibleRowLike[] | null = null;
     // Hooks must be unconditional; use try/catch around mapping only
-    const lazyContext = useLazyTree() as unknown as {
-      rows?: Array<{
-        path: string;
-        depth: number;
-        kind: string;
-        expanded?: boolean;
-      }>;
-      expand?: (paths: string[]) => void;
-      collapse?: (paths: string[]) => void;
-      expanded?: Set<string>;
-    };
+    const lazyContext = useLazyTree() as LazyTreeApi | null;
     if (lazyContext && Array.isArray(lazyContext.rows)) {
-      const list = lazyContext.rows as Array<{
-        path: string;
-        depth: number;
-        kind: string;
-        expanded?: boolean;
-      }>;
-      lazyRows = list.map((r) => ({
+      lazyRows = lazyContext.rows.map((r) => ({
         path: r.path,
         depth: r.depth,
         isDir: r.kind === 'directory',
@@ -115,8 +100,8 @@ const OptimizedFlatTree = memo<OptimizedFlatTreeProps>(
 
     // Bridge legacy expandedDirectoryPaths -> lazy store expand/collapse
     useEffect(() => {
-      const apiExpand = lazyContext?.expand as ((paths: string[]) => void) | undefined;
-      const apiCollapse = lazyContext?.collapse as ((paths: string[]) => void) | undefined;
+      const apiExpand = lazyContext?.expand;
+      const apiCollapse = lazyContext?.collapse;
       if (!apiExpand || !apiCollapse) return;
 
       const current = lazyContext.expanded ?? new Set<string>();
