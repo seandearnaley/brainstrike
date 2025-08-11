@@ -28,13 +28,21 @@ export async function launchElectronApp(
   const ciArgs = getCILaunchArgs();
   const baseArgs = [mainPath, '--test-mode', '--disable-dialogs'];
 
-  const launchOptions: Parameters<typeof electron.launch>[0] = {
+  const launchOptions: NonNullable<Parameters<typeof electron.launch>[0]> = {
     args: [...baseArgs, ...ciArgs, ...extraArgs],
     executablePath: electronPath,
     // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
     timeout: 90000,
-    env: { ...process.env, ...extraEnv },
+    env: Object.fromEntries(
+      Object.entries(process.env).reduce<[string, string][]>((acc, [k, v]) => {
+        if (typeof v === 'string') acc.push([k, v]);
+        return acc;
+      }, [])
+    ),
   };
+
+  // Merge extraEnv (string map) last to ensure overrides
+  launchOptions.env = { ...(launchOptions.env as Record<string, string>), ...extraEnv } as Record<string, string>;
 
   // Only record video when not in CI to prevent window popups
   if (!process.env.CI) {

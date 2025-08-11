@@ -14,9 +14,11 @@ function safeErrorMessage(err: unknown): string {
     // Vite exposes import.meta.env.PROD in browser/worker
     // Fallback to NODE_ENV for non-Vite environments
     const metaEnv = (import.meta as unknown as { env?: { prod?: boolean } })?.env;
+
+    const nodeEnv = 'NODE_ENV';
     const isProd =
       (typeof import.meta !== 'undefined' && !!(metaEnv as { prod?: boolean } | undefined)?.prod) ||
-      (typeof process !== 'undefined' && process.env?.NODE_ENV === 'production');
+      (typeof process !== 'undefined' && process.env?.[nodeEnv] === 'production');
     return isProd ? 'Worker operation failed' : raw;
   } catch {
     return raw;
