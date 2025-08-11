@@ -172,7 +172,7 @@ Configured for cross-platform distribution:
 ```
 
 ### Vite Configuration
-- **Development**: Dev server on port 3001
+- **Development**: Dev server on port 8081
 - **Production**: Builds to `dist/renderer/`
 - **Assets**: Copies from `public/` directory
 - **Plugins**: React, TailwindCSS 4

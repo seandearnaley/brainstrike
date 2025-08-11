@@ -92,7 +92,7 @@ A brief overview of the main directories within `apps/web/src/`:
 
 ## Environment Variables
 
--   `PORT`: Port used when starting the development server. Defaults to `3000` if not provided.
+-   `PORT`: Port used when starting the development server (the web app typically runs on 8080 in this monorepo unless overridden).
 -   Other environment variables (e.g., for API endpoints) can be configured via `.env` files. See `.env.example` for a template.
 
 ## Contributing
