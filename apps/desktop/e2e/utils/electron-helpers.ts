@@ -13,7 +13,10 @@ export interface ElectronAppContext {
 /**
  * Launch the Electron app for testing
  */
-export async function launchElectronApp(): Promise<ElectronAppContext> {
+export async function launchElectronApp(
+  extraArgs: string[] = [],
+  extraEnv: Record<string, string> = {}
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
@@ -26,10 +29,11 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   const baseArgs = [mainPath, '--test-mode', '--disable-dialogs'];
 
   const launchOptions: Parameters<typeof electron.launch>[0] = {
-    args: [...baseArgs, ...ciArgs],
+    args: [...baseArgs, ...ciArgs, ...extraArgs],
     executablePath: electronPath,
     // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
     timeout: 90000,
+    env: { ...process.env, ...extraEnv },
   };
 
   // Only record video when not in CI to prevent window popups

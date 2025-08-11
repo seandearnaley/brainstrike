@@ -205,11 +205,16 @@ jobs:
   # Desktop E2E tests
   desktop-e2e:
     name: Desktop E2E Tests
+    if: contains(github.event.pull_request.labels.*.name, 'run-desktop-e2e') || github.ref == 'refs/heads/main'
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [default, v2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -243,23 +248,32 @@ jobs:
         run: pnpm exec playwright install-deps
 
       - name: Build desktop application
-        run: pnpm run build --filter @brainstrike/desktop
+        run: pnpm -w build --filter @brainstrike/desktop
 
-      - name: Run Desktop E2E tests
+      - name: Run Desktop E2E (${{ matrix.variant }})
+        working-directory: apps/desktop
         run: |
-          cd apps/desktop
           xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test
         env:
           NODE_ENV: "test"
           CI: "true"
+          BRAINSTRIKE_URL_PARAMS: ${{ matrix.variant == 'v2' && 'ff_explorer_v2=1' || '' }}
 
-      - name: Upload blob report
+      - name: Upload Playwright report (desktop)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-blob-report
+          name: desktop-playwright-report-${{ matrix.variant }}
+          path: apps/desktop/playwright-report
+          retention-days: 5
+
+      - name: Upload Desktop blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-blob-report-${{ matrix.variant }}
           path: apps/desktop/blob-report
-          retention-days: 1
+          retention-days: 2
 
   # Merge E2E test reports
   merge-reports:

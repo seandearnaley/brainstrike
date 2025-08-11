@@ -37,10 +37,14 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Force single worker for desktop to avoid test interference
   workers: 1,
 
-  // Reporter configuration
+  // Reporter configuration: always produce HTML and Blob for CI merging and local viewing
   reporter: config.isCI
-    ? [['blob', { outputDir: 'blob-report' }], ['list']]
-    : [['html', { open: 'never' }], ['list']],
+    ? [
+        ['html', { open: 'never', outputFolder: 'playwright-report' }],
+        ['blob', { outputDir: 'blob-report' }],
+        ['list'],
+      ]
+    : [['html', { open: 'never', outputFolder: 'playwright-report' }], ['list']],
 
   // Expect timeout for assertions
   expect: {
@@ -81,8 +85,8 @@ const playwrightConfig: PlaywrightTestConfig = {
   // Global setup for Electron app
   globalSetup: './e2e/global-setup.ts',
 
-  // Output directory for test artifacts
-  outputDir: 'blob-report/',
+  // Output directory for test artifacts (screenshots, traces, videos)
+  outputDir: 'test-results/',
 };
 
 export default playwrightConfig;

@@ -1,3 +1,4 @@
+import { isFileExplorerV2Enabled } from '@brainstrike/app-shell';
 import {
   FileExplorerLeftPanel,
   FileExplorerMiddlePanelTabbed,
@@ -11,7 +12,12 @@ function DesktopFileExplorer() {
 
 // Desktop file explorer left panel component
 function DesktopFileExplorerLeftPanel() {
-  return <FileExplorerLeftPanel />;
+  const useV2 = isFileExplorerV2Enabled();
+  return (
+    <div data-testid={useV2 ? 'explorer-v2-enabled' : 'explorer-v2-disabled'}>
+      <FileExplorerLeftPanel useV2={useV2} />
+    </div>
+  );
 }
 
 export default function HomePageContent() {

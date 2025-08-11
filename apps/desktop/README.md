@@ -220,6 +220,28 @@ pnpm run dev
 electron . --inspect=9229
 ```
 
+## Feature Flags (File Explorer V2)
+
+Desktop supports the same Experiments panel and precedence as web: URL > localStorage > env.
+
+```bash
+# Force V2 via CLI (works in dev and prod)
+pnpm run dev -- --ff_explorer_v2=1
+pnpm start -- --ff_explorer_v2=1
+
+# Force OFF via CLI
+pnpm start -- --ff_explorer_v2=0
+
+# Or via env (raw query string)
+BRAINSTRIKE_URL_PARAMS="ff_explorer_v2=1" pnpm start
+```
+
+Notes:
+- The renderer’s `isFileExplorerV2Enabled()` reads `?ff_explorer_v2=...` and takes precedence over any localStorage override.
+- The Experiments panel is available under Settings; toggling the flag persists to `localStorage` and reloads the window.
+
+For more details, see `docs/feature-flags.md`.
+
 ### Performance Issues
 ```bash
 # If Electron is slow to start

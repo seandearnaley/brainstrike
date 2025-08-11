@@ -34,7 +34,13 @@ function configureSecurity(win: BrowserWindow) {
 function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
   if (isDevEnv()) {
   }
-  win.loadFile(rendererPath);
+  const search = buildUrlSearchParams();
+  // Use loadFile with search param to pass feature flag overrides to the renderer
+  if (search) {
+    win.loadFile(rendererPath, { search });
+  } else {
+    win.loadFile(rendererPath);
+  }
 }
 
 /**
@@ -48,7 +54,9 @@ async function connectToDevServer(win: BrowserWindow) {
 
   for (const port of devPorts) {
     try {
-      await win.loadURL(`http://localhost:${port}`);
+      const search = buildUrlSearchParams();
+      const base = `http://localhost:${port}`;
+      await win.loadURL(`${base}${search ?? ''}`);
       if (isDevEnv()) {
       }
       return;
@@ -116,3 +124,34 @@ export async function createWindow() {
 
   return win;
 }
+
+/**
+ * Compose a URL search string from CLI/env overrides with precedence:
+ * CLI switch --ff_explorer_v2 => BRAINSTRIKE_URL_PARAMS => none
+ * Returns a value beginning with '?' or null when no overrides are present.
+ */
+export function __testOnlyBuildUrlSearchParams(): string | null {
+  try {
+    // Highest precedence: explicit CLI switch value
+    const hasSwitch = app.commandLine.hasSwitch('ff_explorer_v2');
+    const cliValue = app.commandLine.getSwitchValue('ff_explorer_v2');
+    if (hasSwitch) {
+      return `?ff_explorer_v2=${encodeURIComponent(cliValue || '1')}`;
+    }
+  } catch {
+    // ignore
+  }
+
+  // Next precedence: raw query string from env var for convenience
+  const brainstrikeUrlParams = 'BRAINSTRIKE_URL_PARAMS';
+  const raw = process.env[brainstrikeUrlParams];
+  if (raw && raw.trim().length > 0) {
+    const prefix = raw.startsWith('?') ? '' : '?';
+    return `${prefix}${raw}`;
+  }
+
+  return null;
+}
+
+// Keep the original name for runtime usage in this module
+const buildUrlSearchParams = __testOnlyBuildUrlSearchParams;
