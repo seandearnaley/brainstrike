@@ -42,6 +42,7 @@ describe('ExperimentsPanel', () => {
   it('toggles switch and calls setFileExplorerV2Enabled', async () => {
     const user = userEvent.setup();
     mockIsEnabled.mockReturnValueOnce(false);
+    mockSetEnabled.mockReturnValue(true);
 
     render(<ExperimentsPanel />);
     const toggle = screen.getByTestId('ff-explorer-v2-toggle');
