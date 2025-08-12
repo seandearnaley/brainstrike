@@ -1,10 +1,9 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type * as React from 'react';
-import { useMemo } from 'react';
-import { LazyTreeProvider } from './lazy-tree-provider';
+// no additional React hooks needed here
+import FileTree from './file-tree';
 import OptimizedFileTree from './optimized-file-tree';
-import OptimizedFlatTree from './optimized-flat-tree';
 
 const NoFilesSelected = () => (
   <div className="text-center text-muted-foreground p-8">
@@ -79,7 +78,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
 }) => {
   const showError = (treeError || filterError) && !isLoading && !isInitialLoad;
   const hasContent = quickFilteredTree && quickFilteredTree.length > 0;
-  const expandedPaths = useMemo(() => new Set<string>(), []);
+  // v2 path now manages expansion in zustand; local expandedPaths not needed here
 
   return (
     <div className="h-full min-h-0 w-full flex flex-col">
@@ -92,19 +91,14 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
         <div className="flex-1 min-h-0 px-3 pt-4 flex flex-col">
           {hasContent ? (
             useV2 ? (
-              <LazyTreeProvider
-                sourceTree={quickFilteredTree as unknown as import('./types/lazy-tree').TreeNode[]}
-                expandedPaths={expandedPaths}
-              >
-                <OptimizedFlatTree
-                  fileTree={quickFilteredTree}
-                  loadingFiles={loadingFiles}
-                  onRender={onTreeRender || undefined}
-                  folderId={currentFolderId || ''}
-                />
-              </LazyTreeProvider>
-            ) : (
               <OptimizedFileTree
+                fileTree={quickFilteredTree}
+                loadingFiles={loadingFiles}
+                onRender={onTreeRender || undefined}
+                folderId={currentFolderId || ''}
+              />
+            ) : (
+              <FileTree
                 fileTree={quickFilteredTree}
                 loadingFiles={loadingFiles}
                 onRender={onTreeRender || undefined}

@@ -53,6 +53,8 @@ test.describe('Application Layout', () => {
 
   test.describe('Panel Layout Basics', () => {
     test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
       await page.goto('/');
       await waitForAppLoad(page);
       await resetAppState(page);

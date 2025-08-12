@@ -232,6 +232,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
         role="treeitem"
         aria-label={node.name}
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
+        data-testid={`treeitem:${encodeURIComponent(node.path)}`}
         tabIndex={0}
         style={style}
       >
@@ -272,6 +273,7 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
               className="h-4 w-4"
               onCheckedChange={handleCheckboxChange}
               aria-label={`Select ${node.name}`}
+              data-testid={`file-checkbox:${node.name}`}
             />
           </div>
 

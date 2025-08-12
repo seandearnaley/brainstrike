@@ -137,6 +137,41 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
     toast,
   });
 
+  // Initialize a minimal test surface early so E2E can always call into it safely
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // Only set up test helpers if running in Playwright tests
+    // biome-ignore lint/style/useNamingConvention: Playwright test flag follows their convention
+    if (!(window as unknown as { __PW_TEST__?: boolean }).__PW_TEST__) return;
+
+    try {
+      interface TestWindow {
+        feTest?: {
+          waitForName?: (name: string, timeout?: number) => Promise<boolean>;
+          visibleNames?: string[];
+          visiblePaths?: string[];
+        };
+      }
+      const w = window as unknown as TestWindow;
+      if (!w.feTest) w.feTest = {};
+      if (!w.feTest.waitForName) {
+        w.feTest.waitForName = (name: string, timeout = 15000) =>
+          new Promise<boolean>((resolve) => {
+            const start = performance.now();
+            const tick = () => {
+              const list = w.feTest?.visibleNames || [];
+              if (list.includes(name)) return resolve(true);
+              if (performance.now() - start > timeout) return resolve(false);
+              requestAnimationFrame(tick);
+            };
+            tick();
+          });
+      }
+    } catch {
+      // noop
+    }
+  }, []);
+
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
     if (!filterError) return null;
@@ -158,8 +193,6 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
       '[data-testid="file-tree-scroll-container"]'
     ) as HTMLElement | null;
     if (el) {
-      // Reset scroll and nudge any virtualizer to recalc range.
-      // JSDOM may not implement Element.scrollTo on DIVs; fall back to scrollTop.
       const maybeScrollable = el as HTMLElement &
         Partial<{
           scrollTo: (options: ScrollToOptions) => void;
@@ -171,9 +204,9 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
       }
       el.dispatchEvent(new Event('scroll'));
     }
-    // Also notify layout observers
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event('optimized-file-tree-nudge'));
     }
   }, []);
 
@@ -197,6 +230,16 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
       showToast({
         title: FileExplorerStrings.success.title,
         description: FileExplorerStrings.success.refreshSuccess,
+      });
+      // Ensure downstream listeners (both V1 and V2 trees) get a consistent ready signal after refresh
+      // and nudge any virtualizers to re-measure.
+      requestAnimationFrame(() => {
+        try {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new Event('optimized-file-tree-nudge'));
+            window.dispatchEvent(new CustomEvent('file-tree-ready'));
+          }
+        } catch {}
       });
     } catch (error) {
       handleRefreshError(error);
@@ -263,7 +306,7 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
         try {
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new Event('optimized-file-tree-nudge'));
-            window.dispatchEvent(new Event('file-tree-ready'));
+            window.dispatchEvent(new CustomEvent('file-tree-ready'));
           }
         } catch {}
       });
@@ -276,7 +319,7 @@ export const FileExplorerLeftPanel: React.FC<{ useV2?: boolean }> = React.memo((
       try {
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new Event('optimized-file-tree-nudge'));
-          window.dispatchEvent(new Event('file-tree-ready'));
+          window.dispatchEvent(new CustomEvent('file-tree-ready'));
         }
       } catch {}
     });

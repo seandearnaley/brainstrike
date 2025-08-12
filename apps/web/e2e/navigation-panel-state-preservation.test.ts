@@ -10,6 +10,8 @@ import { type FileTree, mockBrowserApis } from "./utils/mock-fs";
 
 test.describe("Navigation Panel State Preservation @nav-preserve", () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     const tree: FileTree = {
       src: {
         components: {

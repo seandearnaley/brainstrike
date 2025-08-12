@@ -5,6 +5,8 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Simple State Preservation Test', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     const tree: FileTree = {
       'test.ts': null,
     };

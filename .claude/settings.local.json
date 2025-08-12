@@ -196,7 +196,16 @@
       "Bash(fi)",
       "Bash(CI=true pnpm --filter @brainstrike/db test __tests__/bootstrap.test.ts)",
       "Bash(CI=true pnpm --filter @brainstrike/db test:coverage)",
-      "Bash(CI=true pnpm run test:coverage)"
+      "Bash(CI=true pnpm run test:coverage)",
+      "Bash(CI=true npx playwright test --grep \"should launch successfully\" --timeout=30000)",
+      "Bash(CI=true npx playwright test file-explorer.test.ts --grep \"should show action buttons\" --timeout=30000)",
+      "Bash(CI=true npx playwright test refresh.test.ts --timeout=30000)",
+      "Bash(CI=true timeout 30 npx playwright test refresh.test.ts -g \"should refresh file tree\")",
+      "Bash(CI=true npx playwright test refresh.test.ts -g \"should refresh file tree\")",
+      "Bash(CI=true pnpm check)",
+      "Bash(CI=true npx playwright test file-explorer-filters.test.ts --grep \"should filter files using text search\" --timeout=30000)",
+      "Bash(CI=true npx playwright test file-explorer-filters.test.ts -g \"should filter files using text search\")",
+      "Bash(CI=true npx playwright test refresh.test.ts file-explorer-filters.test.ts --grep \"should filter files using text search|should refresh file tree\")"
     ],
     "deny": []
   },

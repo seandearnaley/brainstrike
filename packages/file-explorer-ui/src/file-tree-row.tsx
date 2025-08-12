@@ -235,6 +235,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
         role="treeitem"
         aria-label={node.name}
         aria-expanded={node.type === 'directory' ? isExpanded : undefined}
+        data-testid={`treeitem:${encodeURIComponent(node.path)}`}
         tabIndex={0}
         style={style}
       >
@@ -280,6 +281,7 @@ const FileTreeRow = memo<FileTreeRowProps>(
                 }
               }}
               aria-label={`Select ${node.name}`}
+              data-testid={`file-checkbox:${node.name}`}
             />
           </div>
 

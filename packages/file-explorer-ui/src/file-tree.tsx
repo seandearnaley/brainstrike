@@ -72,6 +72,45 @@ const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folde
 
   const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
 
+  // Test-only mirror of visible names/paths for deterministic E2E assertions (V1 path)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    // Only set up test helpers if running in Playwright tests
+    // biome-ignore lint/style/useNamingConvention: Playwright test flag follows their convention
+    if (!(window as unknown as { __PW_TEST__?: boolean }).__PW_TEST__) return;
+
+    try {
+      const names = visibleNodes.map((v) => v.node.name);
+      const paths = visibleNodes.map((v) => v.node.path);
+      interface TestWindow {
+        feTest?: {
+          waitForName?: (name: string, timeout?: number) => Promise<boolean>;
+          visibleNames?: string[];
+          visiblePaths?: string[];
+        };
+      }
+      const w = window as unknown as TestWindow;
+      if (!w.feTest) w.feTest = {};
+      w.feTest.visibleNames = names;
+      w.feTest.visiblePaths = paths;
+      if (!w.feTest.waitForName) {
+        w.feTest.waitForName = (name: string, timeout = 15000) =>
+          new Promise<boolean>((resolve) => {
+            const start = performance.now();
+            const tick = () => {
+              const list = w.feTest?.visibleNames || [];
+              if (list.includes(name)) return resolve(true);
+              if (performance.now() - start > timeout) return resolve(false);
+              requestAnimationFrame(tick);
+            };
+            tick();
+          });
+      }
+    } catch {
+      // noop
+    }
+  }, [visibleNodes]);
+
   const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
     overscan: 8,
   });

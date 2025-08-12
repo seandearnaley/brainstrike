@@ -223,12 +223,17 @@ export const Component${i} = () => {
 
     // Select multiple files rapidly (this triggered the worst performance before)
     const fileCheckboxes = explorer.fileTree.getByRole("checkbox");
-    const selectionCount = Math.min(15, await fileCheckboxes.count());
+    const selectionBudget = Math.min(15, await fileCheckboxes.count());
 
-    console.log(`📁 Rapid selection of ${selectionCount} files...`);
+    console.log(`📁 Rapid selection of up to ${selectionBudget} files...`);
 
-    for (let i = 0; i < selectionCount; i++) {
-      await fileCheckboxes.nth(i).click();
+    let clickedCount = 0;
+    const total = await fileCheckboxes.count();
+    for (let i = 0; i < total && clickedCount < selectionBudget; i++) {
+      const cb = fileCheckboxes.nth(i);
+      if (await cb.isDisabled()) continue; // skip disabled (e.g., selection limit reached or non-file nodes)
+      await cb.click();
+      clickedCount++;
       // No delay - test worst case scenario
     }
 
@@ -242,7 +247,8 @@ export const Component${i} = () => {
 
     // Calculate improvements
     const memoryIncrease = metrics.finalMemory - metrics.initialMemory;
-    const avgSelectionTime = metrics.selectionTime / selectionCount;
+    const effectiveCount = Math.max(1, clickedCount);
+    const avgSelectionTime = metrics.selectionTime / effectiveCount;
 
     // For bulk operations (15 files), use a more lenient threshold than single file operations
     const bulkMemoryThreshold =
@@ -253,13 +259,13 @@ export const Component${i} = () => {
     console.log(
       `  Selection Time: ${metrics.selectionTime.toFixed(
         2
-      )}ms (${selectionCount} files)`
+      )}ms (${clickedCount} files)`
     );
     console.log(`  Avg per Selection: ${avgSelectionTime.toFixed(2)}ms`);
     console.log(`  Render Count: ${metrics.renderCount}`);
     console.log(`  Memory Increase: ${memoryIncrease.toFixed(2)}MB`);
     console.log(
-      `  Memory Growth Rate: ${(memoryIncrease / selectionCount).toFixed(
+      `  Memory Growth Rate: ${(memoryIncrease / effectiveCount).toFixed(
         2
       )}MB per file`
     );
@@ -282,10 +288,10 @@ export const Component${i} = () => {
     console.log(
       `📊 Selection Performance Check: ${metrics.selectionTime.toFixed(
         2
-      )}ms vs max ${PERFORMANCE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS}ms`
+      )}ms for ${clickedCount} clicks vs max ${PERFORMANCE_THRESHOLDS.BULK_FILE_SELECTION_MAX_MS}ms`
     );
     console.log(
-      `📊 Per-file Performance: ${avgSelectionTime.toFixed(2)}ms vs max ${
+      `📊 Per-file Performance: ${avgSelectionTime.toFixed(2)}ms (over ${effectiveCount}) vs max ${
         PERFORMANCE_THRESHOLDS.AVG_FILE_LOAD_TIME_MAX_MS
       }ms`
     );
@@ -305,7 +311,7 @@ export const Component${i} = () => {
     // Render count should be reasonable (not excessive re-renders)
     // Before fixes: Could see 100+ renders for 15 selections
     // After fixes: Should see reasonable count (max ~3 renders per selection)
-    expect(metrics.renderCount).toBeLessThan(selectionCount * 3); // Max 3 renders per selection
+    expect(metrics.renderCount).toBeLessThan(effectiveCount * 3); // Max 3 renders per selection
 
     // Memory should not explode
     // Before fixes: Could easily grow 50+ MB

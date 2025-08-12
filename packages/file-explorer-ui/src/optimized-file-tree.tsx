@@ -1,6 +1,15 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
+import {
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
@@ -61,29 +70,219 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       [folderId, addSelectedFile, removeSelectedFile, store]
     );
 
-    // Optimized tree flattening with better memoization
-    const flattenTree = useCallback(
-      (nodes: IFileNode[], depth = 0, acc: { node: IFileNode; depth: number }[] = []) => {
-        for (const n of nodes) {
-          acc.push({ node: n, depth });
-          if (n.type === 'directory' && expandedDirectoryPaths.has(n.path) && n.children) {
-            flattenTree(
-              n.children.filter((c) => c.isVisible !== false),
-              depth + 1,
-              acc
-            );
+    // Phase B: Maintain a stable visibleRows cache that only mutates on expand/collapse or data arrival
+    type VisibleRow = { path: string; depth: number; isDir: boolean; expanded: boolean };
+    const visibleRowsRef = useRef<VisibleRow[]>([]);
+    const [, setRowsVersion] = useState(0);
+
+    // Path -> node map to resolve nodes for rendered rows
+    const pathToNodeMapRef = useRef<Map<string, IFileNode>>(new Map());
+
+    const buildPathMap = useCallback((nodes: IFileNode[]) => {
+      const map = new Map<string, IFileNode>();
+      const walk = (arr: IFileNode[]) => {
+        for (const n of arr) {
+          map.set(n.path, n);
+          if (n.type === 'directory' && n.children && n.children.length > 0) {
+            walk(n.children);
           }
         }
-        return acc;
-      },
-      [expandedDirectoryPaths]
+      };
+      walk(nodes);
+      pathToNodeMapRef.current = map;
+    }, []);
+
+    const findNodeByPath = useCallback(
+      (path: string): IFileNode | undefined => pathToNodeMapRef.current.get(path),
+      []
     );
 
-    // Memoize visible nodes calculation
-    const visibleNodes = useMemo(() => flattenTree(fileTree), [fileTree, flattenTree]);
+    const buildSubtreeRows = useCallback(
+      (node: IFileNode, depth: number, expandedSet: Set<string>): VisibleRow[] => {
+        const out: VisibleRow[] = [];
+        if (node.type !== 'directory' || !node.children) return out;
+        const children = node.children.filter((c) => c.isVisible !== false);
+        for (const c of children) {
+          const isDir = c.type === 'directory';
+          const isExpanded = isDir && expandedSet.has(c.path);
+          out.push({ path: c.path, depth: depth + 1, isDir, expanded: isExpanded });
+          if (isDir && isExpanded && c.children && c.children.length > 0) {
+            out.push(...buildSubtreeRows(c, depth + 1, expandedSet));
+          }
+        }
+        return out;
+      },
+      []
+    );
+
+    // Helper to setup test window object
+    const setupTestWindow = useCallback((visibleRows: VisibleRow[]) => {
+      if (typeof window === 'undefined') return;
+      // Only set up test helpers if running in Playwright tests
+      // biome-ignore lint/style/useNamingConvention: Playwright test flag follows their convention
+      if (!(window as unknown as { __PW_TEST__?: boolean }).__PW_TEST__) return;
+
+      try {
+        const names = visibleRows
+          .map((row) => pathToNodeMapRef.current.get(row.path)?.name)
+          .filter(Boolean) as string[];
+        interface TestWindow {
+          feTest?: {
+            waitForName?: (name: string, timeout?: number) => Promise<boolean>;
+            visibleNames?: string[];
+            visiblePaths?: string[];
+          };
+        }
+        const w = window as unknown as TestWindow;
+        if (!w.feTest) w.feTest = {};
+        w.feTest.visiblePaths = visibleRows.map((r) => r.path);
+        w.feTest.visibleNames = names;
+        if (!w.feTest.waitForName) {
+          w.feTest.waitForName = (name: string, timeout = 15000) =>
+            new Promise<boolean>((resolve) => {
+              const start = performance.now();
+              const tick = () => {
+                const list = w.feTest?.visibleNames || [];
+                if (list.includes(name)) return resolve(true);
+                if (performance.now() - start > timeout) return resolve(false);
+                requestAnimationFrame(tick);
+              };
+              tick();
+            });
+        }
+      } catch {}
+    }, []);
+
+    const rebuildVisibleFromTree = useCallback(
+      (nodes: IFileNode[], expandedSet: Set<string>) => {
+        const next: VisibleRow[] = [];
+        const roots = nodes.filter((n) => n.isVisible !== false);
+        for (const r of roots) {
+          const isDir = r.type === 'directory';
+          const isExpanded = isDir && expandedSet.has(r.path);
+          next.push({ path: r.path, depth: 0, isDir, expanded: isExpanded });
+          if (isDir && isExpanded) {
+            next.push(...buildSubtreeRows(r, 0, expandedSet));
+          }
+        }
+        visibleRowsRef.current = next;
+        setRowsVersion((v) => v + 1);
+        setupTestWindow(next);
+      },
+      [buildSubtreeRows, setupTestWindow]
+    );
+
+    const getRowIndex = useCallback((path: string): number => {
+      const arr = visibleRowsRef.current;
+      for (let i = 0; i < arr.length; i++) if (arr[i]?.path === path) return i;
+      return -1;
+    }, []);
+
+    const findSubtreeRange = useCallback(
+      (idx: number): { start: number; end: number; parentDepth: number } | null => {
+        const parent = visibleRowsRef.current[idx];
+        if (!parent) return null;
+        const start = idx + 1;
+        let end = start;
+        const parentDepth = parent.depth;
+        const arr = visibleRowsRef.current;
+        while (end < arr.length) {
+          const row = arr[end];
+          if (!row || row.depth <= parentDepth) break;
+          end++;
+        }
+        return { start, end, parentDepth };
+      },
+      []
+    );
+
+    // rangesDiffer retained for later incremental subtree updates in D-phase
+
+    const dirtyRef = useRef(false);
+    const bump = useCallback(() => {
+      if (dirtyRef.current) {
+        dirtyRef.current = false;
+        setRowsVersion((v) => v + 1);
+      }
+    }, []);
+
+    const spliceExpand = useCallback(
+      (index: number) => {
+        const parent = visibleRowsRef.current[index];
+        if (!parent) return;
+        const parentNode = findNodeByPath(parent.path);
+        if (!parentNode || parentNode.type !== 'directory') return;
+        const childrenRows = buildSubtreeRows(parentNode, parent.depth, expandedDirectoryPaths);
+        if (childrenRows.length === 0) return;
+        visibleRowsRef.current.splice(index + 1, 0, ...childrenRows);
+        dirtyRef.current = true;
+      },
+      [buildSubtreeRows, expandedDirectoryPaths, findNodeByPath]
+    );
+
+    const spliceCollapse = useCallback(
+      (index: number) => {
+        const range = findSubtreeRange(index);
+        if (!range) return;
+        const { start, end } = range;
+        if (end > start) {
+          visibleRowsRef.current.splice(start, end - start);
+          dirtyRef.current = true;
+        }
+      },
+      [findSubtreeRange]
+    );
+
+    // Helper retained for future phases (D-phase subtree math). Not used in B-phase full rebuild path.
+
+    const applyCollapses = useCallback(
+      (prev: Set<string>, next: Set<string>) => {
+        for (const p of prev) {
+          if (!next.has(p)) {
+            const idx = getRowIndex(p);
+            if (idx !== -1) spliceCollapse(idx);
+          }
+        }
+      },
+      [getRowIndex, spliceCollapse]
+    );
+
+    const applyExpands = useCallback(
+      (prev: Set<string>, next: Set<string>) => {
+        for (const p of next) {
+          if (!prev.has(p)) {
+            const idx = getRowIndex(p);
+            if (idx !== -1) spliceExpand(idx);
+          }
+        }
+      },
+      [getRowIndex, spliceExpand]
+    );
+
+    // Note: syncing expanded subtrees on fileTree change is handled by full rebuild above
+
+    // Track expanded set deltas and mutate the visible list accordingly
+    const prevExpandedRef = useRef<Set<string>>(new Set());
+    useLayoutEffect(() => {
+      const prev = prevExpandedRef.current;
+      const next = expandedDirectoryPaths;
+      applyCollapses(prev, next);
+      applyExpands(prev, next);
+      prevExpandedRef.current = new Set(next);
+      bump();
+      // We purposely exclude splice helpers from deps because they are stable via useCallback
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [expandedDirectoryPaths, applyCollapses, applyExpands, bump]);
+
+    // Rebuild path map and visible list only when the source fileTree changes
+    useLayoutEffect(() => {
+      buildPathMap(fileTree);
+      rebuildVisibleFromTree(fileTree, prevExpandedRef.current);
+    }, [fileTree, buildPathMap, rebuildVisibleFromTree]);
 
     // Enhanced virtualization with improved performance
-    const { containerRef, range, totalHeight } = useVirtualList(visibleNodes.length, ROW_HEIGHT, {
+    const visibleCount = visibleRowsRef.current.length;
+    const { containerRef, range, totalHeight } = useVirtualList(visibleCount, ROW_HEIGHT, {
       overscan: 8,
     });
 
@@ -99,7 +298,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return () => window.removeEventListener('optimized-file-tree-nudge', handler);
     }, []);
 
-    const nudgeToken = visibleNodes.length;
+    const nudgeToken = visibleRowsRef.current.length;
     useLayoutEffect(() => {
       const id = requestAnimationFrame(() => {
         window.dispatchEvent(new CustomEvent('optimized-file-tree-nudge', { detail: nudgeToken }));
@@ -107,35 +306,36 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       return () => cancelAnimationFrame(id);
     }, [nudgeToken]);
 
-    // Expose an explicit ready event when visibleNodes updates and first frame paints
+    // Expose an explicit ready event when visible list updates and first frame paints
     /* biome-ignore lint/correctness/useExhaustiveDependencies: containerRef.current intentionally read inside rAF */
     useLayoutEffect(() => {
+      const readyToken = visibleCount;
       const id = requestAnimationFrame(() => {
         const el = containerRef.current as HTMLElement | null;
         if (el) el.dispatchEvent(new Event('scroll'));
-        window.dispatchEvent(new Event('file-tree-ready'));
+        window.dispatchEvent(new CustomEvent('file-tree-ready', { detail: readyToken }));
       });
       return () => cancelAnimationFrame(id);
-    }, [visibleNodes.length]);
+    }, [visibleCount]);
 
     // Optimized row rendering with better memoization
     const renderedRows = useMemo(() => {
       const startIndex = range.start;
       const endIndex = range.end;
-      const rows = [];
+      const rows: ReactNode[] = [];
+      const all = visibleRowsRef.current;
 
       for (let i = startIndex; i <= endIndex; i++) {
-        const item = visibleNodes[i];
+        const item = all[i];
         if (!item) continue;
-
-        const { node, depth } = item;
+        const node = findNodeByPath(item.path);
+        if (!node) continue;
         const rowIndex = i - startIndex;
-
         rows.push(
           <OptimizedFileTreeRow
             key={node.path}
             node={node}
-            depth={depth}
+            depth={item.depth}
             isExpanded={expandedDirectoryPaths.has(node.path)}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
@@ -153,7 +353,6 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
       return rows;
     }, [
-      visibleNodes,
       range.start,
       range.end,
       expandedDirectoryPaths,
@@ -161,6 +360,7 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       handleToggleFileSelection,
       loadingFiles,
       folderId,
+      findNodeByPath,
     ]);
 
     // This effect will run if the onRender callback itself changes.

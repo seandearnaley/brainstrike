@@ -5,6 +5,8 @@ import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('File Explorer', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     const tree: FileTree = {
       'test.ts': null,
       'test2.ts': null,

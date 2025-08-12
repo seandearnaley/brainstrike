@@ -21,6 +21,8 @@ test.describe('Performance: Tree Rendering', () => {
   };
 
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     // Create a moderately large tree (3 levels, ~100 total files)
     const tree = createLargeFileTree(3, 10);
     

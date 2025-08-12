@@ -5,6 +5,8 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Quick Filter and Tree Expansion', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     const tree: FileTree = {
       src: {
         components: {

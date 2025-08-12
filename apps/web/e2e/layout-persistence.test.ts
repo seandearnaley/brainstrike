@@ -4,6 +4,8 @@ import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => { (window as any).__PW_TEST__ = true; });
+    
     await page.goto('/');
     await waitForAppLoad(page);
 
