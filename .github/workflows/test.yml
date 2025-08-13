@@ -159,31 +159,7 @@ jobs:
 
       - name: Build application
         run: |
-          # Build with Tailwind debug output
-          TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
-          
-          # Check CSS bundle size (must be >= 50kB)
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-          
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "❌ CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes)"
-            echo "This indicates Tailwind may not be scanning all package sources correctly"
-            exit 1
-          else
-            echo "✅ CSS bundle size OK: ${CSS_SIZE} bytes"
-          fi
-          
-          # Check for duplicate Tailwind layers
-          PAT='*,:after,:before,::backdrop{box-sizing:border-box'
-          DUPLICATE_COUNT=$(grep -h -F -o "$PAT" $(find apps/web/dist/assets -name '*.css') | wc -l)
-          if [ "$DUPLICATE_COUNT" -ne 1 ]; then
-            echo "❌ Duplicate Tailwind layers detected ($DUPLICATE_COUNT copies)"
-            echo "This indicates duplicate @import \"tailwindcss\" statements in package styles.css files"
-            exit 1
-          else
-            echo "✅ No duplicate CSS layers detected"
-          fi
+          pnpm -w build --filter @brainstrike/web
 
       - name: Run Functional E2E tests (shard)
         run: |

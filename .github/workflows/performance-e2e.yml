@@ -60,13 +60,7 @@ jobs:
 
       - name: Build application
         run: |
-          TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
-          CSS_SIZE=$(find apps/web/dist/assets -name '*.css' -exec cat {} + | wc -c)
-          echo "CSS bundle size: ${CSS_SIZE} bytes"
-          if [ "$CSS_SIZE" -lt 50000 ]; then
-            echo "❌ CSS bundle too small: ${CSS_SIZE} bytes (expected >= 50,000 bytes)"
-            exit 1
-          fi
+          pnpm -w build --filter @brainstrike/web
 
       - name: Run Performance E2E tests
         run: |

@@ -8,6 +8,13 @@ import {
 
 test.describe('Desktop Feature Flags - File Explorer V2', () => {
   test('Default: disabled with no CLI/env/LS', async () => {
+    const ctx0 = await launchElectronApp();
+    try {
+      await waitForAppReady(ctx0.window);
+      await resetAppState(ctx0.window);
+    } finally {
+      await closeElectronApp(ctx0);
+    }
     const ctx = await launchElectronApp();
     const { window } = ctx;
     try {

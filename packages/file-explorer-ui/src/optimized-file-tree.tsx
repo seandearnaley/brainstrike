@@ -15,6 +15,8 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
 
+// Worker integration (reserved for phase C)
+
 interface IOptimizedFileTreeProps {
   fileTree: IFileNode[];
   loadingFiles: Set<string>;
@@ -40,6 +42,94 @@ interface IOptimizedFileTreeProps {
  */
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({ fileTree, loadingFiles, onRender, folderId }) => {
+    // Centralized event names and microtask ponyfill
+    const evtNudge = 'optimized-file-tree-nudge' as const;
+    const evtRowsUpdated = 'v2-visible-rows-updated' as const;
+    // (Removed microtask batching path)
+
+    // Lightweight publish helper to expose visible row paths for a V2 hook
+    const publishVisibleRows = useCallback(
+      (rows: { path: string }[]) => {
+        try {
+          if (typeof window === 'undefined') return;
+          const w = window as unknown as { __v2VisibleRowsPaths?: string[] };
+          const paths = rows.map((r) => r.path);
+          w.__v2VisibleRowsPaths = paths;
+          window.dispatchEvent(new CustomEvent(evtRowsUpdated, { detail: { paths } }));
+        } catch {
+          // ignore
+        }
+      },
+      [evtRowsUpdated]
+    );
+
+    // --- Workerized visible rows (feature-gated) ---
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [useWorkerV2] = useState<boolean>(() => {
+      try {
+        const key = 'ff_explorer_v2_worker';
+        const url = new URL(
+          globalThis.location?.href ?? '',
+          globalThis.location?.origin ?? 'http://local'
+        );
+        const fromUrl = url.searchParams.get(key);
+        if (fromUrl != null) return fromUrl === '1' || fromUrl.toLowerCase() === 'true';
+        // localStorage override
+        const ls = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+        if (ls != null) return ls === '1' || ls.toLowerCase() === 'true';
+      } catch {}
+      return false;
+    });
+    void useWorkerV2;
+
+    // Phase B scaffolding for worker (not wired yet): keep TS happy by not declaring unused vars
+
+    // --- Test instrumentation (enabled only in Playwright tests) ---
+    // Expose feTest.visibleRecalcCount API when window.__PW_TEST__ is truthy.
+    // Use layout effect so it's available before other layout effects (e.g., rebuild) run.
+    useLayoutEffect(() => {
+      if (typeof window === 'undefined') return;
+      // biome-ignore lint/style/useNamingConvention: Playwright flag
+      if (!(window as unknown as { __PW_TEST__?: boolean }).__PW_TEST__) return;
+      try {
+        const w = window as unknown as {
+          feTest?: {
+            visibleRecalcCount?: number;
+            bumpVisibleRecalc?: () => void;
+            getVisibleRecalcCount?: () => number;
+          };
+        };
+        if (!w.feTest) w.feTest = {};
+        if (typeof w.feTest.visibleRecalcCount !== 'number') w.feTest.visibleRecalcCount = 0;
+        if (!w.feTest.bumpVisibleRecalc) {
+          w.feTest.bumpVisibleRecalc = () => {
+            if (!w.feTest) return;
+            w.feTest.visibleRecalcCount = (w.feTest.visibleRecalcCount ?? 0) + 1;
+          };
+        }
+        if (!w.feTest.getVisibleRecalcCount) {
+          w.feTest.getVisibleRecalcCount = () => w.feTest?.visibleRecalcCount ?? 0;
+        }
+      } catch {
+        // ignore
+      }
+    }, []);
+
+    const bumpRecalcCounters = useCallback(() => {
+      try {
+        if (typeof window === 'undefined') return;
+        // biome-ignore lint/style/useNamingConvention: Playwright flag
+        const isPw = !!(window as unknown as { __PW_TEST__?: boolean }).__PW_TEST__;
+        if (!isPw) return;
+        const w = window as unknown as {
+          feTest?: { bumpVisibleRecalc?: () => void };
+        };
+        w.feTest?.bumpVisibleRecalc?.();
+      } catch {
+        // ignore
+      }
+    }, []);
+
     const store = useFileExplorerStoreContext();
     const {
       expandedDirectoryPaths,
@@ -74,6 +164,21 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     type VisibleRow = { path: string; depth: number; isDir: boolean; expanded: boolean };
     const visibleRowsRef = useRef<VisibleRow[]>([]);
     const [, setRowsVersion] = useState(0);
+    // Initialize virtualizer early so callbacks can rely on the ref
+    const visibleCount = visibleRowsRef.current.length;
+    const { containerRef, range, totalHeight } = useVirtualList(visibleCount, ROW_HEIGHT, {
+      overscan: 16,
+    });
+    const nudgeVirtualizer = useCallback(() => {
+      try {
+        if (typeof window !== 'undefined') {
+          const el = containerRef.current as HTMLElement | null;
+          if (el) requestAnimationFrame(() => el.dispatchEvent(new Event('scroll')));
+        }
+      } catch {
+        // ignore
+      }
+    }, [containerRef]);
 
     // Path -> node map to resolve nodes for rendered rows
     const pathToNodeMapRef = useRef<Map<string, IFileNode>>(new Map());
@@ -168,8 +273,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
         visibleRowsRef.current = next;
         setRowsVersion((v) => v + 1);
         setupTestWindow(next);
+        publishVisibleRows(next);
+        // Count a rebuild on initial build and on filter commits (source tree changes)
+        bumpRecalcCounters();
+        // Nudge virtualizer after commit using ref
+        nudgeVirtualizer();
       },
-      [buildSubtreeRows, setupTestWindow]
+      [buildSubtreeRows, setupTestWindow, publishVisibleRows, bumpRecalcCounters, nudgeVirtualizer]
     );
 
     const getRowIndex = useCallback((path: string): number => {
@@ -199,12 +309,16 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
     // rangesDiffer retained for later incremental subtree updates in D-phase
 
     const dirtyRef = useRef(false);
-    const bump = useCallback(() => {
-      if (dirtyRef.current) {
-        dirtyRef.current = false;
-        setRowsVersion((v) => v + 1);
-      }
-    }, []);
+    const flushIfDirty = useCallback(() => {
+      if (!dirtyRef.current) return;
+      dirtyRef.current = false;
+      setRowsVersion((v) => v + 1);
+      publishVisibleRows(visibleRowsRef.current);
+      // Count a rebuild for expand/collapse splice batches
+      bumpRecalcCounters();
+      // ensure range recalculates even if length didn't change — next animation frame after commit
+      nudgeVirtualizer();
+    }, [publishVisibleRows, bumpRecalcCounters, nudgeVirtualizer]);
 
     const spliceExpand = useCallback(
       (index: number) => {
@@ -269,10 +383,11 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       applyCollapses(prev, next);
       applyExpands(prev, next);
       prevExpandedRef.current = new Set(next);
-      bump();
+      // Flush immediately for instant UI feedback
+      flushIfDirty();
       // We purposely exclude splice helpers from deps because they are stable via useCallback
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [expandedDirectoryPaths, applyCollapses, applyExpands, bump]);
+    }, [expandedDirectoryPaths, applyCollapses, applyExpands, flushIfDirty]);
 
     // Rebuild path map and visible list only when the source fileTree changes
     useLayoutEffect(() => {
@@ -280,31 +395,18 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
       rebuildVisibleFromTree(fileTree, prevExpandedRef.current);
     }, [fileTree, buildPathMap, rebuildVisibleFromTree]);
 
-    // Enhanced virtualization with improved performance
-    const visibleCount = visibleRowsRef.current.length;
-    const { containerRef, range, totalHeight } = useVirtualList(visibleCount, ROW_HEIGHT, {
-      overscan: 8,
-    });
+    // (virtualizer initialized earlier)
 
-    // Nudge virtualizer after significant visibility/layout changes (e.g., panel collapse/expand)
-    // Set up a stable listener tied to the element, and trigger via window events when data changes.
-    /* biome-ignore lint/correctness/useExhaustiveDependencies: containerRef.current intentionally read inside handler */
+    // Optional external nudge support: keep listener for tests/host integrations
     useLayoutEffect(() => {
-      const handler = () => {
-        const el = containerRef.current as HTMLElement | null;
-        if (el) el.dispatchEvent(new Event('scroll'));
+      const onNudge = () => {
+        flushIfDirty(); // will call nudgeVirtualizer internally
       };
-      window.addEventListener('optimized-file-tree-nudge', handler);
-      return () => window.removeEventListener('optimized-file-tree-nudge', handler);
-    }, []);
+      window.addEventListener(evtNudge, onNudge);
+      return () => window.removeEventListener(evtNudge, onNudge);
+    }, [flushIfDirty, evtNudge]);
 
-    const nudgeToken = visibleRowsRef.current.length;
-    useLayoutEffect(() => {
-      const id = requestAnimationFrame(() => {
-        window.dispatchEvent(new CustomEvent('optimized-file-tree-nudge', { detail: nudgeToken }));
-      });
-      return () => cancelAnimationFrame(id);
-    }, [nudgeToken]);
+    // Removed rAF auto-nudge; same-tick flush directly nudges scroll
 
     // Expose an explicit ready event when visible list updates and first frame paints
     /* biome-ignore lint/correctness/useExhaustiveDependencies: containerRef.current intentionally read inside rAF */

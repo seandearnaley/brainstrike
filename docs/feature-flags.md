@@ -24,4 +24,8 @@
 - Desktop: `pnpm start -- --ff_explorer_v2=1`
 - Desktop (env): `BRAINSTRIKE_URL_PARAMS="ff_explorer_v2=1" pnpm start`
 
+### Notes
+
+- V2 uses incremental visible rows; no global flatten on scroll. The visible list updates via single splice operations on expand/collapse and on filter commits (debounced). This behavior is guarded behind the V2 flag and does not affect V1.
+
 

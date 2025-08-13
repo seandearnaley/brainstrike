@@ -1,3 +1,4 @@
+export * from '../use-visible-rows';
 export * from './use-cancel-button-delay';
 export * from './use-file-explorer-selection';
 export * from './use-file-explorer-toasts';

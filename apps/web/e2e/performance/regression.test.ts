@@ -32,17 +32,7 @@ test.describe("Performance Regression Tests - Measuring Real Improvements", () =
 
     await mockBrowserApis(page, "size-test", tree);
 
-    // Mock file size responses to test our validation
-    await page.route("**/*large-test-file*", async (route) => {
-      const url = route.request().url();
-
-      // Simulate different file sizes for testing
-      // Our size validation should block this
-      await route.fulfill({
-        status: 413, // Request Entity Too Large
-        body: "File too large: 2MB (max: 1MB)",
-      });
-    });
+    // (Removed unused route for **/*large-test-file*; not requested by tests)
 
     const home = new HomePage(page);
     const explorer = new FileExplorerPage(page);
