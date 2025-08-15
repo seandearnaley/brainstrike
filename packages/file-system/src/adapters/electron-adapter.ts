@@ -94,55 +94,121 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   async readDirectory(_handle: DirectoryHandle): Promise<IFileNode[]> {
     try {
       const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
-      const result: IFileNode[] = [];
 
+      // Prefilter hidden and ignored entries to reduce work sent to renderer
+      const defaultIgnore = new Set([
+        '.git',
+        'node_modules',
+        '.next',
+        'dist',
+        'build',
+        '.DS_Store',
+      ]);
+      const { showHidden, extraIgnore } = (() => {
+        type ProcessLike = { env?: Record<string, string | undefined> };
+        const env = (globalThis as unknown as { process?: ProcessLike }).process?.env ?? {};
+        const { BRAINSTRIKE_SHOW_HIDDEN, BRAINSTRIKE_EXPLORER_IGNORE } = env as Record<
+          string,
+          string | undefined
+        >;
+        const rawShow = String(BRAINSTRIKE_SHOW_HIDDEN || '').toLowerCase();
+        const allowHidden = rawShow === '1' || rawShow === 'true' || rawShow === 'on';
+        const rawList = String(BRAINSTRIKE_EXPLORER_IGNORE || '').trim();
+        const list = rawList
+          ? rawList
+              .split(/[,;:\n]/)
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : [];
+        return { showHidden: allowHidden, extraIgnore: list } as const;
+      })();
+
+      const shouldIgnore = (name: string, fullPath: string): boolean => {
+        if (!showHidden && name.startsWith('.')) return true;
+        const normalized = fullPath.replace(/\\/g, '/');
+        const segments = normalized.split('/');
+        for (const p of defaultIgnore) if (segments.includes(p)) return true;
+        for (const p of extraIgnore) if (segments.includes(p)) return true;
+        return false;
+      };
+
+      // Collect files to stat; directories don't need stat for listing
+      const dirNodes: IFileNode[] = [];
+      const filePaths: { name: string; fullPath: string }[] = [];
       for (const entry of entries) {
         const fullPath = path.join(_handle.path, entry.name);
-        try {
-          const stat = await fsPromises.stat(fullPath);
-          if (entry.isDirectory()) {
-            result.push({
-              name: entry.name,
+        if (shouldIgnore(entry.name, fullPath)) {
+          continue;
+        }
+        if (entry.isDirectory()) {
+          dirNodes.push({
+            name: entry.name,
+            path: fullPath,
+            type: 'directory',
+            depth: 0,
+            selectionState: 'unchecked',
+            children: [],
+            rootFolderId: _handle.name,
+            isVisible: true,
+            handle: {
               path: fullPath,
-              type: 'directory',
-              depth: 0,
-              selectionState: 'unchecked',
-              children: [],
-              rootFolderId: _handle.name,
-              isVisible: true,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'directory',
-                platform: 'electron',
-              } as unknown as FileSystemDirectoryHandle,
-            });
-          } else {
-            result.push({
               name: entry.name,
-              path: fullPath,
-              type: 'file',
-              depth: 0,
-              selectionState: 'unchecked',
-              rootFolderId: _handle.name,
-              isVisible: true,
-              size: stat.size,
-              lastModified: stat.mtimeMs,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'file',
-                platform: 'electron',
-              } as unknown as FileSystemFileHandle,
-            });
-          }
-        } catch (_statError) {}
+              kind: 'directory',
+              platform: 'electron',
+            } as unknown as FileSystemDirectoryHandle,
+          });
+        } else {
+          filePaths.push({ name: entry.name, fullPath });
+        }
       }
 
-      return result.sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === 'directory' ? -1 : 1;
+      // Stat files with a small concurrency limit to avoid chugging
+      const files: IFileNode[] = [];
+      const concurrency = 32;
+      let idx = 0;
+      const runBatch = async () => {
+        const tasks: Promise<void>[] = [];
+        for (let i = 0; i < concurrency && idx < filePaths.length; i++, idx++) {
+          const fp = filePaths[idx];
+          if (!fp) break;
+          const { name, fullPath } = fp;
+          tasks.push(
+            fsPromises
+              .stat(fullPath)
+              .then((stat) => {
+                files.push({
+                  name,
+                  path: fullPath,
+                  type: 'file',
+                  depth: 0,
+                  selectionState: 'unchecked',
+                  rootFolderId: _handle.name,
+                  isVisible: true,
+                  size: stat.size,
+                  lastModified: stat.mtimeMs,
+                  handle: {
+                    path: fullPath,
+                    name,
+                    kind: 'file',
+                    platform: 'electron',
+                  } as unknown as FileSystemFileHandle,
+                });
+              })
+              .catch(() => {
+                // Skip unreadable files silently to keep listing responsive
+              })
+          );
         }
+        if (tasks.length) await Promise.all(tasks);
+      };
+      while (idx < filePaths.length) {
+        // eslint-disable-next-line no-await-in-loop
+        await runBatch();
+      }
+
+      const result = dirNodes.concat(files);
+      return result.sort((a, b) => {
+        if (a.type !== b.type) return a.type === 'directory' ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
     } catch (error) {

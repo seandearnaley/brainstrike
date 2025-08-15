@@ -38,7 +38,6 @@
       "matchPackageNames": [
         "vite",
         "@vitejs/plugin-react",
-        "@codecov/vite-plugin",
         "tsup",
         "terser",
         "@babel/core",

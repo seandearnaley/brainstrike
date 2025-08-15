@@ -205,7 +205,8 @@
       "Bash(CI=true pnpm check)",
       "Bash(CI=true npx playwright test file-explorer-filters.test.ts --grep \"should filter files using text search\" --timeout=30000)",
       "Bash(CI=true npx playwright test file-explorer-filters.test.ts -g \"should filter files using text search\")",
-      "Bash(CI=true npx playwright test refresh.test.ts file-explorer-filters.test.ts --grep \"should filter files using text search|should refresh file tree\")"
+      "Bash(CI=true npx playwright test refresh.test.ts file-explorer-filters.test.ts --grep \"should filter files using text search|should refresh file tree\")",
+      "Bash(touch:packages/file-explorer-ui/*)"
     ],
     "deny": []
   },

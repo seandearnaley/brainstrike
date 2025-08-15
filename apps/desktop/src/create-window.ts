@@ -127,30 +127,32 @@ export async function createWindow() {
 
 /**
  * Compose a URL search string from CLI/env overrides with precedence:
- * CLI switch --ff_explorer_v2 => BRAINSTRIKE_URL_PARAMS => none
+ * - Start from env: BRAINSTRIKE_URL_PARAMS (raw query string)
+ * - Override with CLI switches (presence-only => "1") for both V2 and Worker
  * Returns a value beginning with '?' or null when no overrides are present.
  */
 export function __testOnlyBuildUrlSearchParams(): string | null {
-  try {
-    // Highest precedence: explicit CLI switch value
-    const hasSwitch = app.commandLine.hasSwitch('ff_explorer_v2');
-    const cliValue = app.commandLine.getSwitchValue('ff_explorer_v2');
-    if (hasSwitch) {
-      return `?ff_explorer_v2=${encodeURIComponent(cliValue || '1')}`;
+  // biome-ignore lint/complexity/useLiteralKeys: Required by TS when accessing index signature of process.env
+  const fromEnv = process.env['BRAINSTRIKE_URL_PARAMS'] ?? '';
+  const seed = fromEnv.startsWith('?') ? fromEnv.slice(1) : fromEnv;
+  const params = new URLSearchParams(seed);
+
+  const applySwitch = (name: string) => {
+    try {
+      if (app.commandLine.hasSwitch(name)) {
+        const v = app.commandLine.getSwitchValue(name);
+        params.set(name, v || '1');
+      }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
-  }
+  };
 
-  // Next precedence: raw query string from env var for convenience
-  const brainstrikeUrlParams = 'BRAINSTRIKE_URL_PARAMS';
-  const raw = process.env[brainstrikeUrlParams];
-  if (raw && raw.trim().length > 0) {
-    const prefix = raw.startsWith('?') ? '' : '?';
-    return `${prefix}${raw}`;
-  }
+  applySwitch('ff_explorer_v2');
+  applySwitch('ff_explorer_v2_worker');
 
-  return null;
+  const s = params.toString();
+  return s ? `?${s}` : null;
 }
 
 // Keep the original name for runtime usage in this module

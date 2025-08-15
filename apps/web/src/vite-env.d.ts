@@ -6,11 +6,7 @@ declare module '*.png?url' {
   export default src;
 }
 
-interface ImportMetaEnv {
-  readonly VITE_APP_TITLE: string;
-  readonly MODE: string;
-}
+// Extend vite client types indirectly by referencing keys in code where needed.
+// Declaring interfaces here causes lints for unused types; avoid explicit interfaces.
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
+// Keep default ImportMeta from vite/client reference; no redeclare needed here

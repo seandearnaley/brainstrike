@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
 import react from '@vitejs/plugin-react';
@@ -172,16 +171,7 @@ export default defineConfig({
           }),
         ]
       : []),
-    // Conditionally configure Codecov plugin
-    ...(process.env['CODECOV_TOKEN']
-      ? [
-          codecovVitePlugin({
-            enableBundleAnalysis: true,
-            bundleName: 'brainstrike-web-bundle',
-            uploadToken: process.env['CODECOV_TOKEN'],
-          }),
-        ]
-      : []), // If no token, don't include the plugin config
+    // Codecov upload handled in CI via codecov-action; no bundler plugin
   ],
   assetsInclude: ['**/*.png'],
   build: {
