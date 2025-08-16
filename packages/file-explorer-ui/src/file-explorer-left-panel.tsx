@@ -53,6 +53,7 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
  * This component can be used independently in the left panel of an IDE layout
  */
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
+  'use no memo';
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const {

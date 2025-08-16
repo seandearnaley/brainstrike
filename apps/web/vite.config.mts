@@ -108,6 +108,9 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
+// React Compiler (annotation mode to stabilize)
+const ReactCompilerConfig = { compilationMode: 'annotation' };
+
 // CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
 if (isDev) {
   console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
@@ -157,7 +160,11 @@ export default defineConfig({
     debugPlugin(),
     wasm(),
     topLevelAwait(),
-    react(),
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+      },
+    }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     copyFontsPlugin(),
     ...(wasmPath
@@ -213,7 +220,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      // Keep UI package resolved via its build output to preserve CSS resolution
+      // '@brainstrike/file-explorer-ui': path.resolve(
+      //   __dirname,
+      //   '../../packages/file-explorer-ui/src'
+      // ),
+      // Ensure hooks resolve to source once to avoid duplicates
+      '@brainstrike/file-explorer-hooks': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-hooks/src'
+      ),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      // remove duplicate hooks alias
     },
   },
   worker: {

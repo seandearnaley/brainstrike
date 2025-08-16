@@ -46,18 +46,19 @@ interface UseFileExplorerReturn {
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
+  'use no memo';
   const store = useFileExplorerStoreContext();
   const {
     includeFilters,
     excludeFilters,
     useRegex,
-    /* setCurrentFolderId */
+    clearFileContents: storeClearFileContents,
   } = store(
     (s) => ({
       includeFilters: s.includeFilters,
       excludeFilters: s.excludeFilters,
       useRegex: s.useRegex,
-      // setCurrentFolderId: s.setCurrentFolderId, // commented intentionally
+      clearFileContents: s.clearFileContents,
     }),
     shallow
   );
@@ -78,10 +79,7 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     isCancelling,
   } = useFileTree(rootDirectoryHandle);
 
-  // Use shared file contents from store
-  const { clearFileContents: storeClearFileContents } = store((s) => ({
-    clearFileContents: s.clearFileContents,
-  }));
+  // storeClearFileContents is selected above to keep hook count constant
 
   // Use the shared file content loading hook
   const {

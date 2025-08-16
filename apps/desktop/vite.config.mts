@@ -51,6 +51,9 @@ function findPGliteWasm(): string | null {
 
 const wasmPath = findPGliteWasm();
 
+// React Compiler (annotation mode to stabilize)
+const ReactCompilerConfig = { compilationMode: 'annotation' };
+
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
@@ -58,7 +61,11 @@ export default defineConfig({
   plugins: [
     wasm(),
     topLevelAwait(),
-    react(),
+    react({
+      babel: {
+        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+      },
+    }),
     tailwindcss(),
     ...(wasmPath
       ? [
@@ -98,7 +105,17 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Keep UI via build output to keep CSS resolution intact
+      // '@brainstrike/file-explorer-ui': path.resolve(
+      //   __dirname,
+      //   '../../packages/file-explorer-ui/src'
+      // ),
+      '@brainstrike/file-explorer-hooks': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-hooks/src'
+      ),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      // remove duplicate hooks alias
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
     },
   },

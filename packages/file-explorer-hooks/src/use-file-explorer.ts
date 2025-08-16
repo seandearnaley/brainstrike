@@ -12,30 +12,47 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
-  const callback = useMemo(
-    () => onDisplayedFilePathsChange ?? (() => {}),
-    [onDisplayedFilePathsChange]
+  'use no memo';
+  const callback = onDisplayedFilePathsChange ?? (() => {});
+  const areEqual = (
+    a: {
+      includeFilters: string[];
+      excludeFilters: string[];
+      useRegex: boolean;
+      setCurrentFolderId: (id: string | null) => void;
+    },
+    b: {
+      includeFilters: string[];
+      excludeFilters: string[];
+      useRegex: boolean;
+      setCurrentFolderId: (id: string | null) => void;
+    }
+  ): boolean =>
+    a.includeFilters === b.includeFilters &&
+    a.excludeFilters === b.excludeFilters &&
+    a.useRegex === b.useRegex &&
+    a.setCurrentFolderId === b.setCurrentFolderId;
+
+  const { includeFilters, excludeFilters, useRegex, setCurrentFolderId } = useFileExplorerStore(
+    (s) => ({
+      includeFilters: s.includeFilters,
+      excludeFilters: s.excludeFilters,
+      useRegex: s.useRegex,
+      setCurrentFolderId: s.setCurrentFolderId,
+    }),
+    areEqual
   );
-  const store = useFileExplorerStore();
-  const {
-    // currentFolderId, // Commented out if not immediately used
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    setCurrentFolderId,
-    // setFilters,       // Commented out if not immediately used
-    // setUseRegex,      // Commented out if not immediately used
-  } = store;
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     setCurrentFolderId,
   });
   const {
-    fileTree,
+    fileTree: unsafeFileTree,
     isLoading: isTreeLoading,
     error: treeError,
     refreshTree,
   } = useFileTree(rootDirectoryHandle);
+  const fileTree = unsafeFileTree ?? [];
   const { applyFileFilters, filterError } = useFileFilters();
   const {
     fileContents,
@@ -48,17 +65,28 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const isLoading = isAccessLoading || isTreeLoading || isContentLoading;
   const error = treeError || contentError || filterError;
 
+  const displayedFilePaths = useMemo(() => {
+    const tree = Array.isArray(fileTree) ? fileTree : [];
+    const nodes = tree.length
+      ? (applyFileFilters(tree, includeFilters, excludeFilters, useRegex) ?? [])
+      : [];
+    const paths = new Set<string>();
+    for (const node of nodes) {
+      if (node && typeof node.path === 'string') paths.add(node.path);
+    }
+    return paths;
+  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters]);
+
   // Effect to apply filters and update displayed paths
   useEffect(() => {
-    if (fileTree.length > 0) {
-      const newDisplayedFileNodes = applyFileFilters(
-        fileTree,
-        includeFilters,
-        excludeFilters,
-        useRegex
-      );
+    const tree = Array.isArray(fileTree) ? fileTree : [];
+    if (tree.length > 0) {
+      const newDisplayedFileNodes =
+        applyFileFilters(tree, includeFilters, excludeFilters, useRegex) ?? [];
       const newDisplayedPaths = new Set<string>(
-        newDisplayedFileNodes.map((node: IFileNode) => node.path)
+        newDisplayedFileNodes
+          .filter((node: IFileNode | undefined | null): node is IFileNode => !!node && !!node.path)
+          .map((node: IFileNode) => node.path)
       );
       callback(newDisplayedPaths);
     } else {
@@ -66,10 +94,10 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     }
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters, callback]);
 
-  const handleRootDirectorySelect = async () => {
+  const handleRootDirectorySelect = useCallback(async () => {
     const handle = await selectRootDirectory();
     return handle;
-  };
+  }, [selectRootDirectory]);
 
   const refreshFileExplorer = useCallback(async () => {
     if (!rootDirectoryHandle) {
@@ -78,6 +106,16 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     await refreshTree();
   }, [rootDirectoryHandle, refreshTree]);
 
+  const loadFileContentCb = useCallback(
+    async (path: string) => {
+      const folderId = rootDirectoryHandle?.name;
+      if (!folderId) return;
+      const key = encodeFileSelection(folderId, path);
+      return handleFileContentLoading([key]);
+    },
+    [rootDirectoryHandle, handleFileContentLoading]
+  );
+
   // Return the comprehensive API for the file explorer
   return {
     rootDirectoryHandle,
@@ -85,14 +123,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     fileTree,
     isTreeLoading,
     treeError,
-    displayedFilePaths:
-      fileTree.length > 0
-        ? new Set<string>(
-            applyFileFilters(fileTree, includeFilters, excludeFilters, useRegex).map(
-              (node: IFileNode) => node.path
-            )
-          )
-        : new Set<string>(),
+    displayedFilePaths,
     filterError,
     fileContents,
     isContentLoading,
@@ -101,12 +132,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     error,
     actions: {
       handleRootDirectorySelect,
-      loadFileContent: async (path: string) => {
-        const folderId = rootDirectoryHandle?.name;
-        if (!folderId) return;
-        const key = encodeFileSelection(folderId, path);
-        return handleFileContentLoading([key]);
-      },
+      loadFileContent: loadFileContentCb,
       clearFileContents,
       refreshFileExplorer,
     },
