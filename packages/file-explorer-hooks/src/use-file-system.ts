@@ -29,7 +29,7 @@ function reducer(state: FileSystemState, action: FileSystemAction): FileSystemSt
 }
 
 export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
-  'use no memo';
+  'use memo';
   const { fileSystemAdapter } = useAdapters();
 
   const [{ rootDirectoryHandle, isAccessLoading }, dispatch] = useReducer(reducer, {
