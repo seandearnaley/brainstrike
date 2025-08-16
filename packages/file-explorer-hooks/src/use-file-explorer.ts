@@ -1,6 +1,6 @@
 import { useFileExplorerStore } from '@brainstrike/file-explorer';
 import { useFileFilters } from '@brainstrike/hooks';
-import type { IFileNode } from '@brainstrike/types';
+
 import { encodeFileSelection } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useFileContentLoading } from './use-file-content-loading';
@@ -12,36 +12,22 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
-  'use no memo';
-  const callback = onDisplayedFilePathsChange ?? (() => {});
-  const areEqual = (
-    a: {
-      includeFilters: string[];
-      excludeFilters: string[];
-      useRegex: boolean;
-      setCurrentFolderId: (id: string | null) => void;
+  'use memo';
+  // Stabilize callback to avoid dependency churn - memoize the function itself
+  const callback = useCallback(
+    (paths: Set<string>) => {
+      if (onDisplayedFilePathsChange) {
+        onDisplayedFilePathsChange(paths);
+      }
     },
-    b: {
-      includeFilters: string[];
-      excludeFilters: string[];
-      useRegex: boolean;
-      setCurrentFolderId: (id: string | null) => void;
-    }
-  ): boolean =>
-    a.includeFilters === b.includeFilters &&
-    a.excludeFilters === b.excludeFilters &&
-    a.useRegex === b.useRegex &&
-    a.setCurrentFolderId === b.setCurrentFolderId;
-
-  const { includeFilters, excludeFilters, useRegex, setCurrentFolderId } = useFileExplorerStore(
-    (s) => ({
-      includeFilters: s.includeFilters,
-      excludeFilters: s.excludeFilters,
-      useRegex: s.useRegex,
-      setCurrentFolderId: s.setCurrentFolderId,
-    }),
-    areEqual
+    [onDisplayedFilePathsChange]
   );
+
+  // Split Zustand selectors to avoid dynamic object creation
+  const includeFilters = useFileExplorerStore((s) => s.includeFilters);
+  const excludeFilters = useFileExplorerStore((s) => s.excludeFilters);
+  const useRegex = useFileExplorerStore((s) => s.useRegex);
+  const setCurrentFolderId = useFileExplorerStore((s) => s.setCurrentFolderId);
 
   const { rootDirectoryHandle, selectRootDirectory, isAccessLoading } = useFileSystem({
     setCurrentFolderId,
@@ -65,6 +51,7 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
   const isLoading = isAccessLoading || isTreeLoading || isContentLoading;
   const error = treeError || contentError || filterError;
 
+  // Unified computation: single useMemo with constant deps and stable callback notify
   const displayedFilePaths = useMemo(() => {
     const tree = Array.isArray(fileTree) ? fileTree : [];
     const nodes = tree.length
@@ -77,22 +64,10 @@ export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerP
     return paths;
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters]);
 
-  // Effect to apply filters and update displayed paths
+  // Effect to notify callback when displayedFilePaths changes
   useEffect(() => {
-    const tree = Array.isArray(fileTree) ? fileTree : [];
-    if (tree.length > 0) {
-      const newDisplayedFileNodes =
-        applyFileFilters(tree, includeFilters, excludeFilters, useRegex) ?? [];
-      const newDisplayedPaths = new Set<string>(
-        newDisplayedFileNodes
-          .filter((node: IFileNode | undefined | null): node is IFileNode => !!node && !!node.path)
-          .map((node: IFileNode) => node.path)
-      );
-      callback(newDisplayedPaths);
-    } else {
-      callback(new Set<string>());
-    }
-  }, [fileTree, includeFilters, excludeFilters, useRegex, applyFileFilters, callback]);
+    callback(displayedFilePaths);
+  }, [displayedFilePaths, callback]);
 
   const handleRootDirectorySelect = useCallback(async () => {
     const handle = await selectRootDirectory();

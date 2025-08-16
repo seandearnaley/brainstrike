@@ -8,8 +8,8 @@ import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explor
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useState } from 'react';
-import { shallow } from 'zustand/shallow';
+import { useCallback, useMemo } from 'react';
+
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { useFileSystem } from './use-file-system-context';
 import { type LoadingProgressState, useFileTree } from './use-file-tree-context';
@@ -47,21 +47,14 @@ interface UseFileExplorerReturn {
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   'use no memo';
+  // Split Zustand selectors to avoid dynamic object creation (aligned with use-file-explorer.ts pattern)
   const store = useFileExplorerStoreContext();
-  const {
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    clearFileContents: storeClearFileContents,
-  } = store(
-    (s) => ({
-      includeFilters: s.includeFilters,
-      excludeFilters: s.excludeFilters,
-      useRegex: s.useRegex,
-      clearFileContents: s.clearFileContents,
-    }),
-    shallow
-  );
+  const includeFilters = store((s) => s.includeFilters);
+  const excludeFilters = store((s) => s.excludeFilters);
+  const useRegex = store((s) => s.useRegex);
+  const setFilters = store((s) => s.setFilters);
+  const setUseRegex = store((s) => s.setUseRegex);
+  const storeClearFileContents = store((s) => s.clearFileContents);
 
   // Call the core hook
   const coreExplorer = useCoreFileExplorer();
@@ -90,15 +83,13 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   } = useSharedFileContentLoading(fileTree);
 
   const { applyFileFilters: applyFiltersUtil, filterError: localFilterError } = useFileFilters();
-  const [filteredTree, setFilteredTree] = useState<IFileNode[]>(fileTree);
 
-  useEffect(() => {
+  // Unify filtered tree computation in useMemo to avoid state/effect complexity
+  const filteredTree = useMemo(() => {
     if (fileTree.length > 0) {
-      const filtered = applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
-      setFilteredTree(filtered);
-    } else {
-      setFilteredTree([]);
+      return applyFiltersUtil(fileTree, includeFilters, excludeFilters, useRegex);
     }
+    return [];
   }, [fileTree, includeFilters, excludeFilters, useRegex, applyFiltersUtil]);
 
   const loadFileContent = useCallback(
@@ -119,22 +110,27 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     await refreshTree();
   }, [rootDirectoryHandle, refreshTree]);
 
+  // Wrapper for external filter application (maintains API compatibility)
+  // This should update the store filters, which will cause filteredTree to recompute
   const wrappedApplyFileFilters = useCallback(
     (
       currentIncludeFilters: string[],
       currentExcludeFilters: string[],
       currentUseRegex: boolean
     ) => {
-      const filtered = applyFiltersUtil(
+      // Update the store filters first
+      setFilters(currentIncludeFilters, currentExcludeFilters);
+      setUseRegex(currentUseRegex);
+
+      // Then compute and return the result
+      return applyFiltersUtil(
         fileTree,
         currentIncludeFilters,
         currentExcludeFilters,
         currentUseRegex
       );
-      setFilteredTree(filtered);
-      return filtered;
     },
-    [applyFiltersUtil, fileTree]
+    [applyFiltersUtil, fileTree, setFilters, setUseRegex]
   );
 
   // Construct the return object, carefully combining local state/logic with coreExplorer where needed.

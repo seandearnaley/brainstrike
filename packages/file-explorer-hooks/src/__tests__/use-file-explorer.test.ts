@@ -56,7 +56,7 @@ describe('useFileExplorer', () => {
     filteredTree = [initialFileTree[0] as IFileNode];
     mockApplyFileFilters.mockReturnValue(filteredTree);
 
-    // More complete mock for useFileExplorerStore
+    // Mock useFileExplorerStore to handle individual selector calls (split selector pattern)
     const mockStoreState: FileExplorerState = {
       currentFolderId: null,
       folderStates: {},
@@ -87,7 +87,16 @@ describe('useFileExplorer', () => {
       setMaxSelectionCount: vi.fn(),
       setLastActiveTab: vi.fn(),
     };
-    vi.mocked(useFileExplorerStore).mockReturnValue(mockStoreState);
+
+    // Mock the store function to handle individual selector calls
+    vi.mocked(useFileExplorerStore).mockImplementation(
+      (selector?: (state: FileExplorerState) => unknown) => {
+        if (typeof selector === 'function') {
+          return selector(mockStoreState);
+        }
+        return mockStoreState;
+      }
+    );
 
     mockSelectRootDirectory.mockResolvedValue(mockRootHandle);
 
