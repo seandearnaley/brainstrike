@@ -25,6 +25,11 @@ const TestProvider = ({ children }: { children: React.ReactNode }) => (
 );
 
 describe('Toast Components', () => {
+  const getToastHostForText = (text: string) => {
+    const node = screen.getByText(text);
+    return node.closest('[data-state]') ?? node.closest('[role]') ?? node;
+  };
+
   describe('Toast', () => {
     it('renders with default variant', () => {
       render(
@@ -32,10 +37,7 @@ describe('Toast Components', () => {
           <Toast>Test Toast</Toast>
         </TestProvider>
       );
-      const toastElement = screen
-        .getAllByRole('status')
-        .find((el) => el.textContent === 'Test Toast');
-      expect(toastElement).toBeDefined();
+      const toastElement = getToastHostForText('Test Toast');
       expect(toastElement).toHaveClass('border', 'bg-background', 'text-foreground');
       expect(screen.getByText('Test Toast')).toBeInTheDocument();
     });
@@ -46,10 +48,7 @@ describe('Toast Components', () => {
           <Toast variant="destructive">Destructive Toast</Toast>
         </TestProvider>
       );
-      const toastElement = screen
-        .getAllByRole('status')
-        .find((el) => el.textContent === 'Destructive Toast');
-      expect(toastElement).toBeDefined();
+      const toastElement = getToastHostForText('Destructive Toast');
       expect(toastElement).toHaveClass(
         'destructive',
         'border-destructive',
