@@ -352,7 +352,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           )}
 
           {/* Scrollable content */}
-          <div className="h-full">
+          <div className="overflow-y-auto h-full">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
                 rootDirectoryHandle={rootDirectoryHandle}
