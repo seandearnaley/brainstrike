@@ -11,6 +11,26 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'e2e/utils/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/*.d.ts',
+        '**/__tests__/**',
+        '**/vitest.config.*',
+        '**/e2e/**',
+        '**/src/main.tsx', // Entry point
+        '**/src/vite-env.d.ts', // Type definitions
+      ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
+    },
   },
   resolve: {
     alias: {

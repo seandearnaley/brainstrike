@@ -27,6 +27,12 @@ export default defineConfig({
         '**/*.config.*',
         'src/main.ts', // Main process - tested separately
       ],
+      thresholds: {
+        lines: 80,
+        functions: 80,
+        branches: 80,
+        statements: 80,
+      },
     },
   },
   resolve: {

@@ -29,7 +29,7 @@
     "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192' vitest run --coverage"
   },
   "peerDependencies": {
-    "react": "^19",
+    "react": "^19.1.1",
     "zustand": "^5"
   },
   "dependencies": {
