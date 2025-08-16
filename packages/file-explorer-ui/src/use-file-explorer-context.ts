@@ -3,11 +3,12 @@
  *
  * This hook provides file explorer functionality using the context-based store.
  */
+// HMR probe: safe no-op comment to trigger a hot update
 
 import { useFileExplorer as useCoreFileExplorer } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { useFileFilters } from '@brainstrike/hooks';
-import type { IFileNode } from '@brainstrike/types';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { useCallback, useMemo } from 'react';
 
 import { useFileExplorerStoreContext } from './file-explorer-provider';
@@ -47,14 +48,21 @@ interface UseFileExplorerReturn {
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
   'use no memo';
-  // Split Zustand selectors to avoid dynamic object creation (aligned with use-file-explorer.ts pattern)
+  // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render
+  const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
+  const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;
+  const selectUseRegex = (s: FileExplorerState) => s.useRegex;
+  const selectSetFilters = (s: FileExplorerState) => s.setFilters;
+  const selectSetUseRegex = (s: FileExplorerState) => s.setUseRegex;
+  const selectClearFileContents = (s: FileExplorerState) => s.clearFileContents;
+
   const store = useFileExplorerStoreContext();
-  const includeFilters = store((s) => s.includeFilters);
-  const excludeFilters = store((s) => s.excludeFilters);
-  const useRegex = store((s) => s.useRegex);
-  const setFilters = store((s) => s.setFilters);
-  const setUseRegex = store((s) => s.setUseRegex);
-  const storeClearFileContents = store((s) => s.clearFileContents);
+  const includeFilters = store(selectIncludeFilters);
+  const excludeFilters = store(selectExcludeFilters);
+  const useRegex = store(selectUseRegex);
+  const setFilters = store(selectSetFilters);
+  const setUseRegex = store(selectSetUseRegex);
+  const storeClearFileContents = store(selectClearFileContents);
 
   // Call the core hook
   const coreExplorer = useCoreFileExplorer();

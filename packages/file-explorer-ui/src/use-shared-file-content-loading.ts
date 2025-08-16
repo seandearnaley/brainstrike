@@ -5,7 +5,6 @@ import type { IFileNode } from '@brainstrike/types';
 import { decodeFileSelection } from '@brainstrike/utils';
 import type { FileContentWorker, FileReadRequest } from '@brainstrike/workers/file-content-worker';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { initFileContentWorker } from './utils/file-content-worker';
 import {
@@ -172,7 +171,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
     };
   }, [fileSystemAdapter]);
 
-  const { selectedFilePaths } = store((s) => ({ selectedFilePaths: s.selectedFilePaths }), shallow);
+  const selectedFilePaths = store((s) => s.selectedFilePaths);
 
   // Build a cache of path -> node keyed by folder ID whenever the file tree changes
   useEffect(() => {
@@ -242,7 +241,7 @@ export function useSharedFileContentLoading(fileTree: IFileNode[]) {
   }, [selectedFilePaths, prepareFileRead, store]);
 
   // Use zustand selector to get fileContents with proper memoization
-  const fileContents = store((state) => state.fileContents, shallow);
+  const fileContents = store((state) => state.fileContents);
 
   return {
     fileContents,

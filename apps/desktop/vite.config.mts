@@ -51,8 +51,8 @@ function findPGliteWasm(): string | null {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler (annotation mode to stabilize)
-const ReactCompilerConfig = { compilationMode: 'annotation' };
+// React Compiler: full opt-in via inference (compiles everything unless opted-out)
+const ReactCompilerConfig = { compilationMode: 'infer' };
 
 export default defineConfig({
   root: __dirname,

@@ -6,33 +6,26 @@ var FileExplorerSidebarMock: ReturnType<typeof vi.fn> | undefined;
 var ActionButtonsMock: ReturnType<typeof vi.fn> | undefined;
 var LoadingOverlayMock: ReturnType<typeof vi.fn> | undefined;
 
-// Mock UI components that are lazy loaded or used within the panel
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
-  ActionButtonsMock = vi.fn(() => <div data-testid="actions">Actions</div>);
-  LoadingOverlayMock = vi.fn(
-    ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
-      <div data-testid="loading-overlay">
-        {cancellable && (
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-      </div>
-    )
-  );
+// Mock UI components that are imported relatively within the panel
+vi.mock('../file-explorer-toolbar', () => {
   return {
-    ...actual,
     FileExplorerToolbar: ({
       onDirectorySelect,
       onFilterChange,
+      selectedCount,
+      maxSelectionCount,
     }: {
       onDirectorySelect: () => void;
       onFilterChange: (include: string[], exclude: string[], useRegex: boolean) => void;
+      selectedCount: number;
+      maxSelectionCount: number;
     }) => (
       <div data-testid="toolbar">
         Toolbar
+        <div>
+          <span data-testid="selection-count">{selectedCount}</span>/
+          <span data-testid="selection-max">{maxSelectionCount}</span>
+        </div>
         <button type="button" onClick={onDirectorySelect}>
           Select Directory
         </button>
@@ -47,11 +40,36 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
         </button>
       </div>
     ),
-    FileExplorerSidebar: FileExplorerSidebarMock,
-    FileExplorerErrorBoundary: actual.FileExplorerErrorBoundary,
-    LoadingOverlay: LoadingOverlayMock,
-    ActionButtons: ActionButtonsMock,
   };
+});
+
+vi.mock('../file-explorer-sidebar', () => {
+  FileExplorerSidebarMock = vi.fn(() => <div data-testid="sidebar">Sidebar</div>);
+  return { default: FileExplorerSidebarMock };
+});
+
+vi.mock('../action-buttons', () => {
+  ActionButtonsMock = vi.fn(() => (
+    <div data-testid="actions">
+      <button type="button">Select All</button>
+    </div>
+  ));
+  return { ActionButtons: ActionButtonsMock };
+});
+
+vi.mock('../loading-overlay', () => {
+  LoadingOverlayMock = vi.fn(
+    ({ cancellable, onCancel }: { cancellable?: boolean; onCancel?: () => void }) => (
+      <div data-testid="loading-overlay">
+        {cancellable && (
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+        )}
+      </div>
+    )
+  );
+  return { LoadingOverlay: LoadingOverlayMock };
 });
 
 // Mock hooks used by the component
@@ -126,7 +144,11 @@ describe('FileExplorerLeftPanel', () => {
       collapseAllDirectories: vi.fn(),
     } as const;
 
-    const mockStore = Object.assign(() => storeState, { getState: () => storeState });
+    const mockStore = Object.assign(
+      (selector?: (s: typeof storeState) => unknown) =>
+        typeof selector === 'function' ? selector(storeState) : storeState,
+      { getState: () => storeState }
+    );
     vi.mocked(useFileExplorerStoreContext).mockReturnValue(
       mockStore as unknown as ReturnType<typeof useFileExplorerStoreContext>
     );

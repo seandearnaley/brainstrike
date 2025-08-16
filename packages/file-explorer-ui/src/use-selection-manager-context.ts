@@ -6,7 +6,7 @@
  */
 
 import { useSelectionManager as useCoreSelectionManager } from '@brainstrike/file-explorer-hooks';
-import { shallow } from 'zustand/shallow';
+import { useCallback, useEffect, useRef } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface UseSelectionManagerProps {
@@ -14,21 +14,27 @@ interface UseSelectionManagerProps {
 }
 
 export const useSelectionManager = ({ onSelectionLimitExceeded }: UseSelectionManagerProps) => {
+  'use no memo';
   const store = useFileExplorerStoreContext();
-  const { selectedFilePaths, maxSelectionCount, setSelectedFiles } = store(
-    (s) => ({
-      selectedFilePaths: s.selectedFilePaths,
-      maxSelectionCount: s.maxSelectionCount,
-      setSelectedFiles: s.setSelectedFiles,
-    }),
-    shallow
+  const [selectedFilePaths, maxSelectionCount, setSelectedFiles] = store(
+    (s) => [s.selectedFilePaths, s.maxSelectionCount, s.setSelectedFiles] as const
   );
 
-  // Pass state and setters from context store to the core hook
+  // Stabilize setter identity across HMR/render cycles
+  const setSelectedRef = useRef(setSelectedFiles);
+  useEffect(() => {
+    setSelectedRef.current = setSelectedFiles;
+  }, [setSelectedFiles]);
+  const setSelectedFilesStable = useCallback((next: ReadonlySet<string>) => {
+    // Convert to mutable Set for the store setter while preserving values
+    setSelectedRef.current(new Set(next));
+  }, []);
+
+  // Pass stable state view and setter to the core hook
   return useCoreSelectionManager({
     selectedFilePaths,
     maxSelectionCount,
-    setSelectedFiles,
+    setSelectedFiles: setSelectedFilesStable,
     onSelectionLimitExceeded,
   });
 };

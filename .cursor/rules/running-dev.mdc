@@ -5,3 +5,5 @@ alwaysApply: true
 ---
 
 Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
+
+When running e2e playwright tests, always run the tests in headless mode.  Do not run the tests in headed mode.

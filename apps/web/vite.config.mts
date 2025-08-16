@@ -108,8 +108,8 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler (annotation mode to stabilize)
-const ReactCompilerConfig = { compilationMode: 'annotation' };
+// React Compiler: enable full opt-in in dev to harden iteratively
+const ReactCompilerConfig = { compilationMode: 'infer' };
 
 // CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
 if (isDev) {

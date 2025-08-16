@@ -1,9 +1,4 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import {
-  FileExplorerErrorBoundary,
-  FileExplorerToolbar,
-  LoadingOverlay,
-} from '@brainstrike/file-explorer-ui';
 import { useQuickFilter, useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
@@ -18,23 +13,28 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { shallow } from 'zustand/shallow';
+import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
+import { FileExplorerToolbar } from './file-explorer-toolbar';
+import { LoadingOverlay } from './loading-overlay';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
-// Lazy load the sidebar component
+// Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
 const FileExplorerSidebar = lazy(() =>
-  import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.FileExplorerSidebar as unknown as React.ComponentType<Record<string, unknown>>,
+  import('./file-explorer-sidebar').then((m) => ({
+    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
-// Lazy load action buttons
+// Lazy load action buttons (relative import to avoid duplicate module graphs/context)
 const ActionButtons = lazy(() =>
-  import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
+  import('./action-buttons').then((m) => ({
+    default: (m.ActionButtons ||
+      (m as unknown as { default: React.ComponentType }).default) as unknown as React.ComponentType<
+      Record<string, unknown>
+    >,
   }))
 );
 
@@ -53,10 +53,10 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
  * This component can be used independently in the left panel of an IDE layout
  */
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
-  'use no memo';
+  'use memo';
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
-  const {
+  const [
     includeFilters,
     excludeFilters,
     useRegex,
@@ -66,19 +66,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
-  } = store(
-    (s) => ({
-      includeFilters: s.includeFilters,
-      excludeFilters: s.excludeFilters,
-      useRegex: s.useRegex,
-      setFilters: s.setFilters,
-      currentFolderId: s.currentFolderId,
-      setCurrentFolderId: s.setCurrentFolderId,
-      maxSelectionCount: s.maxSelectionCount,
-      includeProjectTree: s.includeProjectTree,
-      folderSummaryThreshold: s.folderSummaryThreshold,
-    }),
-    shallow
+  ] = store(
+    (s) =>
+      [
+        s.includeFilters,
+        s.excludeFilters,
+        s.useRegex,
+        s.setFilters,
+        s.currentFolderId,
+        s.setCurrentFolderId,
+        s.maxSelectionCount,
+        s.includeProjectTree,
+        s.folderSummaryThreshold,
+      ] as const
   );
 
   // Local state for UI
@@ -111,6 +111,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     onSelectionLimitExceeded,
   });
 
+  // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
     selectedFiles: selectedFilePaths,
     fileContents,
@@ -137,6 +138,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     showToast,
     toast,
   });
+
+  // We no longer surface these here; wired in PreviewPanel footer instead.
+  // Keeping creation here would be unused, so omit to satisfy TS strict mode.
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -220,11 +224,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (rootDirectoryHandle) {
-      // Only set the folder ID if it's different from the current one
-      // This prevents clearing selections when the same directory is already selected
+      const id = rootDirectoryHandle.name;
       const currentState = store.getState();
-      if (currentState.currentFolderId !== rootDirectoryHandle.name) {
-        setCurrentFolderId(rootDirectoryHandle.name);
+      if (currentState.currentFolderId !== id) {
+        // set id synchronously (no extra async)
+        setCurrentFolderId(id);
       }
     } else {
       setCurrentFolderId(null);
@@ -280,6 +284,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             clearQuickFilter={clearFilter}
             isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
+            selectedCount={selectedFilePaths.size}
+            maxSelectionCount={maxSelectionCount}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus
@@ -377,7 +383,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
               displayedFiles={displayedFiles}
               selectedFilePaths={selectedFilePaths}
               maxSelectionCount={maxSelectionCount}
-              currentFolderId={currentFolderId}
+              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
               setSelectedFiles={handleSelectionChange}
               encodeFileSelection={encodeFileSelection}
               onSelectionLimitExceeded={() => {}}

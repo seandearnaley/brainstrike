@@ -12,7 +12,7 @@ import {
   TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { ArrowDown, ArrowUp, Columns3, FileX2, FolderOpen } from 'lucide-react';
+import { ArrowDown, ArrowUp, Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
@@ -49,6 +49,8 @@ interface PreviewPanelProps {
   ) => void;
   onFileClick?: (compositeKey: string) => void;
   pageSize?: number;
+  onDownloadReport?: () => void;
+  onCopyReport?: () => void;
 }
 
 // Column configuration
@@ -387,6 +389,8 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     performUndoableAction,
     onFileClick,
     pageSize = 50,
+    onDownloadReport,
+    onCopyReport,
   } = props;
 
   // Local selection state for preview panel - separate from file tree selections
@@ -909,10 +913,34 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
               Clear Preview Selection
             </Button>
           </div>
-          <Button size="sm" variant="destructive" onClick={handleBatchRemove}>
-            <FileX2 className="size-3.5 mr-1" />
-            Remove Selected from Project
-          </Button>
+          <div className="flex items-center gap-2">
+            {onDownloadReport && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onDownloadReport}
+                disabled={selectedFiles.size === 0}
+              >
+                <Download className="size-3.5 mr-1" />
+                Download Report
+              </Button>
+            )}
+            {onCopyReport && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onCopyReport}
+                disabled={selectedFiles.size === 0}
+              >
+                <FileText className="size-3.5 mr-1" />
+                Copy Report
+              </Button>
+            )}
+            <Button size="sm" variant="destructive" onClick={handleBatchRemove}>
+              <FileX2 className="size-3.5 mr-1" />
+              Remove Selected from Project
+            </Button>
+          </div>
         </div>
       )}
     </div>

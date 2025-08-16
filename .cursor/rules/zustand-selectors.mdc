@@ -1,0 +1,20 @@
+---
+globs: packages/**/src/**/*.ts,packages/**/src/**/*.tsx
+---
+# Zustand Selectors: Compiler-Friendly Rules
+
+## Do
+
+- Use split selectors: `store((s) => s.slice)` instead of aggregated object-shaped selectors.
+- If you need multiple values, prefer a single array tuple selector with a fixed shape: `store((s) => [s.a, s.b] as const)`.
+- Hoist selector lambdas to top-level whenever possible to avoid recreating functions each render.
+
+## Avoid
+
+- Returning new objects in selectors (e.g., `{ a: s.a, b: s.b }`) – this triggers identity churn and cache arity changes.
+- Using `shallow` to mask churn; instead, return primitives/tuples and let equality be trivial.
+
+## References
+
+- Examples: [`file-tree.tsx`](mdc:packages/file-explorer-ui/src/file-tree.tsx), [`file-tree-row.tsx`](mdc:packages/file-explorer-ui/src/file-tree-row.tsx).
+

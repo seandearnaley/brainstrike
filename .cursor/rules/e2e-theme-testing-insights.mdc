@@ -1,6 +1,6 @@
 ---
 description: 
-globs: 
+globs: *.spec.ts,*.test.ts,*.integration.test.ts
 alwaysApply: false
 ---
 # E2E Theme Testing Technical Insights

@@ -12,6 +12,7 @@ import { useSelectionManager } from './use-selection-manager-context';
  * This component can be used independently in the middle panel of an IDE layout
  */
 export const FileExplorerMiddlePanelTabbed: React.FC = () => {
+  'use memo';
   const { fileContents, loadingFiles } = useFileExplorer();
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
