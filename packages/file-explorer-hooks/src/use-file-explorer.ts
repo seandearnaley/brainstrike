@@ -12,7 +12,6 @@ export interface UseFileExplorerParams {
 }
 
 export function useFileExplorer({ onDisplayedFilePathsChange }: UseFileExplorerParams = {}) {
-  'use memo';
   // Stabilize callback to avoid dependency churn - memoize the function itself
   const callback = useCallback(
     (paths: Set<string>) => {

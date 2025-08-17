@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { waitForAppLoad } from './utils/layout-helpers';
 
+declare const process: {
+  env: Record<string, string | undefined>;
+};
+
 /**
  * Real-world performance tests that measure actual improvements
  * These tests work with the real application to validate our fixes
@@ -15,7 +19,6 @@ test.describe('Real-World Performance Validation', () => {
     // Install render tracking that actually works
     await page.evaluate(() => {
       let renderCount = 0;
-      let lastRenderTime = Date.now();
       
       // Track render frequency to detect re-render storms
       (window as any).__renderTracker = {
@@ -210,8 +213,12 @@ test.describe('Real-World Performance Validation', () => {
     // Analyze memory growth pattern
     const memoryGrowthRates = [];
     for (let i = 1; i < memoryReadings.length; i++) {
-      const growth = memoryReadings[i].used - memoryReadings[i-1].used;
-      memoryGrowthRates.push(growth);
+      const current = memoryReadings[i];
+      const previous = memoryReadings[i-1];
+      if (current && previous) {
+        const growth = current.used - previous.used;
+        memoryGrowthRates.push(growth);
+      }
     }
     
     const avgGrowthRate = memoryGrowthRates.reduce((a, b) => a + b, 0) / memoryGrowthRates.length;
@@ -225,7 +232,7 @@ test.describe('Real-World Performance Validation', () => {
     
     // Memory should not grow excessively
     // Use stricter threshold in CI and a slightly relaxed bound locally to reduce flakiness.
-    const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
+    const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
     const memoryCapMB = isCI ? 50 : 75;
     expect(memoryIncreaseMB).toBeLessThan(memoryCapMB);
     
@@ -374,9 +381,9 @@ test.describe('Real-World Performance Validation', () => {
       
       return {
         // Navigation timing with safe calculations
-        pageLoad: nav ? safeCalculation(nav.loadEventEnd, nav.navigationStart) : 0,
-        domContentLoaded: nav ? safeCalculation(nav.domContentLoadedEventEnd, nav.navigationStart) : 0,
-        firstPaint: nav ? safeCalculation(nav.responseStart, nav.navigationStart) : 0,
+        pageLoad: nav ? safeCalculation(nav.loadEventEnd, nav.fetchStart) : 0,
+        domContentLoaded: nav ? safeCalculation(nav.domContentLoadedEventEnd, nav.fetchStart) : 0,
+        firstPaint: nav ? safeCalculation(nav.responseStart, nav.fetchStart) : 0,
         
         // Memory usage
         memoryUsed: memory ? Math.round(memory.usedJSHeapSize / 1024 / 1024) : 0,

@@ -9,24 +9,24 @@ const Configuration: UserConfig = {
   extends: ['@commitlint/config-conventional'],
   rules: {
     // Do not require a commit type or restrict which types can be used
-    'type-empty': [RuleConfigSeverity.Off],
-    'type-enum': [RuleConfigSeverity.Off],
-    'type-case': [RuleConfigSeverity.Off],
+    'type-empty': [RuleConfigSeverity.Disabled],
+    'type-enum': [RuleConfigSeverity.Disabled],
+    'type-case': [RuleConfigSeverity.Disabled],
 
     // Do not require or restrict scope
-    'scope-empty': [RuleConfigSeverity.Off],
-    'scope-enum': [RuleConfigSeverity.Off],
-    'scope-case': [RuleConfigSeverity.Off],
+    'scope-empty': [RuleConfigSeverity.Disabled],
+    'scope-enum': [RuleConfigSeverity.Disabled],
+    'scope-case': [RuleConfigSeverity.Disabled],
 
     // Allow any subject casing and formatting
-    'subject-case': [RuleConfigSeverity.Off],
+    'subject-case': [RuleConfigSeverity.Disabled],
 
     // Make body lines much longer before warning/error
     'body-max-line-length': [RuleConfigSeverity.Error, 'always', 500],
 
     // Keep other restrictions minimal
-    'header-max-length': [RuleConfigSeverity.Off],
-    'subject-empty': [RuleConfigSeverity.Off],
+    'header-max-length': [RuleConfigSeverity.Disabled],
+    'subject-empty': [RuleConfigSeverity.Disabled],
   },
   defaultIgnores: true,
   helpUrl: 'https://github.com/conventional-changelog/commitlint/#what-is-commitlint',

@@ -28,7 +28,6 @@ export function useReportGeneration({
   includeProjectTree,
   folderSummaryThreshold,
 }: UseReportGenerationProps) {
-  'use memo';
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 

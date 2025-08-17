@@ -11,6 +11,7 @@ import type { StorageAdapter } from '@brainstrike/storage';
 import { MemoryStorageAdapter } from '@brainstrike/storage'; // Import MemoryStorageAdapter
 import type { FileExplorerState } from '@brainstrike/types';
 import { DEFAULT_STATE } from '@brainstrike/types';
+import { setupHMR } from '@brainstrike/utils';
 import type { StateCreator } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
@@ -114,20 +115,11 @@ if (!isValidStore(storeSingleton)) {
 }
 export const useFileExplorerStore = storeSingleton as BoundStore;
 
-if (
-  import.meta &&
-  (import.meta as unknown as { hot?: { accept: () => void; dispose: (cb: () => void) => void } })
-    .hot
-) {
-  /* c8 ignore start - Dev-only HMR wiring; excluded from coverage */
-  const hot = (
-    import.meta as unknown as { hot: { accept: () => void; dispose: (cb: () => void) => void } }
-  ).hot;
-  hot.accept();
-  hot.dispose(() => {
-    // keep store on global between swaps
-  });
-  /* c8 ignore end */
-}
+// Set up HMR if available (safe in both ESM and CJS environments)
+/* c8 ignore start - Dev-only HMR wiring; excluded from coverage */
+setupHMR(undefined, () => {
+  // keep store on global between swaps
+});
+/* c8 ignore end */
 
 export { stateCreator };

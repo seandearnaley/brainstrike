@@ -2,6 +2,7 @@ import type { ColorScheme, FolderColors } from './color-utils';
 
 export * from './color-utils';
 export * from './crypto-utils';
+export * from './dev/hmr-utils';
 export * from './env-utils';
 export * from './file-content';
 export * from './file-explorer-utils';

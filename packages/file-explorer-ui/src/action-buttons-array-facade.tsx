@@ -1,5 +1,3 @@
-'use memo';
-
 import * as React from 'react';
 import { ActionButtons } from './action-buttons';
 
