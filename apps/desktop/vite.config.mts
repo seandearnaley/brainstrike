@@ -53,9 +53,8 @@ function findPGliteWasm(): string | null {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler: enabled in dev, with guardrails
+// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
-const enableReactCompiler = true;
 
 function fullReloadOnCompilerHotspots() {
   return {
@@ -80,7 +79,7 @@ export default defineConfig({
     topLevelAwait(),
     react({
       babel: {
-        plugins: enableReactCompiler ? [['babel-plugin-react-compiler', ReactCompilerConfig]] : [],
+        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
       },
       jsxRuntime: 'automatic',
     }),
