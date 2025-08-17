@@ -28,13 +28,10 @@ const FileExplorerSidebar = lazy(() =>
   }))
 );
 
-// Lazy load action buttons (relative import to avoid duplicate module graphs/context)
+// Lazy load array facade for action buttons
 const ActionButtons = lazy(() =>
-  import('./action-buttons').then((m) => ({
-    default: (m.ActionButtons ||
-      (m as unknown as { default: React.ComponentType }).default) as unknown as React.ComponentType<
-      Record<string, unknown>
-    >,
+  import('./action-buttons-array-facade').then((m) => ({
+    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
@@ -53,7 +50,6 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
  * This component can be used independently in the left panel of an IDE layout
  */
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
-  'use memo';
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
   const [
@@ -107,13 +103,17 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     // Selection limit handling is managed by action buttons
   }, []);
 
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
+  const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
     onSelectionLimitExceeded,
   });
+  // Back-compat for older test mocks that don't provide new fields
+  const safeSelectedFilesList: string[] = Array.isArray(selectedFilesList) ? selectedFilesList : [];
+  const safeSetSelectedFilesFromList =
+    (setSelectedFilesFromList as undefined | ((l: readonly string[]) => void)) ?? (() => {});
 
   // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
-    selectedFiles: selectedFilePaths,
+    selectedFiles: new Set(selectedFilesList),
     fileContents,
     rootDirectoryHandle: rootDirectoryHandle ?? undefined,
     fileSystemAdapter,
@@ -167,6 +167,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     displayedFilesRef.current = visible;
     return visible;
   }, [quickFilteredTree]);
+  const displayedFileList = useMemo(() => Array.from(displayedFiles), [displayedFiles]);
 
   const handleRefresh = useCallback(async () => {
     if (!rootDirectoryHandle) return;
@@ -284,7 +285,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             clearQuickFilter={clearFilter}
             isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
-            selectedCount={selectedFilePaths.size}
+            selectedCount={safeSelectedFilesList.length}
             maxSelectionCount={maxSelectionCount}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
@@ -380,11 +381,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         <div className="shrink-0 px-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
           <Suspense fallback={<LoadingFallback />}>
             <ActionButtons
-              displayedFiles={displayedFiles}
-              selectedFilePaths={selectedFilePaths}
+              displayedFiles={displayedFileList}
+              selectedFiles={safeSelectedFilesList}
               maxSelectionCount={maxSelectionCount}
               currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
-              setSelectedFiles={handleSelectionChange}
+              setSelectedFiles={safeSetSelectedFilesFromList}
               encodeFileSelection={encodeFileSelection}
               onSelectionLimitExceeded={() => {}}
               onDownloadReport={handleDownloadReport}

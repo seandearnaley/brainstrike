@@ -16,9 +16,3 @@ Use these patterns to keep components and hooks compiler-friendly and HMR-stable
 - Compute derived data in a single `useMemo` with stable deps; avoid multiple interdependent memos.
 - Avoid mutating props or hook arguments. Create a local copy or use a setter callback.
   - Example fix implemented in [`packages/ui/src/hooks/use-save-panel-state.ts`](mdc:packages/ui/src/hooks/use-save-panel-state.ts) and its usage in [`packages/ui/src/hooks/use-panel-persistence.ts`](mdc:packages/ui/src/hooks/use-panel-persistence.ts).
-
-## Opt-out policy (dev only)
-
-- If a file causes hook-order/queue errors under HMR, immediately add `'use no memo'` and document in [`plan.md`](mdc:plan.md) with a short rationale and repro.
-- Keep prod full-compile enabled while using targeted dev-time opt-outs.
-

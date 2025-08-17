@@ -58,7 +58,8 @@ export function useReportGeneration({
   );
 
   const payloadRef = useRef(stablePayload);
-  // keep ref updated without changing callback identity
+  // Keep the current payload synchronized without introducing conditional hooks.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   payloadRef.current = stablePayload;
 
   const generateReportWithContent = useCallback(async () => {

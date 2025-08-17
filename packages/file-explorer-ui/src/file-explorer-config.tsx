@@ -1,7 +1,7 @@
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
@@ -24,59 +24,33 @@ interface FileExplorerConfigProps {
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
 }
 
-// Inner dialog content kept uncompiled to avoid HMR hook-order issues
-const ConfigDialogContent: React.FC<
-  {
-    filterError: string | null;
-    onFilterChange: (i: string[], e: string[], r: boolean) => void;
-    onClose: () => void;
-  } & Pick<
-    FileExplorerSettings,
-    | 'includeFilters'
-    | 'excludeFilters'
-    | 'useRegex'
-    | 'maxSelectionCount'
-    | 'includeProjectTree'
-    | 'folderSummaryThreshold'
-  > & {
-      setMaxSelectionCount: (v: number) => void;
-      setUseRegex: (v: boolean) => void;
-      setFilters: (i: string[], e: string[]) => void;
-      setIncludeProjectTree: (v: boolean) => void;
-      setFolderSummaryThreshold: (v: number) => void;
-    }
-> = ({
+// Inner dialog is render-only (no hooks) to avoid HMR hook-order issues
+const ConfigDialogContent: React.FC<{
+  filterError: string | null;
+  onFilterChange: (i: string[], e: string[], r: boolean) => void;
+  onClose: () => void;
+  settings: FileExplorerSettings;
+  onSettingsChange: <K extends keyof FileExplorerSettings>(
+    key: K,
+    value: FileExplorerSettings[K]
+  ) => void;
+  setMaxSelectionCount: (v: number) => void;
+  setUseRegex: (v: boolean) => void;
+  setFilters: (i: string[], e: string[]) => void;
+  setIncludeProjectTree: (v: boolean) => void;
+  setFolderSummaryThreshold: (v: number) => void;
+}> = ({
   filterError,
   onFilterChange,
   onClose,
-  includeFilters,
-  excludeFilters,
-  useRegex,
-  maxSelectionCount,
-  includeProjectTree,
-  folderSummaryThreshold,
+  settings,
+  onSettingsChange,
   setMaxSelectionCount,
   setUseRegex,
   setFilters,
   setIncludeProjectTree,
   setFolderSummaryThreshold,
 }) => {
-  const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    maxSelectionCount,
-    includeProjectTree,
-    folderSummaryThreshold,
-  }));
-
-  const handleSettingChange = <K extends keyof FileExplorerSettings>(
-    key: K,
-    value: FileExplorerSettings[K]
-  ) => {
-    setSettings((prev) => ({ ...prev, [key]: value }));
-  };
-
   const handleApplySettings = () => {
     const {
       maxSelectionCount: m,
@@ -109,19 +83,19 @@ const ConfigDialogContent: React.FC<
         <div className="grid @md/settings:grid-cols-2 gap-4">
           <MaxSelectionCountSetting
             value={settings.maxSelectionCount}
-            onChange={(value) => handleSettingChange('maxSelectionCount', value)}
+            onChange={(value) => onSettingsChange('maxSelectionCount', value)}
           />
           <FolderSummaryThresholdSetting
             value={settings.folderSummaryThreshold}
-            onChange={(value) => handleSettingChange('folderSummaryThreshold', value)}
+            onChange={(value) => onSettingsChange('folderSummaryThreshold', value)}
           />
         </div>
         <FileExtensionFilter
           includeFilters={settings.includeFilters}
           excludeFilters={settings.excludeFilters}
           onFilterChange={(newInclude: string[], newExclude: string[]) => {
-            handleSettingChange('includeFilters', newInclude);
-            handleSettingChange('excludeFilters', newExclude);
+            onSettingsChange('includeFilters', newInclude);
+            onSettingsChange('excludeFilters', newExclude);
           }}
           useRegex={settings.useRegex}
           filterError={filterError}
@@ -129,11 +103,11 @@ const ConfigDialogContent: React.FC<
         <div className="grid @md/settings:grid-cols-2 gap-4">
           <UseRegexSetting
             checked={settings.useRegex}
-            onChange={(checked) => handleSettingChange('useRegex', checked)}
+            onChange={(checked) => onSettingsChange('useRegex', checked)}
           />
           <IncludeProjectTreeSetting
             checked={settings.includeProjectTree}
-            onChange={(checked) => handleSettingChange('includeProjectTree', checked)}
+            onChange={(checked) => onSettingsChange('includeProjectTree', checked)}
           />
         </div>
         <div className="flex justify-end pt-2 border-t mt-2">
@@ -144,10 +118,141 @@ const ConfigDialogContent: React.FC<
   );
 };
 
+// Non-compiled stateful container to isolate hook layout from compiler HMR
+const ConfigDialogContainer: React.FC<
+  FileExplorerConfigProps & {
+    selectors: {
+      includeFilters: string[];
+      excludeFilters: string[];
+      useRegex: boolean;
+      maxSelectionCount: number;
+      includeProjectTree: boolean;
+      folderSummaryThreshold: number;
+    };
+    actions: {
+      setMaxSelectionCount: (v: number) => void;
+      setUseRegex: (v: boolean) => void;
+      setFilters: (i: string[], e: string[]) => void;
+      setIncludeProjectTree: (v: boolean) => void;
+      setFolderSummaryThreshold: (v: number) => void;
+    };
+  }
+> = ({ filterError, onFilterChange, selectors, actions }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
+    includeFilters: selectors.includeFilters,
+    excludeFilters: selectors.excludeFilters,
+    useRegex: selectors.useRegex,
+    maxSelectionCount: selectors.maxSelectionCount,
+    includeProjectTree: selectors.includeProjectTree,
+    folderSummaryThreshold: selectors.folderSummaryThreshold,
+  }));
+
+  const handleSettingChange = useCallback(
+    <K extends keyof FileExplorerSettings>(key: K, value: FileExplorerSettings[K]) => {
+      setSettings((prev) => ({ ...prev, [key]: value }));
+    },
+    []
+  );
+
+  // Ensure dialog reflects hydrated store values when opened
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setSettings({
+      includeFilters: selectors.includeFilters,
+      excludeFilters: selectors.excludeFilters,
+      useRegex: selectors.useRegex,
+      maxSelectionCount: selectors.maxSelectionCount,
+      includeProjectTree: selectors.includeProjectTree,
+      folderSummaryThreshold: selectors.folderSummaryThreshold,
+    });
+  }, [
+    isOpen,
+    selectors.includeFilters,
+    selectors.excludeFilters,
+    selectors.useRegex,
+    selectors.maxSelectionCount,
+    selectors.includeProjectTree,
+    selectors.folderSummaryThreshold,
+  ]);
+
+  // When opening the dialog after a page reload, Zustand may not have rehydrated yet.
+  // To avoid UI showing defaults (e.g., 10) briefly, read persisted settings directly.
+  type PersistedSubset = {
+    includeFilters?: string[];
+    excludeFilters?: string[];
+    useRegex?: boolean;
+    maxSelectionCount?: number;
+    includeProjectTree?: boolean;
+    folderSummaryThreshold?: number;
+  };
+  React.useEffect(() => {
+    if (!isOpen) return;
+    try {
+      const raw = localStorage.getItem('file-explorer-storage-v4');
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      const persisted = (
+        parsed && typeof parsed === 'object' && (parsed as { state?: PersistedSubset }).state
+          ? (parsed as { state: PersistedSubset }).state
+          : (parsed as PersistedSubset)
+      ) as PersistedSubset;
+      setSettings((prev) => ({
+        includeFilters: persisted.includeFilters ?? prev.includeFilters,
+        excludeFilters: persisted.excludeFilters ?? prev.excludeFilters,
+        useRegex: persisted.useRegex ?? prev.useRegex,
+        maxSelectionCount: persisted.maxSelectionCount ?? prev.maxSelectionCount,
+        includeProjectTree: persisted.includeProjectTree ?? prev.includeProjectTree,
+        folderSummaryThreshold: persisted.folderSummaryThreshold ?? prev.folderSummaryThreshold,
+      }));
+    } catch {
+      // ignore parse errors
+    }
+  }, [isOpen]);
+
+  return (
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label="Open settings"
+          data-testid="settings-button"
+          className="flex gap-2"
+        >
+          <Settings className="size-4" data-testid="settings-icon" />
+          <span className="hidden md:inline">Settings</span>
+        </Button>
+      </PopoverTrigger>
+      {isOpen && (
+        <PopoverContent className="w-screen max-w-sm p-0 @container/settings" asChild>
+          <dialog
+            aria-labelledby="config-title"
+            open
+            className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
+          >
+            <ConfigDialogContent
+              filterError={filterError}
+              onFilterChange={onFilterChange}
+              onClose={() => setIsOpen(false)}
+              settings={settings}
+              onSettingsChange={handleSettingChange}
+              setMaxSelectionCount={actions.setMaxSelectionCount}
+              setUseRegex={actions.setUseRegex}
+              setFilters={actions.setFilters}
+              setIncludeProjectTree={actions.setIncludeProjectTree}
+              setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
+            />
+          </dialog>
+        </PopoverContent>
+      )}
+    </Popover>
+  );
+};
+
 // Main Component (compiled wrapper)
 const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
   ({ filterError, onFilterChange }) => {
-    'use memo';
     const store = useFileExplorerStoreContext();
     const [
       includeFilters,
@@ -178,49 +283,26 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
         ] as const
     );
 
-    const [isOpen, setIsOpen] = useState(false);
-
     return (
-      <Popover open={isOpen} onOpenChange={setIsOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label="Open settings"
-            data-testid="settings-button"
-            className="flex gap-2"
-          >
-            <Settings className="size-4" data-testid="settings-icon" />
-            <span className="hidden md:inline">Settings</span>
-          </Button>
-        </PopoverTrigger>
-        {isOpen && (
-          <PopoverContent className="w-screen max-w-sm p-0 @container/settings" asChild>
-            <dialog
-              aria-labelledby="config-title"
-              open
-              className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
-            >
-              <ConfigDialogContent
-                filterError={filterError}
-                onFilterChange={onFilterChange}
-                onClose={() => setIsOpen(false)}
-                includeFilters={includeFilters}
-                excludeFilters={excludeFilters}
-                useRegex={useRegex}
-                maxSelectionCount={maxSelectionCount}
-                includeProjectTree={includeProjectTree}
-                folderSummaryThreshold={folderSummaryThreshold}
-                setMaxSelectionCount={setMaxSelectionCount}
-                setUseRegex={setUseRegex}
-                setFilters={setFilters}
-                setIncludeProjectTree={setIncludeProjectTree}
-                setFolderSummaryThreshold={setFolderSummaryThreshold}
-              />
-            </dialog>
-          </PopoverContent>
-        )}
-      </Popover>
+      <ConfigDialogContainer
+        filterError={filterError}
+        onFilterChange={onFilterChange}
+        selectors={{
+          includeFilters,
+          excludeFilters,
+          useRegex,
+          maxSelectionCount,
+          includeProjectTree,
+          folderSummaryThreshold,
+        }}
+        actions={{
+          setMaxSelectionCount,
+          setUseRegex,
+          setFilters,
+          setIncludeProjectTree,
+          setFolderSummaryThreshold,
+        }}
+      />
     );
   }
 );

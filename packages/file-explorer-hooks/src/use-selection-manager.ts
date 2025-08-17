@@ -5,7 +5,7 @@
  */
 
 import type { FileExplorerState } from '@brainstrike/types'; // Import the state type
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 
 interface UseSelectionManagerParams {
   selectedFilePaths: FileExplorerState['selectedFilePaths'];
@@ -20,33 +20,27 @@ export const useSelectionManager = ({
   setSelectedFiles,
   onSelectionLimitExceeded,
 }: UseSelectionManagerParams) => {
-  // Keep a stable ref to the current selection to avoid capturing changing Set identities in deps
-  const selectedRef = useRef(selectedFilePaths);
-  useEffect(() => {
-    selectedRef.current = selectedFilePaths;
-  }, [selectedFilePaths]);
-
   const wouldExceedSelectionLimit = useCallback(
     (newFilePaths: string[]) => {
       const uniqueNewPaths = new Set(newFilePaths);
-      const currentSelected = selectedRef.current;
-      const currentCount = currentSelected.size;
+      const currentCount = selectedFilePaths.size;
       let additionalCount = 0;
       for (const path of uniqueNewPaths) {
-        if (!currentSelected.has(path)) additionalCount += 1;
+        if (!selectedFilePaths.has(path)) additionalCount += 1;
       }
       return currentCount + additionalCount > maxSelectionCount;
     },
-    [maxSelectionCount]
+    [selectedFilePaths, maxSelectionCount]
   );
 
   const handleSelectionChange = useCallback(
     (nextSelectedFiles: Set<string>) => {
-      if (wouldExceedSelectionLimit(Array.from(nextSelectedFiles))) {
+      const nextArray = Array.from(nextSelectedFiles);
+      if (wouldExceedSelectionLimit(nextArray)) {
         onSelectionLimitExceeded();
         return;
       }
-      setSelectedFiles(nextSelectedFiles);
+      setSelectedFiles(new Set(nextArray));
     },
     [wouldExceedSelectionLimit, onSelectionLimitExceeded, setSelectedFiles]
   );

@@ -59,8 +59,7 @@ export function createFileExplorerStore(storageAdapter: StorageAdapter) {
   return create<FileExplorerState>()(persist(stateCreator, createPersistOptions(storageAdapter)));
 }
 
-// Default store instance for backward compatibility
-// This will be deprecated once all consumers use the factory
+// Default store instance for backward compatibility (HMR-safe singleton)
 
 let defaultPersistStorageAdapter: StorageAdapter;
 
@@ -88,8 +87,32 @@ if (typeof localStorage !== 'undefined') {
   defaultPersistStorageAdapter = new MemoryStorageAdapter();
 }
 
-export const useFileExplorerStore = create<FileExplorerState>()(
-  persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
-);
+const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
+const g = globalThis as unknown as Record<string, unknown>;
+type BoundStore = ReturnType<ReturnType<typeof create<FileExplorerState>>>;
+let storeSingleton = g[STORE_KEY] as BoundStore | undefined;
+if (!storeSingleton) {
+  storeSingleton = create<FileExplorerState>()(
+    persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
+  );
+  g[STORE_KEY] = storeSingleton as unknown;
+}
+export const useFileExplorerStore = storeSingleton as BoundStore;
+
+if (
+  import.meta &&
+  (import.meta as unknown as { hot?: { accept: () => void; dispose: (cb: () => void) => void } })
+    .hot
+) {
+  /* c8 ignore start - Dev-only HMR wiring; excluded from coverage */
+  const hot = (
+    import.meta as unknown as { hot: { accept: () => void; dispose: (cb: () => void) => void } }
+  ).hot;
+  hot.accept();
+  hot.dispose(() => {
+    // keep store on global between swaps
+  });
+  /* c8 ignore end */
+}
 
 export { stateCreator };

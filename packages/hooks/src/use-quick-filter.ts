@@ -101,7 +101,6 @@ function filterTreeIterative(
  * A hook that provides debounced include/exclude filtering over a tree of IFileNode.
  */
 export function useQuickFilter(fileTree: IFileNode[]) {
-  'use no memo';
   const [quickFilter, setQuickFilter] = useState('');
   const debouncedFilter = useDebouncedValue(quickFilter, 150);
 

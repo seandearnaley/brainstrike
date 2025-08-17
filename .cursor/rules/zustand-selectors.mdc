@@ -1,7 +1,7 @@
 ---
 globs: packages/**/src/**/*.ts,packages/**/src/**/*.tsx
 ---
-# Zustand Selectors: Compiler-Friendly Rules
+# Zustand Selectors: React Compiler-Friendly Rules
 
 ## Do
 

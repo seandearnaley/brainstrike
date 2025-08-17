@@ -47,7 +47,6 @@ interface UseFileExplorerReturn {
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
-  'use no memo';
   // Split Zustand selectors and hoist them to avoid recreating selector lambdas per render
   const selectIncludeFilters = (s: FileExplorerState) => s.includeFilters;
   const selectExcludeFilters = (s: FileExplorerState) => s.excludeFilters;

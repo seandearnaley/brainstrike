@@ -51,20 +51,37 @@ function findPGliteWasm(): string | null {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler: full opt-in via inference (compiles everything unless opted-out)
+// React Compiler: enabled in dev, with guardrails
 const ReactCompilerConfig = { compilationMode: 'infer' };
+const enableReactCompiler = true;
+
+function fullReloadOnCompilerHotspots() {
+  const HOTSPOT = /packages\/(file-explorer-ui|file-explorer-hooks|hooks)\/src\/.*\.(ts|tsx)$/;
+  return {
+    name: 'full-reload-on-compiler-hotspots',
+    handleHotUpdate(ctx: { file: string; server: { ws: { send: (m: unknown) => void } } }) {
+      if (HOTSPOT.test(ctx.file)) {
+        ctx.server.ws.send({ type: 'full-reload' });
+        return [] as unknown as undefined;
+      }
+      return undefined;
+    },
+  };
+}
 
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
   cacheDir: path.resolve(__dirname, '.vite'),
   plugins: [
+    fullReloadOnCompilerHotspots(),
     wasm(),
     topLevelAwait(),
     react({
       babel: {
-        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+        plugins: enableReactCompiler ? [['babel-plugin-react-compiler', ReactCompilerConfig]] : [],
       },
+      jsxRuntime: 'automatic',
     }),
     tailwindcss(),
     ...(wasmPath
@@ -103,13 +120,19 @@ export default defineConfig({
     },
   },
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(__dirname, './src'),
-      // Keep UI via build output to keep CSS resolution intact
-      // '@brainstrike/file-explorer-ui': path.resolve(
-      //   __dirname,
-      //   '../../packages/file-explorer-ui/src'
-      // ),
+      // Map stylesheet import to package root css before package alias
+      '@brainstrike/file-explorer-ui/styles.css': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-ui/styles.css'
+      ),
+      // Use source for consistent transforms and single React instance
+      '@brainstrike/file-explorer-ui': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-ui/src'
+      ),
       '@brainstrike/file-explorer-hooks': path.resolve(
         __dirname,
         '../../packages/file-explorer-hooks/src'
@@ -117,6 +140,11 @@ export default defineConfig({
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
       // remove duplicate hooks alias
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
+      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
+      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
+      '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
     },
   },
   worker: {
@@ -135,6 +163,7 @@ export default defineConfig({
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',
+      '@brainstrike/workers',
     ],
   },
   server: {

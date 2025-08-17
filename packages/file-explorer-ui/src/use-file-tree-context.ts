@@ -74,10 +74,6 @@ const ensureError = (err: unknown): Error => {
 
 export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): CancellableFileTreeHook {
   const { fileSystemAdapter } = useAdapters();
-
-  if (!fileSystemAdapter) {
-    throw new Error('File system adapter is not available');
-  }
   const [fileTree, setFileTree] = useState<IFileNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -154,6 +150,10 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       isRoot = true,
       abortSignal?: AbortSignal
     ): Promise<IFileNode[]> => {
+      if (!fileSystemAdapter) {
+        setError(new Error('File system adapter is not available'));
+        return Promise.resolve([]);
+      }
       if (isRoot) {
         progressRef.current.phase = 'loading';
         progressRef.current.loaded = 0;
@@ -181,6 +181,11 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
 
   const loadTree = useCallback(async () => {
     if (!rootDirectoryHandle) {
+      setFileTree([]);
+      return;
+    }
+    if (!fileSystemAdapter) {
+      setError(new Error('File system adapter is not available'));
       setFileTree([]);
       return;
     }
@@ -221,7 +226,7 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       setIsCancelling(false);
       abortControllerRef.current = null;
     }
-  }, [rootDirectoryHandle, readFullTree]);
+  }, [rootDirectoryHandle, readFullTree, fileSystemAdapter]);
 
   const refreshTree = useCallback(async () => {
     await loadTree();

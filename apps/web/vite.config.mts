@@ -108,8 +108,27 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler: enable full opt-in in dev to harden iteratively
+// React Compiler: enabled in dev, but with guardrails to avoid HMR mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
+const enableReactCompiler = true;
+
+// Force full reload (not HMR) on files that commonly change hook/memo shape
+function fullReloadOnCompilerHotspots() {
+  const HOTSPOTS = [
+    /packages\/(file-explorer-ui|file-explorer-hooks|hooks)\/src\/.*\.(ts|tsx)$/,
+    /packages\/file-explorer-ui\/src\/file-explorer-config\.tsx$/,
+  ];
+  return {
+    name: 'full-reload-on-compiler-hotspots',
+    handleHotUpdate(ctx: { file: string; server: { ws: { send: (m: unknown) => void } } }) {
+      if (HOTSPOTS.some((re) => re.test(ctx.file))) {
+        ctx.server.ws.send({ type: 'full-reload' });
+        return [];
+      }
+      return [];
+    },
+  };
+}
 
 // CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
 if (isDev) {
@@ -157,13 +176,16 @@ export default defineConfig({
     'process.platform': '"browser"',
   },
   plugins: [
+    fullReloadOnCompilerHotspots(),
     debugPlugin(),
     wasm(),
     topLevelAwait(),
     react({
       babel: {
-        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
+        plugins: enableReactCompiler ? [['babel-plugin-react-compiler', ReactCompilerConfig]] : [],
       },
+      // Ensure consistent development transforms for React Compiler
+      jsxRuntime: 'automatic',
     }),
     tailwindcss(), // Automatically finds and uses the root tailwind.config.js
     copyFontsPlugin(),
@@ -216,21 +238,32 @@ export default defineConfig({
     },
   },
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
-      // Keep UI package resolved via its build output to preserve CSS resolution
-      // '@brainstrike/file-explorer-ui': path.resolve(
-      //   __dirname,
-      //   '../../packages/file-explorer-ui/src'
-      // ),
+      // Map stylesheet import to package root css before package alias
+      '@brainstrike/file-explorer-ui/styles.css': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-ui/styles.css'
+      ),
+      // Source alias to ensure consistent React Compiler transforms and HMR
+      '@brainstrike/file-explorer-ui': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-ui/src'
+      ),
       // Ensure hooks resolve to source once to avoid duplicates
       '@brainstrike/file-explorer-hooks': path.resolve(
         __dirname,
         '../../packages/file-explorer-hooks/src'
       ),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
+      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
+      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
+      '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
       // remove duplicate hooks alias
     },
   },
@@ -251,6 +284,7 @@ export default defineConfig({
       '@brainstrike/file-system',
       '@brainstrike/storage',
       '@brainstrike/app-shell',
+      '@brainstrike/workers',
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues
