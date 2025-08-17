@@ -61,10 +61,28 @@ vi.mock('react-resizable-panels', () => {
     children?: React.ReactNode;
     onCollapse?: (size?: number) => void;
     onExpand?: (size?: number) => void;
+    defaultSize?: number;
+    minSize?: number;
+    maxSize?: number;
+    collapsible?: boolean;
+    collapsedSize?: number;
   }
 
   const Panel = forwardRef<MockImperativeHandle, PanelProps>(
-    ({ children, onCollapse, onExpand, ...props }, ref) => {
+    (
+      {
+        children,
+        onCollapse,
+        onExpand,
+        defaultSize,
+        minSize,
+        maxSize,
+        collapsible,
+        collapsedSize,
+        ...props
+      },
+      ref
+    ) => {
       const handle = {
         isCollapsed: vi.fn().mockReturnValue(false),
         isExpanded: vi.fn().mockReturnValue(true),

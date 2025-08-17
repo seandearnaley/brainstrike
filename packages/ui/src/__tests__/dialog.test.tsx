@@ -133,6 +133,9 @@ describe('Dialog Component', () => {
     render(
       <Dialog defaultOpen>
         <DialogContent className="custom-content-class">
+          <DialogHeader>
+            <DialogTitle>Test Dialog</DialogTitle>
+          </DialogHeader>
           <div>Custom content</div>
         </DialogContent>
       </Dialog>

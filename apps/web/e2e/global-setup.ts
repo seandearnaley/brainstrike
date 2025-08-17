@@ -1,5 +1,10 @@
 import { getBaseUrl, getPortsToCheck } from '@brainstrike/server-config';
 
+declare const process: {
+  env: Record<string, string | undefined>;
+  cwd(): string;
+};
+
 // Environment variable names
 const ciEnv = 'CI';
 const baseUrlEnv = 'BASE_URL';

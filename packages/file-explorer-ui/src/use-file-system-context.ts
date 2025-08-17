@@ -62,7 +62,6 @@ async function selectDirectoryWithErrorMapping(
 }
 
 export function useFileSystem() {
-  'use memo';
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = store((s) => s.setCurrentFolderId);
 

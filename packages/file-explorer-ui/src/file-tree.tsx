@@ -28,7 +28,6 @@ const selectAddSelectedFile = (s: FileExplorerState) => s.addSelectedFile;
 const selectRemoveSelectedFile = (s: FileExplorerState) => s.removeSelectedFile;
 
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
-  'use memo';
   const store = useFileExplorerStoreContext();
   const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
   const selectedFilePaths = store(selectSelectedFilePaths);

@@ -157,7 +157,15 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     }
     
     // Find the biggest memory jumps
-    let biggestJump = { growth: 0, from: '', to: '', details: {} };
+    let biggestJump = { 
+      growth: 0, 
+      from: '', 
+      to: '', 
+      details: {
+        domNodeChange: 0,
+        reactComponentChange: 0
+      }
+    };
     for (let i = 1; i < analysis.snapshots.length; i++) {
       const prev = analysis.snapshots[i-1];
       const curr = analysis.snapshots[i];

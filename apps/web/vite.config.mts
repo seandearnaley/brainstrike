@@ -110,9 +110,8 @@ function copyFontsPlugin() {
 
 const wasmPath = findPGliteWasm();
 
-// React Compiler: enabled in dev, but with guardrails to avoid HMR mis-compiles
+// React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
-const enableReactCompiler = true;
 
 // Force full reload (not HMR) on files that commonly change hook/memo shape
 function fullReloadOnCompilerHotspots() {
@@ -180,7 +179,7 @@ export default defineConfig({
     topLevelAwait(),
     react({
       babel: {
-        plugins: enableReactCompiler ? [['babel-plugin-react-compiler', ReactCompilerConfig]] : [],
+        plugins: [['babel-plugin-react-compiler', ReactCompilerConfig]],
       },
       // Ensure consistent development transforms for React Compiler
       jsxRuntime: 'automatic',
