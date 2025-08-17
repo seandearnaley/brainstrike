@@ -16,13 +16,19 @@ export default defineConfig({
       reporter: ['text', 'json', 'html'],
       exclude: [
         '**/node_modules/**',
+        '**/.vite/**',
         '**/dist/**',
         '**/*.d.ts',
         '**/__tests__/**',
+        '**/*.config.*',
         '**/vitest.config.*',
+        '**/vite.config.*',
+        '**/playwright.config.*',
+        '**/tailwind.config.*',
         '**/e2e/**',
         '**/src/main.tsx', // Entry point
         '**/src/vite-env.d.ts', // Type definitions
+        '../../packages/**', // Exclude monorepo package sources from app coverage
       ],
       thresholds: {
         lines: 80,
