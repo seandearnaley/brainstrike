@@ -6,7 +6,7 @@ import FileExtensionFilter from '../file-extension-filter';
 describe('FileExtensionFilter', () => {
   const defaultProps = {
     includeFilters: ['*.ts', '*.tsx'],
-    excludeFilters: ['*.spec.ts'],
+    excludeFilters: ['*.test.ts'],
     useRegex: false,
     onFilterChange: vi.fn(),
     filterError: null,
@@ -19,7 +19,7 @@ describe('FileExtensionFilter', () => {
   it('renders include and exclude inputs with initial values', () => {
     render(<FileExtensionFilter {...defaultProps} />);
     expect(screen.getByLabelText(/Files to Include/i)).toHaveValue('*.ts, *.tsx');
-    expect(screen.getByLabelText(/Files to Exclude/i)).toHaveValue('*.spec.ts');
+    expect(screen.getByLabelText(/Files to Exclude/i)).toHaveValue('*.test.ts');
   });
 
   it('maintains input value while typing without reverting', () => {

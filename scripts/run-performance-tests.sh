@@ -92,19 +92,19 @@ run_performance_tests() {
     case $test_type in
         "baseline"|"all")
             print_step "Running baseline benchmark tests..."
-            pnpm exec playwright test performance-benchmarks.spec.ts --reporter=list
+            pnpm exec playwright test e2e/performance/benchmarks.test.ts --reporter=list
             ;;
         "memory")
             print_step "Running memory usage tests..."
-            pnpm exec playwright test performance-memory-usage.spec.ts --reporter=list
+            pnpm exec playwright test e2e/performance/memory-usage.test.ts --reporter=list
             ;;
         "tree")
             print_step "Running tree rendering tests..."
-            pnpm exec playwright test performance-tree-rendering.spec.ts --reporter=list
+            pnpm exec playwright test e2e/performance/tree-rendering.test.ts --reporter=list
             ;;
         *)
             print_step "Running all performance tests..."
-            pnpm exec playwright test performance-benchmarks.spec.ts performance-memory-usage.spec.ts performance-tree-rendering.spec.ts --reporter=list
+            pnpm exec playwright test e2e/performance/benchmarks.test.ts e2e/performance/memory-usage.test.ts e2e/performance/tree-rendering.test.ts --reporter=list
             ;;
     esac
     

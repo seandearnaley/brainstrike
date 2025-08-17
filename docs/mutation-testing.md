@@ -83,7 +83,6 @@ const config = {
   mutate: [
     'src/**/*.ts',
     '!src/**/*.test.ts',
-    '!src/**/*.spec.ts',
     '!src/**/__tests__/**',
     '!src/**/__mocks__/**'
   ],
@@ -123,19 +122,19 @@ cd packages/utils
 pnpm run mutation
 
 # Or using Turborepo filter
-npx turbo run mutation --filter=@brainstrike/utils
+pnpm turbo run mutation --filter=@brainstrike/utils
 ```
 
 #### All Packages
 ```bash
 # Run mutation testing for all packages that have it configured
-npx turbo run mutation
+pnpm turbo run mutation
 ```
 
 #### With Parallel Execution
 ```bash
 # Run with specific concurrency
-npx turbo run mutation --concurrency=4
+pnpm turbo run mutation --concurrency=4
 ```
 
 ### Interpreting Results

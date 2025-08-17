@@ -2,7 +2,7 @@
 
 This directory contains end-to-end tests using Playwright for the Brainstrike web application.
 
-For general Playwright guidelines see [docs/e2e-guidelines.md](../../docs/e2e-guidelines.md).
+For general Playwright guidelines see [docs/e2e-guidelines.md](../../../docs/e2e-guidelines.md).
 
 ## Running Tests
 
@@ -12,26 +12,26 @@ We've simplified the testing approach to make it easier to run tests in differen
 
 ```bash
 # Run all tests
-npm run test:e2e
+pnpm test:e2e
 
 # Run tests with UI mode (for debugging)
-npm run test:e2e:ui
+pnpm test:e2e:ui
 
 # Run tests with debug mode
-npm run test:e2e:debug
+pnpm test:e2e:debug
 ```
 
 ### From the root directory
 
 ```bash
 # Run all tests 
-npm run test:e2e
+pnpm test:e2e
 
 # Run tests with UI mode
-npm run test:e2e:ui
+pnpm test:e2e:ui
 
 # Run tests with debug mode
-npm run test:e2e:debug
+pnpm test:e2e:debug
 ```
 
 ## Configuration
@@ -46,19 +46,19 @@ Tests are configured in `playwright.config.ts` at the root of the web applicatio
 ## Test Files
 
 ### Core Application Tests
-- `layout.spec.ts` - Basic application layout and navigation tests
-- `file-explorer.spec.ts` - File explorer functionality tests
-- `file-explorer-filters.spec.ts` - File type filtering tests
-- `theme-switching.spec.ts` - Theme switching functionality tests
-- `complete-workflow.spec.ts` - End-to-end workflow tests
+- `layout.test.ts` - Basic application layout and navigation tests
+- `file-explorer.test.ts` - File explorer functionality tests
+- `file-explorer-filters.test.ts` - File type filtering tests
+- `theme-switching.test.ts` - Theme switching functionality tests
+- `complete-workflow.test.ts` - End-to-end workflow tests
 
 ### Layout Persistence Tests
-- `layout-persistence.spec.ts` - Comprehensive IDE layout persistence tests
+- `layout-persistence.test.ts` - Comprehensive IDE layout persistence tests
   - Panel visibility persistence across page reloads
   - Panel resize persistence
   - Complex layout state management
   - Error handling and recovery scenarios
-- `layout-advanced.spec.ts` - Advanced layout scenarios and edge cases
+- `layout-advanced.test.ts` - Advanced layout scenarios and edge cases
   - Performance testing for rapid operations
   - Accessibility and keyboard navigation
   - Viewport size handling
@@ -70,7 +70,12 @@ Tests are configured in `playwright.config.ts` at the root of the web applicatio
 
 ## Writing Tests
 
-Place your test files in this directory with the `.spec.ts` extension. See existing tests for examples.
+Place your test files in this directory with the `.test.ts` extension. See existing tests for examples.
+
+Why `.test.ts` in 2025? Consistency across unit, integration, and E2E tests improves discoverability and tooling. Playwright supports both `.spec` and `.test`, and we standardize on `.test` to:
+- align naming with Vitest and our unit/integration conventions;
+- keep runner-agnostic file names (no leaky abstraction of the test framework);
+- simplify TypeScript and tooling exclude/include globs.
 
 ### Layout Testing Patterns
 
@@ -104,7 +109,7 @@ Tests run automatically in CI via GitHub Actions. The configuration:
 
 If you encounter issues:
 
-1. Ensure Playwright is installed: `npx playwright install`
-2. Check if Vite is running correctly: `npm run dev` 
-3. Try running with debug mode: `npm run test:e2e:debug`
-4. Inspect the Playwright report: `npx playwright show-report` 
+1. Ensure Playwright is installed: `pnpm exec playwright install`
+2. Check if Vite is running correctly: `pnpm dev` 
+3. Try running with debug mode: `pnpm test:e2e:debug`
+4. Inspect the Playwright report: `pnpm exec playwright show-report`

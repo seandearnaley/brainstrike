@@ -148,6 +148,31 @@ const ConfigDialogContainer: React.FC<
     folderSummaryThreshold: selectors.folderSummaryThreshold,
   }));
 
+  // Parse persisted settings once to avoid repeated JSON work on every dialog open
+  type PersistedSubset = {
+    includeFilters?: string[];
+    excludeFilters?: string[];
+    useRegex?: boolean;
+    maxSelectionCount?: number;
+    includeProjectTree?: boolean;
+    folderSummaryThreshold?: number;
+  };
+  const persistedSnapshot = React.useMemo<PersistedSubset | null>(() => {
+    try {
+      const raw = localStorage.getItem('file-explorer-storage-v4');
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as unknown;
+      const persisted = (
+        parsed && typeof parsed === 'object' && (parsed as { state?: PersistedSubset }).state
+          ? (parsed as { state: PersistedSubset }).state
+          : (parsed as PersistedSubset)
+      ) as PersistedSubset;
+      return persisted;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const handleSettingChange = useCallback(
     <K extends keyof FileExplorerSettings>(key: K, value: FileExplorerSettings[K]) => {
       setSettings((prev) => ({ ...prev, [key]: value }));
@@ -158,14 +183,26 @@ const ConfigDialogContainer: React.FC<
   // Ensure dialog reflects hydrated store values when opened
   React.useEffect(() => {
     if (!isOpen) return;
-    setSettings({
-      includeFilters: selectors.includeFilters,
-      excludeFilters: selectors.excludeFilters,
-      useRegex: selectors.useRegex,
-      maxSelectionCount: selectors.maxSelectionCount,
-      includeProjectTree: selectors.includeProjectTree,
-      folderSummaryThreshold: selectors.folderSummaryThreshold,
-    });
+    // Start with hydrated store values, then overlay any persisted snapshot fields
+    setSettings((prev) => ({
+      includeFilters:
+        persistedSnapshot?.includeFilters ?? selectors.includeFilters ?? prev.includeFilters,
+      excludeFilters:
+        persistedSnapshot?.excludeFilters ?? selectors.excludeFilters ?? prev.excludeFilters,
+      useRegex: persistedSnapshot?.useRegex ?? selectors.useRegex ?? prev.useRegex,
+      maxSelectionCount:
+        persistedSnapshot?.maxSelectionCount ??
+        selectors.maxSelectionCount ??
+        prev.maxSelectionCount,
+      includeProjectTree:
+        persistedSnapshot?.includeProjectTree ??
+        selectors.includeProjectTree ??
+        prev.includeProjectTree,
+      folderSummaryThreshold:
+        persistedSnapshot?.folderSummaryThreshold ??
+        selectors.folderSummaryThreshold ??
+        prev.folderSummaryThreshold,
+    }));
   }, [
     isOpen,
     selectors.includeFilters,
@@ -174,41 +211,8 @@ const ConfigDialogContainer: React.FC<
     selectors.maxSelectionCount,
     selectors.includeProjectTree,
     selectors.folderSummaryThreshold,
+    persistedSnapshot,
   ]);
-
-  // When opening the dialog after a page reload, Zustand may not have rehydrated yet.
-  // To avoid UI showing defaults (e.g., 10) briefly, read persisted settings directly.
-  type PersistedSubset = {
-    includeFilters?: string[];
-    excludeFilters?: string[];
-    useRegex?: boolean;
-    maxSelectionCount?: number;
-    includeProjectTree?: boolean;
-    folderSummaryThreshold?: number;
-  };
-  React.useEffect(() => {
-    if (!isOpen) return;
-    try {
-      const raw = localStorage.getItem('file-explorer-storage-v4');
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as unknown;
-      const persisted = (
-        parsed && typeof parsed === 'object' && (parsed as { state?: PersistedSubset }).state
-          ? (parsed as { state: PersistedSubset }).state
-          : (parsed as PersistedSubset)
-      ) as PersistedSubset;
-      setSettings((prev) => ({
-        includeFilters: persisted.includeFilters ?? prev.includeFilters,
-        excludeFilters: persisted.excludeFilters ?? prev.excludeFilters,
-        useRegex: persisted.useRegex ?? prev.useRegex,
-        maxSelectionCount: persisted.maxSelectionCount ?? prev.maxSelectionCount,
-        includeProjectTree: persisted.includeProjectTree ?? prev.includeProjectTree,
-        folderSummaryThreshold: persisted.folderSummaryThreshold ?? prev.folderSummaryThreshold,
-      }));
-    } catch {
-      // ignore parse errors
-    }
-  }, [isOpen]);
 
   return (
     <Popover open={isOpen} onOpenChange={setIsOpen}>

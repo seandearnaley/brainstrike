@@ -9,6 +9,8 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
+// Use shared hotspot helper from utils to ensure a single source of truth
+import { isCompilerHotspot } from '../../packages/utils/src/dev/is-compiler-hotspot.ts';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -114,14 +116,10 @@ const enableReactCompiler = true;
 
 // Force full reload (not HMR) on files that commonly change hook/memo shape
 function fullReloadOnCompilerHotspots() {
-  const HOTSPOTS = [
-    /packages\/(file-explorer-ui|file-explorer-hooks|hooks)\/src\/.*\.(ts|tsx)$/,
-    /packages\/file-explorer-ui\/src\/file-explorer-config\.tsx$/,
-  ];
   return {
     name: 'full-reload-on-compiler-hotspots',
     handleHotUpdate(ctx: { file: string; server: { ws: { send: (m: unknown) => void } } }) {
-      if (HOTSPOTS.some((re) => re.test(ctx.file))) {
+      if (isCompilerHotspot(ctx.file)) {
         ctx.server.ws.send({ type: 'full-reload' });
         return [];
       }
@@ -301,9 +299,9 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: [
       'src/**/__tests__/**/*.test.{ts,tsx}',
-      'src/**/__tests__/**/*.spec.{ts,tsx}',
+      'src/**/__tests__/**/*.test.{ts,tsx}',
       'src/**/*.test.{ts,tsx}',
-      'src/**/*.spec.{ts,tsx}',
+      'src/**/*.test.{ts,tsx}',
     ],
     exclude: [
       '**/node_modules/**',

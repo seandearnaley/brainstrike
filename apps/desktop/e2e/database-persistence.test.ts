@@ -125,7 +125,7 @@ test.describe('Database Persistence', () => {
     }
   });
 
-  // NOTE: The main persistence test has been moved to database-persistence-isolated.spec.ts
+  // NOTE: The main persistence test has been moved to database-persistence-isolated.test.ts
   // to avoid interference from parallel test execution
 
   test('should handle database errors gracefully', async () => {

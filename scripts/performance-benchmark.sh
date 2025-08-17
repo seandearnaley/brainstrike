@@ -45,7 +45,7 @@ run_test_iterations() {
         local output_file="$RESULTS_DIR/${output_prefix}_run_${i}.log"
         
         # Run test and capture output
-        pnpm exec playwright test real-world-performance.spec.ts -g "$test_grep" --timeout=120000 > "$output_file" 2>&1 || true
+        pnpm exec playwright test e2e/real-world-performance.test.ts -g "$test_grep" --timeout=120000 > "$output_file" 2>&1 || true
         
         cd - > /dev/null
         

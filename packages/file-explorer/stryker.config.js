@@ -22,7 +22,6 @@ const config = {
   mutate: [
     'src/**/*.ts',
     '!src/**/*.test.ts',
-    '!src/**/*.spec.ts',
     '!src/**/__tests__/**',
     '!src/**/__mocks__/**',
     '!src/persistence/worker-storage.worker.ts',
