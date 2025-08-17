@@ -6,19 +6,19 @@ This directory contains comprehensive end-to-end tests for the Brainstrike deskt
 
 ```bash
 # Run tests in UI mode (recommended for development)
-npm run test:e2e
+pnpm test:e2e
 
 # Run tests headlessly (for CI)
-npm run test:e2e:headless
+pnpm test:e2e:headless
 
 # Debug tests with inspector
-npm run test:e2e:debug
+pnpm test:e2e:debug
 
 # Type check E2E tests
-npm run type-check:e2e
+pnpm type-check:e2e
 
 # Lint E2E tests
-npm run lint
+pnpm lint
 ```
 
 ## 📁 Project Structure
@@ -31,9 +31,9 @@ e2e/
 │   └── electron-helpers.ts     # Electron-specific test utilities
 ├── page-objects/
 │   └── home-page.ts            # Page object model for main app interface
-├── app-launch.spec.ts          # App launching and window management tests
-├── file-system.spec.ts         # File system operations and permissions tests
-└── ipc-communication.spec.ts   # Inter-Process Communication tests
+├── app-launch.test.ts          # App launching and window management tests
+├── file-system.test.ts         # File system operations and permissions tests
+└── ipc-communication.test.ts   # Inter-Process Communication tests
 ```
 
 ## 🔧 Configuration
@@ -56,7 +56,7 @@ Key configuration features:
 
 ## 🧪 Test Categories
 
-### 1. App Launch Tests (`app-launch.spec.ts`)
+### 1. App Launch Tests (`app-launch.test.ts`)
 Tests fundamental Electron app functionality:
 - App launches successfully
 - Window management (resize, minimize, maximize)
@@ -64,7 +64,7 @@ Tests fundamental Electron app functionality:
 - Window state persistence
 - Basic user interactions
 
-### 2. File System Tests (`file-system.spec.ts`)
+### 2. File System Tests (`file-system.test.ts`)
 Tests file system operations specific to desktop:
 - Directory access permissions
 - File operations (read, write, delete)
@@ -72,7 +72,7 @@ Tests file system operations specific to desktop:
 - Error handling for invalid paths
 - State persistence across app restarts
 
-### 3. IPC Communication Tests (`ipc-communication.spec.ts`)
+### 3. IPC Communication Tests (`ipc-communication.test.ts`)
 Tests Inter-Process Communication between main and renderer:
 - Electron API availability
 - Storage operations via IPC
@@ -125,17 +125,17 @@ When tests fail, the following artifacts are captured:
 Access artifacts:
 ```bash
 # View HTML report with artifacts
-npx playwright show-report
+pnpm exec playwright show-report
 
 # View specific trace file
-npx playwright show-trace test-results/trace.zip
+pnpm exec playwright show-trace test-results/trace.zip
 ```
 
 ## 🔍 Debugging
 
 ### UI Mode (Recommended)
 ```bash
-npm run test:e2e
+pnpm test:e2e
 ```
 - Visual test runner
 - Step-by-step execution
@@ -144,7 +144,7 @@ npm run test:e2e
 
 ### Debug Mode
 ```bash
-npm run test:e2e:debug
+pnpm test:e2e:debug
 ```
 - Playwright Inspector
 - Breakpoint support
@@ -152,8 +152,8 @@ npm run test:e2e:debug
 
 ### Headless with Artifacts
 ```bash
-npm run test:e2e:headless
-npx playwright show-report
+pnpm test:e2e:headless
+pnpm exec playwright show-report
 ```
 
 ## 🚀 CI/CD Integration
@@ -167,17 +167,17 @@ The tests are configured for CI environments:
 Example GitHub Actions integration:
 ```yaml
 - name: Install dependencies
-  run: npm ci
+  run: pnpm install
 
 - name: Install Playwright browsers
-  run: npx playwright install --with-deps
+  run: pnpm exec playwright install --with-deps
 
 - name: Build desktop app
-  run: npm run build
+  run: pnpm build
   working-directory: apps/desktop
 
 - name: Run E2E tests
-  run: npm run test:e2e:headless
+  run: pnpm test:e2e:headless
   working-directory: apps/desktop
 
 - name: Upload test artifacts
@@ -187,6 +187,8 @@ Example GitHub Actions integration:
     name: playwright-report
     path: apps/desktop/test-results/
 ```
+
+Note on file naming (2025): We standardize on `.test.ts` across unit, integration, and E2E to keep naming runner-agnostic and consistent. Playwright recognizes both `.spec` and `.test`, but `.test` aligns with our Vitest conventions and simplifies TypeScript include/exclude globs.
 
 ## 🔧 Maintenance
 
@@ -225,12 +227,12 @@ When updating Playwright:
 - Check that `setupDialogMocking` is called in test setup
 
 **App fails to launch:**
-- Verify the app is built: `npm run build`
+- Verify the app is built: `pnpm build`
 - Check that `dist/main.js` exists
 - Review global setup logs
 
 **TypeScript errors:**
-- Use `npm run type-check:e2e` to check E2E types specifically
+- Use `pnpm type-check:e2e` to check E2E types specifically
 - Ensure `tsconfig.e2e.json` includes the correct files
 
 **Resource conflicts:**

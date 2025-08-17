@@ -58,7 +58,7 @@ run_performance_test() {
     cd "$WEB_DIR"
     
     # Run the comprehensive test and capture output
-    pnpm exec playwright test performance-regression-test.spec.ts -g "comprehensive performance comparison" --reporter=list > "$output_file" 2>&1 || {
+    pnpm exec playwright test e2e/performance/regression.test.ts -g "comprehensive performance comparison" --reporter=list > "$output_file" 2>&1 || {
         print_warning "Test failed, but that's expected for some scenarios"
     }
     

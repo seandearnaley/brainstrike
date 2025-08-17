@@ -88,13 +88,28 @@ if (typeof localStorage !== 'undefined') {
 }
 
 const STORE_KEY = '__brainstrike_file_explorer_store__' as const;
+const STORE_BRAND = '__brainstrike_store_brand__';
+const STORE_VERSION = 1 as const;
 const g = globalThis as unknown as Record<string, unknown>;
 type BoundStore = ReturnType<ReturnType<typeof create<FileExplorerState>>>;
-let storeSingleton = g[STORE_KEY] as BoundStore | undefined;
-if (!storeSingleton) {
+function isValidStore(candidate: unknown): candidate is BoundStore & { [k: string]: unknown } {
+  if (!candidate || typeof candidate !== 'function') return false;
+  const cand = candidate as unknown as {
+    getState?: unknown;
+    setState?: unknown;
+    [k: string]: unknown;
+  };
+  const hasAPI = typeof cand.getState === 'function' && typeof cand.setState === 'function';
+  const version = cand[STORE_BRAND];
+  return hasAPI && version === STORE_VERSION;
+}
+
+let storeSingleton = g[STORE_KEY] as unknown;
+if (!isValidStore(storeSingleton)) {
   storeSingleton = create<FileExplorerState>()(
     persist(stateCreator, createPersistOptions(defaultPersistStorageAdapter))
   );
+  (storeSingleton as Record<string, unknown>)[STORE_BRAND] = STORE_VERSION as unknown as number;
   g[STORE_KEY] = storeSingleton as unknown;
 }
 export const useFileExplorerStore = storeSingleton as BoundStore;

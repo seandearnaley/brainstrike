@@ -2,9 +2,17 @@
 
 import { exec } from 'child_process';
 
-// Skip lefthook installation in CI/build environments
-if (process.env.CI || process.env.VERCEL || process.env.NETLIFY || process.env.GITHUB_ACTIONS) {
-  console.log('🔧 Skipping lefthook installation in CI/build environment');
+// Skip lefthook installation in CI/build environments or when explicitly opted out
+const skipByEnv =
+  process.env.CI ||
+  process.env.VERCEL ||
+  process.env.NETLIFY ||
+  process.env.GITHUB_ACTIONS ||
+  process.env.SKIP_GIT_HOOKS === '1' ||
+  process.env.SKIP_LEFTHOOK_INSTALL === '1';
+
+if (skipByEnv) {
+  console.log('🔧 Skipping lefthook installation (CI/build or SKIP_* flag set)');
   process.exit(0);
 }
 

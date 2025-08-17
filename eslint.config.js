@@ -21,7 +21,7 @@ export default [
       '**/*.d.ts',
       '**/__tests__/**',
       '**/*.test.*',
-      '**/*.spec.*'
+      '**/*.test.*'
     ],
     plugins: { 'react-hooks': reactHooks },
     rules: {
@@ -44,5 +44,4 @@ export default [
     }
   }
 ];
-
 

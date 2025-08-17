@@ -79,7 +79,7 @@ test.describe('Complete File Explorer Workflow', () => {
     // Look for the file tree's Deselect All button (which shows when files are selected)
     await expect(page.getByRole('button', { name: 'Deselect All' })).toBeEnabled();
 
-    // Step 7: Use the EXACT working pattern from quick-filter.spec.ts
+    // Step 7: Use the EXACT working pattern from quick-filter.test.ts
     const filterInput = page.getByPlaceholder(
       "Type to filter files... (e.g. 'test component -spec')"
     );

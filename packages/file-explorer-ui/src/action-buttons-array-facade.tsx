@@ -1,10 +1,7 @@
 'use memo';
 
 import * as React from 'react';
-import { ActionButtons as InnerActionButtons } from './action-buttons';
-
-const ActionButtonsInner: React.ComponentType<Record<string, unknown>> =
-  InnerActionButtons as unknown as React.ComponentType<Record<string, unknown>>;
+import { ActionButtons } from './action-buttons';
 
 type Props = {
   displayedFiles: readonly string[];
@@ -18,9 +15,18 @@ type Props = {
   onCopyReport: () => void | Promise<void>;
 };
 
+// Reuse Set instances to reduce GC pressure for large arrays
+function useStableSet(source: readonly string[]) {
+  const ref = React.useRef<{ arr: readonly string[]; set: Set<string> } | null>(null);
+  if (!ref.current || ref.current.arr !== source) {
+    ref.current = { arr: source, set: new Set(source) };
+  }
+  return ref.current.set;
+}
+
 const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
-  const displayedSet = React.useMemo(() => new Set(props.displayedFiles), [props.displayedFiles]);
-  const selectedSet = React.useMemo(() => new Set(props.selectedFiles), [props.selectedFiles]);
+  const displayedSet = useStableSet(props.displayedFiles);
+  const selectedSet = useStableSet(props.selectedFiles);
 
   const setSelectedSet = React.useCallback(
     (nextSet: Set<string>) => {
@@ -30,7 +36,7 @@ const ActionButtonsArrayFacade: React.FC<Props> = (props) => {
   );
 
   return (
-    <ActionButtonsInner
+    <ActionButtons
       displayedFiles={displayedSet}
       selectedFilePaths={selectedSet}
       maxSelectionCount={props.maxSelectionCount}

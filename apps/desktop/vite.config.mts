@@ -7,6 +7,8 @@ import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
+// Use shared hotspot helper from utils to ensure a single source of truth
+import { isCompilerHotspot } from '../../packages/utils/src/dev/is-compiler-hotspot.ts';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -56,11 +58,10 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 const enableReactCompiler = true;
 
 function fullReloadOnCompilerHotspots() {
-  const HOTSPOT = /packages\/(file-explorer-ui|file-explorer-hooks|hooks)\/src\/.*\.(ts|tsx)$/;
   return {
     name: 'full-reload-on-compiler-hotspots',
     handleHotUpdate(ctx: { file: string; server: { ws: { send: (m: unknown) => void } } }) {
-      if (HOTSPOT.test(ctx.file)) {
+      if (isCompilerHotspot(ctx.file)) {
         ctx.server.ws.send({ type: 'full-reload' });
         return [] as unknown as undefined;
       }
