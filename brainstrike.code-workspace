@@ -13,7 +13,7 @@
       "path": "./apps/web"
     },
     {
-      "name": "Desktop App", 
+      "name": "Desktop App",
       "path": "./apps/desktop"
     },
     {
@@ -43,7 +43,7 @@
     "editor.formatOnSave": true,
     "editor.codeActionsOnSave": {
       "source.fixAll.biome": "explicit",
-      "source.organizeImports": "explicit"
+      "source.organizeImports.biome": "explicit"
     },
     "editor.defaultFormatter": "biomejs.biome",
     "[typescript]": { "editor.defaultFormatter": "biomejs.biome" },
@@ -244,7 +244,10 @@
     "compounds": [
       {
         "name": "Desktop: Main + Renderer",
-        "configurations": ["Desktop: Electron Main", "Desktop: Renderer (Chrome)"]
+        "configurations": [
+          "Desktop: Electron Main",
+          "Desktop: Renderer (Chrome)"
+        ]
       }
     ]
   }

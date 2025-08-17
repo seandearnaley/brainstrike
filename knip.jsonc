@@ -31,10 +31,7 @@
         "src/renderer/main.tsx" // Renderer entry point
       ],
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
         "electron-builder-squirrel-windows" // Required peer dependency for electron-builder Windows builds
       ],
@@ -55,20 +52,14 @@
     },
     "packages/hooks": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/utils": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -93,93 +84,64 @@
     },
     "packages/app-shell": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-explorer": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-explorer-hooks": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-explorer-ui": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-system": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/storage": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/server-config": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/test-utils": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/workers": {
-      "entry": [
-        "file-content-worker.ts"
-      ],
+      "entry": ["file-content-worker.ts"],
       "project": ["*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -200,40 +162,28 @@
     },
     "packages/embeddings": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-import": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/db": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/platform-utils": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": [
-        "**/__tests__/**",
-        "**/*.test.{ts,tsx}"
-      ],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -257,12 +207,11 @@
     // Ignore husky hook file
     ".husky/commit-msg.js",
     // Ignore Playwright merge config - used by CI workflows via shell commands
-    "playwright-merge.config.js"
-    // Removed specific file ignores from here as they are moved to apps/web workspace ignore
+    "playwright-merge.config.js",
+    "scripts/scan-hooks.cjs"
   ],
   // Keep existing global settings
-  "ignoreBinaries": [
-  ],
+  "ignoreBinaries": [],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
     "@monaco-editor/react",
@@ -283,4 +232,4 @@
     "duplicates": "off", // Keep user's rule setting
     "exports": "off" // Disable export checking for now due to false positives
   }
-} 
+}
