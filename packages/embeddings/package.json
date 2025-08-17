@@ -30,17 +30,17 @@
     "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\""
   },
   "dependencies": {
-    "@huggingface/transformers": "^3.7.1",
+    "@huggingface/transformers": "^3.7.2",
     "glob": "^11.0.3"
   },
   "devDependencies": {
-    "@types/node": "^24.1.0",
+    "@types/node": "^24.3.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {
-    "react": "^19.0.0"
+    "react": "^19.1.1"
   }
 }

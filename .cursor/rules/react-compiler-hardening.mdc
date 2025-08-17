@@ -1,0 +1,18 @@
+---
+globs: *.ts,*.tsx
+---
+# React Compiler Hardening Guidelines
+
+Use these patterns to keep components and hooks compiler-friendly and HMR-stable.
+
+## Core directives
+
+- Keep hook order constant in every render. Avoid any conditional hook calls.
+
+## Patterns to use
+
+- Constant dependency vectors: ensure `useMemo`/`useCallback` dependencies have a fixed length. Hoist constants.
+- Use refs to stabilize changing inputs when necessary (e.g., large Sets/Maps) instead of expanding dep arrays.
+- Compute derived data in a single `useMemo` with stable deps; avoid multiple interdependent memos.
+- Avoid mutating props or hook arguments. Create a local copy or use a setter callback.
+  - Example fix implemented in [`packages/ui/src/hooks/use-save-panel-state.ts`](mdc:packages/ui/src/hooks/use-save-panel-state.ts) and its usage in [`packages/ui/src/hooks/use-panel-persistence.ts`](mdc:packages/ui/src/hooks/use-panel-persistence.ts).

@@ -1,6 +1,6 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import type { FileExplorerState } from '@brainstrike/types'; // Import the state type
-import { useEffect, useState } from 'react';
+import type { FileExplorerState } from '@brainstrike/types';
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers';
 
@@ -8,97 +8,106 @@ interface UseFileSystemParams {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
 }
 
+type FileSystemState = {
+  rootDirectoryHandle: DirectoryHandle | null;
+  isAccessLoading: boolean;
+};
+
+type FileSystemAction =
+  | { type: 'setRoot'; handle: DirectoryHandle | null }
+  | { type: 'setAccessLoading'; loading: boolean };
+
+function reducer(state: FileSystemState, action: FileSystemAction): FileSystemState {
+  switch (action.type) {
+    case 'setRoot':
+      return { ...state, rootDirectoryHandle: action.handle };
+    case 'setAccessLoading':
+      return { ...state, isAccessLoading: action.loading };
+    default:
+      return state;
+  }
+}
+
 export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
-  const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
-  const [isAccessLoading, setIsAccessLoading] = useState(false);
-  const [hasAttemptedRestore, setHasAttemptedRestore] = useState(false);
+  'use memo';
   const { fileSystemAdapter } = useAdapters();
 
-  // Track if we're currently in the process of restoring to prevent concurrent attempts
-  const [isRestoring, setIsRestoring] = useState(false);
+  const [{ rootDirectoryHandle, isAccessLoading }, dispatch] = useReducer(reducer, {
+    rootDirectoryHandle: null,
+    isAccessLoading: false,
+  });
 
-  // Auto-restore last folder on desktop startup
-  // biome-ignore lint/correctness/useExhaustiveDependencies: We only want this to run once on mount
-  useEffect(() => {
-    // Only run once on mount when no folder is selected
-    if (hasAttemptedRestore || rootDirectoryHandle || isRestoring) {
-      return;
-    }
+  const hasAttemptedRestoreRef = useRef(false);
+  const isRestoringRef = useRef(false);
 
-    // Only attempt restore if the adapter supports it (desktop only)
-    if (!fileSystemAdapter.restoreLastFolder) {
-      setHasAttemptedRestore(true);
-      return;
-    }
-
-    const attemptAutoRestore = async () => {
-      setIsRestoring(true);
-      setHasAttemptedRestore(true);
-
-      try {
-        setIsAccessLoading(true);
-        const restoredHandle = await fileSystemAdapter.restoreLastFolder?.();
-
-        if (restoredHandle) {
-          // Batch state updates together to minimize re-renders
-          setRootDirectoryHandle(restoredHandle);
-          // Only update folder ID if setCurrentFolderId is provided
-          if (setCurrentFolderId) {
-            setCurrentFolderId(restoredHandle.name);
-          }
-        }
-      } catch (_error) {
-        // Silently fail - user can manually select folder
-      } finally {
-        setIsAccessLoading(false);
-        setIsRestoring(false);
-      }
-    };
-
-    void attemptAutoRestore();
-  }, []);
-
-  const isFileSystemAccessSupported = (): {
-    supported: boolean;
-    reason: string;
-  } => {
+  const isFileSystemAccessSupported = useCallback((): { supported: boolean; reason: string } => {
     const hasWebAPI =
       typeof (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker === 'function';
     const hasAdapterAPI = typeof fileSystemAdapter?.requestDirectoryAccess === 'function';
     if (hasWebAPI || hasAdapterAPI) return { supported: true, reason: '' };
-    return {
-      supported: false,
-      reason: 'File system access not supported in this environment',
-    };
-  };
+    return { supported: false, reason: 'File system access not supported in this environment' };
+  }, [fileSystemAdapter]);
 
-  const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
+  const selectRootDirectory = useCallback(async (): Promise<DirectoryHandle | null> => {
     const { supported, reason } = isFileSystemAccessSupported();
     if (!supported) {
       throw new Error(reason);
     }
-
-    setIsAccessLoading(true);
+    dispatch({ type: 'setAccessLoading', loading: true });
     try {
       const handle = await fileSystemAdapter.requestDirectoryAccess();
-      setRootDirectoryHandle(handle);
+      dispatch({ type: 'setRoot', handle });
       setCurrentFolderId(handle.name);
       return handle;
     } catch (error) {
       if (isUserCancellation(error)) {
         return null;
       }
-
       throw mapFileSystemError(error);
     } finally {
-      setIsAccessLoading(false);
+      dispatch({ type: 'setAccessLoading', loading: false });
     }
-  };
+  }, [fileSystemAdapter, isFileSystemAccessSupported, setCurrentFolderId]);
 
-  return {
-    rootDirectoryHandle,
-    isAccessLoading,
-    selectRootDirectory,
-    isFileSystemAccessSupported,
-  };
+  // Auto-restore last folder on startup (desktop only). Runs once and never changes hook order.
+  useEffect(() => {
+    if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
+      return;
+    }
+    hasAttemptedRestoreRef.current = true;
+    if (typeof fileSystemAdapter.restoreLastFolder !== 'function') {
+      return;
+    }
+    const run = async () => {
+      isRestoringRef.current = true;
+      dispatch({ type: 'setAccessLoading', loading: true });
+      try {
+        const restoreFn = (
+          fileSystemAdapter as { restoreLastFolder?: () => Promise<DirectoryHandle | null> }
+        ).restoreLastFolder;
+        if (!restoreFn) return;
+        const restored = await restoreFn();
+        if (restored) {
+          dispatch({ type: 'setRoot', handle: restored });
+          setCurrentFolderId(restored.name);
+        }
+      } catch (_err) {
+        // ignore
+      } finally {
+        dispatch({ type: 'setAccessLoading', loading: false });
+        isRestoringRef.current = false;
+      }
+    };
+    void run();
+  }, [fileSystemAdapter, rootDirectoryHandle, setCurrentFolderId]);
+
+  return useMemo(
+    () => ({
+      rootDirectoryHandle,
+      isAccessLoading,
+      selectRootDirectory,
+      isFileSystemAccessSupported,
+    }),
+    [rootDirectoryHandle, isAccessLoading, selectRootDirectory, isFileSystemAccessSupported]
+  );
 }

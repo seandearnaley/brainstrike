@@ -3,7 +3,7 @@ import {
   createReportGenerationWorker,
   type ProgressEvent as ReportProgressEvent,
 } from '@brainstrike/workers/report-generation-worker';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 
 interface UseReportGenerationProps {
   selectedFiles: Set<string>;
@@ -28,45 +28,77 @@ export function useReportGeneration({
   includeProjectTree,
   folderSummaryThreshold,
 }: UseReportGenerationProps) {
+  'use memo';
   const [isGenerating, setIsGenerating] = useState(false);
   const [progress, setProgress] = useState<ReportProgressEvent | null>(null);
 
+  const stablePayload = useMemo(
+    () => ({
+      selectedFiles,
+      fileContents,
+      rootDirectoryHandle,
+      includeFilters,
+      excludeFilters,
+      useRegex,
+      includeProjectTree,
+      folderSummaryThreshold,
+      fileSystemAdapter,
+    }),
+    [
+      selectedFiles,
+      fileContents,
+      rootDirectoryHandle,
+      includeFilters,
+      excludeFilters,
+      useRegex,
+      includeProjectTree,
+      folderSummaryThreshold,
+      fileSystemAdapter,
+    ]
+  );
+
+  const payloadRef = useRef(stablePayload);
+  // Keep the current payload synchronized without introducing conditional hooks.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  payloadRef.current = stablePayload;
+
   const generateReportWithContent = useCallback(async () => {
-    if (!rootDirectoryHandle) {
+    if (!payloadRef.current.rootDirectoryHandle) {
       throw new Error('No root directory selected');
     }
 
     setIsGenerating(true);
     setProgress({ loaded: 0, total: 1 });
     try {
-      const worker = createReportGenerationWorker(fileSystemAdapter ? { fileSystemAdapter } : {});
+      const {
+        fileSystemAdapter: adapter,
+        rootDirectoryHandle: stableRoot,
+        selectedFiles: s,
+        fileContents: fc,
+        includeFilters: inc,
+        excludeFilters: exc,
+        useRegex: rx,
+        includeProjectTree: proj,
+        folderSummaryThreshold: thr,
+      } = payloadRef.current;
+      const worker = createReportGenerationWorker(adapter ? { fileSystemAdapter: adapter } : {});
       return await worker(
         {
-          selectedFiles,
-          fileContents,
-          rootDirectoryHandle,
-          includeFilters,
-          excludeFilters,
-          useRegex,
-          includeProjectTree,
-          folderSummaryThreshold,
+          selectedFiles: s,
+          fileContents: fc,
+          rootDirectoryHandle: stableRoot as FileSystemDirectoryHandle | DirectoryHandle,
+          includeFilters: inc,
+          excludeFilters: exc,
+          useRegex: rx,
+          includeProjectTree: proj,
+          folderSummaryThreshold: thr,
         },
         (e: ReportProgressEvent) => setProgress(e)
       );
     } finally {
       setIsGenerating(false);
     }
-  }, [
-    selectedFiles,
-    fileContents,
-    rootDirectoryHandle,
-    fileSystemAdapter,
-    includeFilters,
-    excludeFilters,
-    useRegex,
-    includeProjectTree,
-    folderSummaryThreshold,
-  ]);
+  }, []);
 
   return {
     generateReportWithContent,

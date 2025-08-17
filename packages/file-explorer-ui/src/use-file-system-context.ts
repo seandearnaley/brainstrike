@@ -6,7 +6,7 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useEffect, useState } from 'react';
+import { useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 // Error message mappings for consistent user experience
@@ -44,56 +44,29 @@ function getUserFriendlyErrorMessage(errorMessage: string): string {
   return matchedPattern ? matchedPattern.message : errorMessage;
 }
 
-// Helper function to handle directory selection with proper error handling
-async function selectDirectoryWithErrorHandling(
-  coreApi: ReturnType<typeof useCoreFileSystem>,
-  setRootDirectoryHandle: (handle: DirectoryHandle | null) => void,
-  setIsAccessLoading: (loading: boolean) => void
+// Wrapper: error mapping only (no extra state/hooks)
+async function selectDirectoryWithErrorMapping(
+  coreApi: ReturnType<typeof useCoreFileSystem>
 ): Promise<DirectoryHandle | null> {
   const { supported, reason } = coreApi.isFileSystemAccessSupported();
-  if (!supported) {
-    throw new Error(reason);
-  }
-
-  setIsAccessLoading(true);
+  if (!supported) throw new Error(reason);
   try {
-    const handle = await coreApi.selectRootDirectory();
-    if (handle) {
-      setRootDirectoryHandle(handle);
-    }
-    return handle;
+    return await coreApi.selectRootDirectory();
   } catch (error) {
     const errorMessage =
       error instanceof Error
         ? getUserFriendlyErrorMessage(error.message)
         : ERROR_MESSAGES.genericError;
     throw new Error(errorMessage);
-  } finally {
-    setIsAccessLoading(false);
   }
 }
 
 export function useFileSystem() {
-  const [rootDirectoryHandle, setRootDirectoryHandle] = useState<DirectoryHandle | null>(null);
-  const [isAccessLoading, setIsAccessLoading] = useState(false);
+  'use memo';
   const store = useFileExplorerStoreContext();
-  const { setCurrentFolderId } = store((s) => ({ setCurrentFolderId: s.setCurrentFolderId }));
+  const setCurrentFolderId = store((s) => s.setCurrentFolderId);
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
-
-  // Sync with core hook's auto-restored state
-  useEffect(() => {
-    if (coreApi.rootDirectoryHandle && !rootDirectoryHandle) {
-      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
-    }
-  }, [coreApi.rootDirectoryHandle, rootDirectoryHandle]);
-
-  // Also sync loading state
-  useEffect(() => {
-    if (coreApi.isAccessLoading !== isAccessLoading) {
-      setIsAccessLoading(coreApi.isAccessLoading);
-    }
-  }, [coreApi.isAccessLoading, isAccessLoading]);
 
   const isFileSystemAccessSupported = (): {
     supported: boolean;
@@ -103,13 +76,16 @@ export function useFileSystem() {
   };
 
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
-    return selectDirectoryWithErrorHandling(coreApi, setRootDirectoryHandle, setIsAccessLoading);
+    return selectDirectoryWithErrorMapping(coreApi);
   };
 
-  return {
-    rootDirectoryHandle,
-    isAccessLoading,
-    selectRootDirectory,
-    isFileSystemAccessSupported,
-  };
+  return useMemo(
+    () => ({
+      rootDirectoryHandle: coreApi.rootDirectoryHandle,
+      isAccessLoading: coreApi.isAccessLoading,
+      selectRootDirectory,
+      isFileSystemAccessSupported,
+    }),
+    [coreApi.rootDirectoryHandle, coreApi.isAccessLoading, selectRootDirectory]
+  );
 }

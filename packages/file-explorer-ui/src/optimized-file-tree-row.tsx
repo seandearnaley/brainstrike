@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import { memo, useCallback, useMemo } from 'react';
-import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 interface OptimizedFileTreeRowProps {
@@ -80,20 +79,10 @@ const OptimizedFileTreeRow = memo<OptimizedFileTreeRowProps>(
     children,
   }) => {
     const store = useFileExplorerStoreContext();
-    const {
-      selectedFilePaths,
-      maxSelectionCount,
-      addMultipleSelectedFiles,
-      removeMultipleSelectedFiles,
-    } = store(
-      (s) => ({
-        selectedFilePaths: s.selectedFilePaths,
-        maxSelectionCount: s.maxSelectionCount,
-        addMultipleSelectedFiles: s.addMultipleSelectedFiles,
-        removeMultipleSelectedFiles: s.removeMultipleSelectedFiles,
-      }),
-      shallow
-    );
+    const selectedFilePaths = store((s) => s.selectedFilePaths);
+    const maxSelectionCount = store((s) => s.maxSelectionCount);
+    const addMultipleSelectedFiles = store((s) => s.addMultipleSelectedFiles);
+    const removeMultipleSelectedFiles = store((s) => s.removeMultipleSelectedFiles);
 
     // Memoize expensive calculations
     const allFilePaths = useMemo(

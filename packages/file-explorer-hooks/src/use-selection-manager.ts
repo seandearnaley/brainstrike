@@ -24,21 +24,23 @@ export const useSelectionManager = ({
     (newFilePaths: string[]) => {
       const uniqueNewPaths = new Set(newFilePaths);
       const currentCount = selectedFilePaths.size;
-      const additionalCount = Array.from(uniqueNewPaths).filter(
-        (path) => !selectedFilePaths.has(path)
-      ).length;
+      let additionalCount = 0;
+      for (const path of uniqueNewPaths) {
+        if (!selectedFilePaths.has(path)) additionalCount += 1;
+      }
       return currentCount + additionalCount > maxSelectionCount;
     },
     [selectedFilePaths, maxSelectionCount]
   );
 
   const handleSelectionChange = useCallback(
-    (selectedFiles: Set<string>) => {
-      if (wouldExceedSelectionLimit(Array.from(selectedFiles))) {
+    (nextSelectedFiles: Set<string>) => {
+      const nextArray = Array.from(nextSelectedFiles);
+      if (wouldExceedSelectionLimit(nextArray)) {
         onSelectionLimitExceeded();
         return;
       }
-      setSelectedFiles(selectedFiles);
+      setSelectedFiles(new Set(nextArray));
     },
     [wouldExceedSelectionLimit, onSelectionLimitExceeded, setSelectedFiles]
   );

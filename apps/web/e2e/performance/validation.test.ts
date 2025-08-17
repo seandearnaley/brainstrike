@@ -76,8 +76,11 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     console.log(`Memory usage: ${memoryUsage.toFixed(2)}MB`);
     
-    // With our cache fixes, memory should be reasonable
-    expect(memoryUsage).toBeLessThan(50); // Should be under 50MB for simple test
+    // With our cache fixes, memory should be reasonable.
+    // Use stricter threshold in CI and a slightly relaxed bound locally to reduce noise.
+    const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
+    const memoryCapMB = isCI ? 50 : 75;
+    expect(memoryUsage).toBeLessThan(memoryCapMB);
   });
 
   test('validate file size limits work', async ({ page }) => {

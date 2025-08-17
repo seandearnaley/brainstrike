@@ -1,7 +1,6 @@
 import type { IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
-import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import OptimizedFileTreeRow, { ROW_HEIGHT } from './optimized-file-tree-row';
 import { useVirtualList } from './use-virtual-list';
@@ -32,33 +31,17 @@ interface IOptimizedFileTreeProps {
 const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
   ({ fileTree, loadingFiles, onRender, folderId }) => {
     const store = useFileExplorerStoreContext();
-    const {
-      expandedDirectoryPaths,
-      toggleDirectoryExpansion,
-      addSelectedFile,
-      removeSelectedFile,
-    } = store(
-      (s) => ({
-        expandedDirectoryPaths: s.expandedDirectoryPaths,
-        toggleDirectoryExpansion: s.toggleDirectoryExpansion,
-        addSelectedFile: s.addSelectedFile,
-        removeSelectedFile: s.removeSelectedFile,
-      }),
-      shallow
-    );
+    const expandedDirectoryPaths = store((s) => s.expandedDirectoryPaths);
+    const toggleDirectoryExpansion = store((s) => s.toggleDirectoryExpansion);
+    const toggleSelectedFile = store((s) => s.toggleSelectedFile);
 
     // Immediate file selection for better responsiveness
     const handleToggleFileSelection = useCallback(
       (path: string) => {
-        const encodedPath = encodeFileSelection(folderId, path);
-        const isSelected = store.getState().selectedFilePaths.has(encodedPath);
-        if (isSelected) {
-          removeSelectedFile(folderId, path);
-        } else {
-          addSelectedFile(folderId, path);
-        }
+        if (!folderId) return;
+        toggleSelectedFile(folderId, path);
       },
-      [folderId, addSelectedFile, removeSelectedFile, store]
+      [folderId, toggleSelectedFile]
     );
 
     // Optimized tree flattening with better memoization
@@ -110,7 +93,9 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
             isExpanded={expandedDirectoryPaths.has(node.path)}
             onToggleDirectoryExpansion={toggleDirectoryExpansion}
             onToggleFileSelection={handleToggleFileSelection}
-            isLoading={loadingFiles.has(encodeFileSelection(folderId, node.path))}
+            isLoading={
+              folderId ? loadingFiles.has(encodeFileSelection(folderId, node.path)) : false
+            }
             folderId={folderId}
             style={{
               position: 'absolute',

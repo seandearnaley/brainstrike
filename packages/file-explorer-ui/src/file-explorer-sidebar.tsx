@@ -86,7 +86,7 @@ const FileExplorerSidebar: React.FC<FileExplorerSidebarProps> = ({
               fileTree={quickFilteredTree}
               loadingFiles={loadingFiles}
               onRender={onTreeRender || undefined}
-              folderId={currentFolderId || ''}
+              folderId={(rootDirectoryHandle?.name ?? currentFolderId ?? '') as string}
             />
           ) : (
             <EmptyState

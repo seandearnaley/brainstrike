@@ -1,7 +1,6 @@
-import type { IFileNode } from '@brainstrike/types';
+import type { FileExplorerState, IFileNode } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
 import { memo, useCallback, useEffect, useMemo } from 'react';
-import { shallow } from 'zustand/shallow';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileTreeRow, { ROW_HEIGHT } from './file-tree-row';
 import { useVirtualList } from './use-virtual-list';
@@ -21,24 +20,21 @@ interface IFileTreeProps {
  * @param {(() => void) | undefined} onRender - An optional callback function that is triggered when the tree component renders (primarily for testing).
  * @param {string} folderId - The identifier for the current folder context, used for selection and expansion state.
  */
+// Hoisted selectors to avoid recreating lambdas per render and keep dependency arity constant
+const selectExpandedDirectoryPaths = (s: FileExplorerState) => s.expandedDirectoryPaths;
+const selectSelectedFilePaths = (s: FileExplorerState) => s.selectedFilePaths;
+const selectToggleDirectoryExpansion = (s: FileExplorerState) => s.toggleDirectoryExpansion;
+const selectAddSelectedFile = (s: FileExplorerState) => s.addSelectedFile;
+const selectRemoveSelectedFile = (s: FileExplorerState) => s.removeSelectedFile;
+
 const FileTree = memo<IFileTreeProps>(({ fileTree, loadingFiles, onRender, folderId }) => {
+  'use memo';
   const store = useFileExplorerStoreContext();
-  const {
-    expandedDirectoryPaths,
-    selectedFilePaths,
-    toggleDirectoryExpansion,
-    addSelectedFile,
-    removeSelectedFile,
-  } = store(
-    (s) => ({
-      expandedDirectoryPaths: s.expandedDirectoryPaths,
-      selectedFilePaths: s.selectedFilePaths,
-      toggleDirectoryExpansion: s.toggleDirectoryExpansion,
-      addSelectedFile: s.addSelectedFile,
-      removeSelectedFile: s.removeSelectedFile,
-    }),
-    shallow
-  );
+  const expandedDirectoryPaths = store(selectExpandedDirectoryPaths);
+  const selectedFilePaths = store(selectSelectedFilePaths);
+  const toggleDirectoryExpansion = store(selectToggleDirectoryExpansion);
+  const addSelectedFile = store(selectAddSelectedFile);
+  const removeSelectedFile = store(selectRemoveSelectedFile);
 
   const handleToggleFileSelection = useCallback(
     (path: string) => {

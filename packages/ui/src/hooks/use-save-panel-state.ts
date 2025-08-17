@@ -9,7 +9,8 @@ const STORAGE_KEY = 'panelLayout.v1';
 const SAVE_DEBOUNCE_MS = 250;
 
 export function useSavePanelState(
-  lastSavedRef: React.MutableRefObject<PanelPersistenceState | null>
+  onSaved: (state: PanelPersistenceState) => void,
+  getLastSaved: () => PanelPersistenceState | null
 ): { persist: (state: PanelPersistenceState) => void } {
   const pendingRef = useRef<PanelPersistenceState | null>(null);
 
@@ -22,13 +23,13 @@ export function useSavePanelState(
         } else if (typeof window !== 'undefined') {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
         }
-        lastSavedRef.current = stateToSave;
+        onSaved(stateToSave);
       } catch (_error) {
         if (isDevEnv()) {
         }
       }
     },
-    [lastSavedRef]
+    [onSaved]
   );
 
   const { run, flush } = createDebounce(save, SAVE_DEBOUNCE_MS);
@@ -36,11 +37,12 @@ export function useSavePanelState(
   const persist = useCallback(
     (state: PanelPersistenceState) => {
       if (pendingRef.current && statesEqual(pendingRef.current, state)) return;
-      if (!pendingRef.current && statesEqual(lastSavedRef.current, state)) return;
+      const lastSaved = getLastSaved();
+      if (!pendingRef.current && statesEqual(lastSaved, state)) return;
       pendingRef.current = state;
       run(state);
     },
-    [lastSavedRef, run]
+    [run, getLastSaved]
   );
 
   const flushPending = useCallback(() => {

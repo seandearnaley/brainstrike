@@ -63,13 +63,16 @@ it('memoizes renders when props are unchanged', () => {
   vi.mocked(useFileExplorerStoreContext).mockReturnValue(store);
 
   const { rerender } = render(<OptimizedFileTreeRow {...baseFileProps} />);
-  expect(store).toHaveBeenCalledTimes(1);
+  const initialCalls = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+  expect(initialCalls).toBeGreaterThan(0);
 
   rerender(<OptimizedFileTreeRow {...baseFileProps} />);
-  expect(store).toHaveBeenCalledTimes(1);
+  const afterSameProps = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+  expect(afterSameProps).toBe(initialCalls);
 
   rerender(<OptimizedFileTreeRow {...baseFileProps} isExpanded />);
-  expect(store).toHaveBeenCalledTimes(2);
+  const afterPropChange = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+  expect(afterPropChange).toBeGreaterThan(initialCalls);
 });
 
 it('triggers directory expansion callback', async () => {

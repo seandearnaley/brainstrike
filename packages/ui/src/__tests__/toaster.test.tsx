@@ -91,7 +91,10 @@ describe('Toaster', () => {
     });
 
     render(<Toaster />);
-    const toastElement = screen.getByText('Destructive Toast').closest('[role="status"]');
+    const host = screen
+      .getByText('Destructive Toast')
+      .closest('[data-state], [role="status"], [role="alert"]');
+    const toastElement = host;
     expect(toastElement).toHaveClass('destructive');
   });
 
@@ -108,7 +111,9 @@ describe('Toaster', () => {
     });
 
     render(<Toaster />);
-    const toastElement = screen.getByText('Custom Toast').closest('[role="status"]');
+    const toastElement = screen
+      .getByText('Custom Toast')
+      .closest('[data-state], [role="status"], [role="alert"]');
     expect(toastElement).toHaveClass('custom-class');
   });
 
@@ -126,9 +131,10 @@ describe('Toaster', () => {
     render(<Toaster />);
 
     // Find all status elements and filter for the one with our test class
-    const toastElement = screen
-      .getAllByRole('status')
-      .find((element) => element.classList.contains('test-toast'));
+    const allCandidates = Array.from(
+      document.querySelectorAll('[data-state], [role]')
+    ) as HTMLElement[];
+    const toastElement = allCandidates.find((element) => element.classList.contains('test-toast'));
 
     expect(toastElement).toBeInTheDocument();
     expect(screen.queryByRole('heading')).not.toBeInTheDocument();

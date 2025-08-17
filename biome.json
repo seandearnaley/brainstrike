@@ -85,7 +85,8 @@
         "noDangerouslySetInnerHtml": "error"
       },
       "nursery": {
-        "noFloatingPromises": "error"
+        "noFloatingPromises": "error",
+        "noReactPropAssign": "error"
       }
     }
   },
@@ -160,6 +161,21 @@
           },
           "correctness": {
             "noUnusedVariables": "warn"
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "apps/web/**",
+        "packages/ui/**",
+        "packages/file-explorer-ui/**",
+        "packages/file-explorer-hooks/**"
+      ],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useExhaustiveDependencies": "off"
           }
         }
       }

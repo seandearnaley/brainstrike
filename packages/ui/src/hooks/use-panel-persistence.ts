@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
 import { useLoadPanelState } from './use-load-panel-state';
@@ -17,7 +17,15 @@ export function usePanelPersistence(
     defaultShowRightPanel
   );
 
-  const { persist } = useSavePanelState(lastSavedRef);
+  // Track last-saved state locally to avoid mutating a value returned from another hook
+  const lastSavedLocalRef = useRef<PanelPersistenceState | null>(lastSavedRef.current);
+
+  const { persist } = useSavePanelState(
+    (saved) => {
+      lastSavedLocalRef.current = saved;
+    },
+    () => lastSavedLocalRef.current
+  );
 
   const saveLayout = useCallback(
     (

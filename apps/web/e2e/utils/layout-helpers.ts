@@ -47,7 +47,8 @@ export function getPanelElements(page: Page): PanelElements {
  * This is useful to ensure tests don't start before the UI is fully initialized.
  */
 export async function waitForAppLoad(page: Page, timeout = 10000) {
-  await expect(page.locator('body')).not.toBeEmpty({ timeout });
+  // Wait for the app root to attach instead of relying on body text content
+  await page.waitForSelector('#root', { state: 'attached', timeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
   await page.waitForSelector('[data-panel-id="middle-panel"]', {
     state: 'attached',

@@ -1,9 +1,4 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import {
-  FileExplorerErrorBoundary,
-  FileExplorerToolbar,
-  LoadingOverlay,
-} from '@brainstrike/file-explorer-ui';
 import { useQuickFilter, useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
@@ -18,23 +13,25 @@ import { encodeFileSelection } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { shallow } from 'zustand/shallow';
+import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
+import { FileExplorerToolbar } from './file-explorer-toolbar';
+import { LoadingOverlay } from './loading-overlay';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
-// Lazy load the sidebar component
+// Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
 const FileExplorerSidebar = lazy(() =>
-  import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.FileExplorerSidebar as unknown as React.ComponentType<Record<string, unknown>>,
+  import('./file-explorer-sidebar').then((m) => ({
+    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
-// Lazy load action buttons
+// Lazy load array facade for action buttons
 const ActionButtons = lazy(() =>
-  import('@brainstrike/file-explorer-ui').then((m) => ({
-    default: m.ActionButtons as unknown as React.ComponentType<Record<string, unknown>>,
+  import('./action-buttons-array-facade').then((m) => ({
+    default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
 
@@ -55,7 +52,7 @@ function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
 export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const { fileSystemAdapter } = useAdapters();
   const store = useFileExplorerStoreContext();
-  const {
+  const [
     includeFilters,
     excludeFilters,
     useRegex,
@@ -65,19 +62,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
-  } = store(
-    (s) => ({
-      includeFilters: s.includeFilters,
-      excludeFilters: s.excludeFilters,
-      useRegex: s.useRegex,
-      setFilters: s.setFilters,
-      currentFolderId: s.currentFolderId,
-      setCurrentFolderId: s.setCurrentFolderId,
-      maxSelectionCount: s.maxSelectionCount,
-      includeProjectTree: s.includeProjectTree,
-      folderSummaryThreshold: s.folderSummaryThreshold,
-    }),
-    shallow
+  ] = store(
+    (s) =>
+      [
+        s.includeFilters,
+        s.excludeFilters,
+        s.useRegex,
+        s.setFilters,
+        s.currentFolderId,
+        s.setCurrentFolderId,
+        s.maxSelectionCount,
+        s.includeProjectTree,
+        s.folderSummaryThreshold,
+      ] as const
   );
 
   // Local state for UI
@@ -106,12 +103,17 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     // Selection limit handling is managed by action buttons
   }, []);
 
-  const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
+  const { selectedFilesList, setSelectedFilesFromList } = useSelectionManager({
     onSelectionLimitExceeded,
   });
+  // Back-compat for older test mocks that don't provide new fields
+  const safeSelectedFilesList: string[] = Array.isArray(selectedFilesList) ? selectedFilesList : [];
+  const safeSetSelectedFilesFromList =
+    (setSelectedFilesFromList as undefined | ((l: readonly string[]) => void)) ?? (() => {});
 
+  // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
-    selectedFiles: selectedFilePaths,
+    selectedFiles: new Set(selectedFilesList),
     fileContents,
     rootDirectoryHandle: rootDirectoryHandle ?? undefined,
     fileSystemAdapter,
@@ -136,6 +138,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     showToast,
     toast,
   });
+
+  // We no longer surface these here; wired in PreviewPanel footer instead.
+  // Keeping creation here would be unused, so omit to satisfy TS strict mode.
 
   // Convert string filterError to Error object for compatibility with FileExplorerSidebar
   const filterErrorAsError = useMemo(() => {
@@ -162,6 +167,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     displayedFilesRef.current = visible;
     return visible;
   }, [quickFilteredTree]);
+  const displayedFileList = useMemo(() => Array.from(displayedFiles), [displayedFiles]);
 
   const handleRefresh = useCallback(async () => {
     if (!rootDirectoryHandle) return;
@@ -219,11 +225,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   useEffect(() => {
     if (rootDirectoryHandle) {
-      // Only set the folder ID if it's different from the current one
-      // This prevents clearing selections when the same directory is already selected
+      const id = rootDirectoryHandle.name;
       const currentState = store.getState();
-      if (currentState.currentFolderId !== rootDirectoryHandle.name) {
-        setCurrentFolderId(rootDirectoryHandle.name);
+      if (currentState.currentFolderId !== id) {
+        // set id synchronously (no extra async)
+        setCurrentFolderId(id);
       }
     } else {
       setCurrentFolderId(null);
@@ -279,6 +285,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             clearQuickFilter={clearFilter}
             isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
+            selectedCount={safeSelectedFilesList.length}
+            maxSelectionCount={maxSelectionCount}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus
@@ -352,7 +360,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           )}
 
           {/* Scrollable content */}
-          <div className="h-full">
+          <div className="overflow-y-auto h-full">
             <Suspense fallback={<LoadingFallback />}>
               <FileExplorerSidebar
                 rootDirectoryHandle={rootDirectoryHandle}
@@ -373,11 +381,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         <div className="shrink-0 px-4 py-3 border-t bg-gradient-to-t from-muted/20 to-transparent">
           <Suspense fallback={<LoadingFallback />}>
             <ActionButtons
-              displayedFiles={displayedFiles}
-              selectedFilePaths={selectedFilePaths}
+              displayedFiles={displayedFileList}
+              selectedFiles={safeSelectedFilesList}
               maxSelectionCount={maxSelectionCount}
-              currentFolderId={currentFolderId}
-              setSelectedFiles={handleSelectionChange}
+              currentFolderId={(rootDirectoryHandle?.name ?? currentFolderId) as string | null}
+              setSelectedFiles={safeSetSelectedFilesFromList}
               encodeFileSelection={encodeFileSelection}
               onSelectionLimitExceeded={() => {}}
               onDownloadReport={handleDownloadReport}

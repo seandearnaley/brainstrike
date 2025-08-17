@@ -37,12 +37,215 @@
     "typescript.preferences.includePackageJsonAutoImports": "on",
     "typescript.enablePromptUseWorkspaceTsdk": true,
     "typescript.workspaceSymbols.scope": "allOpenProjects",
-    "typescript.tsdk": "node_modules/typescript/lib"
+    "typescript.tsdk": "node_modules/typescript/lib",
+
+    // Editor & formatting
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.biome": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.defaultFormatter": "biomejs.biome",
+    "[typescript]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[typescriptreact]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[javascript]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[javascriptreact]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[json]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[jsonc]": { "editor.defaultFormatter": "biomejs.biome" },
+    "[css]": { "editor.defaultFormatter": "biomejs.biome" },
+
+    // TypeScript ergonomics
+    "typescript.preferences.preferTypeOnlyAutoImports": true,
+    "typescript.tsserver.maxTsServerMemory": 4096,
+
+    // Performance: hide large outputs from Explorer/search/watchers
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/.turbo": true,
+      "**/.vite": true,
+      "**/dist": true,
+      "**/build": true,
+      "**/coverage": true,
+      "**/playwright-report": true,
+      "**/test-results": true,
+      "apps/desktop/release": true
+    },
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/.turbo": true,
+      "**/.vite": true,
+      "**/dist": true,
+      "**/build": true,
+      "**/coverage": true,
+      "**/playwright-report": true,
+      "**/test-results": true
+    },
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/.turbo/**": true,
+      "**/.vite/**": true,
+      "**/dist/**": true,
+      "**/build/**": true,
+      "**/coverage/**": true,
+      "**/playwright-report/**": true,
+      "**/test-results/**": true
+    }
   },
   "extensions": {
     "recommendations": [
       "biomejs.biome",
-      "ms-vscode.vscode-typescript-next"
+      "ms-vscode.vscode-typescript-next",
+      "bradlc.vscode-tailwindcss",
+      "vitest.explorer",
+      "ms-playwright.playwright"
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "install",
+        "type": "shell",
+        "command": "pnpm install",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "build",
+        "type": "shell",
+        "command": "pnpm build",
+        "group": { "kind": "build", "isDefault": true },
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "lint",
+        "type": "shell",
+        "command": "pnpm lint",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "format",
+        "type": "shell",
+        "command": "pnpm format",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "type-check",
+        "type": "shell",
+        "command": "pnpm type-check",
+        "problemMatcher": "\u0024tsc",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "test",
+        "type": "shell",
+        "command": "pnpm test",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "test:e2e",
+        "type": "shell",
+        "command": "pnpm test:e2e",
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+
+      // Dev servers (background)
+      {
+        "label": "web: dev",
+        "type": "shell",
+        "command": "pnpm dev --filter @brainstrike/web",
+        "isBackground": true,
+        "problemMatcher": {
+          "owner": "vite-web",
+          "pattern": [{ "regexp": ".*" }],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".*VITE.*",
+            "endsPattern": ".*Local:.*http(s)?://localhost:8080.*"
+          }
+        },
+        "options": { "cwd": "${workspaceFolder:Root}" }
+      },
+      {
+        "label": "desktop: dev:renderer (bg)",
+        "type": "shell",
+        "command": "pnpm --dir apps/desktop run dev:renderer",
+        "isBackground": true,
+        "problemMatcher": {
+          "owner": "vite-desktop",
+          "pattern": [{ "regexp": ".*" }],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".*VITE.*",
+            "endsPattern": ".*Local:.*http(s)?://localhost:8081.*"
+          }
+        },
+        "options": { "cwd": "${workspaceFolder:Desktop App}" }
+      },
+      {
+        "label": "desktop: build:main",
+        "type": "shell",
+        "command": "pnpm --dir apps/desktop run build:main",
+        "options": { "cwd": "${workspaceFolder:Desktop App}" }
+      },
+      {
+        "label": "desktop: dev env",
+        "dependsOn": ["desktop: build:main", "desktop: dev:renderer (bg)"]
+      }
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Web: Launch Chrome",
+        "type": "chrome",
+        "request": "launch",
+        "url": "http://localhost:8080",
+        "webRoot": "${workspaceFolder:Web App}",
+        "preLaunchTask": "web: dev"
+      },
+      {
+        "name": "Web: Vitest (current file)",
+        "type": "node",
+        "request": "launch",
+        "cwd": "${workspaceFolder:Web App}",
+        "program": "${workspaceFolder:Web App}/node_modules/vitest/vitest.mjs",
+        "args": ["run", "--inspect-brk", "${file}"],
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+      },
+      {
+        "name": "Desktop: Electron Main",
+        "type": "node",
+        "request": "launch",
+        "cwd": "${workspaceFolder:Desktop App}",
+        "runtimeExecutable": "${workspaceFolder:Desktop App}/node_modules/.bin/electron",
+        "args": [".", "--no-sandbox"],
+        "env": { "ELECTRON_START_URL": "http://localhost:8081" },
+        "preLaunchTask": "desktop: dev env",
+        "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+      },
+      {
+        "name": "Desktop: Renderer (Chrome)",
+        "type": "chrome",
+        "request": "launch",
+        "url": "http://localhost:8081",
+        "webRoot": "${workspaceFolder:Desktop App}",
+        "preLaunchTask": "desktop: dev:renderer (bg)"
+      },
+      {
+        "name": "Playwright: Web (UI mode)",
+        "type": "node-terminal",
+        "request": "launch",
+        "command": "pnpm test:e2e:ui",
+        "cwd": "${workspaceFolder:Root}"
+      }
+    ],
+    "compounds": [
+      {
+        "name": "Desktop: Main + Renderer",
+        "configurations": ["Desktop: Electron Main", "Desktop: Renderer (Chrome)"]
+      }
     ]
   }
-} 
+}

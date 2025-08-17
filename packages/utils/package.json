@@ -39,7 +39,7 @@
   },
   "devDependencies": {
     "@swc/core": "^1.13.3",
-    "@types/node": "^24.1.0",
+    "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
