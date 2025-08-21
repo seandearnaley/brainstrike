@@ -155,34 +155,13 @@ const OptimizedFileTree = memo<IOptimizedFileTreeProps>(
 
 OptimizedFileTree.displayName = 'OptimizedFileTree';
 
-// Enhanced memoization comparison
+// Lightweight memoization: rely on reference equality to avoid O(n) comparisons
 const OptimizedFileTreeMemoized = memo(OptimizedFileTree, (prevProps, nextProps) => {
-  // Only re-render if essential props changed
   if (prevProps.folderId !== nextProps.folderId) return false;
   if (prevProps.onRender !== nextProps.onRender) return false;
-
-  // Deep comparison for fileTree (expensive but necessary)
-  if (prevProps.fileTree.length !== nextProps.fileTree.length) return false;
-
-  // Check if fileTree structure actually changed
-  for (let i = 0; i < prevProps.fileTree.length; i++) {
-    const prevNode = prevProps.fileTree[i];
-    const nextNode = nextProps.fileTree[i];
-
-    if (prevNode?.path !== nextNode?.path) return false;
-    if (prevNode?.type !== nextNode?.type) return false;
-    if (prevNode?.isVisible !== nextNode?.isVisible) return false;
-  }
-
-  // Check loading files set
-  if (prevProps.loadingFiles.size !== nextProps.loadingFiles.size) return false;
-
-  // Quick set comparison for loading files
-  for (const file of prevProps.loadingFiles) {
-    if (!nextProps.loadingFiles.has(file)) return false;
-  }
-
-  return true; // Props are equal, skip re-render
+  if (prevProps.fileTree !== nextProps.fileTree) return false;
+  if (prevProps.loadingFiles !== nextProps.loadingFiles) return false;
+  return true;
 });
 
 export default OptimizedFileTreeMemoized;

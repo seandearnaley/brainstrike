@@ -1,5 +1,30 @@
 import type { IFileNode } from '@brainstrike/types';
 
+/**
+ * Options controlling how adapters read a directory.
+ *
+ * Defaults are chosen to preserve existing behavior while enabling performance tuning:
+ *  - includeMetadata: true (fetch file size/lastModified)
+ *  - concurrency: 64 (limit parallel metadata ops)
+ *
+ * Notes:
+ *  - When includeMetadata is false, file nodes may omit `size` and `lastModified` to avoid extra I/O.
+ *  - If concurrency is <= 0 or not finite, adapters treat it as "unlimited" (no limiter).
+ *  - Adapters maintain consistent sorting (directories first, locale-aware name sort).
+ */
+export interface DirectoryReadOptions {
+  /**
+   * When false, skip fetching file metadata (e.g., size/lastModified) for faster initial listings.
+   * Defaults to true to preserve backward compatibility.
+   */
+  includeMetadata?: boolean;
+  /**
+   * Max number of concurrent metadata operations (fs.stat / getFile, etc.).
+   * Defaults to 64; values <= 0 or non-finite are treated as unlimited.
+   */
+  concurrency?: number;
+}
+
 export interface FileSystemAdapter {
   /**
    * Request access to a directory (web: file picker, electron: dialog)
@@ -9,7 +34,7 @@ export interface FileSystemAdapter {
   /**
    * Read directory contents
    */
-  readDirectory(handle: DirectoryHandle): Promise<IFileNode[]>;
+  readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
 
   /**
    * Read file contents
