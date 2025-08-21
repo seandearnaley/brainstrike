@@ -2,8 +2,14 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
-import type { DirectoryHandle, FileHandle, FileSystemAdapter, FileSystemChange } from '../types';
-import { validateDirectoryPath } from '../utils';
+import type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  FileHandle,
+  FileSystemAdapter,
+  FileSystemChange,
+} from '../types';
+import { normalizeDirectoryReadOptions, validateDirectoryPath } from '../utils';
 import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
 
 /**
@@ -18,6 +24,71 @@ import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers
  * - Permission and access validation
  * - File watching capabilities
  */
+// limiter moved to shared utils
+
+// Helpers to build nodes
+function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
+  return {
+    name: entryName,
+    path: fullPath,
+    type: 'directory',
+    depth: 0,
+    selectionState: 'unchecked',
+    children: [],
+    rootFolderId: root.name,
+    isVisible: true,
+    handle: {
+      path: fullPath,
+      name: entryName,
+      kind: 'directory',
+      platform: 'electron',
+    } as unknown as FileSystemDirectoryHandle,
+  };
+}
+
+function toBasicFileNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
+  return {
+    name: entryName,
+    path: fullPath,
+    type: 'file',
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: root.name,
+    isVisible: true,
+    handle: {
+      path: fullPath,
+      name: entryName,
+      kind: 'file',
+      platform: 'electron',
+    } as unknown as FileSystemFileHandle,
+  };
+}
+
+async function fileNodeFromStat(
+  root: DirectoryHandle,
+  fullPath: string,
+  entryName: string
+): Promise<IFileNode> {
+  const stat = await fsPromises.stat(fullPath);
+  return {
+    name: entryName,
+    path: fullPath,
+    type: 'file',
+    depth: 0,
+    selectionState: 'unchecked',
+    rootFolderId: root.name,
+    isVisible: true,
+    size: stat.size,
+    lastModified: stat.mtimeMs,
+    handle: {
+      path: fullPath,
+      name: entryName,
+      kind: 'file',
+      platform: 'electron',
+    } as unknown as FileSystemFileHandle,
+  };
+}
+
 export class ElectronFileSystemAdapter implements FileSystemAdapter {
   /**
    * Requests directory access from the user via Electron's dialog
@@ -91,59 +162,49 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     }
   }
 
-  async readDirectory(_handle: DirectoryHandle): Promise<IFileNode[]> {
+  async readDirectory(
+    _handle: DirectoryHandle,
+    options?: DirectoryReadOptions
+  ): Promise<IFileNode[]> {
     try {
-      const entries = await fsPromises.readdir(_handle.path, { withFileTypes: true });
-      const result: IFileNode[] = [];
+      const dirents = await fsPromises.readdir(_handle.path, { withFileTypes: true });
+      const { includeMetadata, limiter } = normalizeDirectoryReadOptions(options);
 
-      for (const entry of entries) {
-        const fullPath = path.join(_handle.path, entry.name);
-        try {
-          const stat = await fsPromises.stat(fullPath);
-          if (entry.isDirectory()) {
-            result.push({
-              name: entry.name,
-              path: fullPath,
-              type: 'directory',
-              depth: 0,
-              selectionState: 'unchecked',
-              children: [],
-              rootFolderId: _handle.name,
-              isVisible: true,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'directory',
-                platform: 'electron',
-              } as unknown as FileSystemDirectoryHandle,
-            });
-          } else {
-            result.push({
-              name: entry.name,
-              path: fullPath,
-              type: 'file',
-              depth: 0,
-              selectionState: 'unchecked',
-              rootFolderId: _handle.name,
-              isVisible: true,
-              size: stat.size,
-              lastModified: stat.mtimeMs,
-              handle: {
-                path: fullPath,
-                name: entry.name,
-                kind: 'file',
-                platform: 'electron',
-              } as unknown as FileSystemFileHandle,
-            });
-          }
-        } catch (_statError) {}
+      const directories = dirents.filter((d) => d.isDirectory());
+      const files = dirents.filter((d) => !d.isDirectory());
+
+      const nodes: IFileNode[] = directories.map((entry) =>
+        toDirectoryNode(_handle, entry.name, path.join(_handle.path, entry.name))
+      );
+
+      if (includeMetadata) {
+        const works = files.map((entry) =>
+          limiter(async () => {
+            try {
+              const fullPath = path.join(_handle.path, entry.name);
+              return await fileNodeFromStat(_handle, fullPath, entry.name);
+            } catch {
+              return null;
+            }
+          })
+        );
+        const settled = await Promise.allSettled(works);
+        for (const r of settled) {
+          if (r.status === 'fulfilled' && r.value) nodes.push(r.value);
+        }
+      } else {
+        nodes.push(
+          ...files.map((entry) =>
+            toBasicFileNode(_handle, entry.name, path.join(_handle.path, entry.name))
+          )
+        );
       }
 
-      return result.sort((a, b) => {
+      return nodes.sort((a, b) => {
         if (a.type !== b.type) {
           return a.type === 'directory' ? -1 : 1;
         }
-        return a.name.localeCompare(b.name);
+        return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       });
     } catch (error) {
       throw new AccessError(

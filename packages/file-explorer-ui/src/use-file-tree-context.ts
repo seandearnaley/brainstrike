@@ -62,7 +62,12 @@ export function calculateProgressPercentage(loaded: number, total: number): numb
  * Checks if an error is a cancellation error
  */
 const isCancellationError = (error: unknown): boolean => {
-  return error instanceof Error && error.message === 'Operation was cancelled';
+  // DOMException with name 'AbortError' is the canonical cancel signal
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
+    return error.name === 'AbortError';
+  }
+  // Some environments surface AbortError as a regular Error
+  return error instanceof Error && error.name === 'AbortError';
 };
 
 /**
@@ -122,25 +127,36 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
   }, []);
 
   // Use ref to avoid recreating the callback on every render
-  const updateProgressRef = useRef((path?: string) => {
-    progressRef.current.loaded += 1;
-    if (path) {
-      progressRef.current.currentPath = path;
-    }
+  const updateProgressRef = useRef(
+    (() => {
+      // throttle progress updates to reduce re-renders
+      const batchSize = 25;
+      let sinceLastCommit = 0;
+      return (path?: string) => {
+        progressRef.current.loaded += 1;
+        sinceLastCommit += 1;
+        if (path) {
+          progressRef.current.currentPath = path;
+        }
 
-    // Dynamically adjust total if we exceed the current estimate
-    progressRef.current.total = calculateDynamicTotal(
-      progressRef.current.total,
-      progressRef.current.loaded
-    );
+        // Dynamically adjust total if we exceed the current estimate
+        progressRef.current.total = calculateDynamicTotal(
+          progressRef.current.total,
+          progressRef.current.loaded
+        );
 
-    setLoadingProgress({
-      loaded: progressRef.current.loaded,
-      total: progressRef.current.total,
-      currentPath: progressRef.current.currentPath,
-      phase: progressRef.current.phase,
-    });
-  });
+        if (sinceLastCommit >= batchSize) {
+          sinceLastCommit = 0;
+          setLoadingProgress({
+            loaded: progressRef.current.loaded,
+            total: progressRef.current.total,
+            currentPath: progressRef.current.currentPath,
+            phase: progressRef.current.phase,
+          });
+        }
+      };
+    })()
+  );
 
   const readFullTree = useCallback(
     (
@@ -210,6 +226,13 @@ export function useFileTree(rootDirectoryHandle: DirectoryHandle | null): Cancel
       // Only update state if not cancelled
       if (!abortController.signal.aborted) {
         setFileTree(tree);
+        // Final progress commit to ensure last batch is reflected
+        setLoadingProgress({
+          loaded: progressRef.current.loaded,
+          total: progressRef.current.total,
+          currentPath: progressRef.current.currentPath,
+          phase: progressRef.current.phase,
+        });
       }
     } catch (err) {
       const error = ensureError(err);

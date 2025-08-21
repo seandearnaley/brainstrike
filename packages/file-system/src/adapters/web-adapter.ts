@@ -1,6 +1,16 @@
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError } from '../errors';
-import type { DirectoryHandle, FileHandle, FileSystemAdapter } from '../types';
+import type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  FileHandle,
+  FileSystemAdapter,
+} from '../types';
+import {
+  isFileSystemDirectoryHandle,
+  isFileSystemFileHandle,
+  normalizeDirectoryReadOptions,
+} from '../utils';
 
 // Type declarations for File System Access API
 declare global {
@@ -26,6 +36,8 @@ declare global {
   }
 }
 
+// limiter shared via utils
+
 export class WebFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     if (!('showDirectoryPicker' in window)) {
@@ -43,13 +55,22 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     };
   }
 
-  async readDirectory(handle: DirectoryHandle): Promise<IFileNode[]> {
-    const dirHandle = handle._internal as FileSystemDirectoryHandle;
-    const entries: IFileNode[] = [];
+  async readDirectory(
+    handle: DirectoryHandle,
+    options?: DirectoryReadOptions
+  ): Promise<IFileNode[]> {
+    const dirHandle = handle._internal;
+    if (!isFileSystemDirectoryHandle(dirHandle)) {
+      throw new AccessError('Invalid directory handle', handle.path, 'read');
+    }
+    const { includeMetadata, limiter } = normalizeDirectoryReadOptions(options);
+
+    const dirNodes: IFileNode[] = [];
+    const fileWorks: Array<Promise<IFileNode | null>> = [];
 
     for await (const [name, entryHandle] of dirHandle.entries()) {
       if (entryHandle.kind === 'directory') {
-        entries.push({
+        dirNodes.push({
           name,
           path: `${handle.path}/${name}`,
           type: 'directory',
@@ -62,33 +83,65 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
         });
       } else {
         const fileHandle = entryHandle as FileSystemFileHandle;
-        const file = await fileHandle.getFile();
-        entries.push({
-          name,
-          path: `${handle.path}/${name}`,
-          type: 'file',
-          handle: fileHandle,
-          depth: 0, // This should be calculated by the caller
-          selectionState: 'unchecked',
-          rootFolderId: handle.name, // Use the handle name as root folder ID
-          isVisible: true,
-          size: file.size,
-          lastModified: file.lastModified,
-        });
+        if (!includeMetadata) {
+          dirNodes.push({
+            name,
+            path: `${handle.path}/${name}`,
+            type: 'file',
+            handle: fileHandle,
+            depth: 0, // This should be calculated by the caller
+            selectionState: 'unchecked',
+            rootFolderId: handle.name, // Use the handle name as root folder ID
+            isVisible: true,
+          });
+        } else {
+          fileWorks.push(
+            limiter(async () => {
+              try {
+                const file = await fileHandle.getFile();
+                return {
+                  name,
+                  path: `${handle.path}/${name}`,
+                  type: 'file',
+                  handle: fileHandle,
+                  depth: 0, // This should be calculated by the caller
+                  selectionState: 'unchecked',
+                  rootFolderId: handle.name, // Use the handle name as root folder ID
+                  isVisible: true,
+                  size: file.size,
+                  lastModified: file.lastModified,
+                } satisfies IFileNode;
+              } catch {
+                return null;
+              }
+            })
+          );
+        }
       }
     }
+
+    const settled = await Promise.allSettled(fileWorks);
+    const fileNodes: IFileNode[] = [];
+    for (const r of settled) {
+      if (r.status === 'fulfilled' && r.value) fileNodes.push(r.value);
+    }
+
+    const entries: IFileNode[] = [...dirNodes, ...fileNodes];
 
     return entries.sort((a, b) => {
       // Directories first, then files
       if (a.type !== b.type) {
         return a.type === 'directory' ? -1 : 1;
       }
-      return a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
     });
   }
 
   async readFile(handle: FileHandle): Promise<string> {
-    const fileHandle = handle._internal as FileSystemFileHandle;
+    const fileHandle = handle._internal;
+    if (!isFileSystemFileHandle(fileHandle)) {
+      throw new AccessError('Invalid file handle', handle.path, 'read');
+    }
     const file = await fileHandle.getFile();
 
     // Check file size before reading

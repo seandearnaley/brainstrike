@@ -1,6 +1,6 @@
 # File Explorer Settings
 
-This document explains the user configurable options for the file explorer. Settings are stored in **localStorage** under the key `fileExplorerSettings`.
+This document explains the user configurable options for the file explorer. Settings are stored in **localStorage** under the key `file-explorer-storage-v4`.
 
 ## Settings
 
@@ -23,5 +23,27 @@ Show the entire project tree in the explorer. If disabled, only the selected fol
 Number of files in a folder before the **project tree in the generated report** collapses them into a summary row. This setting does **not** affect the file explorer UI. Default: **5**.
 
 ## Storage Key
-All of these settings persist across sessions using the `fileExplorerSettings` key in localStorage.
+All of these settings persist across sessions using the `file-explorer-storage-v4` key in localStorage.
+
+Note: Older documentation may reference `fileExplorerSettings`. The current implementation uses the Zustand persist key `file-explorer-storage-v4`.
+
+
+## Developer: Directory read options
+
+For programmatic directory reads via `packages/file-system`, you can tune performance using `DirectoryReadOptions` on `readDirectory(handle, options)`:
+
+- **includeMetadata**: When false, skip fetching file metadata like `size` and `lastModified` for faster initial listings. Default: true.
+- **concurrency**: Max number of concurrent metadata operations (e.g., `fs.stat` on Electron, `getFile()` on Web). Default: 64. Values <= 0 or non-finite are treated as unlimited.
+
+Adapters keep sorting stable (directories first, then names with locale-aware sorting) regardless of options. When `includeMetadata` is false, file nodes may omit `size` and `lastModified`.
+
+Example usage:
+
+```ts
+// Faster initial render: defer metadata until needed
+const nodes = await adapter.readDirectory(dirHandle, {
+  includeMetadata: false,
+  concurrency: 64,
+});
+```
 

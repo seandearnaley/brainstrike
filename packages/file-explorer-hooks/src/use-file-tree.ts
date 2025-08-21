@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { createLogger, fileFilter } from '@brainstrike/utils';
+import { createLogger, fileFilter, finalPath as getFinalPath } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAdapters } from './adapters-context';
 import { calculateDynamicTotal } from './progress-utils';
@@ -140,7 +140,7 @@ export function useFileTree(
       directoryHandle: DirectoryHandle,
       rootFolderId: string
     ): IFileNode => {
-      const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+      const finalPath = getFinalPath(directoryHandle.platform, entry.path, relativePath);
       return {
         ...entry,
         path: finalPath,
@@ -159,7 +159,7 @@ export function useFileTree(
       directoryHandle: DirectoryHandle,
       rootFolderId: string
     ): IFileNode => {
-      const finalPath = directoryHandle.platform === 'electron' ? entry.path : relativePath;
+      const finalPath = getFinalPath(directoryHandle.platform, entry.path, relativePath);
       return {
         ...entry,
         path: finalPath,

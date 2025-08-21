@@ -60,6 +60,65 @@ describe('ElectronFileSystemAdapter', () => {
     adapter = new ElectronFileSystemAdapter();
   });
 
+  it('should support includeMetadata: false to skip file stats', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
+    // create file and directory
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), '123456');
+    fs.mkdirSync(path.join(tempDir, 'sub'));
+    const handle = await adapter.requestDirectoryAccess();
+
+    const entries = await adapter.readDirectory(handle, { includeMetadata: false });
+    const file = entries.find((e) => e.type === 'file' && e.name === 'a.txt');
+    const dir = entries.find((e) => e.type === 'directory' && e.name === 'sub');
+
+    expect(file).toBeTruthy();
+    expect('size' in (file as object)).toBe(false);
+    expect('lastModified' in (file as object)).toBe(false);
+    expect(dir).toBeTruthy();
+  });
+
+  it('respects concurrency limit when fetching file metadata', async () => {
+    const { dialog } = await import('electron');
+    vi.mocked(dialog.showOpenDialog).mockResolvedValue({
+      canceled: false,
+      filePaths: [tempDir],
+    });
+
+    // create multiple files
+    const fileCount = 8;
+    for (let i = 0; i < fileCount; i++) {
+      fs.writeFileSync(path.join(tempDir, `f${i}.txt`), String(i));
+    }
+
+    const handle = await adapter.requestDirectoryAccess();
+
+    let active = 0;
+    let peak = 0;
+    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const realStat = fsPromises.stat;
+    vi.spyOn(fsPromises, 'stat').mockImplementation(
+      async (...args: Parameters<typeof realStat>) => {
+        active++;
+        peak = Math.max(peak, active);
+        await delay(25);
+        const result = await realStat(...args);
+        active--;
+        return result as unknown as import('node:fs').Stats;
+      }
+    );
+
+    const concurrency = 2;
+    const entries = await adapter.readDirectory(handle, { includeMetadata: true, concurrency });
+    expect(entries.filter((e) => e.type === 'file')).toHaveLength(fileCount);
+    expect(peak).toBeLessThanOrEqual(concurrency);
+  });
+
   afterEach(async () => {
     processWithChdir.chdir(originalCwd);
     await fsPromises.rm(tempDir, { recursive: true, force: true });
