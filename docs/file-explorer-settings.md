@@ -33,7 +33,7 @@ Note: Older documentation may reference `fileExplorerSettings`. The current impl
 For programmatic directory reads via `packages/file-system`, you can tune performance using `DirectoryReadOptions` on `readDirectory(handle, options)`:
 
 - **includeMetadata**: When false, skip fetching file metadata like `size` and `lastModified` for faster initial listings. Default: true.
-- **concurrency**: Max number of concurrent metadata operations (e.g., `fs.stat` on Electron, `getFile()` on Web). Default: 64. Values <= 0 are treated as unlimited.
+- **concurrency**: Max number of concurrent metadata operations (e.g., `fs.stat` on Electron, `getFile()` on Web). Default: 64. Values <= 0 or non-finite are treated as unlimited.
 
 Adapters keep sorting stable (directories first, then names with locale-aware sorting) regardless of options. When `includeMetadata` is false, file nodes may omit `size` and `lastModified`.
 

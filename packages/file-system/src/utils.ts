@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import { AccessError, PermissionError } from './errors';
-import type { DirectoryHandle } from './types';
+import type { DirectoryHandle, DirectoryReadOptions } from './types';
 
 /**
  * Extracts the native FileSystemDirectoryHandle from an adapter DirectoryHandle
@@ -81,4 +81,70 @@ export async function validateDirectoryPath(
       assertFn
     );
   }
+}
+
+/**
+ * Concurrency limiter shared across adapters.
+ * max <= 0 or non-finite means unlimited concurrency (no limiting).
+ */
+export function createLimiter(max: number) {
+  if (!Number.isFinite(max) || max <= 0) {
+    return async <T>(task: () => Promise<T>): Promise<T> => task();
+  }
+  let active = 0;
+  const queue: Array<() => void> = [];
+  return function limit<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const run = () => {
+        active++;
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            const next = queue.shift();
+            if (next) next();
+          });
+      };
+      if (active < max) run();
+      else queue.push(run);
+    });
+  };
+}
+
+/**
+ * Normalize DirectoryReadOptions with safe defaults.
+ * - includeMetadata defaults to true
+ * - concurrency defaults to 64; <=0 or non-finite treated as unlimited
+ */
+export function normalizeDirectoryReadOptions(options?: DirectoryReadOptions) {
+  const includeMetadata = options?.includeMetadata ?? true;
+  const rawConcurrency = options?.concurrency ?? 64;
+  const concurrency = Number.isFinite(rawConcurrency) ? Math.floor(rawConcurrency) : Number.NaN;
+  const limiter = createLimiter(concurrency);
+  return {
+    includeMetadata,
+    concurrency: concurrency,
+    limiter,
+  };
+}
+
+// Type guards for Web File System Access API handles
+export function isFileSystemDirectoryHandle(h: unknown): h is FileSystemDirectoryHandle {
+  return (
+    !!h &&
+    typeof h === 'object' &&
+    (h as { kind?: unknown }).kind === 'directory' &&
+    typeof (h as { name?: unknown }).name === 'string' &&
+    'entries' in (h as object)
+  );
+}
+
+export function isFileSystemFileHandle(h: unknown): h is FileSystemFileHandle {
+  return (
+    !!h &&
+    typeof h === 'object' &&
+    (h as { kind?: unknown }).kind === 'file' &&
+    typeof (h as { name?: unknown }).name === 'string' &&
+    'getFile' in (h as object)
+  );
 }

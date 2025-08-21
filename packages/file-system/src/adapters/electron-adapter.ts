@@ -9,7 +9,7 @@ import type {
   FileSystemAdapter,
   FileSystemChange,
 } from '../types';
-import { validateDirectoryPath } from '../utils';
+import { normalizeDirectoryReadOptions, validateDirectoryPath } from '../utils';
 import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers';
 
 /**
@@ -24,30 +24,7 @@ import { handleWatcherSetupError, startChokidarWatch } from './electron-watchers
  * - Permission and access validation
  * - File watching capabilities
  */
-// Simple concurrency limiter to avoid overwhelming the system
-function createLimiter(max: number) {
-  if (!Number.isFinite(max) || max <= 0) {
-    return async <T>(task: () => Promise<T>): Promise<T> => task();
-  }
-  let active = 0;
-  const queue: Array<() => void> = [];
-  return function limit<T>(task: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const run = () => {
-        active++;
-        task()
-          .then(resolve, reject)
-          .finally(() => {
-            active--;
-            const next = queue.shift();
-            if (next) next();
-          });
-      };
-      if (active < max) run();
-      else queue.push(run);
-    });
-  };
-}
+// limiter moved to shared utils
 
 // Helpers to build nodes
 function toDirectoryNode(root: DirectoryHandle, entryName: string, fullPath: string): IFileNode {
@@ -191,9 +168,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
   ): Promise<IFileNode[]> {
     try {
       const dirents = await fsPromises.readdir(_handle.path, { withFileTypes: true });
-      const includeMetadata = options?.includeMetadata ?? true;
-      const concurrency = options?.concurrency ?? 64;
-      const limit = createLimiter(concurrency);
+      const { includeMetadata, limiter } = normalizeDirectoryReadOptions(options);
 
       const directories = dirents.filter((d) => d.isDirectory());
       const files = dirents.filter((d) => !d.isDirectory());
@@ -204,7 +179,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
 
       if (includeMetadata) {
         const works = files.map((entry) =>
-          limit(async () => {
+          limiter(async () => {
             try {
               const fullPath = path.join(_handle.path, entry.name);
               return await fileNodeFromStat(_handle, fullPath, entry.name);

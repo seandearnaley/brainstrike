@@ -6,6 +6,11 @@ import type {
   FileHandle,
   FileSystemAdapter,
 } from '../types';
+import {
+  isFileSystemDirectoryHandle,
+  isFileSystemFileHandle,
+  normalizeDirectoryReadOptions,
+} from '../utils';
 
 // Type declarations for File System Access API
 declare global {
@@ -31,30 +36,7 @@ declare global {
   }
 }
 
-// Simple concurrency limiter similar to electron adapter
-function createLimiter(max: number) {
-  if (!Number.isFinite(max) || max <= 0) {
-    return async <T>(task: () => Promise<T>): Promise<T> => task();
-  }
-  let active = 0;
-  const queue: Array<() => void> = [];
-  return function limit<T>(task: () => Promise<T>): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      const run = () => {
-        active++;
-        task()
-          .then(resolve, reject)
-          .finally(() => {
-            active--;
-            const next = queue.shift();
-            if (next) next();
-          });
-      };
-      if (active < max) run();
-      else queue.push(run);
-    });
-  };
-}
+// limiter shared via utils
 
 export class WebFileSystemAdapter implements FileSystemAdapter {
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
@@ -77,10 +59,11 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     handle: DirectoryHandle,
     options?: DirectoryReadOptions
   ): Promise<IFileNode[]> {
-    const dirHandle = handle._internal as FileSystemDirectoryHandle;
-    const includeMetadata = options?.includeMetadata ?? true;
-    const concurrency = options?.concurrency ?? 64;
-    const limit = createLimiter(concurrency);
+    const dirHandle = handle._internal;
+    if (!isFileSystemDirectoryHandle(dirHandle)) {
+      throw new AccessError('Invalid directory handle', handle.path, 'read');
+    }
+    const { includeMetadata, limiter } = normalizeDirectoryReadOptions(options);
 
     const dirNodes: IFileNode[] = [];
     const fileWorks: Array<Promise<IFileNode | null>> = [];
@@ -113,7 +96,7 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
           });
         } else {
           fileWorks.push(
-            limit(async () => {
+            limiter(async () => {
               try {
                 const file = await fileHandle.getFile();
                 return {
@@ -155,7 +138,10 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
   }
 
   async readFile(handle: FileHandle): Promise<string> {
-    const fileHandle = handle._internal as FileSystemFileHandle;
+    const fileHandle = handle._internal;
+    if (!isFileSystemFileHandle(fileHandle)) {
+      throw new AccessError('Invalid file handle', handle.path, 'read');
+    }
     const file = await fileHandle.getFile();
 
     // Check file size before reading
