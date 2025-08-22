@@ -19,12 +19,6 @@ vi.mock('../use-selection-manager-context', () => ({
   })),
 }));
 
-vi.mock('@brainstrike/hooks', () => ({
-  useUndoableAction: vi.fn(() => ({
-    performUndoableAction: vi.fn(),
-  })),
-}));
-
 vi.mock('../file-explorer-header', () => ({
   FileExplorerHeader: () => <div data-testid="file-explorer-header">Header</div>,
 }));
@@ -49,6 +43,9 @@ vi.mock('@brainstrike/ui', async () => {
       openFileInTab: vi.fn(),
       registerOpenFileInTab: vi.fn(),
     })),
+    useUndoableAction: vi.fn(() => ({
+      performUndoableAction: vi.fn(),
+    })),
   };
 });
 
@@ -60,18 +57,17 @@ const TestWrapper: React.FC<{
 describe('FileExplorerMiddlePanelTabbed', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
   let useSelectionManager: typeof import('../use-selection-manager-context').useSelectionManager;
-  let useUndoableAction: typeof import('@brainstrike/hooks').useUndoableAction;
+  let useUndoableAction: typeof import('@brainstrike/ui').useUndoableAction;
   let useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
     const selectionManagerModule = await import('../use-selection-manager-context');
-    const hooksModule = await import('@brainstrike/hooks');
     const uiModule = await import('@brainstrike/ui');
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
     useSelectionManager = selectionManagerModule.useSelectionManager;
-    useUndoableAction = hooksModule.useUndoableAction;
+    useUndoableAction = uiModule.useUndoableAction;
     useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 

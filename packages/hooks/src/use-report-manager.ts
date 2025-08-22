@@ -7,35 +7,34 @@
 
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import { FileExplorerStrings } from '@brainstrike/types';
-import type { ToastActionElement } from '@brainstrike/ui';
 import { error as logError } from '@brainstrike/utils';
 import { saveAs } from 'file-saver';
 import { useCallback } from 'react';
 
-interface UseReportManagerProps {
+interface UseReportManagerProps<A = unknown> {
   rootDirectoryHandle: FileSystemDirectoryHandle | DirectoryHandle | null;
   generateReportWithContent: () => Promise<string>;
   showToast: (props: {
     title: string;
     description: string;
     variant?: 'default' | 'destructive';
-    action?: ToastActionElement;
+    action?: A;
   }) => void;
   toast: (props: {
     title: string;
     description: string;
     variant?: 'default' | 'destructive';
-    action?: ToastActionElement;
+    action?: A;
     duration?: number;
   }) => { dismiss?: () => void };
 }
 
-export const useReportManager = ({
+export const useReportManager = <A = unknown>({
   rootDirectoryHandle,
   generateReportWithContent,
   showToast,
   toast,
-}: UseReportManagerProps) => {
+}: UseReportManagerProps<A>) => {
   const handleGenerateReport = useCallback(async () => {
     if (!rootDirectoryHandle) {
       toast({

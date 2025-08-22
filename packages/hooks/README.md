@@ -32,36 +32,9 @@ function MyComponent() {
 }
 ```
 
-### `useUndoableAction`
-
-```tsx
-import { useUndoableAction } from "@brainstrike/hooks";
-
-function DeleteButton({ file }: { file: string }) {
-  const { performUndoableAction } = useUndoableAction<string>();
-
-  return (
-    <button
-      onClick={() =>
-        performUndoableAction(file, file, {
-          actionName: "Deleted file",
-          itemDescription: file,
-          onUndo: (f) => {
-            // restore the file here
-          },
-        })
-      }
-    >
-      Delete
-    </button>
-  );
-}
-```
-
 ## Available Hooks
 
 - **useDebouncedValue**: Creates a debounced version of a value
-- **useUndoableAction**: Allows actions to be reverted with a toast-based undo
 - **useQuickFilter**: Filters a tree of IFileNode with debounced include/exclude search
 - **useFileFilters**: Applies include or exclude filters to a file tree using globs or regex
 - **useLoadingManager**: Manages asynchronous loading state for a collection of keys
