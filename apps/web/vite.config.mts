@@ -1,6 +1,8 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
+import { getDevCSP } from '@brainstrike/security';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
@@ -9,52 +11,9 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
-// Use shared hotspot helper from utils to ensure a single source of truth
-import { isCompilerHotspot } from '../../packages/utils/src/dev/is-compiler-hotspot.ts';
-import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
-
-// Find the PGLite WASM file in different possible locations
-function findPGliteWasm(): string | null {
-  const possiblePaths = [
-    path.resolve(__dirname, '../../node_modules/@electric-sql/pglite/dist/pglite.wasm'),
-    path.resolve(__dirname, 'node_modules/@electric-sql/pglite/dist/pglite.wasm'),
-  ];
-
-  // Also try to find in pnpm directory structure with any version
-  try {
-    const pnpmDir = path.resolve(__dirname, '../../node_modules/.pnpm');
-    if (existsSync(pnpmDir)) {
-      const entries = readdirSync(pnpmDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory() && entry.name.startsWith('@electric-sql+pglite@')) {
-          const wasmPath = path.join(
-            pnpmDir,
-            entry.name,
-            'node_modules/@electric-sql/pglite/dist/pglite.wasm'
-          );
-          possiblePaths.push(wasmPath);
-        }
-      }
-    }
-  } catch (_err) {
-    // Ignore errors when scanning pnpm directory
-  }
-
-  for (const wasmPath of possiblePaths) {
-    if (existsSync(wasmPath)) {
-      if (isDev) {
-        console.log(`Found PGLite WASM at: ${wasmPath}`);
-      }
-      return wasmPath;
-    }
-  }
-
-  console.warn('PGLite WASM file not found in any expected location');
-  return null;
-}
 
 function debugPlugin() {
   return {
@@ -108,24 +67,10 @@ function copyFontsPlugin() {
   };
 }
 
-const wasmPath = findPGliteWasm();
+const wasmPath = findPGliteWasm(__dirname);
 
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
-
-// Force full reload (not HMR) on files that commonly change hook/memo shape
-function fullReloadOnCompilerHotspots() {
-  return {
-    name: 'full-reload-on-compiler-hotspots',
-    handleHotUpdate(ctx: { file: string; server: { ws: { send: (m: unknown) => void } } }) {
-      if (isCompilerHotspot(ctx.file)) {
-        ctx.server.ws.send({ type: 'full-reload' });
-        return [];
-      }
-      return [];
-    },
-  };
-}
 
 // CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
 if (isDev) {
@@ -239,6 +184,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
+      '@brainstrike/security': path.resolve(__dirname, '../../packages/security/src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
       // Map stylesheet import to package root css before package alias
       '@brainstrike/file-explorer-ui/styles.css': path.resolve(
@@ -282,6 +228,7 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/security',
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues

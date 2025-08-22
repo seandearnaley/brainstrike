@@ -1,6 +1,6 @@
+import { getCSP } from '@brainstrike/security';
 import { app, session } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getCSP } from '../csp-utils';
 import { setupSecurity } from '../setup-security';
 
 vi.mock('electron', () => ({
@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('../csp-utils', () => ({
+vi.mock('@brainstrike/security', () => ({
   getCSP: vi.fn(),
 }));
 

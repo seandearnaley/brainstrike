@@ -14,6 +14,8 @@
       "@brainstrike/workers": ["packages/workers"],
       "@brainstrike/workers/*": ["packages/workers/*"],
       "@brainstrike/db": ["packages/db/src"],
+      "@brainstrike/build-utils": ["packages/build-utils/src"],
+      "@brainstrike/security": ["packages/security/src"],
       "@web/*": ["apps/web/src/*"],
       "@desktop/*": ["apps/desktop/src/*"]
     },
@@ -38,6 +40,8 @@
     { "path": "./packages/file-explorer-ui" },
     { "path": "./packages/storage" },
     { "path": "./packages/db" },
+    { "path": "./packages/build-utils" },
+    { "path": "./packages/security" },
     { "path": "./apps/web" }
   ]
 }
