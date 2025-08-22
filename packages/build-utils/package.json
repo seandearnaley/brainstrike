@@ -24,6 +24,9 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
+  "dependencies": {
+    "@brainstrike/utils": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",

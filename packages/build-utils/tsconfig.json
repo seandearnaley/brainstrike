@@ -9,9 +9,13 @@
     "outDir": "./dist",
     "rootDir": "src",
     "declarationMap": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@brainstrike/utils": ["../utils/src"],
+      "@brainstrike/utils/src/*": ["../utils/src/*"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts"],
-  "references": []
+  "references": [{ "path": "../utils" }]
 }
