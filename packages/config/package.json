@@ -3,34 +3,51 @@
   "version": "0.1.0",
   "description": "Shared configuration for Brainstrike monorepo",
   "private": true,
-  "main": "index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=22"
   },
   "files": [
     "biome/biome.json",
     "tsconfig",
-    "src/constants.ts"
+    "src/constants.ts",
+    "dist/**"
   ],
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
     "./biome": "./biome/biome.json",
     "./biome/base": "./biome/biome.json",
     "./tsconfig/*": "./tsconfig/*.json",
     "./playwright-environment": "./src/playwright-environment.ts",
-    "./constants": "./src/constants.ts"
+    "./constants": {
+      "types": "./dist/constants.d.ts",
+      "import": "./dist/constants.mjs",
+      "require": "./dist/constants.js"
+    }
   },
   "scripts": {
-    "clean": "rm -rf dist .tsbuildinfo",
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts src/constants.ts --format esm,cjs --out-dir dist",
+    "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {},
   "devDependencies": {
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
     "typescript": "^5.9.2"
   },
   "license": "ISC",
   "turbo": {
     "outputs": [
+      "dist/**",
       "tsconfig/**",
       "biome/**"
     ]

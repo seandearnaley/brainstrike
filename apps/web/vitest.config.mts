@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   optimizeDeps: {
-    include: ['@brainstrike/hooks', '@brainstrike/ui'],
+    include: ['@brainstrike/hooks'],
   },
   test: {
     environment: 'jsdom',
@@ -40,10 +40,12 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      '@brainstrike/app-shell': resolve(__dirname, '../../packages/app-shell/dist'),
       '@brainstrike/types': resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/hooks': resolve(__dirname, '../../packages/hooks/src'),
-      '@brainstrike/ui': resolve(__dirname, '../../packages/ui/src'),
+      '@brainstrike/ui': resolve(__dirname, '../../packages/ui/dist'),
       '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/config': resolve(__dirname, '../../packages/config/dist'),
       '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
       '@brainstrike/file-explorer-hooks': resolve(
         __dirname,
