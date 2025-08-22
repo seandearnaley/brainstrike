@@ -1,4 +1,5 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
@@ -69,6 +70,35 @@ function fullReloadOnCompilerHotspots() {
   };
 }
 
+function copyFontsPlugin() {
+  return {
+    name: 'copy-fonts',
+    buildStart() {
+      const require = createRequire(import.meta.url);
+      const publicFontsPath = path.resolve(__dirname, 'public/fonts/inter');
+      const distFontsPath = path.resolve(__dirname, 'dist/renderer/fonts/inter');
+
+      if (!existsSync(publicFontsPath)) {
+        mkdirSync(publicFontsPath, { recursive: true });
+      }
+      if (!existsSync(distFontsPath)) {
+        mkdirSync(distFontsPath, { recursive: true });
+      }
+
+      const fontFiles = ['InterVariable.ttf', 'InterVariable-Italic.ttf'];
+      fontFiles.forEach((file) => {
+        const src = require.resolve(`@brainstrike/fonts/inter/${file}`);
+        const destPublic = path.join(publicFontsPath, file);
+        const destDist = path.join(distFontsPath, file);
+        if (existsSync(src)) {
+          copyFileSync(src, destPublic);
+          copyFileSync(src, destDist);
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
   root: __dirname,
   base: './', // Use relative paths for Electron
@@ -84,6 +114,7 @@ export default defineConfig({
       jsxRuntime: 'automatic',
     }),
     tailwindcss(),
+    copyFontsPlugin(),
     ...(wasmPath
       ? [
           viteStaticCopy({

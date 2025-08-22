@@ -96,6 +96,9 @@ importers:
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../../packages/file-system
+      '@brainstrike/fonts':
+        specifier: workspace:*
+        version: link:../../packages/fonts
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
