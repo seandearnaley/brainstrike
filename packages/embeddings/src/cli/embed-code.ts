@@ -2,6 +2,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
 import { glob } from 'glob';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { ModelRegistryManager } from '../model-registry';
@@ -134,7 +135,7 @@ export class CodeEmbeddingCLI {
 
   constructor(config: EmbedCodeConfig) {
     this.config = {
-      maxFileSize: 1024 * 1024, // 1MB default
+      maxFileSize: MAX_FILE_SIZE_BYTES,
       maxLines: 100, // 100 lines per chunk
       chunkOverlap: 10, // 10 lines overlap
       verbose: false,
@@ -195,7 +196,7 @@ export class CodeEmbeddingCLI {
       const fullPath = path.join(this.config.rootDir, file);
       try {
         const stats = fs.statSync(fullPath);
-        if (stats.size <= (this.config.maxFileSize || 1024 * 1024)) {
+        if (stats.size <= (this.config.maxFileSize ?? MAX_FILE_SIZE_BYTES)) {
           validFiles.push(file);
         } else {
           this.log(`Skipping ${file}: file too large (${stats.size} bytes)`);

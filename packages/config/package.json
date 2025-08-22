@@ -9,13 +9,15 @@
   },
   "files": [
     "biome/biome.json",
-    "tsconfig"
+    "tsconfig",
+    "src/constants.ts"
   ],
   "exports": {
     "./biome": "./biome/biome.json",
     "./biome/base": "./biome/biome.json",
     "./tsconfig/*": "./tsconfig/*.json",
-    "./playwright-environment": "./src/playwright-environment.ts"
+    "./playwright-environment": "./src/playwright-environment.ts",
+    "./constants": "./src/constants.ts"
   },
   "scripts": {
     "clean": "rm -rf dist .tsbuildinfo",

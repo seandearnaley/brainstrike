@@ -1,12 +1,8 @@
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
 import {
   isBinaryExtension as checkBinaryExtension,
   isTextExtension as checkTextExtension,
 } from './file-utils';
-
-/**
- * Maximum file size in bytes that we'll attempt to load (1MB)
- */
-const MAX_FILE_SIZE_BYTES = 1024 * 1024;
 
 /**
  * Utilities for validating and checking file content types

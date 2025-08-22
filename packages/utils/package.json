@@ -35,7 +35,8 @@
     "gpt-tokenizer": "^3.0.1",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
-    "minimatch": "^10"
+    "minimatch": "^10",
+    "@brainstrike/config": "workspace:*"
   },
   "devDependencies": {
     "@swc/core": "^1.13.3",

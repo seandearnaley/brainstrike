@@ -24,7 +24,8 @@
   },
   "dependencies": {
     "@brainstrike/types": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*"
+    "@brainstrike/platform-utils": "workspace:*",
+    "@brainstrike/config": "workspace:*"
   },
   "optionalDependencies": {
     "chokidar": "^4.0.3"
