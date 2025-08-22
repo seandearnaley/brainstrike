@@ -50,6 +50,9 @@
       "path": "packages/file-import"
     },
     {
+      "path": "packages/build-utils"
+    },
+    {
       "path": "apps/web"
     },
     {
