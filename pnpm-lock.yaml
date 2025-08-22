@@ -477,6 +477,9 @@ importers:
 
   packages/embeddings:
     dependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@huggingface/transformers':
         specifier: ^3.7.2
         version: 3.7.2
@@ -716,6 +719,9 @@ importers:
 
   packages/file-system:
     dependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
@@ -1036,6 +1042,9 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/config':
+        specifier: workspace:*
+        version: link:../config
       '@brainstrike/file-system':
         specifier: workspace:*
         version: link:../file-system

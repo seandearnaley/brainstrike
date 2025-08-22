@@ -31,7 +31,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.7.2",
-    "glob": "^11.0.3"
+    "glob": "^11.0.3",
+    "@brainstrike/config": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

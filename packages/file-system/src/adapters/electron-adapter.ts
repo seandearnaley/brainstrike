@@ -1,5 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type {
@@ -219,11 +220,9 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     try {
       // Check file size before reading
       const stats = await fsPromises.stat(_handle.path);
-      const maxSize = 1024 * 1024; // 1MB limit
-
-      if (stats.size > maxSize) {
+      if (stats.size > MAX_FILE_SIZE_BYTES) {
         throw new AccessError(
-          `File too large: ${Math.round(stats.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+          `File too large: ${Math.round(stats.size / 1024 / 1024)}MB (max: ${Math.round(MAX_FILE_SIZE_BYTES / 1024 / 1024)}MB)`,
           _handle.path,
           'read'
         );

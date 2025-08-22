@@ -1,3 +1,4 @@
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError } from '../errors';
 import type {
@@ -145,11 +146,9 @@ export class WebFileSystemAdapter implements FileSystemAdapter {
     const file = await fileHandle.getFile();
 
     // Check file size before reading
-    const maxSize = 1024 * 1024; // 1MB limit
-
-    if (file.size > maxSize) {
+    if (file.size > MAX_FILE_SIZE_BYTES) {
       throw new AccessError(
-        `File too large: ${Math.round(file.size / 1024 / 1024)}MB (max: ${Math.round(maxSize / 1024 / 1024)}MB)`,
+        `File too large: ${Math.round(file.size / 1024 / 1024)}MB (max: ${Math.round(MAX_FILE_SIZE_BYTES / 1024 / 1024)}MB)`,
         handle.path,
         'read'
       );
