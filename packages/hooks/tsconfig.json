@@ -15,7 +15,6 @@
   "references": [
     { "path": "../types" },
     { "path": "../file-system" },
-    { "path": "../utils" },
-    { "path": "../ui" }
+    { "path": "../utils" }
   ]
 }

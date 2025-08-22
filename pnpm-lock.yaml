@@ -794,9 +794,6 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
-      '@brainstrike/ui':
-        specifier: workspace:*
-        version: link:../ui
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -961,6 +958,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@brainstrike/hooks':
+        specifier: workspace:*
+        version: link:../hooks
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage

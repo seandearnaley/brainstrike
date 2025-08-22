@@ -1,6 +1,6 @@
+import { createDebounce } from '@brainstrike/hooks';
 import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef } from 'react';
-import { createDebounce } from '../lib/debounce';
 import { getElectronAPI } from '../lib/electron-utils';
 import { statesEqual } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
