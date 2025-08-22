@@ -71,7 +71,7 @@ Critical architectural pattern enabling cross-platform functionality:
 
 ### Technology Stack
 - **Node.js**: 22+ required (check `.nvmrc`)
-- **Package Manager**: pnpm 10.14.0+ with workspaces
+- **Package Manager**: pnpm 10.15.0+ with workspaces
 - **Build System**: Turborepo with intelligent caching
 - **Frontend**: React 19, Vite 7, TypeScript 5.9
 - **Styling**: Tailwind CSS v4 with shared configuration
