@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 
 // Get models from registry
 const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
@@ -143,6 +143,9 @@ const SimilarityInterface = ({
   onCalculate,
   onDispose,
 }: SimilarityInterfaceProps) => {
+  const text1Id = useId();
+  const text2Id = useId();
+
   const handleCopySimilarity = async () => {
     if (similarity !== null) {
       try {
@@ -154,11 +157,11 @@ const SimilarityInterface = ({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <Label htmlFor="text1" className="text-xs">
+        <Label htmlFor={text1Id} className="text-xs">
           Text 1:
         </Label>
         <Input
-          id="text1"
+          id={text1Id}
           value={text1}
           onChange={(e) => onText1Change(e.target.value)}
           className="text-xs"
@@ -168,11 +171,11 @@ const SimilarityInterface = ({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="text2" className="text-xs">
+        <Label htmlFor={text2Id} className="text-xs">
           Text 2:
         </Label>
         <Input
-          id="text2"
+          id={text2Id}
           value={text2}
           onChange={(e) => onText2Change(e.target.value)}
           className="text-xs"
@@ -232,6 +235,8 @@ const SimilarityInterface = ({
 };
 
 export function EmbeddingsPanel() {
+  const modelSelectId = useId();
+
   const [status, setStatus] = useState<EmbeddingStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState('');
@@ -365,7 +370,7 @@ export function EmbeddingsPanel() {
               value={selectedModel}
               onValueChange={(value) => handleModelChange(value as ModelKey)}
             >
-              <SelectTrigger id="model-select" className="text-xs">
+              <SelectTrigger id={modelSelectId} className="text-xs">
                 <SelectValue placeholder="Select a model" />
               </SelectTrigger>
               <SelectContent>

@@ -19,7 +19,7 @@ test.describe('File Explorer Settings', () => {
   });
 
   test('should persist updated max selection count', async ({ page }) => {
-    const home = new HomePage(page);
+    const _home = new HomePage(page);
     const explorer = new FileExplorerPage(page);
     await explorer.openSettingsButton.click();
 

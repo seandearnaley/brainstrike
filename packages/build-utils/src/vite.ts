@@ -3,7 +3,7 @@ import path from 'node:path';
 import type { HmrContext, Plugin } from 'vite';
 import { isCompilerHotspot } from '../../utils/src/dev/is-compiler-hotspot';
 
-// @ts-ignore: process.env has index signature
+// @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';
 
 export function findPGliteWasm(baseDir: string): string | null {

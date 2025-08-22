@@ -1,6 +1,14 @@
 import { isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+} from 'react';
 import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
@@ -259,6 +267,10 @@ export const IdeLayout = React.memo(function IdeLayout({
   const rightPanelRef = useRef<ImperativePanelHandle>(null);
   const consolePanelRef = useRef<ImperativePanelHandle>(null);
 
+  // Generate unique IDs for panels
+  const middlePanelId = useId();
+  const mainContentPanelId = useId();
+
   // Flag to prevent panel callbacks from saving during initial render
   const [isInitialRender, setIsInitialRender] = React.useState(true);
 
@@ -382,11 +394,18 @@ export const IdeLayout = React.memo(function IdeLayout({
             />
           )}
 
-          <Panel id="middle-panel" data-panel-id="middle-panel" order={2} minSize={30}>
+          <Panel
+            id={middlePanelId}
+            data-panel-id={middlePanelId}
+            data-testid="middle-panel"
+            order={2}
+            minSize={30}
+          >
             <PanelGroup direction="vertical" onLayout={handleVerticalLayout}>
               <Panel
-                id="main-content-panel"
-                data-panel-id="main-content-panel"
+                id={mainContentPanelId}
+                data-panel-id={mainContentPanelId}
+                data-testid="main-content-panel"
                 order={1}
                 minSize={30}
                 className="bg-background"

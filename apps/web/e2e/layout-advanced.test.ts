@@ -177,7 +177,7 @@ test.describe('Advanced IDE Layout', () => {
 
       // Change zoom level
       await page.evaluate(() => {
-        (document.body.style as any).zoom = '1.5';
+        (document.body.style as unknown as { zoom?: string }).zoom = '1.5';
       });
 
       // Wait for layout to adjust
@@ -189,7 +189,7 @@ test.describe('Advanced IDE Layout', () => {
 
       // Reset zoom
       await page.evaluate(() => {
-        (document.body.style as any).zoom = '1';
+        (document.body.style as unknown as { zoom?: string }).zoom = '1';
       });
 
       await page.waitForTimeout(500);

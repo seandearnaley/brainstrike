@@ -1,5 +1,6 @@
 import { Terminal, X } from 'lucide-react';
 import type React from 'react';
+import { useId } from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
@@ -22,13 +23,16 @@ export function ConsolePanel({
   onCollapse,
   onExpand,
 }: ConsolePanelProps) {
+  const consolePanelId = useId();
+
   return (
     <>
       <PanelResizeHandle className="h-1 bg-border hover:bg-border/80 transition-colors" />
       <Panel
         ref={panelRef}
-        id="console-panel"
-        data-panel-id="console-panel"
+        id={consolePanelId}
+        data-panel-id={consolePanelId}
+        data-testid="console-panel"
         order={2}
         defaultSize={defaultSize}
         minSize={15}

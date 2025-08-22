@@ -1,23 +1,23 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.1.3/schema.json",
+  "$schema": "https://biomejs.dev/schemas/latest/schema.json",
   "files": {
     "includes": [
       "apps/**/src/**/*",
       "packages/**/src/**/*",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
-      "!**/e2e/**",
-      "!**/node_modules/**",
-      "!**/dist/**",
-      "!**/.turbo/**",
-      "!**/build/**",
-      "!**/coverage/**",
-      "!**/playwright-report/**",
-      "!**/test-results/**",
-      "!**/.vite/**",
-      "!**/.nyc_output/**",
-      "!**/blob-report/**",
-      "!**/*.db/**"
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.turbo",
+      "!**/build",
+      "!**/coverage",
+      "!**/playwright-report",
+      "!**/test-results",
+      "!**/.vite",
+      "!**/.nyc_output",
+      "!**/blob-report",
+      "!**/*.db",
+      "!**/*.css"
     ]
   },
   "linter": {
@@ -32,7 +32,8 @@
         "useValidForDirection": "error",
         "useYield": "error",
         "noUnreachable": "error",
-        "useHookAtTopLevel": "error"
+        "useHookAtTopLevel": "error",
+        "noReactPropAssignments": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",
@@ -85,8 +86,7 @@
         "noDangerouslySetInnerHtml": "error"
       },
       "nursery": {
-        "noFloatingPromises": "error",
-        "noReactPropAssign": "error"
+        "noFloatingPromises": "error"
       }
     }
   },
@@ -129,7 +129,8 @@
             "noParameterAssign": "off"
           },
           "correctness": {
-            "noUnusedVariables": "warn"
+            "noUnusedVariables": "warn",
+            "useUniqueElementIds": "off"
           },
           "complexity": {
             "useLiteralKeys": "off"
@@ -146,6 +147,9 @@
           },
           "correctness": {
             "noUnusedVariables": "warn"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
           }
         }
       }
@@ -215,6 +219,26 @@
         "rules": {
           "style": {
             "noParameterAssign": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/file-explorer-ui/src/preview-panel.tsx"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noNestedComponentDefinitions": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/desktop/src/db-main.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noTsIgnore": "off"
           }
         }
       }

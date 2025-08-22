@@ -10,7 +10,7 @@ function debounce<Args extends unknown[]>(fn: (...args: Args) => void, wait: num
 
 import { AlertCircle } from 'lucide-react';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 interface FileExtensionFilterProps {
   includeFilters: string[];
@@ -27,6 +27,9 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   useRegex,
   filterError,
 }) => {
+  const includeFilesId = useId();
+  const excludeFilesId = useId();
+
   const [includeInput, setIncludeInput] = useState(() => includeFilters.join(', '));
   const [excludeInput, setExcludeInput] = useState(() => excludeFilters.join(', '));
   const isFirstMount = useRef(true);
@@ -84,11 +87,11 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   return (
     <div className="space-y-2">
       <div>
-        <label htmlFor="include-files" className="text-sm font-medium">
+        <label htmlFor={includeFilesId} className="text-sm font-medium">
           Files to Include:
         </label>
         <Input
-          id="include-files"
+          id={includeFilesId}
           type="text"
           value={includeInput}
           onChange={handleIncludeInputChange}
@@ -96,11 +99,11 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
         />
       </div>
       <div>
-        <label htmlFor="exclude-files" className="text-sm font-medium">
+        <label htmlFor={excludeFilesId} className="text-sm font-medium">
           Files to Exclude:
         </label>
         <Input
-          id="exclude-files"
+          id={excludeFilesId}
           type="text"
           value={excludeInput}
           onChange={handleExcludeInputChange}

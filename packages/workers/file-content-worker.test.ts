@@ -91,7 +91,9 @@ describe('file-content-worker', () => {
       '/4.txt': 10,
     };
     const adapter = new DelayedAdapter(delays);
-    Object.keys(delays).forEach((p) => MockFileSystemAdapter.setMockFileContent(p, p.slice(1)));
+    for (const p of Object.keys(delays)) {
+      MockFileSystemAdapter.setMockFileContent(p, p.slice(1));
+    }
     const worker = createFileContentWorker({
       fileSystemAdapter: adapter,
       concurrency: 2,

@@ -24,11 +24,11 @@ export interface PanelElements {
 export function getPanelElements(page: Page): PanelElements {
   return {
     // Main panels
-    leftPanel: page.locator('[data-panel-id="left-panel"]'),
-    rightPanel: page.locator('[data-panel-id="right-panel"]'),
-    consolePanel: page.locator('[data-panel-id="console-panel"]'),
-    mainContentPanel: page.locator('[data-panel-id="main-content-panel"]'),
-    middlePanel: page.locator('[data-panel-id="middle-panel"]'),
+    leftPanel: page.locator('[data-testid="left-panel"]'),
+    rightPanel: page.locator('[data-testid="right-panel"]'),
+    consolePanel: page.locator('[data-testid="console-panel"]'),
+    mainContentPanel: page.locator('[data-testid="main-content-panel"]'),
+    middlePanel: page.locator('[data-testid="middle-panel"]'),
 
     // Hide buttons (when panels are open)
     hideExplorerButton: page.locator('button[aria-label="Hide explorer"]'),
@@ -50,12 +50,12 @@ export async function waitForAppLoad(page: Page, timeout = 10000) {
   // Wait for the app root to attach instead of relying on body text content
   await page.waitForSelector('#root', { state: 'attached', timeout });
   // Wait for the main layout structure to be present, regardless of panel visibility
-  await page.waitForSelector('[data-panel-id="middle-panel"]', {
+  await page.waitForSelector('[data-testid="middle-panel"]', {
     state: 'attached',
     timeout,
   });
   // Also ensure the main content panel is present
-  await page.waitForSelector('[data-panel-id="main-content-panel"]', {
+  await page.waitForSelector('[data-testid="main-content-panel"]', {
     state: 'attached',
     timeout,
   });
@@ -429,7 +429,7 @@ export async function testLayoutPersistenceAcrossNavigation(
   await setupCallback();
 
   // Check if left panel is hidden and temporarily show it for navigation
-  const leftPanel = page.locator('[data-panel-id="left-panel"]');
+  const leftPanel = page.locator('[data-testid="left-panel"]');
   const wasHidden = !(await leftPanel.isVisible());
 
   if (wasHidden) {

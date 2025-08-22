@@ -89,7 +89,9 @@ export class FileContentCache {
    * Clear multiple entries
    */
   deleteKeys(keys: string[]): void {
-    keys.forEach((key) => this.cache.delete(key));
+    for (const key of keys) {
+      this.cache.delete(key);
+    }
   }
 
   /**

@@ -1,5 +1,6 @@
 import { ChevronRight, PanelRight } from 'lucide-react';
 import type React from 'react';
+import { useId } from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
@@ -22,13 +23,16 @@ export function RightPanel({
   onCollapse,
   onExpand,
 }: RightPanelProps) {
+  const rightPanelId = useId();
+
   return (
     <>
       <PanelResizeHandle className="w-1 bg-border hover:bg-border/80 transition-colors" />
       <Panel
         ref={panelRef}
-        id="right-panel"
-        data-panel-id="right-panel"
+        id={rightPanelId}
+        data-panel-id={rightPanelId}
+        data-testid="right-panel"
         order={3}
         defaultSize={defaultSize}
         minSize={15}

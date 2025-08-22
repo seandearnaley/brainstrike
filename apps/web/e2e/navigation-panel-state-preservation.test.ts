@@ -136,7 +136,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-testid="left-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Verify show button appears
@@ -251,7 +251,7 @@ test.describe('Navigation Panel State Preservation', () => {
     const hideExplorerButton = page.locator('button[aria-label="Hide explorer"]');
     await hideExplorerButton.click();
 
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-testid="left-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again
@@ -294,7 +294,7 @@ test.describe('Navigation Panel State Preservation', () => {
     await expect(page.getByText('2/10')).toBeVisible();
 
     // Get panel and button references
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-testid="left-panel"]');
     const hideButton = page.locator('button[aria-label="Hide explorer"]');
     const showButton = page.locator('button[aria-label="Show explorer"]');
 

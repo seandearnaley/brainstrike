@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Simple State Preservation Test', () => {
   test.beforeEach(async ({ page }) => {
@@ -40,7 +40,7 @@ test.describe('Simple State Preservation Test', () => {
     await hideExplorerButton.click();
 
     // Verify panel is hidden
-    const leftPanel = page.locator('[data-panel-id="left-panel"]');
+    const leftPanel = page.locator('[data-testid="left-panel"]');
     await expect(leftPanel).not.toBeVisible();
 
     // Show the panel again

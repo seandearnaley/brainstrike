@@ -99,16 +99,16 @@ vi.mock('react-resizable-panels', () => {
         collapse: Mock;
       };
       useImperativeHandle(ref, () => handle);
-      if (props.id) {
-        const id = String(props.id);
-        panelHandles[id] = handle;
+      const testId = (props as { 'data-testid'?: string })['data-testid'];
+      if (testId) {
+        panelHandles[testId] = handle;
         const callbacks: {
           onCollapse?: (size?: number) => void;
           onExpand?: (size?: number) => void;
         } = {};
         if (onCollapse) callbacks.onCollapse = onCollapse;
         if (onExpand) callbacks.onExpand = onExpand;
-        panelCallbacks[id] = callbacks;
+        panelCallbacks[testId] = callbacks;
       }
       return (
         <div data-testid="panel" {...props}>

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Refresh Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -29,14 +29,16 @@ test.describe('Refresh Workflow', () => {
 
     // Update the mocked file system with a new file after initial load
     await page.evaluate(async () => {
-      const root = await (window as any).showDirectoryPicker();
+      const root = await (
+        window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+      ).showDirectoryPicker();
 
       // Add artificial delay when iterating directory entries to ensure loading state is visible
       const origEntries = root.entries.bind(root);
       root.entries = async function* () {
         await new Promise((r) => setTimeout(r, 200)); // Increased delay for CI reliability
         for await (const item of origEntries()) {
-          yield item as any;
+          yield item as unknown;
         }
       };
 
@@ -54,7 +56,7 @@ test.describe('Refresh Workflow', () => {
     try {
       await expect(page.getByRole('alert')).toBeVisible({ timeout: 1000 });
       await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10000 });
-    } catch (error) {
+    } catch (_error) {
       // Loading overlay might be too fast in some environments, continue with test
       console.log('Loading overlay not detected, refresh was likely very fast');
     }

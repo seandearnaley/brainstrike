@@ -466,13 +466,13 @@ function parseOption(config: EmbedCodeConfig, arg: string, nextArg: string | und
       config.output = requireArgValue(arg, nextArg);
       return true;
     case '--max-file-size':
-      config.maxFileSize = Number.parseInt(requireArgValue(arg, nextArg));
+      config.maxFileSize = Number.parseInt(requireArgValue(arg, nextArg), 10);
       return true;
     case '--max-lines':
-      config.maxLines = Number.parseInt(requireArgValue(arg, nextArg));
+      config.maxLines = Number.parseInt(requireArgValue(arg, nextArg), 10);
       return true;
     case '--chunk-overlap':
-      config.chunkOverlap = Number.parseInt(requireArgValue(arg, nextArg));
+      config.chunkOverlap = Number.parseInt(requireArgValue(arg, nextArg), 10);
       return true;
     case '--verbose':
       config.verbose = true;

@@ -12,7 +12,7 @@ export async function showDatabaseDemoPanel(page: Page): Promise<void> {
   console.log('🗄️ Navigating to database demo panel...');
   
   // First, check if the right panel is already visible
-  const rightPanel = page.locator('[data-panel-id="right-panel"]');
+  const rightPanel = page.locator('[data-testid="right-panel"]');
   const rightPanelVisible = await rightPanel.isVisible();
 
   if (!rightPanelVisible) {

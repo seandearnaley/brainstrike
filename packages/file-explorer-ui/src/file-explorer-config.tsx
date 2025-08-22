@@ -1,7 +1,7 @@
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useId, useState } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
@@ -26,6 +26,7 @@ interface FileExplorerConfigProps {
 
 // Inner dialog is render-only (no hooks) to avoid HMR hook-order issues
 const ConfigDialogContent: React.FC<{
+  configTitleId: string;
   filterError: string | null;
   onFilterChange: (i: string[], e: string[], r: boolean) => void;
   onClose: () => void;
@@ -40,6 +41,7 @@ const ConfigDialogContent: React.FC<{
   setIncludeProjectTree: (v: boolean) => void;
   setFolderSummaryThreshold: (v: number) => void;
 }> = ({
+  configTitleId,
   filterError,
   onFilterChange,
   onClose,
@@ -74,7 +76,7 @@ const ConfigDialogContent: React.FC<{
   return (
     <div>
       <div className="from-primary/5 to-card bg-gradient-to-t p-4 rounded-t-lg border-b bg-card text-foreground">
-        <h4 id="config-title" className="text-lg font-semibold leading-none tracking-tight">
+        <h4 id={configTitleId} className="text-lg font-semibold leading-none tracking-tight">
           File Explorer Configuration
         </h4>
         <p className="text-sm text-muted-foreground mt-1">Customize behavior and appearance</p>
@@ -138,6 +140,7 @@ const ConfigDialogContainer: React.FC<
     };
   }
 > = ({ filterError, onFilterChange, selectors, actions }) => {
+  const configTitleId = useId();
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters: selectors.includeFilters,
@@ -236,6 +239,7 @@ const ConfigDialogContainer: React.FC<
             className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
           >
             <ConfigDialogContent
+              configTitleId={configTitleId}
               filterError={filterError}
               onFilterChange={onFilterChange}
               onClose={() => setIsOpen(false)}

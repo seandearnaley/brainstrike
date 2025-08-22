@@ -39,7 +39,7 @@
     "@brainstrike/config": "workspace:*"
   },
   "devDependencies": {
-    "@swc/core": "^1.13.3",
+    "@swc/core": "^1.13.4",
     "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",
     "tsup": "^8.5.0",

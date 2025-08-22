@@ -12,7 +12,7 @@ const getPGlite = async () => {
   // Try to load pgvector extension
   let vector = null;
   try {
-    // @ts-ignore - TypeScript can't resolve the submodule with CommonJS resolution
+    // @ts-ignore - Module resolution issue with pglite/vector submodule in build
     const vectorModule = await import('@electric-sql/pglite/vector');
     vector = vectorModule.vector;
     logger.info('pgvector extension loaded successfully');

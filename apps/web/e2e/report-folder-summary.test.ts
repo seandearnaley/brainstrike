@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Report Folder Summary Threshold', () => {
   test.beforeEach(async ({ page }) => {
@@ -59,7 +59,7 @@ test.describe('Report Folder Summary Threshold', () => {
     // Read the downloaded file content
     const content1 = await download1
       .path()
-      .then((path) => require('node:fs').readFileSync(path!, 'utf8'));
+      .then((path) => (path ? require('node:fs').readFileSync(path, 'utf8') : ''));
 
     // Verify default threshold behavior (5 files shown, then summary)
     expect(content1).toContain('<project_tree>');
@@ -88,7 +88,7 @@ test.describe('Report Folder Summary Threshold', () => {
     // Read the new downloaded file content
     const content2 = await download2
       .path()
-      .then((path) => require('node:fs').readFileSync(path!, 'utf8'));
+      .then((path) => (path ? require('node:fs').readFileSync(path, 'utf8') : ''));
 
     // Verify new threshold behavior (2 files shown, then summary)
     expect(content2).toContain('src/');

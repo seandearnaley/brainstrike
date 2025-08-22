@@ -119,11 +119,11 @@ test.describe('Application Layout', () => {
       await elements.showRightPanelShim.click(); // And show it again
 
       // Verify all main layout containers exist
-      await expect(page.locator('[data-panel-id="left-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="middle-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="right-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="main-content-panel"]')).toBeAttached();
-      await expect(page.locator('[data-panel-id="console-panel"]')).toBeAttached();
+      await expect(page.locator('[data-testid="left-panel"]')).toBeAttached();
+      await expect(page.locator('[data-testid="middle-panel"]')).toBeAttached();
+      await expect(page.locator('[data-testid="right-panel"]')).toBeAttached();
+      await expect(page.locator('[data-testid="main-content-panel"]')).toBeAttached();
+      await expect(page.locator('[data-testid="console-panel"]')).toBeAttached();
 
       // Verify panel group structure using correct data attributes
       // Expecting two panel groups: one horizontal (outer) and one vertical (inner for main/console)

@@ -1,5 +1,6 @@
 import { ChevronLeft, PanelLeft } from 'lucide-react';
 import type React from 'react';
+import { useId } from 'react';
 import { type ImperativePanelHandle, Panel, PanelResizeHandle } from 'react-resizable-panels';
 import { Button } from '../button';
 
@@ -22,12 +23,15 @@ export function LeftPanel({
   onCollapse,
   onExpand,
 }: LeftPanelProps) {
+  const leftPanelId = useId();
+
   return (
     <>
       <Panel
         ref={panelRef}
-        id="left-panel"
-        data-panel-id="left-panel"
+        id={leftPanelId}
+        data-panel-id={leftPanelId}
+        data-testid="left-panel"
         order={1}
         defaultSize={defaultSize}
         minSize={15}
