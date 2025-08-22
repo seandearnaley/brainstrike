@@ -46,6 +46,7 @@
     "@brainstrike/config": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
+    "@brainstrike/build-utils": "workspace:*",
     "@codecov/vite-plugin": "^1.9.1",
     "@playwright/test": "^1.54.2",
     "@tailwindcss/vite": "^4.1.12",
