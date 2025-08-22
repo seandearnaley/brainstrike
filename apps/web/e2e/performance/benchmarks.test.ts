@@ -2,23 +2,26 @@ import { expect, test } from '@playwright/test';
 import { FileExplorerPage } from '../page-objects/file-explorer-page';
 import { HomePage } from '../page-objects/home-page';
 import { type FileTree, mockBrowserApis } from '../utils/mock-fs';
-import { PERFORMANCE_THRESHOLDS, detectEnvironment } from '../utils/performance-config';
-import { type PerformanceMetric, recordMetric, saveMetricsToFile } from '../utils/performance-test-helpers';
+import { detectEnvironment, PERFORMANCE_THRESHOLDS } from '../utils/performance-config';
+import {
+  type PerformanceMetric,
+  recordMetric,
+  saveMetricsToFile,
+} from '../utils/performance-test-helpers';
 
 // Log environment and thresholds for debugging
 console.log(`🔧 Environment: ${detectEnvironment()}`);
 console.log('📊 Performance Thresholds:', PERFORMANCE_THRESHOLDS);
 
-
 test.describe('Performance: Benchmarks & Regression Detection', () => {
   // Use beforeEach to ensure fresh metrics array for each test
   let performanceMetrics: PerformanceMetric[] = [];
-  
+
   test.beforeEach(() => {
     // Reset metrics before each test to prevent test isolation issues
     performanceMetrics = [];
   });
-  
+
   test.afterEach(async () => {
     // Save metrics after each test to avoid shared state
     if (performanceMetrics.length > 0) {
@@ -62,10 +65,10 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     // 1. Tree Load Performance
     await page.evaluate(() => performance.mark('tree-load-start'));
-    
+
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
-    
+
     const treeLoadTime = await page.evaluate(() => {
       performance.mark('tree-load-end');
       performance.measure('tree-load', 'tree-load-start', 'tree-load-end');
@@ -79,15 +82,15 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
 
     // 2. Tree Expansion Performance
     await page.evaluate(() => performance.mark('expansion-start'));
-    
+
     const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
     const expandCount = await expandButtons.count();
-    
+
     for (let i = 0; i < Math.min(3, expandCount); i++) {
       await expandButtons.nth(i).click();
       await page.waitForTimeout(50);
     }
-    
+
     const expansionTime = await page.evaluate(() => {
       performance.mark('expansion-end');
       performance.measure('expansion', 'expansion-start', 'expansion-end');
@@ -96,19 +99,24 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     performanceMetrics.push(
-      recordMetric('Tree Expansion Time', expansionTime, PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS, 'ms')
+      recordMetric(
+        'Tree Expansion Time',
+        expansionTime,
+        PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS,
+        'ms'
+      )
     );
 
     // 3. File Selection Performance
     await page.evaluate(() => performance.mark('selection-start'));
-    
+
     const fileCheckboxes = page.getByRole('checkbox', { name: /Select / });
     const selectionCount = Math.min(5, await fileCheckboxes.count());
-    
+
     for (let i = 0; i < selectionCount; i++) {
       await fileCheckboxes.nth(i).click();
     }
-    
+
     const selectionTime = await page.evaluate(() => {
       performance.mark('selection-end');
       performance.measure('selection', 'selection-start', 'selection-end');
@@ -117,12 +125,20 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     performanceMetrics.push(
-      recordMetric('File Selection Time', selectionTime, PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS, 'ms')
+      recordMetric(
+        'File Selection Time',
+        selectionTime,
+        PERFORMANCE_THRESHOLDS.FILE_SELECTION_MAX_MS,
+        'ms'
+      )
     );
 
     // 4. Memory Usage
     const memoryUsage = await page.evaluate(() => {
-      const memory = (performance as any).memory;
+      interface PerformanceWithMemory extends Performance {
+        memory?: { usedJSHeapSize: number };
+      }
+      const memory = (performance as PerformanceWithMemory).memory;
       return memory ? memory.usedJSHeapSize / 1024 / 1024 : 0; // Convert to MB
     });
 
@@ -154,7 +170,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
     await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
-    
+
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
 
@@ -162,8 +178,17 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await page.evaluate(() => {
       // Install render tracking
       let renderCount = 0;
-      
-      (window as any).__renderTracker = {
+
+      (
+        window as unknown as {
+          __renderTracker: {
+            renderCount: number;
+            renderTimes: number[];
+            startRender: () => void;
+            endRender: () => void;
+          };
+        }
+      ).__renderTracker = {
         renderCount: 0,
         renderTimes: [],
         startRender: () => {
@@ -172,10 +197,16 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
         },
         endRender: () => {
           performance.mark(`render-${renderCount}-end`);
-          performance.measure(`render-${renderCount}`, `render-${renderCount}-start`, `render-${renderCount}-end`);
+          performance.measure(
+            `render-${renderCount}`,
+            `render-${renderCount}-start`,
+            `render-${renderCount}-end`
+          );
           const measure = performance.getEntriesByName(`render-${renderCount}`)[0];
           if (measure) {
-            (window as any).__renderTracker.renderTimes.push(measure.duration);
+            (
+              window as unknown as { __renderTracker: { renderTimes: number[] } }
+            ).__renderTracker.renderTimes.push(measure.duration);
           }
         },
       };
@@ -186,35 +217,54 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     const checkboxCount = await fileCheckboxes.count();
 
     for (let i = 0; i < checkboxCount; i++) {
-      await page.evaluate(() => (window as any).__renderTracker?.startRender());
+      await page.evaluate(() =>
+        (
+          window as unknown as { __renderTracker?: { startRender: () => void } }
+        ).__renderTracker?.startRender()
+      );
       await fileCheckboxes.nth(i).click();
-      await page.evaluate(() => (window as any).__renderTracker?.endRender());
+      await page.evaluate(() =>
+        (
+          window as unknown as { __renderTracker?: { endRender: () => void } }
+        ).__renderTracker?.endRender()
+      );
       await page.waitForTimeout(50);
     }
 
     const renderMetrics = await page.evaluate(() => {
-      const tracker = (window as any).__renderTracker;
+      const tracker = (window as unknown as { __renderTracker?: { renderTimes?: number[] } })
+        .__renderTracker;
       return {
         totalRenders: tracker?.renderTimes?.length || 0,
-        averageRenderTime: tracker?.renderTimes?.length > 0 
-          ? tracker.renderTimes.reduce((a: number, b: number) => a + b, 0) / tracker.renderTimes.length 
-          : 0,
-        maxRenderTime: tracker?.renderTimes?.length > 0 
-          ? Math.max(...tracker.renderTimes) 
-          : 0,
+        averageRenderTime:
+          tracker?.renderTimes?.length > 0
+            ? tracker.renderTimes.reduce((a: number, b: number) => a + b, 0) /
+              tracker.renderTimes.length
+            : 0,
+        maxRenderTime: tracker?.renderTimes?.length > 0 ? Math.max(...tracker.renderTimes) : 0,
       };
     });
 
     performanceMetrics.push(
-      recordMetric('Average Render Time', renderMetrics.averageRenderTime, PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS, 'ms')
+      recordMetric(
+        'Average Render Time',
+        renderMetrics.averageRenderTime,
+        PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS,
+        'ms'
+      )
     );
-    
+
     performanceMetrics.push(
-      recordMetric('Max Render Time', renderMetrics.maxRenderTime, PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2, 'ms')
+      recordMetric(
+        'Max Render Time',
+        renderMetrics.maxRenderTime,
+        PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2,
+        'ms'
+      )
     );
 
     console.log(`Total renders: ${renderMetrics.totalRenders}`);
-    
+
     // Assert reasonable render performance
     expect(renderMetrics.averageRenderTime).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS);
     expect(renderMetrics.maxRenderTime).toBeLessThan(PERFORMANCE_THRESHOLDS.RENDER_TIME_MAX_MS * 2);
@@ -241,7 +291,7 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
     await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
     await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
-    
+
     // Use the selectRoot helper which properly waits for the file tree
     await explorer.selectRoot();
 
@@ -266,7 +316,12 @@ test.describe('Performance: Benchmarks & Regression Detection', () => {
     });
 
     performanceMetrics.push(
-      recordMetric('Scroll Performance', scrollTime, PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS, 'ms')
+      recordMetric(
+        'Scroll Performance',
+        scrollTime,
+        PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS,
+        'ms'
+      )
     );
 
     expect(scrollTime).toBeLessThan(PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS);

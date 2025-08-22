@@ -21,7 +21,7 @@ test.describe('Database Persistence', () => {
 
     // Clean the database before running any tests in this suite
     // This is critical because NodeFS persistence means data survives between test runs
-    let setupApp;
+    let setupApp: ElectronAppContext | undefined;
     try {
       console.log('📱 Launching Electron app for setup...');
       setupApp = await launchElectronApp();
@@ -105,7 +105,7 @@ test.describe('Database Persistence', () => {
     await waitForAppReady(appContext.window);
   });
 
-  test.afterEach(async ({}, testInfo) => {
+  test.afterEach(async (_fixtures, testInfo) => {
     if (appContext) {
       // Skip database cleanup for the persistence test since it needs to test data across restarts
       const isPersistenceTest = testInfo.title.includes('should persist data between app restarts');
@@ -116,7 +116,7 @@ test.describe('Database Persistence', () => {
           await showDatabaseDemoPanel(appContext.window);
           await waitForDatabaseReady(appContext.window);
           await clearDatabaseRecords(appContext.window);
-        } catch (error) {
+        } catch (_error) {
           // Ignore cleanup errors - they don't affect test validity
         }
       }
@@ -169,14 +169,14 @@ test.describe('Database Persistence', () => {
 
     // First, we need to create some test data by importing files
     // Switch to file explorer to find files to import
-    const explorerTab = page.locator('button:has-text("Explorer")').or(
-      page.locator('[role="tab"]:has-text("Explorer")')
-    );
-    
+    const explorerTab = page
+      .locator('button:has-text("Explorer")')
+      .or(page.locator('[role="tab"]:has-text("Explorer")'));
+
     if (await explorerTab.isVisible()) {
       await explorerTab.click();
       await page.waitForTimeout(1000);
-      
+
       // Try to select the root folder or find existing files
       const selectRootButton = page.locator('button:has-text("Select Root")');
       if (await selectRootButton.isVisible()) {
@@ -192,22 +192,24 @@ test.describe('Database Persistence', () => {
     if (fileElements === 0) {
       // If no files are available through file explorer, we'll create test data directly
       console.log('🏗️ No files found via explorer, creating test data via direct import...');
-      
+
       // Navigate back to database panel and try alternate approach
       await showDatabaseDemoPanel(page);
       await waitForDatabaseReady(page);
-      
+
       // Use the test data creation functionality if available
-      const testDataButton = page.locator('button:has-text("Create Test Data")').or(
-        page.locator('button:has-text("Add Sample Data")')
-      );
-      
+      const testDataButton = page
+        .locator('button:has-text("Create Test Data")')
+        .or(page.locator('button:has-text("Add Sample Data")'));
+
       if (await testDataButton.isVisible()) {
         await testDataButton.click();
         await page.waitForTimeout(2000);
       } else {
         // Skip this test if we can't create test data
-        console.log('⚠️ Skipping UI workflow test - no data available and no test data creation method found');
+        console.log(
+          '⚠️ Skipping UI workflow test - no data available and no test data creation method found'
+        );
         return;
       }
     } else {
@@ -221,10 +223,10 @@ test.describe('Database Persistence', () => {
 
       // Import selected files
       const importButton = page.locator('button:has-text("Import Selected Files")');
-      if (await importButton.isVisible() && !await importButton.isDisabled()) {
+      if ((await importButton.isVisible()) && !(await importButton.isDisabled())) {
         console.log('📥 Importing selected files to create test data...');
         await importButton.click();
-        
+
         // Wait for import to complete - this may take a while
         await page.waitForTimeout(5000);
       }
@@ -251,7 +253,7 @@ test.describe('Database Persistence', () => {
     // Test the Clear Database button workflow
     const clearButton = page.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
-    
+
     // Button should now be enabled since we have data
     await expect(clearButton).toBeEnabled({ timeout: 5000 });
     console.log('🔘 Clear Database button is enabled as expected');
@@ -268,9 +270,9 @@ test.describe('Database Persistence', () => {
     await expect(confirmDialog.locator(':has-text("cannot be undone")')).toBeVisible();
 
     // Find and click the confirmation button
-    const confirmButton = confirmDialog.locator('button:has-text("Clear Database")').or(
-      confirmDialog.locator('button[variant="destructive"]:has-text("Clear")')
-    );
+    const confirmButton = confirmDialog
+      .locator('button:has-text("Clear Database")')
+      .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
     await expect(confirmButton).toBeVisible();
     await confirmButton.click();
 
@@ -305,7 +307,7 @@ test.describe('Database Persistence', () => {
 
     // Ensure database is empty by clearing it first
     await clearDatabaseRecords(page);
-    
+
     // Refresh to ensure UI reflects empty state
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(1000);
@@ -319,7 +321,7 @@ test.describe('Database Persistence', () => {
     const clearButton = page.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeDisabled();
-    
+
     console.log('🔘 Clear Database button is properly disabled when no data exists');
 
     // Verify empty state message is shown
@@ -330,10 +332,9 @@ test.describe('Database Persistence', () => {
   });
 
   test('should handle Clear Database with uninitialized database gracefully', async () => {
-
     // Start fresh - close and reopen app to ensure clean state
     await closeElectronApp(appContext);
-    
+
     // Launch new app instance
     appContext = await launchElectronApp();
     await waitForAppReady(appContext.window);
@@ -341,16 +342,18 @@ test.describe('Database Persistence', () => {
     // Navigate directly to database panel WITHOUT waiting for full database ready
     // This simulates the scenario where user immediately tries to clear database
     await showDatabaseDemoPanel(appContext.window);
-    
+
     // Wait a short time but don't wait for full database ready (to test lazy initialization)
     await appContext.window.waitForTimeout(1000);
 
-    console.log('🧪 Testing Clear Database button behavior with potentially uninitialized database...');
+    console.log(
+      '🧪 Testing Clear Database button behavior with potentially uninitialized database...'
+    );
 
     // Find the Clear Database button
     const clearButton = appContext.window.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible({ timeout: 10000 });
-    
+
     // The button might be disabled (if no data) or enabled - both are valid
     const isEnabled = await clearButton.isEnabled();
     console.log(`🔘 Clear Database button enabled: ${isEnabled}`);
@@ -363,12 +366,12 @@ test.describe('Database Persistence', () => {
       // Check if confirmation dialog appears
       const confirmDialog = appContext.window.locator('[role="dialog"]');
       const dialogAppeared = await confirmDialog.isVisible({ timeout: 3000 });
-      
+
       if (dialogAppeared) {
         console.log('📋 Confirmation dialog appeared - proceeding with confirmation');
-        const confirmButton = confirmDialog.locator('button:has-text("Clear Database")').or(
-          confirmDialog.locator('button[variant="destructive"]:has-text("Clear")')
-        );
+        const confirmButton = confirmDialog
+          .locator('button:has-text("Clear Database")')
+          .or(confirmDialog.locator('button[variant="destructive"]:has-text("Clear")'));
         if (await confirmButton.isVisible()) {
           await confirmButton.click();
           await expect(confirmDialog).not.toBeVisible({ timeout: 10000 });
@@ -382,24 +385,26 @@ test.describe('Database Persistence', () => {
     }
 
     // The critical test: Check that we do NOT see the specific error we fixed
-    const specificErrorToast = appContext.window.locator(':has-text("Database repositories not available")').or(
-      appContext.window.locator(':has-text("Remaining operations were cancelled")')
-    );
-    
+    const specificErrorToast = appContext.window
+      .locator(':has-text("Database repositories not available")')
+      .or(appContext.window.locator(':has-text("Remaining operations were cancelled")'));
+
     // This specific error should NOT be present (this is what we fixed)
     await expect(specificErrorToast).not.toBeVisible({ timeout: 1000 });
-    
+
     console.log('✅ No "Database repositories not available" error - fix is working correctly');
 
     // Verify the database panel is still functional
     await appContext.window.click('button:has-text("Refresh")');
     await appContext.window.waitForTimeout(1000);
-    
+
     // The refresh button should work without errors
     const refreshButton = appContext.window.locator('button:has-text("Refresh")');
     await expect(refreshButton).toBeVisible();
-    
-    console.log('✅ Database interface remains functional - lazy initialization fix working correctly');
+
+    console.log(
+      '✅ Database interface remains functional - lazy initialization fix working correctly'
+    );
   });
 
   test('should perform CRUD operations through UI', async () => {
@@ -408,20 +413,20 @@ test.describe('Database Persistence', () => {
     // Navigate to and show the database demo panel
     await showDatabaseDemoPanel(page);
     await waitForDatabaseReady(page);
-    
+
     // Wait for loading states to resolve
     await page.waitForTimeout(1000);
-    
+
     // Wait for any loading messages to disappear
     const loadingMessage = page.locator('text=Loading PGlite database...');
     if (await loadingMessage.isVisible()) {
       await loadingMessage.waitFor({ state: 'hidden', timeout: 10000 });
     }
-    
+
     // Debug: Check what view is currently selected
     const viewButtons = await page.getByRole('button').allTextContents();
     console.log('📊 Available view buttons:', viewButtons);
-    
+
     // Make sure we're on the Files view (default should be files, but let's be explicit)
     // The button text includes count like "Files (23)"
     // There might be multiple buttons with this text, so we need to be specific
@@ -440,54 +445,58 @@ test.describe('Database Persistence', () => {
     // Check if there's existing data
     const fileRows = await page.locator('.border.rounded.p-3').count(); // File items in the UI
     const tableRows = await page.locator('tbody tr').count(); // Table rows
-    
+
     console.log(`📊 Found ${fileRows} file items and ${tableRows} table rows`);
-    
+
     if (fileRows > 0 || tableRows > 0) {
       console.log('⚠️ Database has existing data, attempting cleanup...');
-      
+
       // Try to use the Clear Database button if available
       const clearButton = page.locator('button:has-text("Clear Database")');
       if (await clearButton.isVisible()) {
         console.log('🧹 Using Clear Database button...');
         await clearButton.click();
-        
+
         // Handle the confirmation dialog
         const confirmDialog = page.locator('[role="dialog"]');
         if (await confirmDialog.isVisible({ timeout: 2000 })) {
           console.log('📋 Confirmation dialog appeared, looking for confirm button...');
-          
+
           // Look for confirm button in the dialog
-          const confirmButton = confirmDialog.locator('button:has-text("Confirm")').or(
-            confirmDialog.locator('button:has-text("Yes")').or(
-              confirmDialog.locator('button:has-text("Clear")').or(
-                confirmDialog.locator('button:has-text("Delete")')
-              )
-            )
-          );
-          
+          const confirmButton = confirmDialog
+            .locator('button:has-text("Confirm")')
+            .or(
+              confirmDialog
+                .locator('button:has-text("Yes")')
+                .or(
+                  confirmDialog
+                    .locator('button:has-text("Clear")')
+                    .or(confirmDialog.locator('button:has-text("Delete")'))
+                )
+            );
+
           if (await confirmButton.isVisible()) {
             console.log('✅ Clicking confirm button...');
             await confirmButton.click();
           } else {
             // If no confirm button found, try to close the dialog
             console.log('⚠️ No confirm button found, trying to close dialog...');
-            const cancelButton = confirmDialog.locator('button:has-text("Cancel")').or(
-              confirmDialog.locator('button[aria-label="Close"]')
-            );
+            const cancelButton = confirmDialog
+              .locator('button:has-text("Cancel")')
+              .or(confirmDialog.locator('button[aria-label="Close"]'));
             if (await cancelButton.isVisible()) {
               await cancelButton.click();
             }
           }
-          
+
           // Wait for dialog to close
           await confirmDialog.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
             console.log('⚠️ Dialog did not close as expected');
           });
         }
-        
+
         await page.waitForTimeout(2000);
-        
+
         // Refresh to see if it worked
         await page.click('button:has-text("Refresh")');
         await page.waitForTimeout(1000);
@@ -496,7 +505,7 @@ test.describe('Database Persistence', () => {
         await clearDatabaseRecords(page);
       }
     }
-    
+
     console.log('📋 Proceeding with test regardless of existing data...');
 
     // Test the database functionality by verifying the UI elements exist
@@ -505,7 +514,7 @@ test.describe('Database Persistence', () => {
 
     // Verify import button exists (even if no files selected)
     await expect(page.locator('button:has-text("Import Selected Files")')).toBeVisible();
-    
+
     // Verify refresh button works
     await page.click('button:has-text("Refresh")');
     await page.waitForTimeout(500);
@@ -513,16 +522,18 @@ test.describe('Database Persistence', () => {
     // Check the current state after cleanup
     const currentFileRows = await page.locator('.border.rounded.p-3').count();
     const currentTableRows = await page.locator('tbody tr').count();
-    
-    console.log(`📊 After cleanup: ${currentFileRows} file items and ${currentTableRows} table rows`);
-    
+
+    console.log(
+      `📊 After cleanup: ${currentFileRows} file items and ${currentTableRows} table rows`
+    );
+
     // The test should handle both empty and non-empty states
     // If the database has data, we verify the UI shows it correctly
     // If the database is empty, we verify the empty state
-    
+
     if (currentFileRows === 0 && currentTableRows === 0) {
       console.log('✅ Database is empty, checking for empty state message...');
-      
+
       // Check for empty state messages
       const emptyStateSelectors = [
         // Files view empty states
@@ -535,7 +546,7 @@ test.describe('Database Persistence', () => {
         // Generic empty state
         page.locator('.text-center.text-muted-foreground'),
       ];
-      
+
       let emptyStateFound = false;
       for (const selector of emptyStateSelectors) {
         if (await selector.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -545,13 +556,13 @@ test.describe('Database Persistence', () => {
           break;
         }
       }
-      
+
       if (!emptyStateFound) {
         console.warn('⚠️ Empty state message not found, but database is empty');
       }
     } else {
       console.log('✅ Database has data, verifying UI displays it correctly...');
-      
+
       // Verify that file items are displayed
       await expect(page.locator('.border.rounded.p-3').first()).toBeVisible();
       console.log('✅ File items are displayed in the UI');
@@ -559,19 +570,19 @@ test.describe('Database Persistence', () => {
 
     // Verify the database panel structure and functionality
     await expect(page.locator('[data-testid="database-demo-panel"]')).toBeVisible();
-    
+
     // Since we found an empty state, we know the database is working
     // The specific view (Files, Chunks, or Search) doesn't matter for this test
     console.log('✅ Database UI functionality verified - found empty state');
-    
+
     // Verify basic UI elements are present
     await expect(page.locator('button:has-text("Import Selected Files")')).toBeVisible();
     await expect(page.locator('button:has-text("Refresh")')).toBeVisible();
-    
+
     // These texts might be in the header/title area - check with more specific selectors
     const demoTitle = page.locator('h3:has-text("Enhanced Database Demo")');
     const pgLiteInfo = page.locator('text=/PGlite.*pgvector/');
-    
+
     // Only check for these if they're expected to be visible
     if (await demoTitle.isVisible()) {
       console.log('✅ Found demo title');
@@ -605,7 +616,7 @@ test.describe('Database Persistence', () => {
     // Since the DatabaseDemoPanel now uses file import instead of test records,
     // we'll test persistence by verifying the database connection and UI state
     // The actual file import functionality requires file selection which is complex in E2E
-    
+
     // Verify database is connected and ready
     await expect(page.locator('text=✓')).toBeVisible();
     await expect(page.locator('text=Successfully connected')).toBeVisible();
@@ -633,7 +644,7 @@ test.describe('Database Persistence', () => {
     // Verify database connection persisted after restart
     await expect(newPage.locator('text=✓')).toBeVisible({ timeout: 15000 });
     await expect(newPage.locator('text=Successfully connected')).toBeVisible({ timeout: 5000 });
-    
+
     // Verify database connection is still established after restart
     await expect(newPage.locator('text=Database connected via DbProvider')).toBeVisible();
 

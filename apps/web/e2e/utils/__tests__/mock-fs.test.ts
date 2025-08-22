@@ -25,7 +25,7 @@ beforeEach(() => {
     async text(): Promise<string> {
       return this.content;
     }
-  } as any;
+  } as unknown as typeof File;
 
   // Mock Blob with text() method
   global.Blob = class MockBlob {
@@ -46,7 +46,7 @@ beforeEach(() => {
     async text(): Promise<string> {
       return this.content;
     }
-  } as any;
+  } as unknown as typeof Blob;
 
   // Mock navigator.clipboard
   Object.defineProperty(navigator, 'clipboard', {
@@ -95,7 +95,11 @@ describe('Mock File System Logic', () => {
     const addInitScript = vi.fn();
     const page = { addInitScript } as unknown as Page;
     await mockBrowserApis(page, 'root', tree, options);
-    const [script, scriptArgs] = addInitScript.mock.calls[0]!;
+    const firstCall = addInitScript.mock.calls[0];
+    if (!firstCall) {
+      throw new Error('addInitScript was not called');
+    }
+    const [script, scriptArgs] = firstCall as [(args: unknown) => void, unknown];
     return () => script(scriptArgs);
   };
 
@@ -111,7 +115,9 @@ describe('Mock File System Logic', () => {
     });
     runScript();
 
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     expect(rootHandle.name).toBe('root');
 
     const topFileHandle = await rootHandle.getFileHandle('top-file.txt');
@@ -132,7 +138,9 @@ describe('Mock File System Logic', () => {
   it('should allow creating and writing to a new file', async () => {
     const runScript = await getInjectedScript({});
     runScript();
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     const newFileHandle = await rootHandle.getFileHandle('new-file.txt', { create: true });
     const writable = await newFileHandle.createWritable();
     await writable.write('hello world');
@@ -145,7 +153,9 @@ describe('Mock File System Logic', () => {
   it('should allow creating a new directory', async () => {
     const runScript = await getInjectedScript({});
     runScript();
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     const newDirHandle = await rootHandle.getDirectoryHandle('new-dir', { create: true });
     expect(newDirHandle.name).toBe('new-dir');
     expect(newDirHandle.kind).toBe('directory');
@@ -154,7 +164,9 @@ describe('Mock File System Logic', () => {
   it('should remove an entry', async () => {
     const runScript = await getInjectedScript({ 'file-to-delete.txt': null });
     runScript();
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     await expect(rootHandle.getFileHandle('file-to-delete.txt')).resolves.toBeDefined();
 
     await rootHandle.removeEntry('file-to-delete.txt');
@@ -166,7 +178,9 @@ describe('Mock File System Logic', () => {
     const runScript = await getInjectedScript({ 'file.txt': null, dir: {} });
     runScript();
 
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     const entries = [];
     for await (const entry of rootHandle.entries()) {
       entries.push(entry);
@@ -181,7 +195,9 @@ describe('Mock File System Logic', () => {
   it('should throw when getting non-existent handles without create option', async () => {
     const runScript = await getInjectedScript({});
     runScript();
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     await expect(rootHandle.getFileHandle('nonexistent.txt')).rejects.toThrow('File not found');
     await expect(rootHandle.getDirectoryHandle('nonexistent-dir')).rejects.toThrow(
       'Directory not found'
@@ -191,7 +207,9 @@ describe('Mock File System Logic', () => {
   it('should handle various data types for writing', async () => {
     const runScript = await getInjectedScript({});
     runScript();
-    const rootHandle = await (window as any).showDirectoryPicker();
+    const rootHandle = await (
+      window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    ).showDirectoryPicker();
     const fileHandle = await rootHandle.getFileHandle('test.bin', { create: true });
     const writable = await fileHandle.createWritable();
 

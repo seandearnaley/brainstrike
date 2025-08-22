@@ -8,8 +8,25 @@ import {
 } from './utils/electron-helpers';
 
 // Helper function to safely get error message
-function getErrorMessage(error: unknown): string {
+function _getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+declare global {
+  interface Window {
+    electronAPI?: {
+      storage?: {
+        setItem: (key: string, value: string) => Promise<void>;
+        getItem: (key: string) => Promise<string | null>;
+        getAllKeys: () => Promise<string[]>;
+        removeItem: (key: string) => Promise<void>;
+      };
+      fileSystem?: {
+        requestDirectoryAccess: () => Promise<unknown>;
+        exists: (path: string) => Promise<boolean>;
+      };
+    };
+  }
 }
 
 test.describe('IPC Communication', () => {
@@ -31,7 +48,7 @@ test.describe('IPC Communication', () => {
   test('should have electron API available', async () => {
     // Verify that the electron API is properly exposed to the renderer
     const hasElectronAPI = await appContext.window.evaluate(() => {
-      return typeof (window as any).electronAPI !== 'undefined';
+      return typeof window.electronAPI !== 'undefined';
     });
 
     expect(hasElectronAPI).toBe(true);
@@ -40,9 +57,9 @@ test.describe('IPC Communication', () => {
   test('should handle storage operations via IPC', async () => {
     // Test storage operations that go through IPC
     const storageTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.storage) {
-        return { error: 'Storage API not available' };
+        return { error: 'Storage API not available' } as const;
       }
 
       try {
@@ -62,9 +79,9 @@ test.describe('IPC Communication', () => {
           hasKeys: keys.length >= 0,
           removedValue: removedValue,
           success: true,
-        };
+        } as const;
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) };
+        return { error: error instanceof Error ? error.message : String(error) } as const;
       }
     });
 
@@ -77,19 +94,19 @@ test.describe('IPC Communication', () => {
   test('should handle file system operations via IPC', async () => {
     // Test file system operations that go through IPC
     const fileSystemTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.fileSystem) {
-        return { error: 'FileSystem API not available', success: false };
+        return { error: 'FileSystem API not available', success: false } as const;
       }
 
       try {
         // Check if the methods exist before calling them
         if (typeof electronAPI.fileSystem.requestDirectoryAccess !== 'function') {
-          return { error: 'requestDirectoryAccess method not available', success: false };
+          return { error: 'requestDirectoryAccess method not available', success: false } as const;
         }
 
         if (typeof electronAPI.fileSystem.exists !== 'function') {
-          return { error: 'exists method not available', success: false };
+          return { error: 'exists method not available', success: false } as const;
         }
 
         // Test directory access request (this will use our mocked version)
@@ -102,14 +119,17 @@ test.describe('IPC Communication', () => {
           hasDirectoryAccess: directoryResult !== null,
           canCheckExists: typeof existsResult === 'boolean',
           success: true,
-        };
+        } as const;
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error), success: false };
+        return {
+          error: error instanceof Error ? error.message : String(error),
+          success: false,
+        } as const;
       }
     });
 
     // If the API isn't available, that's okay - just log it and pass
-    if (fileSystemTest.error) {
+    if ('error' in fileSystemTest) {
       console.log('FileSystem API test skipped:', fileSystemTest.error);
       expect(fileSystemTest.success).toBe(false); // Expected since API might not be implemented
       return;
@@ -122,39 +142,41 @@ test.describe('IPC Communication', () => {
   test('should handle IPC errors gracefully', async () => {
     // Test that IPC errors are handled properly
     const errorTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.storage) {
-        return { error: 'Storage API not available' };
+        return { error: 'Storage API not available' } as const;
       }
 
       try {
         // Try to perform an operation that might fail
         await electronAPI.storage.setItem('', 'value');
-        return { unexpectedSuccess: true };
+        return { unexpectedSuccess: true } as const;
       } catch (error) {
         // Errors should be properly caught and handled
         return {
           errorCaught: true,
           errorMessage: error instanceof Error ? error.message : String(error),
           success: true,
-        };
+        } as const;
       }
     });
 
     // Either the operation should succeed or error should be caught
-    expect(errorTest.success || errorTest.unexpectedSuccess).toBe(true);
+    expect(('success' in errorTest && errorTest.success) || 'unexpectedSuccess' in errorTest).toBe(
+      true
+    );
   });
 
   test('should maintain IPC communication during heavy operations', async () => {
     // Test that IPC remains responsive during heavy operations
     const heavyOperationTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.storage) {
-        return { error: 'Storage API not available' };
+        return { error: 'Storage API not available' } as const;
       }
 
       const startTime = Date.now();
-      const operations = [];
+      const operations: Array<Promise<unknown>> = [];
 
       // Perform fewer operations for Codex environment - reduce from 10 to 5
       const operationCount = 5;
@@ -166,7 +188,7 @@ test.describe('IPC Communication', () => {
         await Promise.all(operations);
 
         // Verify all operations completed
-        const verifyOperations = [];
+        const verifyOperations: Array<Promise<string | null>> = [];
         for (let i = 0; i < operationCount; i++) {
           verifyOperations.push(electronAPI.storage.getItem(`test-key-${i}`));
         }
@@ -175,7 +197,7 @@ test.describe('IPC Communication', () => {
         const allCorrect = results.every((result, index) => result === `test-value-${index}`);
 
         // Clean up
-        const cleanupOperations = [];
+        const cleanupOperations: Array<Promise<void>> = [];
         for (let i = 0; i < operationCount; i++) {
           cleanupOperations.push(electronAPI.storage.removeItem(`test-key-${i}`));
         }
@@ -188,9 +210,9 @@ test.describe('IPC Communication', () => {
           allCorrect,
           duration: endTime - startTime,
           operationsCount: operationCount,
-        };
+        } as const;
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) };
+        return { error: error instanceof Error ? error.message : String(error) } as const;
       }
     });
 
@@ -203,9 +225,9 @@ test.describe('IPC Communication', () => {
   test('should handle concurrent IPC calls', async () => {
     // Test concurrent IPC operations
     const concurrentTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.storage) {
-        return { error: 'Storage API not available' };
+        return { error: 'Storage API not available' } as const;
       }
 
       try {
@@ -232,11 +254,11 @@ test.describe('IPC Communication', () => {
 
         return {
           success: true,
-          values: [value1, value2, value3],
+          values: [value1, value2, value3] as const,
           allCorrect: value1 === 'value-1' && value2 === 'value-2' && value3 === 'value-3',
-        };
+        } as const;
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) };
+        return { error: error instanceof Error ? error.message : String(error) } as const;
       }
     });
 
@@ -247,9 +269,9 @@ test.describe('IPC Communication', () => {
   test('should handle IPC communication reliability', async () => {
     // Test IPC communication reliability over multiple calls
     const reliabilityTest = await appContext.window.evaluate(async () => {
-      const electronAPI = (window as any).electronAPI;
+      const electronAPI = window.electronAPI;
       if (!electronAPI?.storage) {
-        return { error: 'Storage API not available' };
+        return { error: 'Storage API not available' } as const;
       }
 
       let successCount = 0;
@@ -278,9 +300,9 @@ test.describe('IPC Communication', () => {
           successCount,
           totalOperations,
           successRate: successCount / totalOperations,
-        };
+        } as const;
       } catch (error) {
-        return { error: error instanceof Error ? error.message : String(error) };
+        return { error: error instanceof Error ? error.message : String(error) } as const;
       }
     });
 

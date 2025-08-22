@@ -3,8 +3,8 @@ pre-commit:
   parallel: false
   commands:
     biome:
-      # {staged_files} expands to the list of staged files; Biome will ignore unknown types
-      run: pnpm exec biome check --error-on-warnings --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
+      # Run full-scope check to match `biome check .` behavior so exclusions/overrides are consistent
+      run: pnpm exec biome check . --error-on-warnings --colors=off
       # if you want to automatically apply safe fixes, uncomment the next two lines and comment the line above:
       # run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
       # stage_fixed: true
