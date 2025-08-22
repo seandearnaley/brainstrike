@@ -1,6 +1,5 @@
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
-import { useUndoableAction } from '@brainstrike/hooks';
-import { useIdeFileEditor } from '@brainstrike/ui';
+import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { countTokensHeuristic, decodeFileSelection } from '@brainstrike/utils';
 import { useCallback } from 'react';
 import { PreviewPanel } from './preview-panel';

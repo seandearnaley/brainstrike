@@ -62,7 +62,6 @@ vi.mock('../use-selection-manager-context', () => ({
   useSelectionManager: vi.fn(),
 }));
 vi.mock('@brainstrike/hooks', () => ({
-  useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
   usePagination: vi.fn(() => ({
     currentPage: 0,
     totalPages: 1,
@@ -81,10 +80,11 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   return {
     ...actual,
     useIdeFileEditor: vi.fn(() => ({ openFileInTab: vi.fn() })),
+    useUndoableAction: vi.fn(() => ({ performUndoableAction: vi.fn() })),
   };
 });
 
-import { useUndoableAction } from '@brainstrike/hooks';
+import { useUndoableAction } from '@brainstrike/ui';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 

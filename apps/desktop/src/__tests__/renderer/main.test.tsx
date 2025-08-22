@@ -27,6 +27,16 @@ vi.mock('react-dom/client', () => ({
   createRoot: mockCreateRoot,
 }));
 
+// Mock DbProvider to avoid initializing PGlite/wasm in this smoke test
+const mockDbProvider = vi.fn(({ children }: { children: React.ReactNode }) => (
+  <div data-testid="db-provider">{children}</div>
+));
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return { ...actual, DbProvider: mockDbProvider };
+});
+
 // Mock page components used in main.tsx
 vi.mock('../../renderer/components/home-page-content', () => ({
   default: () => <div>HomePage</div>,

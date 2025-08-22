@@ -7,11 +7,11 @@ vi.mock('@brainstrike/utils', () => ({
   isDevEnv: vi.fn(() => false),
 }));
 
-// Mock the debounce module
-vi.mock('../lib/debounce', () => ({
+// Mock the debounce utility from hooks
+vi.mock('@brainstrike/hooks', () => ({
   createDebounce: vi.fn((fn) => ({
     run: vi.fn((state) => fn(state)),
-    flush: vi.fn(() => {}),
+    flush: vi.fn(() => Promise.resolve()),
   })),
 }));
 

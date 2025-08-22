@@ -14,7 +14,6 @@ export default defineConfig({
     'react-dom',
     '@brainstrike/types',
     '@brainstrike/utils',
-    '@brainstrike/ui',
     '@brainstrike/file-system',
     'file-saver',
   ],
