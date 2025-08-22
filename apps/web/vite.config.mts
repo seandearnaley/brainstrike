@@ -2,6 +2,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
+import { getDevCSP } from '@brainstrike/security';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
@@ -10,7 +11,6 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
 import { defineConfig } from 'vitest/config';
-import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
@@ -184,6 +184,7 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
+      '@brainstrike/security': path.resolve(__dirname, '../../packages/security/src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
       // Map stylesheet import to package root css before package alias
       '@brainstrike/file-explorer-ui/styles.css': path.resolve(
@@ -227,6 +228,7 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/security',
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues

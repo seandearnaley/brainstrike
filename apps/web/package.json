@@ -31,6 +31,7 @@
     "@brainstrike/server-config": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
+    "@brainstrike/security": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
     "dompurify": "^3.2.6",
     "monaco-editor": "^0.52.2",
