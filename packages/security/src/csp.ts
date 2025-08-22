@@ -34,7 +34,7 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           'https://cdn.jsdelivr.net',
           'blob:',
         ]
-      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net', 'blob:'],
+      : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
 
     'worker-src': ["'self'", 'blob:'],
 
