@@ -1,13 +1,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
+import { getDevCSP } from '@brainstrike/security';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import wasm from 'vite-plugin-wasm';
-import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -92,6 +92,7 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      '@brainstrike/security': path.resolve(__dirname, '../../packages/security/src'),
     },
   },
   worker: {
@@ -111,6 +112,7 @@ export default defineConfig({
       '@brainstrike/storage',
       '@brainstrike/app-shell',
       '@brainstrike/workers',
+      '@brainstrike/security',
     ],
   },
   server: {

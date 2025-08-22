@@ -1,5 +1,5 @@
 /**
- * Content Security Policy utility for consistent CSP across dev server and Electron
+ * Content Security Policy utilities shared across Brainstrike apps
  */
 
 interface CSPDirectives {
@@ -16,17 +16,15 @@ interface CSPDirectives {
   'frame-ancestors': string[];
 }
 
-type Environment = 'development' | 'production';
+export type Environment = 'development' | 'production';
 
-/**
- * Get CSP directives based on environment
- */
 function getCSPDirectives(env: Environment): CSPDirectives {
   const isDev = env === 'development';
 
   return {
     'default-src': isDev ? ["'self'", 'http://localhost:*', 'ws://localhost:*'] : ["'self'"],
 
+    // transformers.js relies on eval in both envs; allow blob: for WASM loader
     'script-src': isDev
       ? [
           "'self'",
@@ -34,6 +32,7 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           "'unsafe-eval'",
           'http://localhost:*',
           'https://cdn.jsdelivr.net',
+          'blob:',
         ]
       : ["'self'", "'unsafe-eval'", 'https://cdn.jsdelivr.net'],
 
@@ -69,26 +68,17 @@ function getCSPDirectives(env: Environment): CSPDirectives {
   };
 }
 
-/**
- * Convert CSP directives object to CSP string
- */
 function directivesToString(directives: CSPDirectives): string {
   return Object.entries(directives)
     .map(([directive, values]) => `${directive} ${values.join(' ')}`)
     .join('; ');
 }
 
-/**
- * Get CSP string for the given environment
- */
 export function getCSP(env: Environment): string {
   const directives = getCSPDirectives(env);
   return directivesToString(directives);
 }
 
-/**
- * Get development CSP string
- */
 export function getDevCSP(): string {
   return getCSP('development');
 }

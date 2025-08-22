@@ -1,5 +1,5 @@
+import { getCSP } from '@brainstrike/security';
 import { app, session } from 'electron';
-import { getCSP } from './csp-utils';
 
 // Type definitions for Electron's webRequest
 interface WebRequestDetails {
