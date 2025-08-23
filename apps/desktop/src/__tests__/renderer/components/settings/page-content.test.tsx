@@ -1,6 +1,11 @@
-import { ThemeProvider } from '@brainstrike/ui';
 import { render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
+// Ensure file-saver is mocked for this suite
+vi.mock('file-saver', () => ({
+  saveAs: vi.fn(),
+  default: { saveAs: vi.fn() },
+}));
 
 // Mock the app-shell components before importing
 vi.mock('@brainstrike/app-shell', () => ({
@@ -18,11 +23,7 @@ import SettingsPageContent from '../../../../renderer/components/settings/page-c
 
 describe('SettingsPageContent', () => {
   it('renders without crashing', () => {
-    const { container } = render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
+    const { container } = render(<SettingsPageContent />);
 
     // Just check that the component renders without throwing
     expect(container).toBeInTheDocument();

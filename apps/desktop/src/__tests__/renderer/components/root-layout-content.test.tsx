@@ -1,6 +1,12 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-import RootLayoutContent from '../../../renderer/components/root-layout-content';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+// Mock file-system types to avoid touching electron adapter in tests
+vi.mock('@brainstrike/file-system', () => ({
+  ElectronFileSystemAdapter: vi.fn(),
+  WebFileSystemAdapter: vi.fn(),
+  MockFileSystemAdapter: vi.fn(),
+}));
 
 // Mock the file-explorer-hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
@@ -24,41 +30,38 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ),
 }));
 
-// Mock the app-shell component
-vi.mock('@brainstrike/app-shell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
-  return {
-    ...actual,
-    AppShell: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="app-shell">{children}</div>
-    ),
-    AppLayout: ({ children }: { children: React.ReactNode }) => (
+// Mock the app-shell component without importing the original to avoid side effects
+vi.mock('@brainstrike/app-shell', () => ({
+  AppShell: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="app-shell">{children}</div>
+  ),
+  AppLayout: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="app-layout">
+      <main>{children}</main>
+    </div>
+  ),
+  createAppConfig: vi.fn(() => ({
+    title: 'BrainStrike.ai',
+    description: 'Multi-app dashboard',
+    themeStorageKey: 'app-theme',
+    navigationItems: [],
+  })),
+  RootLayoutContent: ({
+    sidebarContent,
+    homePageContent,
+  }: {
+    sidebarContent?: React.ReactNode;
+    homePageContent: React.ReactNode;
+  }) => (
+    <div data-testid="file-explorer-provider">
       <div data-testid="app-layout">
-        <main>{children}</main>
+        {sidebarContent && <aside>{sidebarContent}</aside>}
+        <main>{homePageContent}</main>
       </div>
-    ),
-    createAppConfig: vi.fn(() => ({
-      title: 'BrainStrike.ai',
-      description: 'Multi-app dashboard',
-      themeStorageKey: 'app-theme',
-      navigationItems: [],
-    })),
-    RootLayoutContent: ({
-      sidebarContent,
-      homePageContent,
-    }: {
-      sidebarContent?: React.ReactNode;
-      homePageContent: React.ReactNode;
-    }) => (
-      <div data-testid="file-explorer-provider">
-        <div data-testid="app-layout">
-          {sidebarContent && <aside>{sidebarContent}</aside>}
-          <main>{homePageContent}</main>
-        </div>
-      </div>
-    ),
-  };
-});
+    </div>
+  ),
+  navigationItems: [],
+}));
 
 // Mock the page components to avoid adapter dependencies
 vi.mock('../../../renderer/components/home-page-content', () => ({
@@ -72,7 +75,12 @@ vi.mock('../../../renderer/components/settings/page-content', () => ({
   default: () => <div data-testid="settings-page-content">Settings Page Content</div>,
 }));
 
+let RootLayoutContent: React.ComponentType;
+
 describe('RootLayoutContent', () => {
+  beforeAll(async () => {
+    RootLayoutContent = (await import('../../../renderer/components/root-layout-content')).default;
+  });
   it('should render without crashing', () => {
     render(<RootLayoutContent />);
     expect(screen.getByTestId('file-explorer-provider')).toBeInTheDocument();

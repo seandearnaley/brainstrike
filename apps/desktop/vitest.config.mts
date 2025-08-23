@@ -5,11 +5,16 @@ import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts'
 
 export default defineConfig({
   plugins: [react()],
+  server: {
+    fs: {
+      allow: [path.resolve(__dirname, '../../packages')],
+    },
+  },
   test: {
     environment: 'jsdom',
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
-    testTimeout: getAdjustedTimeout('UI_COMPONENT'),
+    testTimeout: getAdjustedTimeout('uiComponent'),
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
@@ -43,6 +48,15 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
       '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
+      // Align with web tests: ensure workspace packages resolve consistently in Vitest
+      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/dist'),
+      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
+      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
+      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
+      '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
+      'file-saver': path.resolve(__dirname, './src/__tests__/mocks/file-saver.ts'),
     },
+    preserveSymlinks: true,
   },
 });

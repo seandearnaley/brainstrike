@@ -45,5 +45,11 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+// Mock file-saver CommonJS default to provide saveAs named export
+vi.mock('file-saver', () => {
+  const saveAs = vi.fn();
+  return { default: { saveAs }, saveAs };
+});
+
 // Export mocks for use in tests
 export { mockElectronAPI };
