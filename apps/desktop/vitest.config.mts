@@ -15,6 +15,10 @@ export default defineConfig({
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
     testTimeout: getAdjustedTimeout('uiComponent'),
+    deps: {
+      // Inline workspace packages so Vitest/Vite resolve aliases consistently in CI
+      inline: [/^@brainstrike\//],
+    },
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
@@ -49,10 +53,10 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src/renderer'),
       '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
       // Align with web tests: ensure workspace packages resolve consistently in Vitest
-      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/dist/index.mjs'),
+      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/src'),
       '@brainstrike/config/constants': path.resolve(
         __dirname,
-        '../../packages/config/dist/constants.mjs'
+        '../../packages/config/src/constants.ts'
       ),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/utils/dist': path.resolve(__dirname, '../../packages/utils/src'),
@@ -60,6 +64,16 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
       '@brainstrike/app-shell': path.resolve(__dirname, '../../packages/app-shell/src'),
+      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src'),
+      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
+      '@brainstrike/file-explorer-hooks': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-hooks/src'
+      ),
+      '@brainstrike/file-explorer-ui': path.resolve(
+        __dirname,
+        '../../packages/file-explorer-ui/src'
+      ),
       'file-saver': path.resolve(__dirname, './src/__tests__/mocks/file-saver.ts'),
     },
     preserveSymlinks: true,
