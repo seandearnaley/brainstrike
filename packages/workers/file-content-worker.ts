@@ -1,6 +1,7 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
-import { fileContent, fileExplorer, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
+import { fileContent, fileExplorer } from '@brainstrike/utils';
+import { isBinaryExtension, isTextExtension } from '@brainstrike/utils';
 
 export interface FileReadRequest {
   compositeKey: string;
