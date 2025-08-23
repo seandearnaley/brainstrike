@@ -48,16 +48,30 @@ interface StoreSchema {
   };
 }
 
-const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
-  name: 'brainstrike-settings',
-});
+// In Vitest unit tests, register IPC handlers immediately (when app.whenReady never resolves)
+// biome-ignore lint/complexity/useLiteralKeys: env access via index signature
+if (process.env['VITEST'] === 'true') {
+  const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
+    name: 'brainstrike-settings',
+  });
+  logger.info('Setting up IPC handlers (VITEST)...');
+  registerIpcHandlers(fileSystem, storage, store);
+  logger.info('IPC handlers registered for tests');
+}
 
-logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, store);
-logger.info('IPC handlers registered successfully');
+// Defer ElectronStore and IPC registration until after app is ready for runtime/E2E.
 
 app.whenReady().then(async () => {
   try {
+    // Initialize persisted store after app is ready to avoid early app.getPath access
+    const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
+      name: 'brainstrike-settings',
+    });
+
+    logger.info('Setting up IPC handlers...');
+    registerIpcHandlers(fileSystem, storage, store);
+    logger.info('IPC handlers registered successfully');
+
     logger.info('App ready, starting initialization...');
     console.info('🚀 Electron app ready');
 

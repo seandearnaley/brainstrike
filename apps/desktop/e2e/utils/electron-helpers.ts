@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import fs from 'node:fs';
 
 declare const process: NodeJS.Process;
 
@@ -27,11 +28,24 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   // Force software GL to avoid headless GPU stalls in CI
   const glArgs = ['--use-gl=swiftshader'];
 
+  const logsDir = require('node:path').resolve(process.cwd(), 'test-results');
+  try {
+    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+  } catch {}
+  const logFile = require('node:path').join(logsDir, 'electron-main.log');
+
   const launchOptions: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs, ...glArgs],
     executablePath: electronPath,
     // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
     timeout: 90000,
+    env: {
+      ...process.env,
+      ELECTRON_ENABLE_LOGGING: '1',
+      ELECTRON_DEBUG: '1',
+      NODE_ENV: process.env.NODE_ENV || 'test',
+      ELECTRON_LOG_FILE: logFile,
+    },
   };
 
   // Only record video when not in CI to prevent window popups
@@ -121,9 +135,8 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
         try {
           app = await electron.launch(launchOptions);
           console.log('✅ Relaunched app after crash');
-
-          // Reset retry count since we have a fresh app
-          retryCount = 0;
+          // Count this as another attempt instead of resetting, to avoid infinite loops
+          retryCount++;
           continue;
         } catch (relaunchError) {
           console.error('❌ Failed to relaunch app:', relaunchError);
@@ -154,6 +167,19 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
           console.log('✅ Closed failed app');
         } catch (closeError) {
           console.error('❌ Failed to close app:', closeError);
+        }
+        // Attempt to dump Electron main log
+        try {
+          if (fs.existsSync(logFile)) {
+            const content = fs.readFileSync(logFile, 'utf-8');
+            const lines = content.split('\n');
+            const tail = lines.slice(-200).join('\n');
+            console.log('📄 Electron main log (tail):\n', tail);
+          } else {
+            console.log('📄 Electron main log not found at', logFile);
+          }
+        } catch (e) {
+          console.log('📄 Failed reading Electron main log:', e);
         }
         throw new Error(
           'No windows available after retries - app may have crashed during initialization'
