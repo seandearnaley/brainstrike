@@ -37,7 +37,8 @@ export default defineConfig({
         statements: 80,
       },
     },
-    // Inline all workspace packages so Vitest transforms them instead of Node resolving built dists
+    // Inline all workspace packages so Vitest transforms them from source
+    // TODO: migrate to server.deps.inline or deps.optimizer when stable
     deps: {
       inline: [/^@brainstrike\//],
     },
@@ -78,10 +79,13 @@ export default defineConfig({
         replacement: resolve(__dirname, '../../packages/workers/file-content-worker.ts'),
       },
     ],
-    preserveSymlinks: true,
   },
   // Allow accessing files from the monorepo packages during Vitest runs
   server: {
     fs: { allow: [resolve(__dirname, '../..')] },
+  },
+  // Prevent externalizing monorepo packages so Vite transforms their source instead of using built dists
+  ssr: {
+    noExternal: [/^@brainstrike\//],
   },
 });
