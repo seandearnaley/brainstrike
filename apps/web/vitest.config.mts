@@ -37,20 +37,29 @@ export default defineConfig({
         statements: 80,
       },
     },
+    // Inline all workspace packages so Vitest transforms them instead of Node resolving built dists
+    deps: {
+      inline: [/^@brainstrike\//],
+    },
   },
   resolve: {
     alias: [
       {
         find: '@brainstrike/app-shell',
-        replacement: resolve(__dirname, '../../packages/app-shell/dist'),
+        replacement: resolve(__dirname, '../../packages/app-shell/src'),
       },
       { find: '@brainstrike/types', replacement: resolve(__dirname, '../../packages/types/src') },
       { find: '@brainstrike/hooks', replacement: resolve(__dirname, '../../packages/hooks/src') },
-      { find: '@brainstrike/ui', replacement: resolve(__dirname, '../../packages/ui/dist') },
-      // Point utils to built output to avoid nested source transforms importing other packages
-      { find: '@brainstrike/utils', replacement: resolve(__dirname, '../../packages/utils/dist') },
+      { find: '@brainstrike/ui', replacement: resolve(__dirname, '../../packages/ui/src') },
+      // Use source for utils so Vitest transforms internal imports
+      { find: '@brainstrike/utils', replacement: resolve(__dirname, '../../packages/utils/src') },
       // Use source for config to avoid prebuilt artifact resolution issues in tests
       { find: '@brainstrike/config', replacement: resolve(__dirname, '../../packages/config/src') },
+      // Ensure file-system resolves to source to avoid built output importing @brainstrike/config dist
+      {
+        find: '@brainstrike/file-system',
+        replacement: resolve(__dirname, '../../packages/file-system/src'),
+      },
       {
         find: '@brainstrike/file-explorer',
         replacement: resolve(__dirname, '../../packages/file-explorer/src'),
