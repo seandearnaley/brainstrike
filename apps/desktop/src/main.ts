@@ -14,8 +14,9 @@ const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
 // Harden CI/headless environments: disable GPU and sandbox issues that can prevent window creation
+// Avoid running during unit tests (Vitest module evaluation)
 // biome-ignore lint/complexity/useLiteralKeys: env access via index signature
-if (process.env['CI'] === 'true') {
+if (process.env['CI'] === 'true' && process.env['VITEST'] !== 'true') {
   try {
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('no-sandbox');

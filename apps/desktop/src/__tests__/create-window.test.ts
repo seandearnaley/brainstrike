@@ -20,6 +20,8 @@ describe('createWindow', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Default to non-headless for unit tests; individual tests will override as needed
+    process.env['CI'] = undefined;
 
     mockWebContents = {
       setWindowOpenHandler: vi.fn(),
@@ -47,6 +49,8 @@ describe('createWindow', () => {
     it('should create window with correct configuration', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       Object.defineProperty(vi.mocked(app), 'isPackaged', { value: true, configurable: true });
+      // Ensure CI hardening path is not taken so sandbox stays true
+      process.env['CI'] = undefined;
 
       await createWindow();
 
