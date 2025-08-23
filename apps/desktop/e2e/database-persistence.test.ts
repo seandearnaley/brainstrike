@@ -105,7 +105,7 @@ test.describe('Database Persistence', () => {
     await waitForAppReady(appContext.window);
   });
 
-  test.afterEach(async (_fixtures, testInfo) => {
+  test.afterEach(async ({}, testInfo) => {
     if (appContext) {
       // Skip database cleanup for the persistence test since it needs to test data across restarts
       const isPersistenceTest = testInfo.title.includes('should persist data between app restarts');

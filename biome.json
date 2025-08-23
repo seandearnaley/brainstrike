@@ -146,7 +146,8 @@
             "useFilenamingConvention": "off"
           },
           "correctness": {
-            "noUnusedVariables": "warn"
+            "noUnusedVariables": "warn",
+            "noEmptyPattern": "off"
           },
           "complexity": {
             "noExcessiveCognitiveComplexity": "off"
