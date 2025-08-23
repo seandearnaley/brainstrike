@@ -95,7 +95,8 @@ export async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      // In CI/headless, disable renderer sandbox to avoid Chromium headless stalls
+      sandbox: isHeadless ? false : true,
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
@@ -112,7 +113,20 @@ export async function createWindow() {
   }
 
   configureSecurity(win);
-  await loadRenderer(win);
+  // Add diagnostics to surface renderer load outcome
+  win.webContents.on('did-finish-load', () => {
+    console.info('✅ Renderer did-finish-load');
+  });
+  win.webContents.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL) => {
+    console.error('❌ Renderer did-fail-load', { errorCode, errorDescription, validatedURL });
+  });
+
+  try {
+    await loadRenderer(win);
+  } catch (err) {
+    console.error('❌ loadRenderer threw:', err);
+    throw err;
+  }
 
   return win;
 }
