@@ -1,5 +1,3 @@
-import os from 'node:os';
-import path from 'node:path';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -44,7 +42,21 @@ export function getDefaultDbPath() {
   }
 
   // For Node.js/Electron environments, default to a temp directory
-  return path.join(os.tmpdir(), 'app.db');
+  // Use dynamic imports to avoid bundling Node built-ins in browser builds
+  const { tmpdir } = requireNodeOs();
+  const { join } = requireNodePath();
+  return join(tmpdir(), 'app.db');
+}
+
+// Lazily require Node built-ins without creating static import edges in the bundle
+function requireNodeOs(): { tmpdir: () => string } {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('node:os');
+}
+
+function requireNodePath(): { join: (...parts: string[]) => string } {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('node:path');
 }
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);

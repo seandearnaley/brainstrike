@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/main.js",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "dev": "concurrently --kill-others \"npm run dev:renderer\" \"npm run dev:electron\"",
