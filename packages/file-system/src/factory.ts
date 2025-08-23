@@ -1,10 +1,12 @@
-import { detectPlatform, type Platform } from '@brainstrike/platform-utils';
+import { detectPlatform } from '@brainstrike/platform-utils';
 import { ElectronFileSystemAdapter } from './adapters/electron-adapter';
 import { MockFileSystemAdapter } from './adapters/mock-file-system-adapter';
 import { WebFileSystemAdapter } from './adapters/web-adapter';
 import type { FileSystemAdapter } from './types';
 
-export function createFileSystemAdapter(platform: Platform): FileSystemAdapter {
+type DetectedPlatform = ReturnType<typeof detectPlatform>;
+
+export function createFileSystemAdapter(platform: DetectedPlatform): FileSystemAdapter {
   switch (platform) {
     case 'web':
       return new WebFileSystemAdapter();

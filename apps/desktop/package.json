@@ -13,7 +13,7 @@
     "dev:main": "tsc --project tsconfig.main.json",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
-    "build:main": "tsc --project tsconfig.main.json",
+    "build:main": "node scripts/tsc-main.mjs",
     "start": "electron . --no-sandbox",
     "start:dev": "npm run dev:main && electron . --no-sandbox",
     "pack": "npm run build && electron-builder --dir",
