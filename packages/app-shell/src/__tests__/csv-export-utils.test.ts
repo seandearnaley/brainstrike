@@ -530,7 +530,7 @@ describe('CSV Export Utils', () => {
       expect(DEFAULT_FILE_RECORD_COLUMNS[0]?.getValue(record)).toBe('1');
       expect(DEFAULT_FILE_RECORD_COLUMNS[1]?.getValue(record)).toBe('test.txt');
       expect(DEFAULT_FILE_RECORD_COLUMNS[2]?.getValue(record)).toBe('/path/to/test.txt');
-      expect(DEFAULT_FILE_RECORD_COLUMNS[3]?.getValue(record)).toBe('1.0 KB');
+      expect(DEFAULT_FILE_RECORD_COLUMNS[3]?.getValue(record)).toBe('1 KB');
       expect(DEFAULT_FILE_RECORD_COLUMNS[4]?.getValue(record)).toBe(1024);
       expect(DEFAULT_FILE_RECORD_COLUMNS[5]?.getValue(record)).toBe(10);
     });
@@ -570,21 +570,21 @@ describe('CSV Export Core Functions', () => {
 
   describe('formatFileSize', () => {
     it('should format bytes correctly', () => {
-      expect(formatFileSize(0)).toBe('0 B');
-      expect(formatFileSize(512)).toBe('512 B');
-      expect(formatFileSize(1023)).toBe('1023 B');
+      expect(formatFileSize(0)).toBe('0 Bytes');
+      expect(formatFileSize(512)).toBe('512 Bytes');
+      expect(formatFileSize(1023)).toBe('1023 Bytes');
     });
 
     it('should format kilobytes correctly', () => {
-      expect(formatFileSize(1024)).toBe('1.0 KB');
+      expect(formatFileSize(1024)).toBe('1 KB');
       expect(formatFileSize(1536)).toBe('1.5 KB');
-      expect(formatFileSize(1024 * 1024 - 1)).toBe('1024.0 KB');
+      expect(formatFileSize(1024 * 1024 - 1)).toBe('1024 KB');
     });
 
     it('should format megabytes correctly', () => {
-      expect(formatFileSize(1024 * 1024)).toBe('1.0 MB');
+      expect(formatFileSize(1024 * 1024)).toBe('1 MB');
       expect(formatFileSize(1024 * 1024 * 1.5)).toBe('1.5 MB');
-      expect(formatFileSize(1024 * 1024 * 10)).toBe('10.0 MB');
+      expect(formatFileSize(1024 * 1024 * 10)).toBe('10 MB');
     });
   });
 
