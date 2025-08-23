@@ -21,7 +21,7 @@ export function setupSecurity() {
     (details: WebRequestDetails, callback: WebRequestCallback) => {
       callback({
         responseHeaders: {
-          ...details.responseHeaders,
+          ...(details.responseHeaders ?? {}),
           'Content-Security-Policy': [csp],
         },
       });
