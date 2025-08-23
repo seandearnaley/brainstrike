@@ -35,6 +35,10 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
     env: {
       ...process.env,
       NODE_ENV: process.env.NODE_ENV || 'test',
+      // Surface Electron logs in CI for diagnostics
+      ELECTRON_ENABLE_LOGGING: '1',
+      ELECTRON_ENABLE_STACK_DUMPING: '1',
+      ELECTRON_DEBUG_NOTIFICATIONS: '1',
     },
   };
 

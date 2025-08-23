@@ -78,7 +78,8 @@ export const getCILaunchArgs = (env?: ReturnType<typeof detectEnvironment>): str
     '--no-sandbox',
     '--disable-dev-shm-usage', // /dev/shm is tiny in CI
     '--disable-setuid-sandbox',
-    '--disable-gpu',
+    // Do NOT disable GPU; Electron in CI should use SwiftShader via --use-gl=swiftshader
+    // Disabling GPU can cause headless stalls during window creation
     '--disable-features=VizDisplayCompositor', // Helps with headless environments
   ];
 
