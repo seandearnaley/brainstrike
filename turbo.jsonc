@@ -58,7 +58,7 @@
     // --- Type Check Task --- //
     "type-check": {
       // Ensures the package is built (generating .d.ts files) before type checking.
-      "dependsOn": ["build"],
+      "dependsOn": ["^build", "build"],
       // Type checking doesn't produce persistent artifacts to cache, only console output.
       // Caching might still be useful if inputs haven't changed, but often set to false or relies on inputs.
       // For now, let's keep default cache=true but no outputs.

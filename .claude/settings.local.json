@@ -210,7 +210,9 @@
       "WebSearch",
       "Bash(pntml exec biome lint:*)",
       "Bash(pntml exec biome check:*)",
-      "Bash(pntml --filter @brainstrike/web exec playwright test e2e/layout.test.ts -g \"should render the main layout correctly\" --headed --debug)"
+      "Bash(pntml --filter @brainstrike/web exec playwright test e2e/layout.test.ts -g \"should render the main layout correctly\" --headed --debug)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)"
     ],
     "deny": []
   },
