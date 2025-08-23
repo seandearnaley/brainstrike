@@ -2,7 +2,6 @@ import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
-import fs from 'node:fs';
 
 declare const process: NodeJS.Process;
 
@@ -28,23 +27,14 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   // Force software GL to avoid headless GPU stalls in CI
   const glArgs = ['--use-gl=swiftshader'];
 
-  const logsDir = require('node:path').resolve(process.cwd(), 'test-results');
-  try {
-    if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
-  } catch {}
-  const logFile = require('node:path').join(logsDir, 'electron-main.log');
-
   const launchOptions: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs, ...glArgs],
     executablePath: electronPath,
-    // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
-    timeout: 90000,
+    // Keep a tight launch timeout to fail fast
+    timeout: 20000,
     env: {
       ...process.env,
-      ELECTRON_ENABLE_LOGGING: '1',
-      ELECTRON_DEBUG: '1',
       NODE_ENV: process.env.NODE_ENV || 'test',
-      ELECTRON_LOG_FILE: logFile,
     },
   };
 
@@ -78,7 +68,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
     try {
       // Wait progressively longer for subsequent retries, especially important for restart scenarios
       if (retryCount > 0) {
-        const waitTime = Math.min(2000 + retryCount * 2000, 8000); // 2s, 4s, 6s max
+        const waitTime = Math.min(500 + retryCount * 500, 1500); // 0.5s, 1s, 1.5s
         console.log(
           `🔄 Retry ${retryCount}/${maxRetries} - waiting ${waitTime}ms for app to initialize...`
         );
@@ -86,7 +76,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
       }
 
       // Use longer timeout for window creation on retries (restart scenarios)
-      const windowTimeout = retryCount > 0 ? 60000 : 45000;
+      const windowTimeout = retryCount > 0 ? 15000 : 10000;
       console.log(`⏱️ Waiting for first window (timeout: ${windowTimeout}ms)...`);
 
       // Prefer explicit window event; fallback to polling to avoid event race
@@ -167,19 +157,6 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
           console.log('✅ Closed failed app');
         } catch (closeError) {
           console.error('❌ Failed to close app:', closeError);
-        }
-        // Attempt to dump Electron main log
-        try {
-          if (fs.existsSync(logFile)) {
-            const content = fs.readFileSync(logFile, 'utf-8');
-            const lines = content.split('\n');
-            const tail = lines.slice(-200).join('\n');
-            console.log('📄 Electron main log (tail):\n', tail);
-          } else {
-            console.log('📄 Electron main log not found at', logFile);
-          }
-        } catch (e) {
-          console.log('📄 Failed reading Electron main log:', e);
         }
         throw new Error(
           'No windows available after retries - app may have crashed during initialization'
