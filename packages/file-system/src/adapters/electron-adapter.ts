@@ -1,6 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config';
 import type { IFileNode } from '@brainstrike/types';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type {
