@@ -85,6 +85,10 @@ export async function createWindow() {
   // Check if running in headless mode (for tests) - prefer CI env var over command line flags
   // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
+  console.info('🔧 createWindow: isHeadless=', isHeadless);
+
+  const preloadPath = path.join(__dirname, 'preload.js');
+  console.info('🔧 createWindow: preloadPath=', preloadPath, 'exists=', fs.existsSync(preloadPath));
 
   const win = new BrowserWindow({
     width: 1536,
@@ -96,7 +100,7 @@ export async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       // In CI/headless, disable renderer sandbox to avoid Chromium headless stalls
-      sandbox: isHeadless ? false : true,
+      sandbox: !isHeadless,
       webSecurity: true,
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
@@ -122,6 +126,13 @@ export async function createWindow() {
   });
 
   try {
+    const rendererPath = path.join(__dirname, 'renderer/index.html');
+    console.info(
+      '🔧 createWindow: rendererPath=',
+      rendererPath,
+      'exists=',
+      fs.existsSync(rendererPath)
+    );
     await loadRenderer(win);
   } catch (err) {
     console.error('❌ loadRenderer threw:', err);

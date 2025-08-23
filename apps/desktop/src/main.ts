@@ -18,10 +18,13 @@ const storage = new ElectronStorageAdapter();
 // biome-ignore lint/complexity/useLiteralKeys: env access via index signature
 if (process.env['CI'] === 'true' && process.env['VITEST'] !== 'true') {
   try {
+    const display = 'DISPLAY';
+    console.info('⚙️ CI hardening: DISPLAY=', process.env[display]);
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu');
     app.commandLine.appendSwitch('disable-software-rasterizer');
+    app.commandLine.appendSwitch('use-gl', 'swiftshader');
     console.info('⚙️ CI hardening: GPU disabled, no-sandbox enabled');
   } catch (e) {
     console.warn('⚠️ Failed to apply CI hardening switches:', e);

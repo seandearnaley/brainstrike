@@ -24,9 +24,11 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   // Get CI-optimized launch arguments
   const ciArgs = getCILaunchArgs();
   const baseArgs = [mainPath, '--test-mode', '--disable-dialogs'];
+  // Force software GL to avoid headless GPU stalls in CI
+  const glArgs = ['--use-gl=swiftshader'];
 
   const launchOptions: Parameters<typeof electron.launch>[0] = {
-    args: [...baseArgs, ...ciArgs],
+    args: [...baseArgs, ...ciArgs, ...glArgs],
     executablePath: electronPath,
     // Increase timeout for Codex environment and restart scenarios - from 30s to 90s
     timeout: 90000,
@@ -70,11 +72,28 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
       }
 
       // Use longer timeout for window creation on retries (restart scenarios)
-      const windowTimeout = retryCount > 0 ? 45000 : 30000;
+      const windowTimeout = retryCount > 0 ? 60000 : 45000;
       console.log(`⏱️ Waiting for first window (timeout: ${windowTimeout}ms)...`);
 
-      window = await app.firstWindow();
-      console.log('✅ Successfully got first window');
+      // Prefer explicit window event; fallback to polling to avoid event race
+      try {
+        const evt = await app.waitForEvent('window', { timeout: windowTimeout });
+        window = evt;
+        console.log('✅ Got first window via waitForEvent("window")');
+      } catch {
+        // Poll windows() for up to the same timeout in 500ms steps
+        const start = Date.now();
+        while (!window && Date.now() - start < windowTimeout) {
+          const wins = app.windows();
+          if (wins.length > 0) {
+            window = wins[0];
+            console.log(`✅ Found window via polling (count=${wins.length})`);
+            break;
+          }
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        if (!window) throw new Error('No window after waitForEvent and polling');
+      }
       break;
     } catch (error) {
       console.error(`❌ Failed to get first window (attempt ${retryCount + 1}):`, error);
