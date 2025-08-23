@@ -1,8 +1,7 @@
-import { formatFileSize as formatFileSizeUtil } from '@brainstrike/utils';
-
-export const formatFileSize = (bytes?: number): string => {
-  if (bytes === undefined) return '';
-  return formatFileSizeUtil(bytes);
+export const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
 
 export const formatDate = (isoString: string): string => {

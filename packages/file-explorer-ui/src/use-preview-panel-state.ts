@@ -47,7 +47,6 @@ export interface UsePreviewPanelStateProps {
   ) => void;
 }
 
-import { formatFileSize as formatFileSizeUtil } from '@brainstrike/utils';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
 // Helper function to check if content is accessible
@@ -350,7 +349,14 @@ export function usePreviewPanelState({
 
   const formatFileSize = useCallback((bytes?: number) => {
     if (bytes === undefined) return 'Unknown';
-    return formatFileSizeUtil(bytes);
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let size = bytes;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex++;
+    }
+    return `${size.toFixed(1)} ${units[unitIndex]}`;
   }, []);
 
   const totalStats = useMemo(() => {
