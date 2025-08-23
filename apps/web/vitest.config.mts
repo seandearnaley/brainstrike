@@ -44,7 +44,8 @@ export default defineConfig({
       '@brainstrike/types': resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/hooks': resolve(__dirname, '../../packages/hooks/src'),
       '@brainstrike/ui': resolve(__dirname, '../../packages/ui/dist'),
-      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/src'),
+      // Point utils to built output to avoid nested source transforms importing other packages
+      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/dist'),
       '@brainstrike/config': resolve(__dirname, '../../packages/config/dist'),
       '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
       '@brainstrike/file-explorer-hooks': resolve(
@@ -59,5 +60,11 @@ export default defineConfig({
       ),
     },
     preserveSymlinks: true,
+  },
+  // Allow accessing files from the monorepo packages during Vitest runs
+  server: {
+    fs: {
+      allow: [resolve(__dirname, '../..')],
+    },
   },
 });
