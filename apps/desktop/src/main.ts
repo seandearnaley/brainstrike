@@ -23,7 +23,7 @@ if (process.env['CI'] === 'true' && process.env['VITEST'] !== 'true') {
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('no-sandbox');
     app.commandLine.appendSwitch('disable-gpu');
-    app.commandLine.appendSwitch('disable-software-rasterizer');
+    // Intentionally not disabling software rasterizer; SwiftShader is required for headless CI
     app.commandLine.appendSwitch('use-gl', 'swiftshader');
     console.info('⚙️ CI hardening: GPU disabled, no-sandbox enabled');
   } catch (e) {

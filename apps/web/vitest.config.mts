@@ -39,32 +39,40 @@ export default defineConfig({
     },
   },
   resolve: {
-    alias: {
-      '@brainstrike/app-shell': resolve(__dirname, '../../packages/app-shell/dist'),
-      '@brainstrike/types': resolve(__dirname, '../../packages/types/src'),
-      '@brainstrike/hooks': resolve(__dirname, '../../packages/hooks/src'),
-      '@brainstrike/ui': resolve(__dirname, '../../packages/ui/dist'),
+    alias: [
+      {
+        find: '@brainstrike/app-shell',
+        replacement: resolve(__dirname, '../../packages/app-shell/dist'),
+      },
+      { find: '@brainstrike/types', replacement: resolve(__dirname, '../../packages/types/src') },
+      { find: '@brainstrike/hooks', replacement: resolve(__dirname, '../../packages/hooks/src') },
+      { find: '@brainstrike/ui', replacement: resolve(__dirname, '../../packages/ui/dist') },
       // Point utils to built output to avoid nested source transforms importing other packages
-      '@brainstrike/utils': resolve(__dirname, '../../packages/utils/dist'),
-      '@brainstrike/config': resolve(__dirname, '../../packages/config/dist'),
-      '@brainstrike/file-explorer': resolve(__dirname, '../../packages/file-explorer/src'),
-      '@brainstrike/file-explorer-hooks': resolve(
-        __dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/file-explorer-ui': resolve(__dirname, '../../packages/file-explorer-ui/src'),
-      '@brainstrike/workers': resolve(__dirname, '../../packages/workers'),
-      '@brainstrike/workers/file-content-worker': resolve(
-        __dirname,
-        '../../packages/workers/file-content-worker.ts'
-      ),
-    },
+      { find: '@brainstrike/utils', replacement: resolve(__dirname, '../../packages/utils/dist') },
+      // Use source for config to avoid prebuilt artifact resolution issues in tests
+      { find: '@brainstrike/config', replacement: resolve(__dirname, '../../packages/config/src') },
+      {
+        find: '@brainstrike/file-explorer',
+        replacement: resolve(__dirname, '../../packages/file-explorer/src'),
+      },
+      {
+        find: '@brainstrike/file-explorer-hooks',
+        replacement: resolve(__dirname, '../../packages/file-explorer-hooks/src'),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui',
+        replacement: resolve(__dirname, '../../packages/file-explorer-ui/src'),
+      },
+      { find: '@brainstrike/workers', replacement: resolve(__dirname, '../../packages/workers') },
+      {
+        find: '@brainstrike/workers/file-content-worker',
+        replacement: resolve(__dirname, '../../packages/workers/file-content-worker.ts'),
+      },
+    ],
     preserveSymlinks: true,
   },
   // Allow accessing files from the monorepo packages during Vitest runs
   server: {
-    fs: {
-      allow: [resolve(__dirname, '../..')],
-    },
+    fs: { allow: [resolve(__dirname, '../..')] },
   },
 });
