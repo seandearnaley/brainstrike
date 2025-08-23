@@ -1,4 +1,4 @@
-import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config';
 import {
   isBinaryExtension as checkBinaryExtension,
   isTextExtension as checkTextExtension,

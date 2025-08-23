@@ -2,7 +2,7 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config/constants';
+import { MAX_FILE_SIZE_BYTES } from '@brainstrike/config';
 import { glob } from 'glob';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { ModelRegistryManager } from '../model-registry';
