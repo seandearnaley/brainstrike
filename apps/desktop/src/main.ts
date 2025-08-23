@@ -13,7 +13,7 @@ const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
-// Harden CI/headless environments: disable GPU and sandbox issues that can prevent window creation
+// Harden CI/headless environments: avoid sandbox issues; prefer SwiftShader for GL in CI
 // Avoid running during unit tests (Vitest module evaluation)
 // biome-ignore lint/complexity/useLiteralKeys: env access via index signature
 if (process.env['CI'] === 'true' && process.env['VITEST'] !== 'true') {
@@ -22,10 +22,10 @@ if (process.env['CI'] === 'true' && process.env['VITEST'] !== 'true') {
     console.info('⚙️ CI hardening: DISPLAY=', process.env[display]);
     app.disableHardwareAcceleration();
     app.commandLine.appendSwitch('no-sandbox');
-    app.commandLine.appendSwitch('disable-gpu');
-    // Intentionally not disabling software rasterizer; SwiftShader is required for headless CI
+    // Intentionally do NOT disable GPU to allow SwiftShader to function
+    // Keep software GL for headless CI environments
     app.commandLine.appendSwitch('use-gl', 'swiftshader');
-    console.info('⚙️ CI hardening: GPU disabled, no-sandbox enabled');
+    console.info('⚙️ CI hardening: no-sandbox enabled, using SwiftShader');
   } catch (e) {
     console.warn('⚠️ Failed to apply CI hardening switches:', e);
   }
