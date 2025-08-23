@@ -49,8 +49,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src/renderer'),
       '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
       // Align with web tests: ensure workspace packages resolve consistently in Vitest
-      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/dist'),
+      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/dist/index.mjs'),
+      '@brainstrike/config/constants': path.resolve(
+        __dirname,
+        '../../packages/config/dist/constants.mjs'
+      ),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
+      '@brainstrike/utils/dist': path.resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/ui': path.resolve(__dirname, '../../packages/ui/src'),
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
