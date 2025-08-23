@@ -14,8 +14,18 @@ type WebRequestCallback = (response: { responseHeaders: Record<string, string[]>
 export function setupSecurity() {
   const isDev = !app.isPackaged;
 
-  const csp = getCSP(isDev ? 'development' : 'production');
+  let csp = getCSP(isDev ? 'development' : 'production');
   const mode = isDev ? 'Development' : 'Production';
+
+  // Electron requires script-src to allow blob: in production for certain WASM/loader patterns.
+  // If the shared CSP removed it for hardening, append it here for desktop only.
+  if (!isDev) {
+    const scriptMatch = csp.match(/script-src[^;]*/);
+    if (scriptMatch && !/\bblob:/.test(scriptMatch[0] ?? '')) {
+      const updated = `${scriptMatch[0]} blob:`;
+      csp = csp.replace(scriptMatch[0] as string, updated);
+    }
+  }
 
   session.defaultSession.webRequest.onHeadersReceived(
     (details: WebRequestDetails, callback: WebRequestCallback) => {
