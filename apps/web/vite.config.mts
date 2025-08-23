@@ -202,6 +202,7 @@ export default defineConfig({
         '../../packages/file-explorer-hooks/src'
       ),
       '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      '@brainstrike/config': path.resolve(__dirname, '../../packages/config/src'),
       '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
       '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
@@ -229,6 +230,7 @@ export default defineConfig({
       '@brainstrike/app-shell',
       '@brainstrike/workers',
       '@brainstrike/security',
+      '@brainstrike/config',
     ],
     include: [
       'react-helmet-async', // Explicitly include to prevent cache issues
