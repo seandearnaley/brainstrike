@@ -1,5 +1,6 @@
 {
   // Turborepo monorepo configuration for brainstrike
+  // Cache bust: 2025-08-23
   "$schema": "https://turbo.build/schema.json",
 
   // Global configuration
