@@ -5,7 +5,7 @@
   "main": "index.js",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "scripts": {
     "build": "turbo run build --summarize --log-order=grouped --cache-dir=.turbo",
@@ -83,6 +83,14 @@
     "overrides": {
       "react-helmet-async>react": "^19.0.0",
       "react-helmet-async>react-dom": "^19.0.0"
+    }
+  },
+  "turbo": {
+    "pipeline": {
+      "build": {
+        "dependsOn": ["^build"],
+        "outputs": ["dist/**"]
+      }
     }
   },
   "workspaces": [
