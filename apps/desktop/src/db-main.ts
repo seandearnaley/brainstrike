@@ -12,9 +12,9 @@ const getPGlite = async () => {
   // Try to load pgvector extension
   let vector = null;
   try {
-    // @ts-ignore - TypeScript can't resolve the submodule with CommonJS resolution
-    const vectorModule = await import('@electric-sql/pglite/vector');
-    vector = vectorModule.vector;
+    // Dynamic import to handle module resolution differences between build configs
+    const vectorModule = await import('@electric-sql/pglite/vector' as string);
+    vector = (vectorModule as { vector: unknown }).vector;
     logger.info('pgvector extension loaded successfully');
   } catch (_e) {
     logger.info('pgvector extension not available, using basic PGlite');
@@ -61,7 +61,8 @@ export async function initializeMainDatabase(): Promise<any> {
   if (vector) {
     db = new PGlite({
       dataDir,
-      extensions: { vector },
+      // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
+      extensions: { vector: vector as any },
     });
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } else {

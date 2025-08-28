@@ -26,7 +26,7 @@ vi.spyOn(console, 'debug').mockImplementation(() => {});
 vi.spyOn(console, 'error').mockImplementation(() => {});
 
 describe('useFileContentLoading', () => {
-  const TEST_FOLDER_ID = 'test-folder-id';
+  const TestFolderId = 'test-folder-id';
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -72,7 +72,7 @@ describe('useFileContentLoading', () => {
     });
   };
 
-  const getCompositeKey = (path: string) => encodeFileSelection(TEST_FOLDER_ID, path);
+  const getCompositeKey = (path: string) => encodeFileSelection(TestFolderId, path);
 
   // Helper to wait for state updates
   const waitForStateUpdate = async () => {
@@ -105,7 +105,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const expectedContent = 'custom test content for text file';
       MockFileSystemAdapter.setMockFileContent(filePath, expectedContent);
@@ -138,7 +138,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
 
       // Make this extension binary
@@ -172,7 +172,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const expectedLargeContent = 'content of large file';
       MockFileSystemAdapter.setMockFileContent(filePath, expectedLargeContent);
@@ -206,7 +206,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const expectedContent = 'electron file content';
       MockFileSystemAdapter.setMockFileContent(absolutePath, expectedContent);
@@ -237,7 +237,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       // Override the fileExplorer mock to return this specific node
       fileExplorer.findNodeByPath = vi.fn(() => fileNode);
@@ -278,7 +278,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       // Ensure it's treated as a text file that would attempt loading
       vi.mocked(fileContent.isTextExtension).mockReturnValue(true);
@@ -312,7 +312,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const successFileNode = createFileNode({
         name: 'success-after-error.txt',
@@ -326,7 +326,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
 
       const errorMessage = 'Initial load error';
@@ -394,7 +394,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const initialContent = 'Initial content for caching test';
       MockFileSystemAdapter.setMockFileContent(filePath, initialContent);
@@ -444,7 +444,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const initialContent = 'Initial content for force reload';
       const updatedContent = 'Updated content after force reload';
@@ -509,7 +509,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const fileNode2 = createFileNode({
         name: 'multi2.txt',
@@ -523,7 +523,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
 
       MockFileSystemAdapter.setMockFileContent(filePath1, content1);
@@ -564,7 +564,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const errorNode = createFileNode({
         name: 'multi-error.txt',
@@ -578,7 +578,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
 
       MockFileSystemAdapter.setMockFileContent(successPath, successContentText);
@@ -634,7 +634,7 @@ describe('useFileContentLoading', () => {
 
       expect(readSpy).not.toHaveBeenCalled();
       expect(result.current.fileContents[compositeKey]).toBe(
-        `File not accessible - Folder mismatch. Expected: ${TEST_FOLDER_ID}, Found: other-folder-id`
+        `File not accessible - Folder mismatch. Expected: ${TestFolderId}, Found: other-folder-id`
       );
     });
 
@@ -669,7 +669,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const { result, rerender } = renderUseFileContentLoadingHook([dummyNode]);
 
@@ -697,7 +697,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const readSpy = vi
         .spyOn(MockFileSystemAdapter.prototype, 'readFile')
@@ -733,7 +733,7 @@ describe('useFileContentLoading', () => {
             createWritable: vi.fn(),
             isSameEntry: vi.fn(),
           } as FileSystemFileHandle,
-          rootFolderId: TEST_FOLDER_ID,
+          rootFolderId: TestFolderId,
         })
       );
 
@@ -784,7 +784,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       const node2 = createFileNode({
         name: 'clear2.txt',
@@ -798,7 +798,7 @@ describe('useFileContentLoading', () => {
           createWritable: vi.fn(),
           isSameEntry: vi.fn(),
         } as FileSystemFileHandle,
-        rootFolderId: TEST_FOLDER_ID,
+        rootFolderId: TestFolderId,
       });
       MockFileSystemAdapter.setMockFileContent(path1, 'one');
       MockFileSystemAdapter.setMockFileContent(path2, 'two');

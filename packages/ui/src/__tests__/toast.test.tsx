@@ -13,7 +13,7 @@ import {
 
 // Mock hasPointerCapture
 beforeAll(() => {
-  // @ts-ignore - we need to mock this for userEvent
+  // @ts-expect-error - we need to mock this for userEvent
   Element.prototype.hasPointerCapture = () => false;
 });
 

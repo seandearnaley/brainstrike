@@ -91,17 +91,17 @@ describe('color-utils', () => {
         const actual = await vi.importActual('../color-utils');
 
         const getFolderColor = (str: string) => {
-          const COLOR_COMBINATIONS: FolderColors[] = [];
+          const ColorCombinations: FolderColors[] = [];
           let hash = 0;
           for (let i = 0; i < str.length; i++) {
             hash = str.charCodeAt(i) + ((hash << 5) - hash);
           }
 
-          const index = Math.abs(hash) % COLOR_COMBINATIONS.length;
-          const selectedColor = COLOR_COMBINATIONS[index];
+          const index = Math.abs(hash) % ColorCombinations.length;
+          const selectedColor = ColorCombinations[index];
 
           if (selectedColor !== undefined) return selectedColor;
-          if (COLOR_COMBINATIONS.length > 0) return COLOR_COMBINATIONS[0];
+          if (ColorCombinations.length > 0) return ColorCombinations[0];
           return {
             light: { bg: '#FFFFFF', text: '#000000' },
             dark: { bg: '#000000', text: '#FFFFFF' },

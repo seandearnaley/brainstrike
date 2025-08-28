@@ -330,8 +330,8 @@ describe('PreviewPanel Integration Tests', () => {
       Array.from({ length: fileCount }, (_, i) => [`file${i}`, 1024 + i * 100])
     ),
     decodeFileSelection: vi.fn((key: string) => ({
-      folderId: `folder-${Math.floor(Number.parseInt(key.replace('file', '')) / 10)}`,
-      path: `path/to/folder${Math.floor(Number.parseInt(key.replace('file', '')) / 10)}/${key}.txt`,
+      folderId: `folder-${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}`,
+      path: `path/to/folder${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}/${key}.txt`,
     })),
     countTokensHeuristic: vi.fn((content: string) => content.length * 4),
     estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
