@@ -306,9 +306,9 @@ describe('readFullFileTree', () => {
     // d2_symlink should be marked as isDepthTruncated: true, not isSymbolicLink: true.
 
     const symlinkTarget = mockDirectory('symlink_target');
-    const d2_symlink = mockDirectory('d2_symlink');
+    const d2Symlink = mockDirectory('d2_symlink');
     // Make d2_symlink point to symlinkTarget for its *children definition* if it were to be expanded
-    d2_symlink.entries = async function* () {
+    d2Symlink.entries = async function* () {
       yield ['actual_child_of_target', symlinkTarget];
     };
 
@@ -316,7 +316,7 @@ describe('readFullFileTree', () => {
       [
         'd1',
         mockDirectory('d1', [
-          ['d2_is_the_symlink', d2_symlink], // d2_is_the_symlink is depth 1
+          ['d2_is_the_symlink', d2Symlink], // d2_is_the_symlink is depth 1
         ]),
       ],
     ]);

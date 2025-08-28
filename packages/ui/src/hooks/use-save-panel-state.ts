@@ -46,7 +46,7 @@ export function useSavePanelState(
   );
 
   const flushPending = useCallback(() => {
-    flush();
+    void flush();
     pendingRef.current = null;
   }, [flush]);
 

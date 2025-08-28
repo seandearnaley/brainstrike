@@ -197,7 +197,7 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
   // Flush pending saves on unmount
   useEffect(() => {
     const flushPending = () => {
-      flush();
+      void flush();
       pendingRef.current = null;
     };
 

@@ -16,7 +16,7 @@ describe('biome configuration', () => {
   });
 
   it('includes node_modules in ignore list', () => {
-    expect(biome.files?.includes).toContain('!**/node_modules/**');
+    expect(biome.files?.includes).toContain('!**/node_modules');
   });
 });
 

@@ -206,7 +206,9 @@
       "mcp__serena__write_memory",
       "mcp__serena__think_about_collected_information",
       "Bash(do echo \"=== $file ===\")",
-      "Bash(gh pr:*)"
+      "Bash(gh pr:*)",
+      "WebSearch",
+      "Bash(eslint:*)"
     ],
     "deny": []
   },

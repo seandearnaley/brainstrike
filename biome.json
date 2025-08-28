@@ -1,23 +1,23 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.1.3/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
   "files": {
     "includes": [
       "apps/**/src/**/*",
       "packages/**/src/**/*",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
-      "!**/e2e/**",
-      "!**/node_modules/**",
-      "!**/dist/**",
-      "!**/.turbo/**",
-      "!**/build/**",
-      "!**/coverage/**",
-      "!**/playwright-report/**",
-      "!**/test-results/**",
-      "!**/.vite/**",
-      "!**/.nyc_output/**",
-      "!**/blob-report/**",
-      "!**/*.db/**"
+      "!**/e2e",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/.turbo",
+      "!**/build",
+      "!**/coverage",
+      "!**/playwright-report",
+      "!**/test-results",
+      "!**/.vite",
+      "!**/.nyc_output",
+      "!**/blob-report",
+      "!**/*.db"
     ]
   },
   "linter": {
@@ -32,7 +32,8 @@
         "useValidForDirection": "error",
         "useYield": "error",
         "noUnreachable": "error",
-        "useHookAtTopLevel": "error"
+        "useHookAtTopLevel": "error",
+        "noReactPropAssignments": "error"
       },
       "suspicious": {
         "noExplicitAny": "error",
@@ -85,8 +86,7 @@
         "noDangerouslySetInnerHtml": "error"
       },
       "nursery": {
-        "noFloatingPromises": "error",
-        "noReactPropAssign": "error"
+        "noFloatingPromises": "error"
       }
     }
   },
@@ -124,12 +124,19 @@
       "linter": {
         "rules": {
           "style": {
-            "useFilenamingConvention": "off",
-            "useNamingConvention": "off",
-            "noParameterAssign": "off"
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": {
+                "strictCase": true,
+                "filenameCases": ["kebab-case"]
+              }
+            },
+            "useNamingConvention": "off"
           },
           "correctness": {
-            "noUnusedVariables": "warn"
+            "noUnusedVariables": "error",
+            "useUniqueElementIds": "off",
+            "useParseIntRadix": "error"
           },
           "complexity": {
             "useLiteralKeys": "off"
@@ -142,10 +149,16 @@
       "linter": {
         "rules": {
           "style": {
-            "useFilenamingConvention": "off"
+            "useFilenamingConvention": {
+              "level": "error",
+              "options": {
+                "strictCase": true,
+                "filenameCases": ["kebab-case"]
+              }
+            }
           },
           "correctness": {
-            "noUnusedVariables": "warn"
+            "noUnusedVariables": "error"
           }
         }
       }
@@ -170,12 +183,15 @@
         "apps/web/**",
         "packages/ui/**",
         "packages/file-explorer-ui/**",
-        "packages/file-explorer-hooks/**"
+        "packages/file-explorer-hooks/**",
+        "packages/app-shell/**"
       ],
       "linter": {
         "rules": {
           "correctness": {
-            "useExhaustiveDependencies": "off"
+            "useExhaustiveDependencies": "off",
+            "useUniqueElementIds": "off",
+            "noNestedComponentDefinitions": "off"
           }
         }
       }
@@ -215,6 +231,16 @@
         "rules": {
           "style": {
             "noParameterAssign": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.css"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noUnknownAtRules": "off"
           }
         }
       }

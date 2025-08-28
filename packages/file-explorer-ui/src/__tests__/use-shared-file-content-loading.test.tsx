@@ -361,8 +361,8 @@ describe('useSharedFileContentLoading - additional edge cases', () => {
   it('limits concurrent loading to MAX_CONCURRENT_LOADS', async () => {
     const adapter = new MockFileSystemAdapter();
 
-    const MAX_CONCURRENT_LOADS = 20;
-    const total = MAX_CONCURRENT_LOADS + 5;
+    const MaxConcurrentLoads = 20;
+    const total = MaxConcurrentLoads + 5;
     const nodes: IFileNode[] = [];
     const keys: string[] = [];
     const results: Record<string, string> = {};

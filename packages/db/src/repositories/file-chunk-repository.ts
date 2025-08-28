@@ -218,7 +218,7 @@ export class FileChunkRepository {
       return {
         chunk: this.mapRowToChunk(searchRow),
         similarity: Number.parseFloat(searchRow.similarity),
-        rank: Number.parseInt(searchRow.rank),
+        rank: Number.parseInt(searchRow.rank, 10),
       };
     });
   }
@@ -254,9 +254,9 @@ export class FileChunkRepository {
 
     for (const row of result.rows) {
       const rowData = row as FileChunkStatsRow;
-      stats.totalChunks += Number.parseInt(rowData.type_count);
-      stats.chunksWithEmbeddings += Number.parseInt(rowData.chunks_with_embeddings);
-      stats.chunkTypeDistribution[rowData.chunk_type] = Number.parseInt(rowData.type_count);
+      stats.totalChunks += Number.parseInt(rowData.type_count, 10);
+      stats.chunksWithEmbeddings += Number.parseInt(rowData.chunks_with_embeddings, 10);
+      stats.chunkTypeDistribution[rowData.chunk_type] = Number.parseInt(rowData.type_count, 10);
     }
 
     if (stats.totalChunks > 0) {
@@ -264,7 +264,9 @@ export class FileChunkRepository {
         result.rows.reduce((acc: number, row) => {
           const rowData = row as FileChunkStatsRow;
           return (
-            acc + Number.parseInt(rowData.average_token_count) * Number.parseInt(rowData.type_count)
+            acc +
+            Number.parseInt(rowData.average_token_count, 10) *
+              Number.parseInt(rowData.type_count, 10)
           );
         }, 0) / stats.totalChunks;
     }
