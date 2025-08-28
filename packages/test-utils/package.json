@@ -11,7 +11,22 @@
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
     },
-    "./vitest.setup": "./src/vitest.setup.ts"
+    "./vitest.setup": "./src/vitest.setup.ts",
+    "./vitest.base": {
+      "types": "./dist/index.d.ts",
+      "import": "./vitest.base.mjs",
+      "require": "./dist/index.js"
+    },
+    "./electron": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./worker": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
   },
   "sideEffects": false,
   "license": "MIT",

@@ -151,18 +151,19 @@ vi.useRealTimers();
 
 ## Rollout Plan (Checklist with Dependencies)
 
-- [ ] 1. Create shared Vitest base config in `@brainstrike/test-utils` (exports `test` defaults) [No deps]
-- [ ] 2. Slim `packages/test-utils/src/vitest.setup.ts` (remove console filtering and global Worker override; keep minimal polyfills) [No deps]
-- [ ] 3. Add `afterEach` safety in shared setup or via Vitest `restoreMocks/clearMocks/mockReset` options [Depends on 1]
-- [ ] 4. Switch UI packages to `pool: 'threads'` and set `environment: 'happy-dom'` by default [Depends on 1]
-- [ ] 5. Keep `packages/db` `singleThread: true`; document rationale in its config [Parallel]
+- [x] 1. Create shared Vitest base config in `@brainstrike/test-utils` (exports `test` defaults) [No deps]
+- [x] 2. Slim `packages/test-utils/src/vitest.setup.ts` (remove console filtering and global Worker override; keep minimal polyfills) [No deps]
+- [x] 3. Add `afterEach` safety in shared setup or via Vitest `restoreMocks/clearMocks/mockReset` options [Depends on 1]
+- [x] 4. Switch UI packages to `pool: 'threads'` and set `environment: 'happy-dom'` by default [Depends on 1]
+  - Initial adoption: `packages/file-explorer-ui` switched from forks→threads; retained `jsdom` temporarily pending audit.
+- [x] 5. Keep `packages/db` `singleThread: true`; document rationale in its config [Parallel]
 - [ ] 6. Introduce `@brainstrike/test-utils/electron` factories and migrate desktop IPC tests [Parallel]
 - [ ] 7. Migrate tests off ad‑hoc sleeps to fake timers + `waitFor` patterns [Depends on 3]
-- [ ] 8. Remove global console.error filter; replace with per‑test assertions for error/no‑error [Depends on 2]
+- [x] 8. Remove global console.error filter; replace with per‑test assertions for error/no‑error [Depends on 2]
 - [ ] 9. Consolidate coverage at root; remove per‑package coverage scripts; add thresholds [Depends on 1]
 - [ ] 10. Add `renderWithProviders` and adopt in UI tests where providers are repeated [Parallel]
 - [ ] 11. Audit for hanging promises (e.g., `app.whenReady`) and fix with resolving mocks [Parallel]
-- [ ] 12. Cap workers (`maxWorkers`) per CI agent; document local override via env [Parallel]
+- [x] 12. Cap workers (`maxWorkers`) per CI agent; document local override via env [Parallel]
 
 ## Measurement and Guardrails
 
@@ -195,29 +196,34 @@ Use this list to structure the PR and ensure nothing is missed. Keep items check
 - [ ] No downgrades, no disabled tests, no “temporary” hacks
 
 Implementation (map to plan)
-- [ ] Created shared base config: `packages/test-utils/src/vitest.base.ts`
-  - [ ] `globals`, `restoreMocks`, `clearMocks`, `mockReset` enabled
-  - [ ] `testTimeout` (~10s) and `hookTimeout` (~15s) standardized
-  - [ ] Default `pool: 'threads'`; remove `forks` for UI packages
-  - [ ] Default `environment: 'happy-dom'` (unless file/package requires `jsdom`)
+- [x] Created shared base config: `packages/test-utils/src/vitest.base.ts`
+  - [x] `globals`, `restoreMocks`, `clearMocks`, `mockReset` enabled
+  - [x] `testTimeout` (~10s) and `hookTimeout` (~15s) standardized
+  - [x] Default `pool: 'threads'`; remove `forks` for UI packages
+  - [x] Default `environment: 'happy-dom'` (unless file/package requires `jsdom`)
 - [ ] Slimmed global setup: `packages/test-utils/src/vitest.setup.ts`
-  - [ ] Removed global `console.error` filtering
-  - [ ] Removed always-on `Worker` mock; exported opt-in helper
-  - [ ] Kept polyfills (`matchMedia`, `IntersectionObserver`, `ResizeObserver`) minimal
-  - [ ] Added global afterEach safety (or rely on Vitest options): `vi.useRealTimers()` if needed
-- [ ] Electron mock utilities added: `packages/test-utils/src/electron.ts`
-  - [ ] `createIpcMainMock`, `createIpcRendererMock`, `createAppMock`
-  - [ ] `installElectronModuleMocks()`
-  - [ ] Documented safe defaults (e.g., `app.whenReady()` resolves)
-- [ ] UI package configs updated to use base config
-  - [ ] `packages/file-explorer-ui/vitest.config.mts` switched to threads; removed `forks`
+  - [x] Removed global `console.error` filtering
+  - [x] Removed always-on `Worker` mock; exported opt-in helper (`installMockWorkers`)
+  - [x] Kept polyfills (`matchMedia`, `IntersectionObserver`, `ResizeObserver`) minimal
+  - [x] Added global afterEach safety (or rely on Vitest options): `vi.useRealTimers()`
+- [x] Electron mock utilities added: `packages/test-utils/src/electron.ts`
+  - [x] `createIpcMainMock`, `createIpcRendererMock`, `createAppMock`
+  - [x] `installElectronModuleMocks()`
+  - [x] Documented safe defaults (e.g., `app.whenReady()` resolves)
+- [x] UI package configs updated to use base config
+  - [x] `packages/file-explorer-ui/vitest.config.mts` switched to threads; removed `forks`
   - [ ] Annotated any files that truly need `jsdom` with `@vitest-environment jsdom`
-- [ ] DB package kept `singleThread: true`, documented rationale in `packages/db/vitest.config.mts`
+- [x] DB package kept `singleThread: true`, documented rationale in `packages/db/vitest.config.mts`
 - [ ] Replaced ad-hoc `setTimeout` sleeps with fake timers or RTL `waitFor`
-  - [ ] List of files updated (paste paths)
+  - [x] List of files updated
+    - `packages/file-explorer-ui/src/__tests__/hooks/use-tab-manager.test.ts`
+    - `packages/file-explorer-ui/src/__tests__/file-explorer-provider.integration.test.tsx`
+    - `packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts` (partial: fake timers used, long waits avoided)
 - [ ] Removed long `waitFor` timeouts (>1000ms) or justified necessity
 - [ ] Refactored desktop IPC tests to shared Electron mocks
-  - [ ] Fixed unresolved `app.whenReady` usage
+  - [x] Fixed unresolved `app.whenReady` usage in:
+    - `apps/desktop/src/__tests__/main-ipc.test.ts`
+    - `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts`
 - [ ] Coverage consolidated at root with `@vitest/coverage-v8`
   - [ ] Aligned `include/exclude`; excluded Electron main where appropriate
   - [ ] Removed per-package coverage scripts
@@ -241,14 +247,15 @@ Risk & Rollout
 - [ ] Backout plan: revert list and config toggles documented
 
 Package Checkboxes (tick those touched)
-- [ ] apps/desktop
+- [x] apps/desktop
 - [ ] apps/web
-- [ ] packages/test-utils
-- [ ] packages/file-explorer-ui
+- [x] packages/test-utils
+- [x] packages/file-explorer-ui
 - [ ] packages/file-explorer-hooks
 - [ ] packages/file-explorer
 - [ ] packages/ui
 - [ ] packages/db
+- [x] packages/db
 - [ ] packages/utils
 - [ ] packages/types
 - [ ] packages/file-system

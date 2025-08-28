@@ -30,6 +30,8 @@ export default defineConfig({
     pool: 'threads',
     poolOptions: {
       threads: {
+        // DB/WASM interactions require deterministic ordering and avoid races
+        // Keep singleThread to ensure stability across environments/CI
         singleThread: true,
       },
     },

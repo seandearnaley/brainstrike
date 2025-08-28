@@ -125,7 +125,7 @@ describe('useFileTree (context version)', () => {
       // Add delay to readDirectory to simulate slow loading
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
       vi.spyOn(mockAdapter, 'readDirectory').mockImplementation(async (handle) => {
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Add 100ms delay
+        await new Promise((resolve) => setTimeout(resolve, 100)); // simulated delay
         return originalReadDirectory(handle);
       });
 
@@ -186,7 +186,7 @@ describe('useFileTree (context version)', () => {
       // Add delay to readDirectory to simulate slow loading
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
       vi.spyOn(mockAdapter, 'readDirectory').mockImplementation(async (handle) => {
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Add 100ms delay
+        await new Promise((resolve) => setTimeout(resolve, 100)); // simulated delay
         return originalReadDirectory(handle);
       });
 

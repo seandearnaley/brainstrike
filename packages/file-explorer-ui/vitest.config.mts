@@ -1,21 +1,17 @@
 import { resolve } from 'node:path';
+import { testBase } from '@brainstrike/test-utils/vitest.base';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
+    ...testBase,
+    // Keep jsdom for this package for now; revisit after verification
     environment: 'jsdom',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: 2,
-        minForks: 1,
-        isolate: true,
-      },
-    },
+    // Switch to threads to reduce memory/startup overhead
+    pool: 'threads',
+    // Retain isolation and timeout until flaky cases are audited
     isolate: true,
     testTimeout: 30000,
   },
