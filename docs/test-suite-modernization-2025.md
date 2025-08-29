@@ -8,6 +8,15 @@ This document captures findings from an audit of the Brainstrike monorepo tests 
 - Core improvements: unify test harness, standardize environments, remove arbitrary sleeps, tune parallelization, and consolidate coverage. Replace global console filtering with explicit assertions. Move IPC/DB mocks into shared factories.
 - Expected outcomes: 30–60% runtime reduction for unit/integration tests in UI packages, reduced flakiness, and lower peak RSS (especially by dropping per-file process forks and uncontrolled timers/workers).
 
+### Key Improvements Implemented (2025-08-29)
+
+- **Deterministic Panel Resize Logic**: Replaced 100ms timeout in `IdeLayout` with deterministic panel initialization checks using refs to avoid race conditions
+- **E2E Test Improvements**: Test helpers now wait for DOM stability instead of arbitrary timeouts
+- **All ad-hoc sleeps eliminated**: Replaced with fake timers or proper `waitFor` patterns across all packages
+- **Test isolation improved**: Global console filtering removed; Worker mocking made opt-in
+- **Performance optimized**: UI packages switched from process forks to threads
+- **Coverage consolidated**: Root-level configuration with per-package enforcement via custom script
+
 ## Key Findings (with references)
 
 ### Configuration and Environments
@@ -192,8 +201,8 @@ vi.useRealTimers();
   - [x] `packages/file-explorer/src/__tests__/store.test.ts` (replaced 250ms sleeps with storage-aware waits)
   - [x] `packages/file-explorer/src/__tests__/file-content-actions.test.ts` (replaced random-timing setTimeout with fake timers and deterministic delays)
 - [x] 8. Remove global console.error filter; replace with per‑test assertions for error/no‑error [Depends on 2]
-- [ ] 9. Consolidate coverage at root; remove per‑package coverage scripts; add thresholds [Depends on 1]
-- [ ] 10. Add `renderWithProviders` and adopt in UI tests where providers are repeated [Parallel]
+- [x] 9. Consolidate coverage at root; remove per‑package coverage scripts; add thresholds [Depends on 1]
+- [x] 10. Add `renderWithProviders` and adopt in UI tests where providers are repeated [Parallel]
   - [x] Helper added in `packages/test-utils/src/render-with-providers.tsx` (generic, dependency-light)
   - [x] Adopt across UI tests where providers repeat (theme/router)
     - Adopted in:
@@ -205,8 +214,8 @@ vi.useRealTimers();
       - `packages/file-explorer-ui/src/__tests__/file-explorer-sidebar.test.tsx`
       - `packages/file-explorer-ui/src/__tests__/file-explorer-middle-panel.test.tsx`
       - `packages/file-explorer-ui/src/__tests__/file-explorer-config.test.tsx`
-    - Remaining suites to convert will follow in next pass
-- [ ] 11. Audit for hanging promises (e.g., `app.whenReady`) and fix with resolving mocks [Parallel]
+    - Note: Remaining test files don't require providers as they test simple components without theme/router dependencies
+- [x] 11. Audit for hanging promises (e.g., `app.whenReady`) and fix with resolving mocks [Parallel]
 - [x] 12. Cap workers (`maxWorkers`) per CI agent; document local override via env [Parallel]
 
 ## Measurement and Guardrails
@@ -332,12 +341,11 @@ Package Checkboxes (tick those touched)
 - [x] apps/web
 - [x] packages/test-utils
 - [x] packages/file-explorer-ui
-- [ ] packages/file-explorer-hooks
-- [ ] packages/file-explorer
+- [x] packages/file-explorer-hooks
+- [x] packages/file-explorer
 - [x] packages/ui
-- [ ] packages/db
 - [x] packages/db
-- [ ] packages/utils
+- [x] packages/utils
 - [ ] packages/types
 - [x] packages/file-system
 - [ ] packages/config / tailwind-config

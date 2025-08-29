@@ -208,7 +208,9 @@
       "Bash(do echo \"=== $file ===\")",
       "Bash(gh pr:*)",
       "WebSearch",
-      "Bash(eslint:*)"
+      "Bash(eslint:*)",
+      "Bash(if ! grep -q \"renderWithProviders\" \"$file\")",
+      "Bash(basename:*)"
     ],
     "deny": []
   },

@@ -21,12 +21,13 @@ export default defineConfig({
         'apps/desktop/src/main.ts',
         'apps/desktop/src/preload.ts',
       ],
-      // Initial thresholds are conservative; will be ratcheted up incrementally.
+      // Global minimum thresholds for the monorepo
+      // Individual packages have their own thresholds enforced via scripts/enforce-coverage.mjs
       thresholds: {
-        lines: 1,
-        functions: 1,
-        branches: 1,
-        statements: 1,
+        lines: 70,
+        functions: 60,
+        branches: 60,
+        statements: 70,
       },
     },
   },

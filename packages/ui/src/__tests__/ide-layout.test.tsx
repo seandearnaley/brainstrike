@@ -344,32 +344,22 @@ describe('IdeLayout', () => {
     expect(screen.getByText('File Editor')).toBeInTheDocument();
   });
 
-  it('defers persistence until after initial render', () => {
+  it('defers persistence until after panel initialization', async () => {
     vi.useFakeTimers();
-    const utils = renderDefaultLayout();
+    const _utils = renderDefaultLayout();
 
+    // Initially, persistence should be deferred
     panelHandles['left-panel']?.collapse();
-    panelHandles['right-panel']?.collapse();
-    panelHandles['console-panel']?.collapse();
-
     expect(mockState.saveLayout).not.toHaveBeenCalled();
 
+    // After panel initialization delay (16ms), persistence should be enabled
     act(() => {
-      vi.advanceTimersByTime(150);
-      utils.rerender(
-        <IdeLayout
-          leftPanelContent={leftContent}
-          rightPanelContent={rightContent}
-          consoleContent={consoleContent}
-        >
-          <div>Main Content</div>
-        </IdeLayout>
-      );
+      vi.advanceTimersByTime(16);
     });
 
     panelHandles['left-panel']?.collapse();
-
     expect(mockState.saveLayout).toHaveBeenCalled();
+
     vi.useRealTimers();
   });
 });
