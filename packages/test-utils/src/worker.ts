@@ -7,12 +7,13 @@ import { vi } from 'vitest';
 export function installMockWorkers(options?: { maxWorkers?: number }) {
   const maxWorkers = options?.maxWorkers ?? 10;
   const createdWorkers: Set<Worker> = new Set();
-
+  const workerString = 'Worker';
   const OriginalWindowWorker =
     typeof window !== 'undefined'
-      ? ((window as unknown as { [k: string]: unknown }).Worker as typeof Worker | undefined)
+      ? ((window as unknown as { [k: string]: unknown })[workerString] as typeof Worker | undefined)
       : undefined;
-  const OriginalGlobalWorker = (globalThis as { [k: string]: unknown }).Worker as
+
+  const OriginalGlobalWorker = (globalThis as { [k: string]: unknown })[workerString] as
     | typeof Worker
     | undefined;
 

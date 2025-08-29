@@ -9,7 +9,7 @@ const { handlers, mockDb, getDatabaseMock } = vi.hoisted(() => {
 });
 
 vi.mock('electron', async () => {
-  const electronUtils = await import('@brainstrike/test-utils/electron');
+  const electronUtils = await import('@brainstrike/test-utils');
   const typedIpcMain = electronUtils.createIpcMainMock();
   // Track handlers for direct invocation
   typedIpcMain.handle.mockImplementation(

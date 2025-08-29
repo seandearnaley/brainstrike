@@ -4,8 +4,9 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { flushAllTimersAndMicrotasks } from '@brainstrike/test-utils';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
@@ -60,8 +61,10 @@ describe('FileExplorerProvider integration', () => {
 
     // Deterministically flush debounced/persisted state
     vi.useFakeTimers();
-    vi.advanceTimersByTime(200);
-    await vi.runAllTimersAsync();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    await flushAllTimersAndMicrotasks();
     vi.useRealTimers();
 
     const key = encodeFileSelection('mock-root', filePath);
@@ -88,8 +91,10 @@ describe('FileExplorerProvider integration', () => {
 
     const { store: store2 } = exposure2 as unknown as ExposedHooks;
     vi.useFakeTimers();
-    vi.advanceTimersByTime(200);
-    await vi.runAllTimersAsync();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    await flushAllTimersAndMicrotasks();
     vi.useRealTimers();
 
     expect(store2.getState().currentFolderId).toBe('mock-root');

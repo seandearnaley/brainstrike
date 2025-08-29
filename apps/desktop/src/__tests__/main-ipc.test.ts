@@ -1,10 +1,10 @@
 import path from 'node:path';
-import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils/electron';
+import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
-  const electronUtils = await import('@brainstrike/test-utils/electron');
+  const electronUtils = await import('@brainstrike/test-utils');
   const app = electronUtils.createAppMock({
     whenReadyResolved: true,
     documentsPath: '/mock/userData',
@@ -44,8 +44,8 @@ import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
   beforeEach(() => {
-    ipcMain.handle.mockClear();
-    ipcRenderer.invoke.mockClear();
+    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
+    (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockClear();
   });
 
   it('returns the user database path', async () => {

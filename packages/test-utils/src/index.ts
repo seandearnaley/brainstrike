@@ -1,3 +1,4 @@
+export * from './async';
 export * from './electron';
 export * from './factories/file-node';
 export * from './test-utils';

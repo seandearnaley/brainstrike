@@ -20,7 +20,7 @@
     "lint-all": "pnpm lint && pnpm format",
     "postinstall": "node scripts/postinstall.js",
     "test": "turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
-    "test:coverage": "turbo run test:coverage --summarize --log-order=grouped --cache-dir=.turbo",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
     "setup:headless": "bash scripts/setup-headless-display.sh",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",

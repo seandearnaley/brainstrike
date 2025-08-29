@@ -157,7 +157,7 @@ vi.useRealTimers();
 - [x] 4. Switch UI packages to `pool: 'threads'` and set `environment: 'happy-dom'` by default [Depends on 1]
   - Initial adoption: `packages/file-explorer-ui` switched from forks→threads; retained `jsdom` temporarily pending audit.
 - [x] 5. Keep `packages/db` `singleThread: true`; document rationale in its config [Parallel]
-- [ ] 6. Introduce `@brainstrike/test-utils/electron` factories and migrate desktop IPC tests [Parallel]
+- [x] 6. Introduce `@brainstrike/test-utils/electron` factories and migrate desktop IPC tests [Parallel]
 - [ ] 7. Migrate tests off ad‑hoc sleeps to fake timers + `waitFor` patterns [Depends on 3]
 - [x] 8. Remove global console.error filter; replace with per‑test assertions for error/no‑error [Depends on 2]
 - [ ] 9. Consolidate coverage at root; remove per‑package coverage scripts; add thresholds [Depends on 1]
@@ -218,12 +218,14 @@ Implementation (map to plan)
   - [x] List of files updated
     - `packages/file-explorer-ui/src/__tests__/hooks/use-tab-manager.test.ts`
     - `packages/file-explorer-ui/src/__tests__/file-explorer-provider.integration.test.tsx`
-    - `packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts` (partial: fake timers used, long waits avoided)
+    - `packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts` (cancellation tests now use fake timers + flush helpers)
 - [ ] Removed long `waitFor` timeouts (>1000ms) or justified necessity
 - [ ] Refactored desktop IPC tests to shared Electron mocks
   - [x] Fixed unresolved `app.whenReady` usage in:
     - `apps/desktop/src/__tests__/main-ipc.test.ts`
     - `apps/desktop/src/__tests__/main/ipc-handlers-db.test.ts`
+  - [x] Replaced CommonJS require hack with shared mocks:
+    - `apps/desktop/src/__tests__/preload.test.ts`
 - [ ] Coverage consolidated at root with `@vitest/coverage-v8`
   - [ ] Aligned `include/exclude`; excluded Electron main where appropriate
   - [ ] Removed per-package coverage scripts

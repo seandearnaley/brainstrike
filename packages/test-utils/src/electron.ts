@@ -23,12 +23,20 @@ export function createIpcMainMock() {
 
 export function createIpcRendererMock() {
   return {
-    invoke: vi.fn(async (_channel: string, ..._args: unknown[]) => undefined),
+    invoke: vi.fn<(_channel: string, ..._args: unknown[]) => Promise<unknown>>(async () => {
+      return undefined as unknown;
+    }),
     on: vi.fn(),
     once: vi.fn(),
     removeListener: vi.fn(),
     removeAllListeners: vi.fn(),
     send: vi.fn(),
+  } as const;
+}
+
+export function createContextBridgeMock() {
+  return {
+    exposeInMainWorld: vi.fn(),
   } as const;
 }
 
@@ -52,15 +60,18 @@ export function installElectronModuleMocks(parts?: {
   app?: ReturnType<typeof createAppMock>;
   ipcMain?: ReturnType<typeof createIpcMainMock>;
   ipcRenderer?: ReturnType<typeof createIpcRendererMock>;
+  contextBridge?: ReturnType<typeof createContextBridgeMock>;
 }) {
   const app = parts?.app ?? createAppMock();
   const ipcMain = parts?.ipcMain ?? createIpcMainMock();
   const ipcRenderer = parts?.ipcRenderer ?? createIpcRendererMock();
+  const contextBridge = parts?.contextBridge ?? createContextBridgeMock();
 
   vi.mock('electron', () => ({
     app,
     ipcMain,
     ipcRenderer,
+    contextBridge,
     // biome-ignore lint/style/useNamingConvention: Electron API uses PascalCase
     BrowserWindow: vi.fn(),
     session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
@@ -69,5 +80,43 @@ export function installElectronModuleMocks(parts?: {
     nativeTheme: { shouldUseDarkColors: false },
   }));
 
-  return { app, ipcMain, ipcRenderer } as const;
+  return { app, ipcMain, ipcRenderer, contextBridge } as const;
+}
+
+/**
+ * Installs CommonJS require('electron') mocks by patching Node's Module._load.
+ * Useful for code paths (like preload) that use CJS require.
+ */
+export function installElectronCjsMocks(parts?: {
+  app?: ReturnType<typeof createAppMock>;
+  ipcMain?: ReturnType<typeof createIpcMainMock>;
+  ipcRenderer?: ReturnType<typeof createIpcRendererMock>;
+  contextBridge?: ReturnType<typeof createContextBridgeMock>;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const Module = require('node:module');
+  const originalLoad = Module._load as (id: string, parent: unknown, isMain?: boolean) => unknown;
+
+  const app = parts?.app ?? createAppMock();
+  const ipcMain = parts?.ipcMain ?? createIpcMainMock();
+  const ipcRenderer = parts?.ipcRenderer ?? createIpcRendererMock();
+  const contextBridge = parts?.contextBridge ?? createContextBridgeMock();
+
+  Module._load = ((id: string, parent: unknown, isMain?: boolean) => {
+    if (id === 'electron') {
+      return {
+        app,
+        ipcMain,
+        ipcRenderer,
+        contextBridge,
+      };
+    }
+    return originalLoad(id, parent, isMain);
+  }) as typeof Module._load;
+
+  const restore = () => {
+    Module._load = originalLoad as typeof Module._load;
+  };
+
+  return { app, ipcMain, ipcRenderer, contextBridge, restore } as const;
 }
