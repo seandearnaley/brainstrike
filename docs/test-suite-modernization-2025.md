@@ -175,12 +175,22 @@ vi.useRealTimers();
 - [x] 5. Keep `packages/db` `singleThread: true`; document rationale in its config [Parallel]
 - [x] 6. Introduce `@brainstrike/test-utils/electron` factories and migrate desktop IPC tests [Parallel]
 - [ ] 7. Migrate tests off ad‑hoc sleeps to fake timers + `waitFor` patterns [Depends on 3]
-- [ ] 7. Migrate tests off ad‑hoc sleeps to fake timers + `waitFor` patterns [Depends on 3]
   - [x] `packages/file-explorer-ui/src/__tests__/hooks/use-tab-manager.test.ts` (throttle via fake timers)
   - [x] `packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts` (deferred gate, removed sleeps)
   - [x] `packages/file-explorer-hooks/src/__tests__/use-file-system.test.ts` (replaced setTimeout(0) waits with `waitFor` on state)
   - [x] `packages/file-explorer-hooks/src/__tests__/use-file-tree.test.ts` (replaced 100ms sleeps with `waitFor` on `isLoading`)
   - [x] `packages/db/vitest.setup.ts` (removed 1s afterAll sleep; rely on explicit cleanup)
+  - [x] `packages/app-shell/src/database-demo/hooks/__tests__/use-database-error-boundary.test.ts` (replaced 100ms sleep with fake timers)
+  - [x] `packages/workers/file-content-worker.test.ts` (concurrency test uses fake timers to flush delays)
+  - [x] `packages/file-system/src/__tests__/web-adapter.test.ts` (fake timers for concurrency-limit test)
+  - [x] `packages/file-system/src/__tests__/electron-adapter.test.ts` (replaced 100ms sleeps with `waitFor` on watcher initialization)
+  - [x] `packages/db/__tests__/db-provider-error-handling.test.tsx` (removed sleeps; added `waitFor` for init start)
+  - [x] `packages/db/__tests__/db-provider.test.tsx` (removed afterEach sleep)
+  - [x] `apps/desktop/src/__tests__/renderer/app-db-path.test.tsx` (replaced setTimeout(0) with `waitFor` on last call)
+  - [x] `packages/file-explorer/src/__tests__/adapter-integration.test.ts` (replaced 200ms sleeps with storage-aware wait)
+  - [x] `packages/file-explorer/src/__tests__/default-store.test.ts` (replaced 250ms sleep with storage-aware wait)
+  - [x] `packages/file-explorer/src/__tests__/store.test.ts` (replaced 250ms sleeps with storage-aware waits)
+  - [x] `packages/file-explorer/src/__tests__/file-content-actions.test.ts` (replaced random-timing setTimeout with fake timers and deterministic delays)
 - [x] 8. Remove global console.error filter; replace with per‑test assertions for error/no‑error [Depends on 2]
 - [ ] 9. Consolidate coverage at root; remove per‑package coverage scripts; add thresholds [Depends on 1]
 - [ ] 10. Add `renderWithProviders` and adopt in UI tests where providers are repeated [Parallel]
@@ -275,13 +285,13 @@ Implementation (map to plan)
   - [x] Aligned `include/exclude`; excluded Electron main where appropriate
   - [x] Removed package-level coverage config in:
     - `packages/app-shell/vitest.config.mts`
-    - `apps/desktop/vitest.config.mts`
     - `packages/ui/vitest.config.mts`
     - `packages/file-explorer/vitest.config.mts`
     - `packages/server-config/vitest.config.mts`
     - `apps/web/vitest.config.mts`
   - [x] Removed remaining per-package coverage scripts/config where present (hooks, platform-utils, etc.)
   - [x] Added initial thresholds at root (conservative to start; plan to ratchet)
+  - [x] Desktop retains package-local coverage include/exclude for reliable metrics; thresholds enforced in CI via `scripts/enforce-coverage.mjs`
   - Proposed per-package initial thresholds (to ratchet after baseline):
     - `@brainstrike/file-explorer-ui`: lines 85, functions 75, branches 65, statements 85
     - `@brainstrike/app-shell`: lines 70, functions 60, branches 50, statements 70
@@ -290,6 +300,10 @@ Implementation (map to plan)
     - UI: `pnpm coverage:ui`
     - Desktop: `pnpm coverage:desktop`
     - App Shell: `pnpm coverage:app-shell`
+  - Thresholds (ratcheted to current baselines):
+    - `@brainstrike/file-explorer-ui`: lines 86.5, functions 84, branches 81.5, statements 86.5
+    - `@brainstrike/app-shell`: lines 81.5, functions 79, branches 83, statements 81.5
+    - `@brainstrike/desktop`: lines 91, functions 79, branches 90.5, statements 91
 
 Validation
 - [ ] `pnpm install` (root)
@@ -315,17 +329,17 @@ Risk & Rollout
 
 Package Checkboxes (tick those touched)
 - [x] apps/desktop
-- [ ] apps/web
+- [x] apps/web
 - [x] packages/test-utils
 - [x] packages/file-explorer-ui
 - [ ] packages/file-explorer-hooks
 - [ ] packages/file-explorer
-- [ ] packages/ui
+- [x] packages/ui
 - [ ] packages/db
 - [x] packages/db
 - [ ] packages/utils
 - [ ] packages/types
-- [ ] packages/file-system
+- [x] packages/file-system
 - [ ] packages/config / tailwind-config
 
 Appendices (optional but recommended)

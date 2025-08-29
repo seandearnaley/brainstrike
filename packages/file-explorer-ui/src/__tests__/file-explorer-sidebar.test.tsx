@@ -15,13 +15,7 @@ const Wrapper = composeWrappers(({ children }) => (
 ));
 const renderWithProviders = makeRenderWithProviders(Wrapper);
 
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...actual,
-    FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
-  };
-});
+// No need to mock self-package; sidebar does not import FolderBadge.
 
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [

@@ -15,7 +15,7 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     // Switch to threads to reduce memory/startup overhead
     pool: 'threads',
-    // Keep isolation to avoid cross-file state until full audit
+    // Keep isolation to avoid cross-file state until a deeper audit completes
     isolate: true,
     testTimeout: 30000,
     // biome-ignore lint/suspicious/noExplicitAny: Required workaround for Vitest type identity issues in pnpm workspaces

@@ -1,5 +1,5 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -289,7 +289,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('propagates filter changes with different values', async () => {
     const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Clear Filters' }));
     expect(setFiltersMock).toHaveBeenCalledWith([], []);

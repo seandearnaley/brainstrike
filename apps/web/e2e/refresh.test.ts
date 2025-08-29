@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Refresh Workflow', () => {
   test.beforeEach(async ({ page }) => {
@@ -24,19 +24,23 @@ test.describe('Refresh Workflow', () => {
     const fileTree = page.getByRole('tree', { name: 'File tree' });
     await expect(fileTree.getByText('old-file.ts')).toBeVisible();
 
-    // Ensure initial tree has finished rendering
-    await page.waitForTimeout(100);
+    // Initial tree is visible already; proceed without arbitrary sleep
 
     // Update the mocked file system with a new file after initial load
     await page.evaluate(async () => {
-      const root = await (window as any).showDirectoryPicker();
+      const w = window as unknown as {
+        showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>;
+      };
+      const root = await w.showDirectoryPicker();
 
       // Add artificial delay when iterating directory entries to ensure loading state is visible
       const origEntries = root.entries.bind(root);
       root.entries = async function* () {
         await new Promise((r) => setTimeout(r, 200)); // Increased delay for CI reliability
         for await (const item of origEntries()) {
-          yield item as any;
+          // Yield original items without casting
+          // TypeScript lib.dom provides FileSystemHandle type in browser context
+          yield item as FileSystemHandle;
         }
       };
 
@@ -54,7 +58,7 @@ test.describe('Refresh Workflow', () => {
     try {
       await expect(page.getByRole('alert')).toBeVisible({ timeout: 1000 });
       await expect(page.getByRole('alert')).not.toBeVisible({ timeout: 10000 });
-    } catch (error) {
+    } catch (_error) {
       // Loading overlay might be too fast in some environments, continue with test
       console.log('Loading overlay not detected, refresh was likely very fast');
     }

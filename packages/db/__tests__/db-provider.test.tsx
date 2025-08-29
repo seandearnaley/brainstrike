@@ -20,8 +20,6 @@ describe('DbProvider', () => {
   });
 
   afterEach(async () => {
-    // Add a small delay to allow any pending promises to settle
-    await new Promise((resolve) => setTimeout(resolve, 10));
     vi.restoreAllMocks();
   });
   it('exposes FileRecordRepository via context', async () => {

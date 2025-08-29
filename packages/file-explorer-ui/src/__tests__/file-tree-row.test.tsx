@@ -4,7 +4,7 @@ import {
   createFileNode,
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
-import { act, render, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeRow from '../file-tree-row';
@@ -207,9 +207,7 @@ describe('FileTreeRow', () => {
     it('prevents checkbox click from propagating', async () => {
       const user = userEvent.setup();
 
-      render(<FileTreeRow {...defaultFileProps} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       const checkbox = screen.getByRole('checkbox', { name: 'Select test.tsx' });
       await user.click(checkbox);

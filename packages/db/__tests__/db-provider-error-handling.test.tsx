@@ -38,9 +38,6 @@ describe('DbProvider error handling', () => {
     );
     activeDatabases.length = 0;
 
-    // Add a small delay to allow any pending promises to settle
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
     vi.restoreAllMocks();
   });
 
@@ -171,11 +168,8 @@ describe('DbProvider error handling', () => {
       ),
     });
 
-    // Wait a bit to ensure the first call starts
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // Verify createPGlite was called once
-    expect(createPGliteSpy).toHaveBeenCalledTimes(1);
+    // Wait until the initialization call starts deterministically
+    await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1));
 
     // Complete the initialization
     const mockDb = new PGlite(':memory:');

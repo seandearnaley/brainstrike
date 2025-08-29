@@ -221,11 +221,13 @@ describe('useDatabaseErrorBoundary', () => {
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
 
       const setLoading = vi.fn();
-      const operation = vi
-        .fn()
-        .mockImplementation(
-          () => new Promise((resolve) => setTimeout(() => resolve({ data: 'test' }), 100))
-        );
+      vi.useFakeTimers();
+      const operation = vi.fn().mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(() => resolve({ data: 'test' }), 100);
+          })
+      );
 
       const promise = act(async () => {
         return result.current.executeWithLoadingState(operation, setLoading);
@@ -233,10 +235,12 @@ describe('useDatabaseErrorBoundary', () => {
 
       expect(setLoading).toHaveBeenCalledWith(true);
 
+      await vi.advanceTimersByTimeAsync(100);
       await promise;
 
       expect(setLoading).toHaveBeenCalledWith(false);
       expect(setLoading).toHaveBeenCalledTimes(2);
+      vi.useRealTimers();
     });
 
     it('should reset loading state even on error', async () => {

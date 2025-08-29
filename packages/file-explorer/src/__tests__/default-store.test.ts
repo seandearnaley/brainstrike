@@ -14,7 +14,17 @@ describe('default store creation without localStorage', () => {
     const { useFileExplorerStore } = mod;
 
     useFileExplorerStore.getState().setCurrentFolderId('foo');
-    await new Promise((r) => setTimeout(r, 250));
+    // Wait until persistence writes without using arbitrary sleep
+    async function waitUntilStored() {
+      const options = useFileExplorerStore.persist.getOptions();
+      const storage = options.storage;
+      for (let i = 0; i < 100; i++) {
+        const value = await storage?.getItem('file-explorer-storage-v4');
+        if (value) return;
+        await new Promise((resolve) => process.nextTick(resolve));
+      }
+    }
+    await waitUntilStored();
 
     const options = useFileExplorerStore.persist.getOptions();
     if (!options.storage) throw new Error('storage missing');

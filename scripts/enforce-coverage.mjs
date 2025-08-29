@@ -9,17 +9,20 @@ const pkgs = [
   {
     name: '@brainstrike/file-explorer-ui',
     coveragePath: 'packages/file-explorer-ui/coverage/coverage-final.json',
-    thresholds: { lines: 85, functions: 75, branches: 65, statements: 85 },
+    // Ratcheted to current baseline (Aug 29): L86.95 F84.36 B81.77 S86.95
+    thresholds: { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
   },
   {
     name: '@brainstrike/app-shell',
     coveragePath: 'packages/app-shell/coverage/coverage-final.json',
-    thresholds: { lines: 70, functions: 60, branches: 50, statements: 70 },
+    // Baseline: L81.83 F79.44 B83.14 S81.83
+    thresholds: { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
   },
   {
     name: '@brainstrike/desktop',
     coveragePath: 'apps/desktop/coverage/coverage-final.json',
-    thresholds: { lines: 60, functions: 50, branches: 45, statements: 60 },
+    // Baseline: L91.30 F79.25 B90.79 S91.30
+    thresholds: { lines: 91, functions: 79, branches: 90.5, statements: 91 },
   },
 ];
 
@@ -101,4 +104,3 @@ if (hasFailure) {
 }
 
 console.log('All package coverage thresholds satisfied.');
-

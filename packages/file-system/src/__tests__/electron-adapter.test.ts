@@ -7,6 +7,16 @@ import { ElectronFileSystemAdapter } from '../adapters/electron-adapter';
 import { AccessError, DialogError, PermissionError, UserCancelledError } from '../errors';
 import type { DirectoryHandle, FileHandle } from '../types';
 
+// Tiny polling helper to await a condition without importing testing-library
+async function waitForCondition(check: () => boolean, timeoutMs = 1000, intervalMs = 10) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error('waitForCondition timed out');
+}
+
 // Mock electron dialog
 vi.mock('electron', () => ({
   dialog: {
@@ -99,15 +109,13 @@ describe('ElectronFileSystemAdapter', () => {
 
     let active = 0;
     let peak = 0;
-    const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
     const realStat = fsPromises.stat;
     vi.spyOn(fsPromises, 'stat').mockImplementation(
       async (...args: Parameters<typeof realStat>) => {
         active++;
         peak = Math.max(peak, active);
-        await delay(25);
         const result = await realStat(...args);
+        await Promise.resolve(); // yield to allow limiter scheduling
         active--;
         return result as unknown as import('node:fs').Stats;
       }
@@ -300,8 +308,8 @@ describe('ElectronFileSystemAdapter', () => {
 
     const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
 
-    // Give the dynamic import time to resolve
-    await new Promise((res) => setTimeout(res, 100));
+    // Wait for chokidar to be initialized instead of sleeping
+    await waitForCondition(() => vi.mocked(chokidar.default.watch).mock.calls.length > 0);
 
     // Verify chokidar was initialized correctly
     expect(chokidar.default.watch).toHaveBeenCalledWith(tempDir, {
@@ -354,8 +362,8 @@ describe('ElectronFileSystemAdapter', () => {
 
     const stop = adapter.watchDirectory(handle as DirectoryHandle, callback);
 
-    // Give the dynamic import time to fail and fallback to activate
-    await new Promise((res) => setTimeout(res, 100));
+    // Wait for fs.watch fallback to be used instead of sleeping
+    await waitForCondition(() => fsWatchSpy.mock.calls.length > 0);
 
     // Verify fs.watch was called as fallback
     expect(fsWatchSpy).toHaveBeenCalledWith(tempDir, { recursive: false }, expect.any(Function));
@@ -389,8 +397,7 @@ describe('ElectronFileSystemAdapter', () => {
     const handle = await adapter.requestDirectoryAccess();
     const stop = adapter.watchDirectory(handle as DirectoryHandle, vi.fn());
 
-    // Give the dynamic import time to resolve
-    await new Promise((res) => setTimeout(res, 100));
+    // No need to wait arbitrarily; stop should be callable
 
     expect(() => stop()).not.toThrow();
   });

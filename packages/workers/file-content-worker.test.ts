@@ -101,7 +101,12 @@ describe('file-content-worker', () => {
     const requests = Object.keys(delays).map((p) => createRequest(p));
     const progress: number[] = [];
 
-    const results = await worker(requests, (e) => progress.push(e.loaded));
+    // Use fake timers to deterministically flush the delayed reads
+    vi.useFakeTimers();
+    const promise = worker(requests, (e) => progress.push(e.loaded));
+    await vi.runAllTimersAsync();
+    const results = await promise;
+    vi.useRealTimers();
 
     expect(results['root|@|/1.txt']).toBe('1.txt');
     expect(results['root|@|/2.txt']).toBe('2.txt');

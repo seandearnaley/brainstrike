@@ -1,5 +1,5 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorerConfig from '../file-explorer-config';
@@ -103,7 +103,7 @@ describe('FileExplorerConfig', () => {
   });
 
   it('updates max selection count', async () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerConfig {...defaultProps} />);
     const button = screen.getByRole('button');
     await userEvent.click(button);
 

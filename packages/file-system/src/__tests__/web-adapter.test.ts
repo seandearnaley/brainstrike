@@ -145,7 +145,11 @@ describe('WebFileSystemAdapter', () => {
 
       const adapter = new WebFileSystemAdapter();
       const concurrency = 2;
-      const list = await adapter.readDirectory(handle, { includeMetadata: true, concurrency });
+      vi.useFakeTimers();
+      const promise = adapter.readDirectory(handle, { includeMetadata: true, concurrency });
+      await vi.runAllTimersAsync();
+      const list = await promise;
+      vi.useRealTimers();
       expect(list.filter((e) => e.type === 'file')).toHaveLength(count);
       expect(peak).toBeLessThanOrEqual(concurrency);
     });
