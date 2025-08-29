@@ -1,10 +1,16 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
 import { FileExplorerStrings } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerToolbar } from '../file-explorer-toolbar';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToolbar>> = {}) {
   return {
@@ -33,7 +39,7 @@ describe('FileExplorerToolbar', () => {
 
   it('renders select root button and filter bar when root directory is present', () => {
     const props = getProps();
-    render(<FileExplorerToolbar {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerToolbar {...props} />);
     expect(
       screen.getByRole('button', { name: FileExplorerStrings.selectRoot })
     ).toBeInTheDocument();
@@ -43,20 +49,20 @@ describe('FileExplorerToolbar', () => {
 
   it('does not show filter bar without a root directory', () => {
     const props = getProps({ rootDirectoryHandle: null });
-    render(<FileExplorerToolbar {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerToolbar {...props} />);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
 
   it('disables select root button based on loading state', () => {
     const props = getProps({ isLoading: true });
-    render(<FileExplorerToolbar {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerToolbar {...props} />);
     expect(screen.getByRole('button', { name: FileExplorerStrings.selectRoot })).toBeDisabled();
   });
 
   it('invokes callback when select root button is clicked', async () => {
     const props = getProps();
     const user = userEvent.setup();
-    render(<FileExplorerToolbar {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerToolbar {...props} />);
     await user.click(screen.getByRole('button', { name: FileExplorerStrings.selectRoot }));
     expect(props.onDirectorySelect).toHaveBeenCalledTimes(1);
   });

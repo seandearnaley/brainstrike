@@ -9,27 +9,7 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/*.d.ts',
-        '**/vitest.config.*',
-        '**/vitest.mutation.config.*',
-        '**/stryker.config.js',
-        '**/tsup.config.ts',
-        '**/.stryker-tmp/**',
-        '**/src/index.ts', // Re-export file
-      ],
-      thresholds: {
-        lines: 79,
-        functions: 79,
-        branches: 79,
-        statements: 79,
-      },
-    },
+    // Coverage consolidated at root vitest.config.ts
   },
   resolve: {
     alias: {

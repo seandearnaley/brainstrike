@@ -10,5 +10,5 @@ export default defineConfig({
   clean: true,
   // Ensure vitest's runtime is not bundled into the library to avoid
   // colliding injected globals (vi/expect) in consumer test environments
-  external: ['vitest'],
+  external: ['vitest', 'react', 'react/jsx-runtime', '@testing-library/react'],
 });

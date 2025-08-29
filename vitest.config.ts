@@ -21,11 +21,12 @@ export default defineConfig({
         'apps/desktop/src/main.ts',
         'apps/desktop/src/preload.ts',
       ],
+      // Initial thresholds are conservative; will be ratcheted up incrementally.
       thresholds: {
-        lines: 0,
-        functions: 0,
-        branches: 0,
-        statements: 0,
+        lines: 1,
+        functions: 1,
+        branches: 1,
+        statements: 1,
       },
     },
   },

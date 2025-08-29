@@ -1,9 +1,20 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
-import { render, screen } from '@testing-library/react';
+import {
+  composeWrappers,
+  createDirectoryNode,
+  createFileNode,
+  makeRenderWithProviders,
+} from '@brainstrike/test-utils';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeRow from '../file-tree-row';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+// Example adoption of shared renderWithProviders helper
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -33,7 +44,7 @@ const defaultDirProps = {
 describe('FileTreeRow', () => {
   describe('Basic Rendering', () => {
     it('renders a file node correctly', () => {
-      render(<FileTreeRow {...defaultFileProps} />, { wrapper: FileExplorerTestWrapper });
+      renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       expect(screen.getByText('test.tsx')).toBeInTheDocument();
       expect(screen.getByRole('checkbox', { name: 'Select test.tsx' })).toBeInTheDocument();
@@ -42,9 +53,7 @@ describe('FileTreeRow', () => {
     });
 
     it('renders a directory node correctly', () => {
-      render(<FileTreeRow {...defaultDirProps} isExpanded={true} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} isExpanded={true} />);
 
       expect(screen.getByText('components')).toBeInTheDocument();
       expect(screen.getByRole('checkbox', { name: 'Select components' })).toBeInTheDocument();
@@ -54,9 +63,7 @@ describe('FileTreeRow', () => {
     });
 
     it('applies correct depth styling', () => {
-      const { container } = render(<FileTreeRow {...defaultFileProps} depth={2} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      const { container } = renderWithProviders(<FileTreeRow {...defaultFileProps} depth={2} />);
 
       const innerDiv = container.querySelector('div[role="treeitem"] > div');
       expect(innerDiv).toHaveStyle({ paddingLeft: '56px' }); // 2 * 24 + 8 = 56px
@@ -64,9 +71,9 @@ describe('FileTreeRow', () => {
 
     it('applies custom style props', () => {
       const customStyle = { top: '100px' };
-      const { container } = render(<FileTreeRow {...defaultFileProps} style={customStyle} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      const { container } = renderWithProviders(
+        <FileTreeRow {...defaultFileProps} style={customStyle} />
+      );
 
       const treeItem = container.querySelector('div[role="treeitem"]');
       expect(treeItem).toHaveStyle({ top: '100px' });
@@ -75,26 +82,20 @@ describe('FileTreeRow', () => {
 
   describe('Loading State', () => {
     it('shows loading spinner when isLoading is true', () => {
-      render(<FileTreeRow {...defaultFileProps} isLoading={true} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultFileProps} isLoading={true} />);
 
       expect(screen.getByLabelText('Loading test.tsx')).toBeInTheDocument();
     });
 
     it('shows correct icon for file when not loading', () => {
-      render(<FileTreeRow {...defaultFileProps} isLoading={false} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultFileProps} isLoading={false} />);
 
       // File icon should be present (we can't easily test the specific icon, but we can test it's not loading)
       expect(screen.queryByLabelText('Loading test.tsx')).not.toBeInTheDocument();
     });
 
     it('shows correct icon for expanded directory', () => {
-      render(<FileTreeRow {...defaultDirProps} isExpanded={true} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} isExpanded={true} />);
 
       expect(
         screen.getByRole('button', { name: /collapse components directory/i })
@@ -102,9 +103,7 @@ describe('FileTreeRow', () => {
     });
 
     it('shows correct icon for collapsed directory', () => {
-      render(<FileTreeRow {...defaultDirProps} isExpanded={false} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} isExpanded={false} />);
 
       expect(
         screen.getByRole('button', { name: /expand components directory/i })
@@ -115,7 +114,7 @@ describe('FileTreeRow', () => {
   describe('File Selection', () => {
     it('handles single file selection', async () => {
       const user = userEvent.setup();
-      render(<FileTreeRow {...defaultFileProps} />, { wrapper: FileExplorerTestWrapper });
+      renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       const checkbox = screen.getByRole('checkbox', { name: 'Select test.tsx' });
       await user.click(checkbox);
@@ -128,7 +127,7 @@ describe('FileTreeRow', () => {
     it('handles directory expansion', async () => {
       const user = userEvent.setup();
 
-      render(<FileTreeRow {...defaultDirProps} />, { wrapper: FileExplorerTestWrapper });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} />);
 
       const expandButton = screen.getByTestId('expand-collapse-button');
       await user.click(expandButton);
@@ -148,9 +147,7 @@ describe('FileTreeRow', () => {
         ],
       });
 
-      render(<FileTreeRow {...defaultDirProps} node={dirWithChildren} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} node={dirWithChildren} />);
 
       const checkbox = screen.getByRole('checkbox', { name: 'Select components' });
       expect(checkbox).toBeInTheDocument();
@@ -164,9 +161,7 @@ describe('FileTreeRow', () => {
         children: [createFileNode({ name: 'file1.tsx', path: 'src/components/file1.tsx' })],
       });
 
-      render(<FileTreeRow {...defaultDirProps} node={dirWithChildren} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      renderWithProviders(<FileTreeRow {...defaultDirProps} node={dirWithChildren} />);
 
       const checkbox = screen.getByRole('checkbox', { name: 'Select components' });
       await user.click(checkbox);
@@ -177,28 +172,30 @@ describe('FileTreeRow', () => {
   });
 
   describe('Special File Types', () => {
-    it('shows symbolic link icon for symbolic links', () => {
+    it('shows symbolic link icon for symbolic links', async () => {
       const symbolicLinkNode = {
         ...createFileNode({ name: 'symlink.tsx', path: 'src/symlink.tsx' }),
         isSymbolicLink: true,
       };
 
-      render(<FileTreeRow {...defaultFileProps} node={symbolicLinkNode} />, {
-        wrapper: FileExplorerTestWrapper,
+      await act(async () => {
+        renderWithProviders(<FileTreeRow {...defaultFileProps} node={symbolicLinkNode} />);
+        await Promise.resolve();
       });
 
       expect(screen.getByText('symlink.tsx')).toBeInTheDocument();
       // The symbolic link icon should be present in the DOM
     });
 
-    it('shows truncation indicator for depth-truncated directories', () => {
+    it('shows truncation indicator for depth-truncated directories', async () => {
       const truncatedDirNode = {
         ...createDirectoryNode({ name: 'deep', path: 'src/very/deep/path' }),
         isDepthTruncated: true,
       };
 
-      render(<FileTreeRow {...defaultDirProps} node={truncatedDirNode} />, {
-        wrapper: FileExplorerTestWrapper,
+      await act(async () => {
+        renderWithProviders(<FileTreeRow {...defaultDirProps} node={truncatedDirNode} />);
+        await Promise.resolve();
       });
 
       expect(screen.getByText('deep')).toBeInTheDocument();
@@ -224,35 +221,37 @@ describe('FileTreeRow', () => {
 
   describe('Memoization', () => {
     it('should not re-render when props are equal', () => {
-      const { rerender } = render(<FileTreeRow {...defaultFileProps} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       // Re-render with the same props
-      rerender(<FileTreeRow {...defaultFileProps} />);
+      act(() => {
+        rerender(<FileTreeRow {...defaultFileProps} />);
+      });
 
       // Component should still be in the document
       expect(screen.getByText('test.tsx')).toBeInTheDocument();
     });
 
     it('should re-render when node path changes', () => {
-      const { rerender } = render(<FileTreeRow {...defaultFileProps} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       const newNode = createFileNode({ name: 'different.tsx', path: 'src/different.tsx' });
-      rerender(<FileTreeRow {...defaultFileProps} node={newNode} />);
+      act(() => {
+        rerender(<FileTreeRow {...defaultFileProps} node={newNode} />);
+      });
 
       expect(screen.getByText('different.tsx')).toBeInTheDocument();
       expect(screen.queryByText('test.tsx')).not.toBeInTheDocument();
     });
 
     it('should re-render when style props change', () => {
-      const { rerender } = render(<FileTreeRow {...defaultFileProps} style={{ top: '0px' }} />, {
-        wrapper: FileExplorerTestWrapper,
-      });
+      const { rerender } = renderWithProviders(
+        <FileTreeRow {...defaultFileProps} style={{ top: '0px' }} />
+      );
 
-      rerender(<FileTreeRow {...defaultFileProps} style={{ top: '100px' }} />);
+      act(() => {
+        rerender(<FileTreeRow {...defaultFileProps} style={{ top: '100px' }} />);
+      });
 
       // Component should still be in the document with updated styles
       expect(screen.getByText('test.tsx')).toBeInTheDocument();

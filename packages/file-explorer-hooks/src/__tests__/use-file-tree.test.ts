@@ -1,7 +1,7 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useFileTree } from '../use-file-tree';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
@@ -92,10 +92,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for initial load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       // Attempt refresh and expect it to throw
       let error: unknown;
@@ -148,10 +145,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for initial load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       // Attempt refresh and expect it to throw
       let error: unknown;
@@ -240,10 +234,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for initial load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       // Attempt refresh and expect it to throw
       let error: unknown;
@@ -292,10 +283,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for initial load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       // Add a failing directory for refresh
       const mockFailDir: IFileNode = {
@@ -352,10 +340,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       expect(result.current.fileTree).toHaveLength(1);
       expect(result.current.fileTree[0]?.name).toBe('test.txt');
@@ -433,10 +418,7 @@ describe('useFileTree', () => {
         wrapper: AdaptersTestWrapper,
       });
 
-      // Wait for load to complete
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       expect(result.current.fileTree).toHaveLength(1);
       const parentNode = result.current.fileTree[0];

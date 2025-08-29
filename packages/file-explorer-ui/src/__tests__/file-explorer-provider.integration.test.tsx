@@ -49,7 +49,10 @@ describe('FileExplorerProvider integration', () => {
     if (!exposure) throw new Error('exposure not ready');
 
     const { store, fs } = exposure as unknown as ExposedHooks;
-    const handle = await fs.selectRootDirectory();
+    let handle = null as Awaited<ReturnType<typeof fs.selectRootDirectory>> | null;
+    await act(async () => {
+      handle = await fs.selectRootDirectory();
+    });
     expect(handle).not.toBeNull();
     if (!handle) return;
     expect(handle.name).toBe('mock-root');
@@ -57,7 +60,9 @@ describe('FileExplorerProvider integration', () => {
     expect(folderId).toBe('mock-root');
 
     const filePath = `${handle.path}/README.md`;
-    store.getState().toggleSelectedFile(folderId as string, filePath);
+    act(() => {
+      store.getState().toggleSelectedFile(folderId as string, filePath);
+    });
 
     // Deterministically flush debounced/persisted state
     vi.useFakeTimers();
@@ -91,10 +96,10 @@ describe('FileExplorerProvider integration', () => {
 
     const { store: store2 } = exposure2 as unknown as ExposedHooks;
     vi.useFakeTimers();
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(200);
+      await flushAllTimersAndMicrotasks();
     });
-    await flushAllTimersAndMicrotasks();
     vi.useRealTimers();
 
     expect(store2.getState().currentFolderId).toBe('mock-root');

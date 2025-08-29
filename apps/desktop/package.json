@@ -19,7 +19,7 @@
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "pnpm -w test:coverage",
     "test:e2e": "xvfb-maybe npx playwright test",
     "test:e2e:main": "xvfb-maybe npx playwright test --grep-invert=\"Database Persistence\"",
     "test:e2e:persistence": "xvfb-maybe npx playwright test --grep=\"Database Persistence\" --workers=1",

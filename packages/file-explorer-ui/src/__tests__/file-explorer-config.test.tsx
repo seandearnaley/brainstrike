@@ -1,8 +1,14 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileExplorerConfig from '../file-explorer-config';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 describe('FileExplorerConfig', () => {
   const defaultProps = {
@@ -15,12 +21,16 @@ describe('FileExplorerConfig', () => {
   });
 
   it('renders settings button', () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    });
     expect(screen.getByRole('button')).toBeInTheDocument();
   });
 
   it('opens popover on button click', async () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    });
     const button = screen.getByRole('button');
     await userEvent.click(button);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
@@ -31,14 +41,18 @@ describe('FileExplorerConfig', () => {
       ...defaultProps,
       filterError: 'Invalid regex pattern',
     };
-    render(<FileExplorerConfig {...props} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...props} />);
+    });
     const button = screen.getByRole('button');
     fireEvent.click(button);
     expect(screen.getByText('Invalid regex pattern')).toBeInTheDocument();
   });
 
   it('handles regex toggle', async () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    });
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
@@ -53,7 +67,9 @@ describe('FileExplorerConfig', () => {
   });
 
   it('handles project tree toggle', async () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    });
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
@@ -70,7 +86,9 @@ describe('FileExplorerConfig', () => {
   });
 
   it('updates folder summary threshold', async () => {
-    render(<FileExplorerConfig {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerConfig {...defaultProps} />);
+    });
     const button = screen.getByRole('button');
     await userEvent.click(button);
 
@@ -101,8 +119,10 @@ describe('FileExplorerConfig', () => {
 
   it('applies settings and closes popover', async () => {
     const mockOnFilterChange = vi.fn();
-    render(<FileExplorerConfig {...defaultProps} onFilterChange={mockOnFilterChange} />, {
-      wrapper: FileExplorerTestWrapper,
+    act(() => {
+      renderWithProviders(
+        <FileExplorerConfig {...defaultProps} onFilterChange={mockOnFilterChange} />
+      );
     });
 
     const button = screen.getByRole('button');

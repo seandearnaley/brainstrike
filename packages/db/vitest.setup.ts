@@ -522,6 +522,6 @@ beforeAll(() => {
 });
 
 afterAll(async () => {
-  await new Promise((r) => setTimeout(r, 1000));
+  // Avoid arbitrary sleeps; rely on explicit cleanup
   cleanup();
 });

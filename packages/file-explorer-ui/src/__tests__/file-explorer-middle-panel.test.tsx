@@ -1,7 +1,13 @@
-import { render, screen } from '@testing-library/react';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { act, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerMiddlePanel } from '../file-explorer-middle-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 let previewSnapshot: Set<string>;
 var previewPanelMock: ReturnType<typeof vi.fn> | undefined;
@@ -138,7 +144,9 @@ describe('FileExplorerMiddlePanel', () => {
   });
 
   it('renders header and preview panel', async () => {
-    render(<FileExplorerMiddlePanel />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
 
     expect(await screen.findByTestId('header')).toBeInTheDocument();
 
@@ -151,7 +159,9 @@ describe('FileExplorerMiddlePanel', () => {
   });
 
   it('calls selection change when interacting with the component', async () => {
-    render(<FileExplorerMiddlePanel />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
 
     // The component should be rendered and functional
     expect(screen.getByText('1')).toBeInTheDocument(); // file count

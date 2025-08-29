@@ -26,7 +26,7 @@
     "type-check": "tsc --noEmit",
     "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run",
     "test:watch": "NODE_OPTIONS='--max-old-space-size=8192' vitest",
-    "test:coverage": "NODE_OPTIONS='--max-old-space-size=8192' vitest run --coverage"
+    "test:coverage": "pnpm -w test:coverage"
   },
   "peerDependencies": {
     "react": "^19.1.1",

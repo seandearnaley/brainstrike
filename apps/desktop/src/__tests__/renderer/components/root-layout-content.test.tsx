@@ -24,41 +24,38 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ),
 }));
 
-// Mock the app-shell component
-vi.mock('@brainstrike/app-shell', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
-  return {
-    ...actual,
-    AppShell: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="app-shell">{children}</div>
-    ),
-    AppLayout: ({ children }: { children: React.ReactNode }) => (
+// Mock the app-shell component (do not import original to avoid transitive deps)
+vi.mock('@brainstrike/app-shell', () => ({
+  navigationItems: [],
+  AppShell: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="app-shell">{children}</div>
+  ),
+  AppLayout: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="app-layout">
+      <main>{children}</main>
+    </div>
+  ),
+  createAppConfig: vi.fn(() => ({
+    title: 'BrainStrike.ai',
+    description: 'Multi-app dashboard',
+    themeStorageKey: 'app-theme',
+    navigationItems: [],
+  })),
+  RootLayoutContent: ({
+    sidebarContent,
+    homePageContent,
+  }: {
+    sidebarContent?: React.ReactNode;
+    homePageContent: React.ReactNode;
+  }) => (
+    <div data-testid="file-explorer-provider">
       <div data-testid="app-layout">
-        <main>{children}</main>
+        {sidebarContent && <aside>{sidebarContent}</aside>}
+        <main>{homePageContent}</main>
       </div>
-    ),
-    createAppConfig: vi.fn(() => ({
-      title: 'BrainStrike.ai',
-      description: 'Multi-app dashboard',
-      themeStorageKey: 'app-theme',
-      navigationItems: [],
-    })),
-    RootLayoutContent: ({
-      sidebarContent,
-      homePageContent,
-    }: {
-      sidebarContent?: React.ReactNode;
-      homePageContent: React.ReactNode;
-    }) => (
-      <div data-testid="file-explorer-provider">
-        <div data-testid="app-layout">
-          {sidebarContent && <aside>{sidebarContent}</aside>}
-          <main>{homePageContent}</main>
-        </div>
-      </div>
-    ),
-  };
-});
+    </div>
+  ),
+}));
 
 // Mock the page components to avoid adapter dependencies
 vi.mock('../../../renderer/components/home-page-content', () => ({

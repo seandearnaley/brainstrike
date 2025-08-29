@@ -24,7 +24,7 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "pnpm -w test:coverage"
   },
   "devDependencies": {
     "@swc/core": "^1.13.3",

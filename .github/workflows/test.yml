@@ -102,6 +102,24 @@ jobs:
             **/coverage/coverage-final.json
           retention-days: 1
 
+      - name: Package-local coverage (UI)
+        run: pnpm coverage:ui
+        env:
+          NODE_ENV: "test"
+
+      - name: Package-local coverage (App Shell)
+        run: pnpm coverage:app-shell
+        env:
+          NODE_ENV: "test"
+
+      - name: Package-local coverage (Desktop)
+        run: pnpm coverage:desktop
+        env:
+          NODE_ENV: "test"
+
+      - name: Enforce package coverage thresholds
+        run: pnpm coverage:enforce
+
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})

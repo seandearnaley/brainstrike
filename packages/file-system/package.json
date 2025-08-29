@@ -19,7 +19,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose & tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "pnpm -w test:coverage",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,10 +1,20 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import {
+  composeWrappers,
+  createDirectoryNode,
+  createFileNode,
+  makeRenderWithProviders,
+} from '@brainstrike/test-utils';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeNode from '../file-tree-node';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -31,7 +41,7 @@ const defaultDirProps = {
 
 describe('FileTreeNode', () => {
   it('renders a file node correctly', () => {
-    render(<FileTreeNode {...defaultFileProps} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileTreeNode {...defaultFileProps} />);
 
     expect(screen.getByText('test.tsx')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select test.tsx' })).toBeInTheDocument();
@@ -40,24 +50,22 @@ describe('FileTreeNode', () => {
   });
 
   it('renders a directory node correctly', () => {
-    render(<FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />, {
-      wrapper: FileExplorerTestWrapper,
-    });
+    renderWithProviders(
+      <FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />
+    );
 
     expect(screen.getByText('components')).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: 'Select components' })).toBeInTheDocument();
   });
 
   it('shows loading state correctly', () => {
-    render(<FileTreeNode {...defaultFileProps} isLoading={true} />, {
-      wrapper: FileExplorerTestWrapper,
-    });
+    renderWithProviders(<FileTreeNode {...defaultFileProps} isLoading={true} />);
     expect(screen.getByLabelText('Loading test.tsx')).toBeInTheDocument();
   });
 
   it('handles file selection', async () => {
     const user = userEvent.setup();
-    render(<FileTreeNode {...defaultFileProps} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileTreeNode {...defaultFileProps} />);
 
     const checkbox = screen.getByRole('checkbox', { name: 'Select test.tsx' });
     await user.click(checkbox);
@@ -67,7 +75,7 @@ describe('FileTreeNode', () => {
 
   it('handles directory expansion', async () => {
     const user = userEvent.setup();
-    render(<FileTreeNode {...defaultDirProps} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileTreeNode {...defaultDirProps} />);
 
     const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
     await user.click(expandButton);
@@ -94,7 +102,7 @@ describe('FileTreeNode', () => {
       isExpanded: true, // Ensure expanded is set
     };
 
-    render(<FileTreeNode {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileTreeNode {...props} />);
 
     expect(screen.getByText('Child.tsx')).toBeInTheDocument();
   });
@@ -128,21 +136,24 @@ describe('FileTreeNode', () => {
       folderId: 'test-folder',
     };
 
-    render(<FileTreeNode {...props} />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileTreeNode {...props} />);
     expect(screen.queryByText('Child.tsx')).not.toBeInTheDocument();
     expect(screen.getByText('Visible.tsx')).toBeInTheDocument();
   });
 
-  it('changes icon when directory is expanded', () => {
-    const { rerender } = render(<FileTreeNode {...defaultDirProps} folderId="test-folder" />, {
-      wrapper: FileExplorerTestWrapper,
-    });
+  it('changes icon when directory is expanded', async () => {
+    const { rerender } = renderWithProviders(
+      <FileTreeNode {...defaultDirProps} folderId="test-folder" />
+    );
 
     // Initially collapsed - the button aria-label is just "Expand"
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
 
     // Expanded - the button aria-label is just "Collapse"
-    rerender(<FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />);
+    await act(async () => {
+      rerender(<FileTreeNode {...defaultDirProps} isExpanded={true} folderId="test-folder" />);
+      await Promise.resolve();
+    });
     expect(screen.getByRole('button', { name: 'Collapse' })).toBeInTheDocument();
   });
 
@@ -168,9 +179,7 @@ describe('FileTreeNode', () => {
       folderId: 'test-folder',
     };
 
-    render(<FileTreeNode {...props} />, {
-      wrapper: FileExplorerTestWrapper,
-    });
+    renderWithProviders(<FileTreeNode {...props} />);
 
     expect(screen.getByText('child-file-1.txt')).toBeInTheDocument();
 

@@ -1,7 +1,7 @@
 import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, expect, it, vi } from 'vitest';
 
@@ -66,11 +66,15 @@ it('memoizes renders when props are unchanged', () => {
   const initialCalls = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
   expect(initialCalls).toBeGreaterThan(0);
 
-  rerender(<OptimizedFileTreeRow {...baseFileProps} />);
+  act(() => {
+    rerender(<OptimizedFileTreeRow {...baseFileProps} />);
+  });
   const afterSameProps = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
   expect(afterSameProps).toBe(initialCalls);
 
-  rerender(<OptimizedFileTreeRow {...baseFileProps} isExpanded />);
+  act(() => {
+    rerender(<OptimizedFileTreeRow {...baseFileProps} isExpanded />);
+  });
   const afterPropChange = (store as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
   expect(afterPropChange).toBeGreaterThan(initialCalls);
 });
@@ -137,9 +141,13 @@ it('renders loader and icon states correctly', () => {
   const { rerender } = render(<OptimizedFileTreeRow {...baseFileProps} isLoading />);
   expect(screen.getByLabelText('Loading file.ts')).toBeInTheDocument();
 
-  rerender(<OptimizedFileTreeRow {...baseFileProps} isLoading={false} />);
+  act(() => {
+    rerender(<OptimizedFileTreeRow {...baseFileProps} isLoading={false} />);
+  });
   expect(screen.queryByLabelText('Loading file.ts')).not.toBeInTheDocument();
 
-  rerender(<OptimizedFileTreeRow {...baseDirProps} isExpanded={true} isLoading={false} />);
+  act(() => {
+    rerender(<OptimizedFileTreeRow {...baseDirProps} isExpanded={true} isLoading={false} />);
+  });
   expect(screen.getByRole('button', { name: /collapse dir directory/i })).toBeInTheDocument();
 });
