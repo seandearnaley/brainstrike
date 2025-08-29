@@ -20,7 +20,7 @@
     "lint-all": "pnpm lint && pnpm format",
     "postinstall": "node scripts/postinstall.js",
     "test": "turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
-    "test:coverage": "turbo run test -- -- --coverage --summarize --log-order=grouped --cache-dir=.turbo",
+    "test:coverage": "turbo run test --summarize --log-order=grouped --cache-dir=.turbo -- --coverage",
     "coverage:ui": "bash -lc 'cd packages/file-explorer-ui && ../../node_modules/.bin/vitest run --coverage'",
     "coverage:desktop": "bash -lc 'cd apps/desktop && ../../node_modules/.bin/vitest run --coverage'",
     "coverage:app-shell": "bash -lc 'cd packages/app-shell && ../../node_modules/.bin/vitest run --coverage'",
