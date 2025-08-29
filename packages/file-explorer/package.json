@@ -21,7 +21,7 @@
   "scripts": {
     "build": "tsc && tsup",
     "dev": "tsup --watch",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
     "test:coverage": "pnpm -w test:coverage",
     "mutation": "npx @stryker-mutator/core run"
   },
