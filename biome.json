@@ -77,7 +77,7 @@
         "noExcessiveCognitiveComplexity": "error",
         "noUselessCatch": "error",
         "noUselessConstructor": "error",
-        "useLiteralKeys": "warn"
+        "useLiteralKeys": "off"
       },
       "performance": {
         "noDelete": "error"

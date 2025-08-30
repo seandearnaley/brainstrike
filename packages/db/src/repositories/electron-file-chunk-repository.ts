@@ -30,6 +30,13 @@ interface FileChunkRow {
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunk_size: number;
   embedding?: string;
+  // Phase 2 columns
+  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
+  embedding_set_id?: string | null;
+  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
+  embedding_updated_at?: string | null;
+  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
+  embedding_hash?: string | null;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   created_at: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
@@ -64,7 +71,7 @@ export class ElectronFileChunkRepository {
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks WHERE id = $1',
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks WHERE id = $1',
       [id]
     );
     return result.rows[0] ? this.mapRowToChunk(result.rows[0] as FileChunkRow) : null;
@@ -72,7 +79,7 @@ export class ElectronFileChunkRepository {
 
   async findByFileRecordId(fileRecordId: string): Promise<FileChunk[]> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC',
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC',
       [fileRecordId]
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
@@ -82,8 +89,8 @@ export class ElectronFileChunkRepository {
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash, 
-        token_count, chunk_type, chunk_size, embedding, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+        token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) 
       ON CONFLICT (id) DO UPDATE SET
         content = EXCLUDED.content,
         content_hash = EXCLUDED.content_hash,
@@ -91,6 +98,9 @@ export class ElectronFileChunkRepository {
         chunk_type = EXCLUDED.chunk_type,
         chunk_size = EXCLUDED.chunk_size,
         embedding = EXCLUDED.embedding,
+        embedding_set_id = EXCLUDED.embedding_set_id,
+        embedding_updated_at = EXCLUDED.embedding_updated_at,
+        embedding_hash = EXCLUDED.embedding_hash,
         updated_at = EXCLUDED.updated_at
       RETURNING *`,
       [
@@ -103,6 +113,9 @@ export class ElectronFileChunkRepository {
         chunk.chunkType,
         chunk.chunkSize,
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+        chunk.embeddingSetId ?? null,
+        chunk.embeddingUpdatedAt ?? null,
+        chunk.embeddingHash ?? null,
         chunk.createdAt,
         chunk.updatedAt,
       ]
@@ -126,8 +139,8 @@ export class ElectronFileChunkRepository {
       for (const batch of batches) {
         const values = batch
           .map((_, index) => {
-            const baseIndex = index * 11;
-            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11})`;
+            const baseIndex = index * 14;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14})`;
           })
           .join(', ');
 
@@ -141,6 +154,9 @@ export class ElectronFileChunkRepository {
           chunk.chunkType,
           chunk.chunkSize,
           chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+          chunk.embeddingSetId ?? null,
+          chunk.embeddingUpdatedAt ?? null,
+          chunk.embeddingHash ?? null,
           chunk.createdAt,
           chunk.updatedAt,
         ]);
@@ -148,7 +164,7 @@ export class ElectronFileChunkRepository {
         const result = await this.db.query(
           `INSERT INTO file_chunks (
               id, file_record_id, chunk_index, content, content_hash, 
-              token_count, chunk_type, chunk_size, embedding, created_at, updated_at
+              token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
             ) VALUES ${values} 
             ON CONFLICT (id) DO UPDATE SET
               content = EXCLUDED.content,
@@ -157,6 +173,9 @@ export class ElectronFileChunkRepository {
               chunk_type = EXCLUDED.chunk_type,
               chunk_size = EXCLUDED.chunk_size,
               embedding = EXCLUDED.embedding,
+              embedding_set_id = EXCLUDED.embedding_set_id,
+              embedding_updated_at = EXCLUDED.embedding_updated_at,
+              embedding_hash = EXCLUDED.embedding_hash,
               updated_at = EXCLUDED.updated_at
             RETURNING *`,
           params
@@ -201,6 +220,16 @@ export class ElectronFileChunkRepository {
     if (chunk.embedding !== undefined) {
       setParts.push(`embedding = $${paramIndex++}`);
       values.push(chunk.embedding ? `[${chunk.embedding.join(',')}]` : null);
+      setParts.push(`embedding_updated_at = $${paramIndex++}`);
+      values.push(chunk.embeddingUpdatedAt ?? chunk.updatedAt);
+      if (chunk.embeddingSetId !== undefined) {
+        setParts.push(`embedding_set_id = $${paramIndex++}`);
+        values.push(chunk.embeddingSetId);
+      }
+      if (chunk.embeddingHash !== undefined) {
+        setParts.push(`embedding_hash = $${paramIndex++}`);
+        values.push(chunk.embeddingHash);
+      }
     }
 
     setParts.push(`updated_at = $${paramIndex++}`);
@@ -245,7 +274,7 @@ export class ElectronFileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType } = options;
+    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
 
     let whereClause = 'WHERE embedding IS NOT NULL';
     const params: unknown[] = [`[${queryEmbedding.join(',')}]`];
@@ -259,6 +288,10 @@ export class ElectronFileChunkRepository {
     if (chunkType) {
       whereClause += ` AND chunk_type = $${paramIndex++}`;
       params.push(chunkType);
+    }
+    if (embeddingSetId) {
+      whereClause += ` AND embedding_set_id = $${paramIndex++}`;
+      params.push(embeddingSetId);
     }
 
     const result = await this.db.query(
@@ -287,7 +320,7 @@ export class ElectronFileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType } = options;
+    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
 
     // Build WHERE clause for candidate selection
     let whereClause = 'WHERE embedding IS NOT NULL';
@@ -303,10 +336,14 @@ export class ElectronFileChunkRepository {
       whereClause += ` AND chunk_type = $${paramIndex++}`;
       params.push(chunkType);
     }
+    if (embeddingSetId) {
+      whereClause += ` AND embedding_set_id = $${paramIndex++}`;
+      params.push(embeddingSetId);
+    }
 
     // Retrieve candidates and parse embeddings on client-side
     const result = await this.db.query(
-      `SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at 
+      `SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at 
       FROM file_chunks ${whereClause}`,
       params
     );
@@ -357,7 +394,7 @@ export class ElectronFileChunkRepository {
 
   async findAll(): Promise<FileChunk[]> {
     const result = await this.db.query(
-      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks ORDER BY created_at DESC'
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at FROM file_chunks ORDER BY created_at DESC'
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
   }
@@ -432,6 +469,9 @@ export class ElectronFileChunkRepository {
       chunkType: row.chunk_type,
       chunkSize: row.chunk_size,
       ...(embedding && { embedding }),
+      ...(row.embedding_set_id != null && { embeddingSetId: row.embedding_set_id }),
+      ...(row.embedding_updated_at != null && { embeddingUpdatedAt: row.embedding_updated_at }),
+      ...(row.embedding_hash != null && { embeddingHash: row.embedding_hash }),
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

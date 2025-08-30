@@ -134,7 +134,14 @@ packages/db/__tests__/search-simple.test.ts         # Removed - precautionary
 - Related to PGlite internals (not application logic)
 - Present in only 1 out of 187 tests
 
-**Phase 2 can begin immediately** if needed, as the similarity search infrastructure is stable and ready for the embedding sets feature.
+**Phase 2 (Embedding Sets) has now been implemented.**
+
+Highlights:
+- Added schema for `embedding_sets` and linked `file_chunks` via `embedding_set_id` with metadata (`embedding_updated_at`, `embedding_hash`).
+- New `EmbeddingSetsRepository` with `getOrCreateSet`, `getById`, `getByModelKey`.
+- Updated chunk repositories (PGlite and Electron) to write and read embedding metadata.
+- Search API accepts `embeddingSetId` filter for both SQL and client-side paths.
+- Tests added for set behaviors and filtering; docs updated to recommend `memory://` for in-memory DBs.
 
 ---
 

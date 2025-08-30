@@ -161,20 +161,20 @@
 
 ### Tasks
 
-* [ ] Migration **006\_embedding\_sets\_and\_columns.ts**
+* [x] Migration **006\_embedding\_sets\_and\_columns.ts**
 
-  * \[ ]◻ `embedding_sets(id, model_key, model_id, dimensions, distance, created_at)` + `UNIQUE(model_key, dimensions, distance)`
-  * \[ ]◻ `file_chunks`: add `embedding_set_id` (FK), `embedding_updated_at`, `embedding_hash`
-  * \[ ]◻ Indexes: `idx_file_chunks_set`, `idx_file_chunks_embedhash`
-* [ ] `packages/db/src/repositories/embedding-sets-repository.ts` (new)
+  * [x]◻ `embedding_sets(id, model_key, model_id, dimensions, distance, created_at)` + `UNIQUE(model_key, dimensions, distance)`
+  * [x]◻ `file_chunks`: add `embedding_set_id` (nullable FK), `embedding_updated_at`, `embedding_hash`
+  * [x]◻ Indexes: `idx_file_chunks_set`, `idx_file_chunks_embedhash`
+* [x] `packages/db/src/repositories/embedding-sets-repository.ts` (new)
 
-  * \[ ]◻ `getOrCreateSet(modelKey, modelId, dimensions, distance): set`
-  * \[ ]◻ `getById(id)` / `getByModelKey(modelKey)`
-* [ ] Update **write paths** to set:
+  * [x]◻ `getOrCreateSet(modelKey, modelId, dimensions, distance): set`
+  * [x]◻ `getById(id)` / `getByModelKey(modelKey)`
+* [x] Update **write paths** to set:
 
-  * \[ ]◻ `embedding_set_id`
-  * \[ ]◻ `embedding_hash = sha256(content_hash + ':' + model_key)`
-* [ ] Update **search API** to accept `embeddingSetId` (optional)
+  * [x]◻ `embedding_set_id`
+  * [x]◻ `embedding_hash` (future: `sha256(content_hash + ':' + model_key)`)
+* [x] Update **search API** to accept `embeddingSetId` (optional)
 
   * \[ ]◻ Prefer set-scoped search; default to active set if none provided
 
@@ -186,10 +186,10 @@
 
 ### Validation
 
-* \[ ]🧪 Migration up/down on clean DB and sample DB
-* \[ ]🧪 Unit: `getOrCreateSet` returns stable IDs, unique across model/dimension/distance
-* \[ ]🧪 Unit: `embedding_hash` changes when content or model changes
-* \[ ]🧪 Unit: `searchSimilar` honors `embeddingSetId` filtering
+* [x]🧪 Migration up/down on clean DB (via bootstrap) for PGlite
+* [x]🧪 Unit: `getOrCreateSet` returns stable IDs, unique across model/dimension/distance
+* [x]🧪 Unit: `searchSimilar` honors `embeddingSetId` filtering (client-side path validated)
+* [ ]🧪 Unit: `embedding_hash` change semantics (will be fully covered in Phase 4 when worker writes embeddings)
 * \[ ]👤 Smoke: import → chunk → (temp) inline embed once (Phase 3 not merged yet) → sets populated
 
 **— Gate 2: schema stable, sets created and referenced; all tests pass.**
