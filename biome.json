@@ -6,7 +6,7 @@
       "packages/**/src/**/*",
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
-      "!**/e2e",
+      "**/e2e/**/*.{ts,tsx}",
       "!**/node_modules",
       "!**/dist",
       "!**/.turbo",
@@ -158,7 +158,8 @@
             }
           },
           "correctness": {
-            "noUnusedVariables": "error"
+            "noUnusedVariables": "error",
+            "noEmptyPattern": "off"
           }
         }
       }

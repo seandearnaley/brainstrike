@@ -100,6 +100,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: [
       '@electric-sql/pglite',
+      '@electric-sql/pglite/vector',
       '@brainstrike/types',
       '@brainstrike/hooks',
       '@brainstrike/ui',
@@ -112,6 +113,9 @@ export default defineConfig({
       '@brainstrike/app-shell',
       '@brainstrike/workers',
     ],
+  },
+  define: {
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts

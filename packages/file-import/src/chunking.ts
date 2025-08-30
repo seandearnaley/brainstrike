@@ -46,6 +46,9 @@ interface ChunkingOptions {
   updateProgress: (
     updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
   ) => void;
+  // Phase 3: optional queue producer injection
+  embedQueueEnabled?: boolean;
+  enqueueJobsForChunks?: (chunks: FileChunk[], fileRecordId: string) => Promise<void>;
 }
 
 export async function processFileChunking(
@@ -120,6 +123,11 @@ export async function processFileChunking(
     chunkingStrategy: strategy,
     updatedAt: new Date().toISOString(),
   });
+
+  // Phase 3: enqueue embedding jobs after chunk insert (if provided)
+  if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+    await options.enqueueJobsForChunks(chunkingResult.chunks, result.id);
+  }
 
   return {
     enhancedResult: { ...result, chunksCreated: chunkingResult.chunks.length },

@@ -215,9 +215,15 @@ export function registerIpcHandlers(
   });
 
   // Database test handler for connection validation
+  ipcMain.handle('db:ping', async () => {
+    // Lightweight connectivity check; does not initialize DB
+    return { success: true, message: 'ping' };
+  });
+
+  // Database test handler for full connection validation
   ipcMain.handle('db:test', async () => {
+    const { getDatabase } = await import('./db-main');
     try {
-      const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
       await db.query('SELECT 1');
       return {
@@ -228,7 +234,7 @@ export function registerIpcHandlers(
     } catch (error) {
       return {
         success: false,
-        message: `Database connection failed: ${error}`,
+        message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
         dbLocation: 'Main Process',
       };
     }

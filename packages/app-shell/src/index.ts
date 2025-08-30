@@ -4,6 +4,7 @@ export * from './csv-export-utils';
 export * from './database-demo-panel';
 export * from './navigation';
 export * from './page-wrapper';
+export * from './queue-hud';
 export * from './right-panel';
 export * from './root-layout-content';
 export * from './settings-page-content';

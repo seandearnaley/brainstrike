@@ -98,7 +98,7 @@ export class ElectronFileChunkRepository {
         chunk.chunkSize,
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
         chunk.embeddingSetId ?? null,
-        chunk.embeddingUpdatedAt ?? null,
+        chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
         chunk.embeddingHash ?? null,
         chunk.createdAt,
         chunk.updatedAt,
@@ -139,7 +139,7 @@ export class ElectronFileChunkRepository {
           chunk.chunkSize,
           chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
           chunk.embeddingSetId ?? null,
-          chunk.embeddingUpdatedAt ?? null,
+          chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
           chunk.embeddingHash ?? null,
           chunk.createdAt,
           chunk.updatedAt,
@@ -260,6 +260,12 @@ export class ElectronFileChunkRepository {
   ): Promise<ChunkSearchResult[]> {
     const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
 
+    if (!embeddingSetId) {
+      throw new Error(
+        'searchSimilar SQL path requires embeddingSetId to avoid dimension mismatches'
+      );
+    }
+
     let whereClause = 'WHERE embedding IS NOT NULL';
     const params: unknown[] = [`[${queryEmbedding.join(',')}]`];
     let paramIndex = 2;
@@ -273,18 +279,17 @@ export class ElectronFileChunkRepository {
       whereClause += ` AND chunk_type = $${paramIndex++}`;
       params.push(chunkType);
     }
-    if (embeddingSetId) {
-      whereClause += ` AND embedding_set_id = $${paramIndex++}`;
-      params.push(embeddingSetId);
-    }
+
+    whereClause += ` AND embedding_set_id = $${paramIndex++}`;
+    params.push(embeddingSetId);
 
     const result = await this.db.query(
       `SELECT *, 
-        (1 - (embedding <=> $1::vector)) as similarity,
+        (1 - ((embedding <=> $1::vector) / 2.0)) as similarity,
         ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) as rank
       FROM file_chunks 
       ${whereClause}
-      AND (1 - (embedding <=> $1::vector)) >= $${paramIndex++}
+      AND (1 - ((embedding <=> $1::vector) / 2.0)) >= $${paramIndex++}
       ORDER BY embedding <=> $1::vector
       LIMIT $${paramIndex}`,
       [...params, threshold, limit]

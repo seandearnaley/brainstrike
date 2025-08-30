@@ -12,6 +12,7 @@ import {
 import { Brain, Database, FileText, Search } from 'lucide-react';
 import { DatabaseDemoPanel } from './database-demo-panel';
 import { EmbeddingsPanel } from './embeddings-panel';
+import { QueueHud } from './queue-hud';
 
 export function RightPanel() {
   return (
@@ -99,7 +100,10 @@ export function RightPanel() {
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
-            <DatabaseDemoPanel />
+            <div className="space-y-2">
+              <QueueHud />
+              <DatabaseDemoPanel />
+            </div>
           </TabsContent>
         </div>
       </Tabs>

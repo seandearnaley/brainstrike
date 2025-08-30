@@ -1,12 +1,13 @@
 import { PGlite } from '@electric-sql/pglite';
 
-// Check if vector extensions are disabled via environment variable
-const isVectorDisabled =
-  process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || process.env['NODE_ENV'] === 'test';
+// Determine if vector extension should be disabled. Tests control this via DISABLE_VECTOR_EXTENSION.
+function vectorDisabled(): boolean {
+  return process.env['DISABLE_VECTOR_EXTENSION'] === 'true';
+}
 
 // Async function to load vector extension
 async function loadVectorExtension() {
-  if (isVectorDisabled) {
+  if (vectorDisabled()) {
     return null;
   }
 

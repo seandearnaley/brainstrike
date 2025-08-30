@@ -113,13 +113,27 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         query: electronDB.query,
         exec: electronDB.exec,
       });
+      // Detect pgvector extension availability over IPC
+      let hasVector = false;
+      try {
+        const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        hasVector = Array.isArray(res.rows) && res.rows.length > 0;
+      } catch (_err) {
+        // If detection fails, assume not available
+        hasVector = false;
+      }
+      if (!hasVector) {
+        throw new Error(
+          'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
+        );
+      }
       const chunkRepo = new ElectronFileChunkRepository(
         {
           query: electronDB.query,
           exec: electronDB.exec,
         },
-        false
-      ); // Assume no pgvector for Electron IPC (can be enhanced later)
+        hasVector
+      );
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
@@ -380,6 +394,14 @@ export function usePGliteDatabase(): PGlite | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useDbProviderError(): Error | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    throw new Error('useDbProviderError must be used within a DbProvider');
+  }
+  return ctx.error;
 }
 
 export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {

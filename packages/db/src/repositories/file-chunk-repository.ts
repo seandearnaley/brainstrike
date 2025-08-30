@@ -98,7 +98,7 @@ export class FileChunkRepository {
         chunk.chunkSize,
         chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
         chunk.embeddingSetId ?? null,
-        chunk.embeddingUpdatedAt ?? null,
+        chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
         chunk.embeddingHash ?? null,
         chunk.createdAt,
         chunk.updatedAt,
@@ -139,7 +139,7 @@ export class FileChunkRepository {
           chunk.chunkSize,
           chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
           chunk.embeddingSetId ?? null,
-          chunk.embeddingUpdatedAt ?? null,
+          chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
           chunk.embeddingHash ?? null,
           chunk.createdAt,
           chunk.updatedAt,
@@ -261,6 +261,13 @@ export class FileChunkRepository {
   ): Promise<ChunkSearchResult[]> {
     const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
 
+    // Enforce set scoping to avoid dimension mismatch hazards with pgvector
+    if (!embeddingSetId) {
+      throw new Error(
+        'searchSimilar SQL path requires embeddingSetId to avoid dimension mismatches'
+      );
+    }
+
     let whereClause = 'WHERE embedding IS NOT NULL';
     const params: unknown[] = [`[${queryEmbedding.join(',')}]`];
     let paramIndex = 2;
@@ -275,19 +282,40 @@ export class FileChunkRepository {
       params.push(chunkType);
     }
 
-    if (embeddingSetId) {
-      whereClause += ` AND embedding_set_id = $${paramIndex++}`;
-      params.push(embeddingSetId);
+    whereClause += ` AND embedding_set_id = $${paramIndex++}`;
+    params.push(embeddingSetId);
+
+    // Determine operator by embedding set distance
+    const setRes = await this.db.query<{ distance: string }>(
+      `SELECT distance FROM embedding_sets WHERE id = $${paramIndex}`,
+      [embeddingSetId]
+    );
+    const distance = (setRes.rows[0]?.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
+
+    let similarityExpr = '';
+    let orderExpr = '';
+    if (distance === 'cosine') {
+      // Normalize to [0,1]: sim01 = 1 - (cosine_distance / 2)
+      similarityExpr = '(1 - ((embedding <=> $1::vector) / 2.0))';
+      orderExpr = 'embedding <=> $1::vector';
+    } else if (distance === 'l2') {
+      // Monotonic mapping to [0,1]: sim01 = 1 / (1 + l2_distance)
+      similarityExpr = '(1.0 / (1.0 + (embedding <-> $1::vector)))';
+      orderExpr = 'embedding <-> $1::vector';
+    } else if (distance === 'ip') {
+      // Convert negative inner product distance to inner product, then logistic to [0,1]
+      similarityExpr = '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))';
+      orderExpr = 'embedding <#> $1::vector';
     }
 
     const result = await this.db.query(
       `SELECT *, 
-        (1 - (embedding <=> $1::vector)) as similarity,
-        ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) as rank
+        ${similarityExpr} as similarity,
+        ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks 
       ${whereClause}
-      AND (1 - (embedding <=> $1::vector)) >= $${paramIndex++}
-      ORDER BY embedding <=> $1::vector
+      AND ${similarityExpr} >= $${paramIndex++}
+      ORDER BY ${orderExpr}
       LIMIT $${paramIndex}`,
       [...params, threshold, limit]
     );

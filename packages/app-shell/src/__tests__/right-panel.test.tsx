@@ -9,6 +9,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => null,
   useFileChunkRepository: () => null,
   useClearAllData: () => null,
+  useDbProviderError: () => null,
 }));
 
 // Mock the UI toast functionality

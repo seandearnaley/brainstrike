@@ -66,6 +66,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => null,
   useFileChunkRepository: () => mockChunkRepository,
   useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
+  useDbProviderError: () => null,
 }));
 
 vi.mock('@brainstrike/ui', async () => {

@@ -22,6 +22,9 @@ export type {
   FileRecord,
   ImportProgress,
 } from './models/file-record.js';
+export type { Job, JobState, JobType } from './queue/job-queue.js';
+// Queue
+export { JobQueue } from './queue/job-queue.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';

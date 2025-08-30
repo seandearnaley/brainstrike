@@ -193,6 +193,38 @@
 * \[ ]👤 Smoke: import → chunk → (temp) inline embed once (Phase 3 not merged yet) → sets populated
 
 **— Gate 2: schema stable, sets created and referenced; all tests pass.**
+ 
+### Gate 2.1 — Follow‑ups before Phase 3
+
+Tasks
+
+- [x] SQL search consistency and safety
+  - [x]◻ Normalize SQL path similarity to `[0,1]` (align with fallback)
+  - [x]◻ Apply `threshold` in SQL path
+  - [x]◻ Require `embeddingSetId` (or enforce dimension) when `vectorEnabled`
+- [ ] Distance operator alignment
+  - [ ]◻ Choose operator by set distance (`<=>` cosine, `<->` L2, `<#>` IP)
+  - [ ]◻ Document/normalize non‑cosine distances → `[0,1]` (or gate to cosine only for now)
+- [ ] Upsert semantics
+  - [ ]◻ Reconcile `UNIQUE(file_record_id, chunk_index)` with upsert target (composite or deterministic id)
+- [ ] Fallback scalability
+  - [ ]◻ Require `embeddingSetId` or cap candidate set size; document trade‑offs
+- [x] Electron vector fast path
+  - [x]◻ Detect pgvector via IPC and pass `vectorEnabled` to ElectronFileChunkRepository
+- [x] Embedding metadata defaults
+  - [x]◻ Set `embedding_updated_at` on insert when `embedding` present
+- [ ] Scripts & lint
+  - [ ]◻ Fix `check-just-errors` sed expression
+  - [ ]◻ Consider re‑enabling `useLiteralKeys` globally; constrain env/IPC exceptions
+- [ ] Tests
+  - [x]◻ SQL guard: require `embeddingSetId` when `vectorEnabled` (unit)
+  - [ ]◻ Add SQL path tests: threshold, `[0,1]` range, set scoping with pgvector (pending enabling pgvector in tests)
+  - [ ]◻ Test composite upsert behavior
+  - [ ]◻ Test `embedding_updated_at` default on insert
+
+Notes
+
+- Keep vector tests small and run in band; set `DISABLE_VECTOR_EXTENSION=false` in those files.
 
 ---
 
@@ -205,22 +237,25 @@
 
 ### Tasks
 
-* [ ] Migration **007\_job\_queue.ts**
+* [x] Migration **007\_job\_queue.ts**
 
-  * \[ ]◻ `job_queue(id, queue, job_type, payload JSONB, state, run_at, attempts, max_attempts, backoff_ms, lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at)`
-  * \[ ]◻ Unique partial index on `dedupe_key`
-  * \[ ]◻ Pick indexes: `(queue, state, run_at)`, `(state, leased_until)`
-* [ ] `packages/db/src/queue/job-queue.ts` (new, DB-agnostic)
+  * [x]◻ `job_queue(id, queue, job_type, payload JSONB, state, run_at, attempts, max_attempts, backoff_ms, lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at)`
+  * [x]◻ Unique partial index on `dedupe_key`
+  * [x]◻ Pick indexes: `(queue, state, run_at)`, `(state, leased_until)`
+* [x] `packages/db/src/queue/job-queue.ts` (new, DB-agnostic)
 
-  * \[ ]◻ `enqueue({queue, job_type, payload, dedupe_key, run_at?})`
-  * \[ ]◻ `claim({queue, leaseMs}): Job | null` (atomic UPDATE … RETURNING)
-  * \[ ]◻ `heartbeat(id, lease_token, extendMs)`
-  * \[ ]◻ `complete(id, lease_token)` / `fail(id, lease_token, error)` with backoff
-  * \[ ]◻ `retryPolicy(attempts)` (exp backoff, jitter)
-* [ ] Wire **producer**:
+  * [x]◻ `enqueue({queue, job_type, payload, dedupe_key, run_at?})`
+  * [x]◻ `claim({queue, leaseMs}): Job | null` (atomic UPDATE … RETURNING)
+  * [x]◻ `heartbeat(id, lease_token, extendMs)`
+  * [x]◻ `complete(id, lease_token)` / `fail(id, lease_token, error)` with backoff
+  * [x]◻ `retryPolicy(attempts)` (exp backoff, jitter)
+  * [x]◻ Stats helpers: `getCountsByState()`, `getQueueStats()`
+  * [x]◻ Admin helpers: `clear(queue?, states?)`, `requeueFailed(queue?, limit?)`
+* [x] Wire **producer**:
 
-  * \[ ]◻ In `packages/file-import/src/chunking.ts` AFTER `insertMany`, enqueue for each chunk (or per file micro-batch)
-  * \[ ]◻ `dedupe_key = chunk_id + ':' + embedding_set_id + ':' + content_hash`
+  * [x]◻ In `packages/file-import/src/chunking.ts` AFTER `insertMany`, enqueue for each chunk (or per file micro-batch) via DI hook
+  * [x]◻ `dedupe_key = chunk_id + ':' + embedding_set_id + ':' + content_hash`
+  * [x]◻ Desktop default ON: `apps/desktop/vite.config.mts` defines `process.env.EMBED_QUEUE_ENABLED` (override to disable)
 
 ### Outputs
 
@@ -229,9 +264,11 @@
 
 ### Validation
 
-* \[ ]🧪 Unit: enqueue/claim/lease/complete/fail/backoff
-* \[ ]🧪 Unit: dedupe honored
-* \[ ]🧪 Unit: producer enqueues N jobs for N chunks (assert by query)
+* [x]🧪 Unit: enqueue/claim/lease/complete/fail/backoff
+* [x]🧪 Unit: dedupe honored
+* [x]🧪 Unit: producer enqueues N jobs for N chunks (assert by query)
+* [x]🧪 Unit: queue stats helpers
+* [x]🧪 Unit: admin helpers (clear/requeueFailed)
 * \[ ]🧪 Concurrency test: two claimers never get same job
 * \[ ]👤 Smoke: run import → see jobs appear; no worker yet, just queue depth increments
 

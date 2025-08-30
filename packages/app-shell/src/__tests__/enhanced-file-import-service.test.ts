@@ -21,6 +21,7 @@ vi.mock('@brainstrike/db', () => ({
     insertMany: vi.fn(),
     update: vi.fn(),
   }),
+  usePGliteDatabase: () => null,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,
@@ -32,6 +33,7 @@ vi.mock('@brainstrike/db', () => ({
   ChunkingService: vi.fn().mockImplementation(() => ({
     chunkContent: vi.fn(),
   })),
+  useDbProviderError: () => null,
 }));
 
 vi.mock('@brainstrike/embeddings', () => ({

@@ -1,5 +1,5 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { useClearAllData, useFileRecordRepository } from '@brainstrike/db';
+import { useClearAllData, useDbProviderError, useFileRecordRepository } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
@@ -35,6 +35,7 @@ import { useEnhancedFileImportService } from './enhanced-file-import-service';
 
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
+  const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
@@ -189,6 +190,48 @@ export function DatabaseDemoPanel() {
 
   // Initialize data
   useEffect(() => {
+    // Fast-path: if running in Electron with IPC, test connectivity directly
+    try {
+      // biome-ignore lint/suspicious/noExplicitAny: window API comes from preload
+      const w = window as any;
+      const hasIpcPing = typeof w !== 'undefined' && w?.electronAPI?.db?.ping;
+      if (hasIpcPing) {
+        void (async () => {
+          try {
+            const res = await w.electronAPI.db.ping();
+            if (res?.success) {
+              setDbInfo({
+                location: 'Main Process',
+                testResult: 'connected',
+                connected: true,
+              });
+            }
+          } catch (_e) {
+            // noop
+          }
+        })();
+      }
+      const hasIpcTest = typeof w !== 'undefined' && w?.electronAPI?.db?.test;
+      if (hasIpcTest) {
+        void (async () => {
+          try {
+            const res = await w.electronAPI.db.test();
+            if (res?.success) {
+              setDbInfo({
+                location: 'Main Process',
+                testResult: 'Connected (IPC)',
+                connected: true,
+              });
+            }
+          } catch (_e) {
+            // noop, repository-based test below will set proper state
+          }
+        })();
+      }
+    } catch (_err) {
+      // ignore
+    }
+
     if (repository) {
       void loadRecords();
       void testDatabaseConnection();
@@ -281,6 +324,30 @@ export function DatabaseDemoPanel() {
     (fileId: string) => chunks.filter((chunk) => chunk.fileRecordId === fileId),
     [chunks]
   );
+
+  if (dbInitError) {
+    return (
+      <Card className="h-full">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Database className="h-4 w-4" />
+            Enhanced Database Demo
+          </CardTitle>
+          <CardDescription className="text-xs text-red-600">
+            Database failed to initialize
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-xs text-red-700 break-all" data-testid="db-init-error">
+            {String(dbInitError.message || dbInitError)}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Ensure pgvector is available in Electron and try restarting the app.
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!repository) {
     return (

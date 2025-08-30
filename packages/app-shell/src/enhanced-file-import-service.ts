@@ -1,5 +1,10 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import { useFileChunkRepository, useFileRecordRepository } from '@brainstrike/db';
+import {
+  JobQueue,
+  useFileChunkRepository,
+  useFileRecordRepository,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { EnhancedImportProgress, EnhancedImportResult } from '@brainstrike/file-import';
 import { processChunking, processEmbeddings } from '@brainstrike/file-import';
@@ -41,6 +46,20 @@ export function useEnhancedFileImportService(
 
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
+  const db = usePGliteDatabase();
+
+  // Feature flag to control embedding queue producer (Phase 3)
+  const embedQueueEnabled = (() => {
+    try {
+      // Prefer explicit env; default disabled
+      // @ts-expect-error runtime env may be undefined in browser builds
+      if (typeof process !== 'undefined' && process?.env?.EMBED_QUEUE_ENABLED) {
+        // @ts-expect-error
+        return String(process.env.EMBED_QUEUE_ENABLED).toLowerCase() === 'true';
+      }
+    } catch (_e) {}
+    return false;
+  })();
 
   // Initialize embedding service if enabled
   useEffect(() => {
@@ -84,6 +103,27 @@ export function useEnhancedFileImportService(
               ...(options.chunkSize !== undefined && { chunkSize: options.chunkSize }),
               ...(options.chunkOverlap !== undefined && { chunkOverlap: options.chunkOverlap }),
               updateProgress: setProgress,
+              // Phase 3 queue producer (optional)
+              ...(embedQueueEnabled &&
+                db && {
+                  embedQueueEnabled,
+                  enqueueJobsForChunks: async (chunks, fileRecordId) => {
+                    const jq = new JobQueue(db);
+                    for (const ch of chunks) {
+                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
+                      await jq.enqueue({
+                        queue: 'embeddings',
+                        jobType: 'embed_chunk',
+                        payload: {
+                          chunkId: ch.id,
+                          fileRecordId,
+                          embeddingSetId: ch.embeddingSetId ?? null,
+                        },
+                        dedupeKey,
+                      });
+                    }
+                  },
+                }),
               ...(options.enableEmbedding !== undefined && {
                 enableEmbedding: options.enableEmbedding,
               }),
