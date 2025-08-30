@@ -227,9 +227,9 @@ E2E Infrastructure:
    - Should handle job completion/failure with proper error reporting
 
 ### Critical Phase 4 Files to Create:
-- `packages/embeddings/src/worker/embedding-worker.ts` (main worker implementation)
-- `apps/desktop/src/workers/embedding-worker-main.ts` (Electron integration)
-- `apps/web/src/workers/embedding-worker-web.ts` (Web Worker integration)
+- `packages/embeddings/src/worker/embedding-worker.ts` (main worker implementation) — CREATED
+- `apps/desktop/src/main.ts` (Electron integration; starts/stops worker on app lifecycle) — WIRED
+- `apps/web/src/workers/embedding-worker-web.ts` (Web Worker integration) — PENDING
 
 ### Critical Phase 4 Requirements:
 - **Must use JobQueue APIs** from Phase 3 for all job operations
@@ -237,6 +237,10 @@ E2E Infrastructure:
 - **Must handle embedding model initialization** with WebGPU/CPU fallback  
 - **Must write results idempotently** using existing chunk repository methods
 - **Must respect deduplication** via embedding_hash checks
+
+Status update:
+- Worker scaffolding implemented; Desktop integration enabled behind `EMBED_QUEUE_ENABLED`.
+- Dedupe/idempotency enforced via `embedding_hash = sha256(content_hash:model_key)`.
 
 ## 🔄 Infrastructure Improvements (Bonus Deliverables)
 

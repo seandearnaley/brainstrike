@@ -27,3 +27,6 @@ export type {
 // Export error class
 // Export configuration constants
 export { BGE_M3_CONFIG, EmbeddingError, FALLBACK_MODEL_CONFIG } from './types';
+export type { EmbeddingWorkerController, EmbeddingWorkerOptions } from './worker/embedding-worker';
+// Worker
+export { startEmbeddingWorker } from './worker/embedding-worker';

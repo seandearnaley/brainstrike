@@ -9,7 +9,10 @@
       "Bash(pnpm vitest run:*)",
       "Bash(pnpm -w test --filter=@brainstrike/db)",
       "Bash(DIRECTORY=/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db)",
-      "Bash(pnpm type-check:*)"
+      "Bash(pnpm type-check:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(pnpm -w build --filter=@brainstrike/embeddings)",
+      "Bash(pnpm tsc:*)"
     ],
     "deny": [],
     "ask": []

@@ -51,6 +51,17 @@ See also: `onboarding.md` and `monorepo-docs.md` for deep dives.
 
 ---
 
+## Queue & Worker (2025)
+
+- Enable: set `EMBED_QUEUE_ENABLED=true` to turn on the DB-backed queue and local worker.
+- CLI: `pnpm queue stats`, `pnpm queue requeue -- --queue embeddings --limit 20`, `pnpm queue prune -- --olderThan <ISO> --states succeeded failed`.
+- Desktop: starts the embedding worker on app ready when enabled; stops on quit.
+- Config: `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`.
+
+Refer to `docs/PHASE_3_HANDOFF.md` (Post-Review Deltas) and `docs/db-embedding-modernization-2025.md` (Phase 4) for details.
+
+---
+
 ## Common Scripts
 
 - `pnpm dev`: Run all dev servers as defined.
@@ -113,4 +124,3 @@ Helpful docs: `onboarding.md`, `AGENTS.md`, `monorepo-docs.md`.
 ## License
 
 ISC © BrainStrike contributors. See `LICENSE`.
-

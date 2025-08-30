@@ -319,38 +319,38 @@ Notes
 
 ### Tasks
 
-* [ ] Worker module `packages/embeddings/src/worker/embedding-worker.ts`
+* [x] Worker module `packages/embeddings/src/worker/embedding-worker.ts`
 
-  * \[ ]◻ `startEmbeddingWorker({concurrency, leaseMs})`
-  * \[ ]◻ On boot: resolve **active embedding set** and init transformer backend (WebGPU/CPU)
-  * \[ ]◻ Loop: claim → process `embed_chunk` → heartbeat every 10s → complete/fail
-  * \[ ]◻ On processing:
+  * [x]◻ `startEmbeddingWorker({ concurrency, leaseMs })`
+  * [x]◻ On boot: resolve/create **embedding set** and init model (WebGPU/CPU auto)
+  * [x]◻ Loop: claim → process `embed_chunk` → heartbeat 10s → complete/fail
+  * [x]◻ Processing:
 
-    * \[ ]◻ Load chunk by `chunk_id`
-    * \[ ]◻ Recompute `embedding_hash` → if matches row & `embedding` present → **no-op**
-    * \[ ]◻ Generate embedding; write `embedding` + `embedding_updated_at`
-* [ ] Wire in **Electron main** (desktop) and **web worker** (web)
+    * [x]◻ Load chunk by `chunk_id`
+    * [x]◻ Compute `embedding_hash = sha256(content_hash:model_key)`; if matches → no-op
+    * [x]◻ Generate embedding; update `embedding`, `embedding_set_id`, `embedding_updated_at`, `embedding_hash`
+* [x] Wire in **Electron main** (desktop); [ ] Web worker (pending)
 
-  * \[ ]◻ Desktop: start worker on app ready; stop on quit
-  * \[ ]◻ Web: feature-flagged (off by default), start on user action
+  * [x]◻ Desktop: start on app ready; stop on quit (`apps/desktop/src/main.ts`)
+  * [ ]◻ Web: feature-flagged (off by default), start on user action
 * [ ] Error handling
 
-  * \[ ]◻ Model init failure → exponential retry with cap
-  * \[ ]◻ GPU unavailable → auto-fallback to CPU
-  * \[ ]◻ Catch transient errors; do **fail → backoff**; poison-pill after `max_attempts`
+  * [ ]◻ Model init failure → exponential retry with cap
+  * [x]◻ GPU unavailable → auto-fallback handled by backend
+  * [x]◻ Transient errors → `fail()` with backoff; poison pill on `max_attempts`
 
 ### Outputs
 
-* Worker module + bootstrap hooks in apps
-* Config: `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`
+* Worker module + app bootstrap hooks (Desktop done; Web pending)
+* Config: `EMBED_QUEUE_ENABLED`, `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`
 
 ### Validation
 
-* \[ ]🧪 Unit: idempotency (same job twice → one write)
-* \[ ]🧪 Worker integration: N jobs → all completed; attempts/backoff observed on forced failures
-* \[ ]🧪 Performance sanity: embed 100 short chunks under CPU and WebGPU paths
-* \[ ]🧪 E2E: import → embeddings populated → `searchSimilar` returns sensible results
-* \[ ]👤 Smoke: run desktop, import a medium folder (code & md), watch queue drain; search UI feels instant
+* [ ]🧪 Unit: idempotency (same job twice → one write)
+* [ ]🧪 Worker integration: N jobs → all completed; attempts/backoff observed on forced failures
+* [ ]🧪 Performance sanity: embed 100 short chunks under CPU and WebGPU paths
+* [ ]🧪 E2E: import → embeddings populated → `searchSimilar` returns sensible results
+* [ ]👤 Smoke: run desktop, import a medium folder (code & md), watch queue drain; search UI feels instant
 
 **— Gate 4: end-to-end import→queue→embed→search works; perf acceptable.**
 
