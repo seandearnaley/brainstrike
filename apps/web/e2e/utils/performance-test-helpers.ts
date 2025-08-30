@@ -24,7 +24,7 @@ export const recordMetric = (
 ): PerformanceMetric => {
   const metric = { name, value, threshold, unit, timestamp: Date.now() };
   // Only log in debug mode or when explicitly requested
-  const isDebug = (globalThis as any).process?.env?.DEBUG || (globalThis as any).process?.env?.PERFORMANCE_LOGGING;
+  const isDebug = globalThis.process?.env?.DEBUG || globalThis.process?.env?.PERFORMANCE_LOGGING;
   if (isDebug) {
     console.log(`📊 ${name}: ${value}${unit} (threshold: ${threshold}${unit})`);
   }
@@ -43,7 +43,7 @@ export const saveMetricsToFile = async (metrics: PerformanceMetric[]): Promise<v
     const filename = resolve(metricsDir, `metrics-${timestamp}.json`);
 
     await fs.writeFile(filename, JSON.stringify(metrics, null, 2));
-    const isDebug = (globalThis as any).process?.env?.DEBUG || (globalThis as any).process?.env?.PERFORMANCE_LOGGING;
+    const isDebug = globalThis.process?.env?.DEBUG || globalThis.process?.env?.PERFORMANCE_LOGGING;
     if (isDebug) {
       console.log(`📁 Metrics saved to: ${filename}`);
     }
@@ -58,7 +58,7 @@ export const saveMetricsToFile = async (metrics: PerformanceMetric[]): Promise<v
  */
 export const getMemoryUsage = async (page: Page) => {
   return await page.evaluate(() => {
-    const memory = (performance as any).memory;
+    const memory = performance.memory;
     if (!memory) {
       return { used: 0, total: 0, usedMB: 0 };
     }
@@ -99,36 +99,41 @@ export const setupRenderTracking = async (page: Page) => {
   await page.evaluate(() => {
     let renderCount = 0;
 
-    (window as any).__renderTracker = {
+    window.__renderTracker = {
       count: 0,
       renderTimes: [],
 
-      trackRender: () => {
+      track: () => {
         const now = Date.now();
         renderCount++;
-        (window as any).__renderTracker.count = renderCount;
-        (window as any).__renderTracker.renderTimes.push(now);
+        if (window.__renderTracker) {
+          window.__renderTracker.count = renderCount;
+          window.__renderTracker.renderTimes.push(now);
 
-        // Check for rapid successive renders (sign of missing shallow comparison)
-        const recentRenders = (window as any).__renderTracker.renderTimes.filter(
-          (time: number) => now - time < 100 // renders in last 100ms
-        );
+          // Check for rapid successive renders (sign of missing shallow comparison)
+          const recentRenders = window.__renderTracker.renderTimes.filter(
+            (time: number) => now - time < 100 // renders in last 100ms
+          );
 
-        if (recentRenders.length > 10) {
-          console.warn('🚨 Detected render storm - possible missing shallow comparison');
+          if (recentRenders.length > 10) {
+            console.warn('🚨 Detected render storm - possible missing shallow comparison');
+          }
         }
       },
 
       getStats: () => ({
         totalRenders: renderCount,
-        recentRenderStorm: (window as any).__renderTracker.renderTimes.filter(
-          (time: number) => Date.now() - time < 1000 // last second
-        ).length,
+        recentRenderStorm:
+          window.__renderTracker?.renderTimes.filter(
+            (time: number) => Date.now() - time < 1000 // last second
+          ).length || 0,
       }),
 
       reset: () => {
         renderCount = 0;
-        (window as any).__renderTracker.renderTimes = [];
+        if (window.__renderTracker) {
+          window.__renderTracker.renderTimes = [];
+        }
       },
     };
   });
@@ -139,7 +144,7 @@ export const setupRenderTracking = async (page: Page) => {
  */
 export const getRenderStats = async (page: Page) => {
   return await page.evaluate(
-    () => (window as any).__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
+    () => window.__renderTracker?.getStats() || { totalRenders: 0, recentRenderStorm: 0 }
   );
 };
 
@@ -148,6 +153,6 @@ export const getRenderStats = async (page: Page) => {
  */
 export const cleanupRenderTracking = async (page: Page) => {
   await page.evaluate(() => {
-    delete (window as any).__renderTracker;
+    window.__renderTracker = undefined;
   });
 };

@@ -29,7 +29,7 @@ async function globalSetup(_config: FullConfig) {
   try {
     await fs.access(mainPath);
     console.log('✅ Main process file found at:', mainPath);
-  } catch (error) {
+  } catch (_error) {
     console.error('❌ Main process file not found at:', mainPath);
     throw new Error(`Main process file not found. Expected at: ${mainPath}`);
   }

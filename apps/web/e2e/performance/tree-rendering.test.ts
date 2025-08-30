@@ -8,43 +8,43 @@ test.describe('Performance: Tree Rendering', () => {
   // Create a large file tree for stress testing
   const createLargeFileTree = (depth: number, breadth: number): FileTree => {
     const tree: FileTree = {};
-    
+
     for (let i = 0; i < breadth; i++) {
       tree[`file-${i}.ts`] = null;
-      
+
       if (depth > 0) {
         tree[`folder-${i}`] = createLargeFileTree(depth - 1, Math.floor(breadth / 2));
       }
     }
-    
+
     return tree;
   };
 
   test.beforeEach(async ({ page }) => {
     // Create a moderately large tree (3 levels, ~100 total files)
     const tree = createLargeFileTree(3, 10);
-    
+
     await mockBrowserApis(page, 'performance-test', tree);
-    
+
     const home = new HomePage(page);
     await home.goto();
   });
 
   test('initial tree load performance', async ({ page }) => {
     const explorer = new FileExplorerPage(page);
-    
+
     // Start performance monitoring
     await page.evaluate(() => {
       performance.mark('tree-load-start');
     });
-    
+
     // Load the tree
     await explorer.selectRoot();
-    
+
     // Wait for tree to be fully rendered
     await expect(explorer.fileTree).toBeVisible();
     await page.waitForTimeout(1000);
-    
+
     // End performance monitoring
     const loadTime = await page.evaluate(() => {
       performance.mark('tree-load-end');
@@ -52,148 +52,149 @@ test.describe('Performance: Tree Rendering', () => {
       const measure = performance.getEntriesByName('tree-load')[0];
       return measure?.duration || 0;
     });
-    
+
     console.log(`Tree load time: ${loadTime}ms`);
-    
+
     // Assert reasonable load time (adjust based on baseline)
     expect(loadTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_LOAD_MAX_MS);
   });
 
   test('tree expansion performance', async ({ page }) => {
     const explorer = new FileExplorerPage(page);
-    
+
     await explorer.selectRoot();
     // Wait for file tree to load with initial UI state
     await page.waitForTimeout(1000);
-    
+
     // Get all folder expand buttons
     const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
     const count = await expandButtons.count();
-    
+
     // Measure expansion time
     await page.evaluate(() => {
       performance.mark('expansion-start');
     });
-    
+
     // Expand first few folders sequentially
     for (let i = 0; i < Math.min(5, count); i++) {
       await expandButtons.nth(i).click();
       // Small delay to allow rendering
       await page.waitForTimeout(100);
     }
-    
+
     const expansionTime = await page.evaluate(() => {
       performance.mark('expansion-end');
       performance.measure('expansion', 'expansion-start', 'expansion-end');
       const measure = performance.getEntriesByName('expansion')[0];
       return measure?.duration || 0;
     });
-    
+
     console.log(`Tree expansion time: ${expansionTime}ms`);
     expect(expansionTime).toBeLessThan(PERFORMANCE_THRESHOLDS.TREE_EXPANSION_MAX_MS);
   });
 
   test('tree scrolling performance with virtualization', async ({ page }) => {
     const explorer = new FileExplorerPage(page);
-    
+
     await explorer.selectRoot();
     // Wait for file tree to load with initial UI state
     await page.waitForTimeout(1000);
-    
+
     // Expand several folders to create a long list
     const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
     const count = await expandButtons.count();
-    
+
     for (let i = 0; i < Math.min(3, count); i++) {
       await expandButtons.nth(i).click();
       await page.waitForTimeout(50);
     }
-    
+
     const treeContainer = explorer.fileTree;
-    
+
     // Measure scroll performance
     await page.evaluate(() => {
       performance.mark('scroll-start');
     });
-    
+
     // Scroll to bottom and back up
-    await treeContainer.evaluate(element => {
+    await treeContainer.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    
+
     await page.waitForTimeout(100);
-    
-    await treeContainer.evaluate(element => {
+
+    await treeContainer.evaluate((element) => {
       element.scrollTop = 0;
     });
-    
+
     const scrollTime = await page.evaluate(() => {
       performance.mark('scroll-end');
       performance.measure('scroll', 'scroll-start', 'scroll-end');
       const measure = performance.getEntriesByName('scroll')[0];
       return measure?.duration || 0;
     });
-    
+
     console.log(`Tree scroll time: ${scrollTime}ms`);
     expect(scrollTime).toBeLessThan(PERFORMANCE_THRESHOLDS.SCROLL_PERFORMANCE_MAX_MS);
   });
 
-
   test('large tree stress test', async ({ page }) => {
     // Create a very large tree for stress testing
     const stressTree = createLargeFileTree(4, 15); // ~500+ files
-    
+
     await page.evaluate(() => {
       // Clear existing mocks
-      delete (window as any).__mockFileSystemApi;
+      (window as any).__mockFileSystemApi = undefined;
     });
-    
+
     await mockBrowserApis(page, 'stress-test', stressTree);
-    
+
     const explorer = new FileExplorerPage(page);
-    
+
     // Monitor memory usage
     const initialMemory = await page.evaluate(() => {
       return (performance as any).memory?.usedJSHeapSize || 0;
     });
-    
+
     await page.evaluate(() => {
       performance.mark('stress-test-start');
     });
-    
+
     await explorer.selectRoot();
     // Wait for file tree to load with initial UI state (longer for stress test)
     await page.waitForTimeout(2000);
-    
+
     // Expand some folders
     const expandButtons = page.locator('[data-testid="expand-collapse-button"]');
     const expandCount = await expandButtons.count();
-    
+
     for (let i = 0; i < Math.min(5, expandCount); i++) {
       await expandButtons.nth(i).click();
       await page.waitForTimeout(200);
     }
-    
+
     const stressTime = await page.evaluate(() => {
       performance.mark('stress-test-end');
       performance.measure('stress-test', 'stress-test-start', 'stress-test-end');
       const measure = performance.getEntriesByName('stress-test')[0];
       return measure?.duration || 0;
     });
-    
+
     const finalMemory = await page.evaluate(() => {
       return (performance as any).memory?.usedJSHeapSize || 0;
     });
-    
+
     const memoryIncrease = finalMemory - initialMemory;
-    
+
     // For stress tests with ~500+ files, use a more lenient memory threshold
     const stressMemoryThreshold = PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * 2; // 2x for stress tests
-    
+
     console.log(`Stress test time: ${stressTime}ms`);
     console.log(`Memory increase: ${Math.round(memoryIncrease / 1024 / 1024)}MB`);
-    console.log(`📊 Stress test memory check: ${Math.round(memoryIncrease / 1024 / 1024)}MB vs max ${stressMemoryThreshold}MB (stress test threshold)`);
-    
+    console.log(
+      `📊 Stress test memory check: ${Math.round(memoryIncrease / 1024 / 1024)}MB vs max ${stressMemoryThreshold}MB (stress test threshold)`
+    );
+
     // Assert reasonable performance under stress
     expect(stressTime).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS);
     expect(memoryIncrease).toBeLessThan(stressMemoryThreshold * 1024 * 1024); // 20MB max for stress test

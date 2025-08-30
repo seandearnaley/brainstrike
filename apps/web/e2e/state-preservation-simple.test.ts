@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Simple State Preservation Test', () => {
   test.beforeEach(async ({ page }) => {

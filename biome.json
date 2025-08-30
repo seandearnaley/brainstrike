@@ -237,6 +237,44 @@
       }
     },
     {
+      "includes": [
+        "**/e2e/performance/**",
+        "**/e2e/**/performance-*",
+        "**/e2e/ipc-communication.test.ts",
+        "**/e2e/report-folder-summary.test.ts",
+        "**/e2e/layout-persistence.test.ts",
+        "**/e2e/utils/performance-config.ts",
+        "**/e2e/real-world-performance.test.ts",
+        "**/e2e/utils/layout-helpers.ts",
+        "**/e2e/**/layout-helpers.ts"
+      ],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off",
+            "noAssignInExpressions": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off",
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/e2e/types/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["packages/db/**", "**/db-main.ts", "**/ipc-handlers.ts"],
       "linter": {
         "rules": {
