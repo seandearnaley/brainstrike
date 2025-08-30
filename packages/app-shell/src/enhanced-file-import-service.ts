@@ -1,4 +1,4 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
+import type { ChunkingStrategy, IDatabase } from '@brainstrike/db';
 import {
   JobQueue,
   useFileChunkRepository,
@@ -107,11 +107,31 @@ export function useEnhancedFileImportService(
               ...(embedQueueEnabled &&
                 db && {
                   embedQueueEnabled,
+                  // Non-transactional fallback
                   enqueueJobsForChunks: async (chunks, fileRecordId) => {
                     const jq = new JobQueue(db);
                     for (const ch of chunks) {
                       const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
                       await jq.enqueue({
+                        queue: 'embeddings',
+                        jobType: 'embed_chunk',
+                        payload: {
+                          chunkId: ch.id,
+                          fileRecordId,
+                          embeddingSetId: ch.embeddingSetId ?? null,
+                        },
+                        dedupeKey,
+                      });
+                    }
+                  },
+                  // Transactional path used when available
+                  runInTransaction: async (fn) =>
+                    await db.transaction(async (tx) => fn(tx as IDatabase)),
+                  enqueueJobsForChunksTx: async (tx, chunks, fileRecordId) => {
+                    const jqTx = new JobQueue(tx as IDatabase);
+                    for (const ch of chunks) {
+                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
+                      await jqTx.enqueue({
                         queue: 'embeddings',
                         jobType: 'embed_chunk',
                         payload: {

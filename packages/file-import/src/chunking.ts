@@ -1,4 +1,10 @@
-import type { ChunkingStrategy, FileChunk, FileImportResult } from '@brainstrike/db';
+import type {
+  ChunkingResult,
+  ChunkingStrategy,
+  FileChunk,
+  FileImportResult,
+  IDatabase,
+} from '@brainstrike/db';
 import { CHUNKING_CONFIG, ChunkingService } from '@brainstrike/db';
 import { fileExplorer } from '@brainstrike/utils';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
@@ -49,6 +55,67 @@ interface ChunkingOptions {
   // Phase 3: optional queue producer injection
   embedQueueEnabled?: boolean;
   enqueueJobsForChunks?: (chunks: FileChunk[], fileRecordId: string) => Promise<void>;
+  // Post-review: support transactional enqueue with chunk insert
+  runInTransaction?: <T>(fn: (tx: IDatabase) => Promise<T>) => Promise<T>;
+  enqueueJobsForChunksTx?: (
+    tx: IDatabase,
+    chunks: FileChunk[],
+    fileRecordId: string
+  ) => Promise<void>;
+}
+
+async function handleChunkInsertion(
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunkingResult: ChunkingResult,
+  options: ChunkingOptions,
+  result: FileImportResult
+): Promise<void> {
+  const shouldUseTransaction =
+    options.embedQueueEnabled && options.runInTransaction && options.enqueueJobsForChunksTx;
+
+  if (shouldUseTransaction && options.runInTransaction) {
+    await options.runInTransaction(async (tx) => {
+      await insertChunksWithTransaction(tx, chunkRepository, chunkingResult.chunks);
+      await options.enqueueJobsForChunksTx?.(tx, chunkingResult.chunks, result.id);
+      return undefined as unknown as undefined;
+    });
+  } else {
+    await chunkRepository.insertMany(chunkingResult.chunks);
+    if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+      await options.enqueueJobsForChunks(chunkingResult.chunks, result.id);
+    }
+  }
+}
+
+async function insertChunksWithTransaction(
+  tx: IDatabase,
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  chunks: FileChunk[]
+): Promise<void> {
+  const repoAny = chunkRepository as unknown as {
+    insertManyWithTx?: (t: IDatabase, chunks: FileChunk[]) => Promise<FileChunk[]>;
+    insertMany: (chunks: FileChunk[]) => Promise<FileChunk[]>;
+  };
+
+  if (typeof repoAny.insertManyWithTx === 'function') {
+    await repoAny.insertManyWithTx(tx, chunks);
+  } else {
+    await repoAny.insertMany(chunks);
+  }
+}
+
+async function updateFileRecordWithChunkInfo(
+  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
+  fileId: string,
+  chunksCount: number,
+  strategy: ChunkingStrategy
+): Promise<void> {
+  await repository.update(fileId, {
+    chunksProcessedAt: new Date().toISOString(),
+    chunksCount,
+    chunkingStrategy: strategy,
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function processFileChunking(
@@ -100,12 +167,7 @@ export async function processFileChunking(
   });
 
   if (chunkingResult.skipped) {
-    await repository.update(result.id, {
-      chunksProcessedAt: new Date().toISOString(),
-      chunksCount: 0,
-      chunkingStrategy: strategy,
-      updatedAt: new Date().toISOString(),
-    });
+    await updateFileRecordWithChunkInfo(repository, result.id, 0, strategy);
     return {
       enhancedResult: {
         ...result,
@@ -116,18 +178,13 @@ export async function processFileChunking(
     };
   }
 
-  await chunkRepository.insertMany(chunkingResult.chunks);
-  await repository.update(result.id, {
-    chunksProcessedAt: new Date().toISOString(),
-    chunksCount: chunkingResult.chunks.length,
-    chunkingStrategy: strategy,
-    updatedAt: new Date().toISOString(),
-  });
-
-  // Phase 3: enqueue embedding jobs after chunk insert (if provided)
-  if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
-    await options.enqueueJobsForChunks(chunkingResult.chunks, result.id);
-  }
+  await handleChunkInsertion(chunkRepository, chunkingResult, options, result);
+  await updateFileRecordWithChunkInfo(
+    repository,
+    result.id,
+    chunkingResult.chunks.length,
+    strategy
+  );
 
   return {
     enhancedResult: { ...result, chunksCreated: chunkingResult.chunks.length },

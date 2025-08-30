@@ -91,6 +91,10 @@ export class JobQueue {
     private defaults: { maxAttempts?: number } = {}
   ) {}
 
+  withDb(db: IDatabase): JobQueue {
+    return new JobQueue(db, this.defaults);
+  }
+
   retryPolicy(attempts: number): number {
     // Exponential with jitter; base 1s, factor 2, cap 5m
     const base = 1000;
@@ -107,23 +111,32 @@ export class JobQueue {
     const maxAttempts = params.maxAttempts ?? this.defaults.maxAttempts ?? 5;
     const dedupe = params.dedupeKey ?? null;
 
-    // If a dedupe key is provided, honor it for active states by checking first
-    if (dedupe) {
-      const existing = await this.db.query<JobRow>(
-        `SELECT * FROM job_queue 
-         WHERE dedupe_key = $1 AND state IN ('queued','running')
-         LIMIT 1`,
-        [dedupe]
-      );
-      if (existing.rows[0]) return fromRow(existing.rows[0]);
-    }
-
+    // Portable idempotent enqueue using CTEs (works with partial unique index)
     const inserted = await this.db.query<JobRow>(
-      `INSERT INTO job_queue (
-        id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, 
-        lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8)
-      RETURNING *`,
+      `WITH existing AS (
+         SELECT * FROM job_queue
+          WHERE dedupe_key = $7 AND state IN ('queued','running')
+          LIMIT 1
+       ),
+       upd AS (
+         UPDATE job_queue
+            SET run_at = LEAST(run_at, $5), updated_at = GREATEST(updated_at, $8)
+          WHERE id IN (SELECT id FROM existing)
+          RETURNING *
+       ),
+       ins AS (
+         INSERT INTO job_queue (
+           id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms,
+           lease_token, leased_until, worker_id, dedupe_key, error, created_at, updated_at
+         )
+         SELECT $1,$2,$3,$4,'queued',$5,0,$6,0,NULL,NULL,NULL,$7,NULL,$8,$8
+         WHERE NOT EXISTS (SELECT 1 FROM existing)
+         RETURNING *
+       )
+       SELECT * FROM upd
+       UNION ALL
+       SELECT * FROM ins
+       LIMIT 1`,
       [
         id,
         params.queue,
@@ -136,9 +149,7 @@ export class JobQueue {
       ]
     );
 
-    if (!inserted.rows[0]) {
-      throw new Error('Failed to insert job');
-    }
+    if (!inserted.rows[0]) throw new Error('Failed to insert job');
     return fromRow(inserted.rows[0]);
   }
 
@@ -148,16 +159,22 @@ export class JobQueue {
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
     const updatedAt = now;
 
-    // Atomic claim: select one eligible job and move it to running
+    // Atomic claim: next runnable or expired lease; bump attempts on claim
     const result = await this.db.query<JobRow>(
       `WITH candidate AS (
         SELECT id FROM job_queue
-        WHERE queue = $1 AND state = 'queued' AND run_at <= $2
-        ORDER BY run_at ASC
+        WHERE queue = $1
+          AND attempts < max_attempts
+          AND (
+                (state = 'queued'  AND run_at <= $2)
+             OR (state = 'running' AND (leased_until IS NULL OR leased_until <= $2))
+          )
+        ORDER BY run_at ASC, id ASC
         LIMIT 1
       )
       UPDATE job_queue SET
         state = 'running',
+        attempts = attempts + 1,
         lease_token = $3,
         leased_until = $4,
         worker_id = $5,
@@ -195,14 +212,14 @@ export class JobQueue {
   }
 
   async fail(params: FailParams): Promise<Job | null> {
-    // Load current to compute next state
+    // Load current to compute next state (attempts incremented on claim)
     const current = await this.db.query<JobRow>('SELECT * FROM job_queue WHERE id = $1', [
       params.id,
     ]);
     const row = current.rows[0];
     if (!row) return null;
 
-    const attempts = (row.attempts ?? 0) + 1;
+    const attempts = row.attempts ?? 0;
     const now = new Date();
     const updatedAt = now.toISOString();
     const maxAttempts = row.max_attempts ?? 5;
@@ -236,6 +253,41 @@ export class JobQueue {
       [attempts, backoff, runAt, params.error, updatedAt, params.id, params.leaseToken]
     );
     return res.rows[0] ? fromRow(res.rows[0]) : null;
+  }
+
+  async expireLeases(nowIso?: string): Promise<number> {
+    const now = nowIso ?? new Date().toISOString();
+    const res = await this.db.query<{ count: string }>(
+      `WITH cte AS (
+        SELECT id FROM job_queue
+        WHERE state = 'running' AND leased_until IS NOT NULL AND leased_until <= $1
+      ), upd AS (
+        UPDATE job_queue SET
+          state = 'queued',
+          lease_token = NULL,
+          leased_until = NULL,
+          updated_at = $1
+        WHERE id IN (SELECT id FROM cte)
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM upd`,
+      [now]
+    );
+    return Number(res.rows[0]?.count ?? 0);
+  }
+
+  async prune(states: JobState[], olderThanIso: string): Promise<number> {
+    if (!olderThanIso) throw new Error('olderThanIso is required');
+    const placeholders = states.map((_, i) => `$${i + 2}`).join(',');
+    const res = await this.db.query<{ count: string }>(
+      `WITH del AS (
+        DELETE FROM job_queue
+         WHERE updated_at < $1
+           AND state IN (${placeholders})
+        RETURNING 1
+      ) SELECT COUNT(*)::text as count FROM del`,
+      [olderThanIso, ...states]
+    );
+    return Number(res.rows[0]?.count ?? 0);
   }
 
   // Stats helpers

@@ -8,7 +8,8 @@
       "Bash(node:*)",
       "Bash(pnpm vitest run:*)",
       "Bash(pnpm -w test --filter=@brainstrike/db)",
-      "Bash(DIRECTORY=/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db)"
+      "Bash(DIRECTORY=/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db)",
+      "Bash(pnpm type-check:*)"
     ],
     "deny": [],
     "ask": []

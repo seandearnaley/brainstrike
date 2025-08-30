@@ -11,11 +11,12 @@ import { JobQueue } from '../queue/job-queue.js';
 import { wasmLoader } from '../wasm-loader.js';
 
 type Args = {
-  cmd: 'stats' | 'requeue' | 'clear' | 'help';
+  cmd: 'stats' | 'requeue' | 'clear' | 'prune' | 'help';
   queue?: string;
   limit?: number;
   db?: string;
   states?: string[];
+  olderThan?: string;
 };
 
 function parseStates(tokens: string[], start: number): { values: string[]; next: number } {
@@ -60,6 +61,12 @@ function parseArgs(argv: string[]): Args {
         i = next;
         break;
       }
+      case a === '--olderThan':
+        out.olderThan = String(rest[++i] ?? '');
+        break;
+      case a.startsWith('--olderThan='):
+        out.olderThan = String(a.split('=')[1] ?? '');
+        break;
       default:
         break;
     }
@@ -69,7 +76,7 @@ function parseArgs(argv: string[]): Args {
 
 function printHelp() {
   console.log(
-    'Usage: queue-cli <stats|requeue|clear> [--queue embeddings] [--limit 20] [--db memory://] [--states failed queued]'
+    'Usage: queue-cli <stats|requeue|clear|prune> [--queue embeddings] [--limit 20] [--db memory://] [--states failed queued] [--olderThan 2025-01-01T00:00:00Z]'
   );
 }
 
@@ -99,10 +106,22 @@ async function executeClear(jq: JobQueue, queue?: string, states?: string[]) {
   );
 }
 
+async function executePrune(jq: JobQueue, states?: string[], olderThan?: string) {
+  if (!olderThan) {
+    console.error('prune requires --olderThan ISO timestamp');
+    process.exit(2);
+  }
+  const safeStates = sanitizeStates(states) ?? ['succeeded', 'failed'];
+  const deleted = await jq.prune(safeStates, olderThan);
+  console.log(
+    `Pruned ${deleted} jobs with states [${safeStates.join(',')}] older than ${olderThan}.`
+  );
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const args = parseArgs(argv);
-  if (args.cmd === 'help' || !['stats', 'requeue', 'clear'].includes(args.cmd)) {
+  if (args.cmd === 'help' || !['stats', 'requeue', 'clear', 'prune'].includes(args.cmd)) {
     printHelp();
     process.exit(0);
   }
@@ -120,6 +139,9 @@ async function main() {
       break;
     case 'clear':
       await executeClear(jq, args.queue, args.states);
+      break;
+    case 'prune':
+      await executePrune(jq, args.states, args.olderThan);
       break;
     default:
       printHelp();

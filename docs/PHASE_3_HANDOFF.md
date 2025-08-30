@@ -309,3 +309,25 @@ const heartbeatTimer = setInterval(
 
 **Handoff Complete** ✅  
 Phase 3 delivered a production-ready job queue system plus significant infrastructure improvements. Phase 4 can begin immediately with confidence in the queue operations and test stability.
+
+## Post-Review Deltas (Applied before Phase 4)
+
+Based on review feedback, we tightened the queue semantics and added small infra improvements to ensure Phase 4 workers behave correctly under crashes/restarts:
+
+- Claiming: `claim()` now also picks up expired `running` jobs and increments `attempts` atomically on claim. It excludes jobs where `attempts >= max_attempts`.
+- Dedup upsert: `enqueue()` uses `INSERT ... ON CONFLICT (dedupe_key) DO UPDATE` keeping the earliest `run_at` and refreshing `updated_at` (idempotent enqueue).
+- Backoff discipline: Attempts are incremented on claim only; `fail()` computes backoff from current attempts and requeues or marks failed accordingly.
+- Transactional producer: `processChunking()` supports an injected transaction runner; when queueing is enabled, chunk inserts and job enqueues are executed in a single DB transaction. Repositories gained `insertManyWithTx()` to avoid nested transactions.
+- Admin utilities: Added `expireLeases()` and `prune(states, olderThan)` to keep tables healthy. CLI gained `prune`.
+- Indexing: Added `idx_job_queue_claim(queue, state, run_at, id)` for deterministic ordering.
+
+New/modified files:
+- `packages/db/src/queue/job-queue.ts` (claim, enqueue, fail, expireLeases, prune)
+- `packages/db/src/migrations/008-job-queue-claim-index.ts`
+- `packages/db/src/repositories/*file-chunk-repository.ts` (insertManyWithTx)
+- `packages/file-import/src/chunking.ts` (transactional insert+enqueue path)
+- `packages/app-shell/src/enhanced-file-import-service.ts` (wires transactional path when available)
+- Tests: `job-queue-expired-lease.test.ts`, `job-queue-dedup-upsert.test.ts`, `job-queue-transactional-enqueue.test.ts`
+
+Operational notes:
+- Queue HUD continues polling every 2s; actions remain debounced. Consider pruning succeeded/failed periodically via CLI: `pnpm queue prune -- --olderThan <ISO> --states succeeded failed`.

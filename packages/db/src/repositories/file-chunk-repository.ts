@@ -176,6 +176,64 @@ export class FileChunkRepository {
     return allResults;
   }
 
+  async insertManyWithTx(
+    tx: Pick<PGlite, 'query'>,
+    chunks: FileChunkInsert[]
+  ): Promise<FileChunk[]> {
+    if (chunks.length === 0) return [];
+    const BatchSize = 250;
+    const batches = batchArray(chunks, BatchSize);
+    const allResults: FileChunk[] = [];
+    for (const batch of batches) {
+      const values = batch
+        .map((_, index) => {
+          const baseIndex = index * 14;
+          return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11}, $${baseIndex + 12}, $${baseIndex + 13}, $${baseIndex + 14})`;
+        })
+        .join(', ');
+
+      const params = batch.flatMap((chunk) => [
+        chunk.id,
+        chunk.fileRecordId,
+        chunk.chunkIndex,
+        chunk.content,
+        chunk.contentHash,
+        chunk.tokenCount,
+        chunk.chunkType,
+        chunk.chunkSize,
+        chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+        chunk.embeddingSetId ?? null,
+        chunk.embedding ? (chunk.embeddingUpdatedAt ?? chunk.updatedAt) : null,
+        chunk.embeddingHash ?? null,
+        chunk.createdAt,
+        chunk.updatedAt,
+      ]);
+
+      const result = await tx.query(
+        `INSERT INTO file_chunks (
+            id, file_record_id, chunk_index, content, content_hash,
+            token_count, chunk_type, chunk_size, embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at
+          ) VALUES ${values}
+          ON CONFLICT (id) DO UPDATE SET
+            content = EXCLUDED.content,
+            content_hash = EXCLUDED.content_hash,
+            token_count = EXCLUDED.token_count,
+            chunk_type = EXCLUDED.chunk_type,
+            chunk_size = EXCLUDED.chunk_size,
+            embedding = EXCLUDED.embedding,
+            embedding_set_id = EXCLUDED.embedding_set_id,
+            embedding_updated_at = EXCLUDED.embedding_updated_at,
+            embedding_hash = EXCLUDED.embedding_hash,
+            updated_at = EXCLUDED.updated_at
+          RETURNING *`,
+        params
+      );
+
+      allResults.push(...result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow)));
+    }
+    return allResults;
+  }
+
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
     const setParts: string[] = [];
     const values: unknown[] = [];
