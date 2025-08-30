@@ -2,6 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import { generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
+import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
@@ -15,6 +16,7 @@ export type EmbeddingWorkerOptions = {
   distance?: Distance; // default: 'cosine'
   workerId?: string; // optional
   log?: (msg: string, meta?: unknown) => void;
+  service?: EmbeddingService; // optional DI for tests or custom backends
 };
 
 export type EmbeddingWorkerController = {
@@ -141,6 +143,45 @@ function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+async function initializeEmbeddingService(
+  options: EmbeddingWorkerOptions,
+  modelKey: string
+): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
+  const service = options.service ?? new SimpleEmbeddingService();
+
+  // Only initialize if we created the default service
+  if (!options.service) {
+    // Initialize with the requested model key
+    const simpleService = service as SimpleEmbeddingService;
+    if (typeof simpleService.initializeWithModel === 'function') {
+      await simpleService.initializeWithModel(modelKey);
+    } else {
+      await service.initialize?.({}, undefined);
+    }
+  }
+
+  // Get model config - if using custom service, determine dimensions first
+  let modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+  if (!modelConfig && options.service) {
+    // For custom services, generate a test embedding to get dimensions
+    const serviceConfig = service.getConfig();
+    const testEmbedding = await service.generateEmbedding('test');
+    modelConfig = {
+      id: serviceConfig.modelId || 'custom-model',
+      name: 'Custom Service Model',
+      dimensions: testEmbedding.embedding.length,
+      quantized: false,
+      description: 'Custom embedding service model',
+      tags: ['custom'],
+      origin: 'custom',
+      size: 'unknown',
+    };
+  }
+  if (!modelConfig) throw new Error(`Model config not found for key: ${modelKey}`);
+
+  return { service, modelConfig };
+}
+
 export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
@@ -160,10 +201,7 @@ export async function startEmbeddingWorker(
     return { stop: async () => {} };
   }
 
-  const service = new SimpleEmbeddingService();
-  await service.initializeWithModel(modelKey);
-  const modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
-  if (!modelConfig) throw new Error(`Model config not found for key: ${modelKey}`);
+  const { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
 
   const embeddingSetId = await getOrCreateEmbeddingSet(
     options.db,
@@ -177,6 +215,21 @@ export async function startEmbeddingWorker(
   let running = true;
 
   type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
+
+  async function validateAndGenerateEmbedding(
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
+  ): Promise<EmbeddingResult> {
+    const result = await service.generateEmbedding(chunk.content);
+
+    const expectedDimensions = modelConfig?.dimensions ?? 0;
+    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimensions) {
+      throw new Error(
+        `Embedding dimension mismatch: got ${result.embedding.length}, expected ${expectedDimensions}`
+      );
+    }
+
+    return result;
+  }
 
   async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
     if (claimed.jobType !== 'embed_chunk') {
@@ -197,24 +250,15 @@ export async function startEmbeddingWorker(
       return;
     }
 
-    const result = await service.generateEmbedding(chunk.content);
-    const expectedDimensions = modelConfig?.dimensions ?? 0;
-    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimensions) {
-      throw new Error(
-        `Embedding dimension mismatch: got ${result.embedding.length}, expected ${expectedDimensions}`
-      );
-    }
-
+    const result = await validateAndGenerateEmbedding(chunk);
     await updateChunkEmbedding(options.db, chunk.id, result.embedding, targetSetId, expectedHash);
     await jq.complete({ id: claimed.id, leaseToken });
   }
 
   async function handleClaimedJob(claimed: ClaimedJob): Promise<void> {
-    interface JobWithLeaseToken {
-      leaseToken: string;
-    }
-    const leaseTokenObj = claimed as unknown as JobWithLeaseToken;
-    const leaseToken = leaseTokenObj.leaseToken;
+    // Our Job shape keeps DB column as lease_token; use it directly
+    const leaseTokenObj = claimed as unknown as Record<string, unknown>;
+    const leaseToken = leaseTokenObj['lease_token'] as string;
     const jobId = claimed.id;
 
     const hb = setInterval(() => {

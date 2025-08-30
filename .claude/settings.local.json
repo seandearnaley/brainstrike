@@ -12,7 +12,10 @@
       "Bash(pnpm type-check:*)",
       "mcp__ide__getDiagnostics",
       "Bash(pnpm -w build --filter=@brainstrike/embeddings)",
-      "Bash(pnpm tsc:*)"
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm run:*)",
+      "Bash(timeout 30 pnpm test)",
+      "Bash(pnpm -w lint --fix)"
     ],
     "deny": [],
     "ask": []
