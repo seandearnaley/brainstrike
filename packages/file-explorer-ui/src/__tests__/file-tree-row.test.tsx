@@ -218,37 +218,40 @@ describe('FileTreeRow', () => {
   });
 
   describe('Memoization', () => {
-    it('should not re-render when props are equal', () => {
+    it('should not re-render when props are equal', async () => {
       const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
-      // Re-render with the same props
-      act(() => {
+      // Re-render with the same props (ensure updates are awaited)
+      await act(async () => {
         rerender(<FileTreeRow {...defaultFileProps} />);
+        await Promise.resolve();
       });
 
       // Component should still be in the document
       expect(screen.getByText('test.tsx')).toBeInTheDocument();
     });
 
-    it('should re-render when node path changes', () => {
+    it('should re-render when node path changes', async () => {
       const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
 
       const newNode = createFileNode({ name: 'different.tsx', path: 'src/different.tsx' });
-      act(() => {
+      await act(async () => {
         rerender(<FileTreeRow {...defaultFileProps} node={newNode} />);
+        await Promise.resolve();
       });
 
       expect(screen.getByText('different.tsx')).toBeInTheDocument();
       expect(screen.queryByText('test.tsx')).not.toBeInTheDocument();
     });
 
-    it('should re-render when style props change', () => {
+    it('should re-render when style props change', async () => {
       const { rerender } = renderWithProviders(
         <FileTreeRow {...defaultFileProps} style={{ top: '0px' }} />
       );
 
-      act(() => {
+      await act(async () => {
         rerender(<FileTreeRow {...defaultFileProps} style={{ top: '100px' }} />);
+        await Promise.resolve();
       });
 
       // Component should still be in the document with updated styles

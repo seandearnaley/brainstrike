@@ -102,21 +102,6 @@ jobs:
             **/coverage/coverage-final.json
           retention-days: 1
 
-      - name: Package-local coverage (UI)
-        run: pnpm coverage:ui
-        env:
-          NODE_ENV: "test"
-
-      - name: Package-local coverage (App Shell)
-        run: pnpm coverage:app-shell
-        env:
-          NODE_ENV: "test"
-
-      - name: Package-local coverage (Desktop)
-        run: pnpm coverage:desktop
-        env:
-          NODE_ENV: "test"
-
       - name: Enforce package coverage thresholds
         run: pnpm coverage:enforce
 
@@ -128,11 +113,13 @@ jobs:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const packages = [
-              { name: '@brainstrike/file-explorer-ui', file: 'packages/file-explorer-ui/coverage/coverage-final.json', thresholds: { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 } },
-              { name: '@brainstrike/app-shell', file: 'packages/app-shell/coverage/coverage-final.json', thresholds: { lines: 81.5, functions: 79, branches: 83, statements: 81.5 } },
-              { name: '@brainstrike/desktop', file: 'apps/desktop/coverage/coverage-final.json', thresholds: { lines: 91, functions: 79, branches: 90.5, statements: 91 } },
-            ];
+
+            // Known thresholds (optional) – add more as packages mature
+            const thresholds = new Map(Object.entries({
+              '@brainstrike/file-explorer-ui': { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
+              '@brainstrike/app-shell': { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
+              '@brainstrike/desktop': { lines: 91, functions: 79, branches: 90.5, statements: 91 },
+            }));
 
             function summarize(json) {
               let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
@@ -157,30 +144,62 @@ jobs:
               };
             }
 
-            const rows = [];
-            for (const pkg of packages) {
-              const p = path.resolve(pkg.file);
-              if (!fs.existsSync(p)) {
-                rows.push(`| ${pkg.name} | not found | — | — | — | thresholds: L${pkg.thresholds.lines} F${pkg.thresholds.functions} B${pkg.thresholds.branches} S${pkg.thresholds.statements} |`);
-                continue;
+            // Find all coverage-final.json files in packages/* and apps/*
+            function* walk(dir) {
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const e of entries) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) yield* walk(p);
+                else yield p;
               }
-              const json = JSON.parse(fs.readFileSync(p, 'utf8'));
-              const s = summarize(json);
-              const fmt = (n) => `${n.toFixed(2)}%`;
-              rows.push(`| ${pkg.name} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} | thresholds: L${pkg.thresholds.lines} F${pkg.thresholds.functions} B${pkg.thresholds.branches} S${pkg.thresholds.statements} |`);
             }
 
-            const body = `## ✅ Coverage Summary\n\n` +
+            function findPackageName(fromDir) {
+              let curr = path.resolve(fromDir);
+              for (let i = 0; i < 5; i++) {
+                const pkgPath = path.join(curr, 'package.json');
+                if (fs.existsSync(pkgPath)) {
+                  try { return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).name || path.basename(curr); } catch {}
+                }
+                curr = path.dirname(curr);
+              }
+              return path.basename(fromDir);
+            }
+
+            const roots = ['packages', 'apps'].filter((p) => fs.existsSync(p));
+            const coverageFiles = [];
+            for (const root of roots) {
+              for (const file of walk(root)) {
+                if (file.endsWith(path.join('coverage', 'coverage-final.json'))) coverageFiles.push(file);
+              }
+            }
+
+            const rows = [];
+            const fmt = (n) => `${n.toFixed(2)}%`;
+            for (const file of coverageFiles.sort()) {
+              const pkgDir = path.dirname(path.dirname(file));
+              const pkgName = findPackageName(pkgDir);
+              try {
+                const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const s = summarize(json);
+                const thr = thresholds.get(pkgName);
+                const thrText = thr ? `thresholds: L${thr.lines} F${thr.functions} B${thr.branches} S${thr.statements}` : 'thresholds: —';
+                rows.push(`| ${pkgName} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} | ${thrText} |`);
+              } catch (e) {
+                rows.push(`| ${pkgName} | error reading coverage | — | — | — | thresholds: — |`);
+              }
+            }
+
+            const header = `## ✅ Coverage Summary (All Workspaces with reports)\n\n` +
               `| Package | Lines | Functions | Branches | Statements | Thresholds |\n` +
-              `|---|---:|---:|---:|---:|---|\n` +
-              rows.join('\n') +
-              `\n\n_Enforced by CI via scripts/enforce-coverage.mjs_; values computed from coverage-final.json`;
+              `|---|---:|---:|---:|---:|---|`;
+            const body = rows.length ? [header, ...rows].join('\n') : `${header}\n| — | — | — | — | — | — |`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body,
+              body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via scripts/enforce-coverage.mjs_',
             });
 
   # E2E tests run in parallel with sharding

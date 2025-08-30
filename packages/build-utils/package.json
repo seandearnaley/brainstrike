@@ -24,9 +24,7 @@
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"
   },
-  "dependencies": {
-    "@brainstrike/utils": "workspace:*"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",

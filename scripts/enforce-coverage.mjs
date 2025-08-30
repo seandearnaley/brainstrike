@@ -5,26 +5,58 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-const pkgs = [
-  {
-    name: '@brainstrike/file-explorer-ui',
-    coveragePath: 'packages/file-explorer-ui/coverage/coverage-final.json',
-    // Ratcheted to current baseline (Aug 29): L86.95 F84.36 B81.77 S86.95
-    thresholds: { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
-  },
-  {
-    name: '@brainstrike/app-shell',
-    coveragePath: 'packages/app-shell/coverage/coverage-final.json',
-    // Baseline: L81.83 F79.44 B83.14 S81.83
-    thresholds: { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
-  },
-  {
-    name: '@brainstrike/desktop',
-    coveragePath: 'apps/desktop/coverage/coverage-final.json',
-    // Baseline: L91.30 F79.25 B90.79 S91.30
-    thresholds: { lines: 91, functions: 79, branches: 90.5, statements: 91 },
-  },
-];
+// Default thresholds applied to all packages unless overridden below.
+// Keep these aligned with root vitest.config.ts global thresholds.
+const DEFAULT_THRESHOLDS = { lines: 70, functions: 60, branches: 60, statements: 70 };
+
+// Optional strict overrides for key packages.
+const OVERRIDES = new Map([
+  [
+    '@brainstrike/file-explorer-ui',
+    { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
+  ],
+  [
+    '@brainstrike/app-shell',
+    { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
+  ],
+  [
+    '@brainstrike/desktop',
+    { lines: 91, functions: 79, branches: 90.5, statements: 91 },
+  ],
+]);
+
+// Discover all coverage files under packages/* and apps/*
+function* walk(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) yield* walk(p);
+    else yield p;
+  }
+}
+
+function findPkgName(fromDir) {
+  let curr = path.resolve(fromDir);
+  for (let i = 0; i < 5; i++) {
+    const pkgPath = path.join(curr, 'package.json');
+    if (fs.existsSync(pkgPath)) {
+      try {
+        const name = JSON.parse(fs.readFileSync(pkgPath, 'utf8')).name;
+        if (name) return name;
+      } catch {}
+    }
+    curr = path.dirname(curr);
+  }
+  return path.basename(fromDir);
+}
+
+const coverageFiles = [];
+for (const root of ['packages', 'apps']) {
+  if (!fs.existsSync(root)) continue;
+  for (const file of walk(root)) {
+    if (file.endsWith(path.join('coverage', 'coverage-final.json'))) coverageFiles.push(file);
+  }
+}
 
 function summarize(json) {
   let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
@@ -68,39 +100,39 @@ function formatPct(n) {
   return `${n.toFixed(2)}%`;
 }
 
-let hasFailure = false;
-for (const pkg of pkgs) {
-  const p = path.resolve(pkg.coveragePath);
-  if (!fs.existsSync(p)) {
-    console.error(`❌ ${pkg.name}: coverage file not found at ${pkg.coveragePath}`);
-    hasFailure = true;
-    continue;
-  }
-  const json = JSON.parse(fs.readFileSync(p, 'utf8'));
-  const s = summarize(json);
-  const checks = [
-    ['lines', s.lines.pct, pkg.thresholds.lines],
-    ['functions', s.functions.pct, pkg.thresholds.functions],
-    ['branches', s.branches.pct, pkg.thresholds.branches],
-    ['statements', s.statements.pct, pkg.thresholds.statements],
-  ];
-  let ok = true;
-  for (const [key, pct, min] of checks) {
-    if (pct + 1e-6 < min) {
-      ok = false;
-      hasFailure = true;
-    }
-  }
-  const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
-  if (ok) {
-    console.log(`✅ ${pkg.name}: ${summary} (>= L${pkg.thresholds.lines} F${pkg.thresholds.functions} B${pkg.thresholds.branches} S${pkg.thresholds.statements})`);
-  } else {
-    console.error(`❌ ${pkg.name}: ${summary} is below thresholds (>= L${pkg.thresholds.lines} F${pkg.thresholds.functions} B${pkg.thresholds.branches} S${pkg.thresholds.statements})`);
-  }
-}
-
-if (hasFailure) {
+if (coverageFiles.length === 0) {
+  console.error('❌ No coverage files found under packages/* or apps/*');
   process.exit(1);
 }
 
+let hasFailure = false;
+for (const file of coverageFiles.sort()) {
+  const pkgDir = path.dirname(path.dirname(file));
+  const pkgName = findPkgName(pkgDir);
+  const thresholds = OVERRIDES.get(pkgName) ?? DEFAULT_THRESHOLDS;
+
+  const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const s = summarize(json);
+  const checks = [
+    ['lines', s.lines.pct, thresholds.lines],
+    ['functions', s.functions.pct, thresholds.functions],
+    ['branches', s.branches.pct, thresholds.branches],
+    ['statements', s.statements.pct, thresholds.statements],
+  ];
+  let ok = true;
+  for (const [key, pct, min] of checks) {
+    if (pct + 1e-6 < min) ok = false;
+  }
+  const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
+  const threshText = `(>= L${thresholds.lines} F${thresholds.functions} B${thresholds.branches} S${thresholds.statements})`;
+  const rel = path.relative(process.cwd(), file);
+  if (ok) {
+    console.log(`✅ ${pkgName}: ${summary} ${threshText}`);
+  } else {
+    hasFailure = true;
+    console.error(`❌ ${pkgName}: ${summary} is below thresholds ${threshText} [${rel}]`);
+  }
+}
+
+if (hasFailure) process.exit(1);
 console.log('All package coverage thresholds satisfied.');

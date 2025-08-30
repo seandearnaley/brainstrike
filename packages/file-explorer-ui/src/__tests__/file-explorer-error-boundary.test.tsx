@@ -50,6 +50,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 describe('FileExplorerErrorBoundary', () => {
   beforeAll(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   beforeEach(() => {

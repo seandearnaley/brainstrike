@@ -229,14 +229,12 @@ describe('useDatabaseErrorBoundary', () => {
           })
       );
 
-      const promise = act(async () => {
-        return result.current.executeWithLoadingState(operation, setLoading);
+      await act(async () => {
+        const p = result.current.executeWithLoadingState(operation, setLoading);
+        expect(setLoading).toHaveBeenCalledWith(true);
+        await vi.advanceTimersByTimeAsync(100);
+        await p;
       });
-
-      expect(setLoading).toHaveBeenCalledWith(true);
-
-      await vi.advanceTimersByTimeAsync(100);
-      await promise;
 
       expect(setLoading).toHaveBeenCalledWith(false);
       expect(setLoading).toHaveBeenCalledTimes(2);

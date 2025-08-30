@@ -135,8 +135,9 @@ describe('LoadingOverlay', () => {
       // After advancing timers, the cancel button should be visible immediately
       expect(screen.getByText('Cancel')).toBeInTheDocument();
 
-      act(() => {
+      await act(async () => {
         fireEvent.click(screen.getByText('Cancel'));
+        await Promise.resolve();
       });
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
@@ -177,26 +178,28 @@ describe('LoadingOverlay', () => {
       render(<LoadingOverlay isLoading={true} cancellable={true} onCancel={onCancel} />);
 
       // Simulate Escape key press
-      act(() => {
+      await act(async () => {
         fireEvent.keyDown(document, { key: 'Escape' });
+        await Promise.resolve();
       });
 
       expect(onCancel).toHaveBeenCalledTimes(1);
     });
 
-    it('should not handle Escape key when not cancellable', () => {
+    it('should not handle Escape key when not cancellable', async () => {
       const onCancel = vi.fn();
       render(<LoadingOverlay isLoading={true} cancellable={false} onCancel={onCancel} />);
 
       // Simulate Escape key press
-      act(() => {
+      await act(async () => {
         fireEvent.keyDown(document, { key: 'Escape' });
+        await Promise.resolve();
       });
 
       expect(onCancel).not.toHaveBeenCalled();
     });
 
-    it('should not handle Escape key when isCancelling is true', () => {
+    it('should not handle Escape key when isCancelling is true', async () => {
       const onCancel = vi.fn();
       render(
         <LoadingOverlay
@@ -208,8 +211,9 @@ describe('LoadingOverlay', () => {
       );
 
       // Simulate Escape key press
-      act(() => {
+      await act(async () => {
         fireEvent.keyDown(document, { key: 'Escape' });
+        await Promise.resolve();
       });
 
       expect(onCancel).not.toHaveBeenCalled();
