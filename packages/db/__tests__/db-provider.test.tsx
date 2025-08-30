@@ -9,7 +9,7 @@ import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Simple wrapper component for renderHook
 function wrapper({ children }: { children: React.ReactNode }) {
-  return <DbProvider dbPath=":memory:">{children}</DbProvider>;
+  return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
 describe('DbProvider', () => {
@@ -24,7 +24,7 @@ describe('DbProvider', () => {
   });
   it('exposes FileRecordRepository via context', async () => {
     // Mock the wasmLoader to return a real PGlite instance without WASM loading
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
 
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
@@ -39,7 +39,7 @@ describe('DbProvider', () => {
   });
 
   it('runs migrations on mount and closes db on unmount in production', async () => {
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     const createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
       .mockResolvedValue(mockDb);
@@ -74,7 +74,7 @@ describe('DbProvider', () => {
   });
 
   it('keeps db open on unmount in development (Fast Refresh)', async () => {
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     const createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')
       .mockResolvedValue(mockDb);
@@ -108,7 +108,7 @@ describe('DbProvider', () => {
 
   it('waits for migrations before providing context', async () => {
     // Mock the database creation to succeed
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
 
     // Mock the migration to be delayed
@@ -158,7 +158,7 @@ describe('DbProvider', () => {
   });
 
   it('logs an error if closing the db fails on unmount', async () => {
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
 

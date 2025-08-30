@@ -9,7 +9,7 @@ import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Simple wrapper component for renderHook
 function wrapper({ children }: { children: React.ReactNode }) {
-  return <DbProvider dbPath=":memory:">{children}</DbProvider>;
+  return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
 describe('DbProvider error handling', () => {
@@ -84,7 +84,7 @@ describe('DbProvider error handling', () => {
     const migrationError = new Error('Migration failed');
 
     // Mock successful database creation but failed migration
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockRejectedValue(migrationError);
@@ -118,7 +118,7 @@ describe('DbProvider error handling', () => {
     configureLogger({ enableInProduction: true });
 
     // Create a mock database that fails to close
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
@@ -162,7 +162,7 @@ describe('DbProvider error handling', () => {
     // First render - this should trigger initialization
     const { unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper: ({ children }) => (
-        <DbProvider dbPath=":memory:" useElectronIPC={false}>
+        <DbProvider dbPath="memory://" useElectronIPC={false}>
           {children}
         </DbProvider>
       ),
@@ -172,7 +172,7 @@ describe('DbProvider error handling', () => {
     await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1));
 
     // Complete the initialization
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     activeDatabases.push(mockDb);
     resolveDbCreation?.(mockDb);
 
@@ -185,7 +185,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles already initialized database gracefully', async () => {
-    const mockDb = new PGlite(':memory:');
+    const mockDb = new PGlite('memory://');
     activeDatabases.push(mockDb);
     const createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')

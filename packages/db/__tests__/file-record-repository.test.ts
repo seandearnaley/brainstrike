@@ -24,9 +24,9 @@ describe('FileRecordRepository', () => {
   let repo: FileRecordRepository;
 
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite(':memory:');
+    db = await wasmLoader.createPGlite('memory://');
     await migrate(db);
-    await db.query('DELETE FROM file_records');
+    // Don't delete records - use unique IDs instead to avoid MultiXactId wraparound
     repo = new FileRecordRepository(db);
   });
 

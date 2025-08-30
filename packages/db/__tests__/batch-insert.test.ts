@@ -20,7 +20,7 @@ describe('Batched insertMany', () => {
     await migrationRunner.initialize();
     await migrationRunner.up(migrations);
 
-    repository = new FileChunkRepository(db);
+    repository = new FileChunkRepository(db, false);
     _fileRecordRepository = new FileRecordRepository(db);
 
     // Create file records that our chunks can reference

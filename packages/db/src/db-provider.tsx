@@ -112,10 +112,13 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         query: electronDB.query,
         exec: electronDB.exec,
       });
-      const chunkRepo = new ElectronFileChunkRepository({
-        query: electronDB.query,
-        exec: electronDB.exec,
-      });
+      const chunkRepo = new ElectronFileChunkRepository(
+        {
+          query: electronDB.query,
+          exec: electronDB.exec,
+        },
+        false
+      ); // Assume no pgvector for Electron IPC (can be enhanced later)
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
@@ -148,7 +151,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
 
       const repository = new FileRecordRepository(db);
-      const chunkRepo = new FileChunkRepository(db);
+      const chunkRepo = new FileChunkRepository(db, hasVector);
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);

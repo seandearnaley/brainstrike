@@ -5,7 +5,10 @@
       "Bash(pnpm -w lint)",
       "Bash(pnpm -w build --filter=@brainstrike/db)",
       "Bash(pnpm test:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(pnpm vitest run:*)",
+      "Bash(pnpm -w test --filter=@brainstrike/db)",
+      "Bash(DIRECTORY=/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db)"
     ],
     "deny": [],
     "ask": []

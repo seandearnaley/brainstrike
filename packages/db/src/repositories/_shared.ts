@@ -102,3 +102,57 @@ export function batchArray<T>(items: T[], batchSize: number): T[][] {
   }
   return batches;
 }
+
+/**
+ * Compute cosine similarity between two vectors
+ * @param a - First vector
+ * @param b - Second vector
+ * @returns Cosine similarity between -1 and 1, or NaN if computation fails
+ */
+export function computeCosineSimilarity(a: number[], b: number[]): number {
+  if (!a || !b || a.length !== b.length || a.length === 0) {
+    return Number.NaN;
+  }
+
+  let dotProduct = 0;
+  let normA = 0;
+  let normB = 0;
+
+  for (let i = 0; i < a.length; i++) {
+    const aVal = a[i];
+    const bVal = b[i];
+    if (
+      aVal === undefined ||
+      bVal === undefined ||
+      !Number.isFinite(aVal) ||
+      !Number.isFinite(bVal)
+    ) {
+      return Number.NaN;
+    }
+    dotProduct += aVal * bVal;
+    normA += aVal * aVal;
+    normB += bVal * bVal;
+  }
+
+  if (normA === 0 || normB === 0) {
+    return Number.NaN;
+  }
+
+  const similarity = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+
+  // Clamp to [-1, 1] range to handle floating-point precision issues
+  return Math.max(-1, Math.min(1, similarity));
+}
+
+/**
+ * Convert cosine similarity to a search-friendly similarity score in [0, 1] range
+ * @param cosineSimilarity - Raw cosine similarity value [-1, 1]
+ * @returns Similarity score in [0, 1] range, where 1 is most similar
+ */
+export function cosineToSearchSimilarity(cosineSimilarity: number): number {
+  if (!Number.isFinite(cosineSimilarity)) {
+    return 0;
+  }
+  // Convert [-1, 1] to [0, 1] where 1 means identical and 0 means opposite
+  return (cosineSimilarity + 1) / 2;
+}

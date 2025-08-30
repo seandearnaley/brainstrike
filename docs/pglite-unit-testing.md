@@ -37,7 +37,7 @@ packages/test-utils/src/db.ts
 import { PGlite } from "@electric-sql/pglite";
 
 export async function getPglite() {
-  const db = new PGlite();             // in-process WASM Postgres
+  const db = new PGlite('memory://');  // true in-memory WASM Postgres (Node/Web)
   await db.query(/* run migrations here, e.g., squashed SQL */);
   return db;
 }

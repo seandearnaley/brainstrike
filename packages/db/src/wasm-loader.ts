@@ -54,9 +54,8 @@ class WasmLoader {
       const vector = await loadVectorExtension();
 
       // Create a temporary PGlite instance to trigger WASM loading
-      // Use browser-compatible storage to avoid Node.js filesystem conflicts
-      const isBrowser = typeof window !== 'undefined';
-      const tempDbPath = isBrowser ? 'memory://' : ':memory:';
+      // Always use true in-memory storage to avoid persisting between tests/runs
+      const tempDbPath = 'memory://';
 
       // Use basic PGlite if vector extension is not available
       const tempDb = vector
@@ -82,10 +81,17 @@ class WasmLoader {
     // Load vector extension asynchronously
     const vector = await loadVectorExtension();
 
+    // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
+    const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+
     // Use vector extension if available, otherwise use basic PGlite
-    return vector
-      ? new PGlite(dataDir ? { dataDir, extensions: { vector } } : { extensions: { vector } })
-      : new PGlite(dataDir);
+    if (vector) {
+      return normalizedDataDir
+        ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
+        : new PGlite({ extensions: { vector } });
+    }
+
+    return normalizedDataDir ? new PGlite(normalizedDataDir) : new PGlite();
   }
 }
 

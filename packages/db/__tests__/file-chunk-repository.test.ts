@@ -14,7 +14,7 @@ describe('FileChunkRepository', () => {
     // Create a fresh in-memory database for each test
     db = new PGlite();
     await migrate(db);
-    repository = new FileChunkRepository(db);
+    repository = new FileChunkRepository(db, false);
     fileRepository = new FileRecordRepository(db);
 
     // Create test file records that chunks can reference

@@ -13,7 +13,7 @@ describe('Repository clearAll functionality', () => {
       query: vi.fn(),
     };
     fileRepository = new BaseFileRecordRepository(mockDb, 'file_records');
-    chunkRepository = new FileChunkRepository(mockDb);
+    chunkRepository = new FileChunkRepository(mockDb, false);
   });
 
   describe('BaseFileRecordRepository clearAll', () => {

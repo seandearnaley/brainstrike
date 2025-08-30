@@ -18,7 +18,7 @@ describe('Idempotent Chunk Insertion', () => {
     await migrationRunner.initialize();
     await migrationRunner.up(migrations);
 
-    repository = new FileChunkRepository(db);
+    repository = new FileChunkRepository(db, false);
 
     // Create file records that our chunks can reference
     await db.query(
