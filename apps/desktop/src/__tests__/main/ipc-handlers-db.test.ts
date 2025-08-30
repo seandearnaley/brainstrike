@@ -1,37 +1,33 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { handlers, mockIpcMain, mockDb, getDatabaseMock, mockApp } = vi.hoisted(() => {
+// Hoist Electron and db mocks safely
+const { handlers, mockDb, getDatabaseMock } = vi.hoisted(() => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  const mockIpcMain = {
-    handle: vi.fn((channel: string, listener: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, listener);
-    }),
-  };
-
-  const mockDb = {
-    query: vi.fn(),
-    exec: vi.fn(),
-    transaction: vi.fn(),
-  };
-
+  const mockDb = { query: vi.fn(), exec: vi.fn(), transaction: vi.fn() };
   const getDatabaseMock = vi.fn(() => mockDb);
-
-  const mockApp = {
-    getPath: vi.fn(() => '/mock/documents'),
-    whenReady: vi.fn(() => new Promise<void>(() => {})),
-    isPackaged: false,
-    on: vi.fn(),
-  };
-
-  return { handlers, mockIpcMain, mockDb, getDatabaseMock, mockApp };
+  return { handlers, mockDb, getDatabaseMock };
 });
 
-vi.mock('electron', () => ({
-  ipcMain: mockIpcMain,
-  app: mockApp,
-  BrowserWindow: vi.fn(),
-  session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
-}));
+vi.mock('electron', async () => {
+  const electronUtils = await import('@brainstrike/test-utils');
+  const typedIpcMain = electronUtils.createIpcMainMock();
+  // Track handlers for direct invocation
+  typedIpcMain.handle.mockImplementation(
+    (channel: string, listener: (...args: unknown[]) => unknown) => {
+      handlers.set(channel, listener);
+    }
+  );
+  const app = electronUtils.createAppMock({
+    whenReadyResolved: true,
+    documentsPath: '/mock/documents',
+  });
+  return {
+    ipcMain: typedIpcMain,
+    app,
+    BrowserWindow: vi.fn(),
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+  };
+});
 
 vi.mock('../../db-main', () => ({ getDatabase: getDatabaseMock }));
 

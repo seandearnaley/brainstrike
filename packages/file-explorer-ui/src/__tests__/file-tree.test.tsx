@@ -1,10 +1,20 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import {
+  composeWrappers,
+  createDirectoryNode,
+  createFileNode,
+  makeRenderWithProviders,
+} from '@brainstrike/test-utils';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTree from '../file-tree';
 import { FileExplorerTestWrapper } from './test-helpers';
+
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
 
 describe('FileTree', () => {
   const mockFileTree = [
@@ -46,15 +56,21 @@ describe('FileTree', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the file tree with the root directory', () => {
-    render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+  it('renders the file tree with the root directory', async () => {
+    await act(async () => {
+      renderWithProviders(<FileTree {...defaultProps} />);
+      await Promise.resolve();
+    });
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
     expect(screen.getByText('src')).toBeInTheDocument();
     expect(screen.getByTestId(EXPAND_COLLAPSE_TEST_ID)).toBeInTheDocument();
   });
 
-  it('shows directory structure', () => {
-    render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+  it('shows directory structure', async () => {
+    await act(async () => {
+      renderWithProviders(<FileTree {...defaultProps} />);
+      await Promise.resolve();
+    });
 
     // Root directory should always be visible
     expect(screen.getByText('src')).toBeInTheDocument();
@@ -65,7 +81,10 @@ describe('FileTree', () => {
 
   it('handles basic user interactions', async () => {
     const user = userEvent.setup();
-    render(<FileTree {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    await act(async () => {
+      renderWithProviders(<FileTree {...defaultProps} />);
+      await Promise.resolve();
+    });
 
     // Find and click expand button
     const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
@@ -81,17 +100,21 @@ describe('FileTree', () => {
     await user.click(checkbox);
   });
 
-  it('renders with empty file tree', () => {
-    render(<FileTree {...defaultProps} fileTree={[]} />, { wrapper: FileExplorerTestWrapper });
+  it('renders with empty file tree', async () => {
+    await act(async () => {
+      renderWithProviders(<FileTree {...defaultProps} fileTree={[]} />);
+      await Promise.resolve();
+    });
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
   });
 
-  it('only renders visible rows when scrolled', () => {
+  it('only renders visible rows when scrolled', async () => {
     const bigTree = Array.from({ length: 50 }, (_, i) =>
       createFileNode({ name: `file${i}.txt`, path: `file${i}.txt` })
     );
-    render(<FileTree {...defaultProps} fileTree={bigTree} />, {
-      wrapper: FileExplorerTestWrapper,
+    await act(async () => {
+      renderWithProviders(<FileTree {...defaultProps} fileTree={bigTree} />);
+      await Promise.resolve();
     });
 
     const container = screen.getByTestId('file-tree-scroll-container') as HTMLDivElement;
@@ -100,9 +123,10 @@ describe('FileTree', () => {
     expect(initialCount).toBeGreaterThan(0);
     expect(initialCount).toBeLessThan(bigTree.length);
 
-    act(() => {
+    await act(async () => {
       container.scrollTop = 280;
       fireEvent.scroll(container);
+      await Promise.resolve();
     });
 
     expect(screen.getByText('file10.txt')).toBeInTheDocument();
@@ -110,14 +134,16 @@ describe('FileTree', () => {
 
   it('should expand and collapse a directory', async () => {
     const user = userEvent.setup();
-    render(
-      <FileTree
-        fileTree={[createDirectoryNode({ name: 'src', path: 'src', children: [] })]}
-        loadingFiles={new Set()}
-        folderId="test-folder"
-      />,
-      { wrapper: FileExplorerTestWrapper }
-    );
+    await act(async () => {
+      renderWithProviders(
+        <FileTree
+          fileTree={[createDirectoryNode({ name: 'src', path: 'src', children: [] })]}
+          loadingFiles={new Set()}
+          folderId="test-folder"
+        />
+      );
+      await Promise.resolve();
+    });
     const expandButton = screen.getByTestId(EXPAND_COLLAPSE_TEST_ID);
 
     // Expand

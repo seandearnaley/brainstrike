@@ -9,34 +9,23 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
-    testTimeout: getAdjustedTimeout('UI_COMPONENT'),
+    testTimeout: getAdjustedTimeout('uiComponent'),
+    // Use threads pool to avoid process forks (prevents EPERM kills in constrained sandboxes)
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 2,
+      },
+    },
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
       '**/e2e/**', // Exclude Playwright e2e tests
     ],
+    // Package-local coverage for reliability (root still consolidates)
     coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/**',
-        '.vite/**',
-        'dist/**',
-        'src/__tests__/**',
-        'e2e/**',
-        '**/*.d.ts',
-        '**/*.config.*',
-        'src/main.ts', // Main process - tested separately
-        'src/types/**',
-        '**/*.test.ts',
-        '**/*.test.tsx',
-      ],
-      thresholds: {
-        lines: 80,
-        functions: 70,
-        branches: 70,
-        statements: 80,
-      },
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['**/*.test.*', '**/__tests__/**', '**/dist/**', '**/node_modules/**', '**/e2e/**'],
     },
   },
   resolve: {

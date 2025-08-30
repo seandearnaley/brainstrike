@@ -75,7 +75,11 @@ describe('App database path resolution', () => {
     if (element) {
       render(element);
     }
-    await new Promise((r) => setTimeout(r, 0));
+    const { waitFor } = await import('@testing-library/react');
+    await waitFor(() => {
+      const last = mockDbProvider.mock.calls.at(-1)?.[0];
+      expect(last).toBeDefined();
+    });
     const call = mockDbProvider.mock.calls.at(-1)?.[0] as { useElectronIPC?: boolean } | undefined;
     expect(call?.useElectronIPC).toBe(true);
   });

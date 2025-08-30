@@ -5,7 +5,7 @@ import {
   PermissionError,
   UserCancelledError,
 } from '@brainstrike/file-system';
-import { act, renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileSystem } from '../use-file-system';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
@@ -317,11 +317,14 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
 
-      // Wait for the effect to run
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
+      await waitFor(() =>
+        expect(result.current?.rootDirectoryHandle).toEqual({
+          path: '/test/restored/path',
+          name: 'path',
+          kind: 'directory',
+          platform: 'web',
+        })
+      );
       expect(result.current).toBeDefined();
       expect(result.current?.rootDirectoryHandle).toEqual({
         path: '/test/restored/path',
@@ -340,13 +343,8 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
 
-      // Wait for the effect to run
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
+      await waitFor(() => expect(result.current?.rootDirectoryHandle).toBeNull());
       expect(result.current).toBeDefined();
-      expect(result.current?.rootDirectoryHandle).toBeNull();
       expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
     });
 
@@ -358,13 +356,8 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
 
-      // Wait for the effect to run
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
+      await waitFor(() => expect(result.current?.rootDirectoryHandle).toBeNull());
       expect(result.current).toBeDefined();
-      expect(result.current?.rootDirectoryHandle).toBeNull();
       expect(mockSetCurrentFolderId).not.toHaveBeenCalled();
     });
 
@@ -392,11 +385,14 @@ describe('useFileSystem', () => {
       vi.clearAllMocks();
       rerender();
 
-      // Wait for potential effect runs
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
+      await waitFor(() =>
+        expect(result.current?.rootDirectoryHandle).toEqual({
+          path: 'mock-root',
+          name: 'mock-root',
+          kind: 'directory',
+          platform: 'web',
+        })
+      );
       // Should still have the manually selected directory, not the restored one
       expect(result.current?.rootDirectoryHandle).toEqual({
         path: 'mock-root',
@@ -415,21 +411,11 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
 
-      // Wait for the effect to run
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
+      await waitFor(() => expect(restoreSpy).toHaveBeenCalledTimes(1));
 
-      expect(restoreSpy).toHaveBeenCalledTimes(1);
-
-      // Rerender and wait again
+      // Rerender and ensure not called again
       rerender();
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
-      // Should not be called again
-      expect(restoreSpy).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(restoreSpy).toHaveBeenCalledTimes(1));
 
       restoreSpy.mockRestore();
     });
@@ -445,11 +431,14 @@ describe('useFileSystem', () => {
         { wrapper: AdaptersTestWrapper }
       );
 
-      // Wait for the effect to run
-      await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      });
-
+      await waitFor(() =>
+        expect(result.current?.rootDirectoryHandle).toEqual({
+          path: '/test/restored/path',
+          name: 'path',
+          kind: 'directory',
+          platform: 'web',
+        })
+      );
       expect(result.current).toBeDefined();
       expect(result.current?.rootDirectoryHandle).toEqual({
         path: '/test/restored/path',

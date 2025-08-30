@@ -22,7 +22,7 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
     "@brainstrike/utils": "workspace:*"

@@ -21,7 +21,7 @@
     "type-check": "tsc --noEmit",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
     "@brainstrike/db": "workspace:*",

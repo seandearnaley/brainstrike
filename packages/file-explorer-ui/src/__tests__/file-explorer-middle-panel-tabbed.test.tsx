@@ -1,3 +1,4 @@
+import type { UndoableActionOptions } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -34,20 +35,7 @@ vi.mock('../preview-panel', () => ({
   )),
 }));
 
-// Mock the useIdeFileEditor hook
-vi.mock('@brainstrike/ui', async () => {
-  const actual = await vi.importActual('@brainstrike/ui');
-  return {
-    ...actual,
-    useIdeFileEditor: vi.fn(() => ({
-      openFileInTab: vi.fn(),
-      registerOpenFileInTab: vi.fn(),
-    })),
-    useUndoableAction: vi.fn(() => ({
-      performUndoableAction: vi.fn(),
-    })),
-  };
-});
+// Avoid global module mocks; will spy on specific exports instead
 
 // Test wrapper
 const TestWrapper: React.FC<{
@@ -57,8 +45,8 @@ const TestWrapper: React.FC<{
 describe('FileExplorerMiddlePanelTabbed', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
   let useSelectionManager: typeof import('../use-selection-manager-context').useSelectionManager;
-  let useUndoableAction: typeof import('@brainstrike/ui').useUndoableAction;
-  let useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
+  let _useUndoableAction: typeof import('@brainstrike/ui').useUndoableAction;
+  let _useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
@@ -67,12 +55,28 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
     useSelectionManager = selectionManagerModule.useSelectionManager;
-    useUndoableAction = uiModule.useUndoableAction;
-    useIdeFileEditor = uiModule.useIdeFileEditor;
+    _useUndoableAction = uiModule.useUndoableAction;
+    _useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Provide default spies for UI hooks; tests can override per-case
+    const uiModule = await import('@brainstrike/ui');
+    vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn<(fn: (compositeKey: string) => void) => void>(),
+    });
+    const performUndoableAction: (
+      key: string,
+      item: unknown,
+      options: UndoableActionOptions<unknown, unknown>
+    ) => void = vi.fn();
+    const clearUndoTimeout: (key: string) => void = vi.fn();
+    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
+      performUndoableAction,
+      clearUndoTimeout,
+    });
   });
 
   it('should render the component structure', () => {
@@ -112,9 +116,10 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const user = userEvent.setup();
     const mockOpenFileInTab = vi.fn();
 
-    vi.mocked(useIdeFileEditor).mockReturnValue({
+    const uiModule2 = await import('@brainstrike/ui');
+    vi.spyOn(uiModule2, 'useIdeFileEditor').mockReturnValue({
       openFileInTab: mockOpenFileInTab,
-      registerOpenFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn<(fn: (compositeKey: string) => void) => void>(),
     });
 
     render(
@@ -220,9 +225,16 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     const mockPerformUndoableAction = vi.fn();
     const mockClearUndoTimeout = vi.fn();
 
-    vi.mocked(useUndoableAction).mockReturnValue({
-      performUndoableAction: mockPerformUndoableAction,
-      clearUndoTimeout: mockClearUndoTimeout,
+    const uiModule = await import('@brainstrike/ui');
+    const performUndoableAction: (
+      key: string,
+      item: unknown,
+      options: UndoableActionOptions<unknown, unknown>
+    ) => void = mockPerformUndoableAction;
+    const clearUndoTimeout: (key: string) => void = mockClearUndoTimeout;
+    vi.spyOn(uiModule, 'useUndoableAction').mockReturnValue({
+      performUndoableAction,
+      clearUndoTimeout,
     });
 
     const previewPanelModule = await import('../preview-panel');

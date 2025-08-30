@@ -262,32 +262,7 @@ export default defineConfig({
       }
       return false;
     },
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'json-summary', 'html'],
-      exclude: [
-        'coverage/**',
-        'dist/**',
-        '**/[.]**',
-        'packages/*/test{,s}/**',
-        '**/*.d.ts',
-        'cypress/**',
-        'test{,s}/**',
-        'test{,-*}.{js,cjs,mjs,ts,tsx,jsx}',
-        '**/*{.,-}test.{js,cjs,mjs,ts,tsx,jsx}',
-        '**/*{.,-}spec.{js,cjs,mjs,ts,tsx,jsx}',
-        '**/__tests__/**',
-        '**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress}.config.*',
-        '**/.{eslint,mocha,prettier}rc.{js,cjs,yml}',
-      ],
-      all: true,
-      thresholds: {
-        lines: 70,
-        functions: 70,
-        branches: 70,
-        statements: 70,
-      },
-    },
+    // Coverage consolidated at root vitest.config.ts
     mockReset: true,
     deps: {
       inline: ['@brainstrike/types', '@brainstrike/hooks', '@brainstrike/ui', '@brainstrike/utils'],

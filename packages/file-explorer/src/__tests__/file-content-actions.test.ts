@@ -131,30 +131,34 @@ describe('file-content-actions', () => {
     }
   });
 
-  it('should prevent race conditions by using atomic cache snapshots', () => {
+  it('should prevent race conditions by using atomic cache snapshots', async () => {
     // Simulate a scenario where cache eviction happens during state building
     const content1 = 'x'.repeat(100 * 1024); // 100KB
 
     // Add multiple files quickly to stress test atomic operations
-    const promises = [];
+    vi.useFakeTimers();
+    const promises: Promise<void>[] = [];
     for (let i = 0; i < 20; i++) {
       promises.push(
         new Promise<void>((resolve) => {
+          const delay = (i % 10) + 1; // deterministic small stagger
           setTimeout(() => {
             store.getState().setFileContent(`concurrent${i}|@|test.ts`, content1);
             resolve();
-          }, Math.random() * 10); // Random timing to create race conditions
+          }, delay);
         })
       );
     }
 
-    return Promise.all(promises).then(() => {
-      // All files should be accessible despite concurrent operations
-      for (let i = 0; i < 20; i++) {
-        const content = store.getState().getFileContent(`concurrent${i}|@|test.ts`);
-        expect(content).toBe(content1);
-      }
-    });
+    await vi.runAllTimersAsync();
+    await Promise.all(promises);
+    vi.useRealTimers();
+
+    // All files should be accessible despite concurrent operations
+    for (let i = 0; i < 20; i++) {
+      const content = store.getState().getFileContent(`concurrent${i}|@|test.ts`);
+      expect(content).toBe(content1);
+    }
   });
 
   it('should ensure current file is always included in filtered state', () => {

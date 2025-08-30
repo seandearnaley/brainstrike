@@ -1,0 +1,99 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "0...100"
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 0.5%
+    patch:
+      default:
+        target: 70%
+        threshold: 0.5%
+
+# Organize by workspace paths so Codecov shows per-package components.
+components:
+  - name: apps-desktop
+    paths:
+      - apps/desktop/**
+  - name: apps-web
+    paths:
+      - apps/web/**
+  - name: pkg-app-shell
+    paths:
+      - packages/app-shell/**
+  - name: pkg-build-utils
+    paths:
+      - packages/build-utils/**
+  - name: pkg-config
+    paths:
+      - packages/config/**
+  - name: pkg-db
+    paths:
+      - packages/db/**
+  - name: pkg-embeddings
+    paths:
+      - packages/embeddings/**
+  - name: pkg-file-explorer
+    paths:
+      - packages/file-explorer/**
+  - name: pkg-file-explorer-hooks
+    paths:
+      - packages/file-explorer-hooks/**
+  - name: pkg-file-explorer-ui
+    paths:
+      - packages/file-explorer-ui/**
+  - name: pkg-file-import
+    paths:
+      - packages/file-import/**
+  - name: pkg-file-system
+    paths:
+      - packages/file-system/**
+  - name: pkg-fonts
+    paths:
+      - packages/fonts/**
+  - name: pkg-hooks
+    paths:
+      - packages/hooks/**
+  - name: pkg-platform-utils
+    paths:
+      - packages/platform-utils/**
+  - name: pkg-server-config
+    paths:
+      - packages/server-config/**
+  - name: pkg-storage
+    paths:
+      - packages/storage/**
+  - name: pkg-tailwind-config
+    paths:
+      - packages/tailwind-config/**
+  - name: pkg-test-utils
+    paths:
+      - packages/test-utils/**
+  - name: pkg-tsconfig
+    paths:
+      - packages/tsconfig/**
+  - name: pkg-types
+    paths:
+      - packages/types/**
+  - name: pkg-ui
+    paths:
+      - packages/ui/**
+  - name: pkg-utils
+    paths:
+      - packages/utils/**
+  - name: pkg-workers
+    paths:
+      - packages/workers/**
+
+ignore:
+  - "**/dist/**"
+  - "**/__tests__/**"
+  - "**/*.d.ts"
+  - "**/vite.config.*"
+  - "**/vitest.config.*"
+

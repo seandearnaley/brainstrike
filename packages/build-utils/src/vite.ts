@@ -1,7 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
+import { isCompilerHotspot } from '@brainstrike/utils';
 import type { HmrContext, Plugin } from 'vite';
-import { isCompilerHotspot } from '../../utils/src/dev/is-compiler-hotspot';
 
 // @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';

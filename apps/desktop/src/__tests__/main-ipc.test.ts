@@ -1,39 +1,32 @@
 import path from 'node:path';
+import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { mockIpcMain, mockIpcRenderer, mockApp } = vi.hoisted(() => {
-  const handlers = new Map<string, (...args: unknown[]) => unknown>();
-  const mockIpcMain = {
-    handle: vi.fn((channel: string, listener: (...args: unknown[]) => unknown) => {
-      handlers.set(channel, listener);
-    }),
+// Hoist the Electron mock to avoid factory/temporal dead zone issues
+vi.mock('electron', async () => {
+  const electronUtils = await import('@brainstrike/test-utils');
+  const app = electronUtils.createAppMock({
+    whenReadyResolved: true,
+    documentsPath: '/mock/userData',
+  });
+  const ipcMain = electronUtils.createIpcMainMock();
+  const ipcRenderer = electronUtils.createIpcRendererMock();
+  // Wire renderer invokes to main handlers for convenience
+  (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockImplementation(
+    async (channel: string, ...args: unknown[]) =>
+      (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
+  );
+  return {
+    app,
+    ipcMain,
+    ipcRenderer,
+    BrowserWindow: vi.fn(),
+    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
   };
-
-  const mockIpcRenderer = {
-    invoke: vi.fn(async (channel: string, ...args: unknown[]) => {
-      const handler = handlers.get(channel);
-      if (!handler) throw new Error(`No handler for ${channel}`);
-      return await handler({} as unknown, ...args);
-    }),
-  };
-
-  const mockApp = {
-    getPath: vi.fn((_name?: string) => '/mock/userData'),
-    whenReady: vi.fn(() => new Promise<void>(() => {})),
-    isPackaged: false,
-    on: vi.fn(),
-  };
-
-  return { handlers, mockIpcMain, mockIpcRenderer, mockApp };
 });
 
-vi.mock('electron', () => ({
-  ipcMain: mockIpcMain,
-  ipcRenderer: mockIpcRenderer,
-  BrowserWindow: vi.fn(),
-  app: mockApp,
-  session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
-}));
+// Import mocked Electron parts for use in assertions
+import { app, ipcMain, ipcRenderer } from 'electron';
 
 vi.mock('@brainstrike/file-system', () => ({
   ElectronFileSystemAdapter: vi.fn(() => ({})),
@@ -51,13 +44,13 @@ import '../main';
 
 describe('db:getUserDataPath IPC handler', () => {
   beforeEach(() => {
-    mockIpcMain.handle.mockClear();
-    mockIpcRenderer.invoke.mockClear();
+    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).handle.mockClear();
+    (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockClear();
   });
 
   it('returns the user database path', async () => {
-    const expected = path.join(mockApp.getPath('documents'), 'BrainStrike-dev', 'pgdata');
-    const result = await mockIpcRenderer.invoke('db:getUserDataPath');
+    const expected = path.join(app.getPath('documents'), 'BrainStrike-dev', 'pgdata');
+    const result = await ipcRenderer.invoke('db:getUserDataPath');
     expect(result).toBe(expected);
   });
 });

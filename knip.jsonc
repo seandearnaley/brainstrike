@@ -106,6 +106,10 @@
     "packages/file-explorer-ui": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Some suites opt into jsdom via file-level annotation
+        "jsdom"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -134,6 +138,10 @@
     "packages/test-utils": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignoreDependencies": [
+        // Used via dynamic require in render-with-providers.tsx
+        "@testing-library/react"
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -161,6 +169,11 @@
       }
     },
     "packages/embeddings": {
+      "entry": [
+        // Explicit entrypoints including CLI
+        "src/index.ts",
+        "src/cli/embed-code.ts"
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {

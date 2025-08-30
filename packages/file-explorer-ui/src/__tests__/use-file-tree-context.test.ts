@@ -122,10 +122,14 @@ describe('useFileTree (context version)', () => {
       }
       mockAdapter.setMockFileSystem(largeFS);
 
-      // Add delay to readDirectory to simulate slow loading
+      // Gate readDirectory on a deferred to avoid arbitrary sleeps
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
+      let release: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       vi.spyOn(mockAdapter, 'readDirectory').mockImplementation(async (handle) => {
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Add 100ms delay
+        await gate; // wait until test resolves the gate
         return originalReadDirectory(handle);
       });
 
@@ -151,7 +155,11 @@ describe('useFileTree (context version)', () => {
       expect(result.current.isCancelling).toBe(true);
       expect(result.current.cancellable).toBe(false);
 
-      // Wait for completion
+      // Allow the gated read to complete so the cancellation can settle
+      act(() => {
+        // @ts-expect-error release is assigned in mock above
+        release();
+      });
       await waitFor(() => expect(result.current.isLoading).toBe(false), { timeout: 2000 });
 
       // Should clear tree on cancellation
@@ -183,10 +191,14 @@ describe('useFileTree (context version)', () => {
       }
       mockAdapter.setMockFileSystem(largeFS);
 
-      // Add delay to readDirectory to simulate slow loading
+      // Gate readDirectory on a deferred to avoid arbitrary sleeps
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
+      let release: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       vi.spyOn(mockAdapter, 'readDirectory').mockImplementation(async (handle) => {
-        await new Promise((resolve) => setTimeout(resolve, 100)); // Add 100ms delay
+        await gate;
         return originalReadDirectory(handle);
       });
 
@@ -216,6 +228,12 @@ describe('useFileTree (context version)', () => {
       });
 
       expect(result.current.isCancelling).toBe(true);
+
+      // Release the gate so the operation can finish and cleanup occurs
+      act(() => {
+        // @ts-expect-error release is assigned in mock above
+        release();
+      });
     });
   });
 
@@ -287,10 +305,14 @@ describe('useFileTree (context version)', () => {
       }
       mockAdapter.setMockFileSystem(largeFS);
 
-      // Add delay to make cancellation effective
+      // Gate readDirectory on a deferred promise we can release after cancelling
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
+      let release: (() => void) | null = null;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
       vi.spyOn(mockAdapter, 'readDirectory').mockImplementation(async (handle) => {
-        await new Promise((resolve) => setTimeout(resolve, 50)); // Add delay
+        await gate; // wait until we cancel, then proceed
         return originalReadDirectory(handle);
       });
 
@@ -306,13 +328,14 @@ describe('useFileTree (context version)', () => {
 
       // Wait for loading to start
       await waitFor(() => expect(result.current.isLoading).toBe(true));
-
-      // Cancel during processing
+      // Cancel while readDirectory is still pending
       act(() => {
         result.current.cancelOperation();
       });
+      // Release the gate so readDirectory resolves and the abort is observed
+      release?.();
 
-      await waitFor(() => expect(result.current.isLoading).toBe(false), { timeout: 2000 });
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       // Should clear the tree on cancellation
       expect(result.current.fileTree).toEqual([]);

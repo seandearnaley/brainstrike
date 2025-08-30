@@ -4,10 +4,11 @@
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { MockFileSystemAdapter } from '@brainstrike/file-system';
 import { MemoryStorageAdapter } from '@brainstrike/storage';
+import { flushAllTimersAndMicrotasks } from '@brainstrike/test-utils';
 import { encodeFileSelection } from '@brainstrike/utils';
-import { render, waitFor } from '@testing-library/react';
+import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { FileExplorerProvider, useFileExplorerStoreContext } from '../file-explorer-provider';
 import { useFileSystem } from '../use-file-system-context';
 
@@ -48,7 +49,10 @@ describe('FileExplorerProvider integration', () => {
     if (!exposure) throw new Error('exposure not ready');
 
     const { store, fs } = exposure as unknown as ExposedHooks;
-    const handle = await fs.selectRootDirectory();
+    let handle = null as Awaited<ReturnType<typeof fs.selectRootDirectory>> | null;
+    await act(async () => {
+      handle = await fs.selectRootDirectory();
+    });
     expect(handle).not.toBeNull();
     if (!handle) return;
     expect(handle.name).toBe('mock-root');
@@ -56,9 +60,17 @@ describe('FileExplorerProvider integration', () => {
     expect(folderId).toBe('mock-root');
 
     const filePath = `${handle.path}/README.md`;
-    store.getState().toggleSelectedFile(folderId as string, filePath);
+    act(() => {
+      store.getState().toggleSelectedFile(folderId as string, filePath);
+    });
 
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Deterministically flush debounced/persisted state
+    vi.useFakeTimers();
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    await flushAllTimersAndMicrotasks();
+    vi.useRealTimers();
 
     const key = encodeFileSelection('mock-root', filePath);
     expect(store.getState().selectedFilePaths.has(key)).toBe(true);
@@ -83,7 +95,12 @@ describe('FileExplorerProvider integration', () => {
     if (!exposure2) throw new Error('exposure2 not ready');
 
     const { store: store2 } = exposure2 as unknown as ExposedHooks;
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    vi.useFakeTimers();
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+      await flushAllTimersAndMicrotasks();
+    });
+    vi.useRealTimers();
 
     expect(store2.getState().currentFolderId).toBe('mock-root');
     expect(store2.getState().selectedFilePaths.has(key)).toBe(true);

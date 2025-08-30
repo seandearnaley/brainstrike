@@ -347,13 +347,17 @@ describe('useTabManager', () => {
       localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
 
+      // Use fake timers before triggering state changes so throttled save uses fake clock
+      vi.useFakeTimers();
+
       act(() => {
         result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      // Wait for throttled save to trigger
+      // Trigger the 500ms throttle deterministically
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        vi.advanceTimersByTime(500);
+        await vi.runAllTimersAsync();
       });
 
       expect(localStorageMock.setItem).toHaveBeenCalledWith(
@@ -379,13 +383,17 @@ describe('useTabManager', () => {
 
       const { result } = renderHook(() => useTabManager());
 
+      // Use fake timers before triggering state changes so throttled save uses fake clock
+      vi.useFakeTimers();
+
       act(() => {
         result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      // Wait for throttled save to trigger
+      // Trigger the 500ms throttle deterministically
       await act(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        vi.advanceTimersByTime(500);
+        await vi.runAllTimersAsync();
       });
 
       // The tab should still be opened despite the storage error

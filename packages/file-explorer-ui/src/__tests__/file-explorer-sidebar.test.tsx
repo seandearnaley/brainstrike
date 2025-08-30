@@ -1,17 +1,21 @@
-import { createDirectoryNode, createFileNode } from '@brainstrike/test-utils';
+import {
+  composeWrappers,
+  createDirectoryNode,
+  createFileNode,
+  makeRenderWithProviders,
+} from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
-import { render, screen } from '@testing-library/react';
+import { act, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import FileExplorerSidebar from '../file-explorer-sidebar';
 import { FileExplorerTestWrapper } from './test-helpers';
 
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-  return {
-    ...actual,
-    FolderBadge: ({ folderId }: { folderId: string }) => <div>{folderId}</div>,
-  };
-});
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
+
+// No need to mock self-package; sidebar does not import FolderBadge.
 
 describe('FileExplorerSidebar', () => {
   const mockTreeData: IFileNode[] = [
@@ -46,15 +50,17 @@ describe('FileExplorerSidebar', () => {
   };
 
   it('renders with directory and files', () => {
-    render(<FileExplorerSidebar {...defaultProps} />, { wrapper: FileExplorerTestWrapper });
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} />);
+    });
 
     // Check that the file tree is rendered
     expect(screen.getByRole('tree', { name: 'File tree' })).toBeInTheDocument();
   });
 
   it('displays "No directory selected" when rootDirectoryHandle is null', () => {
-    render(<FileExplorerSidebar {...defaultProps} rootDirectoryHandle={null} />, {
-      wrapper: FileExplorerTestWrapper,
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} rootDirectoryHandle={null} />);
     });
 
     expect(screen.getByText('No directory selected')).toBeInTheDocument();
@@ -63,9 +69,8 @@ describe('FileExplorerSidebar', () => {
 
   it('displays error message when treeError exists', () => {
     const mockError = new Error('Tree loading failed');
-
-    render(<FileExplorerSidebar {...defaultProps} treeError={mockError} />, {
-      wrapper: FileExplorerTestWrapper,
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} treeError={mockError} />);
     });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -74,9 +79,8 @@ describe('FileExplorerSidebar', () => {
 
   it('displays error message when filterError exists', () => {
     const mockError = new Error('Filter error');
-
-    render(<FileExplorerSidebar {...defaultProps} filterError={mockError} />, {
-      wrapper: FileExplorerTestWrapper,
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} filterError={mockError} />);
     });
 
     expect(screen.getByRole('alert')).toBeInTheDocument();
@@ -86,11 +90,11 @@ describe('FileExplorerSidebar', () => {
   it('displays both errors when treeError and filterError exist', () => {
     const treeError = new Error('Tree error');
     const filterError = new Error('Filter error');
-
-    render(
-      <FileExplorerSidebar {...defaultProps} treeError={treeError} filterError={filterError} />,
-      { wrapper: FileExplorerTestWrapper }
-    );
+    act(() => {
+      renderWithProviders(
+        <FileExplorerSidebar {...defaultProps} treeError={treeError} filterError={filterError} />
+      );
+    });
 
     const alert = screen.getByRole('alert');
     expect(alert).toBeInTheDocument();
@@ -99,8 +103,8 @@ describe('FileExplorerSidebar', () => {
   });
 
   it('displays "No matching files found" when quickFilteredTree is empty', () => {
-    render(<FileExplorerSidebar {...defaultProps} quickFilteredTree={[]} />, {
-      wrapper: FileExplorerTestWrapper,
+    act(() => {
+      renderWithProviders(<FileExplorerSidebar {...defaultProps} quickFilteredTree={[]} />);
     });
 
     expect(screen.getByText('No matching files found')).toBeInTheDocument();

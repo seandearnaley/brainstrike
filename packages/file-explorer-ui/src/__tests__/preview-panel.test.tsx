@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
 
@@ -1082,11 +1082,15 @@ describe('PreviewPanel', () => {
       const folderHeader = screen.getByRole('columnheader', { name: 'Folder' });
 
       // Test Enter key
-      fireEvent.keyDown(folderHeader, { key: 'Enter' });
+      act(() => {
+        fireEvent.keyDown(folderHeader, { key: 'Enter' });
+      });
       expect(screen.getByTestId('arrow-up')).toBeInTheDocument();
 
       // Test Space key
-      fireEvent.keyDown(folderHeader, { key: ' ' });
+      act(() => {
+        fireEvent.keyDown(folderHeader, { key: ' ' });
+      });
       // Use getAllByTestId since there might be multiple arrow-down icons (in buttons and sort indicators)
       const arrowDownElements = screen.getAllByTestId('arrow-down');
       expect(arrowDownElements.length).toBeGreaterThan(0);

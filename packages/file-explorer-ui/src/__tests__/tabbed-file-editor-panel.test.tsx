@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { UseTabManagerReturn } from '../hooks/use-tab-manager';
 import { TabbedFileEditorPanel } from '../tabbed-file-editor-panel';
 import { FileExplorerTestWrapper } from './test-helpers';
 
@@ -13,32 +14,9 @@ vi.mock('../use-file-explorer-context', () => ({
   })),
 }));
 
-// Mock the useIdeFileEditor hook
-vi.mock('@brainstrike/ui', async () => {
-  const actual = await vi.importActual('@brainstrike/ui');
-  return {
-    ...actual,
-    useIdeFileEditor: vi.fn(() => ({
-      openFileInTab: vi.fn(),
-      registerOpenFileInTab: vi.fn(),
-    })),
-  };
-});
+// Avoid global module mocks; will spy on specific exports instead
 
-// Mock the useTabManager hook
-vi.mock('../hooks/use-tab-manager', () => ({
-  useTabManager: vi.fn(() => ({
-    tabs: [],
-    activeTabId: null,
-    openTab: vi.fn(),
-    closeTab: vi.fn(),
-    setActiveTab: vi.fn(),
-    updateTabContent: vi.fn(),
-    setTabLoading: vi.fn(),
-    setTabError: vi.fn(),
-    clearTabs: vi.fn(),
-  })),
-}));
+// Avoid global module mocks; will spy on specific exports instead
 
 interface MockTab {
   id: string;
@@ -72,18 +50,40 @@ vi.mock('../tabbed-file-editor', () => ({
 
 describe('TabbedFileEditorPanel', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
-  let useTabManager: typeof import('../hooks/use-tab-manager').useTabManager;
+  let _useTabManager: typeof import('../hooks/use-tab-manager').useTabManager;
+  let _useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
     const tabManagerModule = await import('../hooks/use-tab-manager');
+    const uiModule = await import('@brainstrike/ui');
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
-    useTabManager = tabManagerModule.useTabManager;
+    _useTabManager = tabManagerModule.useTabManager;
+    _useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Default spies for hooks used across tests
+    const uiModule = await import('@brainstrike/ui');
+    vi.spyOn(uiModule, 'useIdeFileEditor').mockReturnValue({
+      openFileInTab: vi.fn(),
+      registerOpenFileInTab: vi.fn(),
+    });
+    const tabModule = await import('../hooks/use-tab-manager');
+    const tabManagerMock: UseTabManagerReturn = {
+      tabs: [],
+      activeTabId: null,
+      openTab: vi.fn(),
+      closeTab: vi.fn(),
+      setActiveTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      setTabLoading: vi.fn(),
+      setTabError: vi.fn(),
+      clearTabs: vi.fn(),
+    };
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue(tabManagerMock);
   });
 
   it('should render without errors', () => {
@@ -119,7 +119,7 @@ describe('TabbedFileEditorPanel', () => {
     expect(screen.getByTestId('tabbed-file-editor')).toBeInTheDocument();
   });
 
-  it('should sync tab content when files load', () => {
+  it('should sync tab content when files load', async () => {
     // This test verifies that the component has the sync logic
     // The actual sync is tested through integration tests
     const mockUpdateTabContent = vi.fn();
@@ -147,7 +147,8 @@ describe('TabbedFileEditorPanel', () => {
       isCancelling: false,
     });
 
-    vi.mocked(useTabManager).mockReturnValue({
+    const tabModule0 = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule0, 'useTabManager').mockReturnValue({
       tabs,
       activeTabId: 'file1',
       openTab: vi.fn(),
@@ -181,7 +182,8 @@ describe('TabbedFileEditorPanel', () => {
       { id: 'file2', path: '/src/app.ts', content: 'content2', isLoading: false },
     ];
 
-    vi.mocked(useTabManager).mockReturnValue({
+    const tabModule = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule, 'useTabManager').mockReturnValue({
       tabs,
       activeTabId: 'file1',
       openTab: vi.fn(),
@@ -253,7 +255,8 @@ describe('TabbedFileEditorPanel', () => {
       { id: 'file1', path: '/src/index.ts', content: 'const x = 42;', isLoading: false },
     ];
 
-    vi.mocked(useTabManager).mockReturnValue({
+    const tabModule2 = await import('../hooks/use-tab-manager');
+    vi.spyOn(tabModule2, 'useTabManager').mockReturnValue({
       tabs,
       activeTabId: 'file1',
       openTab: vi.fn(),

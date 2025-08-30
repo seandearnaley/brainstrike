@@ -102,6 +102,106 @@ jobs:
             **/coverage/coverage-final.json
           retention-days: 1
 
+      - name: Enforce package coverage thresholds
+        run: pnpm coverage:enforce
+
+      - name: Comment PR with Coverage Summary
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Known thresholds (optional) – add more as packages mature
+            const thresholds = new Map(Object.entries({
+              '@brainstrike/file-explorer-ui': { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
+              '@brainstrike/app-shell': { lines: 81.5, functions: 79, branches: 83, statements: 81.5 },
+              '@brainstrike/desktop': { lines: 91, functions: 79, branches: 90.5, statements: 91 },
+            }));
+
+            function summarize(json) {
+              let stTot = 0, stCov = 0, fnTot = 0, fnCov = 0, brTot = 0, brCov = 0, lnTot = 0, lnCov = 0;
+              for (const file of Object.values(json)) {
+                const s = file.s; stTot += Object.keys(s).length; stCov += Object.values(s).filter(v => v>0).length;
+                const f = file.f; fnTot += Object.keys(f).length; fnCov += Object.values(f).filter(v => v>0).length;
+                const b = file.b; for (const arr of Object.values(b)) { brTot += arr.length; brCov += arr.filter(v=>v>0).length; }
+                const stm = file.statementMap; const lns = new Set();
+                for (const { start, end } of Object.values(stm)) { for (let l = start.line; l <= end.line; l++) lns.add(l); }
+                lnTot += lns.size; const coveredLines = new Set();
+                for (const [k, v] of Object.entries(file.s)) {
+                  if (v>0) { const { start, end } = file.statementMap[k]; for (let l = start.line; l <= end.line; l++) coveredLines.add(l); }
+                }
+                lnCov += coveredLines.size;
+              }
+              const pct = (cov, tot) => (tot ? (100 * cov) / tot : 0);
+              return {
+                lines: pct(lnCov, lnTot),
+                functions: pct(fnCov, fnTot),
+                branches: pct(brCov, brTot),
+                statements: pct(stCov, stTot),
+              };
+            }
+
+            // Find all coverage-final.json files in packages/* and apps/*
+            function* walk(dir) {
+              const entries = fs.readdirSync(dir, { withFileTypes: true });
+              for (const e of entries) {
+                const p = path.join(dir, e.name);
+                if (e.isDirectory()) yield* walk(p);
+                else yield p;
+              }
+            }
+
+            function findPackageName(fromDir) {
+              let curr = path.resolve(fromDir);
+              for (let i = 0; i < 5; i++) {
+                const pkgPath = path.join(curr, 'package.json');
+                if (fs.existsSync(pkgPath)) {
+                  try { return JSON.parse(fs.readFileSync(pkgPath, 'utf8')).name || path.basename(curr); } catch {}
+                }
+                curr = path.dirname(curr);
+              }
+              return path.basename(fromDir);
+            }
+
+            const roots = ['packages', 'apps'].filter((p) => fs.existsSync(p));
+            const coverageFiles = [];
+            for (const root of roots) {
+              for (const file of walk(root)) {
+                if (file.endsWith(path.join('coverage', 'coverage-final.json'))) coverageFiles.push(file);
+              }
+            }
+
+            const rows = [];
+            const fmt = (n) => `${n.toFixed(2)}%`;
+            for (const file of coverageFiles.sort()) {
+              const pkgDir = path.dirname(path.dirname(file));
+              const pkgName = findPackageName(pkgDir);
+              try {
+                const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const s = summarize(json);
+                const thr = thresholds.get(pkgName);
+                const thrText = thr ? `thresholds: L${thr.lines} F${thr.functions} B${thr.branches} S${thr.statements}` : 'thresholds: —';
+                rows.push(`| ${pkgName} | ${fmt(s.lines)} | ${fmt(s.functions)} | ${fmt(s.branches)} | ${fmt(s.statements)} | ${thrText} |`);
+              } catch (e) {
+                rows.push(`| ${pkgName} | error reading coverage | — | — | — | thresholds: — |`);
+              }
+            }
+
+            const header = `## ✅ Coverage Summary (All Workspaces with reports)\n\n` +
+              `| Package | Lines | Functions | Branches | Statements | Thresholds |\n` +
+              `|---|---:|---:|---:|---:|---|`;
+            const body = rows.length ? [header, ...rows].join('\n') : `${header}\n| — | — | — | — | — | — |`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via scripts/enforce-coverage.mjs_',
+            });
+
   # E2E tests run in parallel with sharding
   e2e:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})

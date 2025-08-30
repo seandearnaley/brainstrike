@@ -35,6 +35,21 @@ function waitForHydration(store: ReturnType<typeof createFileExplorerStore>): Pr
   });
 }
 
+// Minimal microtask flusher to avoid arbitrary sleeps
+async function flushMicrotasks(times = 5): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await new Promise((resolve) => process.nextTick(resolve));
+  }
+}
+
+async function waitForPersist(storage: MemoryStorageAdapter): Promise<void> {
+  const key = 'file-explorer-storage-v4';
+  for (let i = 0; i < 50; i++) {
+    if (storage.getSize() > 0 || storage.has(key)) return;
+    await flushMicrotasks(1);
+  }
+}
+
 describe('Adapter Integration', () => {
   let memoryStorage: MemoryStorageAdapter;
   let mockFileSystem: MockFileSystemAdapter;
@@ -59,8 +74,8 @@ describe('Adapter Integration', () => {
       store.getState().addSelectedFile('test-folder', 'test-file.txt');
       store.getState().toggleDirectoryExpansion('test-directory');
 
-      // Wait for persistence to settle
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Wait for persistence to settle (no arbitrary sleeps)
+      await waitForPersist(memoryStorage);
 
       // Create a new store with the same storage adapter
       const newStore = createFileExplorerStore(memoryStorage);
@@ -104,7 +119,7 @@ describe('Adapter Integration', () => {
       store1.getState().setCurrentFolderId('folder-1');
       store2.getState().setCurrentFolderId('folder-2');
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForPersist(memoryStorage);
 
       // Verify isolation
       expect(store1.getState().currentFolderId).toBe('folder-1');
@@ -230,7 +245,7 @@ describe('Adapter Integration', () => {
       }
 
       // Wait for persistence
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForPersist(memoryStorage);
 
       // Verify state was persisted
       expect(memoryStorage.getSize()).toBeGreaterThan(0);
@@ -274,7 +289,8 @@ describe('Adapter Integration', () => {
       store1.getState().setCurrentFolderId(`${handle1.name}-1`);
       store2.getState().setCurrentFolderId(`${handle2.name}-2`);
 
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await waitForPersist(storage1);
+      await waitForPersist(storage2);
 
       // Verify the stores have different states
       expect(store1.getState().currentFolderId).toBe('mock-root-1');
@@ -303,8 +319,8 @@ describe('Adapter Integration', () => {
       const store = createFileExplorerStore(errorStorage);
       expect(store).toBeDefined();
 
-      // Wait for potential rehydration attempt
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Give microtasks a chance to flush internal async handlers
+      await flushMicrotasks(5);
 
       // Store should still be functional with default state
       const state = store.getState();

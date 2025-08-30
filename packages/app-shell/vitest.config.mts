@@ -10,36 +10,22 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../test-utils/src/vitest.setup.ts'],
     unstubGlobals: true,
-    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
-    exclude: ['**/node_modules/**', '**/dist/**'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/*.d.ts',
-        '**/__tests__/**',
-        '**/vitest.config.*',
-        '**/src/types.ts', // Type definitions only
-        '**/src/index.ts', // Re-export file
-        // '**/src/app-layout.tsx', // Simple wrapper component -- Commenting out for coverage
-        '**/src/page-wrapper.tsx', // Simple wrapper component
-        '**/src/file-import-service.ts', // Complex service requiring extensive mocking - excluded temporarily
-        // '**/src/enhanced-file-import-service.ts', // Complex service requiring extensive mocking - excluded temporarily
-      ],
-      thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
+    // Use threads and cap workers to avoid EPERM during Tinypool worker teardown in sandboxed environments
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 2,
       },
     },
+    include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    exclude: ['**/node_modules/**', '**/dist/**'],
+    // Coverage consolidated at root vitest.config.ts
   },
   resolve: {
     alias: {
       electron: path.resolve(__dirname, '../storage/__mocks__/electron.ts'),
       '@brainstrike/storage': path.resolve(__dirname, '../storage/dist'),
+      '@brainstrike/embeddings': path.resolve(__dirname, '__mocks__/embeddings.ts'),
       '/worker-storage.worker.js': path.resolve(__dirname, '__mocks__/worker-storage.worker.js'),
     },
   },

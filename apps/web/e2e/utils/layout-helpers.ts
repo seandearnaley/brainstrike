@@ -96,6 +96,8 @@ export async function getPanelDimensions(
 
 /**
  * Resize a panel by dragging its resize handle
+ * This function uses deterministic waits based on DOM stability
+ * rather than arbitrary timeouts.
  */
 export async function resizePanel(
   page: Page,
@@ -109,13 +111,54 @@ export async function resizePanel(
   const startX = handleBox.x + handleBox.width / 2;
   const startY = handleBox.y + handleBox.height / 2;
 
+  // Get the panel being resized (parent panel group contains the panels)
+  const panelGroup = resizeHandle.locator('..').locator('..');
+  const panels = panelGroup.locator('[data-panel-id]');
+  
+  // Record initial panel dimensions for stability check
+  const initialDimensions = await panels.first().evaluate((el) => {
+    const rect = el.getBoundingClientRect();
+    return { width: rect.width, height: rect.height };
+  });
+
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + deltaX, startY + deltaY);
   await page.mouse.up();
 
-  // Wait for resize to complete
-  await page.waitForTimeout(300);
+  // Wait for panel dimensions to stabilize after resize
+  // This is more deterministic than a fixed timeout
+  await page.waitForFunction(
+    ({ selector, initial, isHorizontal }) => {
+      const panel = document.querySelector(selector);
+      if (!panel) return false;
+      
+      const rect = panel.getBoundingClientRect();
+      const currentDim = isHorizontal ? rect.width : rect.height;
+      const initialDim = isHorizontal ? initial.width : initial.height;
+      
+      // Check that dimension has changed and is stable
+      return currentDim !== initialDim;
+    },
+    {
+      selector: await panels.first().evaluate((el) => {
+        // Generate a unique selector for this element
+        return el.getAttribute('data-panel-id') 
+          ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
+          : '#' + el.id;
+      }),
+      initial: initialDimensions,
+      isHorizontal: deltaX !== 0
+    },
+    { timeout: 2000 }
+  ).catch(() => {
+    // If dimensions didn't change, it might be at constraint limits
+    // This is acceptable behavior
+  });
+
+  // Small wait for any animations to complete
+  // This is much shorter than before and only for visual smoothness
+  await page.waitForTimeout(50);
 }
 
 /**
@@ -263,6 +306,7 @@ export async function verifyComplexLayout(
 
 /**
  * Test panel size constraints
+ * This function uses deterministic waits based on element state rather than arbitrary timeouts
  */
 export async function testPanelSizeConstraints(
   page: Page,
@@ -274,7 +318,25 @@ export async function testPanelSizeConstraints(
   const viewportSize = page.viewportSize();
   if (!viewportSize) throw new Error('Viewport size not available');
 
-  // First, ensure the panel is expanded/visible with better timing
+  // Helper to wait for panel width to be non-zero
+  const waitForPanelExpansion = async () => {
+    await page.waitForFunction(
+      (selector) => {
+        const el = document.querySelector(selector);
+        if (!el) return false;
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0;
+      },
+      await panel.evaluate((el) => {
+        return el.getAttribute('data-panel-id') 
+          ? `[data-panel-id="${el.getAttribute('data-panel-id')}"]`
+          : '#' + el.id;
+      }),
+      { timeout: 5000 }
+    );
+  };
+
+  // First, ensure the panel is expanded/visible
   let currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
   if (currentWidth === 0) {
     // Panel is collapsed, need to expand it first
@@ -282,16 +344,16 @@ export async function testPanelSizeConstraints(
     if (await showButton.isVisible()) {
       await showButton.click();
       await expect(panel).toBeVisible();
-      // Wait for panel to fully expand with animation
-      await page.waitForTimeout(500);
       
-      // Verify panel actually expanded by checking width again
-      currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
-      if (currentWidth === 0) {
-        // Still collapsed - give more time for animation
-        await page.waitForTimeout(1000);
-        currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
+      // Wait for panel to actually expand (width > 0)
+      try {
+        await waitForPanelExpansion();
+      } catch {
+        console.warn('Panel did not expand within timeout - skipping size constraint test');
+        return;
       }
+      
+      currentWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
     }
   }
 
@@ -299,8 +361,7 @@ export async function testPanelSizeConstraints(
   await expect(panel).toBeVisible();
   
   // If still width 0, skip the constraint test as the panel is not properly expanded
-  const finalWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
-  if (finalWidth === 0) {
+  if (currentWidth === 0) {
     console.warn('Panel width is still 0 after expansion attempts - skipping size constraint test');
     return;
   }
@@ -316,13 +377,14 @@ export async function testPanelSizeConstraints(
     if (await showButton.isVisible()) {
       await showButton.click();
       await expect(panel).toBeVisible();
-      await page.waitForTimeout(500);
       
-      // Verify expansion worked
-      postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
-      if (postResizeWidth === 0) {
-        await page.waitForTimeout(1000);
+      // Wait for panel to actually expand
+      try {
+        await waitForPanelExpansion();
         postResizeWidth = await panel.evaluate((el) => el.getBoundingClientRect().width);
+      } catch {
+        console.warn('Panel did not re-expand after collapse - skipping minimum constraint test');
+        postResizeWidth = 0;
       }
     }
   }

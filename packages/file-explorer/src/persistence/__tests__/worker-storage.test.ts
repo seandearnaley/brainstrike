@@ -166,7 +166,9 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testData = { foo: 'bar' };
 
-      // Simulate worker response
+      // Simulate worker response deterministically
+      vi.useFakeTimers();
+      const promise = storage.getItem('test-key');
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -180,8 +182,9 @@ describe('WorkerStorage', () => {
           );
         }
       }, 10);
-
-      const result = await storage.getItem('test-key');
+      await vi.advanceTimersByTimeAsync(10);
+      const result = await promise;
+      vi.useRealTimers();
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
@@ -196,7 +199,9 @@ describe('WorkerStorage', () => {
       const testData = { test: 'data' };
       mockLocalStorage.data.set('fallback-key', JSON.stringify(testData));
 
-      // Simulate worker error response
+      // Simulate worker error response deterministically
+      vi.useFakeTimers();
+      const promise = storage.getItem('fallback-key');
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -210,8 +215,9 @@ describe('WorkerStorage', () => {
           );
         }
       }, 10);
-
-      const result = await storage.getItem('fallback-key');
+      await vi.advanceTimersByTimeAsync(10);
+      const result = await promise;
+      vi.useRealTimers();
 
       expect(result).toEqual(testData);
       expect(mockLocalStorage.getItem).toHaveBeenCalledWith('fallback-key');
@@ -221,7 +227,9 @@ describe('WorkerStorage', () => {
     it('should return null when key does not exist', async () => {
       const storage = new WorkerStorage();
 
-      // Simulate worker response with null result
+      // Simulate worker response with null result deterministically
+      vi.useFakeTimers();
+      const promise = storage.getItem('non-existent-key');
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -235,8 +243,9 @@ describe('WorkerStorage', () => {
           );
         }
       }, 10);
-
-      const result = await storage.getItem('non-existent-key');
+      await vi.advanceTimersByTimeAsync(10);
+      const result = await promise;
+      vi.useRealTimers();
 
       expect(result).toBeNull();
     });
@@ -257,7 +266,9 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testData = { foo: 'bar' };
 
-      // Simulate worker response after debounce delay
+      // Simulate worker response after debounce delay deterministically
+      vi.useFakeTimers();
+      const promise = storage.setItem('test-key', JSON.stringify(testData));
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -270,9 +281,10 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 120); // Wait longer than the 100ms debounce
-
-      await storage.setItem('test-key', JSON.stringify(testData));
+      }, 120);
+      await vi.advanceTimersByTimeAsync(120);
+      await promise;
+      vi.useRealTimers();
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
@@ -286,7 +298,9 @@ describe('WorkerStorage', () => {
       const storage = new WorkerStorage();
       const testValue = 'test-value';
 
-      // Simulate worker error response after debounce delay
+      // Simulate worker error response after debounce delay deterministically
+      vi.useFakeTimers();
+      const promise = storage.setItem('fallback-key', testValue);
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -299,9 +313,10 @@ describe('WorkerStorage', () => {
             })
           );
         }
-      }, 120); // Wait longer than the 100ms debounce
-
-      await storage.setItem('fallback-key', testValue);
+      }, 120);
+      await vi.advanceTimersByTimeAsync(120);
+      await promise;
+      vi.useRealTimers();
 
       expect(mockLocalStorage.setItem).toHaveBeenCalledWith('fallback-key', testValue);
       expect(mockLogger.error).toHaveBeenCalledWith('Worker setItem failed:', expect.any(Error));
@@ -322,7 +337,9 @@ describe('WorkerStorage', () => {
     it('should send remove message to worker', async () => {
       const storage = new WorkerStorage();
 
-      // Simulate worker response
+      // Simulate worker response deterministically
+      vi.useFakeTimers();
+      const promise = storage.removeItem('test-key');
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -336,8 +353,9 @@ describe('WorkerStorage', () => {
           );
         }
       }, 10);
-
-      await storage.removeItem('test-key');
+      await vi.advanceTimersByTimeAsync(10);
+      await promise;
+      vi.useRealTimers();
 
       expect(mockWorker.postMessage).toHaveBeenCalledWith({
         id: '1',
@@ -349,7 +367,8 @@ describe('WorkerStorage', () => {
     it('should fallback to localStorage when worker fails', async () => {
       const storage = new WorkerStorage();
 
-      // Simulate worker error response
+      vi.useFakeTimers();
+      const promise = storage.removeItem('fallback-key');
       setTimeout(() => {
         if (mockWorker.onmessage) {
           mockWorker.onmessage(
@@ -363,8 +382,9 @@ describe('WorkerStorage', () => {
           );
         }
       }, 10);
-
-      await storage.removeItem('fallback-key');
+      await vi.advanceTimersByTimeAsync(10);
+      await promise;
+      vi.useRealTimers();
 
       expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('fallback-key');
       expect(mockLogger.error).toHaveBeenCalledWith('Worker removeItem failed:', expect.any(Error));

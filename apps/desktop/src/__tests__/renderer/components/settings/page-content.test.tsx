@@ -1,5 +1,5 @@
 import { ThemeProvider } from '@brainstrike/ui';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock the app-shell components before importing
@@ -17,14 +17,18 @@ vi.mock('@brainstrike/app-shell', () => ({
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
 describe('SettingsPageContent', () => {
-  it('renders without crashing', () => {
-    const { container } = render(
-      <ThemeProvider>
-        <SettingsPageContent />
-      </ThemeProvider>
-    );
-
-    // Just check that the component renders without throwing
+  it('renders without crashing', async () => {
+    let container: HTMLElement | null = null;
+    await act(async () => {
+      const result = render(
+        <ThemeProvider>
+          <SettingsPageContent />
+        </ThemeProvider>
+      );
+      container = result.container;
+      // allow any microtasks triggered on mount to flush
+      await Promise.resolve();
+    });
     expect(container).toBeInTheDocument();
   });
 });

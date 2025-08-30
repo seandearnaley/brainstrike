@@ -1,30 +1,34 @@
 import { resolve } from 'node:path';
+import { testBase } from '@brainstrike/test-utils/vitest.base';
 import { defineConfig } from 'vitest/config';
+// NOTE: TypeScript can get confused about Vitest type identities under pnpm workspaces.
+// Casting `test` here avoids noisy editor errors without affecting runtime behavior.
 
 export default defineConfig({
+  // Cast mitigates TS2769 type identity noise in some editors
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   test: {
-    environment: 'jsdom',
-    globals: true,
-    setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    ...testBase,
+    // Default to happy-dom for speed; jsdom-only suites should annotate at file top
+    environment: 'happy-dom',
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    pool: 'forks',
-    poolOptions: {
-      forks: {
-        maxForks: 2,
-        minForks: 1,
-        isolate: true,
-      },
-    },
+    // Switch to threads to reduce memory/startup overhead
+    pool: 'threads',
+    // Keep isolation to avoid cross-file state until a deeper audit completes
     isolate: true,
     testTimeout: 30000,
-  },
+    // biome-ignore lint/suspicious/noExplicitAny: Required workaround for Vitest type identity issues in pnpm workspaces
+  } as any,
   resolve: {
     alias: {
       '@brainstrike/types': resolve(__dirname, '../types/src'),
       '@brainstrike/ui': resolve(__dirname, '../ui/src'),
       '@brainstrike/utils': resolve(__dirname, '../utils/src'),
       '@brainstrike/file-explorer': resolve(__dirname, '../file-explorer/src'),
+      '@brainstrike/test-utils': resolve(__dirname, '../test-utils/src'),
+      // Ensure test-utils dynamic import of Testing Library resolves under this workspace
+      '@testing-library/react': resolve(__dirname, 'node_modules/@testing-library/react'),
       '@brainstrike/file-explorer-ui': resolve(__dirname, './src'),
     },
   },

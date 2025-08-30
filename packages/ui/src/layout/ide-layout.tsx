@@ -189,7 +189,7 @@ function useFileEditorContext() {
 
 // Panel collapse/expand handler factory
 function createPanelHandler(
-  isInitialRender: boolean,
+  isInitialRenderRef: React.MutableRefObject<boolean>,
   saveLayout: (
     sizes: number[],
     showConsole?: boolean,
@@ -203,7 +203,7 @@ function createPanelHandler(
 
   return {
     onCollapse: () => {
-      if (isInitialRender) return;
+      if (isInitialRenderRef.current) return;
 
       switch (panelType) {
         case 'left':
@@ -218,7 +218,7 @@ function createPanelHandler(
       }
     },
     onExpand: (size?: number) => {
-      if (isInitialRender) return;
+      if (isInitialRenderRef.current) return;
 
       const newSize =
         typeof size === 'number'
@@ -260,15 +260,31 @@ export const IdeLayout = React.memo(function IdeLayout({
   const consolePanelRef = useRef<ImperativePanelHandle>(null);
 
   // Flag to prevent panel callbacks from saving during initial render
-  const [isInitialRender, setIsInitialRender] = React.useState(true);
+  // Use a ref to avoid re-renders and make this more deterministic
+  const isInitialRenderRef = useRef(true);
+  const panelsInitializedRef = useRef(false);
 
-  // Mark initial render as complete after mount
+  // Mark initial render as complete once panels are actually initialized
+  // This is more deterministic than using a timeout
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      setIsInitialRender(false);
-    }, 100); // Small delay to ensure panels are initialized
-    return () => clearTimeout(timeoutId);
-  }, []);
+    // Check if all panels are initialized
+    const checkPanelsInitialized = () => {
+      const hasLeftPanel = !leftPanelContent || leftPanelRef.current !== null;
+      const hasRightPanel = !rightPanelContent || rightPanelRef.current !== null;
+      const hasConsolePanel = !consoleContent || consolePanelRef.current !== null;
+
+      return hasLeftPanel && hasRightPanel && hasConsolePanel;
+    };
+
+    if (!panelsInitializedRef.current && checkPanelsInitialized()) {
+      panelsInitializedRef.current = true;
+      // Use a shorter delay to allow panel state to settle
+      // but not as long as the original 100ms timeout
+      setTimeout(() => {
+        isInitialRenderRef.current = false;
+      }, 16); // One frame at 60fps
+    }
+  });
 
   // File editor context management
   const fileEditorContextValue = useFileEditorContext();
@@ -345,10 +361,10 @@ export const IdeLayout = React.memo(function IdeLayout({
   const { handleHorizontalLayout, handleVerticalLayout } = useLayoutHandlers(layoutConfig);
 
   // Panel handlers
-  const leftPanelHandlers = createPanelHandler(isInitialRender, saveLayout, safeSizes, 'left');
-  const rightPanelHandlers = createPanelHandler(isInitialRender, saveLayout, safeSizes, 'right');
+  const leftPanelHandlers = createPanelHandler(isInitialRenderRef, saveLayout, safeSizes, 'left');
+  const rightPanelHandlers = createPanelHandler(isInitialRenderRef, saveLayout, safeSizes, 'right');
   const consolePanelHandlers = createPanelHandler(
-    isInitialRender,
+    isInitialRenderRef,
     saveLayout,
     safeSizes,
     'console'

@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react';
+import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -116,6 +117,11 @@ import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 import { FileExplorerTestWrapper } from './test-helpers';
 
+const Wrapper = composeWrappers(({ children }) => (
+  <FileExplorerTestWrapper>{children}</FileExplorerTestWrapper>
+));
+const renderWithProviders = makeRenderWithProviders(Wrapper);
+
 let refreshFileExplorerMock: ReturnType<typeof vi.fn>;
 let showToastMock: ReturnType<typeof vi.fn>;
 let handleDirectorySelectErrorMock: ReturnType<typeof vi.fn>;
@@ -186,10 +192,13 @@ describe('FileExplorerLeftPanel', () => {
     vi.mocked(useFileExplorer).mockReturnValue(fileExplorerReturnValue);
 
     vi.mocked(useSelectionManager).mockReturnValue({
+      // required API surface for selection manager
+      selectedFilesList: [],
+      setSelectedFilesFromList: vi.fn(),
       selectedFilePaths: new Set<string>(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(),
-    });
+    } as unknown as ReturnType<typeof useSelectionManager>);
 
     vi.mocked(useQuickFilter).mockReturnValue({
       quickFilter: '',
@@ -203,7 +212,7 @@ describe('FileExplorerLeftPanel', () => {
   });
 
   it('renders toolbar, sidebar and action buttons', async () => {
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
     expect(await screen.findByTestId('sidebar')).toBeInTheDocument();
@@ -212,7 +221,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('triggers refresh and shows toast when refresh button is clicked', async () => {
     const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     // Click the refresh button which is now rendered by FileExplorerLeftPanel itself
     await user.click(screen.getByTestId('refresh-button-small'));
@@ -225,7 +234,7 @@ describe('FileExplorerLeftPanel', () => {
     const user = userEvent.setup();
     const error = new Error('fail');
     handleRootDirectorySelectMock.mockRejectedValueOnce(error);
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Select Directory' }));
 
@@ -234,7 +243,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('updates filters when filter button is clicked', async () => {
     const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Apply Filters' }));
 
@@ -248,7 +257,7 @@ describe('FileExplorerLeftPanel', () => {
       throw new Error('boom');
     });
 
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     expect(await screen.findByText('Error')).toBeInTheDocument();
     expect(screen.getByText('boom')).toBeInTheDocument();
@@ -266,7 +275,7 @@ describe('FileExplorerLeftPanel', () => {
     });
 
     const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByText('Cancel'));
 
@@ -280,7 +289,7 @@ describe('FileExplorerLeftPanel', () => {
 
   it('propagates filter changes with different values', async () => {
     const user = userEvent.setup();
-    render(<FileExplorerLeftPanel />, { wrapper: FileExplorerTestWrapper });
+    renderWithProviders(<FileExplorerLeftPanel />);
 
     await user.click(screen.getByRole('button', { name: 'Clear Filters' }));
     expect(setFiltersMock).toHaveBeenCalledWith([], []);

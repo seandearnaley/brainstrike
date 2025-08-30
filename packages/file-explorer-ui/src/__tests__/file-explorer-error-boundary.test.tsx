@@ -1,5 +1,5 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
@@ -50,6 +50,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 describe('FileExplorerErrorBoundary', () => {
   beforeAll(() => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   beforeEach(() => {
@@ -118,11 +119,15 @@ describe('FileExplorerErrorBoundary', () => {
     const toggleButton = screen.getByRole('button', { name: /show details/i });
     expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
 
-    fireEvent.click(toggleButton);
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
     expect(screen.getByText('Error Details')).toBeInTheDocument();
     expect(toggleButton.textContent).toMatch(/hide details/i);
 
-    fireEvent.click(toggleButton);
+    act(() => {
+      fireEvent.click(toggleButton);
+    });
     expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
     expect(toggleButton.textContent).toMatch(/show details/i);
   });
@@ -138,9 +143,11 @@ describe('FileExplorerErrorBoundary', () => {
       </FileExplorerErrorBoundary>
     );
 
-    fireEvent.click(screen.getByText('Copy Details'));
-    // wait for promise resolution
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Copy Details'));
+      await Promise.resolve();
+    });
+    // synchronous assertion after act
 
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(mockToast).toHaveBeenCalledWith({
@@ -159,3 +166,6 @@ describe('FileExplorerErrorBoundary', () => {
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });
 });
+/**
+ * @vitest-environment jsdom
+ */
