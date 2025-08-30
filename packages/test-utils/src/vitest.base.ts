@@ -2,7 +2,6 @@ import os from 'node:os';
 import type { UserConfig } from 'vitest/config';
 
 // Determine max threads from env once to satisfy both TS and Biome
-// biome-ignore lint/complexity/useLiteralKeys: TS noPropertyAccessFromIndexSignature requires bracket access
 const envMaxStr = process.env['VITEST_MAX_THREADS'] ?? process.env['VITEST_MAX_WORKERS'];
 const envMax = Number(envMaxStr);
 

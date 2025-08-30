@@ -43,9 +43,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('fs:requestDirectoryAccess', async () => {
     // Check if we're in test mode to avoid native dialogs
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     const nodeEnv = process.env['NODE_ENV'];
     const isTestMode =
       process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
@@ -156,7 +155,6 @@ export function registerIpcHandlers(
       return handle;
     } catch (error) {
       // Debug logging in development only
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       const nodeEnv = process.env['NODE_ENV'];
       if (nodeEnv === 'development') {
         console.debug('Auto-restore failed:', error);
@@ -175,7 +173,6 @@ export function registerIpcHandlers(
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
     } catch (error) {
       // Debug logging in development only
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       const nodeEnv = process.env['NODE_ENV'];
       if (nodeEnv === 'development') {
         console.debug('Failed to save last folder:', error);
@@ -291,7 +288,6 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
     const isProduction = process.env['NODE_ENV'] === 'production';
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');

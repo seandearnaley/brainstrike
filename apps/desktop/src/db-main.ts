@@ -20,7 +20,6 @@ const getPGlite = async () => {
     logger.info('pgvector extension not available, using basic PGlite');
   }
 
-  // biome-ignore lint/style/useNamingConvention: PGlite is external library class name
   return { PGlite, migrate, vector };
 };
 
@@ -33,7 +32,6 @@ let db: any | null = null;
  * Uses a different directory for development vs production
  */
 function getDatabasePath(): string {
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
   const isProduction = process.env['NODE_ENV'] === 'production';
   const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
   return path.join(app.getPath('documents'), dbDirName, 'pgdata');

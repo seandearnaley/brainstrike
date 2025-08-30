@@ -236,6 +236,16 @@
       }
     },
     {
+      "includes": ["packages/db/**", "**/db-main.ts", "**/ipc-handlers.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/*.css"],
       "linter": {
         "rules": {

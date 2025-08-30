@@ -13,7 +13,7 @@ describe('Batched insertMany', () => {
 
   beforeEach(async () => {
     // Create a fresh in-memory database for each test
-    db = new PGlite();
+    db = new PGlite('memory://');
 
     // Run all migrations to set up the schema
     const migrationRunner = new MigrationRunner(db);

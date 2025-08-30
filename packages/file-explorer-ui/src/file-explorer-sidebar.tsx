@@ -50,7 +50,6 @@ const EmptyState = ({
 }) => (
   <div className="text-center text-muted-foreground py-8">
     {isLoading ? 'Loading files...' : 'No matching files found'}
-    {/* biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env */}
     {process.env['NODE_ENV'] === 'development' && (
       <div className="text-xs mt-2 opacity-50">
         Debug: quickFilteredTree={quickFilteredTree ? quickFilteredTree.length : 'null'}, isLoading=

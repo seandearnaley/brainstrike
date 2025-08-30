@@ -16,30 +16,19 @@ import type { ElectronDbAPI } from './electron-file-record-repository';
 // Type definition for database row returned by Electron IPC
 interface FileChunkRow {
   id: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   file_record_id: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunk_index: number;
   content: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   content_hash: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   token_count: number;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunk_type: 'text' | 'code' | 'sentence' | 'recursive';
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunk_size: number;
   embedding?: string;
   // Phase 2 columns
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   embedding_set_id?: string | null;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   embedding_updated_at?: string | null;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   embedding_hash?: string | null;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   created_at: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   updated_at: string;
 }
 
@@ -51,15 +40,10 @@ interface FileChunkSearchRow extends FileChunkRow {
 
 // Type for stats query rows
 interface FileChunkStatsRow {
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   total_chunks: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunks_with_embeddings: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   average_token_count: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   chunk_type: string;
-  // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   type_count: string;
 }
 

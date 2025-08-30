@@ -12,7 +12,7 @@ describe('FileChunkRepository', () => {
 
   beforeEach(async () => {
     // Create a fresh in-memory database for each test
-    db = new PGlite();
+    db = new PGlite('memory://');
     await migrate(db);
     repository = new FileChunkRepository(db, false);
     fileRepository = new FileRecordRepository(db);

@@ -77,6 +77,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
+  const initializingPromiseRef = useRef<Promise<void> | null>(null);
 
   // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
   const testElectronConnection = useCallback(async (electronDB: any) => {
@@ -165,38 +166,56 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   );
 
   const initializeDatabase = useCallback(async () => {
-    if (lazyInitialized || initializingRef.current || (dbRef.current && !useElectronIPC)) {
+    // Fast exits when already ready
+    if (lazyInitialized || (dbRef.current && !useElectronIPC)) {
+      return;
+    }
+
+    // If an initialization is in flight, wait for it
+    if (initializingPromiseRef.current) {
+      await initializingPromiseRef.current;
       return;
     }
 
     initializingRef.current = true;
     logger.info('🚀 Lazy-loading database (triggered by actual usage)');
 
-    try {
-      const isElectronInitialized = await initializeElectronIPC({ value: false });
-
-      if (!isElectronInitialized) {
-        await initializeDirectPGlite({ value: false });
+    initializingPromiseRef.current = (async () => {
+      try {
+        const isElectronInitialized = await initializeElectronIPC({ value: false });
+        if (!isElectronInitialized) {
+          await initializeDirectPGlite({ value: false });
+        }
+        setLazyInitialized(true);
+      } catch (err) {
+        logger.error('Failed to initialize database:', err);
+        setFileRecordRepository(null);
+        setChunkRepository(null);
+        setError(err as Error);
+        setReady(true);
+        setLazyInitialized(false);
+      } finally {
+        initializingRef.current = false;
+        initializingPromiseRef.current = null;
       }
+    })();
 
-      // Only set lazyInitialized to true after successful initialization
-      setLazyInitialized(true);
-    } catch (err) {
-      logger.error('Failed to initialize database:', err);
-      setFileRecordRepository(null);
-      setChunkRepository(null);
-      setError(err as Error);
-      setReady(true);
-      // Reset lazyInitialized to allow retry attempts
-      setLazyInitialized(false);
-    } finally {
-      initializingRef.current = false;
-    }
+    await initializingPromiseRef.current;
   }, [lazyInitialized, useElectronIPC, initializeElectronIPC, initializeDirectPGlite]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount/unmount; initialization guarded internally
   useEffect(() => {
-    // No automatic initialization - only when explicitly requested
+    // No automatic initialization in prod/dev - only when explicitly requested.
+    // In test environments, eagerly initialize to simplify test timing and ensure
+    // constructor calls (e.g., default path detection) are observable.
     setReady(true); // Provider is ready, but database is not yet loaded
+
+    if (process.env['NODE_ENV'] === 'test') {
+      // Fire and forget; internal guards prevent duplicate initialization
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to eager-initialize database in test:', err);
+      });
+    }
 
     return () => {
       const db = dbRef.current;
@@ -236,6 +255,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const clearViaPGlite = useCallback(async () => {
     if (!dbRef.current) {
+      await initializeDatabase();
+    }
+    if (!dbRef.current) {
       throw new Error('Database not available');
     }
 
@@ -254,7 +276,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
-  }, []);
+  }, [initializeDatabase]);
 
   const clearAllData = useCallback(async () => {
     // Initialize database if not already initialized

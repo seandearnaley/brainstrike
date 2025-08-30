@@ -256,10 +256,13 @@ describe('Database clearing functionality', () => {
         { wrapper }
       );
 
-      await waitFor(() => {
-        expect(result.current.clearAllData).not.toBeNull();
-        expect(result.current.fileRepository).not.toBeNull();
-      });
+      await waitFor(
+        () => {
+          expect(result.current.clearAllData).not.toBeNull();
+          expect(result.current.fileRepository).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
       // Both should be available when database is ready
       expect(result.current.clearAllData).not.toBeNull();

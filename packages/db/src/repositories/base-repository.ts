@@ -166,7 +166,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     }
 
     const countRow = row as Record<string, unknown>;
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     return Number(countRow['count'] || 0);
   }
 
@@ -180,7 +179,6 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     }
 
     const countRow = row as Record<string, unknown>;
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     return Number(countRow['count'] || 0);
   }
 
@@ -276,44 +274,32 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
    */
   protected fromRow(row: Record<string, unknown>): FileRecord {
     const record: FileRecord = {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       id: String(row['id']),
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       name: String(row['name']),
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       path: String(row['path']),
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       size: Number(row['size']),
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       createdAt: String(row['created_at']),
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       updatedAt: String(row['updated_at']),
     };
 
     // Add optional fields if they exist
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     if (row['content'] != null) {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       record.content = String(row['content']);
     }
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     if (row['content_hash'] != null) {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       record.contentHash = String(row['content_hash']);
     }
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     if (row['token_count'] != null) {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       record.tokenCount = Number(row['token_count']);
     }
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     if (row['processed_at'] != null) {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       record.processedAt = String(row['processed_at']);
     }
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     if (row['embedding'] != null) {
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       record.embedding = row['embedding'] as number[];
     }
 

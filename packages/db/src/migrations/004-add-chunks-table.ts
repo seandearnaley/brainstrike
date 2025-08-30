@@ -2,7 +2,6 @@ import type { Migration } from './migration-runner';
 
 // Check if vector extensions are disabled
 const isVectorDisabled =
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
   process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || process.env['NODE_ENV'] === 'test';
 
 const createVectorTableSql = isVectorDisabled
