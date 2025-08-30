@@ -5,6 +5,7 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
+import { batchArray, parseEmbeddingLoose } from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
 // Type definition for database row returned by Electron IPC
@@ -54,13 +55,16 @@ export class ElectronFileChunkRepository {
   constructor(private db: ElectronDbAPI) {}
 
   async findById(id: string): Promise<FileChunk | null> {
-    const result = await this.db.query('SELECT * FROM file_chunks WHERE id = $1', [id]);
+    const result = await this.db.query(
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks WHERE id = $1',
+      [id]
+    );
     return result.rows[0] ? this.mapRowToChunk(result.rows[0] as FileChunkRow) : null;
   }
 
   async findByFileRecordId(fileRecordId: string): Promise<FileChunk[]> {
     const result = await this.db.query(
-      'SELECT * FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC',
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks WHERE file_record_id = $1 ORDER BY chunk_index ASC',
       [fileRecordId]
     );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
@@ -72,6 +76,14 @@ export class ElectronFileChunkRepository {
         id, file_record_id, chunk_index, content, content_hash, 
         token_count, chunk_type, chunk_size, embedding, created_at, updated_at
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) 
+      ON CONFLICT (id) DO UPDATE SET
+        content = EXCLUDED.content,
+        content_hash = EXCLUDED.content_hash,
+        token_count = EXCLUDED.token_count,
+        chunk_type = EXCLUDED.chunk_type,
+        chunk_size = EXCLUDED.chunk_size,
+        embedding = EXCLUDED.embedding,
+        updated_at = EXCLUDED.updated_at
       RETURNING *`,
       [
         chunk.id,
@@ -94,36 +106,63 @@ export class ElectronFileChunkRepository {
     if (chunks.length === 0) {
       return [];
     }
-    const values = chunks
-      .map((_, index) => {
-        const baseIndex = index * 11;
-        return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11})`;
-      })
-      .join(', ');
 
-    const params = chunks.flatMap((chunk) => [
-      chunk.id,
-      chunk.fileRecordId,
-      chunk.chunkIndex,
-      chunk.content,
-      chunk.contentHash,
-      chunk.tokenCount,
-      chunk.chunkType,
-      chunk.chunkSize,
-      chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
-      chunk.createdAt,
-      chunk.updatedAt,
-    ]);
+    // Batch inserts to avoid parameter limit issues (250 rows per batch)
+    const BatchSize = 250;
+    const batches = batchArray(chunks, BatchSize);
+    const allResults: FileChunk[] = [];
 
-    const result = await this.db.query(
-      `INSERT INTO file_chunks (
-          id, file_record_id, chunk_index, content, content_hash, 
-          token_count, chunk_type, chunk_size, embedding, created_at, updated_at
-        ) VALUES ${values} RETURNING *`,
-      params
-    );
+    // Process each batch in a transaction
+    await this.db.query('BEGIN');
+    try {
+      for (const batch of batches) {
+        const values = batch
+          .map((_, index) => {
+            const baseIndex = index * 11;
+            return `($${baseIndex + 1}, $${baseIndex + 2}, $${baseIndex + 3}, $${baseIndex + 4}, $${baseIndex + 5}, $${baseIndex + 6}, $${baseIndex + 7}, $${baseIndex + 8}, $${baseIndex + 9}, $${baseIndex + 10}, $${baseIndex + 11})`;
+          })
+          .join(', ');
 
-    return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
+        const params = batch.flatMap((chunk) => [
+          chunk.id,
+          chunk.fileRecordId,
+          chunk.chunkIndex,
+          chunk.content,
+          chunk.contentHash,
+          chunk.tokenCount,
+          chunk.chunkType,
+          chunk.chunkSize,
+          chunk.embedding ? `[${chunk.embedding.join(',')}]` : null,
+          chunk.createdAt,
+          chunk.updatedAt,
+        ]);
+
+        const result = await this.db.query(
+          `INSERT INTO file_chunks (
+              id, file_record_id, chunk_index, content, content_hash, 
+              token_count, chunk_type, chunk_size, embedding, created_at, updated_at
+            ) VALUES ${values} 
+            ON CONFLICT (id) DO UPDATE SET
+              content = EXCLUDED.content,
+              content_hash = EXCLUDED.content_hash,
+              token_count = EXCLUDED.token_count,
+              chunk_type = EXCLUDED.chunk_type,
+              chunk_size = EXCLUDED.chunk_size,
+              embedding = EXCLUDED.embedding,
+              updated_at = EXCLUDED.updated_at
+            RETURNING *`,
+          params
+        );
+
+        allResults.push(...result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow)));
+      }
+      await this.db.query('COMMIT');
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      throw error;
+    }
+
+    return allResults;
   }
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
@@ -224,7 +263,9 @@ export class ElectronFileChunkRepository {
   }
 
   async findAll(): Promise<FileChunk[]> {
-    const result = await this.db.query('SELECT * FROM file_chunks ORDER BY created_at DESC');
+    const result = await this.db.query(
+      'SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, created_at, updated_at FROM file_chunks ORDER BY created_at DESC'
+    );
     return result.rows.map((row) => this.mapRowToChunk(row as FileChunkRow));
   }
 
@@ -287,7 +328,7 @@ export class ElectronFileChunkRepository {
   }
 
   private mapRowToChunk(row: FileChunkRow): FileChunk {
-    const embedding = row.embedding ? this.parseEmbedding(row.embedding) : undefined;
+    const embedding = row.embedding ? parseEmbeddingLoose(row.embedding) : undefined;
     return {
       id: row.id,
       fileRecordId: row.file_record_id,
@@ -301,39 +342,5 @@ export class ElectronFileChunkRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
-  }
-
-  private parseEmbedding(embeddingString: string): number[] | undefined {
-    if (!embeddingString) return undefined;
-
-    try {
-      // Handle both array-like strings and actual arrays
-      if (typeof embeddingString === 'string') {
-        const parsed = JSON.parse(embeddingString);
-
-        // Validate that the parsed result is an array of numbers
-        if (!Array.isArray(parsed)) {
-          console.warn(
-            'ElectronFileChunkRepository: Parsed embedding is not an array:',
-            typeof parsed
-          );
-          return undefined;
-        }
-
-        if (parsed.some((item) => typeof item !== 'number')) {
-          console.warn('ElectronFileChunkRepository: Embedding array contains non-numeric values');
-          return undefined;
-        }
-
-        return parsed;
-      }
-      return embeddingString as number[];
-    } catch (error) {
-      console.warn(
-        'ElectronFileChunkRepository: Failed to parse embedding JSON:',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-      return undefined;
-    }
   }
 }

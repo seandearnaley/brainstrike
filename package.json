@@ -31,6 +31,7 @@
     "test:e2e:desktop:ui": "cd apps/desktop && pnpm run test:e2e:ui",
     "test:e2e:desktop:debug": "cd apps/desktop && pnpm run test:e2e:debug",
     "check": "pnpm -s install && pnpm -s run lint-all && pnpm -s run build && pnpm -s run type-check && pnpm -s run test && pnpm -s run test:e2e",
+    "check-just-errors": "pnpm check 2>&1 | grep -iE \"(error|failed|✗|✖|FAIL)\" | sed \"s/^@brainstrike\//\"",
     "clean": "turbo run clean --summarize --log-order=grouped --cache-dir=.turbo",
     "type-check": "turbo run type-check --summarize --log-order=grouped --cache-dir=.turbo",
     "knip": "knip",

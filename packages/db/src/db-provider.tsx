@@ -27,6 +27,7 @@ interface DbContextValue {
   db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
+  vectorEnabled: boolean; // Whether pgvector extension is available
 }
 
 interface DbProviderProps {
@@ -72,6 +73,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
+  const [vectorEnabled, setVectorEnabled] = useState(false);
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
@@ -135,12 +137,23 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       await migrate(db);
 
+      // Check if pgvector extension is available
+      let hasVector = false;
+      try {
+        const result = await db.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        hasVector = result.rows.length > 0;
+        logger.info(`pgvector extension ${hasVector ? 'available' : 'not available'}`);
+      } catch (err) {
+        logger.debug('Could not detect pgvector extension:', err);
+      }
+
       const repository = new FileRecordRepository(db);
       const chunkRepo = new FileChunkRepository(db);
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
       }
@@ -277,11 +290,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       db: dbRef.current,
       clearAllData,
       initializeDatabase,
+      vectorEnabled,
     }),
-    [fileRecordRepository, chunkRepository, error, ready, clearAllData, initializeDatabase]
+    [
+      fileRecordRepository,
+      chunkRepository,
+      error,
+      ready,
+      clearAllData,
+      initializeDatabase,
+      vectorEnabled,
+    ]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
+}
+
+export function useVectorEnabled(): boolean {
+  const context = useContext(DbContext);
+  if (context === undefined) {
+    throw new Error('useVectorEnabled must be used within a DbProvider');
+  }
+  return context.vectorEnabled;
 }
 
 export function useFileRecordRepository():

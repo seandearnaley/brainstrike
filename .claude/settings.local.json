@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pnpm coverage:enforce:*)"
+      "Bash(pnpm coverage:enforce:*)",
+      "Bash(pnpm -w lint)",
+      "Bash(pnpm -w build --filter=@brainstrike/db)",
+      "Bash(pnpm test:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []
