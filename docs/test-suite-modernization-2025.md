@@ -192,12 +192,40 @@ vi.useRealTimers();
 - [x] 5. Keep `packages/db` `singleThread: true`; document rationale in its config [Parallel]
 - [x] 6. Introduce `@brainstrike/test-utils/electron` factories and migrate desktop IPC tests [Parallel]
 - [ ] 7. Migrate tests off ad‑hoc sleeps to fake timers + `waitFor` patterns [Depends on 3]
+
+## CI/CLI Execution (Headless)
+
+- For CI or CLIs without a display (Electron E2E requires Xvfb or display):
+  - `pnpm run check:headless` — runs `setup:headless` then the full `check` pipeline.
+  - Use this variant to prepare sandbox/DISPLAY before desktop E2E.
   - [x] `packages/file-explorer-ui/src/__tests__/hooks/use-tab-manager.test.ts` (throttle via fake timers)
   - [x] `packages/file-explorer-ui/src/__tests__/use-file-tree-context.test.ts` (deferred gate, removed sleeps)
   - [x] `packages/file-explorer-hooks/src/__tests__/use-file-system.test.ts` (replaced setTimeout(0) waits with `waitFor` on state)
   - [x] `packages/file-explorer-hooks/src/__tests__/use-file-tree.test.ts` (replaced 100ms sleeps with `waitFor` on `isLoading`)
   - [x] `packages/db/vitest.setup.ts` (removed 1s afterAll sleep; rely on explicit cleanup)
   - [x] `packages/app-shell/src/database-demo/hooks/__tests__/use-database-error-boundary.test.ts` (replaced 100ms sleep with fake timers)
+
+## Appendix — Chunking Rules & Streaming (2025)
+
+The DB chunking service now supports streaming production and content‑aware boundaries to improve quality and reduce memory.
+
+- Markdown pre‑pass: keeps fenced code blocks intact and uses heading/list boundaries for prose.
+- Code‑aware boundaries: enhanced separators (exports, declarations, test blocks) for recursive splitting.
+- Streaming API: `ChunkingService.chunkContentStream(...)` yields `FileChunkInsert` items without building a giant array.
+- Skip rules expanded: lockfiles, maps, minified bundles, binaries (NUL byte probe), and common build dirs (`node_modules`, `dist`, `build`, `coverage`).
+
+Examples:
+
+- Markdown
+  - `.md|.mdx` → pre‑pass into blocks; code fences yielded whole; paragraphs split by sentences.
+- Code
+  - `.ts|.js|.tsx|...` → recursive splitter with code‑aware separators.
+- Large files
+  - Default size cap remains (`CHUNKING_CONFIG.maxChunkableSize`), but streaming can be used with `allowLargeFiles: true` when callers explicitly opt‑in.
+
+Tests:
+
+- `packages/db/__tests__/chunking-service.streaming.test.ts` covers fences intact, skip rules, and streaming of large content.
   - [x] `packages/workers/file-content-worker.test.ts` (concurrency test uses fake timers to flush delays)
   - [x] `packages/file-system/src/__tests__/web-adapter.test.ts` (fake timers for concurrency-limit test)
   - [x] `packages/file-system/src/__tests__/electron-adapter.test.ts` (replaced 100ms sleeps with `waitFor` on watcher initialization)

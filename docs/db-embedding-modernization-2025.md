@@ -364,23 +364,27 @@ Notes
 
 ### Tasks
 
-* [ ] **Markdown splitter** pre-pass (headings, lists, code fences) → then recursive
-* [ ] **Code-aware boundaries**: reinforce current separators (functions/classes/imports/blocks)
-* [ ] **Streaming chunk production** (generator) to avoid huge arrays
-* [ ] Expand **skip rules**: `node_modules`, `dist`, `build`, `coverage`, `*.min.js`, `*.map`, binaries (`\0` in first N KB), `.gitignore` patterns
+* [x] **Markdown splitter** pre-pass (headings, lists, code fences) → then sentence/recursive
+* [x] **Code-aware boundaries**: reinforced separators (exports, declarations, tests, blocks)
+* [x] **Streaming chunk production** (async generator) to avoid huge arrays
+* [x] Expand **skip rules**: `node_modules`, `dist`, `build`, `coverage`, `*.min.js`, `*.map`, binaries (NUL probe); `.gitignore` patterns deferred
 * [ ] Optional: **token-true sizing** for chosen model (simple tokenizer or heuristic upgrade)
 
 ### Outputs
 
-* `ChunkingService` refinements; config bumps in `CHUNKING_CONFIG`
-* Doc: rules & examples in `docs/test-suite-modernization-2025.md` (appendix)
+* `packages/db/src/services/chunking-service.ts`: streaming API `chunkContentStream()` + markdown pre-pass
+* `packages/db/src/config/chunking-config.ts`: unchanged defaults (size cap maintained)
+* Doc: rules & examples appended to `docs/test-suite-modernization-2025.md` (appendix)
+* Tests: `packages/db/__tests__/chunking-service.streaming.test.ts`
+* Scripts: `scripts/chunking-benchmark.mjs` + root script `pnpm bench:chunking`
 
 ### Validation
 
-* \[ ]🧪 Unit: chunk counts & avg tokens within bands for fixtures
-* \[ ]🧪 Memory: streaming keeps peak memory < X for 5 MB file (measure)
-* \[ ]🧪 E2E: end user flow unchanged, overall chunks not exploding
-* \[ ]👤 Smoke: import a mixed repo; spot-check chunk boundaries (functions/sections)
+* [x]🧪 Unit: streaming yields markdown fences intact; expanded skip rules enforced
+* [ ]🧪 Unit: chunk counts & avg tokens within bands for fixtures (pending)
+* [ ]🧪 Memory: streaming keeps peak memory < X for 5 MB file (measure via `pnpm bench:chunking`)
+* [x]🧪 E2E/unit: existing import pipeline unchanged; producer test passes with streaming
+* [ ]👤 Smoke: import a mixed repo; spot-check chunk boundaries (functions/sections)
 
 **— Gate 5: chunk quality up; memory down; tests green.**
 
@@ -509,6 +513,7 @@ type Job = {
   * \[ ]◻ `pnpm -w typecheck` *(add if missing)*
   * \[ ]◻ `pnpm -w build`
   * \[ ]◻ `pnpm -w test -- --run`
+  * \[ ]◻ Headless CI environments: `pnpm run check:headless` (prepends display/sandbox setup)
 * \[ ]🧪 **E2E**
 
   * \[ ]◻ Web: `pnpm --filter ./apps/web test:e2e` *(or project script)*

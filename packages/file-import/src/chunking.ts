@@ -62,6 +62,9 @@ interface ChunkingOptions {
     chunks: FileChunk[],
     fileRecordId: string
   ) => Promise<void>;
+  // Phase 5: opt-in streaming for large files
+  useStreamingForLargeFiles?: boolean;
+  streamBatchSize?: number;
 }
 
 async function handleChunkInsertion(
@@ -158,6 +161,24 @@ export async function processFileChunking(
   const strategy = getChunkingStrategy(fileRecord.path, options.chunkingStrategy);
   const chunkingService = new ChunkingService();
 
+  const shouldStream =
+    !!options.useStreamingForLargeFiles &&
+    fileRecord.content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
+
+  if (shouldStream) {
+    return await processFileChunkingStreamPath(
+      chunkingService,
+      fileRecord.content,
+      result,
+      strategy,
+      repository,
+      chunkRepository,
+      fileRecord.name,
+      fileRecord.path,
+      options
+    );
+  }
+
   const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
     strategy,
     maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
@@ -191,6 +212,61 @@ export async function processFileChunking(
     chunksCreated: chunkingResult.chunks.length,
     chunks: chunkingResult.chunks,
   };
+}
+
+async function processFileChunkingStreamPath(
+  chunkingService: ChunkingService,
+  content: string,
+  result: FileImportResult,
+  strategy: ChunkingStrategy,
+  repository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileRecordRepository>>,
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  fileName: string,
+  filePath: string,
+  options: ChunkingOptions
+): Promise<{ enhancedResult: EnhancedImportResult; chunksCreated: number }> {
+  const batchSize = Math.max(1, options.streamBatchSize ?? 250);
+  const stream = chunkingService.chunkContentStream(content, result.id, {
+    strategy,
+    maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
+    overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
+    fileName,
+    filePath,
+    allowLargeFiles: true,
+  });
+
+  let totalCreated = 0;
+  const batch: FileChunk[] = [] as unknown as FileChunk[];
+  for await (const ch of stream) {
+    batch.push(ch as unknown as FileChunk);
+    if (batch.length >= batchSize) {
+      totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
+    }
+  }
+
+  if (batch.length > 0) {
+    totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
+  }
+
+  await updateFileRecordWithChunkInfo(repository, result.id, totalCreated, strategy);
+  return {
+    enhancedResult: { ...result, chunksCreated: totalCreated },
+    chunksCreated: totalCreated,
+  };
+}
+
+async function flushBatch(
+  batch: FileChunk[],
+  chunkRepository: { insertMany: (chunks: FileChunk[]) => Promise<FileChunk[]> },
+  options: ChunkingOptions,
+  fileRecordId: string
+): Promise<number> {
+  const inserted = await chunkRepository.insertMany(batch);
+  if (options.embedQueueEnabled && options.enqueueJobsForChunks) {
+    await options.enqueueJobsForChunks(inserted, fileRecordId);
+  }
+  batch.length = 0;
+  return inserted.length;
 }
 
 export async function processChunking(
