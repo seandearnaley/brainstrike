@@ -78,7 +78,7 @@ Focus commands:
 ## What’s next — Phase 6 (UI/API integration & developer affordances)
 
 Objectives:
-- UI: Expose active embedding set selection + device (WebGPU/CPU); visible queue HUD (pending/running/failed, requeue last N failed).
+- UI: Expose embedding set selection + device (WebGPU/CPU); visible queue HUD (pending/running/failed, requeue last N failed); simple backfill tools.
 - API/docs: Finalize `ChunkSearchOptions`, `ChunkSearchResult`, `EmbeddingSet`, `Job` DTO shapes and document usage.
 
 Non‑negotiable requirement:
@@ -90,17 +90,13 @@ Non‑negotiable requirement:
   - In search UI, show similarity scores and the embedding set id used for the query (hover/tooltip is fine).
 
 Proposed tasks:
-1) Add embedding set selector to settings (web + desktop)
-   - Show `modelKey`, `dimensions`, `distance`, and device
-   - Persist chosen set; enforce compatible search/UI defaults
-2) Queue HUD
-   - Show counts by state; add limited retry (last 20 failed) with confirmation
-   - Include a compact “Vector Status” panel:
-     - pgvector enabled? (desktop) / Worker running? (web)
-     - Active embedding set (model + dims + distance)
-     - Chunks with embeddings for the active set (x/y)
-     - Throughput (embeddings/sec, last minute)
-     - Last error summary (if any) with copyable details
+1) Embedding set selector (web + desktop)
+   - Show `modelKey`, `dimensions`, `distance`, and device; persist selection
+   - Scope search by default to the selected set
+2) Queue HUD + Vector Status
+   - Counts by state + “Retry last 20 failed”
+   - Vector Status panel: pgvector status, worker status, selected set, coverage x/y (embeddings present), throughput, last error
+   - Backfill Active Set (deduped, batched) with progress; auto-refresh chunks when queue drains
 3) API/docs cleanup
    - Document search options (limit/threshold/embeddingSetId), result shape, and DTOs
    - Consolidate developer docs so agents can follow without context

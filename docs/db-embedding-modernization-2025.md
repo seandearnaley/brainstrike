@@ -399,21 +399,27 @@ Notes
 
 ### Tasks
 
-* [ ] **Expose active embedding set** & device in UI (both apps)
+* [x] Expose embedding set selection & device in UI (both apps)
 
-  * \[ ]◻ Selector: model key → shows `dimensions`, `distance`, device (WebGPU/CPU)
-* [ ] **Queue HUD**: pending / running / failed counts; retry button for last 20 failed
-  * \[ ]◻ Add compact Vector Status panel: pgvector/worker status badge, active set, chunks with embeddings (x/y), recent throughput, last error
+  * [x]◻ Selector shows `modelKey`, `dimensions`, `distance`; device badge shown
+  * [x]◻ Selection persisted; search defaults to selected set
+* [x] Queue HUD and Vector Status panel
+  * [x]◻ Counts by state; “Retry last 20 failed”
+  * [x]◻ Vector Status: pgvector/worker badges, selected set, coverage (embeddings present) x/y, throughput (60s), last error
+  * [x]◻ Backfill Active Set: deduped enqueue with batching and progress
+  * [x]◻ Auto-refresh: emits `brainstrike:queue-drained` to refresh chunks
+* [x] Chunk UI affordances
+  * [x]◻ Per-chunk badge: embedded (selected set) vs embedded (other set) vs no embedding
+  * [x]◻ Vector preview (truncated) with dimensionality
 * [ ] API contracts documented:
 
-  * \[ ]◻ `ChunkSearchOptions` + result shape
-  * \[ ]◻ `EmbeddingSet` DTO shape
-  * \[ ]◻ `Job` DTO shape (redacted payload)
+  * [ ]◻ `ChunkSearchOptions` + result shape
+  * [ ]◻ `EmbeddingSet` DTO shape
+  * [ ]◻ `Job` DTO shape (redacted payload)
 
 * Web local‑first worker enablement
-  * \[ ]◻ Finalize web worker bootstrap and feature flag (default off)
-  * \[ ]◻ Start/stop controls in Settings; persist preference
-  * \[ ]◻ E2E: import → queue → web worker → search (local‑first thresholds)
+  * [x]◻ Start/stop controls in Settings; persist preference
+  * [ ]◻ E2E: import → queue → web worker → search (local‑first thresholds)
 
 ### Outputs
 
@@ -422,9 +428,9 @@ Notes
 
 ### Validation
 
-* \[ ]🧪 UI tests for selectors & HUD
-* \[ ]👤 Smoke: user flows — pick model, import, see queue drain, search works
-* \[ ]👤 Visual feedback: status badge reflects state (disabled/initializing/running/error), counts update, similarity and embedding set shown in search UI
+* [ ]🧪 UI tests for selectors & HUD
+* [x]👤 Smoke: user flows — pick model, import, see queue drain, search works; chunks auto-refresh after drain
+* [x]👤 Visual feedback: status badge reflects state (disabled/initializing/running/error), counts update, coverage reflects embeddings present, similarity and embedding set shown in search UI
 
 **— Gate 6: UX clear; devs can debug with HUD quickly.**
 

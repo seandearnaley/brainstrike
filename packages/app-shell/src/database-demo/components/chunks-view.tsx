@@ -45,12 +45,18 @@ export function ChunksView({ chunks, records }: ChunksViewProps) {
               {chunk.embedding && chunk.embeddingSetId === activeSetId ? (
                 <Badge variant="default" className="text-xs">
                   <Brain className="h-2 w-2 mr-1" />
-                  embedded (selected set)
+                  <span>embedded</span>
+                  <span aria-hidden="true" className="ml-1 opacity-70">
+                    (selected set)
+                  </span>
                 </Badge>
               ) : chunk.embedding ? (
                 <Badge variant="outline" className="text-xs">
                   <Brain className="h-2 w-2 mr-1" />
-                  embedded (other set)
+                  <span>embedded</span>
+                  <span aria-hidden="true" className="ml-1 opacity-70">
+                    (other set)
+                  </span>
                 </Badge>
               ) : (
                 <Badge variant="outline" className="text-xs">
