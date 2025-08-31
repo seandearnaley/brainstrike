@@ -22,15 +22,17 @@ function isQueueEnabled(): boolean {
 }
 
 export function QueueHud() {
+  // Compute flag without hooks to avoid initializing DB when disabled
+  const enabled = isQueueEnabled();
+
   const db = usePGliteDatabase();
   const [stats, setStats] = useState<QueueStats[] | null>(null);
-  const [enabled] = useState<boolean>(isQueueEnabled());
   const [busy, setBusy] = useState(false);
 
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
 
   useEffect(() => {
-    if (!enabled || !jobQueue) return;
+    if (!jobQueue) return;
 
     let canceled = false;
     const fetchStats = async () => {
@@ -48,11 +50,10 @@ export function QueueHud() {
       canceled = true;
       clearInterval(id);
     };
-  }, [enabled, jobQueue]);
-
-  if (!enabled) return null;
+  }, [jobQueue]);
 
   const s = stats?.[0];
+  if (!enabled) return null;
   return (
     <Card className="mb-2">
       <CardHeader className="py-2 px-3">

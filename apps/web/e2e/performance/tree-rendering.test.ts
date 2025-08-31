@@ -186,8 +186,10 @@ test.describe('Performance: Tree Rendering', () => {
 
     const memoryIncrease = finalMemory - initialMemory;
 
-    // For stress tests with ~500+ files, use a more lenient memory threshold
-    const stressMemoryThreshold = PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * 2; // 2x for stress tests
+    // For stress tests with ~500+ files, use dedicated stress memory threshold
+    const stressMemoryThreshold =
+      (PERFORMANCE_THRESHOLDS as any).STRESS_MEMORY_INCREASE_MAX_MB ??
+      PERFORMANCE_THRESHOLDS.MEMORY_INCREASE_MAX_MB * 2;
 
     console.log(`Stress test time: ${stressTime}ms`);
     console.log(`Memory increase: ${Math.round(memoryIncrease / 1024 / 1024)}MB`);
@@ -197,6 +199,6 @@ test.describe('Performance: Tree Rendering', () => {
 
     // Assert reasonable performance under stress
     expect(stressTime).toBeLessThan(PERFORMANCE_THRESHOLDS.LARGE_TREE_LOAD_MAX_MS);
-    expect(memoryIncrease).toBeLessThan(stressMemoryThreshold * 1024 * 1024); // 20MB max for stress test
+    expect(memoryIncrease).toBeLessThan(stressMemoryThreshold * 1024 * 1024);
   });
 });

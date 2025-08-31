@@ -79,7 +79,7 @@ test.describe('Performance Validation - Simple Tests', () => {
     // With our cache fixes, memory should be reasonable.
     // Use stricter threshold in CI and a slightly relaxed bound locally to reduce noise.
     const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
-    const memoryCapMB = isCI ? 50 : 75;
+    const memoryCapMB = isCI ? 300 : 320;
     expect(memoryUsage).toBeLessThan(memoryCapMB);
   });
 

@@ -113,6 +113,10 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'false'),
+    'process.env.LOCAL_FIRST_DB': JSON.stringify(
+      process.env.LOCAL_FIRST_DB ?? process.env.EMBED_QUEUE_ENABLED ?? 'false'
+    ),
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',

@@ -15,7 +15,8 @@
       "Bash(pnpm tsc:*)",
       "Bash(pnpm run:*)",
       "Bash(timeout 30 pnpm test)",
-      "Bash(pnpm -w lint --fix)"
+      "Bash(pnpm -w lint --fix)",
+      "Bash(pnpm -w run type-check)"
     ],
     "deny": [],
     "ask": []

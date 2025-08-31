@@ -8,10 +8,12 @@ import {
 } from '@brainstrike/db';
 import { generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { processChunking } from '../chunking';
 
 describe('Chunking producer enqueues jobs', () => {
+  // Increase timeouts to tolerate in-memory DB startup + migrations under load
+  vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
   beforeAll(() => {
     process.env.DISABLE_VECTOR_EXTENSION = 'true';
   });

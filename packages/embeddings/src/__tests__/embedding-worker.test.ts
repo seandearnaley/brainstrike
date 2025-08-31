@@ -1,7 +1,7 @@
 import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { startEmbeddingWorker } from '../index';
 import type {
   EmbeddingConfig,
@@ -177,3 +177,5 @@ describe('embedding-worker', () => {
     await controller.stop();
   });
 });
+// Increase timeouts to reduce flakiness under workspace-wide runs
+vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });

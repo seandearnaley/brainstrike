@@ -11,6 +11,9 @@ import { defineConfig } from '@playwright/test';
 const baseUrlEnv = 'BASE_URL';
 const fullBrowserCoverageEnv = 'PLAYWRIGHT_FULL_BROWSER_COVERAGE';
 
+// Mark local-first DB expected for web E2E unless explicitly disabled
+process.env['LOCAL_FIRST_DB'] = process.env['LOCAL_FIRST_DB'] ?? 'true';
+
 // Get environment configuration
 const config = getEnvironmentConfig();
 
