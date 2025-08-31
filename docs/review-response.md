@@ -71,3 +71,24 @@ Validation:
 Next:
 - Wire active set into all search entry points in the web/desktop UIs
 - Optional: model selector + web worker bootstrap binding
+
+## Phase 6 — API Contracts (completed)
+
+- Added canonical contracts doc with stable DTO shapes and examples:
+  - `docs/api-contracts.md` (search options/results, `EmbeddingSet`, public `Job`)
+- Verified `@brainstrike/db` exports for: `ChunkSearchOptions`, `ChunkSearchResult`, `FileChunk`, `EmbeddingSet`, `Job`.
+- Vector Status enhancements:
+  - Retry control: “Retry last 20 failed” button
+  - Lightweight metrics: latency p50/p95 (60s window) alongside throughput
+
+Files:
+- docs/api-contracts.md
+- packages/app-shell/src/vector-status.tsx
+
+Notes:
+- SQL path still requires `embeddingSetId` when pgvector is enabled.
+- Latency stats use recent succeeded jobs (60s) based on ISO timestamps; portable across PGlite.
+
+## Phase 6 — Web UX consolidation (2025‑08‑31)
+- Settings no longer contains separate worker controls on Web to avoid divergence from Desktop. Start/Stop Worker, Embedding Set selection, Backfill, coverage/throughput/latency are all consolidated in Right Panel → DB → Vector Status.
+- On Web, worker badge shows `disabled` until explicitly started; transitions to `running` with active jobs.

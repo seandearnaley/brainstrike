@@ -1,13 +1,10 @@
 import {
   SettingsPageContent as BaseSettingsPageContent,
   QueueHud,
-  VectorStatus,
+  VectorStatusWithDb,
 } from '@brainstrike/app-shell';
-import { usePGliteDatabase } from '@brainstrike/db';
-import { Badge, Button } from '@brainstrike/ui';
-import { useCallback, useMemo, useState } from 'react';
+import { Badge } from '@brainstrike/ui';
 import { Helmet } from 'react-helmet-async';
-import { startEmbeddingWorkerWeb } from '../../workers/embedding-worker-web';
 
 export default function SettingsPageContent() {
   return (
@@ -32,62 +29,12 @@ export default function SettingsPageContent() {
             <Badge variant="secondary">experimental</Badge>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <WebWorkerControls />
             <QueueHud />
-            <VectorStatus />
+            <VectorStatusWithDb />
           </div>
         </div>
       </BaseSettingsPageContent>
     </>
   );
 }
-
-function WebWorkerControls() {
-  const db = usePGliteDatabase();
-  const [busy, setBusy] = useState(false);
-  const [running, setRunning] = useState(false);
-  const controllerRef = useMemo<{ current: null | { stop: () => Promise<void> } }>(
-    () => ({ current: null }),
-    []
-  );
-
-  const start = useCallback(async () => {
-    if (!db || running) return;
-    setBusy(true);
-    try {
-      const c = await startEmbeddingWorkerWeb(db);
-      controllerRef.current = c;
-      setRunning(true);
-    } finally {
-      setBusy(false);
-    }
-  }, [db, running, controllerRef]);
-
-  const stop = useCallback(async () => {
-    if (!running) return;
-    setBusy(true);
-    try {
-      await controllerRef.current?.stop();
-      controllerRef.current = null;
-      setRunning(false);
-    } finally {
-      setBusy(false);
-    }
-  }, [running, controllerRef]);
-
-  return (
-    <div className="flex items-center gap-3">
-      <div className="text-sm">
-        Status: {running ? <Badge>running</Badge> : <Badge variant="outline">stopped</Badge>}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button size="sm" disabled={busy || running || !db} onClick={start}>
-          Start Worker
-        </Button>
-        <Button size="sm" variant="outline" disabled={busy || !running} onClick={stop}>
-          Stop Worker
-        </Button>
-      </div>
-    </div>
-  );
-}
+// Worker controls moved into Vector Status HUD to unify UX with DB panel

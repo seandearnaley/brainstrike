@@ -411,11 +411,11 @@ Notes
 * [x] Chunk UI affordances
   * [x]◻ Per-chunk badge: embedded (selected set) vs embedded (other set) vs no embedding
   * [x]◻ Vector preview (truncated) with dimensionality
-* [ ] API contracts documented:
+* [x] API contracts documented:
 
-  * [ ]◻ `ChunkSearchOptions` + result shape
-  * [ ]◻ `EmbeddingSet` DTO shape
-  * [ ]◻ `Job` DTO shape (redacted payload)
+  * [x]◻ `ChunkSearchOptions` + result shape
+  * [x]◻ `EmbeddingSet` DTO shape
+  * [x]◻ `Job` DTO shape (redacted payload)
 
 * Web local‑first worker enablement
   * [x]◻ Start/stop controls in Settings; persist preference
@@ -433,6 +433,11 @@ Notes
 * [x]👤 Visual feedback: status badge reflects state (disabled/initializing/running/error), counts update, coverage reflects embeddings present, similarity and embedding set shown in search UI
 
 **— Gate 6: UX clear; devs can debug with HUD quickly.**
+
+#### Web UX refinements (2025‑08‑31)
+- The web app surfaces Start/Stop Worker directly in the DB tab’s Vector Status panel; Settings no longer contains separate worker controls (mirrors Desktop’s single‑place UX).
+- Worker badge semantics on Web: shows `disabled` until the user explicitly starts the local worker in the tab; transitions to `running` when jobs are active (backfill/import). Throughput and latency (p50/p95) are displayed alongside coverage and queue counts.
+- Embedding Set selector becomes available shortly after the worker starts (brief polling on first set creation). Backfill is available from the same panel.
 
 ---
 

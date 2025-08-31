@@ -18,6 +18,7 @@ export type EmbeddingWorkerOptions = {
   log?: (msg: string, meta?: unknown) => void;
   service?: EmbeddingService; // optional DI for tests or custom backends
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
+  enable?: boolean; // explicit runtime toggle; overrides env flag
 };
 
 export type EmbeddingWorkerController = {
@@ -203,7 +204,10 @@ export async function startEmbeddingWorker(
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
   // Optional: allow disabling at runtime via env
-  const enabled = resolveBooleanEnv('EMBED_QUEUE_ENABLED', true);
+  const enabled =
+    typeof options.enable === 'boolean'
+      ? options.enable
+      : resolveBooleanEnv('EMBED_QUEUE_ENABLED', true);
   if (!enabled) {
     log('Embedding worker disabled via EMBED_QUEUE_ENABLED=false');
     return { stop: async () => {} };

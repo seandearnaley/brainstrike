@@ -58,7 +58,11 @@ See also: `onboarding.md` and `monorepo-docs.md` for deep dives.
 - Desktop: starts the embedding worker on app ready when enabled; stops on quit.
 - Config: `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`.
 
-Refer to `docs/PHASE_3_HANDOFF.md` (Post-Review Deltas) and `docs/db-embedding-modernization-2025.md` (Phase 4) for details.
+Refer to `docs/PHASE_3_HANDOFF.md` (Post-Review Deltas) and `docs/db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/api-contracts.md`.
+
+Web UX notes:
+- Start/Stop the local worker from Right Panel → DB → Vector Status (no separate Settings controls).
+- Worker badge shows `disabled` until explicitly started in the tab, then `running` when jobs are active.
 
 ---
 
@@ -87,6 +91,9 @@ Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`
 - Never downgrade to “make it work”; fail fast and fix root causes.
 
 More context and expectations for humans and AI agents: `AGENTS.md`.
+
+UI affordances:
+- Right Panel → DB tab shows Vector Status (pgvector/worker badges, active Embedding Set selector, coverage, throughput, latency p50/p95, retry‑failed control).
 
 ---
 

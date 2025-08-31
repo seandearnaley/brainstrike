@@ -13,11 +13,13 @@ type QueueStats = {
 
 function isQueueEnabled(): boolean {
   try {
+    // In browser contexts, treat the queue as enabled so HUD reflects runtime activity.
+    if (typeof window !== 'undefined') return true;
     // @ts-expect-error process may not exist
     const v = process?.env?.EMBED_QUEUE_ENABLED;
     return String(v ?? 'false').toLowerCase() === 'true';
   } catch {
-    return false;
+    return typeof window !== 'undefined';
   }
 }
 

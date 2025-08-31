@@ -6,5 +6,6 @@ import type { IDatabase } from '@brainstrike/db';
 import { type EmbeddingWorkerController, startEmbeddingWorker } from '@brainstrike/embeddings';
 
 export async function startEmbeddingWorkerWeb(db: IDatabase): Promise<EmbeddingWorkerController> {
-  return startEmbeddingWorker({ db });
+  // On web, the env default may be false; allow explicit runtime start from UI.
+  return startEmbeddingWorker({ db, enable: true });
 }
