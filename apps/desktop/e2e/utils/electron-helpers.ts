@@ -41,6 +41,18 @@ function createLaunchOptions(
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
+    env: {
+      ...process.env,
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_DISABLE_SANDBOX: '1',
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      ELECTRON_ENABLE_LOGGING: 'true',
+      // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
+      ...(process.platform === 'linux' && process.env['CI'] && !process.env['DISPLAY']
+        ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+          { DISPLAY: ':99' }
+        : {}),
+    },
     // Let Playwright use its managed Electron binary unless explicitly needed
     timeout: 90000,
   };

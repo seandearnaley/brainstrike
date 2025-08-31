@@ -1,4 +1,7 @@
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, beforeAll, vi } from 'vitest';
+
+// Increase global hook timeout to tolerate WASM warmup under parallel runs
+vi.setConfig({ hookTimeout: 30000 });
 
 beforeAll(async () => {
   // Vector extension testing strategy:
@@ -15,8 +18,16 @@ beforeAll(async () => {
   
   // Preload PGlite WASM once to avoid per-test compilation delays.
   // Import lazily so that per-test vi.mock('@electric-sql/pglite') still applies.
-  const { wasmLoader } = await import('./src/wasm-loader');
-  await wasmLoader.ensureWasmLoaded();
+  try {
+    const { wasmLoader } = await import('./src/wasm-loader');
+    // Soft warmup with a cap to avoid hanging CI
+    await Promise.race([
+      wasmLoader.ensureWasmLoaded(),
+      new Promise((resolve) => setTimeout(resolve, 25000)),
+    ]);
+  } catch {
+    // Ignore warmup errors; individual tests will surface real issues
+  }
 });
 
 afterAll(async () => {

@@ -25,6 +25,7 @@
     
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
+    "test:e2e:local-db": "LOCAL_FIRST_DB=true EMBED_QUEUE_ENABLED=true pnpm test:e2e",
     "setup:headless": "bash scripts/setup-headless-display.sh",
     "test:e2e:ui": "cd apps/web && pnpm run test:e2e:ui",
     "test:e2e:debug": "cd apps/web && pnpm run test:e2e:debug",

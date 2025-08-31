@@ -15,20 +15,6 @@ import { getDevCSP } from './src/csp-utils';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
 
-function debugPlugin() {
-  return {
-    name: 'debug-build-context',
-    buildStart() {
-      if (isDev) {
-        console.log('=== DEBUG PLUGIN BUILDSTART ===');
-        console.log('Build starting, CWD:', process.cwd());
-        console.log('Vercel env:', process.env['VERCEL']);
-        console.log('=== END DEBUG PLUGIN ===');
-      }
-    },
-  };
-}
-
 function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
@@ -72,15 +58,7 @@ const wasmPath = findPGliteWasm(__dirname);
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
 
-// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
-if (isDev) {
-  console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
-  console.log('Current working directory:', process.cwd());
-  console.log('__dirname:', __dirname);
-  console.log('process.env.VERCEL:', process.env['VERCEL']);
-  console.log('process.env.CI:', process.env['CI']);
-  console.log('=== VITE CONFIG DEBUG END ===');
-}
+// Keep config concise; avoid noisy debug printing in dev
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
@@ -123,7 +101,6 @@ export default defineConfig({
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
-    debugPlugin(),
     wasm(),
     topLevelAwait(),
     react({

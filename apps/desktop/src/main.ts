@@ -3,10 +3,10 @@ import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog, Menu } from 'electron';
 import ElectronStore from 'electron-store';
 import { createWindow } from './create-window';
-import { closeDatabase, getDatabase } from './db-main';
+import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { registerIpcHandlers } from './ipc-handlers';
 import { setupSecurity } from './setup-security';
 
@@ -70,6 +70,78 @@ app.whenReady().then(async () => {
     } catch (err) {
       logger.error('Failed to start embedding worker:', err);
     }
+
+    // Application menu with developer utilities
+    const menuTemplate: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: 'Application',
+        submenu: [{ role: 'about' }, { type: 'separator' }, { role: 'quit' }],
+      },
+      {
+        label: 'Edit',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'selectAll' },
+        ],
+      },
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload' },
+          { role: 'toggleDevTools' },
+          { type: 'separator' },
+          { role: 'resetZoom' },
+          { role: 'zoomIn' },
+          { role: 'zoomOut' },
+          { type: 'separator' },
+          { role: 'togglefullscreen' },
+        ],
+      },
+      {
+        label: 'Developer',
+        submenu: [
+          {
+            id: 'dev-reset-db',
+            label: 'Reset Local Database…',
+            accelerator:
+              process.platform === 'darwin' ? 'Cmd+Shift+Backspace' : 'Ctrl+Shift+Backspace',
+            click: async () => {
+              const res = await dialog.showMessageBox({
+                type: 'warning',
+                buttons: ['Reset', 'Cancel'],
+                defaultId: 1,
+                cancelId: 1,
+                title: 'Reset Local Database',
+                message:
+                  'This will delete the local database files and reinitialize on next access. This action cannot be undone.',
+              });
+              if (res.response !== 0) return;
+              try {
+                await resetLocalDatabase();
+                await dialog.showMessageBox({
+                  type: 'info',
+                  buttons: ['OK'],
+                  title: 'Database Reset',
+                  message: 'Local database has been reset. The app will reload.',
+                });
+                for (const win of BrowserWindow.getAllWindows()) {
+                  win.webContents.reloadIgnoringCache();
+                }
+              } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                dialog.showErrorBox('Reset Failed', message);
+              }
+            },
+          },
+        ],
+      },
+    ];
+    Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
     logger.info('Creating main window...');
     await createWindow();

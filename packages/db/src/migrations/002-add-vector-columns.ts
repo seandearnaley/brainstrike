@@ -1,32 +1,39 @@
 import type { Migration } from './migration-runner';
 
+function isVectorDisabled(): boolean {
+  try {
+    return String(process.env['DISABLE_VECTOR_EXTENSION'] ?? '').toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export const migration002AddVectorColumns: Migration = {
   version: 2,
   name: 'add_vector_columns',
-  up: `
-		-- Add vector extension support (if using pgvector)
-		-- CREATE EXTENSION IF NOT EXISTS vector;
+  up: async (db) => {
+    if (!isVectorDisabled()) {
+      await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
+    }
 
-		-- Add embedding columns to file_records
-		ALTER TABLE file_records 
-		ADD COLUMN IF NOT EXISTS embedding REAL[],
-		ADD COLUMN IF NOT EXISTS content TEXT,
-		ADD COLUMN IF NOT EXISTS content_hash TEXT,
-		ADD COLUMN IF NOT EXISTS token_count INTEGER DEFAULT 0,
-		ADD COLUMN IF NOT EXISTS processed_at TEXT;
+    await db.exec(`
+			-- Add embedding columns to file_records
+			ALTER TABLE file_records 
+			ADD COLUMN IF NOT EXISTS embedding REAL[],
+			ADD COLUMN IF NOT EXISTS content TEXT,
+			ADD COLUMN IF NOT EXISTS content_hash TEXT,
+			ADD COLUMN IF NOT EXISTS token_count INTEGER DEFAULT 0,
+			ADD COLUMN IF NOT EXISTS processed_at TEXT;
 
-		-- Create index for content hash lookups
-		CREATE INDEX IF NOT EXISTS idx_file_records_content_hash ON file_records(content_hash);
-		
-		-- Create index for processed files
-		CREATE INDEX IF NOT EXISTS idx_file_records_processed_at ON file_records(processed_at) 
-		WHERE processed_at IS NOT NULL;
-
-		-- If using pgvector, create vector index
-		-- CREATE INDEX IF NOT EXISTS idx_file_records_embedding ON file_records 
-		-- USING ivfflat (embedding vector_cosine_ops)
-		-- WITH (lists = 100);
-	`,
+			-- Create index for content hash lookups
+			CREATE INDEX IF NOT EXISTS idx_file_records_content_hash ON file_records(content_hash);
+			
+			-- Create index for processed files
+			CREATE INDEX IF NOT EXISTS idx_file_records_processed_at ON file_records(processed_at) 
+			WHERE processed_at IS NOT NULL;
+		`);
+    // Note: file_records embedding index is intentionally omitted in tests/non-vector env
+  },
   down: `
 		-- Drop indexes
 		-- DROP INDEX IF EXISTS idx_file_records_embedding;

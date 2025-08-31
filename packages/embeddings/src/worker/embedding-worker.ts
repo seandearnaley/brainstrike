@@ -17,6 +17,7 @@ export type EmbeddingWorkerOptions = {
   workerId?: string; // optional
   log?: (msg: string, meta?: unknown) => void;
   service?: EmbeddingService; // optional DI for tests or custom backends
+  metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
 };
 
 export type EmbeddingWorkerController = {
@@ -214,6 +215,14 @@ export async function startEmbeddingWorker(
   const jq = new JobQueue(options.db);
   let running = true;
 
+  // Lightweight metrics for observability
+  const metrics = {
+    startedAt: Date.now(),
+    jobsProcessed: 0,
+    jobsFailed: 0,
+    totalDurationMs: 0,
+  };
+
   type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
 
   async function validateAndGenerateEmbedding(
@@ -266,13 +275,25 @@ export async function startEmbeddingWorker(
       jq.heartbeat({ id: jobId, leaseToken, extendMs: leaseMs }).catch(() => {});
     }, heartbeatMs);
 
+    const jobStart = Date.now();
     try {
       await executeJobPayload(claimed, leaseToken);
+      const dur = Date.now() - jobStart;
+      metrics.jobsProcessed += 1;
+      metrics.totalDurationMs += dur;
+      log('worker_job_complete', {
+        jobId,
+        attempts: claimed.attempts,
+        durationMs: dur,
+        queue: claimed.queue,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       // Truncate to ~4k to fit error column expectations
       const truncated = message.slice(0, 4000);
       await jq.fail({ id: jobId, leaseToken, error: truncated });
+      metrics.jobsFailed += 1;
+      log('worker_job_fail', { jobId, attempts: claimed.attempts, error: truncated });
     } finally {
       clearInterval(hb);
     }
@@ -299,6 +320,32 @@ export async function startEmbeddingWorker(
     );
   }
 
+  // Periodic metrics logger
+  const metricsInterval = Number(
+    options.metricsIntervalMs ??
+      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
+        'WORKER_METRICS_INTERVAL_MS'
+      ] ??
+      30000
+  );
+  const metricsTimer = setInterval(
+    () => {
+      if (!running) return;
+      const uptimeMs = Date.now() - metrics.startedAt;
+      const avgMs = metrics.jobsProcessed > 0 ? metrics.totalDurationMs / metrics.jobsProcessed : 0;
+      log('worker_metrics', {
+        uptimeMs,
+        processed: metrics.jobsProcessed,
+        failed: metrics.jobsFailed,
+        avgDurationMs: Math.round(avgMs),
+        concurrency,
+        queue: queueName,
+        modelKey,
+      });
+    },
+    Math.max(5000, metricsInterval)
+  );
+
   return {
     stop: async () => {
       running = false;
@@ -308,6 +355,7 @@ export async function startEmbeddingWorker(
       } catch {
         // ignore
       }
+      clearInterval(metricsTimer);
     },
   };
 }

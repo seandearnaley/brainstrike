@@ -12,9 +12,9 @@ vi.mock('electron', async () => {
   const ipcMain = electronUtils.createIpcMainMock();
   const ipcRenderer = electronUtils.createIpcRendererMock();
   // Wire renderer invokes to main handlers for convenience
-  (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke.mockImplementation(
-    async (channel: string, ...args: unknown[]) =>
-      (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
+  const mockInvoke = (ipcRenderer as unknown as ReturnType<typeof createIpcRendererMock>).invoke;
+  mockInvoke.mockImplementation(async (channel: string, ...args: unknown[]) =>
+    (ipcMain as unknown as ReturnType<typeof createIpcMainMock>).__invoke(channel, ...args)
   );
   return {
     app,
