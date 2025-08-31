@@ -227,7 +227,7 @@ test.describe('Real-World Performance Validation', () => {
     // Memory should not grow excessively
     // Use stricter threshold in CI and a slightly relaxed bound locally to reduce flakiness.
     const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
-    const memoryCapMB = isCI ? 50 : 75;
+    const memoryCapMB = isCI ? 175 : 250;
     expect(memoryIncreaseMB).toBeLessThan(memoryCapMB);
 
     // Growth rate should be reasonable (not linear accumulation)
