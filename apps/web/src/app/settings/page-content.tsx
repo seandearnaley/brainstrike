@@ -1,4 +1,8 @@
-import { SettingsPageContent as BaseSettingsPageContent, QueueHud } from '@brainstrike/app-shell';
+import {
+  SettingsPageContent as BaseSettingsPageContent,
+  QueueHud,
+  VectorStatus,
+} from '@brainstrike/app-shell';
 import { usePGliteDatabase } from '@brainstrike/db';
 import { Badge, Button } from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';
@@ -30,6 +34,7 @@ export default function SettingsPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <WebWorkerControls />
             <QueueHud />
+            <VectorStatus />
           </div>
         </div>
       </BaseSettingsPageContent>

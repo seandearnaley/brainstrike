@@ -518,6 +518,28 @@ export class FileChunkRepository {
     return stats;
   }
 
+  /**
+   * Coverage for a specific embedding set.
+   * Returns counts for all chunks and chunks that have embeddings for the given set id.
+   */
+  async getCoverageForSet(embeddingSetId: string): Promise<{
+    totalChunks: number;
+    chunksWithEmbeddingsForSet: number;
+  }> {
+    if (!embeddingSetId) throw new Error('embeddingSetId is required');
+    const totalRes = await this.db.query<{ count: string }>(
+      'SELECT COUNT(*)::text as count FROM file_chunks'
+    );
+    const withSetRes = await this.db.query<{ count: string }>(
+      'SELECT COUNT(*)::text as count FROM file_chunks WHERE embedding_set_id = $1',
+      [embeddingSetId]
+    );
+    return {
+      totalChunks: Number(totalRes.rows[0]?.count ?? 0),
+      chunksWithEmbeddingsForSet: Number(withSetRes.rows[0]?.count ?? 0),
+    };
+  }
+
   async clearAll(): Promise<number> {
     const countResult = await this.db.query('SELECT COUNT(*) as count FROM file_chunks');
     const countRow = countResult.rows[0];

@@ -13,6 +13,7 @@ import { Brain, Database, FileText, Search } from 'lucide-react';
 import { DatabaseDemoPanel } from './database-demo-panel';
 import { EmbeddingsPanel } from './embeddings-panel';
 import { QueueHud } from './queue-hud';
+import { VectorStatusWithDb } from './vector-status';
 
 export function RightPanel() {
   return (
@@ -101,6 +102,7 @@ export function RightPanel() {
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <div className="space-y-2">
+              <VectorStatusWithDb />
               <QueueHud />
               <DatabaseDemoPanel />
             </div>

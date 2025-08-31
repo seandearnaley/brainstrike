@@ -10,7 +10,17 @@ vi.mock('@brainstrike/db', () => ({
   useFileChunkRepository: () => null,
   useClearAllData: () => null,
   useDbProviderError: () => null,
+  useVectorEnabled: () => false,
 }));
+
+// Mock embeddings device helper to avoid module resolution issues in tests
+vi.mock('@brainstrike/embeddings', async () => {
+  const actual = await vi.importActual<object>('@brainstrike/embeddings');
+  return {
+    ...(actual as object),
+    TransformersBackend: { getBestDevice: () => 'cpu' },
+  };
+});
 
 // Mock the UI toast functionality
 vi.mock('@brainstrike/ui', async () => {
