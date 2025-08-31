@@ -573,3 +573,40 @@ type Job = {
 * **Vector ext missing** → client-side cosine fallback (Phase 1).
 * **Param limits** → batched insertMany (Phase 0).
 * **Chunk explosion** → improved rules + streaming (Phase 5).
+
+---
+
+## Appendix — Web vs. Desktop Vector Support (pgvector vs. compute)
+
+Why the web often shows pgvector: off while desktop shows on — and what that means.
+
+- Compute vs DB vectors:
+  - Compute (transformers.js + WebGPU/CPU): used by the worker to generate embeddings. This runs in both desktop and web and uses your GPU when available.
+  - DB vectors (pgvector in PGlite): enables SQL similarity search (e.g., `embedding <=> $query`) with server-side ranking/thresholds. The Vector Status “pgvector” badge reflects this capability only.
+
+- Defaults by app:
+  - Desktop: requires pgvector and verifies the extension at boot. SQL search path is used for performance and determinism.
+  - Web: pgvector is optional and defaults to off to keep bundles smaller and boot faster. Search falls back to client-side cosine in JS with set scoping and dimension validation.
+
+- Why web defaults to off:
+  - Bundle/boot cost: shipping the pgvector extension and larger WASM increases initial load time.
+  - Practical gain: at current data sizes, the robust client fallback is sufficient. HNSW/IVF-style indexing is limited in PGlite WASM today.
+  - Reliability: defaulting to the fallback reduces CI/test flakiness.
+
+- Enabling pgvector in web (optional):
+  1) Ensure the pgvector extension module is bundled and not externalized by Vite.
+     - Dependency: `@electric-sql/pglite/vector` must be resolvable at runtime.
+     - Avoid setting `DISABLE_VECTOR_EXTENSION=true` in web builds.
+  2) Optional strict mode flags (fail fast if unavailable):
+     - `REQUIRE_PGVECTOR=true` or `LOCAL_FIRST_DB=true` or `PGLITE_EXPECTED=true` to require the extension.
+     - In tests only: `REQUIRE_PGVECTOR_TEST=true`.
+  3) Smoke check: open Right Panel → DB tab and confirm the Vector Status badge shows `pgvector: on`; searches use the SQL path and require an active embedding set.
+
+- What still works when pgvector is off:
+  - Embedding generation (transformers.js + WebGPU/CPU) is unchanged.
+  - Search uses client-side cosine with the same API and results normalized to [0,1], and respects the selected embedding set.
+
+Related code:
+- WASM/vector loader logic and strict-mode flags: `packages/db/src/wasm-loader.ts`
+- Vector Status panel and set selector: `packages/app-shell/src/vector-status.tsx`
+- Default set scoping in search: `packages/app-shell/src/database-demo/hooks/use-search-functionality.ts`

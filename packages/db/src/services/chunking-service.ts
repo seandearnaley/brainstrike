@@ -90,10 +90,8 @@ export class ChunkingService {
     }
 
     // Check if we should skip this file
-    console.log('[CHUNKING DEBUG] Checking if file should be skipped');
     const skipResult = this.shouldSkipChunking(content, options);
     if (skipResult.skip) {
-      console.log(`[CHUNKING DEBUG] File will be skipped: ${skipResult.reason}`);
       return {
         chunks: [],
         totalTokens: 0,
@@ -105,14 +103,12 @@ export class ChunkingService {
 
     const { strategy } = options;
     if (strategy !== 'sentence' && strategy !== 'token' && strategy !== 'recursive') {
-      console.error(`[CHUNKING DEBUG] Unsupported chunking strategy: ${String(strategy)}`);
+      logger.error(`Unsupported chunking strategy: ${String(strategy)}`);
       throw new Error(`Unsupported chunking strategy: ${String(strategy)}`);
     }
-    console.log(`[CHUNKING DEBUG] Using strategy: ${strategy}`);
 
     // Adjust chunking parameters based on file type and size
     const adjustedOptions = this.adjustChunkingForFileType(content, options);
-    console.log('[CHUNKING DEBUG] Adjusted options:', adjustedOptions);
 
     // Collect by iterating the streaming API to minimize additional memory
     const chunks: FileChunkInsert[] = [];

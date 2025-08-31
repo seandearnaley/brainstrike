@@ -1,6 +1,8 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { Badge } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { getActiveEmbeddingSetId } from '../../vector-preferences';
 import { formatDate } from '../utils/format';
 
 interface ChunksViewProps {
@@ -9,6 +11,17 @@ interface ChunksViewProps {
 }
 
 export function ChunksView({ chunks, records }: ChunksViewProps) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const activeSetId = useMemo(() => getActiveEmbeddingSetId(), []);
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
   if (chunks.length === 0) {
     return (
       <div className="text-center text-sm text-muted-foreground">
@@ -29,10 +42,19 @@ export function ChunksView({ chunks, records }: ChunksViewProps) {
               <Badge variant="secondary" className="text-xs">
                 {chunk.tokenCount} tokens
               </Badge>
-              {chunk.embedding && (
+              {chunk.embedding && chunk.embeddingSetId === activeSetId ? (
                 <Badge variant="default" className="text-xs">
                   <Brain className="h-2 w-2 mr-1" />
-                  embedded
+                  embedded (selected set)
+                </Badge>
+              ) : chunk.embedding ? (
+                <Badge variant="outline" className="text-xs">
+                  <Brain className="h-2 w-2 mr-1" />
+                  embedded (other set)
+                </Badge>
+              ) : (
+                <Badge variant="outline" className="text-xs">
+                  no embedding
                 </Badge>
               )}
             </div>
@@ -45,6 +67,24 @@ export function ChunksView({ chunks, records }: ChunksViewProps) {
           <div className="text-xs text-muted-foreground">
             File: {records.find((r) => r.id === chunk.fileRecordId)?.name || 'Unknown'}
           </div>
+          {chunk.embedding && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => toggle(chunk.id)}
+                className="text-[11px] underline text-blue-600"
+              >
+                {expanded.has(chunk.id) ? 'Hide vector' : 'View vector'}
+              </button>
+              {expanded.has(chunk.id) && (
+                <pre className="mt-2 max-h-32 overflow-auto text-[10px] bg-muted p-2 rounded">
+                  {`[${chunk.embedding.slice(0, 32).join(', ')}${
+                    chunk.embedding.length > 32 ? ', …' : ''
+                  }] (${chunk.embedding.length} dims)`}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
       ))}
     </div>

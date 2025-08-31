@@ -531,7 +531,7 @@ export class FileChunkRepository {
       'SELECT COUNT(*)::text as count FROM file_chunks'
     );
     const withSetRes = await this.db.query<{ count: string }>(
-      'SELECT COUNT(*)::text as count FROM file_chunks WHERE embedding_set_id = $1',
+      'SELECT COUNT(*)::text as count FROM file_chunks WHERE embedding_set_id = $1 AND embedding IS NOT NULL',
       [embeddingSetId]
     );
     return {

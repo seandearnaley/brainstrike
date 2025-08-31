@@ -136,8 +136,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       );
 
       if (!cancelled.value) {
+        // Expose a minimal DB interface through the context for components/utilities
+        // that operate on IDatabase (query/exec). Cast to PGlite to satisfy typing.
+        dbRef.current = { query: electronDB.query, exec: electronDB.exec } as unknown as PGlite;
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
       }

@@ -241,6 +241,17 @@ export function DatabaseDemoPanel() {
     }
   }, [repository, chunkRepository, loadRecords, loadChunks, testDatabaseConnection]);
 
+  // Auto-refresh chunks when queue drains for embeddings
+  useEffect(() => {
+    const handler = () => {
+      if (chunkRepository) void loadChunks();
+    };
+    window.addEventListener('brainstrike:queue-drained', handler as EventListener);
+    return () => {
+      window.removeEventListener('brainstrike:queue-drained', handler as EventListener);
+    };
+  }, [chunkRepository, loadChunks]);
+
   // Event handlers
   const handleImportClick = useCallback(() => {
     if (selectedFilePaths.size === 0) {

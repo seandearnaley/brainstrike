@@ -98,20 +98,27 @@ async function updateChunkEmbedding(
   id: string,
   embedding: number[],
   embeddingSetId: string,
-  embeddingHash: string
+  embeddingHash: string,
+  vectorEnabled: boolean
 ) {
   const now = new Date().toISOString();
   const vectorString = `[${embedding.join(',')}]`;
-  await db.query(
-    `UPDATE file_chunks SET
-       embedding = $1,
-       embedding_set_id = $2,
-       embedding_updated_at = $3,
-       embedding_hash = $4,
-       updated_at = $3
-     WHERE id = $5`,
-    [vectorString, embeddingSetId, now, embeddingHash, id]
-  );
+  const sql = vectorEnabled
+    ? `UPDATE file_chunks SET
+         embedding = $1::vector,
+         embedding_set_id = $2,
+         embedding_updated_at = $3,
+         embedding_hash = $4,
+         updated_at = $3
+       WHERE id = $5`
+    : `UPDATE file_chunks SET
+         embedding = $1,
+         embedding_set_id = $2,
+         embedding_updated_at = $3,
+         embedding_hash = $4,
+         updated_at = $3
+       WHERE id = $5`;
+  await db.query(sql, [vectorString, embeddingSetId, now, embeddingHash, id]);
 }
 
 function resolveModelKey(fromOptions?: string): string {
@@ -215,6 +222,17 @@ export async function startEmbeddingWorker(
   const jq = new JobQueue(options.db);
   let running = true;
 
+  // Detect pgvector availability once for write path
+  let vectorEnabledForWrites = false;
+  try {
+    const res = await options.db.query<{ one: number }>(
+      "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
+    );
+    vectorEnabledForWrites = Array.isArray(res.rows) && res.rows.length > 0;
+  } catch {
+    vectorEnabledForWrites = false;
+  }
+
   // Lightweight metrics for observability
   const metrics = {
     startedAt: Date.now(),
@@ -260,7 +278,14 @@ export async function startEmbeddingWorker(
     }
 
     const result = await validateAndGenerateEmbedding(chunk);
-    await updateChunkEmbedding(options.db, chunk.id, result.embedding, targetSetId, expectedHash);
+    await updateChunkEmbedding(
+      options.db,
+      chunk.id,
+      result.embedding,
+      targetSetId,
+      expectedHash,
+      vectorEnabledForWrites
+    );
     await jq.complete({ id: claimed.id, leaseToken });
   }
 

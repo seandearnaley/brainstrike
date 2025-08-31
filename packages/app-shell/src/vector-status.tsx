@@ -8,6 +8,7 @@ import {
 import { TransformersBackend } from '@brainstrike/embeddings';
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -19,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@brainstrike/ui';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { setActiveEmbeddingSetId } from './vector-preferences';
 
 type Coverage = { total: number; withSet: number };
 
@@ -75,7 +77,7 @@ function useActiveEmbeddingSet() {
 
   // Persist selection
   useEffect(() => {
-    if (activeId) localStorage.setItem('brainstrike.activeEmbeddingSetId', activeId);
+    setActiveEmbeddingSetId(activeId ?? null);
   }, [activeId]);
 
   const active = useMemo(() => sets.find((s) => s.id === activeId) ?? null, [sets, activeId]);
@@ -97,9 +99,96 @@ export function VectorStatusWithDb() {
   });
   const [throughput, setThroughput] = useState<number>(0);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(
+    null
+  );
+  // Track queue busy state across polls for auto-refresh event
+  const busyRef = useRef(false);
 
   // Derive device (best-effort)
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
+
+  // Local helper (not a hook): batched enqueue with progress
+  const enqueueBackfillLocal = async (
+    dbRef: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+    jq: JobQueue,
+    rows: Array<{ id: string; fileRecordId: string; contentHash: string }>,
+    setId: string,
+    onProgress: (done: number, total: number) => void
+  ) => {
+    const total = rows.length;
+    let done = 0;
+    onProgress(done, total);
+    const Batch = 500;
+    await dbRef.query('BEGIN');
+    for (let i = 0; i < total; i++) {
+      const row = rows[i];
+      if (!row) break;
+      const dedupe = `${row.id}:${setId}:${row.contentHash}`;
+      await jq.enqueue({
+        queue: 'embeddings',
+        jobType: 'embed_chunk',
+        payload: {
+          chunkId: String(row.id),
+          fileRecordId: String(row.fileRecordId),
+          embeddingSetId: setId,
+        },
+        dedupeKey: dedupe,
+      });
+      done += 1;
+      if (done % 50 === 0) onProgress(done, total);
+      if (i > 0 && i % Batch === 0) {
+        await dbRef.query('COMMIT');
+        await dbRef.query('BEGIN');
+      }
+    }
+    await dbRef.query('COMMIT');
+  };
+
+  const backfillActiveSet = useCallback(async () => {
+    if (!db || !activeId) return;
+    setBackfilling(true);
+    setBackfillProgress(null);
+    try {
+      const jq = new JobQueue(db);
+      // Get candidates and enqueue in batches with progress updates
+      const res = await db.query<{
+        id: string;
+        fileRecordId: string;
+        contentHash: string;
+      }>(
+        `SELECT c.id,
+                c.file_record_id AS "fileRecordId",
+                c.content_hash   AS "contentHash"
+         FROM file_chunks c
+         WHERE c.embedding_set_id IS DISTINCT FROM $1
+           AND NOT EXISTS (
+             SELECT 1 FROM job_queue j
+              WHERE j.queue = 'embeddings'
+                AND j.state IN ('queued','running')
+                AND j.dedupe_key = (c.id || ':' || $1 || ':' || c.content_hash)
+           )`,
+        [activeId]
+      );
+      await enqueueBackfillLocal(db, jq, res.rows, activeId, (d, t) =>
+        setBackfillProgress({ done: d, total: t })
+      );
+      const s = (await jq.getQueueStats('embeddings'))[0];
+      if (s)
+        setQueueCounts({
+          queued: s.queued,
+          running: s.running,
+          failed: s.failed,
+          succeeded: s.succeeded,
+        });
+    } catch {
+      // ignore
+    } finally {
+      setBackfilling(false);
+      setTimeout(() => setBackfillProgress(null), 1000);
+    }
+  }, [db, activeId]);
 
   useEffect(() => {
     let canceled = false;
@@ -115,16 +204,29 @@ export function VectorStatusWithDb() {
         setCoverage({ total: cov.totalChunks, withSet: cov.chunksWithEmbeddingsForSet });
     };
 
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Minimal event logic; further splitting would reduce readability.
     const fetchQueue = async () => {
       const stats = await jq.getQueueStats('embeddings');
       const s = stats[0];
-      if (!canceled && s)
+      if (!canceled && s) {
         setQueueCounts({
           queued: s.queued,
           running: s.running,
           failed: s.failed,
           succeeded: s.succeeded,
         });
+        const isBusy = (s.queued ?? 0) > 0 || (s.running ?? 0) > 0;
+        if (!isBusy && busyRef.current) {
+          try {
+            window.dispatchEvent(
+              new CustomEvent('brainstrike:queue-drained', {
+                detail: { queue: 'embeddings', embeddingSetId: activeId },
+              })
+            );
+          } catch {}
+        }
+        busyRef.current = isBusy;
+      }
     };
 
     const fetchThroughput = async () => {
@@ -194,7 +296,7 @@ export function VectorStatusWithDb() {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Active Set
+              Embedding Set (search/backfill)
             </Label>
             <div className="flex items-center gap-2">
               <Select
@@ -213,6 +315,19 @@ export function VectorStatusWithDb() {
                   ))}
                 </SelectContent>
               </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!activeId || !db || backfilling}
+                onClick={() => void backfillActiveSet()}
+                title="Enqueue jobs for chunks missing embeddings for the active set"
+              >
+                {backfilling
+                  ? backfillProgress
+                    ? `Backfilling… (${backfillProgress.done}/${backfillProgress.total})`
+                    : 'Backfilling…'
+                  : 'Backfill Active Set'}
+              </Button>
             </div>
             {active && (
               <div className="text-muted-foreground">
@@ -238,7 +353,7 @@ export function VectorStatusWithDb() {
         <div className="grid grid-cols-3 gap-3 pt-1">
           <div>
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Coverage
+              Coverage (selected set)
             </div>
             <div>
               <strong>{coverage.withSet}</strong>

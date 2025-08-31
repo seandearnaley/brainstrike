@@ -49,3 +49,25 @@ This document summarizes the review feedback addressed prior to Phase 4 and the 
 - Implement the embedding worker using the updated `claim()`/`fail()` discipline and heartbeat model.
 - Use the transactional enqueue path when chunking to ensure crash‑safe hand‑offs between chunk insert and job creation.
 
+## Phase 6 — UI/API Integration (progress)
+
+- Added Vector Status panel (App Shell) with:
+  - pgvector/worker badges, device, active embedding set selector, coverage x/y, throughput (60s), and last error.
+  - Safe fallback rendering without DbProvider for tests and shallow mounts.
+- Active embedding set selection persists to localStorage and is used as the default `embeddingSetId` for search.
+- Search hook now scopes queries by the selected set when available and surfaces a targeted error toast if a set is required.
+
+Files:
+- packages/app-shell/src/vector-status.tsx
+- packages/app-shell/src/vector-preferences.ts
+- packages/app-shell/src/database-demo/hooks/use-search-functionality.ts
+- packages/db/src/repositories/file-chunk-repository.ts (coverage helper)
+- packages/db/src/index.ts (DTO exports)
+
+Validation:
+- App Shell tests: 164/164 passing
+- Web unit tests: passing; Vector Status uses safe fallback in settings
+
+Next:
+- Wire active set into all search entry points in the web/desktop UIs
+- Optional: model selector + web worker bootstrap binding
