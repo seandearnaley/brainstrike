@@ -19,6 +19,9 @@ export type EmbeddingWorkerOptions = {
   service?: EmbeddingService; // optional DI for tests or custom backends
   metricsIntervalMs?: number; // optional metrics log interval; default env or 30000
   enable?: boolean; // explicit runtime toggle; overrides env flag
+  device?: 'webgpu' | 'wasm' | 'cpu'; // preferred device for transformers backend
+  reinitEveryN?: number; // reinitialize service every N successes (default from env or 200)
+  forceCpuAfterFailures?: number; // switch to CPU after consecutive failures (default 3)
 };
 
 export type EmbeddingWorkerController = {
@@ -163,7 +166,7 @@ async function initializeEmbeddingService(
     // Initialize with the requested model key
     const simpleService = service as SimpleEmbeddingService;
     if (typeof simpleService.initializeWithModel === 'function') {
-      await simpleService.initializeWithModel(modelKey);
+      await simpleService.initializeWithModel(modelKey, undefined, options.device);
     } else {
       await service.initialize?.({}, undefined);
     }
@@ -213,7 +216,7 @@ export async function startEmbeddingWorker(
     return { stop: async () => {} };
   }
 
-  const { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
+  let { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
 
   const embeddingSetId = await getOrCreateEmbeddingSet(
     options.db,
@@ -244,6 +247,34 @@ export async function startEmbeddingWorker(
     jobsFailed: 0,
     totalDurationMs: 0,
   };
+
+  // Stability controls
+  let processedSinceInit = 0;
+  let consecutiveFailures = 0;
+  const reinitEveryN = Number(
+    options.reinitEveryN ??
+      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
+        'EMBED_REINIT_EVERY'
+      ] ??
+      200
+  );
+  const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
+
+  async function resetService(forceCpu = false) {
+    try {
+      await service.dispose();
+    } catch {}
+    // Reinitialize service
+    const device = forceCpu ? 'cpu' : options.device;
+    const s = new SimpleEmbeddingService();
+    await s.initializeWithModel(modelKey, undefined, device);
+    service = s;
+    // Refresh modelConfig in case anything changed
+    const cfg = SimpleEmbeddingService.getModelConfig(modelKey);
+    if (cfg) modelConfig = cfg;
+    processedSinceInit = 0;
+    consecutiveFailures = 0;
+  }
 
   type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
 
@@ -310,6 +341,12 @@ export async function startEmbeddingWorker(
       const dur = Date.now() - jobStart;
       metrics.jobsProcessed += 1;
       metrics.totalDurationMs += dur;
+      processedSinceInit += 1;
+      consecutiveFailures = 0;
+      if (reinitEveryN > 0 && processedSinceInit >= reinitEveryN) {
+        // Periodic re-init to release native resources (WebGPU/WASM)
+        await resetService(false);
+      }
       log('worker_job_complete', {
         jobId,
         attempts: claimed.attempts,
@@ -322,6 +359,14 @@ export async function startEmbeddingWorker(
       const truncated = message.slice(0, 4000);
       await jq.fail({ id: jobId, leaseToken, error: truncated });
       metrics.jobsFailed += 1;
+      consecutiveFailures += 1;
+      // If repeated model execution errors occur, force CPU re-init
+      const looksLikeModelExecError =
+        /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
+      if (consecutiveFailures >= forceCpuAfterFailures && looksLikeModelExecError) {
+        log('worker_reset_service', { reason: 'consecutive_failures', consecutiveFailures });
+        await resetService(true);
+      }
       log('worker_job_fail', { jobId, attempts: claimed.attempts, error: truncated });
     } finally {
       clearInterval(hb);
@@ -336,6 +381,8 @@ export async function startEmbeddingWorker(
     }
 
     await handleClaimedJob(claimed);
+    // Small yield to let GC/native resources settle
+    await sleep(5);
   }
 
   const loops: Promise<void>[] = [];

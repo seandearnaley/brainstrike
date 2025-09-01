@@ -8,9 +8,40 @@ import { formatDate } from '../utils/format';
 interface ChunksViewProps {
   chunks: FileChunk[];
   records: FileRecord[];
+  pendingChunkIds?: Set<string>;
 }
 
-export function ChunksView({ chunks, records }: ChunksViewProps) {
+function getEmbeddingBadge(chunk: FileChunk, activeSetId: string | null, isPending: boolean) {
+  if (isPending) {
+    return (
+      <Badge variant="secondary" className="text-xs">
+        <Brain className="h-2 w-2 mr-1" />
+        <span>embedding pending</span>
+      </Badge>
+    );
+  }
+
+  if (!chunk.embedding) {
+    return (
+      <Badge variant="outline" className="text-xs">
+        no embedding
+      </Badge>
+    );
+  }
+
+  const isActiveSet = chunk.embeddingSetId === activeSetId;
+  return (
+    <Badge variant={isActiveSet ? 'default' : 'outline'} className="text-xs">
+      <Brain className="h-2 w-2 mr-1" />
+      <span>embedded</span>
+      <span aria-hidden="true" className="ml-1 opacity-70">
+        ({isActiveSet ? 'selected set' : 'other set'})
+      </span>
+    </Badge>
+  );
+}
+
+export function ChunksView({ chunks, records, pendingChunkIds }: ChunksViewProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const activeSetId = useMemo(() => getActiveEmbeddingSetId(), []);
 
@@ -42,27 +73,7 @@ export function ChunksView({ chunks, records }: ChunksViewProps) {
               <Badge variant="secondary" className="text-xs">
                 {chunk.tokenCount} tokens
               </Badge>
-              {chunk.embedding && chunk.embeddingSetId === activeSetId ? (
-                <Badge variant="default" className="text-xs">
-                  <Brain className="h-2 w-2 mr-1" />
-                  <span>embedded</span>
-                  <span aria-hidden="true" className="ml-1 opacity-70">
-                    (selected set)
-                  </span>
-                </Badge>
-              ) : chunk.embedding ? (
-                <Badge variant="outline" className="text-xs">
-                  <Brain className="h-2 w-2 mr-1" />
-                  <span>embedded</span>
-                  <span aria-hidden="true" className="ml-1 opacity-70">
-                    (other set)
-                  </span>
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-xs">
-                  no embedding
-                </Badge>
-              )}
+              {getEmbeddingBadge(chunk, activeSetId, pendingChunkIds?.has(chunk.id) ?? false)}
             </div>
             <div className="text-xs text-muted-foreground">{formatDate(chunk.createdAt)}</div>
           </div>

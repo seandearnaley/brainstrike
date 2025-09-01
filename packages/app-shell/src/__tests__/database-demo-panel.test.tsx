@@ -794,8 +794,11 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAll.mockResolvedValue([]);
       mockChunkRepository.findAll.mockResolvedValue([]);
 
-      // Mock empty search results
-      mockEmbeddingService.search.mockResolvedValue([]);
+      // Use the primary path: embed query then repository vector search
+      mockEmbeddingService.generateEmbedding.mockResolvedValue({
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+      });
+      mockChunkRepository.searchSimilar.mockResolvedValue([]);
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);

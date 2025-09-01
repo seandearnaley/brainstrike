@@ -9,9 +9,9 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { EnhancedImportProgress, EnhancedImportResult } from '@brainstrike/file-import';
 import { processChunking, processEmbeddings } from '@brainstrike/file-import';
 import type { IFileNode } from '@brainstrike/types';
-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileImportService } from './base-file-import-service';
+import { getActiveEmbeddingSetId } from './vector-preferences';
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -71,6 +71,8 @@ export function useEnhancedFileImportService(
 
   const baseImportService = useFileImportService({
     onProgress: (progress) => {
+      // Bubble progress up so callers can toggle UI (e.g., showImportProgress)
+      options.onProgress?.(progress as unknown as EnhancedImportProgress);
       setProgress((prev) =>
         prev
           ? {
@@ -148,13 +150,30 @@ export function useEnhancedFileImportService(
                 enableEmbedding: options.enableEmbedding,
               }),
               processEmbeddings: async (chunks, result) => {
+                // Prefer the active set's model key if available to avoid dimension mismatches
+                let inlineModelKey = options.embeddingModel;
+                try {
+                  const activeSetId = getActiveEmbeddingSetId();
+                  if (db && activeSetId) {
+                    const res = await db.query<{ modelKey: string }>(
+                      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+                      [activeSetId]
+                    );
+                    if (res.rows[0]?.modelKey) inlineModelKey = res.rows[0].modelKey;
+                  }
+                } catch {
+                  // ignore, fallback to provided embeddingModel
+                }
+
                 await processEmbeddings(
                   chunks,
                   result,
                   chunkRepository,
                   embeddingService,
-                  options.embeddingModel,
-                  setProgress
+                  inlineModelKey,
+                  setProgress,
+                  // Attach inline embeddings to the currently active set (if any)
+                  getActiveEmbeddingSetId() ?? undefined
                 );
               },
             }
@@ -186,6 +205,8 @@ export function useEnhancedFileImportService(
       };
 
       setProgress(initialProgress);
+      // Ensure UI can react immediately (e.g., show progress panel)
+      options.onProgress?.(initialProgress);
 
       try {
         await baseImportService.importFiles(selectedFilePaths, fileTree, fileContents);

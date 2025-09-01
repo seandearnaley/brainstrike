@@ -1,5 +1,10 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { useClearAllData, useDbProviderError, useFileRecordRepository } from '@brainstrike/db';
+import {
+  useClearAllData,
+  useDbProviderError,
+  useFileRecordRepository,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
@@ -32,6 +37,7 @@ import {
   ViewSelector,
 } from './database-demo';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
+import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
@@ -62,6 +68,8 @@ export function DatabaseDemoPanel() {
     testResult: string;
     connected: boolean;
   } | null>(null);
+  const [pendingChunkIds, setPendingChunkIds] = useState<Set<string>>(new Set());
+  const db = usePGliteDatabase();
 
   // Custom hooks
   const importSettings = useImportSettings();
@@ -161,6 +169,36 @@ export function DatabaseDemoPanel() {
       setChunks([]);
     }
   }, [chunkRepository, toast]);
+
+  // Poll queued/running jobs to mark pending chunks for the active set
+  useEffect(() => {
+    let canceled = false;
+    if (!db) return;
+    const activeSetId = getActiveEmbeddingSetId() ?? null;
+    if (!activeSetId) return;
+    const fetchPending = async () => {
+      try {
+        const res = await db.query<{ dedupeKey: string | null }>(
+          "SELECT dedupe_key AS \"dedupeKey\" FROM job_queue WHERE queue = 'embeddings' AND state IN ('queued','running')"
+        );
+        const ids = new Set(
+          res.rows
+            .map((r) => (r.dedupeKey ?? '').split(':'))
+            .filter((p) => p.length >= 2 && p[1] === activeSetId && p[0])
+            .map((p) => p[0] as string)
+        );
+        if (!canceled) setPendingChunkIds(ids);
+      } catch {
+        // ignore HUD errors
+      }
+    };
+    void fetchPending();
+    const id = setInterval(fetchPending, 2000);
+    return () => {
+      canceled = true;
+      clearInterval(id);
+    };
+  }, [db]);
 
   const testDatabaseConnection = useCallback(async () => {
     if (!repository) {
@@ -453,8 +491,6 @@ export function DatabaseDemoPanel() {
 
         <ExportButtons records={records} chunks={chunks} exportHandlers={exportHandlers} />
 
-        {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
-
         {showImportProgress && progress && (
           <div className="mt-4">
             <ImportProgressDisplay
@@ -463,6 +499,8 @@ export function DatabaseDemoPanel() {
             />
           </div>
         )}
+
+        {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
       </div>
 
       {/* Content Area */}
@@ -477,7 +515,9 @@ export function DatabaseDemoPanel() {
             />
           )}
 
-          {selectedView === 'chunks' && <ChunksView chunks={chunks} records={records} />}
+          {selectedView === 'chunks' && (
+            <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
+          )}
 
           {selectedView === 'search' && <SearchView searchFunctionality={searchFunctionality} />}
         </div>

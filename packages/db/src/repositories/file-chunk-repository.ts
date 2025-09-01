@@ -366,26 +366,34 @@ export class FileChunkRepository {
       orderExpr = 'embedding <#> $1::vector';
     }
 
+    // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks
+    const overfetchLimit = Math.max(limit * 5, 50);
     const result = await this.db.query(
       `SELECT *, 
         ${similarityExpr} as similarity,
         ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
       FROM file_chunks 
       ${whereClause}
-      AND ${similarityExpr} >= $${paramIndex++}
       ORDER BY ${orderExpr}
       LIMIT $${paramIndex}`,
-      [...params, threshold, limit]
+      [...params, overfetchLimit]
     );
 
-    return result.rows.map((row) => {
+    const mapped = result.rows.map((row) => {
       const searchRow = row as FileChunkSearchRow;
+      const sim = Number.parseFloat(searchRow.similarity);
       return {
         chunk: this.mapRowToChunk(searchRow),
-        similarity: Number.parseFloat(searchRow.similarity),
+        similarity: sim,
         rank: Number.parseInt(searchRow.rank, 10),
-      };
+      } as ChunkSearchResult;
     });
+
+    // Apply threshold in JS and cut to requested limit
+    const filtered = mapped.filter(
+      (r) => Number.isFinite(r.similarity) && r.similarity >= threshold
+    );
+    return filtered.slice(0, limit);
   }
 
   private async searchSimilarClientSide(

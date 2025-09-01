@@ -95,4 +95,5 @@ export interface SearchFunctionality {
   searchThreshold: number;
   setSearchThreshold: (threshold: number) => void;
   handleSearch: () => Promise<void>;
+  hasSearched: boolean;
 }

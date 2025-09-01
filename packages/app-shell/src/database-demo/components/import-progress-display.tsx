@@ -6,9 +6,11 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
     <>
       <ImportProgressComponent progress={progress} onClose={onClose} />
       {progress.phase === 'chunking' && progress.chunkingProgress && (
-        <div className="mt-2 p-2 bg-blue-50 rounded text-xs">
+        <div className="mt-2 p-2 rounded text-xs bg-muted border">
           <div className="flex justify-between items-center">
-            <span>Chunking: {progress.chunkingProgress.currentFile}</span>
+            <span className="text-foreground">
+              Chunking: {progress.chunkingProgress.currentFile}
+            </span>
             <span>
               {progress.chunkingProgress.filesProcessed}/{progress.chunkingProgress.totalFiles}
             </span>
@@ -26,9 +28,11 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
         </div>
       )}
       {progress.phase === 'embedding' && progress.embeddingProgress && (
-        <div className="mt-2 p-2 bg-purple-50 rounded text-xs">
+        <div className="mt-2 p-2 rounded text-xs bg-muted border">
           <div className="flex justify-between items-center">
-            <span>Embedding: {progress.embeddingProgress.currentChunk}</span>
+            <span className="text-foreground">
+              Embedding: {progress.embeddingProgress.currentChunk}
+            </span>
             <span>
               {progress.embeddingProgress.chunksProcessed}/{progress.embeddingProgress.totalChunks}
             </span>

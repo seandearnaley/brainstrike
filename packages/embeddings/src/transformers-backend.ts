@@ -80,6 +80,7 @@ export class TransformersBackend {
   private _pipeline: FeatureExtractionPipeline | null = null;
   private _selectedDevice: string | null = null;
   private _isInitialized = false;
+  private _quantized: boolean | undefined;
 
   /**
    * Initialize the backend with a model configuration
@@ -123,13 +124,29 @@ export class TransformersBackend {
 
     // Add device configuration based on environment
     this._selectedDevice = determineDevice(config.device);
+    this._quantized = config.quantized;
     pipelineConfig.device = this._selectedDevice;
 
-    this._pipeline = await this._transformers.pipeline(
-      'feature-extraction',
-      config.modelId,
-      pipelineConfig
-    );
+    // Try requested device, then gracefully fall back to CPU if creation fails
+    try {
+      this._pipeline = await this._transformers.pipeline(
+        'feature-extraction',
+        config.modelId,
+        pipelineConfig
+      );
+    } catch (err) {
+      // Fallback only if not already on CPU
+      if (this._selectedDevice !== 'cpu') {
+        this._selectedDevice = 'cpu';
+        onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU…' });
+        this._pipeline = await this._transformers.pipeline('feature-extraction', config.modelId, {
+          ...pipelineConfig,
+          device: 'cpu',
+        });
+      } else {
+        throw err;
+      }
+    }
 
     onProgress?.({
       stage: 'ready',
@@ -148,10 +165,21 @@ export class TransformersBackend {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
     // Use the feature extraction pipeline with proper options
-    const output = await this._pipeline(text, {
-      pooling: 'mean',
-      normalize: true,
-    });
+    let output: { data: Float32Array };
+    try {
+      output = await this._pipeline(text, { pooling: 'mean', normalize: true });
+    } catch (err) {
+      // Runtime fallback: if not already on CPU, recreate pipeline on CPU and retry once
+      if (this._transformers && this._selectedDevice !== 'cpu') {
+        this._selectedDevice = 'cpu';
+        const cfg: PipelineConfig = { device: 'cpu' };
+        if (typeof this._quantized === 'boolean') cfg.quantized = this._quantized;
+        this._pipeline = await this._transformers.pipeline('feature-extraction', modelId, cfg);
+        output = await this._pipeline(text, { pooling: 'mean', normalize: true });
+      } else {
+        throw err;
+      }
+    }
 
     // Convert the output to a regular array
     const embedding = Array.from(output.data as Float32Array);

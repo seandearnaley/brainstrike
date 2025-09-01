@@ -39,7 +39,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
    */
   async initializeWithModel(
     modelKey?: string,
-    onProgress?: (progress: EmbeddingProgress) => void
+    onProgress?: (progress: EmbeddingProgress) => void,
+    deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
   ): Promise<void> {
     const key = modelKey || ModelRegistryManager.getDefaultModelKey();
     const modelConfig = ModelRegistryManager.getModel(key);
@@ -50,7 +51,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
     const config: Partial<EmbeddingConfig> = {
       modelId: modelConfig.id,
-      device: this._config.device || 'webgpu',
+      device: deviceOverride || this._config.device || 'webgpu',
       quantized: ModelRegistryManager.shouldQuantize(modelConfig),
     };
 

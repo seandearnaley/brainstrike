@@ -32,7 +32,8 @@
       "Bash(pnpm --filter desktop dev:main)",
       "Bash(pnpm -w run build)",
       "Bash(pnpm biome check:*)",
-      "Bash(pnpm -w type-check --filter=@brainstrike/desktop)"
+      "Bash(pnpm -w type-check --filter=@brainstrike/desktop)",
+      "Bash(pnpm biome format:*)"
     ],
     "deny": [],
     "ask": []

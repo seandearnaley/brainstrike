@@ -9,7 +9,7 @@ export function SearchView({ searchFunctionality }: SearchViewProps) {
   if (searchFunctionality.searchResults.length === 0) {
     return (
       <div className="text-center text-sm text-muted-foreground">
-        {searchFunctionality.searchQuery
+        {searchFunctionality.hasSearched || searchFunctionality.searchQuery
           ? 'No matching chunks found. Try adjusting your search query or threshold.'
           : 'Enter a search query to find similar content.'}
       </div>

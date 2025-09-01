@@ -20,11 +20,175 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { setActiveEmbeddingSetId } from './vector-preferences';
 
 type Coverage = { total: number; withSet: number };
+
+function handleQueueStateChange(
+  stats: { queued?: number; running?: number },
+  busyRef: { current: boolean },
+  activeId: string | null
+) {
+  const isBusy = (stats.queued ?? 0) > 0 || (stats.running ?? 0) > 0;
+  if (!isBusy && busyRef.current) {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:queue-drained', {
+          detail: { queue: 'embeddings', embeddingSetId: activeId },
+        })
+      );
+    } catch {}
+  }
+  busyRef.current = isBusy;
+}
+
+function WorkerControls({
+  db,
+  workerLocalRunning,
+  startingWorker,
+  onStartWorker,
+  onStopWorker,
+  onResetWorker,
+}: {
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>> | null;
+  workerLocalRunning: boolean;
+  startingWorker: boolean;
+  onStartWorker: () => Promise<void>;
+  onStopWorker: () => Promise<void>;
+  onResetWorker: () => Promise<void>;
+}) {
+  if (typeof window === 'undefined' || isElectronRenderer()) {
+    return null;
+  }
+
+  return (
+    <>
+      {!workerLocalRunning ? (
+        <Button
+          size="sm"
+          variant={startingWorker ? 'outline' : 'secondary'}
+          disabled={!db || startingWorker}
+          onClick={onStartWorker}
+          title="Start local embedding worker in this tab"
+        >
+          {startingWorker ? 'Starting…' : 'Start Worker'}
+        </Button>
+      ) : (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onStopWorker}
+          title="Stop local embedding worker"
+        >
+          Stop Worker
+        </Button>
+      )}
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={!db || startingWorker}
+        onClick={onResetWorker}
+        title="Stop and re-initialize the local worker"
+      >
+        Reset worker
+      </Button>
+    </>
+  );
+}
+
+function BackfillButton({
+  activeId,
+  db,
+  backfilling,
+  backfillProgress,
+  workerLocalRunning,
+  onBackfill,
+  hasChunks,
+}: {
+  activeId: string | null;
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>> | null;
+  backfilling: boolean;
+  backfillProgress: { done: number; total: number } | null;
+  workerLocalRunning: boolean;
+  onBackfill: () => void;
+  hasChunks: boolean;
+}) {
+  const isWeb =
+    typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
+  const isDisabled =
+    !activeId || !db || backfilling || (isWeb && !workerLocalRunning) || !hasChunks;
+  const title =
+    isWeb && !workerLocalRunning
+      ? 'Start worker to enable backfill on Web'
+      : !hasChunks
+        ? 'No chunks available to backfill'
+        : 'Enqueue jobs for chunks missing embeddings for the active set';
+
+  return (
+    <Button size="sm" variant="outline" disabled={isDisabled} onClick={onBackfill} title={title}>
+      {backfilling
+        ? backfillProgress
+          ? `Backfilling… (${backfillProgress.done}/${backfillProgress.total})`
+          : 'Backfilling…'
+        : 'Backfill Active Set'}
+    </Button>
+  );
+}
+
+function QueueControls({
+  db,
+  queueCounts,
+  onRetryFailed,
+  onClearQueue,
+}: {
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>> | null;
+  queueCounts: { failed: number };
+  onRetryFailed: () => Promise<void>;
+  onClearQueue: () => Promise<void>;
+}) {
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={!db || queueCounts.failed === 0}
+        onClick={onRetryFailed}
+        title="Requeue the most recent failed jobs (up to 20)"
+      >
+        Retry last 20 failed
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={!db}
+        onClick={onClearQueue}
+        title="Clear failed (and queued if present) items in the embeddings queue"
+      >
+        Clear queue
+      </Button>
+    </>
+  );
+}
+
+function getWorkerStatus(
+  queueEnabled: boolean,
+  queueCounts: { failed: number; running: number },
+  startWorkerError: string | null,
+  startingWorker: boolean,
+  workerLocalRunning: boolean,
+  throughput: number
+): 'disabled' | 'initializing' | 'running' | 'error' {
+  const isWeb =
+    typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
+  if (!queueEnabled) return 'disabled';
+  if (queueCounts.failed > 0 || startWorkerError) return 'error';
+  if (startingWorker) return 'initializing';
+  if (workerLocalRunning || queueCounts.running > 0 || throughput > 0) return 'running';
+  return isWeb ? 'disabled' : 'initializing';
+}
 
 function isQueueEnabled(): boolean {
   try {
@@ -37,6 +201,11 @@ function isQueueEnabled(): boolean {
   } catch {
     return typeof window !== 'undefined';
   }
+}
+function isElectronRenderer(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { electronAPI?: unknown };
+  return !!w.electronAPI;
 }
 
 function useActiveEmbeddingSet() {
@@ -121,12 +290,24 @@ function useActiveEmbeddingSet() {
   return { sets, active, activeId, setActiveId } as const;
 }
 
-export function VectorStatusWithDb() {
-  const vectorEnabled = useVectorEnabled();
-  const db = usePGliteDatabase();
-  const queueEnabled = isQueueEnabled();
-  const { sets, active, activeId, setActiveId } = useActiveEmbeddingSet();
+function useWorkerState() {
+  const workerControllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
+  const [startingWorker, setStartingWorker] = useState(false);
+  const [startWorkerError, setStartWorkerError] = useState<string | null>(null);
 
+  return {
+    workerControllerRef,
+    workerLocalRunning,
+    setWorkerLocalRunning,
+    startingWorker,
+    setStartingWorker,
+    startWorkerError,
+    setStartWorkerError,
+  };
+}
+
+function useQueueState() {
   const [coverage, setCoverage] = useState<Coverage>({ total: 0, withSet: 0 });
   const [queueCounts, setQueueCounts] = useState({
     queued: 0,
@@ -145,11 +326,61 @@ export function VectorStatusWithDb() {
   const [backfillProgress, setBackfillProgress] = useState<{ done: number; total: number } | null>(
     null
   );
-  // Track queue busy state across polls for auto-refresh event
+
+  return {
+    coverage,
+    setCoverage,
+    queueCounts,
+    setQueueCounts,
+    throughput,
+    setThroughput,
+    latencyStats,
+    setLatencyStats,
+    lastError,
+    setLastError,
+    backfilling,
+    setBackfilling,
+    backfillProgress,
+    setBackfillProgress,
+  };
+}
+
+export function VectorStatusWithDb() {
+  const vectorEnabled = useVectorEnabled();
+  const db = usePGliteDatabase();
+  const queueEnabled = isQueueEnabled();
+  const { sets, active, activeId, setActiveId } = useActiveEmbeddingSet();
+  const { toast } = useToast();
+
+  const {
+    coverage,
+    setCoverage,
+    queueCounts,
+    setQueueCounts,
+    throughput,
+    setThroughput,
+    latencyStats,
+    setLatencyStats,
+    lastError,
+    setLastError,
+    backfilling,
+    setBackfilling,
+    backfillProgress,
+    setBackfillProgress,
+  } = useQueueState();
+
+  const {
+    workerControllerRef,
+    workerLocalRunning,
+    setWorkerLocalRunning,
+    startingWorker,
+    setStartingWorker,
+    startWorkerError,
+    setStartWorkerError,
+  } = useWorkerState();
+
   const busyRef = useRef(false);
-  // Local worker controller for Web (avoid in Electron where main manages worker)
-  const workerControllerRef = useRef<EmbeddingWorkerController | null>(null);
-  const [workerLocalRunning, setWorkerLocalRunning] = useState(false);
+  const autoBackfillRef = useRef<string | null>(null);
 
   // Derive device (best-effort)
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
@@ -249,7 +480,6 @@ export function VectorStatusWithDb() {
         setCoverage({ total: cov.totalChunks, withSet: cov.chunksWithEmbeddingsForSet });
     };
 
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Minimal event logic; further splitting would reduce readability.
     const fetchQueue = async () => {
       const stats = await jq.getQueueStats('embeddings');
       const s = stats[0];
@@ -260,17 +490,7 @@ export function VectorStatusWithDb() {
           failed: s.failed,
           succeeded: s.succeeded,
         });
-        const isBusy = (s.queued ?? 0) > 0 || (s.running ?? 0) > 0;
-        if (!isBusy && busyRef.current) {
-          try {
-            window.dispatchEvent(
-              new CustomEvent('brainstrike:queue-drained', {
-                detail: { queue: 'embeddings', embeddingSetId: activeId },
-              })
-            );
-          } catch {}
-        }
-        busyRef.current = isBusy;
+        handleQueueStateChange(s, busyRef, activeId);
       }
     };
 
@@ -344,16 +564,33 @@ export function VectorStatusWithDb() {
     };
   }, [db, activeId, vectorEnabled]);
 
-  // Compute worker status badge
-  const workerStatus: 'disabled' | 'initializing' | 'running' | 'error' = (() => {
-    const isWeb =
-      typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
-    if (!queueEnabled) return 'disabled';
-    if (queueCounts.failed > 0) return 'error';
-    if (workerLocalRunning || queueCounts.running > 0 || throughput > 0) return 'running';
-    // On Web, show 'disabled' until user explicitly starts the local worker
-    return isWeb ? 'disabled' : 'initializing';
-  })();
+  // Auto-backfill when worker is running and a set becomes active but coverage is incomplete
+  useEffect(() => {
+    if (!db || !activeId || backfilling) return;
+    if (!workerLocalRunning) return;
+    if (autoBackfillRef.current === activeId) return;
+    if (coverage.total > 0 && coverage.withSet < coverage.total) {
+      autoBackfillRef.current = activeId;
+      void backfillActiveSet();
+    }
+  }, [
+    db,
+    activeId,
+    backfilling,
+    workerLocalRunning,
+    coverage.total,
+    coverage.withSet,
+    backfillActiveSet,
+  ]);
+
+  const workerStatus = getWorkerStatus(
+    queueEnabled,
+    queueCounts,
+    startWorkerError,
+    startingWorker,
+    workerLocalRunning,
+    throughput
+  );
 
   return (
     <Card className="mb-2">
@@ -401,81 +638,113 @@ export function VectorStatusWithDb() {
                   ))}
                 </SelectContent>
               </Select>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={!activeId || !db || backfilling}
-                onClick={() => void backfillActiveSet()}
-                title="Enqueue jobs for chunks missing embeddings for the active set"
-              >
-                {backfilling
-                  ? backfillProgress
-                    ? `Backfilling… (${backfillProgress.done}/${backfillProgress.total})`
-                    : 'Backfilling…'
-                  : 'Backfill Active Set'}
-              </Button>
-              {/* Web-only worker controls (hidden in Electron where main process owns worker) */}
-              {typeof window !== 'undefined' &&
-                !(window as { electronAPI?: unknown })?.electronAPI &&
-                (!workerLocalRunning ? (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={!db}
-                    onClick={async () => {
-                      if (!db) return;
-                      try {
-                        const ctrl = await startEmbeddingWorker({ db, enable: true });
-                        workerControllerRef.current = ctrl;
-                        setWorkerLocalRunning(true);
-                        // Trigger immediate sets refresh in case this creates the first set
-                        try {
-                          window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
-                        } catch {}
-                        // If a set is already selected, kick off a backfill to create visible activity
-                        try {
-                          if (activeId) await backfillActiveSet();
-                        } catch {}
-                      } catch {
-                        // ignore UI errors; HUD will show last error if any
-                      }
-                    }}
-                    title="Start local embedding worker in this tab"
-                  >
-                    Start Worker
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={async () => {
-                      try {
-                        await workerControllerRef.current?.stop();
-                      } finally {
-                        workerControllerRef.current = null;
-                        setWorkerLocalRunning(false);
-                      }
-                    }}
-                    title="Stop local embedding worker"
-                  >
-                    Stop Worker
-                  </Button>
-                ))}
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={!db || queueCounts.failed === 0}
-                onClick={async () => {
+              <BackfillButton
+                activeId={activeId}
+                db={db}
+                backfilling={backfilling}
+                backfillProgress={backfillProgress}
+                workerLocalRunning={workerLocalRunning}
+                onBackfill={() => void backfillActiveSet()}
+                hasChunks={coverage.total > 0}
+              />
+              <WorkerControls
+                db={db}
+                workerLocalRunning={workerLocalRunning}
+                startingWorker={startingWorker}
+                onStartWorker={async () => {
+                  if (!db) return;
+                  try {
+                    setStartWorkerError(null);
+                    setStartingWorker(true);
+                    const ctrl = await startEmbeddingWorker({
+                      db: db as NonNullable<typeof db>,
+                      enable: true,
+                    });
+                    workerControllerRef.current = ctrl;
+                    setWorkerLocalRunning(true);
+                    try {
+                      window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
+                    } catch {}
+                    try {
+                      if (activeId) await backfillActiveSet();
+                    } catch {}
+                    toast({
+                      title: 'Worker started',
+                      description: 'Local embedding worker is running.',
+                    });
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    setStartWorkerError(msg);
+                    toast({
+                      title: 'Failed to start worker',
+                      description: msg,
+                      variant: 'destructive',
+                    });
+                  } finally {
+                    setStartingWorker(false);
+                  }
+                }}
+                onStopWorker={async () => {
+                  try {
+                    await workerControllerRef.current?.stop();
+                  } finally {
+                    workerControllerRef.current = null;
+                    setWorkerLocalRunning(false);
+                    toast({ title: 'Worker stopped' });
+                  }
+                }}
+                onResetWorker={async () => {
+                  try {
+                    setStartWorkerError(null);
+                    if (workerLocalRunning) {
+                      await workerControllerRef.current?.stop();
+                      workerControllerRef.current = null;
+                      setWorkerLocalRunning(false);
+                    }
+                    setStartingWorker(true);
+                    const ctrl = await startEmbeddingWorker({
+                      db: db as NonNullable<typeof db>,
+                      enable: true,
+                    });
+                    workerControllerRef.current = ctrl;
+                    setWorkerLocalRunning(true);
+                    toast({ title: 'Worker reset', description: 'Model re-initialized.' });
+                  } catch (e) {
+                    const msg = e instanceof Error ? e.message : String(e);
+                    setStartWorkerError(msg);
+                    toast({
+                      title: 'Worker reset failed',
+                      description: msg,
+                      variant: 'destructive',
+                    });
+                  } finally {
+                    setStartingWorker(false);
+                  }
+                }}
+              />
+              <QueueControls
+                db={db}
+                queueCounts={queueCounts}
+                onRetryFailed={async () => {
                   if (!db) return;
                   try {
                     const jq = new JobQueue(db);
                     await jq.requeueFailed('embeddings', 20);
                   } catch {}
                 }}
-                title="Requeue the most recent failed jobs (up to 20)"
-              >
-                Retry last 20 failed
-              </Button>
+                onClearQueue={async () => {
+                  if (!db) return;
+                  try {
+                    const jq = new JobQueue(db);
+                    await jq.clear('embeddings', ['failed']);
+                    const stats = await jq.getQueueStats('embeddings');
+                    const s = stats[0];
+                    if ((s?.queued ?? 0) > 0) {
+                      await jq.clear('embeddings', ['queued']);
+                    }
+                  } catch {}
+                }}
+              />
             </div>
             {active && (
               <div className="text-muted-foreground">
@@ -536,9 +805,12 @@ export function VectorStatusWithDb() {
           </div>
         </div>
 
-        {lastError && (
-          <div className="mt-1 text-[11px] text-red-600 truncate" title={lastError}>
-            Last error: {lastError}
+        {(startWorkerError || lastError) && (
+          <div
+            className="mt-1 text-[11px] text-red-600 truncate"
+            title={startWorkerError ?? lastError ?? undefined}
+          >
+            Last error: {startWorkerError ?? lastError}
           </div>
         )}
       </CardContent>
