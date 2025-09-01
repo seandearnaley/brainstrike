@@ -100,12 +100,10 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
-            <div className="space-y-2">
-              <VectorStatusWithDb />
-              <QueueHud />
-              <DatabaseDemoPanel />
-            </div>
+          <TabsContent value="database" className="flex-1 mt-0 min-h-0 flex flex-col gap-2">
+            <DatabaseDemoPanel />
+            <VectorStatusWithDb />
+            <QueueHud />
           </TabsContent>
         </div>
       </Tabs>

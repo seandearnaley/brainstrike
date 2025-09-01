@@ -57,50 +57,62 @@ export function QueueHud() {
   const s = stats?.[0];
   if (!enabled) return null;
   return (
-    <Card className="mb-2">
-      <CardHeader className="py-2 px-3">
-        <div className="flex items-center gap-2 justify-between">
-          <CardTitle className="text-sm">Queue</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary">embeddings</Badge>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy || !jobQueue}
-              onClick={async () => {
-                if (!jobQueue) return;
-                try {
-                  setBusy(true);
-                  await jobQueue.requeueFailed('embeddings', 20);
-                  const s = await jobQueue.getQueueStats('embeddings');
-                  setStats(s);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            >
-              Retry last 20 failed
-            </Button>
+    <Card>
+      <CardHeader className="py-1.5 px-3 border-b">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="text-xs font-medium">Queue</CardTitle>
+            <Badge variant="secondary" className="text-[9px] py-0 px-1 h-4">
+              embeddings
+            </Badge>
           </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || !jobQueue || (s?.failed ?? 0) === 0}
+            onClick={async () => {
+              if (!jobQueue) return;
+              try {
+                setBusy(true);
+                await jobQueue.requeueFailed('embeddings', 20);
+                const s = await jobQueue.getQueueStats('embeddings');
+                setStats(s);
+              } finally {
+                setBusy(false);
+              }
+            }}
+            className="text-[10px] h-5 px-2"
+            aria-label="Retry failed jobs"
+          >
+            Retry Failed
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="py-2 px-3 text-xs">
-        <div className="flex gap-4">
+        <div className="grid grid-cols-4 gap-3">
           <div>
-            Queued: <strong>{s?.queued ?? 0}</strong>
+            <div className="text-[9px] text-muted-foreground">Queued</div>
+            <div className="text-sm font-semibold">{s?.queued ?? 0}</div>
           </div>
           <div>
-            Running: <strong>{s?.running ?? 0}</strong>
+            <div className="text-[9px] text-muted-foreground">Running</div>
+            <div className="text-sm font-semibold">{s?.running ?? 0}</div>
           </div>
           <div>
-            Failed: <strong>{s?.failed ?? 0}</strong>
+            <div className="text-[9px] text-muted-foreground">Failed</div>
+            <div className="text-sm font-semibold text-destructive">{s?.failed ?? 0}</div>
           </div>
           <div>
-            Succeeded: <strong>{s?.succeeded ?? 0}</strong>
+            <div className="text-[9px] text-muted-foreground">Success</div>
+            <div className="text-sm font-semibold text-green-600 dark:text-green-400">
+              {s?.succeeded ?? 0}
+            </div>
           </div>
         </div>
         {s?.nextRunnableAt && (
-          <div className="text-muted-foreground mt-1">Next run at: {s.nextRunnableAt}</div>
+          <div className="text-[9px] text-muted-foreground mt-2 pt-2 border-t">
+            Next: <span className="font-mono">{s.nextRunnableAt}</span>
+          </div>
         )}
       </CardContent>
     </Card>

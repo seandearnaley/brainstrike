@@ -1,5 +1,5 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
-import { Badge } from '@brainstrike/ui';
+import { Badge, ScrollArea } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { getActiveEmbeddingSetId } from '../../vector-preferences';
@@ -62,48 +62,52 @@ export function ChunksView({ chunks, records, pendingChunkIds }: ChunksViewProps
   }
 
   return (
-    <div className="space-y-2 max-h-full overflow-y-auto">
-      {chunks.map((chunk) => (
-        <div key={chunk.id} className="border rounded p-3">
-          <div className="flex justify-between items-start mb-2">
-            <div className="flex gap-2">
-              <Badge variant="outline" className="text-xs">
-                {chunk.chunkType} #{chunk.chunkIndex}
-              </Badge>
-              <Badge variant="secondary" className="text-xs">
-                {chunk.tokenCount} tokens
-              </Badge>
-              {getEmbeddingBadge(chunk, activeSetId, pendingChunkIds?.has(chunk.id) ?? false)}
+    <ScrollArea className="h-[400px] w-full">
+      <div className="space-y-2 pr-2">
+        {chunks.map((chunk) => (
+          <div key={chunk.id} className="border rounded p-3">
+            <div className="flex justify-between items-start mb-2">
+              <div className="flex gap-2">
+                <Badge variant="outline" className="text-xs">
+                  {chunk.chunkType} #{chunk.chunkIndex}
+                </Badge>
+                <Badge variant="secondary" className="text-xs">
+                  {chunk.tokenCount} tokens
+                </Badge>
+                {getEmbeddingBadge(chunk, activeSetId, pendingChunkIds?.has(chunk.id) ?? false)}
+              </div>
+              <div className="text-xs text-muted-foreground">{formatDate(chunk.createdAt)}</div>
             </div>
-            <div className="text-xs text-muted-foreground">{formatDate(chunk.createdAt)}</div>
-          </div>
-          <div className="text-sm text-muted-foreground mb-2">
-            {chunk.content.substring(0, 300)}
-            {chunk.content.length > 300 && '...'}
-          </div>
-          <div className="text-xs text-muted-foreground">
-            File: {records.find((r) => r.id === chunk.fileRecordId)?.name || 'Unknown'}
-          </div>
-          {chunk.embedding && (
-            <div className="mt-2">
-              <button
-                type="button"
-                onClick={() => toggle(chunk.id)}
-                className="text-[11px] underline text-blue-600"
-              >
-                {expanded.has(chunk.id) ? 'Hide vector' : 'View vector'}
-              </button>
-              {expanded.has(chunk.id) && (
-                <pre className="mt-2 max-h-32 overflow-auto text-[10px] bg-muted p-2 rounded">
-                  {`[${chunk.embedding.slice(0, 32).join(', ')}${
-                    chunk.embedding.length > 32 ? ', …' : ''
-                  }] (${chunk.embedding.length} dims)`}
-                </pre>
-              )}
+            <div className="text-sm text-muted-foreground mb-2">
+              {chunk.content.substring(0, 300)}
+              {chunk.content.length > 300 && '...'}
             </div>
-          )}
-        </div>
-      ))}
-    </div>
+            <div className="text-xs text-muted-foreground">
+              File: {records.find((r) => r.id === chunk.fileRecordId)?.name || 'Unknown'}
+            </div>
+            {chunk.embedding && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => toggle(chunk.id)}
+                  className="text-[11px] underline text-blue-600"
+                >
+                  {expanded.has(chunk.id) ? 'Hide vector' : 'View vector'}
+                </button>
+                {expanded.has(chunk.id) && (
+                  <ScrollArea className="h-32 w-full mt-2">
+                    <pre className="text-[10px] bg-muted p-2 rounded">
+                      {`[${chunk.embedding.slice(0, 32).join(', ')}${
+                        chunk.embedding.length > 32 ? ', …' : ''
+                      }] (${chunk.embedding.length} dims)`}
+                    </pre>
+                  </ScrollArea>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </ScrollArea>
   );
 }

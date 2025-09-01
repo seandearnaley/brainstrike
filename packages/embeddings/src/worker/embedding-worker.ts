@@ -256,7 +256,7 @@ export async function startEmbeddingWorker(
       (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
         'EMBED_REINIT_EVERY'
       ] ??
-      200
+      100
   );
   const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
 

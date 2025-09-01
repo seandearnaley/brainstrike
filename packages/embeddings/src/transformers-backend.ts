@@ -1,4 +1,5 @@
 import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
+import { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
 
 // Type definitions for transformers.js
 interface TransformersModule {
@@ -11,7 +12,7 @@ interface TransformersModule {
 
 type FeatureExtractionPipeline = (
   text: string,
-  options: { pooling: string; normalize: boolean }
+  options: { pooling: string; normalize: boolean; truncate?: boolean; maxLength?: number }
 ) => Promise<{
   data: Float32Array;
 }>;
@@ -19,6 +20,7 @@ type FeatureExtractionPipeline = (
 interface PipelineConfig {
   quantized?: boolean;
   device?: string;
+  dtype?: string;
   progressCallback?: (progress: ProgressInfo) => void;
 }
 
@@ -68,7 +70,12 @@ function determineDevice(requestedDevice: string | undefined): string {
     return 'wasm';
   }
 
-  return requestedDevice || 'cpu';
+  // requested 'cpu' → in browser, prefer 'wasm' (onnxruntime-web doesn't accept 'cpu')
+  if (requestedDevice === 'cpu') {
+    return typeof window === 'undefined' ? 'cpu' : 'wasm';
+  }
+
+  return requestedDevice || (typeof window === 'undefined' ? 'cpu' : 'wasm');
 }
 
 /**
@@ -76,6 +83,21 @@ function determineDevice(requestedDevice: string | undefined): string {
  * Handles model loading, device selection, and inference
  */
 export class TransformersBackend {
+  // Runtime diagnostics (static, process-wide)
+  private static _verboseOrtLogs = false;
+  private static _epFallbackSeen = 0;
+  private static _inferenceCount = 0;
+
+  static setVerboseOrtLogs(enabled: boolean) {
+    TransformersBackend._verboseOrtLogs = enabled;
+  }
+
+  static getRuntimeStats() {
+    return {
+      epFallbackSeen: TransformersBackend._epFallbackSeen,
+      inferenceCount: TransformersBackend._inferenceCount,
+    };
+  }
   private _transformers: TransformersModule | null = null;
   private _pipeline: FeatureExtractionPipeline | null = null;
   private _selectedDevice: string | null = null;
@@ -100,6 +122,30 @@ export class TransformersBackend {
 
     // Dynamic import to avoid bundling issues (cached across instances)
     this._transformers = await getTransformersModule();
+
+    // Optional: enable verbose ORT logs and capture fallback hints
+    try {
+      // onnxruntime-web exposes a global 'ort'
+      const g = globalThis as unknown as { ort?: { env?: { logLevel?: string } } };
+      if (TransformersBackend._verboseOrtLogs && g.ort?.env) {
+        g.ort.env.logLevel = 'verbose';
+        // Monkey-patch console.warn once to catch EP assignment messages
+        const kAny = globalThis as unknown as { __bsWarnPatched?: boolean } & Console;
+        if (!kAny.__bsWarnPatched) {
+          const origWarn = console.warn.bind(console);
+          console.warn = (...args: unknown[]) => {
+            const first = String(args[0] ?? '');
+            if (first.includes('VerifyEachNodeIsAssignedToAnEp')) {
+              TransformersBackend._epFallbackSeen += 1;
+            }
+            origWarn(...args);
+          };
+          kAny.__bsWarnPatched = true;
+        }
+      }
+    } catch {
+      // ignore if ORT not present yet
+    }
 
     onProgress?.({
       stage: 'downloading',
@@ -126,6 +172,8 @@ export class TransformersBackend {
     this._selectedDevice = determineDevice(config.device);
     this._quantized = config.quantized;
     pipelineConfig.device = this._selectedDevice;
+    // Explicit dtype to avoid default warnings and ensure deterministic precision
+    pipelineConfig.dtype = this._quantized ? 'q8' : 'fp32';
 
     // Try requested device, then gracefully fall back to CPU if creation fails
     try {
@@ -135,13 +183,14 @@ export class TransformersBackend {
         pipelineConfig
       );
     } catch (err) {
-      // Fallback only if not already on CPU
-      if (this._selectedDevice !== 'cpu') {
-        this._selectedDevice = 'cpu';
-        onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU…' });
+      // Fallback only if not already on CPU/WASM in browsers
+      const fallbackDevice = determineDevice('cpu');
+      if (this._selectedDevice !== fallbackDevice) {
+        this._selectedDevice = fallbackDevice;
+        onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU/WASM…' });
         this._pipeline = await this._transformers.pipeline('feature-extraction', config.modelId, {
           ...pipelineConfig,
-          device: 'cpu',
+          device: fallbackDevice,
         });
       } else {
         throw err;
@@ -166,16 +215,28 @@ export class TransformersBackend {
     }
     // Use the feature extraction pipeline with proper options
     let output: { data: Float32Array };
+    const maxLen = getMaxLengthFromModelId(modelId);
     try {
-      output = await this._pipeline(text, { pooling: 'mean', normalize: true });
+      output = await this._pipeline(text, {
+        pooling: 'mean',
+        normalize: true,
+        truncate: true,
+        maxLength: maxLen,
+      });
     } catch (err) {
-      // Runtime fallback: if not already on CPU, recreate pipeline on CPU and retry once
-      if (this._transformers && this._selectedDevice !== 'cpu') {
-        this._selectedDevice = 'cpu';
-        const cfg: PipelineConfig = { device: 'cpu' };
+      // Runtime fallback: if not already on CPU/WASM, recreate pipeline and retry once
+      const fallbackDevice = determineDevice('cpu');
+      if (this._transformers && this._selectedDevice !== fallbackDevice) {
+        this._selectedDevice = fallbackDevice;
+        const cfg: PipelineConfig = { device: fallbackDevice };
         if (typeof this._quantized === 'boolean') cfg.quantized = this._quantized;
         this._pipeline = await this._transformers.pipeline('feature-extraction', modelId, cfg);
-        output = await this._pipeline(text, { pooling: 'mean', normalize: true });
+        output = await this._pipeline(text, {
+          pooling: 'mean',
+          normalize: true,
+          truncate: true,
+          maxLength: maxLen,
+        });
       } else {
         throw err;
       }
@@ -183,6 +244,7 @@ export class TransformersBackend {
 
     // Convert the output to a regular array
     const embedding = Array.from(output.data as Float32Array);
+    TransformersBackend._inferenceCount += 1;
 
     return {
       embedding,
@@ -252,4 +314,13 @@ export class TransformersBackend {
         return false;
     }
   }
+}
+
+function getMaxLengthFromModelId(modelId: string): number {
+  const id = modelId.toLowerCase();
+  if (id.includes('bge-m3')) return BGE_M3_CONFIG.maxLength;
+  if (id.includes('minilm')) return FALLBACK_MODEL_CONFIG.maxLength;
+  if (id.includes('jina')) return 8192; // Jina v2/v3 typically support long contexts for code
+  // Sensible default for many sentence transformers on Web
+  return 512;
 }

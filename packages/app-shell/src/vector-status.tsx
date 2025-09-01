@@ -5,7 +5,7 @@ import {
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
-import type { EmbeddingWorkerController } from '@brainstrike/embeddings';
+import type { EmbeddingWorkerController, EmbeddingWorkerOptions } from '@brainstrike/embeddings';
 import { startEmbeddingWorker, TransformersBackend } from '@brainstrike/embeddings';
 import {
   Badge,
@@ -72,28 +72,31 @@ function WorkerControls({
           variant={startingWorker ? 'outline' : 'secondary'}
           disabled={!db || startingWorker}
           onClick={onStartWorker}
-          title="Start local embedding worker in this tab"
+          className="text-[10px] h-6 px-1.5 w-full"
+          aria-label="Start embedding worker"
         >
-          {startingWorker ? 'Starting…' : 'Start Worker'}
+          {startingWorker ? 'Starting…' : 'Start'}
         </Button>
       ) : (
         <Button
           size="sm"
-          variant="ghost"
+          variant="outline"
           onClick={onStopWorker}
-          title="Stop local embedding worker"
+          className="text-[10px] h-6 px-1.5 w-full"
+          aria-label="Stop embedding worker"
         >
-          Stop Worker
+          Stop
         </Button>
       )}
       <Button
         size="sm"
-        variant="ghost"
+        variant="outline"
         disabled={!db || startingWorker}
         onClick={onResetWorker}
-        title="Stop and re-initialize the local worker"
+        className="text-[10px] h-6 px-1.5 w-full"
+        aria-label="Reset embedding worker"
       >
-        Reset worker
+        Reset
       </Button>
     </>
   );
@@ -128,12 +131,20 @@ function BackfillButton({
         : 'Enqueue jobs for chunks missing embeddings for the active set';
 
   return (
-    <Button size="sm" variant="outline" disabled={isDisabled} onClick={onBackfill} title={title}>
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={isDisabled}
+      onClick={onBackfill}
+      title={title}
+      className="text-[10px] h-6 px-1.5 w-full"
+      aria-label={backfilling ? 'Backfilling in progress' : 'Backfill active embedding set'}
+    >
       {backfilling
         ? backfillProgress
-          ? `Backfilling… (${backfillProgress.done}/${backfillProgress.total})`
+          ? `${backfillProgress.done}/${backfillProgress.total}`
           : 'Backfilling…'
-        : 'Backfill Active Set'}
+        : 'Backfill'}
     </Button>
   );
 }
@@ -143,31 +154,48 @@ function QueueControls({
   queueCounts,
   onRetryFailed,
   onClearQueue,
+  onWipeQueue,
 }: {
   db: NonNullable<ReturnType<typeof usePGliteDatabase>> | null;
   queueCounts: { failed: number };
   onRetryFailed: () => Promise<void>;
   onClearQueue: () => Promise<void>;
+  onWipeQueue: () => Promise<void>;
 }) {
   return (
     <>
       <Button
         size="sm"
-        variant="ghost"
+        variant="outline"
         disabled={!db || queueCounts.failed === 0}
         onClick={onRetryFailed}
+        className="text-[10px] h-6 px-1.5 w-full"
+        aria-label="Retry failed jobs"
         title="Requeue the most recent failed jobs (up to 20)"
       >
-        Retry last 20 failed
+        Retry
       </Button>
       <Button
         size="sm"
-        variant="ghost"
+        variant="outline"
         disabled={!db}
         onClick={onClearQueue}
+        className="text-[10px] h-6 px-1.5 w-full"
+        aria-label="Clear queue"
         title="Clear failed (and queued if present) items in the embeddings queue"
       >
-        Clear queue
+        Clear
+      </Button>
+      <Button
+        size="sm"
+        variant="destructive"
+        disabled={!db}
+        onClick={onWipeQueue}
+        className="text-[10px] h-6 px-1.5 w-full"
+        aria-label="Wipe queue"
+        title="Delete all job_queue records for embeddings (all states)"
+      >
+        Wipe
       </Button>
     </>
   );
@@ -345,11 +373,72 @@ function useQueueState() {
   };
 }
 
+async function handleStartWorker({
+  db,
+  devicePref,
+  reinitEveryN,
+  forceCpuAfterFailures,
+  activeId,
+  setStartWorkerError,
+  setStartingWorker,
+  workerControllerRef,
+  setWorkerLocalRunning,
+  backfillActiveSet,
+  toast,
+}: {
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
+  devicePref: 'auto' | 'webgpu' | 'wasm' | 'cpu';
+  reinitEveryN: number;
+  forceCpuAfterFailures: number;
+  activeId: string | null;
+  setStartWorkerError: (error: string | null) => void;
+  setStartingWorker: (starting: boolean) => void;
+  workerControllerRef: React.MutableRefObject<EmbeddingWorkerController | null>;
+  setWorkerLocalRunning: (running: boolean) => void;
+  backfillActiveSet: () => Promise<void>;
+  toast: (options: { title: string; description?: string; variant?: 'destructive' }) => void;
+}) {
+  try {
+    setStartWorkerError(null);
+    setStartingWorker(true);
+    const startOpts: EmbeddingWorkerOptions = {
+      db: db as NonNullable<typeof db>,
+      enable: true,
+      reinitEveryN,
+      forceCpuAfterFailures,
+      ...(devicePref !== 'auto' && { device: devicePref }),
+    };
+    const ctrl = await startEmbeddingWorker(startOpts);
+    workerControllerRef.current = ctrl;
+    setWorkerLocalRunning(true);
+    try {
+      window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
+    } catch {}
+    try {
+      if (activeId) await backfillActiveSet();
+    } catch {}
+    toast({
+      title: 'Worker started',
+      description: 'Local embedding worker is running.',
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    setStartWorkerError(msg);
+    toast({
+      title: 'Failed to start worker',
+      description: msg,
+      variant: 'destructive',
+    });
+  } finally {
+    setStartingWorker(false);
+  }
+}
+
 export function VectorStatusWithDb() {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const queueEnabled = isQueueEnabled();
-  const { sets, active, activeId, setActiveId } = useActiveEmbeddingSet();
+  const { sets, activeId, setActiveId } = useActiveEmbeddingSet();
   const { toast } = useToast();
 
   const {
@@ -384,6 +473,11 @@ export function VectorStatusWithDb() {
 
   // Derive device (best-effort)
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
+
+  // Embedding worker tuning (UI state)
+  const [devicePref, setDevicePref] = useState<'auto' | 'webgpu' | 'wasm' | 'cpu'>('auto');
+  const [reinitEveryN, setReinitEveryN] = useState<number>(200);
+  const [forceCpuAfterFailures, setForceCpuAfterFailures] = useState<number>(3);
 
   // Local helper (not a hook): batched enqueue with progress
   const enqueueBackfillLocal = async (
@@ -593,13 +687,16 @@ export function VectorStatusWithDb() {
   );
 
   return (
-    <Card className="mb-2">
-      <CardHeader className="py-2 px-3">
+    <Card>
+      <CardHeader className="py-1.5 px-3 border-b">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">Vector Status</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant={vectorEnabled ? 'default' : 'outline'}>
-              {vectorEnabled ? 'pgvector: on' : 'pgvector: off'}
+          <CardTitle className="text-xs font-medium">Vector Status</CardTitle>
+          <div className="flex items-center gap-1">
+            <Badge
+              variant={vectorEnabled ? 'default' : 'outline'}
+              className="text-[9px] py-0 px-1 h-4"
+            >
+              {vectorEnabled ? 'PG: ON' : 'PG: OFF'}
             </Badge>
             <Badge
               variant={
@@ -609,208 +706,263 @@ export function VectorStatusWithDb() {
                     ? 'destructive'
                     : 'secondary'
               }
+              className="text-[9px] py-0 px-1 h-4"
             >
-              worker: {workerStatus}
+              {workerStatus === 'running' ? '● RUN' : workerStatus === 'error' ? '✕ ERR' : '○ OFF'}
             </Badge>
           </div>
         </div>
       </CardHeader>
       <CardContent className="py-2 px-3 text-xs space-y-2">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Embedding Set (search/backfill)
+        {/* Diagnostics */}
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1">
+            <input
+              type="checkbox"
+              className="h-3 w-3"
+              onChange={(e) => TransformersBackend.setVerboseOrtLogs(e.target.checked)}
+              title="Enable verbose ONNX Runtime logs in console"
+            />
+            <span className="text-[10px] text-muted-foreground">Verbose ORT logs</span>
+          </label>
+          <span className="text-[10px] text-muted-foreground">
+            EP Mix:
+            {(() => {
+              try {
+                const anyTB = TransformersBackend as unknown as {
+                  getRuntimeStats?: () => { epFallbackSeen: number; inferenceCount: number };
+                };
+                const s = anyTB.getRuntimeStats?.();
+                if (!s || s.inferenceCount === 0) return ' n/a';
+                return s.epFallbackSeen > 0 ? ' webgpu+wasm' : ' pure';
+              } catch {
+                return ' n/a';
+              }
+            })()}
+          </span>
+        </div>
+        {/* Embedding Set & Controls Row */}
+        <div className="flex gap-2 items-start">
+          <div className="flex-1 min-w-0">
+            <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
+              Embedding Set
             </Label>
-            <div className="flex items-center gap-2">
-              <Select
-                value={activeId ?? ''}
-                onValueChange={(v) => setActiveId(v)}
-                disabled={!sets.length}
-              >
-                <SelectTrigger className="h-7 w-[220px]">
-                  <SelectValue placeholder="No sets" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sets.map((s) => (
-                    <SelectItem key={s.id} value={s.id} textValue={s.id}>
-                      {s.modelKey} · {s.dimensions}d · {s.distance}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <BackfillButton
-                activeId={activeId}
-                db={db}
-                backfilling={backfilling}
-                backfillProgress={backfillProgress}
-                workerLocalRunning={workerLocalRunning}
-                onBackfill={() => void backfillActiveSet()}
-                hasChunks={coverage.total > 0}
-              />
-              <WorkerControls
-                db={db}
-                workerLocalRunning={workerLocalRunning}
-                startingWorker={startingWorker}
-                onStartWorker={async () => {
-                  if (!db) return;
-                  try {
-                    setStartWorkerError(null);
-                    setStartingWorker(true);
-                    const ctrl = await startEmbeddingWorker({
-                      db: db as NonNullable<typeof db>,
-                      enable: true,
-                    });
-                    workerControllerRef.current = ctrl;
-                    setWorkerLocalRunning(true);
-                    try {
-                      window.dispatchEvent(new CustomEvent('brainstrike:queue-drained'));
-                    } catch {}
-                    try {
-                      if (activeId) await backfillActiveSet();
-                    } catch {}
-                    toast({
-                      title: 'Worker started',
-                      description: 'Local embedding worker is running.',
-                    });
-                  } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
-                    setStartWorkerError(msg);
-                    toast({
-                      title: 'Failed to start worker',
-                      description: msg,
-                      variant: 'destructive',
-                    });
-                  } finally {
-                    setStartingWorker(false);
-                  }
-                }}
-                onStopWorker={async () => {
-                  try {
-                    await workerControllerRef.current?.stop();
-                  } finally {
-                    workerControllerRef.current = null;
-                    setWorkerLocalRunning(false);
-                    toast({ title: 'Worker stopped' });
-                  }
-                }}
-                onResetWorker={async () => {
-                  try {
-                    setStartWorkerError(null);
-                    if (workerLocalRunning) {
-                      await workerControllerRef.current?.stop();
-                      workerControllerRef.current = null;
-                      setWorkerLocalRunning(false);
-                    }
-                    setStartingWorker(true);
-                    const ctrl = await startEmbeddingWorker({
-                      db: db as NonNullable<typeof db>,
-                      enable: true,
-                    });
-                    workerControllerRef.current = ctrl;
-                    setWorkerLocalRunning(true);
-                    toast({ title: 'Worker reset', description: 'Model re-initialized.' });
-                  } catch (e) {
-                    const msg = e instanceof Error ? e.message : String(e);
-                    setStartWorkerError(msg);
-                    toast({
-                      title: 'Worker reset failed',
-                      description: msg,
-                      variant: 'destructive',
-                    });
-                  } finally {
-                    setStartingWorker(false);
-                  }
-                }}
-              />
-              <QueueControls
-                db={db}
-                queueCounts={queueCounts}
-                onRetryFailed={async () => {
-                  if (!db) return;
-                  try {
-                    const jq = new JobQueue(db);
-                    await jq.requeueFailed('embeddings', 20);
-                  } catch {}
-                }}
-                onClearQueue={async () => {
-                  if (!db) return;
-                  try {
-                    const jq = new JobQueue(db);
-                    await jq.clear('embeddings', ['failed']);
-                    const stats = await jq.getQueueStats('embeddings');
-                    const s = stats[0];
-                    if ((s?.queued ?? 0) > 0) {
-                      await jq.clear('embeddings', ['queued']);
-                    }
-                  } catch {}
-                }}
-              />
-            </div>
-            {active && (
-              <div className="text-muted-foreground">
-                <span
-                  title={active.id}
-                  className="truncate inline-block max-w-[240px] align-bottom"
-                >
-                  {active.id}
-                </span>
-              </div>
-            )}
+            <Select
+              value={activeId ?? ''}
+              onValueChange={(v) => setActiveId(v)}
+              disabled={!sets.length}
+            >
+              <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select embedding set">
+                <SelectValue placeholder="No sets" />
+              </SelectTrigger>
+              <SelectContent className="max-w-[280px]">
+                {sets.map((s) => (
+                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
+                    <div className="flex items-center gap-1">
+                      <span className="font-medium">{s.modelKey}</span>
+                      <span className="text-[9px] text-muted-foreground">({s.dimensions}d)</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          <div className="flex-shrink-0">
+            <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
               Device
             </Label>
-            <div>
-              <Badge variant="secondary">{device}</Badge>
-            </div>
+            <Badge
+              variant="outline"
+              className="text-[10px] py-0.5 px-1.5 h-7 w-full justify-center"
+            >
+              {device}
+            </Badge>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-3 pt-1">
+        {/* Worker tuning controls */}
+        <div className="flex items-center gap-2">
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+            Pref
+          </Label>
+          <select
+            aria-label="Preferred device"
+            className="h-7 text-[11px] border rounded px-1"
+            value={devicePref}
+            onChange={(e) => setDevicePref(e.target.value as 'auto' | 'webgpu' | 'wasm' | 'cpu')}
+          >
+            <option value="auto">Auto</option>
+            <option value="webgpu">WebGPU</option>
+            <option value="wasm">WASM (CPU)</option>
+            <option value="cpu">CPU (maps to WASM)</option>
+          </select>
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+            Reinit
+          </Label>
+          <input
+            type="number"
+            className="h-7 w-16 text-[11px] border rounded px-1"
+            min={50}
+            max={10000}
+            step={50}
+            value={reinitEveryN}
+            onChange={(e) => setReinitEveryN(Number(e.target.value) || 0)}
+            title="Reinitialize model every N chunks"
+          />
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+            CPU after
+          </Label>
+          <input
+            type="number"
+            className="h-7 w-16 text-[11px] border rounded px-1"
+            min={1}
+            max={20}
+            step={1}
+            value={forceCpuAfterFailures}
+            onChange={(e) => setForceCpuAfterFailures(Number(e.target.value) || 1)}
+            title="Switch to CPU/WASM after N consecutive failures"
+          />
+        </div>
+
+        {/* Controls Grid */}
+        <div className="grid grid-cols-3 gap-1">
+          <WorkerControls
+            db={db}
+            workerLocalRunning={workerLocalRunning}
+            startingWorker={startingWorker}
+            onStartWorker={async () => {
+              if (!db) return;
+              await handleStartWorker({
+                db,
+                devicePref,
+                reinitEveryN,
+                forceCpuAfterFailures,
+                activeId,
+                setStartWorkerError,
+                setStartingWorker,
+                workerControllerRef,
+                setWorkerLocalRunning,
+                backfillActiveSet,
+                toast,
+              });
+            }}
+            onStopWorker={async () => {
+              try {
+                await workerControllerRef.current?.stop();
+              } finally {
+                workerControllerRef.current = null;
+                setWorkerLocalRunning(false);
+                toast({ title: 'Worker stopped' });
+              }
+            }}
+            onResetWorker={async () => {
+              try {
+                setStartWorkerError(null);
+                if (workerLocalRunning) {
+                  await workerControllerRef.current?.stop();
+                  workerControllerRef.current = null;
+                  setWorkerLocalRunning(false);
+                }
+                setStartingWorker(true);
+                const resetOpts: EmbeddingWorkerOptions = {
+                  db: db as NonNullable<typeof db>,
+                  enable: true,
+                  reinitEveryN,
+                  forceCpuAfterFailures,
+                  ...(devicePref !== 'auto' && { device: devicePref }),
+                };
+                const ctrl = await startEmbeddingWorker(resetOpts);
+                workerControllerRef.current = ctrl;
+                setWorkerLocalRunning(true);
+                toast({ title: 'Worker reset', description: 'Model re-initialized.' });
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                setStartWorkerError(msg);
+                toast({
+                  title: 'Worker reset failed',
+                  description: msg,
+                  variant: 'destructive',
+                });
+              } finally {
+                setStartingWorker(false);
+              }
+            }}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-1">
+          <BackfillButton
+            activeId={activeId}
+            db={db}
+            backfilling={backfilling}
+            backfillProgress={backfillProgress}
+            workerLocalRunning={workerLocalRunning}
+            onBackfill={() => void backfillActiveSet()}
+            hasChunks={coverage.total > 0}
+          />
+          <QueueControls
+            db={db}
+            queueCounts={queueCounts}
+            onRetryFailed={async () => {
+              if (!db) return;
+              try {
+                const jq = new JobQueue(db);
+                await jq.requeueFailed('embeddings', 20);
+              } catch {}
+            }}
+            onClearQueue={async () => {
+              if (!db) return;
+              try {
+                const jq = new JobQueue(db);
+                await jq.clear('embeddings', ['failed']);
+                const stats = await jq.getQueueStats('embeddings');
+                const s = stats[0];
+                if ((s?.queued ?? 0) > 0) {
+                  await jq.clear('embeddings', ['queued']);
+                }
+              } catch {}
+            }}
+            onWipeQueue={async () => {
+              if (!db) return;
+              try {
+                const jq = new JobQueue(db);
+                await jq.clear('embeddings');
+              } catch {}
+            }}
+          />
+        </div>
+
+        {/* Compact Stats */}
+        <div className="grid grid-cols-4 gap-2 pt-1 border-t">
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Coverage (selected set)
-            </div>
-            <div>
-              <strong>{coverage.withSet}</strong>
-              <span className="text-muted-foreground"> / {coverage.total}</span>
+            <div className="text-[9px] text-muted-foreground">Coverage</div>
+            <div className="text-[11px] font-medium">
+              {coverage.withSet}/{coverage.total}
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Throughput (60s)
-            </div>
-            <div>
-              <strong>{throughput}</strong>
-              <span className="text-muted-foreground"> jobs</span>
+            <div className="text-[9px] text-muted-foreground">Jobs/min</div>
+            <div className="text-[11px] font-medium">{throughput}</div>
+          </div>
+          <div>
+            <div className="text-[9px] text-muted-foreground">Queue</div>
+            <div className="text-[11px] font-medium">
+              {queueCounts.queued}/{queueCounts.running}/{queueCounts.failed}
             </div>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Queue</div>
-            <div className="flex gap-3">
-              <span>Q: {queueCounts.queued}</span>
-              <span>R: {queueCounts.running}</span>
-              <span>F: {queueCounts.failed}</span>
-            </div>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Latency (p50/p95)
-            </div>
-            <div>
-              <strong>{latencyStats.p50Ms}</strong>
-              <span className="text-muted-foreground">/{latencyStats.p95Ms} ms</span>
-            </div>
+            <div className="text-[9px] text-muted-foreground">Latency</div>
+            <div className="text-[11px] font-medium">{latencyStats.p50Ms}ms</div>
           </div>
         </div>
 
+        {/* Error Display */}
         {(startWorkerError || lastError) && (
           <div
-            className="mt-1 text-[11px] text-red-600 truncate"
-            title={startWorkerError ?? lastError ?? undefined}
+            className="p-1 bg-destructive/10 border border-destructive/20 rounded text-[10px] text-destructive break-words"
+            role="alert"
+            aria-live="polite"
           >
-            Last error: {startWorkerError ?? lastError}
+            {startWorkerError ?? lastError}
           </div>
         )}
       </CardContent>
@@ -821,28 +973,29 @@ export function VectorStatusWithDb() {
 // Safe, hook-less variant for contexts without DbProvider (e.g., shallow tests)
 export function VectorStatus() {
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
-  const workerStatus: 'disabled' | 'initializing' | 'running' | 'error' = 'disabled';
   return (
-    <Card className="mb-2">
-      <CardHeader className="py-2 px-3">
+    <Card>
+      <CardHeader className="py-1.5 px-3 border-b">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm">Vector Status</CardTitle>
-          <div className="flex items-center gap-2">
-            <Badge variant={'outline'}>pgvector: off</Badge>
-            <Badge variant={'secondary'}>worker: {workerStatus}</Badge>
+          <CardTitle className="text-xs font-medium">Vector Status</CardTitle>
+          <div className="flex items-center gap-1">
+            <Badge variant={'outline'} className="text-[9px] py-0 px-1 h-4">
+              pgvector: off
+            </Badge>
+            <Badge variant={'secondary'} className="text-[9px] py-0 px-1 h-4">
+              worker: disabled
+            </Badge>
           </div>
         </div>
       </CardHeader>
-      <CardContent className="py-2 px-3 text-xs space-y-2">
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Device
-            </Label>
-            <div>
-              <Badge variant="secondary">{device}</Badge>
-            </div>
-          </div>
+      <CardContent className="py-2 px-3 text-xs">
+        <div className="flex items-center gap-2">
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
+            Device:
+          </Label>
+          <Badge variant="outline" className="text-[10px] py-0.5 px-1.5">
+            {device}
+          </Badge>
         </div>
       </CardContent>
     </Card>
