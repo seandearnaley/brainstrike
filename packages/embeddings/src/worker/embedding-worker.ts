@@ -325,14 +325,15 @@ export async function startEmbeddingWorker(
   }
 
   async function handleClaimedJob(claimed: ClaimedJob): Promise<void> {
-    // Our Job shape keeps DB column as lease_token; use it directly
-    const leaseTokenObj = claimed as unknown as Record<string, unknown>;
-    const leaseToken = leaseTokenObj['lease_token'] as string;
+    // Our Job shape retains DB column name `lease_token`; use it directly
+    const leaseToken = claimed.lease_token as string;
     const jobId = claimed.id;
 
     const hb = setInterval(() => {
-      // Fire-and-forget heartbeat; errors will be handled on next claim/fail
-      jq.heartbeat({ id: jobId, leaseToken, extendMs: leaseMs }).catch(() => {});
+      // Fire-and-forget heartbeat; log errors for observability
+      jq.heartbeat({ id: jobId, leaseToken, extendMs: leaseMs }).catch((err) =>
+        log('worker_heartbeat_error', { jobId, error: String(err) })
+      );
     }, heartbeatMs);
 
     const jobStart = Date.now();

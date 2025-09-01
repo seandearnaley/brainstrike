@@ -27,6 +27,30 @@ import { setActiveEmbeddingSetId } from './vector-preferences';
 
 type Coverage = { total: number; withSet: number };
 
+// Small utils (no hooks) to keep cognitive complexity low
+function* chunkArray<T>(arr: T[], size: number): Generator<T[]> {
+  const n = Math.max(1, size);
+  for (let i = 0; i < arr.length; i += n) {
+    yield arr.slice(i, i + n);
+  }
+}
+
+async function withTransaction(
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
+  body: () => Promise<void>
+): Promise<void> {
+  await db.query('BEGIN');
+  try {
+    await body();
+    await db.query('COMMIT');
+  } catch (e) {
+    try {
+      await db.query('ROLLBACK');
+    } catch {}
+    throw e;
+  }
+}
+
 function handleQueueStateChange(
   stats: { queued?: number; running?: number },
   busyRef: { current: boolean },
@@ -491,29 +515,25 @@ export function VectorStatusWithDb() {
     let done = 0;
     onProgress(done, total);
     const Batch = 500;
-    await dbRef.query('BEGIN');
-    for (let i = 0; i < total; i++) {
-      const row = rows[i];
-      if (!row) break;
-      const dedupe = `${row.id}:${setId}:${row.contentHash}`;
-      await jq.enqueue({
-        queue: 'embeddings',
-        jobType: 'embed_chunk',
-        payload: {
-          chunkId: String(row.id),
-          fileRecordId: String(row.fileRecordId),
-          embeddingSetId: setId,
-        },
-        dedupeKey: dedupe,
+    for (const batch of chunkArray(rows, Batch)) {
+      await withTransaction(dbRef, async () => {
+        for (const row of batch) {
+          const dedupe = `${row.id}:${setId}:${row.contentHash}`;
+          await jq.enqueue({
+            queue: 'embeddings',
+            jobType: 'embed_chunk',
+            payload: {
+              chunkId: String(row.id),
+              fileRecordId: String(row.fileRecordId),
+              embeddingSetId: setId,
+            },
+            dedupeKey: dedupe,
+          });
+          done += 1;
+          if (done % 50 === 0) onProgress(done, total);
+        }
       });
-      done += 1;
-      if (done % 50 === 0) onProgress(done, total);
-      if (i > 0 && i % Batch === 0) {
-        await dbRef.query('COMMIT');
-        await dbRef.query('BEGIN');
-      }
     }
-    await dbRef.query('COMMIT');
   };
 
   const backfillActiveSet = useCallback(async () => {

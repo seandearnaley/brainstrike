@@ -159,28 +159,37 @@ export class JobQueue {
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
     const updatedAt = now;
 
-    // Atomic claim: next runnable or expired lease; bump attempts on claim
+    // Atomic claim: next runnable or expired lease; bump attempts on claim.
+    // Re-check state/lease conditions in the UPDATE to prevent double-claim races.
+    // (This remains portable for PGlite and Postgres; FOR UPDATE SKIP LOCKED can be added if available.)
     const result = await this.db.query<JobRow>(
       `WITH candidate AS (
-        SELECT id FROM job_queue
-        WHERE queue = $1
-          AND attempts < max_attempts
-          AND (
-                (state = 'queued'  AND run_at <= $2)
-             OR (state = 'running' AND (leased_until IS NULL OR leased_until <= $2))
-          )
-        ORDER BY run_at ASC, id ASC
-        LIMIT 1
-      )
-      UPDATE job_queue SET
-        state = 'running',
-        attempts = attempts + 1,
-        lease_token = $3,
-        leased_until = $4,
-        worker_id = $5,
-        updated_at = $6
-      WHERE id IN (SELECT id FROM candidate)
-      RETURNING *`,
+         SELECT id
+           FROM job_queue
+          WHERE queue = $1
+            AND attempts < max_attempts
+            AND (
+                  (state = 'queued'  AND run_at <= $2)
+               OR (state = 'running' AND (leased_until IS NULL OR leased_until <= $2))
+                )
+          ORDER BY run_at ASC, id ASC
+          LIMIT 1
+       )
+       UPDATE job_queue AS j SET
+         state = 'running',
+         attempts = j.attempts + 1,
+         lease_token = $3,
+         leased_until = $4,
+         worker_id = $5,
+         updated_at = $6
+       FROM candidate c
+       WHERE j.id = c.id
+         AND j.attempts < j.max_attempts
+         AND (
+               (j.state = 'queued'  AND j.run_at <= $2)
+            OR (j.state = 'running' AND (j.leased_until IS NULL OR j.leased_until <= $2))
+             )
+       RETURNING j.*`,
       [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt]
     );
 
