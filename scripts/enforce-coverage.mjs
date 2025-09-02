@@ -171,15 +171,17 @@ for (const file of coverageFiles.sort()) {
 
   const json = JSON.parse(fs.readFileSync(file, 'utf8'));
   const s = summarize(json);
+  // Only enforce metrics that exist (total > 0). Packages without functions/branches
+  // shouldn't fail due to 0% on non-existent metrics.
   const checks = [
-    ['lines', s.lines.pct, thresholds.lines],
-    ['functions', s.functions.pct, thresholds.functions],
-    ['branches', s.branches.pct, thresholds.branches],
-    ['statements', s.statements.pct, thresholds.statements],
+    ['lines', s.lines.pct, thresholds.lines, s.lines.total],
+    ['functions', s.functions.pct, thresholds.functions, s.functions.total],
+    ['branches', s.branches.pct, thresholds.branches, s.branches.total],
+    ['statements', s.statements.pct, thresholds.statements, s.statements.total],
   ];
   let ok = true;
-  for (const [, pct, min] of checks) {
-    if (pct + 1e-6 < min) ok = false;
+  for (const [, pct, min, total] of checks) {
+    if (total > 0 && pct + 1e-6 < min) ok = false;
   }
   const summary = `L ${formatPct(s.lines.pct)} | F ${formatPct(s.functions.pct)} | B ${formatPct(s.branches.pct)} | S ${formatPct(s.statements.pct)}`;
   const threshText = `(>= L${thresholds.lines} F${thresholds.functions} B${thresholds.branches} S${thresholds.statements})`;

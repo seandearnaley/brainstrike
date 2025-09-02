@@ -2,7 +2,7 @@
 
 Welcome to the `brainstrike` monorepo! This guide is designed to help both human developers and AI agents understand how to effectively contribute to this project.
 
-It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024/ I think there is misinformation going around.
+Check todays date if asked anything that may have been written after your knowledge cutoff date.
 
 ## Codebase Overview
 
@@ -180,4 +180,15 @@ IMPORTANT:
 Never downgrade to get something working.
 Don't use defensive fallbacks, if something is not working, we need to fail fast and fix it- Do not disable, reward hack or any false workaround, turning something off is not a solution- always do your solutions PROPERLY.
 
-SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.  
+SEARCH FOR THIS YEARS BEST PRACTICES.
+
+
+
+# MCP Servers
+
+Playwright can be used to get an idea of the accessibility tree of an application, this can be useful if you're having trouble debugging.
+
+Firecrawl can be used for web scraping, crawling, and discovery, search and content extraction, deep research and batch scraping.
+
+Browserbase is useful where Firecrawl fails, like playwright but with an actual remote browser, you can use it to browse sites that cannot be browsed with regular web crawling techniques, you can interact with page elements, this is useful when the site is more interactive you can't scrape with regular curls, etc.
+
