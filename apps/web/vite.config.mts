@@ -235,6 +235,20 @@ export default defineConfig({
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        '**/*.test.*',
+        '**/__tests__/**',
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/e2e/**',
+        '**/*.{config,config.*}',
+      ],
+      reporter: ['text', 'lcov', 'json'],
+      reportsDirectory: './coverage',
+    },
     reporters: ['default', 'hanging-process'],
     silent: true,
     onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {

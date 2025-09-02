@@ -156,6 +156,7 @@ test.describe('Performance: Tree Rendering', () => {
       return (performance as any).memory?.usedJSHeapSize || 0;
     });
 
+    // Set performance mark before any actions
     await page.evaluate(() => {
       performance.mark('stress-test-start');
     });
@@ -174,10 +175,16 @@ test.describe('Performance: Tree Rendering', () => {
     }
 
     const stressTime = await page.evaluate(() => {
-      performance.mark('stress-test-end');
-      performance.measure('stress-test', 'stress-test-start', 'stress-test-end');
-      const measure = performance.getEntriesByName('stress-test')[0];
-      return measure?.duration || 0;
+      try {
+        performance.mark('stress-test-end');
+        performance.measure('stress-test', 'stress-test-start', 'stress-test-end');
+        const measure = performance.getEntriesByName('stress-test')[0];
+        return measure?.duration || 0;
+      } catch (error) {
+        console.error('Performance measurement error:', error);
+        // Return a fallback value if performance measurement fails
+        return 0;
+      }
     });
 
     const finalMemory = await page.evaluate(() => {

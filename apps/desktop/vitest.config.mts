@@ -25,7 +25,15 @@ export default defineConfig({
     // Package-local coverage for reliability (root still consolidates)
     coverage: {
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['**/*.test.*', '**/__tests__/**', '**/dist/**', '**/node_modules/**', '**/e2e/**'],
+      exclude: [
+        '**/*.test.*',
+        '**/__tests__/**',
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/e2e/**',
+        'src/main.ts',
+        'src/preload.ts',
+      ],
     },
   },
   resolve: {
