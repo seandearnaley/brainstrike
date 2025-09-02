@@ -89,10 +89,8 @@ jobs:
             echo "✅ No duplicate CSS layers detected"
           fi
 
-      - name: Run unit tests with coverage (all workspaces)
-        # Use the split path to ensure all packages run with coverage reporters,
-        # bypassing Turbo cache so coverage artifacts are generated consistently.
-        run: pnpm run test:coverage:split
+      - name: Run unit tests with coverage
+        run: pnpm run test:coverage
         env:
           NODE_ENV: "test"
 

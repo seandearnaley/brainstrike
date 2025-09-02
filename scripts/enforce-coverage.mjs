@@ -147,6 +147,19 @@ function formatPct(n) {
 
 if (coverageFiles.length === 0) {
   console.error('❌ No coverage files found under packages/* or apps/*');
+  try {
+    // Print a quick debug listing to help diagnose CI path issues without being noisy.
+    const hints = [];
+    for (const root of ['packages', 'apps']) {
+      if (fs.existsSync(root)) {
+        for (const entry of fs.readdirSync(root)) {
+          const p = path.join(root, entry, 'coverage');
+          if (fs.existsSync(p)) hints.push(p);
+        }
+      }
+    }
+    if (hints.length) console.error('Found coverage directories (no final json yet):', hints.join(', '));
+  } catch {}
   process.exit(1);
 }
 

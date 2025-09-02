@@ -21,7 +21,7 @@
     "postinstall": "node scripts/postinstall.js",
     "test": "turbo run test --summarize --log-order=grouped --cache-dir=.turbo",
     "test:vector": "pnpm --filter @brainstrike/db test:vector",
-    "test:coverage": "turbo run test --concurrency=2 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:coverage": "turbo run test --force --concurrency=2 --summarize --log-order=grouped --cache-dir=.turbo -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:base": "pnpm -r --filter '!@brainstrike/embeddings' run test -- --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:coverage:embeddings": "pnpm --filter @brainstrike/embeddings vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --reporter=default",
     "test:coverage:split": "pnpm run test:coverage:base && pnpm run test:coverage:embeddings",
