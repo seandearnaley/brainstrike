@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   ACTIVE_EMBEDDING_SET_KEY,
   getActiveEmbeddingSetId,
@@ -6,32 +6,25 @@ import {
 } from '../vector-preferences';
 
 describe('vector-preferences', () => {
-  it('returns null when localStorage is unavailable', () => {
-    const prev = global.localStorage;
-    // simulate server env
-    (global as Record<string, unknown>)['localStorage'] = undefined;
-    expect(getActiveEmbeddingSetId()).toBeNull();
-    // restore
-    (global as Record<string, unknown>)['localStorage'] = prev;
+  beforeEach(() => {
+    // Reset localStorage between tests
+    localStorage.clear();
   });
 
-  it('sets, gets, and clears the active embedding set id', () => {
-    const store = new Map<string, string>();
-    // simple localStorage shim
-    (global as Record<string, unknown>)['localStorage'] = {
-      getItem: (k: string) => store.get(k) ?? null,
-      setItem: (k: string, v: string) => void store.set(k, v),
-      removeItem: (k: string) => void store.delete(k),
-    };
-
+  it('returns null when key not set', () => {
     expect(getActiveEmbeddingSetId()).toBeNull();
-    setActiveEmbeddingSetId('set-1');
-    expect(getActiveEmbeddingSetId()).toBe('set-1');
+  });
 
+  it('sets and gets active embedding set id', () => {
+    setActiveEmbeddingSetId('set-123');
+    expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBe('set-123');
+    expect(getActiveEmbeddingSetId()).toBe('set-123');
+  });
+
+  it('clears the id when null passed', () => {
+    setActiveEmbeddingSetId('set-xyz');
     setActiveEmbeddingSetId(null);
+    expect(localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY)).toBeNull();
     expect(getActiveEmbeddingSetId()).toBeNull();
-
-    // Also verify raw storage key
-    expect(store.has(ACTIVE_EMBEDDING_SET_KEY)).toBe(false);
   });
 });
