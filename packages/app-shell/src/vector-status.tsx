@@ -35,7 +35,7 @@ function* chunkArray<T>(arr: T[], size: number): Generator<T[]> {
   }
 }
 
-async function withTransaction(
+export async function withTransaction(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>,
   body: () => Promise<void>
 ): Promise<void> {
@@ -51,7 +51,7 @@ async function withTransaction(
   }
 }
 
-function handleQueueStateChange(
+export function handleQueueStateChange(
   stats: { queued?: number; running?: number },
   busyRef: { current: boolean },
   activeId: string | null
