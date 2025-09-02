@@ -21,6 +21,14 @@ export const BASE_THRESHOLDS = {
 const CI_MULTIPLIER = 1.5; // 50% more lenient thresholds for CI
 const GITHUB_ACTIONS_MULTIPLIER = 2.0; // Even more lenient for GitHub Actions
 
+// Additional CI-specific minimums based on observed GitHub Actions variance in 2025
+// Keep these tight and targeted, only for known noisy metrics.
+const GITHUB_ACTIONS_MINIMUMS = {
+  RENDER_TIME_MAX_MS: 420, // was 300 after multiplier; CI observed ~335–402ms
+  SCROLL_PERFORMANCE_MAX_MS: 2000, // was 1600 after multiplier; CI observed ~1650–1900ms
+  FILE_SELECTION_MAX_MS: 2300, // was 2000 after multiplier; rare flake ~2150ms
+} as const;
+
 function isLocalFirstDbEnabled(): boolean {
   try {
     const env = (globalThis as any).process?.env ?? {};
@@ -54,7 +62,7 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
   }
 
   // Start with base thresholds adjusted for environment
-  const thresholds = {
+  let thresholds = {
     TREE_LOAD_MAX_MS: Math.floor(BASE_THRESHOLDS.TREE_LOAD_MAX_MS * multiplier),
     TREE_EXPANSION_MAX_MS: Math.floor(BASE_THRESHOLDS.TREE_EXPANSION_MAX_MS * multiplier),
     FILE_SELECTION_MAX_MS: Math.floor(BASE_THRESHOLDS.FILE_SELECTION_MAX_MS * multiplier),
@@ -69,6 +77,25 @@ export function getEnvironmentThresholds(environment: 'local' | 'ci' | 'github-a
       BASE_THRESHOLDS.STRESS_MEMORY_INCREASE_MAX_MB * multiplier
     ),
   } as const;
+
+  // For GitHub Actions only, apply targeted minimums to mitigate transient VM jitter
+  if (environment === 'github-actions') {
+    thresholds = {
+      ...thresholds,
+      RENDER_TIME_MAX_MS: Math.max(
+        thresholds.RENDER_TIME_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.RENDER_TIME_MAX_MS
+      ),
+      SCROLL_PERFORMANCE_MAX_MS: Math.max(
+        thresholds.SCROLL_PERFORMANCE_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.SCROLL_PERFORMANCE_MAX_MS
+      ),
+      FILE_SELECTION_MAX_MS: Math.max(
+        thresholds.FILE_SELECTION_MAX_MS,
+        GITHUB_ACTIONS_MINIMUMS.FILE_SELECTION_MAX_MS
+      ),
+    } as typeof thresholds;
+  }
 
   // If local-first DB is expected (e.g., PGlite loaded early), allow higher memory
   if (isLocalFirstDbEnabled()) {
