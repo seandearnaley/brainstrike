@@ -144,22 +144,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     ```
     This command runs `turbo run type-check` as defined in the root `package.json`.
 *   **CI Pipeline**: The Continuous Integration plan can be found in `.github/workflows/`.
-*   **Requirement**: All tests (unit, integration, E2E where applicable) and type checks must pass. New code or changes must include corresponding tests. Fix any errors until the entire suite is green.
 
-## Pull Request (PR) Instructions
-
-*   **Title Format**: Use the Conventional Commits format for PR titles, similar to commit messages. A common practice is:
-    `<type>(<scope>): <Descriptive PR Title>`
-    Example: `feat(web): Add user profile page`
-    If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
-*   **Checklist**:
-    *   Relevant tests should be added and pass.
-    *   PR description clearly explains the changes and reasoning.
-    *   New functionality is covered by tests.
-
-## Codebase Migrations & Deprecations
-
-*   When deprecating code, follow established deprecation patterns and update documentation accordingly.
 
 **Important:** The `pnpm run build` command must succeed for every workspace in the monorepo. It runs with `--filter ./...` internally, building all packages and applications. If any workspace fails to build, the entire build step will fail.
 
