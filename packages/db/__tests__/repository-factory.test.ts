@@ -11,7 +11,7 @@ import {
 describe('Repository Factory', () => {
   describe('isPGlite type guard', () => {
     it('should correctly identify PGlite instances', () => {
-      const db = new PGlite();
+      const db = new PGlite('memory://');
       expect(isPGlite(db)).toBe(true);
     });
 
@@ -64,7 +64,7 @@ describe('Repository Factory', () => {
 
   describe('createFileRecordRepository factory', () => {
     it('should create FileRecordRepository for PGlite database', () => {
-      const db = new PGlite();
+      const db = new PGlite('memory://');
       const repository = createFileRecordRepository(db);
 
       expect(repository).toBeInstanceOf(FileRecordRepository);
@@ -82,7 +82,7 @@ describe('Repository Factory', () => {
     });
 
     it('should return repositories that implement the same interface', async () => {
-      const pgliteDb = new PGlite();
+      const pgliteDb = new PGlite('memory://');
       const mockElectronDb: ElectronDbAPI = {
         query: vi.fn().mockResolvedValue({ rows: [] }),
         exec: vi.fn().mockResolvedValue(undefined),
@@ -122,7 +122,7 @@ describe('Repository Factory', () => {
 
     it('should create working repositories that can be used interchangeably', async () => {
       // Create test databases
-      const pgliteDb = new PGlite();
+      const pgliteDb = new PGlite('memory://');
       await pgliteDb.exec(`
         CREATE TABLE IF NOT EXISTS file_records (
           id TEXT PRIMARY KEY,
@@ -156,7 +156,7 @@ describe('Repository Factory', () => {
 
   describe('type compatibility', () => {
     it('should accept union types correctly', () => {
-      const pgliteDb = new PGlite();
+      const pgliteDb = new PGlite('memory://');
       const electronDb: ElectronDbAPI = {
         query: vi.fn(),
         exec: vi.fn(),

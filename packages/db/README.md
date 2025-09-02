@@ -48,7 +48,7 @@ function MyComponent() {
 ### FileRecordRepository
 
 ```ts
-const db = new PGlite(':memory:');
+const db = new PGlite('memory://');
 await migrate(db);
 const repo = new FileRecordRepository(db);
 
@@ -73,7 +73,7 @@ Run migrations after creating a `PGlite` instance. The path passed to `PGlite` d
 import { PGlite } from '@electric-sql/pglite';
 import { migrate } from '@brainstrike/db';
 
-const db = new PGlite('my.db'); // ':memory:' for ephemeral or 'idb://db' for IndexedDB
+const db = new PGlite('my.db'); // use 'memory://' for ephemeral or 'idb://db' for IndexedDB
 await migrate(db);
 ```
 

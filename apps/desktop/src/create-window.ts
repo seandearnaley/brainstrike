@@ -83,7 +83,7 @@ async function loadRenderer(win: BrowserWindow) {
  */
 export async function createWindow() {
   // Check if running in headless mode (for tests) - prefer CI env var over command line flags
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
 
   const win = new BrowserWindow({

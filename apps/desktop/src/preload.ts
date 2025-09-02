@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadLayout: () => ipcRenderer.invoke('layout:load'),
   // Database operations
   db: {
+    ping: () => ipcRenderer.invoke('db:ping'),
     query: (sql: string, params?: unknown[]) => ipcRenderer.invoke('db:query', sql, params),
     exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
     test: () => ipcRenderer.invoke('db:test'),

@@ -21,11 +21,13 @@ export async function mockBrowserApis(
         | { kind: 'file'; name: string; _content: string }
         | { kind: 'directory'; name: string; _entries: Record<string, FsNode> };
 
-      function buildFs(name: string, obj: Record<string, any> | null | string): FsNode {
+      type FsInput = { [key: string]: FsInput | null | string };
+
+      function buildFs(name: string, obj: FsInput | null | string): FsNode {
         if (obj && typeof obj === 'object') {
           const children: Record<string, FsNode> = {};
           for (const [childName, child] of Object.entries(obj)) {
-            children[childName] = buildFs(childName, child);
+            children[childName] = buildFs(childName, child as FsInput | null | string);
           }
           return { kind: 'directory', name, _entries: children };
         }
@@ -47,33 +49,35 @@ export async function mockBrowserApis(
         async createWritable() {
           const handle = this.node;
           let data = '';
+          type Handler = (c: unknown) => string | undefined | Promise<string | undefined>;
+          const tryString: Handler = (c) => (typeof c === 'string' ? c : undefined);
+          const tryBlob: Handler = async (c) => (c instanceof Blob ? await c.text() : undefined);
+          const tryArrayBuffer: Handler = (c) =>
+            c instanceof ArrayBuffer ? new TextDecoder().decode(c) : undefined;
+          const tryArrayBufferView: Handler = (c) =>
+            ArrayBuffer.isView(c)
+              ? new TextDecoder().decode((c as ArrayBufferView).buffer as ArrayBuffer)
+              : undefined;
+          function isRecord(val: unknown): val is Record<string, unknown> {
+            return typeof val === 'object' && val !== null;
+          }
+          function isWriteChunk(val: unknown): val is { type: 'write'; data: unknown } {
+            return isRecord(val) && val['type'] === 'write' && 'data' in val;
+          }
+          async function toStringChunk(chunk: unknown): Promise<string> {
+            const handlers: Handler[] = [tryString, tryBlob, tryArrayBuffer, tryArrayBufferView];
+            for (const h of handlers) {
+              const result = await h(chunk);
+              if (result !== undefined) return result;
+            }
+            if (isWriteChunk(chunk)) {
+              return toStringChunk((chunk as { data: unknown }).data);
+            }
+            throw new Error('Unsupported chunk type');
+          }
           return {
-            async write(chunk: any) {
-              if (typeof chunk === 'string') {
-                data += chunk;
-                return;
-              }
-              if (chunk instanceof Blob) {
-                data += await chunk.text();
-                return;
-              }
-              if (chunk instanceof ArrayBuffer || ArrayBuffer.isView(chunk)) {
-                const buf = chunk instanceof ArrayBuffer ? chunk : chunk.buffer;
-                data += new TextDecoder().decode(buf as ArrayBuffer);
-                return;
-              }
-              if (typeof chunk === 'object' && chunk?.type === 'write') {
-                const value = chunk.data;
-                if (typeof value === 'string') {
-                  data += value;
-                } else if (value instanceof Blob) {
-                  data += await value.text();
-                } else if (value instanceof ArrayBuffer || ArrayBuffer.isView(value)) {
-                  const buf = value instanceof ArrayBuffer ? value : value.buffer;
-                  data += new TextDecoder().decode(buf as ArrayBuffer);
-                }
-                return;
-              }
+            async write(chunk: unknown) {
+              data += await toStringChunk(chunk);
             },
             async close() {
               handle._content = data;
@@ -131,7 +135,9 @@ export async function mockBrowserApis(
         }
       }
 
-      function createHandle(node: FsNode): any {
+      type FileHandle = InstanceType<typeof FileSystemFileHandle>;
+      type DirHandle = InstanceType<typeof FileSystemDirectoryHandle>;
+      function createHandle(node: FsNode): FileHandle | DirHandle {
         return node.kind === 'directory'
           ? new FileSystemDirectoryHandle(node)
           : new FileSystemFileHandle(node);

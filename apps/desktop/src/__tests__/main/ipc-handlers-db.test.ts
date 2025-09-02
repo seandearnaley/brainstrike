@@ -113,7 +113,7 @@ describe('database IPC handlers', () => {
 
     expect(result).toEqual({
       success: false,
-      message: 'Database connection failed: Error: oops',
+      message: 'Database connection failed: oops',
       dbLocation: 'Main Process',
     });
   });

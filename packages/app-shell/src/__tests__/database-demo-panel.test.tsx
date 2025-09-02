@@ -66,6 +66,7 @@ vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: () => null,
   useFileChunkRepository: () => mockChunkRepository,
   useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
+  useDbProviderError: () => null,
 }));
 
 vi.mock('@brainstrike/ui', async () => {
@@ -793,8 +794,11 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAll.mockResolvedValue([]);
       mockChunkRepository.findAll.mockResolvedValue([]);
 
-      // Mock empty search results
-      mockEmbeddingService.search.mockResolvedValue([]);
+      // Use the primary path: embed query then repository vector search
+      mockEmbeddingService.generateEmbedding.mockResolvedValue({
+        embedding: new Float32Array([0.1, 0.2, 0.3]),
+      });
+      mockChunkRepository.searchSimilar.mockResolvedValue([]);
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);

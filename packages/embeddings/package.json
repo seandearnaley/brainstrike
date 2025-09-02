@@ -31,6 +31,8 @@
     "test:integration": "VITEST_RUN_INTEGRATION=true vitest run --testNamePattern=\"integration\""
   },
   "dependencies": {
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.7.2",
     "glob": "^11.0.3"
   },

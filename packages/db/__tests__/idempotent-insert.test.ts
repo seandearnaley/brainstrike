@@ -1,0 +1,132 @@
+import { PGlite } from '@electric-sql/pglite';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { migrations } from '../src/migrations';
+import { MigrationRunner } from '../src/migrations/migration-runner';
+import type { FileChunkInsert } from '../src/models/file-chunk';
+import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
+
+describe('Idempotent Chunk Insertion', () => {
+  let db: PGlite;
+  let repository: FileChunkRepository;
+
+  beforeEach(async () => {
+    // Create a fresh in-memory database for each test
+    db = new PGlite('memory://');
+
+    // Run all migrations to set up the schema
+    const migrationRunner = new MigrationRunner(db);
+    await migrationRunner.initialize();
+    await migrationRunner.up(migrations);
+
+    repository = new FileChunkRepository(db, false);
+
+    // Create file records that our chunks can reference
+    await db.query(
+      `
+      INSERT INTO file_records (id, name, path, size, created_at, updated_at) 
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+      [
+        'file-1',
+        'test-file.txt',
+        '/test/path/test-file.txt',
+        1000,
+        new Date().toISOString(),
+        new Date().toISOString(),
+      ]
+    );
+  });
+
+  it('should handle duplicate chunk IDs gracefully with ON CONFLICT', async () => {
+    const chunk: FileChunkInsert = {
+      id: 'duplicate-test-chunk',
+      fileRecordId: 'file-1',
+      chunkIndex: 0,
+      content: 'Original content',
+      contentHash: 'original-hash',
+      tokenCount: 10,
+      chunkType: 'text',
+      chunkSize: 16,
+      embedding: undefined,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // First insertion should work
+    const first = await repository.insert(chunk);
+    expect(first.id).toBe('duplicate-test-chunk');
+    expect(first.content).toBe('Original content');
+
+    // Second insertion with same ID but different content should UPDATE
+    const updatedChunk: FileChunkInsert = {
+      ...chunk,
+      content: 'Updated content',
+      contentHash: 'updated-hash',
+      tokenCount: 15,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const second = await repository.insert(updatedChunk);
+    expect(second.id).toBe('duplicate-test-chunk');
+    expect(second.content).toBe('Updated content');
+    expect(second.contentHash).toBe('updated-hash');
+    expect(second.tokenCount).toBe(15);
+
+    // Verify only one record exists
+    const allChunks = await repository.findAll();
+    expect(allChunks).toHaveLength(1);
+    expect(allChunks[0].content).toBe('Updated content');
+  });
+
+  it('should handle duplicate IDs in batch insertMany', async () => {
+    const chunks: FileChunkInsert[] = [
+      {
+        id: 'batch-duplicate-1',
+        fileRecordId: 'file-1',
+        chunkIndex: 0,
+        content: 'First content',
+        contentHash: 'hash-1',
+        tokenCount: 10,
+        chunkType: 'text',
+        chunkSize: 13,
+        embedding: undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        id: 'batch-duplicate-2',
+        fileRecordId: 'file-1',
+        chunkIndex: 1,
+        content: 'Second content',
+        contentHash: 'hash-2',
+        tokenCount: 12,
+        chunkType: 'text',
+        chunkSize: 14,
+        embedding: undefined,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    // First batch insert
+    const firstBatch = await repository.insertMany(chunks);
+    expect(firstBatch).toHaveLength(2);
+
+    // Second batch with same IDs but updated content
+    const updatedChunks = chunks.map((chunk) => ({
+      ...chunk,
+      content: `${chunk.content} UPDATED`,
+      contentHash: `${chunk.contentHash}-updated`,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const secondBatch = await repository.insertMany(updatedChunks);
+    expect(secondBatch).toHaveLength(2);
+    expect(secondBatch[0].content).toContain('UPDATED');
+    expect(secondBatch[1].content).toContain('UPDATED');
+
+    // Verify only 2 records exist (no duplicates)
+    const allChunks = await repository.findAll();
+    expect(allChunks).toHaveLength(2);
+  });
+});

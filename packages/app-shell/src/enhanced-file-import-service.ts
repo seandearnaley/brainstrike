@@ -1,12 +1,17 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
-import { useFileChunkRepository, useFileRecordRepository } from '@brainstrike/db';
+import type { ChunkingStrategy, IDatabase } from '@brainstrike/db';
+import {
+  JobQueue,
+  useFileChunkRepository,
+  useFileRecordRepository,
+  usePGliteDatabase,
+} from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { EnhancedImportProgress, EnhancedImportResult } from '@brainstrike/file-import';
 import { processChunking, processEmbeddings } from '@brainstrike/file-import';
 import type { IFileNode } from '@brainstrike/types';
-
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useFileImportService } from './base-file-import-service';
+import { getActiveEmbeddingSetId } from './vector-preferences';
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -41,6 +46,20 @@ export function useEnhancedFileImportService(
 
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
+  const db = usePGliteDatabase();
+
+  // Feature flag to control embedding queue producer (Phase 3)
+  const embedQueueEnabled = (() => {
+    try {
+      // Prefer explicit env; default disabled
+      // @ts-expect-error runtime env may be undefined in browser builds
+      if (typeof process !== 'undefined' && process?.env?.EMBED_QUEUE_ENABLED) {
+        // @ts-expect-error
+        return String(process.env.EMBED_QUEUE_ENABLED).toLowerCase() === 'true';
+      }
+    } catch (_e) {}
+    return false;
+  })();
 
   // Initialize embedding service if enabled
   useEffect(() => {
@@ -52,6 +71,8 @@ export function useEnhancedFileImportService(
 
   const baseImportService = useFileImportService({
     onProgress: (progress) => {
+      // Bubble progress up so callers can toggle UI (e.g., showImportProgress)
+      options.onProgress?.(progress as unknown as EnhancedImportProgress);
       setProgress((prev) =>
         prev
           ? {
@@ -84,17 +105,75 @@ export function useEnhancedFileImportService(
               ...(options.chunkSize !== undefined && { chunkSize: options.chunkSize }),
               ...(options.chunkOverlap !== undefined && { chunkOverlap: options.chunkOverlap }),
               updateProgress: setProgress,
+              // Phase 3 queue producer (optional)
+              ...(embedQueueEnabled &&
+                db && {
+                  embedQueueEnabled,
+                  // Non-transactional fallback
+                  enqueueJobsForChunks: async (chunks, fileRecordId) => {
+                    const jq = new JobQueue(db);
+                    for (const ch of chunks) {
+                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
+                      await jq.enqueue({
+                        queue: 'embeddings',
+                        jobType: 'embed_chunk',
+                        payload: {
+                          chunkId: ch.id,
+                          fileRecordId,
+                          embeddingSetId: ch.embeddingSetId ?? null,
+                        },
+                        dedupeKey,
+                      });
+                    }
+                  },
+                  // Transactional path used when available
+                  runInTransaction: async (fn) =>
+                    await db.transaction(async (tx) => fn(tx as IDatabase)),
+                  enqueueJobsForChunksTx: async (tx, chunks, fileRecordId) => {
+                    const jqTx = new JobQueue(tx as IDatabase);
+                    for (const ch of chunks) {
+                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
+                      await jqTx.enqueue({
+                        queue: 'embeddings',
+                        jobType: 'embed_chunk',
+                        payload: {
+                          chunkId: ch.id,
+                          fileRecordId,
+                          embeddingSetId: ch.embeddingSetId ?? null,
+                        },
+                        dedupeKey,
+                      });
+                    }
+                  },
+                }),
               ...(options.enableEmbedding !== undefined && {
                 enableEmbedding: options.enableEmbedding,
               }),
               processEmbeddings: async (chunks, result) => {
+                // Prefer the active set's model key if available to avoid dimension mismatches
+                let inlineModelKey = options.embeddingModel;
+                try {
+                  const activeSetId = getActiveEmbeddingSetId();
+                  if (db && activeSetId) {
+                    const res = await db.query<{ modelKey: string }>(
+                      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+                      [activeSetId]
+                    );
+                    if (res.rows[0]?.modelKey) inlineModelKey = res.rows[0].modelKey;
+                  }
+                } catch {
+                  // ignore, fallback to provided embeddingModel
+                }
+
                 await processEmbeddings(
                   chunks,
                   result,
                   chunkRepository,
                   embeddingService,
-                  options.embeddingModel,
-                  setProgress
+                  inlineModelKey,
+                  setProgress,
+                  // Attach inline embeddings to the currently active set (if any)
+                  getActiveEmbeddingSetId() ?? undefined
                 );
               },
             }
@@ -126,6 +205,8 @@ export function useEnhancedFileImportService(
       };
 
       setProgress(initialProgress);
+      // Ensure UI can react immediately (e.g., show progress panel)
+      options.onProgress?.(initialProgress);
 
       try {
         await baseImportService.importFiles(selectedFilePaths, fileTree, fileContents);

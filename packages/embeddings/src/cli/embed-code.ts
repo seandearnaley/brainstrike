@@ -533,8 +533,10 @@ async function main() {
   await cli.run();
 }
 
-// Run CLI if this file is executed directly
-if (require.main === module) {
+// Run CLI if this file is executed directly (CJS) — ESM-safe guard
+const canRunDirect =
+  typeof require !== 'undefined' && typeof module !== 'undefined' && require.main === module;
+if (canRunDirect) {
   main().catch((error) => {
     // CLI error handling - output to stderr and exit
     process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);

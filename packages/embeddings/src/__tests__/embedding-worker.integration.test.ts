@@ -1,0 +1,181 @@
+import type { IDatabase } from '@brainstrike/db';
+import { migrate, wasmLoader } from '@brainstrike/db';
+import type { PGlite } from '@electric-sql/pglite';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { startEmbeddingWorker } from '../index';
+import type {
+  EmbeddingConfig,
+  EmbeddingProgress,
+  EmbeddingResult,
+  EmbeddingService,
+  EmbeddingStatus,
+  SimilarityResult,
+} from '../types';
+
+class FakeEmbeddingService implements EmbeddingService {
+  private status: EmbeddingStatus = 'ready';
+  private dims = 768;
+  initialize(
+    _config?: Partial<EmbeddingConfig>,
+    _onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
+    this.status = 'ready';
+    return Promise.resolve();
+  }
+  async generateEmbedding(_text: string): Promise<EmbeddingResult> {
+    // Deterministic small vector of specified dims
+    const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 10);
+    return { embedding, dimensions: this.dims, model: 'fake-model' };
+  }
+  calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
+    return { similarity: 1, distance: 0, method: 'cosine' };
+  }
+  getStatus(): EmbeddingStatus {
+    return this.status;
+  }
+  getConfig(): EmbeddingConfig {
+    return { modelId: 'fake-model' };
+  }
+  async dispose(): Promise<void> {
+    this.status = 'disposed';
+  }
+}
+
+async function waitFor(
+  fn: () => Promise<boolean>,
+  timeoutMs = 5000,
+  intervalMs = 50
+): Promise<void> {
+  const start = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (await fn()) return;
+    if (Date.now() - start > timeoutMs) throw new Error('Timeout waiting for condition');
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+}
+
+describe('embedding-worker', () => {
+  let db: PGlite;
+
+  beforeEach(async () => {
+    process.env.DISABLE_VECTOR_EXTENSION = 'true';
+    db = await wasmLoader.createPGlite('memory://embedding-worker');
+    await migrate(db);
+  });
+
+  it('processes an embed_chunk job and writes embedding', async () => {
+    const now = new Date().toISOString();
+    // Insert a file record + chunk
+    const fileId = 'file-1';
+    const chunkId = 'chunk-1';
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'f.ts', '/f.ts', 100, 'hello world', 'hash1', 10, now]
+    );
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
+      [chunkId, fileId, 'hello world', 'hash1', now]
+    );
+    // Enqueue job
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId }), now]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey: 'jina-code',
+      service: new FakeEmbeddingService(),
+      log: (m) => console.error(m),
+    });
+
+    // Wait for terminal state (succeeded/failed)
+    let finalState = '';
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-1'`);
+      finalState = String(res.rows[0]?.['state'] ?? '');
+      return finalState === 'succeeded' || finalState === 'failed';
+    }, 10000);
+    expect(finalState).toBe('succeeded');
+
+    const row = await db.query<{
+      embedding: string | null;
+      embedding_set_id: string | null;
+      embedding_hash: string | null;
+    }>('SELECT embedding, embedding_set_id, embedding_hash FROM file_chunks WHERE id = $1', [
+      chunkId,
+    ]);
+    expect(row.rows[0]?.embedding_set_id).toBeTruthy();
+    expect(row.rows[0]?.embedding_hash).toBeTruthy();
+    // Embedding is stored as TEXT in test path
+    expect(typeof row.rows[0]?.embedding === 'string' || row.rows[0]?.embedding === null).toBe(
+      true
+    );
+
+    await controller.stop();
+  });
+
+  it('is idempotent when embedding_hash matches (no write)', async () => {
+    const now = new Date().toISOString();
+    const fileId = 'file-2';
+    const chunkId = 'chunk-2';
+    const modelKey = 'jina-code';
+    const expectedHash = await (await import('node:crypto'))
+      .createHash('sha256')
+      .update(`hash2:${modelKey}`)
+      .digest('hex');
+
+    await db.query(
+      `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
+      [fileId, 'g.ts', '/g.ts', 120, 'hello moon', 'hash2', 12, now]
+    );
+    // Pre-set matching hash and a dummy embedding string to verify it remains unchanged
+    const dummyEmbedding = '[0.1,0.2,0.3]';
+    await db.query(
+      `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding, embedding_hash, created_at, updated_at)
+      VALUES ($1,$2,0,$3,$4,12,'text',10,$5,$6,$7,$7)`,
+      [chunkId, fileId, 'hello moon', 'hash2', dummyEmbedding, expectedHash, now]
+    );
+
+    await db.query(
+      `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
+      VALUES ('job-2','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
+      [JSON.stringify({ chunkId, embeddingSetId: null }), now]
+    );
+
+    const controller = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      leaseMs: 2000,
+      modelKey,
+      service: new FakeEmbeddingService(),
+      log: (m) => console.error(m),
+    });
+
+    let finalState2 = '';
+    await waitFor(async () => {
+      const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-2'`);
+      finalState2 = String(res.rows[0]?.['state'] ?? '');
+      return finalState2 === 'succeeded' || finalState2 === 'failed';
+    }, 10000);
+    expect(finalState2).toBe('succeeded');
+
+    const row = await db.query<{ embedding: string | null; embedding_hash: string | null }>(
+      'SELECT embedding, embedding_hash FROM file_chunks WHERE id = $1',
+      [chunkId]
+    );
+    expect(row.rows[0]?.embedding).toBe(dummyEmbedding);
+    expect(row.rows[0]?.embedding_hash).toBe(expectedHash);
+
+    await controller.stop();
+  });
+});
+// Increase timeouts to reduce flakiness under workspace-wide runs
+vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });

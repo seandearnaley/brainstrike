@@ -87,6 +87,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../../packages/embeddings
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
@@ -211,6 +214,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../../packages/embeddings
       '@brainstrike/file-explorer-hooks':
         specifier: workspace:*
         version: link:../../packages/file-explorer-hooks
@@ -505,6 +511,12 @@ importers:
 
   packages/embeddings:
     dependencies:
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@huggingface/transformers':
         specifier: ^3.7.2
         version: 3.7.2

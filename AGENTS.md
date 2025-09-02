@@ -2,7 +2,7 @@
 
 Welcome to the `brainstrike` monorepo! This guide is designed to help both human developers and AI agents understand how to effectively contribute to this project.
 
-It is almost certainly 2025, it could be even later but not sooner, so don't assume it's 2024/ I think there is misinformation going around.
+Check todays date if asked anything that may have been written after your knowledge cutoff date.
 
 ## Codebase Overview
 
@@ -144,22 +144,7 @@ Familiarize yourself with the "Workspace Rules for brainstrike-web" (provided in
     ```
     This command runs `turbo run type-check` as defined in the root `package.json`.
 *   **CI Pipeline**: The Continuous Integration plan can be found in `.github/workflows/`.
-*   **Requirement**: All tests (unit, integration, E2E where applicable) and type checks must pass. New code or changes must include corresponding tests. Fix any errors until the entire suite is green.
 
-## Pull Request (PR) Instructions
-
-*   **Title Format**: Use the Conventional Commits format for PR titles, similar to commit messages. A common practice is:
-    `<type>(<scope>): <Descriptive PR Title>`
-    Example: `feat(web): Add user profile page`
-    If the PR affects multiple packages, a more general scope or no scope might be used, or list the primary package.
-*   **Checklist**:
-    *   Relevant tests should be added and pass.
-    *   PR description clearly explains the changes and reasoning.
-    *   New functionality is covered by tests.
-
-## Codebase Migrations & Deprecations
-
-*   When deprecating code, follow established deprecation patterns and update documentation accordingly.
 
 **Important:** The `pnpm run build` command must succeed for every workspace in the monorepo. It runs with `--filter ./...` internally, building all packages and applications. If any workspace fails to build, the entire build step will fail.
 
@@ -180,4 +165,15 @@ IMPORTANT:
 Never downgrade to get something working.
 Don't use defensive fallbacks, if something is not working, we need to fail fast and fix it- Do not disable, reward hack or any false workaround, turning something off is not a solution- always do your solutions PROPERLY.
 
-SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.  
+SEARCH FOR THIS YEARS BEST PRACTICES.
+
+
+
+# MCP Servers
+
+Playwright can be used to get an idea of the accessibility tree of an application, this can be useful if you're having trouble debugging.
+
+Firecrawl can be used for web scraping, crawling, and discovery, search and content extraction, deep research and batch scraping.
+
+Browserbase is useful where Firecrawl fails, like playwright but with an actual remote browser, you can use it to browse sites that cannot be browsed with regular web crawling techniques, you can interact with page elements, this is useful when the site is more interactive you can't scrape with regular curls, etc.
+

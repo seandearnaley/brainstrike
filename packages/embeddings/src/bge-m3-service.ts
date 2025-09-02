@@ -39,7 +39,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
    */
   async initializeWithModel(
     modelKey?: string,
-    onProgress?: (progress: EmbeddingProgress) => void
+    onProgress?: (progress: EmbeddingProgress) => void,
+    deviceOverride?: 'webgpu' | 'wasm' | 'cpu'
   ): Promise<void> {
     const key = modelKey || ModelRegistryManager.getDefaultModelKey();
     const modelConfig = ModelRegistryManager.getModel(key);
@@ -50,7 +51,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
     const config: Partial<EmbeddingConfig> = {
       modelId: modelConfig.id,
-      device: this._config.device || 'webgpu',
+      device: deviceOverride || this._config.device || 'webgpu',
       quantized: ModelRegistryManager.shouldQuantize(modelConfig),
     };
 
@@ -118,13 +119,6 @@ export class SimpleEmbeddingService implements EmbeddingService {
     };
   }
 
-  async dispose(): Promise<void> {
-    await this._backend.dispose();
-    this._status = 'idle';
-    this._currentModelKey = null;
-    this._currentModelConfig = null;
-  }
-
   /**
    * Get the currently loaded model key
    */
@@ -140,10 +134,10 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Static method to list all available models from registry
+   * Instance proxy: get the default model key from registry
    */
-  static listModels(): Record<string, ModelConfig> {
-    return ModelRegistryManager.listModels();
+  getDefaultModelKey(): string {
+    return SimpleEmbeddingService.getDefaultModelKey();
   }
 
   /**
@@ -154,10 +148,10 @@ export class SimpleEmbeddingService implements EmbeddingService {
   }
 
   /**
-   * Static method to get a specific model configuration
+   * Instance proxy: get the model registry
    */
-  static getModelConfig(key: string): ModelConfig | null {
-    return ModelRegistryManager.getModel(key);
+  getRegistry() {
+    return SimpleEmbeddingService.getRegistry();
   }
 
   /**
@@ -165,5 +159,26 @@ export class SimpleEmbeddingService implements EmbeddingService {
    */
   static getRegistry() {
     return ModelRegistryManager.getRegistry();
+  }
+
+  async dispose(): Promise<void> {
+    await this._backend.dispose();
+    this._status = 'idle';
+    this._currentModelKey = null;
+    this._currentModelConfig = null;
+  }
+
+  /**
+   * Static method to get a specific model configuration
+   */
+  static getModelConfig(key: string): ModelConfig | null {
+    return ModelRegistryManager.getModel(key);
+  }
+
+  /**
+   * Static method to list all available models from registry
+   */
+  static listModels(): Record<string, ModelConfig> {
+    return ModelRegistryManager.listModels();
   }
 }

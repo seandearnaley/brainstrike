@@ -26,7 +26,7 @@ describe('WasmLoader coverage tests', () => {
   it('createPGlite creates instances with different paths', async () => {
     // This ensures the createPGlite method works with various paths
     // Use only in-memory DB for faster CI tests
-    const paths = [':memory:'];
+    const paths = ['memory://'];
 
     for (const path of paths) {
       // This will either succeed or fail based on environment

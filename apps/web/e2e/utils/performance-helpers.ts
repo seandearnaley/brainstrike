@@ -1,6 +1,6 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import type { Page } from '@playwright/test';
-import { promises as fs } from 'fs';
-import path from 'path';
 
 export interface PerformanceMetric {
   name: string;
@@ -68,12 +68,12 @@ export const measureTime = async <T>(
 export const installRenderTracker = async (page: Page) => {
   await page.evaluate(() => {
     let renderCount = 0;
-    
+
     (window as any).__renderTracker = {
       renderCount: 0,
       renderTimes: [],
       activeRenders: new Set(),
-      
+
       startRender: (componentName = 'unknown') => {
         renderCount++;
         const renderKey = `render-${componentName}-${renderCount}`;
@@ -81,34 +81,35 @@ export const installRenderTracker = async (page: Page) => {
         performance.mark(`${renderKey}-start`);
         return renderKey;
       },
-      
+
       endRender: (renderKey: string) => {
         if (!(window as any).__renderTracker.activeRenders.has(renderKey)) {
           console.warn(`Render key ${renderKey} not found in active renders`);
           return;
         }
-        
+
         performance.mark(`${renderKey}-end`);
         performance.measure(renderKey, `${renderKey}-start`, `${renderKey}-end`);
         const measure = performance.getEntriesByName(renderKey)[0];
-        
+
         if (measure) {
           (window as any).__renderTracker.renderTimes.push(measure.duration);
           (window as any).__renderTracker.activeRenders.delete(renderKey);
           (window as any).__renderTracker.renderCount++;
         }
       },
-      
+
       getRenderMetrics: (): RenderMetrics => {
         const times = (window as any).__renderTracker.renderTimes;
         return {
           totalRenders: times.length,
-          averageRenderTime: times.length > 0 ? times.reduce((a: number, b: number) => a + b, 0) / times.length : 0,
+          averageRenderTime:
+            times.length > 0 ? times.reduce((a: number, b: number) => a + b, 0) / times.length : 0,
           maxRenderTime: times.length > 0 ? Math.max(...times) : 0,
           renderTimes: [...times],
         };
       },
-      
+
       reset: () => {
         (window as any).__renderTracker.renderCount = 0;
         (window as any).__renderTracker.renderTimes = [];
@@ -148,17 +149,17 @@ export const forceGarbageCollection = async (page: Page) => {
 export const waitForPerformanceStabilization = async (page: Page, maxWaitMs = 2000) => {
   const startTime = Date.now();
   let previousMemory = await getMemoryUsage(page);
-  
+
   while (Date.now() - startTime < maxWaitMs) {
     await page.waitForTimeout(200);
     const currentMemory = await getMemoryUsage(page);
-    
+
     // Check if memory usage has stabilized (less than 1% change)
     const memoryChange = Math.abs(currentMemory.used - previousMemory.used) / previousMemory.used;
     if (memoryChange < 0.01) {
       break;
     }
-    
+
     previousMemory = currentMemory;
   }
 };
@@ -181,10 +182,10 @@ export const createMetric = (
     timestamp: Date.now(),
     passed,
   };
-  
+
   const status = passed ? '✅' : '❌';
   console.log(`${status} ${name}: ${value.toFixed(2)}${unit} (threshold: ${threshold}${unit})`);
-  
+
   return metric;
 };
 
@@ -194,67 +195,71 @@ export const createMetric = (
 export const saveMetricsToFile = async (metrics: PerformanceMetric[], filename?: string) => {
   const metricsDir = path.join(process.cwd(), 'performance-metrics');
   await fs.mkdir(metricsDir, { recursive: true });
-  
+
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   const defaultFilename = `metrics-${timestamp}.json`;
   const filePath = path.join(metricsDir, filename || defaultFilename);
-  
+
   const data = {
     timestamp: new Date().toISOString(),
     metrics,
     summary: {
       total: metrics.length,
-      passed: metrics.filter(m => m.passed).length,
-      failed: metrics.filter(m => m.passed === false).length,
+      passed: metrics.filter((m) => m.passed).length,
+      failed: metrics.filter((m) => m.passed === false).length,
     },
   };
-  
+
   await fs.writeFile(filePath, JSON.stringify(data, null, 2));
   console.log(`📁 Metrics saved to: ${filePath}`);
-  
+
   return filePath;
 };
 
 /**
  * Compare current metrics with baseline
  */
-export const compareWithBaseline = async (currentMetrics: PerformanceMetric[], baselineFile?: string) => {
-  const fs = require('fs').promises;
-  const path = require('path');
-  
+export const compareWithBaseline = async (
+  currentMetrics: PerformanceMetric[],
+  baselineFile?: string
+) => {
+  const fs = require('node:fs').promises;
+  const path = require('node:path');
+
   let baselinePath = baselineFile;
   if (!baselinePath) {
     const metricsDir = path.join(process.cwd(), 'performance-metrics');
     baselinePath = path.join(metricsDir, 'baseline.json');
   }
-  
+
   try {
     const baselineData = JSON.parse(await fs.readFile(baselinePath, 'utf8'));
     const baselineMetrics = baselineData.metrics || baselineData; // Handle different formats
-    
-    const comparisons = currentMetrics.map(current => {
+
+    const comparisons = currentMetrics.map((current) => {
       const baseline = baselineMetrics.find((b: PerformanceMetric) => b.name === current.name);
       if (!baseline) {
         return { ...current, comparison: 'new', improvement: null };
       }
-      
+
       const improvement = ((baseline.value - current.value) / baseline.value) * 100;
       const comparison = improvement > 5 ? 'improved' : improvement < -5 ? 'regressed' : 'stable';
-      
+
       return { ...current, comparison, improvement, baseline: baseline.value };
     });
-    
+
     console.log('📊 Performance Comparison:');
-    comparisons.forEach(comp => {
-      const arrow = comp.comparison === 'improved' ? '⬇️' : comp.comparison === 'regressed' ? '⬆️' : '➡️';
+    comparisons.forEach((comp) => {
+      const arrow =
+        comp.comparison === 'improved' ? '⬇️' : comp.comparison === 'regressed' ? '⬆️' : '➡️';
       const improvementText = comp.improvement !== null ? ` (${comp.improvement.toFixed(1)}%)` : '';
       console.log(`${arrow} ${comp.name}: ${comp.value.toFixed(2)}${comp.unit}${improvementText}`);
     });
-    
+
     return comparisons;
-  } catch (error) {
+  } catch (_error) {
     console.log(`No baseline found at ${baselinePath}, skipping comparison`);
-    return currentMetrics.map(m => ({ ...m, comparison: 'baseline', improvement: null }));
+    return currentMetrics.map((m) => ({ ...m, comparison: 'baseline', improvement: null }));
   }
 };
 
@@ -262,10 +267,10 @@ export const compareWithBaseline = async (currentMetrics: PerformanceMetric[], b
  * Assert that all metrics pass their thresholds
  */
 export const assertMetricsPass = (metrics: PerformanceMetric[]) => {
-  const failed = metrics.filter(m => !m.passed);
+  const failed = metrics.filter((m) => !m.passed);
   if (failed.length > 0) {
     const failureMessage = failed
-      .map(m => `${m.name}: ${m.value.toFixed(2)}${m.unit} > ${m.threshold}${m.unit}`)
+      .map((m) => `${m.name}: ${m.value.toFixed(2)}${m.unit} > ${m.threshold}${m.unit}`)
       .join(', ');
     throw new Error(`Performance thresholds exceeded: ${failureMessage}`);
   }

@@ -8,6 +8,9 @@ export interface FileChunk {
   chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   chunkSize: number;
   embedding?: number[];
+  embeddingSetId?: string;
+  embeddingUpdatedAt?: string;
+  embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +25,9 @@ export interface FileChunkInsert {
   chunkType: 'text' | 'code' | 'sentence' | 'recursive';
   chunkSize: number;
   embedding?: number[];
+  embeddingSetId?: string;
+  embeddingUpdatedAt?: string;
+  embeddingHash?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,6 +40,9 @@ export interface FileChunkUpdate {
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
   chunkSize?: number;
   embedding?: number[];
+  embeddingSetId?: string;
+  embeddingUpdatedAt?: string;
+  embeddingHash?: string;
   updatedAt: string;
 }
 
@@ -48,4 +57,5 @@ export interface ChunkSearchOptions {
   threshold?: number;
   fileRecordId?: string;
   chunkType?: 'text' | 'code' | 'sentence' | 'recursive';
+  embeddingSetId?: string;
 }

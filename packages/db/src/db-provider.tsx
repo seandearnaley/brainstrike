@@ -27,6 +27,7 @@ interface DbContextValue {
   db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
+  vectorEnabled: boolean; // Whether pgvector extension is available
 }
 
 interface DbProviderProps {
@@ -72,9 +73,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [error, setError] = useState<Error | null>(null);
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
+  const [vectorEnabled, setVectorEnabled] = useState(false);
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
+  const initializingPromiseRef = useRef<Promise<void> | null>(null);
 
   // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
   const testElectronConnection = useCallback(async (electronDB: any) => {
@@ -110,14 +113,35 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         query: electronDB.query,
         exec: electronDB.exec,
       });
-      const chunkRepo = new ElectronFileChunkRepository({
-        query: electronDB.query,
-        exec: electronDB.exec,
-      });
+      // Detect pgvector extension availability over IPC
+      let hasVector = false;
+      try {
+        const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        hasVector = Array.isArray(res.rows) && res.rows.length > 0;
+      } catch (_err) {
+        // If detection fails, assume not available
+        hasVector = false;
+      }
+      if (!hasVector) {
+        throw new Error(
+          'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
+        );
+      }
+      const chunkRepo = new ElectronFileChunkRepository(
+        {
+          query: electronDB.query,
+          exec: electronDB.exec,
+        },
+        hasVector
+      );
 
       if (!cancelled.value) {
+        // Expose a minimal DB interface through the context for components/utilities
+        // that operate on IDatabase (query/exec). Cast to PGlite to satisfy typing.
+        dbRef.current = { query: electronDB.query, exec: electronDB.exec } as unknown as PGlite;
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
       }
@@ -135,12 +159,23 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       await migrate(db);
 
+      // Check if pgvector extension is available
+      let hasVector = false;
+      try {
+        const result = await db.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
+        hasVector = result.rows.length > 0;
+        logger.info(`pgvector extension ${hasVector ? 'available' : 'not available'}`);
+      } catch (err) {
+        logger.debug('Could not detect pgvector extension:', err);
+      }
+
       const repository = new FileRecordRepository(db);
-      const chunkRepo = new FileChunkRepository(db);
+      const chunkRepo = new FileChunkRepository(db, hasVector);
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
+        setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
       }
@@ -149,38 +184,56 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   );
 
   const initializeDatabase = useCallback(async () => {
-    if (lazyInitialized || initializingRef.current || (dbRef.current && !useElectronIPC)) {
+    // Fast exits when already ready
+    if (lazyInitialized || (dbRef.current && !useElectronIPC)) {
+      return;
+    }
+
+    // If an initialization is in flight, wait for it
+    if (initializingPromiseRef.current) {
+      await initializingPromiseRef.current;
       return;
     }
 
     initializingRef.current = true;
     logger.info('🚀 Lazy-loading database (triggered by actual usage)');
 
-    try {
-      const isElectronInitialized = await initializeElectronIPC({ value: false });
-
-      if (!isElectronInitialized) {
-        await initializeDirectPGlite({ value: false });
+    initializingPromiseRef.current = (async () => {
+      try {
+        const isElectronInitialized = await initializeElectronIPC({ value: false });
+        if (!isElectronInitialized) {
+          await initializeDirectPGlite({ value: false });
+        }
+        setLazyInitialized(true);
+      } catch (err) {
+        logger.error('Failed to initialize database:', err);
+        setFileRecordRepository(null);
+        setChunkRepository(null);
+        setError(err as Error);
+        setReady(true);
+        setLazyInitialized(false);
+      } finally {
+        initializingRef.current = false;
+        initializingPromiseRef.current = null;
       }
+    })();
 
-      // Only set lazyInitialized to true after successful initialization
-      setLazyInitialized(true);
-    } catch (err) {
-      logger.error('Failed to initialize database:', err);
-      setFileRecordRepository(null);
-      setChunkRepository(null);
-      setError(err as Error);
-      setReady(true);
-      // Reset lazyInitialized to allow retry attempts
-      setLazyInitialized(false);
-    } finally {
-      initializingRef.current = false;
-    }
+    await initializingPromiseRef.current;
   }, [lazyInitialized, useElectronIPC, initializeElectronIPC, initializeDirectPGlite]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount/unmount; initialization guarded internally
   useEffect(() => {
-    // No automatic initialization - only when explicitly requested
+    // No automatic initialization in prod/dev - only when explicitly requested.
+    // In test environments, eagerly initialize to simplify test timing and ensure
+    // constructor calls (e.g., default path detection) are observable.
     setReady(true); // Provider is ready, but database is not yet loaded
+
+    if (process.env['NODE_ENV'] === 'test') {
+      // Fire and forget; internal guards prevent duplicate initialization
+      initializeDatabase().catch((err) => {
+        logger.error('Failed to eager-initialize database in test:', err);
+      });
+    }
 
     return () => {
       const db = dbRef.current;
@@ -220,6 +273,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const clearViaPGlite = useCallback(async () => {
     if (!dbRef.current) {
+      await initializeDatabase();
+    }
+    if (!dbRef.current) {
       throw new Error('Database not available');
     }
 
@@ -238,7 +294,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
-  }, []);
+  }, [initializeDatabase]);
 
   const clearAllData = useCallback(async () => {
     // Initialize database if not already initialized
@@ -277,11 +333,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       db: dbRef.current,
       clearAllData,
       initializeDatabase,
+      vectorEnabled,
     }),
-    [fileRecordRepository, chunkRepository, error, ready, clearAllData, initializeDatabase]
+    [
+      fileRecordRepository,
+      chunkRepository,
+      error,
+      ready,
+      clearAllData,
+      initializeDatabase,
+      vectorEnabled,
+    ]
   );
 
   return <DbContext.Provider value={contextValue}>{children}</DbContext.Provider>;
+}
+
+export function useVectorEnabled(): boolean {
+  const context = useContext(DbContext);
+  if (context === undefined) {
+    throw new Error('useVectorEnabled must be used within a DbProvider');
+  }
+  return context.vectorEnabled;
 }
 
 export function useFileRecordRepository():
@@ -325,6 +398,14 @@ export function usePGliteDatabase(): PGlite | null {
   }
 
   return ctx.ready && !ctx.error ? ctx.db : null;
+}
+
+export function useDbProviderError(): Error | null {
+  const ctx = useContext(DbContext);
+  if (!ctx) {
+    throw new Error('useDbProviderError must be used within a DbProvider');
+  }
+  return ctx.error;
 }
 
 export function useFileChunkRepository(): FileChunkRepository | ElectronFileChunkRepository | null {

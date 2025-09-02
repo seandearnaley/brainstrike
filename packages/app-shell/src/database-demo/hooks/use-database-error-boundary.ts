@@ -96,7 +96,6 @@ export function useDatabaseErrorBoundary({
         }
       }
 
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       if (process.env['NODE_ENV'] === 'development') {
         console.error('Database operation failed:', {
           operation: operation.name || 'anonymous',
@@ -311,7 +310,6 @@ export function useDatabaseErrorBoundary({
             results.push(null);
             failedCount++;
 
-            // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
             if (process.env['NODE_ENV'] === 'development') {
               console.error(`Operation '${name}' failed:`, error);
             }

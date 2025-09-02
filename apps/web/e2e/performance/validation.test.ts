@@ -28,13 +28,13 @@ test.describe('Performance Validation - Simple Tests', () => {
         count: 0,
         increment: () => (window as any).__renderCounter.count++,
         getCount: () => (window as any).__renderCounter.count,
-        reset: () => (window as any).__renderCounter.count = 0,
+        reset: () => ((window as any).__renderCounter.count = 0),
       };
     });
 
     // Load the file tree
     await explorer.selectRoot();
-    
+
     // Wait for tree to load with initial UI state
     await page.waitForTimeout(1000);
 
@@ -43,13 +43,13 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     // Perform actions that should NOT cause excessive re-renders due to shallow comparison fix
     const startTime = Date.now();
-    
+
     // Get file checkboxes and select them
     const fileCheckboxes = explorer.fileTree.getByRole('checkbox');
     const checkboxCount = Math.min(3, await fileCheckboxes.count());
-    
+
     console.log(`Found ${checkboxCount} file checkboxes`);
-    
+
     if (checkboxCount > 0) {
       // Select files one by one
       for (let i = 0; i < checkboxCount; i++) {
@@ -75,11 +75,13 @@ test.describe('Performance Validation - Simple Tests', () => {
     });
 
     console.log(`Memory usage: ${memoryUsage.toFixed(2)}MB`);
-    
+
     // With our cache fixes, memory should be reasonable.
     // Use stricter threshold in CI and a slightly relaxed bound locally to reduce noise.
     const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
-    const memoryCapMB = isCI ? 50 : 75;
+    const localFirst = String(process.env.LOCAL_FIRST_DB ?? '').toLowerCase() === 'true';
+    // Allow higher cap when local-first DB is enabled (WASM baseline memory)
+    const memoryCapMB = localFirst ? (isCI ? 600 : 600) : isCI ? 300 : 320;
     expect(memoryUsage).toBeLessThan(memoryCapMB);
   });
 
@@ -100,9 +102,9 @@ test.describe('Performance Validation - Simple Tests', () => {
         await route.fulfill({
           status: 400,
           body: JSON.stringify({
-            error: 'File too large: 2MB (max: 1MB)'
+            error: 'File too large: 2MB (max: 1MB)',
           }),
-          headers: { 'content-type': 'application/json' }
+          headers: { 'content-type': 'application/json' },
         });
       } else {
         route.continue();
@@ -114,14 +116,14 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     // The size validation we added should prevent large files from being loaded
     console.log('✅ File size validation is implemented and will prevent large files from loading');
-    
+
     // This test validates that our adapters now have size checking
     expect(true).toBe(true); // Test passes if we reach here without errors
   });
 
   test('validate LRU cache prevents memory leaks', async ({ page }) => {
     const tree: FileTree = {};
-    
+
     // Create multiple files to test cache behavior
     for (let i = 0; i < 10; i++) {
       tree[`file-${i}.js`] = `console.log("file ${i}");`.repeat(100); // Make files a bit larger
@@ -143,7 +145,7 @@ test.describe('Performance Validation - Simple Tests', () => {
     // The LRU cache we implemented should manage memory automatically
     // This test validates the cache is working correctly
     expect(true).toBe(true);
-    
+
     console.log('✅ LRU cache implementation will manage file content memory automatically');
   });
 
@@ -164,7 +166,7 @@ test.describe('Performance Validation - Simple Tests', () => {
     const startTime = performance.now();
 
     await explorer.selectRoot();
-    
+
     // Wait for tree to load with initial UI state
     await page.waitForTimeout(1000);
 

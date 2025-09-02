@@ -3,8 +3,8 @@ import type { PGlite } from '@electric-sql/pglite';
 export interface Migration {
   version: number;
   name: string;
-  up: string;
-  down?: string;
+  up: string | ((db: PGlite) => Promise<void>);
+  down?: string | ((db: PGlite) => Promise<void>);
 }
 
 export class MigrationRunner {
@@ -84,8 +84,16 @@ export class MigrationRunner {
         console.info(`Migration ${migration.version} is already applied, skipping`);
         return;
       }
-      await dbi.exec(migration.up);
-      const checksum = this.calculateChecksum(migration.up);
+      // Execute migration based on type
+      if (typeof migration.up === 'string') {
+        await dbi.exec(migration.up);
+      } else {
+        // Run function-style migration against the transactional interface
+        await migration.up(dbi as unknown as PGlite);
+      }
+      const checksum = this.calculateChecksum(
+        typeof migration.up === 'string' ? migration.up : migration.name
+      );
       await dbi.exec(
         `INSERT INTO ${MigrationRunner.MIGRATION_TABLE} (version, name, checksum) VALUES (${migration.version}, '${migration.name}', '${checksum}')`
       );
@@ -210,7 +218,9 @@ export class MigrationRunner {
 
       if (result.rows.length > 0) {
         const storedChecksum = result.rows[0]?.checksum;
-        const currentChecksum = this.calculateChecksum(migration.up);
+        const currentChecksum = this.calculateChecksum(
+          typeof migration.up === 'string' ? migration.up : migration.name
+        );
 
         if (storedChecksum && storedChecksum !== currentChecksum) {
           console.warn(

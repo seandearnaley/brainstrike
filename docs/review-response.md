@@ -1,104 +1,94 @@
-# Review Response Summary
+# Review Response — Phase 3 Queue Hardening (2025)
 
-This document outlines how we addressed the feedback from the Playwright optimization PR review.
+This document summarizes the review feedback addressed prior to Phase 4 and the concrete changes applied across the codebase.
 
-## ✅ **High Priority Issues Addressed**
+## What changed
 
-### 1. **Extracted Environment Detection Logic** (DRY Principle)
-- **Issue**: Code duplication between desktop and web configs
-- **Solution**: Created `packages/config/src/playwright-environment.ts` shared utility
-- **Benefits**: 
-  - Single source of truth for environment detection
-  - Consistent behavior across all Playwright configs
-  - Easier maintenance and testing
-  - Type safety with proper interfaces
+- Claiming semantics
+  - `claim()` now considers expired `running` jobs in addition to `queued` jobs.
+  - Attempts are incremented on claim (single source of truth) and jobs with `attempts >= max_attempts` are excluded from selection.
 
-### 2. **Reviewed `--disable-web-security` Flag Usage**
-- **Issue**: Security concern about bypassing web security
-- **Solution**: 
-  - Added comprehensive documentation explaining the risks and justification
-  - Limited usage to Codex environment only
-  - Provided alternatives and guidelines for when to avoid
-  - Added warnings in configuration validation
+- Idempotent enqueue
+  - `enqueue()` uses `INSERT ... ON CONFLICT (dedupe_key) DO UPDATE`, preserving the earliest `run_at` and refreshing `updated_at`. This avoids re‑select races and ensures deterministic behavior under retries.
 
-## ✅ **Medium Priority Issues Addressed**
+- Backoff discipline
+  - `fail()` no longer increments attempts; it computes backoff based on the attempts value already incremented by `claim()`.
 
-### 3. **Added Configuration Validation**
-- **Feature**: `validateEnvironmentConfig()` function
-- **Validates**:
-  - Missing `PLAYWRIGHT_BROWSERS_PATH` in Codex
-  - Warns about disabled web security
-  - Provides actionable warnings for misconfiguration
+- Transactional producer
+  - Chunk inserts and job enqueues can now be performed within a single DB transaction via injected `runInTransaction` and `enqueueJobsForChunksTx` hooks.
+  - Both chunk repositories expose `insertManyWithTx(tx, chunks)` to prevent nested transactions in the transactional path.
 
-### 4. **Implemented Browser Coverage Strategy**
-- **Default**: Chromium-only for speed and efficiency
-- **Full Coverage**: `pnpm run test:e2e:full-browsers` for comprehensive testing
-- **Documentation**: Clear guidelines on when to use each approach
-- **Trade-offs**: Performance vs coverage analysis included
+- Admin & retention
+  - Added `expireLeases()` and `prune(states, olderThan)` helpers.
+  - CLI gained a `prune` command: `pnpm queue -- prune --olderThan <ISO> --states succeeded failed`.
 
-## ✅ **Low Priority Issues Addressed**
+- Indexing
+  - New deterministic claim index: `idx_job_queue_claim(queue, state, run_at, id)`.
 
-### 5. **Code Formatting Consistency**
-- **Fixed**: Mixed indentation issues
-- **Applied**: Biome formatter across all config files
-- **Note**: Console.log warnings are intentional for config debugging
+## Files touched
 
-## 🔧 **Technical Improvements**
+- `packages/db/src/queue/job-queue.ts` — claim, enqueue, fail, expireLeases, prune
+- `packages/db/src/migrations/008-job-queue-claim-index.ts` — new migration
+- `packages/db/src/repositories/file-chunk-repository.ts` — `insertManyWithTx`
+- `packages/db/src/repositories/electron-file-chunk-repository.ts` — `insertManyWithTx`
+- `packages/file-import/src/chunking.ts` — transactional insert+enqueue path
+- `packages/app-shell/src/enhanced-file-import-service.ts` — wires transactional path
+- CLI: `packages/db/src/cli/queue-cli.ts` — adds `prune`
+- Tests:
+  - `packages/db/__tests__/job-queue-expired-lease.test.ts`
+  - `packages/db/__tests__/job-queue-dedup-upsert.test.ts`
+  - `packages/db/__tests__/job-queue-transactional-enqueue.test.ts`
 
-### Shared Environment Utility Features
-```typescript
-// Core functions available:
-- detectEnvironment()           // Environment detection
-- getEnvironmentConfig()        // Complete config object
-- logEnvironmentConfig()        // Debug logging
-- validateEnvironmentConfig()   // Validation with warnings
-- getCILaunchArgs()            // Browser launch arguments
-```
+## Validation
 
-### Enhanced Browser Coverage
-```bash
-# Default (fast, efficient)
-pnpm run test:e2e
+- Unit tests extended for expired lease claim, dedupe upsert semantics, and transactional rollback behavior.
+- Existing job queue tests remain green under the new attempt semantics (attempts increment happens at claim; fail requeues without double‑counting).
 
-# Full browser coverage (comprehensive)
-pnpm run test:e2e:full-browsers
-```
+## Next steps (Phase 4)
 
-### Improved Type Safety
-- Proper TypeScript interfaces for all configuration
-- Return type annotations for better IDE support
-- Consistent error handling and validation
+- Implement the embedding worker using the updated `claim()`/`fail()` discipline and heartbeat model.
+- Use the transactional enqueue path when chunking to ensure crash‑safe hand‑offs between chunk insert and job creation.
 
-## 📊 **Impact Assessment**
+## Phase 6 — UI/API Integration (progress)
 
-### Code Quality
-- **Before**: ~150 lines of duplicated logic
-- **After**: Single 150-line shared utility + ~50 lines per config
-- **Maintainability**: ⬆️ Significantly improved
+- Added Vector Status panel (App Shell) with:
+  - pgvector/worker badges, device, active embedding set selector, coverage x/y, throughput (60s), and last error.
+  - Safe fallback rendering without DbProvider for tests and shallow mounts.
+- Active embedding set selection persists to localStorage and is used as the default `embeddingSetId` for search.
+- Search hook now scopes queries by the selected set when available and surfaces a targeted error toast if a set is required.
 
-### Security
-- **Documentation**: Comprehensive security guidelines added
-- **Validation**: Runtime warnings for security-related configurations
-- **Transparency**: Clear justification for security trade-offs
+Files:
+- packages/app-shell/src/vector-status.tsx
+- packages/app-shell/src/vector-preferences.ts
+- packages/app-shell/src/database-demo/hooks/use-search-functionality.ts
+- packages/db/src/repositories/file-chunk-repository.ts (coverage helper)
+- packages/db/src/index.ts (DTO exports)
 
-### Testing Strategy
-- **Flexibility**: Can choose between speed and coverage
-- **Guidance**: Clear documentation on when to use each approach
-- **Automation**: Easy npm scripts for different testing modes
+Validation:
+- App Shell tests: 164/164 passing
+- Web unit tests: passing; Vector Status uses safe fallback in settings
 
-## 🎯 **Verdict Alignment**
+Next:
+- Wire active set into all search entry points in the web/desktop UIs
+- Optional: model selector + web worker bootstrap binding
 
-The review verdict was **"✅ Approve with minor suggestions"** and we've successfully addressed all identified issues:
+## Phase 6 — API Contracts (completed)
 
-- ✅ **High Priority**: Environment detection extracted, security documented
-- ✅ **Medium Priority**: Validation added, browser coverage strategy implemented  
-- ✅ **Low Priority**: Formatting consistency applied
+- Added canonical contracts doc with stable DTO shapes and examples:
+  - `docs/api-contracts.md` (search options/results, `EmbeddingSet`, public `Job`)
+- Verified `@brainstrike/db` exports for: `ChunkSearchOptions`, `ChunkSearchResult`, `FileChunk`, `EmbeddingSet`, `Job`.
+- Vector Status enhancements:
+  - Retry control: “Retry last 20 failed” button
+  - Lightweight metrics: latency p50/p95 (60s window) alongside throughput
 
-The optimizations maintain their performance benefits while improving code quality, security transparency, and testing flexibility.
+Files:
+- docs/api-contracts.md
+- packages/app-shell/src/vector-status.tsx
 
-## 🚀 **Next Steps**
+Notes:
+- SQL path still requires `embeddingSetId` when pgvector is enabled.
+- Latency stats use recent succeeded jobs (60s) based on ISO timestamps; portable across PGlite.
 
-1. **Merge the PR** - All review feedback has been addressed
-2. **Update CI workflows** - Consider using full browser coverage in staging
-3. **Team education** - Share browser coverage strategy with the team
-4. **Monitor performance** - Track the impact of optimizations in practice 
+## Phase 6 — Web UX consolidation (2025‑08‑31)
+- Settings no longer contains separate worker controls on Web to avoid divergence from Desktop. Start/Stop Worker, Embedding Set selection, Backfill, coverage/throughput/latency are all consolidated in Right Panel → DB → Vector Status.
+- On Web, worker badge shows `disabled` until explicitly started; transitions to `running` with active jobs.

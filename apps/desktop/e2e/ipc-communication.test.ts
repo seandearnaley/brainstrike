@@ -8,7 +8,7 @@ import {
 } from './utils/electron-helpers';
 
 // Helper function to safely get error message
-function getErrorMessage(error: unknown): string {
+function _getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 

@@ -9,6 +9,7 @@ export * from './migrations/bootstrap.js';
 export type { Migration } from './migrations/index.js';
 // New migration system
 export { MigrationRunner, migrations } from './migrations/index.js';
+export type { EmbeddingDistance, EmbeddingSet } from './models/embedding-set.js';
 export type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -22,6 +23,9 @@ export type {
   FileRecord,
   ImportProgress,
 } from './models/file-record.js';
+export type { Job, JobState, JobType } from './queue/job-queue.js';
+// Queue
+export { JobQueue } from './queue/job-queue.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';

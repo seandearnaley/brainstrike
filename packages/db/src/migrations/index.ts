@@ -3,6 +3,10 @@ import { migration001InitialSchema } from './001-initial-schema.js';
 import { migration002AddVectorColumns } from './002-add-vector-columns.js';
 import { migration003AddIndexes } from './003-add-indexes.js';
 import { migration004AddChunksTable } from './004-add-chunks-table.js';
+import { migration005SafeIndices } from './005-safe-indices.js';
+import { migration006EmbeddingSetsAndColumns } from './006-embedding-sets-and-columns.js';
+import { migration007JobQueue } from './007-job-queue.js';
+import { migration008JobQueueClaimIndex } from './008-job-queue-claim-index.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -12,6 +16,10 @@ export const migrations: Migration[] = [
   migration002AddVectorColumns,
   migration003AddIndexes,
   migration004AddChunksTable,
+  migration005SafeIndices,
+  migration006EmbeddingSetsAndColumns,
+  migration007JobQueue,
+  migration008JobQueueClaimIndex,
 ];
 
 // Export base migrations (without chunks table) for test environments

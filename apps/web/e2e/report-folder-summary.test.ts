@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 import { waitForAppLoad } from './utils/layout-helpers';
+import { type FileTree, mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Report Folder Summary Threshold', () => {
   test.beforeEach(async ({ page }) => {

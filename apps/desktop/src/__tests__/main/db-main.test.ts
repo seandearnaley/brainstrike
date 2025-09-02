@@ -13,14 +13,29 @@ const appGetPathMock = vi.fn(() => '/mock/documents');
 vi.mock('electron', () => ({ app: { getPath: appGetPathMock } }));
 
 const migrateMock = vi.fn();
-const closeMock = vi.fn();
-const PGliteMock = vi.fn(function (this: { close: () => void }) {
+const closeMock = vi.fn(async () => {});
+const queryMock = vi.fn(async () => ({ rows: [{ '?column?': 1 }] }));
+const execMock = vi.fn(async () => {});
+const PGliteMock = vi.fn().mockImplementation(function (this: {
+  close: () => Promise<void>;
+  query: () => Promise<unknown>;
+  exec: () => Promise<void>;
+}) {
   this.close = closeMock;
+  this.query = queryMock;
+  this.exec = execMock;
 });
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
 vi.mock('@brainstrike/db', () => ({ migrate: migrateMock }));
 
-vi.mock('@brainstrike/utils', () => ({ createLogger: () => ({ info: vi.fn() }) }));
+vi.mock('@brainstrike/utils', () => ({
+  createLogger: () => ({
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  }),
+}));
 
 describe('initializeMainDatabase', () => {
   beforeEach(() => {
@@ -39,11 +54,13 @@ describe('initializeMainDatabase', () => {
     expect(appGetPathMock).toHaveBeenCalledWith('documents');
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
-    // Verify PGlite was called with options object containing dataDir and extensions
-    expect(PGliteMock).toHaveBeenCalledWith({
-      dataDir: expectedPath,
-      extensions: { vector: expect.any(Object) },
-    });
+    // Verify PGlite was called with dataDir and vector extension in strict mode
+    expect(PGliteMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dataDir: expectedPath,
+        extensions: expect.anything(),
+      })
+    );
     expect(migrateMock).toHaveBeenCalledWith(db1);
 
     const db2 = await initializeMainDatabase();

@@ -57,7 +57,9 @@ export async function processEmbeddings(
   embeddingModel: string | undefined,
   updateProgress: (
     updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
-  ) => void
+  ) => void,
+  // Optional: tag embeddings to a specific set id when writing inline (web fallback)
+  targetEmbeddingSetId?: string
 ): Promise<void> {
   if (!embeddingService || !chunkRepository || !embeddingModel) return;
   try {
@@ -86,7 +88,18 @@ export async function processEmbeddings(
             }
           : null
       );
-      const success = await processChunkEmbedding(chunk, chunkRepository, embeddingService);
+      const success = await (async () => {
+        const ok = await processChunkEmbedding(chunk, chunkRepository, embeddingService);
+        if (ok && targetEmbeddingSetId) {
+          // Update set id metadata if provided so UI badges and coverage reflect inline embeddings
+          await chunkRepository.update({
+            id: chunk.id,
+            embeddingSetId: targetEmbeddingSetId,
+            updatedAt: new Date().toISOString(),
+          });
+        }
+        return ok;
+      })();
       if (success) chunksWithEmbeddings++;
       if (i < chunks.length - 1) {
         await new Promise((resolve) =>

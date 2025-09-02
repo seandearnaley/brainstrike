@@ -15,20 +15,6 @@ import { getDevCSP } from './src/csp-utils';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = process.env.NODE_ENV === 'development';
 
-function debugPlugin() {
-  return {
-    name: 'debug-build-context',
-    buildStart() {
-      if (isDev) {
-        console.log('=== DEBUG PLUGIN BUILDSTART ===');
-        console.log('Build starting, CWD:', process.cwd());
-        console.log('Vercel env:', process.env['VERCEL']);
-        console.log('=== END DEBUG PLUGIN ===');
-      }
-    },
-  };
-}
-
 function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
@@ -72,15 +58,7 @@ const wasmPath = findPGliteWasm(__dirname);
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
 
-// CRITICAL DEBUG: Force console output to appear in logs - CACHE BUST v3
-if (isDev) {
-  console.log('=== VITE CONFIG DEBUG START (FORCE DEPLOY v3) ===');
-  console.log('Current working directory:', process.cwd());
-  console.log('__dirname:', __dirname);
-  console.log('process.env.VERCEL:', process.env['VERCEL']);
-  console.log('process.env.CI:', process.env['CI']);
-  console.log('=== VITE CONFIG DEBUG END ===');
-}
+// Keep config concise; avoid noisy debug printing in dev
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
@@ -113,13 +91,16 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'false'),
+    'process.env.LOCAL_FIRST_DB': JSON.stringify(
+      process.env.LOCAL_FIRST_DB ?? process.env.EMBED_QUEUE_ENABLED ?? 'false'
+    ),
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
-    debugPlugin(),
     wasm(),
     topLevelAwait(),
     react({
@@ -254,6 +235,20 @@ export default defineConfig({
       '**/cypress/**',
       '**/.{idea,git,cache,output,temp}/**',
     ],
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        '**/*.test.*',
+        '**/__tests__/**',
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/e2e/**',
+        '**/*.{config,config.*}',
+      ],
+      reporter: ['text', 'lcov', 'json'],
+      reportsDirectory: './coverage',
+    },
     reporters: ['default', 'hanging-process'],
     silent: true,
     onConsoleLog: (log: string, type: 'stdout' | 'stderr') => {

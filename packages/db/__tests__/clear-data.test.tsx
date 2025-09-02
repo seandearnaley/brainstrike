@@ -8,7 +8,7 @@ import * as wasmLoaderModule from '../src/wasm-loader';
 
 // Simple wrapper component for renderHook
 function wrapper({ children }: { children: React.ReactNode }) {
-  return <DbProvider dbPath=":memory:">{children}</DbProvider>;
+  return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
 describe('Database clearing functionality', () => {
@@ -37,7 +37,7 @@ describe('Database clearing functionality', () => {
   describe('useClearAllData hook', () => {
     it('should be available when repositories are ready', async () => {
       // Mock successful initialization
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
@@ -51,7 +51,7 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear empty database', async () => {
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       // Mock successful database operations
@@ -101,7 +101,7 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear database with data', async () => {
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       const mockTransaction = vi.fn().mockImplementation(async (callback) => {
@@ -149,7 +149,7 @@ describe('Database clearing functionality', () => {
     });
 
     it('should handle transaction errors gracefully', async () => {
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       const mockTransaction = vi.fn().mockRejectedValue(new Error('Transaction failed'));
@@ -197,7 +197,7 @@ describe('Database clearing functionality', () => {
     });
 
     it('should ensure atomic operation - all or nothing', async () => {
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       const mockTransaction = vi.fn().mockImplementation(async (callback) => {
@@ -242,7 +242,7 @@ describe('Database clearing functionality', () => {
 
   describe('Integration with repositories', () => {
     it('should work with file record repository', async () => {
-      const mockDb = new PGlite(':memory:');
+      const mockDb = new PGlite('memory://');
       activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
@@ -256,10 +256,13 @@ describe('Database clearing functionality', () => {
         { wrapper }
       );
 
-      await waitFor(() => {
-        expect(result.current.clearAllData).not.toBeNull();
-        expect(result.current.fileRepository).not.toBeNull();
-      });
+      await waitFor(
+        () => {
+          expect(result.current.clearAllData).not.toBeNull();
+          expect(result.current.fileRepository).not.toBeNull();
+        },
+        { timeout: 5000 }
+      );
 
       // Both should be available when database is ready
       expect(result.current.clearAllData).not.toBeNull();

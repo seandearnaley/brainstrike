@@ -11,7 +11,7 @@ describe('Migration System Integration', () => {
 
   beforeEach(async () => {
     // Use basic PGlite without extensions to avoid pgvector dependency in tests
-    db = new PGlite();
+    db = new PGlite('memory://');
     runner = new MigrationRunner(db);
   });
 

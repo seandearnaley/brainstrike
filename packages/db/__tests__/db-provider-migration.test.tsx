@@ -7,7 +7,7 @@ import type { FileRecord } from '../src/models/file-record';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {
-  return <DbProvider dbPath=":memory:">{children}</DbProvider>;
+  return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {

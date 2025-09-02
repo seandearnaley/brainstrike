@@ -7,6 +7,7 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "paths": {
+      "@/*": ["./src/*"],
       "@web/*": ["./src/*"]
     },
     "types": ["node", "vite/client"]
@@ -28,15 +29,16 @@
   ],
   "references": [
     { "path": "../../packages/app-shell" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/embeddings" },
+    { "path": "../../packages/file-explorer" },
+    { "path": "../../packages/file-explorer-hooks" },
+    { "path": "../../packages/file-explorer-ui" },
     { "path": "../../packages/fonts" },
     { "path": "../../packages/hooks" },
     { "path": "../../packages/server-config" },
     { "path": "../../packages/types" },
     { "path": "../../packages/ui" },
-    { "path": "../../packages/utils" },
-    { "path": "../../packages/file-explorer" },
-    { "path": "../../packages/file-explorer-hooks" },
-    { "path": "../../packages/file-explorer-ui" },
-    { "path": "../../packages/db" }
+    { "path": "../../packages/utils" }
   ]
 }

@@ -36,11 +36,9 @@ export const getTestTimeout = (type: keyof typeof TEST_TIMEOUTS): number => {
  * Environment-specific timeout multipliers
  */
 export const getTimeoutMultiplier = (): number => {
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
   if (process.env['CI']) {
     return 2; // Double timeouts in CI
   }
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for process.env
   if (process.env['DEBUG']) {
     return 5; // 5x timeouts when debugging
   }

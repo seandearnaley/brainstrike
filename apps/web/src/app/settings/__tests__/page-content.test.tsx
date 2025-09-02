@@ -13,6 +13,24 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
+// Stub App Shell HUD components that depend on DbProvider
+vi.mock('@brainstrike/app-shell', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
+  return {
+    ...actual,
+    VectorStatusWithDb: () => <div data-testid="vector-status-mock" />,
+    QueueHud: () => <div data-testid="queue-hud-mock" />,
+  };
+});
+
+// Mock DB hooks to avoid requiring DbProvider in this shallow page test
+vi.mock('@brainstrike/db', async () => {
+  return {
+    usePGliteDatabase: () => null,
+    useVectorEnabled: () => false,
+  };
+});
+
 describe('SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();

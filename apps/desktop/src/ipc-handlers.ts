@@ -43,9 +43,8 @@ export function registerIpcHandlers(
 
   ipcMain.handle('fs:requestDirectoryAccess', async () => {
     // Check if we're in test mode to avoid native dialogs
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
     const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
+
     const nodeEnv = process.env['NODE_ENV'];
     const isTestMode =
       process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
@@ -156,7 +155,6 @@ export function registerIpcHandlers(
       return handle;
     } catch (error) {
       // Debug logging in development only
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       const nodeEnv = process.env['NODE_ENV'];
       if (nodeEnv === 'development') {
         console.debug('Auto-restore failed:', error);
@@ -175,7 +173,6 @@ export function registerIpcHandlers(
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
     } catch (error) {
       // Debug logging in development only
-      // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for index signatures
       const nodeEnv = process.env['NODE_ENV'];
       if (nodeEnv === 'development') {
         console.debug('Failed to save last folder:', error);
@@ -218,9 +215,15 @@ export function registerIpcHandlers(
   });
 
   // Database test handler for connection validation
+  ipcMain.handle('db:ping', async () => {
+    // Lightweight connectivity check; does not initialize DB
+    return { success: true, message: 'ping' };
+  });
+
+  // Database test handler for full connection validation
   ipcMain.handle('db:test', async () => {
+    const { getDatabase } = await import('./db-main');
     try {
-      const { getDatabase } = await import('./db-main');
       const db = await getDatabase();
       await db.query('SELECT 1');
       return {
@@ -231,7 +234,7 @@ export function registerIpcHandlers(
     } catch (error) {
       return {
         success: false,
-        message: `Database connection failed: ${error}`,
+        message: `Database connection failed: ${error instanceof Error ? error.message : String(error)}`,
         dbLocation: 'Main Process',
       };
     }
@@ -291,7 +294,6 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
-    // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
     const isProduction = process.env['NODE_ENV'] === 'production';
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');

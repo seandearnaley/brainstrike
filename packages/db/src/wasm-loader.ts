@@ -1,13 +1,30 @@
 import { PGlite } from '@electric-sql/pglite';
 
-// Check if vector extensions are disabled via environment variable
-const isVectorDisabled =
-  // biome-ignore lint/complexity/useLiteralKeys: TypeScript requires bracket notation for env vars
-  process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || process.env['NODE_ENV'] === 'test';
+// Determine if vector extension should be disabled. Tests control this via DISABLE_VECTOR_EXTENSION.
+function vectorDisabled(): boolean {
+  return process.env['DISABLE_VECTOR_EXTENSION'] === 'true';
+}
+
+function requireVectorStrict(): boolean {
+  // Local-first modes that mandate pgvector being available
+  const env =
+    (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env || {};
+  const flags = [env['LOCAL_FIRST_DB'], env['PGLITE_EXPECTED'], env['REQUIRE_PGVECTOR']];
+  const requested = flags.some((v) => String(v ?? '').toLowerCase() === 'true');
+  const isTest = String(env['NODE_ENV'] ?? '').toLowerCase() === 'test';
+  // In test environments, only enforce when explicitly requested
+  if (isTest) {
+    return String(env['REQUIRE_PGVECTOR_TEST'] ?? '').toLowerCase() === 'true';
+  }
+  return requested;
+}
 
 // Async function to load vector extension
 async function loadVectorExtension() {
-  if (isVectorDisabled) {
+  if (vectorDisabled()) {
+    if (requireVectorStrict()) {
+      throw new Error('pgvector extension disabled via environment but required in strict mode');
+    }
     return null;
   }
 
@@ -15,8 +32,12 @@ async function loadVectorExtension() {
     // Dynamic import for pgvector extension (ES module compatible)
     const { vector } = await import('@electric-sql/pglite/vector');
     return vector;
-  } catch (_e) {
-    // pgvector extension not available, use null
+  } catch (e) {
+    if (requireVectorStrict()) {
+      const msg = e instanceof Error ? e.message : String(e);
+      throw new Error(`pgvector extension is required but failed to load: ${msg}`);
+    }
+    // pgvector extension not available and not strictly required
     return null;
   }
 }
@@ -54,9 +75,8 @@ class WasmLoader {
       const vector = await loadVectorExtension();
 
       // Create a temporary PGlite instance to trigger WASM loading
-      // Use browser-compatible storage to avoid Node.js filesystem conflicts
-      const isBrowser = typeof window !== 'undefined';
-      const tempDbPath = isBrowser ? 'memory://' : ':memory:';
+      // Always use true in-memory storage to avoid persisting between tests/runs
+      const tempDbPath = 'memory://';
 
       // Use basic PGlite if vector extension is not available
       const tempDb = vector
@@ -82,10 +102,21 @@ class WasmLoader {
     // Load vector extension asynchronously
     const vector = await loadVectorExtension();
 
-    // Use vector extension if available, otherwise use basic PGlite
-    return vector
-      ? new PGlite(dataDir ? { dataDir, extensions: { vector } } : { extensions: { vector } })
-      : new PGlite(dataDir);
+    // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
+    const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+
+    // Use vector extension if available, otherwise (only if not strict) use basic PGlite
+    if (vector) {
+      return normalizedDataDir
+        ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
+        : new PGlite({ extensions: { vector } });
+    }
+
+    if (requireVectorStrict()) {
+      throw new Error('pgvector is required (strict mode) but not available');
+    }
+
+    return normalizedDataDir ? new PGlite(normalizedDataDir) : new PGlite();
   }
 }
 

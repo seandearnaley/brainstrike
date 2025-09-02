@@ -51,10 +51,20 @@ describe('DbProvider default dbPath', () => {
   it('getDefaultDbPath respects runtime', () => {
     const originalWindow = globalThis.window;
     expect(getDefaultDbPath()).toBe('idb://app');
-    (globalThis as typeof globalThis & { window?: Window }).window = undefined;
+    // Temporarily set window to undefined to simulate Node.js environment
+    Object.defineProperty(globalThis, 'window', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
     // In Node.js environment, it should point to the temp directory
     const nodePath = getDefaultDbPath();
     expect(nodePath).toBe(path.join(os.tmpdir(), 'app.db'));
-    globalThis.window = originalWindow;
+    // Restore original window
+    Object.defineProperty(globalThis, 'window', {
+      value: originalWindow,
+      configurable: true,
+      writable: true,
+    });
   });
 });
