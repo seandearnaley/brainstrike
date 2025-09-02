@@ -21,6 +21,8 @@ export default defineConfig({
       : ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}', '!**/*.integration.test.*'],
     coverage: {
       provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text', 'lcov', 'json'],
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.*',

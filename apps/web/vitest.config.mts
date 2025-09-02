@@ -11,7 +11,25 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'e2e/utils/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    // Coverage consolidated at root vitest.config.ts
+    // Ensure coverage only counts actual source files to avoid skew from configs/e2e utils.
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: './coverage',
+      reporter: ['text', 'lcov', 'json'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        '**/*.test.*',
+        '**/__tests__/**',
+        '**/*.d.ts',
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/*.config.*',
+        '**/vite.config.*',
+        '**/vitest.config.*',
+        '**/playwright.config.*',
+        'e2e/**',
+      ],
+    },
   },
   resolve: {
     alias: {

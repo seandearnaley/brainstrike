@@ -458,10 +458,10 @@ jobs:
             # Merge coverage if files exist
             if find unit-coverage -name "coverage-final.json" -type f | head -1 | grep -q .; then
               echo "Merging coverage files..."
-              pnpm exec nyc merge unit-coverage .nyc_output/coverage.json
+              pnpm coverage:merge -- --quiet unit-coverage
               
               # Generate reports
-              pnpm exec nyc report --reporter=lcov --reporter=text --report-dir=./coverage
+              pnpm coverage:report
               echo "Coverage reports generated successfully"
             else
               echo "No coverage files found to merge"
