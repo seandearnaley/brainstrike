@@ -5,8 +5,8 @@ import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import './styles.css';
 
-// Import layout component
-import RootLayoutContent from './components/root-layout-content';
+// Import desktop-specific layout component
+import { DesktopRootLayoutContent } from './components/desktop-root-layout-content';
 
 // Create renderer-specific adapters that use IPC
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
@@ -36,7 +36,7 @@ function App() {
   return (
     <DbProvider useElectronIPC={true} dbPath={dbPath}>
       <AdaptersProvider fileSystemAdapter={fileSystemAdapter} storageAdapter={storageAdapter}>
-        <RootLayoutContent />
+        <DesktopRootLayoutContent />
       </AdaptersProvider>
     </DbProvider>
   );

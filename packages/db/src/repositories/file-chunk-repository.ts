@@ -344,8 +344,9 @@ export class FileChunkRepository {
     params.push(embeddingSetId);
 
     // Determine operator by embedding set distance
+    // Note: this is a standalone query; parameter indexing restarts at $1
     const setRes = await this.db.query<{ distance: string }>(
-      `SELECT distance FROM embedding_sets WHERE id = $${paramIndex}`,
+      'SELECT distance FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
     );
     const distance = (setRes.rows[0]?.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
