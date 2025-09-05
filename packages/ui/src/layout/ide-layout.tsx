@@ -6,6 +6,7 @@ import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { usePanelToggle } from '../hooks/use-panel-toggle';
 import { cn } from '../lib/utils';
+import { usePanelLayout } from '../providers/panel-layout-provider';
 import { ConsolePanel } from './console-panel';
 import { LeftPanel } from './left-panel';
 import { RightPanel } from './right-panel';
@@ -139,28 +140,63 @@ function calculateHorizontalSizes(
   return [defaultLeftSize, defaultRightSize];
 }
 
+function buildLayoutHandlerConfig(config: LayoutHandlerConfig): LayoutHandlerConfig {
+  const cfg: LayoutHandlerConfig = {};
+  if (config.leftPanelContent !== undefined) cfg.leftPanelContent = config.leftPanelContent;
+  if (config.rightPanelContent !== undefined) cfg.rightPanelContent = config.rightPanelContent;
+  if (config.consoleContent !== undefined) cfg.consoleContent = config.consoleContent;
+  if (typeof config.showLeftPanel === 'boolean') cfg.showLeftPanel = config.showLeftPanel;
+  if (typeof config.showRightPanel === 'boolean') cfg.showRightPanel = config.showRightPanel;
+  if (typeof config.showConsole === 'boolean') cfg.showConsole = config.showConsole;
+  if (config.safeLeftSize !== undefined) cfg.safeLeftSize = config.safeLeftSize;
+  if (config.safeRightSize !== undefined) cfg.safeRightSize = config.safeRightSize;
+  if (config.safeConsoleSize !== undefined) cfg.safeConsoleSize = config.safeConsoleSize;
+  if (config.saveLayout) cfg.saveLayout = config.saveLayout;
+  return cfg;
+}
+
 // Custom hook for managing layout change handlers
 function useLayoutHandlers(config: LayoutHandlerConfig) {
+  const stableConfig = useMemo<LayoutHandlerConfig>(
+    () => buildLayoutHandlerConfig(config),
+    [
+      config.leftPanelContent,
+      config.rightPanelContent,
+      config.consoleContent,
+      config.showLeftPanel,
+      config.showRightPanel,
+      config.showConsole,
+      config.safeLeftSize,
+      config.safeRightSize,
+      config.safeConsoleSize,
+      config.saveLayout,
+    ]
+  );
+
   const handleHorizontalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!config.saveLayout) return;
+      if (!stableConfig.saveLayout) return;
 
-      const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, config);
-      config.saveLayout([newLeftSize, newRightSize, config.safeConsoleSize ?? 20]);
+      const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, stableConfig);
+      stableConfig.saveLayout([newLeftSize, newRightSize, stableConfig.safeConsoleSize ?? 20]);
     },
-    [config]
+    [stableConfig]
   );
 
   const handleVerticalLayout = useCallback(
     (newSizes: number[]) => {
-      if (!config.saveLayout) return;
+      if (!stableConfig.saveLayout) return;
 
-      if (config.showConsole && config.consoleContent && newSizes.length >= 2) {
-        const consoleSize = newSizes[1] ?? config.safeConsoleSize ?? 20;
-        config.saveLayout([config.safeLeftSize ?? 25, config.safeRightSize ?? 20, consoleSize]);
+      if (stableConfig.showConsole && stableConfig.consoleContent && newSizes.length >= 2) {
+        const consoleSize = newSizes[1] ?? stableConfig.safeConsoleSize ?? 20;
+        stableConfig.saveLayout([
+          stableConfig.safeLeftSize ?? 25,
+          stableConfig.safeRightSize ?? 20,
+          consoleSize,
+        ]);
       }
     },
-    [config]
+    [stableConfig]
   );
 
   return { handleHorizontalLayout, handleVerticalLayout };
@@ -240,6 +276,68 @@ function createPanelHandler(
   };
 }
 
+// Resolve panel state from provider if present, otherwise use internal persistence
+function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
+  const ctx = usePanelLayout();
+  const fallback = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
+
+  const sizes = ctx ? ctx.sizes : fallback.sizes;
+  const showConsole = ctx ? ctx.showConsole : fallback.showConsole;
+  const showLeftPanel = ctx ? ctx.showLeftPanel : fallback.showLeftPanel;
+  const showRightPanel = ctx ? ctx.showRightPanel : fallback.showRightPanel;
+
+  const saveLayout = ctx
+    ? (newSizes: number[], sConsole?: boolean, sLeft?: boolean, sRight?: boolean) =>
+        ctx.setState({
+          sizes: newSizes,
+          showConsole: sConsole ?? ctx.showConsole,
+          showLeftPanel: sLeft ?? ctx.showLeftPanel,
+          showRightPanel: sRight ?? ctx.showRightPanel,
+        })
+    : fallback.saveLayout;
+
+  const toggleConsole = ctx
+    ? () =>
+        ctx.setState({
+          sizes,
+          showConsole: !showConsole,
+          showLeftPanel,
+          showRightPanel,
+        })
+    : fallback.toggleConsole;
+
+  const toggleLeftPanel = ctx
+    ? () =>
+        ctx.setState({
+          sizes,
+          showConsole,
+          showLeftPanel: !showLeftPanel,
+          showRightPanel,
+        })
+    : fallback.toggleLeftPanel;
+
+  const toggleRightPanel = ctx
+    ? () =>
+        ctx.setState({
+          sizes,
+          showConsole,
+          showLeftPanel,
+          showRightPanel: !showRightPanel,
+        })
+    : fallback.toggleRightPanel;
+
+  return {
+    sizes,
+    showConsole,
+    showLeftPanel,
+    showRightPanel,
+    saveLayout,
+    toggleConsole,
+    toggleLeftPanel,
+    toggleRightPanel,
+  } as const;
+}
+
 export interface IdeLayoutProps {
   children: React.ReactNode;
   leftPanelContent?: React.ReactNode;
@@ -303,7 +401,7 @@ export const IdeLayout = React.memo(function IdeLayout({
     toggleConsole,
     toggleLeftPanel,
     toggleRightPanel,
-  } = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
+  } = useResolvedPanelState(leftPanelContent);
 
   const [safeLeftSize, safeRightSize, safeConsoleSize] = [
     typeof sizes[0] === 'number' && !Number.isNaN(sizes[0]) ? sizes[0] : 25,
@@ -382,6 +480,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 className="h-6 w-6"
                 onClick={handleShowLeftPanel}
                 aria-label="Show explorer"
+                data-testid="show-left-panel"
               >
                 <ChevronRight className="h-4 w-4" />
               </Button>
@@ -418,6 +517,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                     className="h-6"
                     onClick={handleShowConsole}
                     aria-label="Show File Editor"
+                    data-testid="show-console-panel"
                   >
                     <Terminal className="h-4 w-4" />
                     <span className="ml-2 text-xs">Show File Editor</span>
@@ -445,6 +545,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                 className="h-6 w-6"
                 onClick={handleShowRightPanel}
                 aria-label="Show right panel"
+                data-testid="show-right-panel"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>

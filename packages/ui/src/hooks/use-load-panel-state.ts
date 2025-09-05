@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
+import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
 
 const STORAGE_KEY = 'panelLayout.v1';
 
@@ -43,7 +44,8 @@ export function useLoadPanelState(
   defaultSizes: number[],
   defaultShowConsole: boolean,
   defaultShowLeftPanel: boolean,
-  defaultShowRightPanel: boolean
+  defaultShowRightPanel: boolean,
+  adapter?: PanelPersistenceAdapter | null
 ): [
   PanelPersistenceState,
   React.Dispatch<React.SetStateAction<PanelPersistenceState>>,
@@ -75,10 +77,29 @@ export function useLoadPanelState(
       }
     };
 
-    if (hasElectronAPI()) {
+    const loadFromAdapter = async () => {
+      if (!adapter) return;
+      try {
+        const stored = await adapter.load();
+        if (stored) {
+          const loadedState: PanelPersistenceState = {
+            sizes: validateAndNormalizeSizes(stored.sizes ?? defaultSizes),
+            showConsole: stored.showConsole ?? defaultShowConsole,
+            showLeftPanel: stored.showLeftPanel ?? defaultShowLeftPanel,
+            showRightPanel: stored.showRightPanel ?? defaultShowRightPanel,
+          };
+          setState(loadedState);
+          lastSavedStateRef.current = loadedState;
+        }
+      } catch {}
+    };
+
+    if (adapter) {
+      void loadFromAdapter();
+    } else if (hasElectronAPI()) {
       void loadElectronLayout();
     }
-  }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel]);
+  }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel, adapter]);
 
   return [state, setState, lastSavedStateRef];
 }

@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
+import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
 import { useLoadPanelState } from './use-load-panel-state';
 import { useSavePanelState } from './use-save-panel-state';
 
@@ -8,13 +9,15 @@ export function usePanelPersistence(
   defaultSizes: number[],
   defaultShowConsole = false,
   defaultShowLeftPanel = true,
-  defaultShowRightPanel = false
+  defaultShowRightPanel = false,
+  adapter?: PanelPersistenceAdapter | null
 ) {
   const [state, setState, lastSavedRef] = useLoadPanelState(
     defaultSizes,
     defaultShowConsole,
     defaultShowLeftPanel,
-    defaultShowRightPanel
+    defaultShowRightPanel,
+    adapter
   );
 
   // Track last-saved state locally to avoid mutating a value returned from another hook
@@ -24,7 +27,8 @@ export function usePanelPersistence(
     (saved) => {
       lastSavedLocalRef.current = saved;
     },
-    () => lastSavedLocalRef.current
+    () => lastSavedLocalRef.current,
+    adapter
   );
 
   const saveLayout = useCallback(

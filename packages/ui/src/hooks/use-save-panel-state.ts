@@ -4,24 +4,30 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getElectronAPI } from '../lib/electron-utils';
 import { statesEqual } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
+import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
 
 const STORAGE_KEY = 'panelLayout.v1';
 const SAVE_DEBOUNCE_MS = 250;
 
 export function useSavePanelState(
   onSaved: (state: PanelPersistenceState) => void,
-  getLastSaved: () => PanelPersistenceState | null
-): { persist: (state: PanelPersistenceState) => void } {
+  getLastSaved: () => PanelPersistenceState | null,
+  adapter?: PanelPersistenceAdapter | null
+): { persist: (state: PanelPersistenceState) => void; flush: () => void } {
   const pendingRef = useRef<PanelPersistenceState | null>(null);
 
   const save = useCallback(
     async (stateToSave: PanelPersistenceState) => {
       try {
-        const electronAPI = getElectronAPI();
-        if (electronAPI?.saveLayout) {
-          await electronAPI.saveLayout(stateToSave);
-        } else if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+        if (adapter) {
+          await adapter.save(stateToSave);
+        } else {
+          const electronAPI = getElectronAPI();
+          if (electronAPI?.saveLayout) {
+            await electronAPI.saveLayout(stateToSave);
+          } else if (typeof window !== 'undefined') {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+          }
         }
         onSaved(stateToSave);
       } catch (_error) {
@@ -29,7 +35,7 @@ export function useSavePanelState(
         }
       }
     },
-    [onSaved]
+    [onSaved, adapter]
   );
 
   const { run, flush } = createDebounce(save, SAVE_DEBOUNCE_MS);
@@ -63,5 +69,5 @@ export function useSavePanelState(
     };
   }, [flushPending]);
 
-  return { persist };
+  return { persist, flush: flushPending };
 }

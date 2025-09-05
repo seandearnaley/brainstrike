@@ -344,6 +344,48 @@ describe('IdeLayout', () => {
     expect(screen.getByText('File Editor')).toBeInTheDocument();
   });
 
+  it('focuses hide-left button after showing left panel (rAF sequencing)', () => {
+    // Prepare requestAnimationFrame mock that queues callbacks
+    const rafQueue: FrameRequestCallback[] = [];
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        rafQueue.push(cb);
+        return rafQueue.length; // pseudo id
+      });
+
+    const { rerender } = renderDefaultLayout();
+
+    // Wire toggle to update mocked hook state and trigger rerender
+    (mockState.toggleLeftPanel as Mock).mockImplementation(() => {
+      Object.assign(mockState, { showLeftPanel: true });
+      rerender(
+        <IdeLayout
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+          consoleContent={consoleContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+    });
+
+    // Click show-left; this schedules two rAF callbacks for focusing the hide button
+    fireEvent.click(screen.getByTestId('show-left-panel'));
+
+    // Execute the queued rAF callbacks to simulate the next frames
+    while (rafQueue.length > 0) {
+      const cb = rafQueue.shift();
+      if (cb) cb(0);
+    }
+
+    const hideBtn = screen.getByTestId('hide-left-panel');
+    expect(hideBtn).toBeInTheDocument();
+    expect(document.activeElement).toBe(hideBtn);
+
+    rafSpy.mockRestore();
+  });
+
   it('defers persistence until after panel initialization', async () => {
     vi.useFakeTimers();
     const _utils = renderDefaultLayout();
