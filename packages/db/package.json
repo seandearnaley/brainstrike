@@ -22,8 +22,8 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts",
-    "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts",
+    "test:vector": "TEST_ENABLE_VECTOR=true vitest run vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
+    "test:vector:watch": "TEST_ENABLE_VECTOR=true vitest vector-extension.integration.test.ts search-similar-sql-path.integration.test.ts",
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
