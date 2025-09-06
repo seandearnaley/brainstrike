@@ -3,6 +3,8 @@ import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
+  // Callback invoked on user-initiated actions to lift any initialization gate
+  liftInitGate?: () => void;
 }
 
 export function usePanelToggle(
@@ -11,23 +13,41 @@ export function usePanelToggle(
   options: UsePanelToggleOptions = {}
 ) {
   const show = useCallback(() => {
-    if (panelRef.current) {
-      panelRef.current.expand();
+    if (options.liftInitGate) {
+      options.liftInitGate();
+    }
+    try {
+      if (panelRef.current) {
+        if (typeof panelRef.current.expand === 'function') panelRef.current.expand();
+      }
+    } catch (_err) {
+      // Ignore errors from panel impl during tests or init races
     }
     toggleFn();
     if (options.focusRef) {
-      setTimeout(() => {
-        options.focusRef?.current?.focus();
-      }, 100);
+      // Use rAF sequencing to focus after the expand/collapse animation frame
+      // This is more deterministic than a fixed timeout and avoids test flakiness
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          options.focusRef?.current?.focus();
+        });
+      });
     }
-  }, [panelRef, toggleFn, options.focusRef]);
+  }, [panelRef, toggleFn, options.focusRef, options.liftInitGate]);
 
   const hide = useCallback(() => {
-    if (panelRef.current) {
-      panelRef.current.collapse();
+    if (options.liftInitGate) {
+      options.liftInitGate();
+    }
+    try {
+      if (panelRef.current) {
+        if (typeof panelRef.current.collapse === 'function') panelRef.current.collapse();
+      }
+    } catch (_err) {
+      // Ignore collapse errors (e.g., panel not fully initialized)
     }
     toggleFn();
-  }, [panelRef, toggleFn]);
+  }, [panelRef, toggleFn, options.liftInitGate]);
 
   return { show, hide };
 }

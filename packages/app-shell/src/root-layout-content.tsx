@@ -1,5 +1,9 @@
 import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
-import { IdeLayout } from '@brainstrike/ui';
+import {
+  IdeLayout,
+  LocalStoragePanelPersistenceAdapter,
+  PanelLayoutProvider,
+} from '@brainstrike/ui';
 import { useCallback, useMemo, useState } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
@@ -37,13 +41,23 @@ export function RootLayoutContent({
         data-testid="explorer-section"
         className={activeTab === 'explorer' ? 'block h-full' : 'hidden h-full'}
       >
-        <IdeLayout
-          leftPanelContent={sidebarContent}
-          rightPanelContent={rightPanelContent}
-          consoleContent={tabbedEditorContent}
+        <PanelLayoutProvider
+          initialState={{
+            sizes: [25, 55, 20],
+            showConsole: false,
+            showLeftPanel: true,
+            showRightPanel: false,
+          }}
+          adapter={new LocalStoragePanelPersistenceAdapter()}
         >
-          {homePageContent}
-        </IdeLayout>
+          <IdeLayout
+            leftPanelContent={sidebarContent}
+            rightPanelContent={rightPanelContent}
+            consoleContent={tabbedEditorContent}
+          >
+            {homePageContent}
+          </IdeLayout>
+        </PanelLayoutProvider>
       </div>
 
       <div

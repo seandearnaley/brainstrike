@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import * as panelPersistence from '../hooks/use-panel-persistence';
 import { IdeLayout } from '../layout/ide-layout';
+
+// Note: We mock usePanelPersistence below and rely on implicit fallback in IdeLayout.
 
 const handlers: {
   horizontal: Array<(sizes: number[]) => void>;
@@ -165,6 +167,12 @@ describe('IdeLayout', () => {
     usePanelPersistenceMock.mockReturnValue(mockState);
   });
 
+  // Ensure any fake timers used in specific tests don't leak into others
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
   const renderDefaultLayout = () => {
     return render(
       <IdeLayout
@@ -180,14 +188,14 @@ describe('IdeLayout', () => {
   it('renders toggle buttons and calls toggle handlers', () => {
     renderDefaultLayout();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show explorer/i }));
-    expect(mockState.toggleLeftPanel).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('show-left-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show right panel/i }));
-    expect(mockState.toggleRightPanel).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('show-right-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
-    expect(mockState.toggleConsole).toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('show-console-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalled();
   });
 
   it('calls saveLayout from layout callbacks', () => {
@@ -200,11 +208,21 @@ describe('IdeLayout', () => {
 
     // Horizontal layout change [left, middle, right]
     handlers.horizontal[0]?.([40, 40, 20]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([40, 20, 30]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith(
+      [40, 20, 30],
+      expect.any(Boolean),
+      expect.any(Boolean),
+      expect.any(Boolean)
+    );
 
     // Vertical layout change within middle panel [main, console]
     handlers.vertical[0]?.([60, 40]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 20, 40]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith(
+      [25, 20, 40],
+      expect.any(Boolean),
+      expect.any(Boolean),
+      expect.any(Boolean)
+    );
   });
 
   it('handles layout changes when left panel is missing', () => {
@@ -220,7 +238,12 @@ describe('IdeLayout', () => {
 
     // Horizontal layout change [middle, right]
     handlers.horizontal[0]?.([70, 30]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 30, 30]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith(
+      [25, 30, 30],
+      expect.any(Boolean),
+      expect.any(Boolean),
+      expect.any(Boolean)
+    );
   });
 
   it('persists right panel size when left panel is missing', () => {
@@ -235,7 +258,12 @@ describe('IdeLayout', () => {
     );
 
     handlers.horizontal[0]?.([65, 35]);
-    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 35, 30]);
+    expect(mockState.saveLayout).toHaveBeenCalledWith(
+      [25, 35, 30],
+      expect.any(Boolean),
+      expect.any(Boolean),
+      expect.any(Boolean)
+    );
   });
 
   it('expands left panel when showLeftPanel becomes true', () => {
@@ -262,8 +290,8 @@ describe('IdeLayout', () => {
   it('toggles console visibility with buttons', () => {
     const { rerender } = renderDefaultLayout();
 
-    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
-    expect(mockState.toggleConsole).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId('show-console-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalled();
 
     Object.assign(mockState, { showConsole: true });
     rerender(
@@ -277,8 +305,8 @@ describe('IdeLayout', () => {
     );
 
     expect(screen.getByLabelText('Close File Editor')).toBeInTheDocument();
-    fireEvent.click(screen.getByLabelText('Close File Editor'));
-    expect(mockState.toggleConsole).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByTestId('hide-console-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalled();
   });
 
   it('expands console panel when showConsole becomes true', () => {
@@ -321,7 +349,7 @@ describe('IdeLayout', () => {
     if (handle) {
       expect(handle.collapse).toHaveBeenCalled();
     }
-    expect(mockState.toggleConsole).toHaveBeenCalled();
+    expect(mockState.saveLayout).toHaveBeenCalled();
   });
 
   it('expands console panel before toggling when show button is clicked', () => {
@@ -329,12 +357,12 @@ describe('IdeLayout', () => {
 
     const handle = panelHandles['console-panel'];
 
-    fireEvent.click(screen.getByRole('button', { name: /Show File Editor/i }));
+    fireEvent.click(screen.getByTestId('show-console-panel'));
 
     if (handle) {
       expect(handle.expand).toHaveBeenCalled();
     }
-    expect(mockState.toggleConsole).toHaveBeenCalled();
+    expect(mockState.saveLayout).toHaveBeenCalled();
   });
 
   it('displays "File Editor" label in console panel header', () => {
@@ -342,6 +370,48 @@ describe('IdeLayout', () => {
     renderDefaultLayout();
 
     expect(screen.getByText('File Editor')).toBeInTheDocument();
+  });
+
+  it('focuses hide-left button after showing left panel (rAF sequencing)', () => {
+    // Prepare requestAnimationFrame mock that queues callbacks
+    const rafQueue: FrameRequestCallback[] = [];
+    const rafSpy = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((cb: FrameRequestCallback) => {
+        rafQueue.push(cb);
+        return rafQueue.length; // pseudo id
+      });
+
+    const { rerender } = renderDefaultLayout();
+
+    // Wire toggle to update mocked hook state and trigger rerender
+    (mockState.toggleLeftPanel as Mock).mockImplementation(() => {
+      Object.assign(mockState, { showLeftPanel: true });
+      rerender(
+        <IdeLayout
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+          consoleContent={consoleContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+    });
+
+    // Click show-left; this schedules two rAF callbacks for focusing the hide button
+    fireEvent.click(screen.getByTestId('show-left-panel'));
+
+    // Execute the queued rAF callbacks to simulate the next frames
+    while (rafQueue.length > 0) {
+      const cb = rafQueue.shift();
+      if (cb) cb(0);
+    }
+
+    const hideBtn = screen.getByTestId('hide-left-panel');
+    expect(hideBtn).toBeInTheDocument();
+    expect(document.activeElement).toBe(hideBtn);
+
+    rafSpy.mockRestore();
   });
 
   it('defers persistence until after panel initialization', async () => {

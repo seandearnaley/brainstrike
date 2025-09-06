@@ -50,6 +50,7 @@ export function LeftPanel({
               className="h-6 w-6"
               onClick={onHide}
               aria-label="Hide explorer"
+              data-testid="hide-left-panel"
               ref={hideButtonRef}
             >
               <ChevronLeft className="h-4 w-4" />

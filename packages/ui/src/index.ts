@@ -19,6 +19,11 @@ export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
 export { default as ErrorBoundary } from './error-boundary';
 export * from './error-fallback';
 export * from './hooks';
+export type { PanelPersistenceAdapter } from './hooks/panel-persistence-adapters';
+export {
+  ElectronPanelPersistenceAdapter,
+  LocalStoragePanelPersistenceAdapter,
+} from './hooks/panel-persistence-adapters';
 export type { PanelPersistenceState } from './hooks/use-panel-persistence';
 export * from './import-progress';
 export * from './input';
@@ -32,6 +37,8 @@ export * from './loading-fallback';
 export * from './navigation-sidebar';
 export * from './popover';
 export * from './progress';
+export type { PanelLayoutState } from './providers/panel-layout-provider';
+export { PanelLayoutProvider, usePanelLayout } from './providers/panel-layout-provider';
 export type { RouterProviderProps } from './router-provider';
 export { default as RouterProvider } from './router-provider';
 export * from './scroll-area';

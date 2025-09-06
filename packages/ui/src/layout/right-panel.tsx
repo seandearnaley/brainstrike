@@ -51,6 +51,7 @@ export function RightPanel({
               className="h-6 w-6"
               onClick={onHide}
               aria-label="Hide right panel"
+              data-testid="hide-right-panel"
               ref={hideButtonRef}
             >
               <ChevronRight className="h-4 w-4" />

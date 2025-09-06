@@ -1,6 +1,8 @@
+import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useRef } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
+import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
 import { useLoadPanelState } from './use-load-panel-state';
 import { useSavePanelState } from './use-save-panel-state';
 
@@ -8,13 +10,22 @@ export function usePanelPersistence(
   defaultSizes: number[],
   defaultShowConsole = false,
   defaultShowLeftPanel = true,
-  defaultShowRightPanel = false
+  defaultShowRightPanel = false,
+  adapter?: PanelPersistenceAdapter | null
 ) {
-  const [state, setState, lastSavedRef] = useLoadPanelState(
+  // Phase 2: In dev, disallow implicit adapter selection; require explicit adapter
+  if (!adapter && isDevEnv()) {
+    throw new Error(
+      '[usePanelPersistence] Missing explicit persistence adapter. ' +
+        'Pass LocalStoragePanelPersistenceAdapter or ElectronPanelPersistenceAdapter explicitly.'
+    );
+  }
+  const [state, setState, lastSavedRef, isHydrated] = useLoadPanelState(
     defaultSizes,
     defaultShowConsole,
     defaultShowLeftPanel,
-    defaultShowRightPanel
+    defaultShowRightPanel,
+    adapter
   );
 
   // Track last-saved state locally to avoid mutating a value returned from another hook
@@ -24,7 +35,8 @@ export function usePanelPersistence(
     (saved) => {
       lastSavedLocalRef.current = saved;
     },
-    () => lastSavedLocalRef.current
+    () => lastSavedLocalRef.current,
+    adapter
   );
 
   const saveLayout = useCallback(
@@ -64,6 +76,7 @@ export function usePanelPersistence(
     showConsole: state.showConsole,
     showLeftPanel: state.showLeftPanel,
     showRightPanel: state.showRightPanel,
+    isHydrated,
     saveLayout,
     toggleConsole,
     toggleLeftPanel,

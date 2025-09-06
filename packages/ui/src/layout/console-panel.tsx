@@ -51,6 +51,7 @@ export function ConsolePanel({
               className="h-6 w-6"
               onClick={onHide}
               aria-label="Close File Editor"
+              data-testid="hide-console-panel"
               ref={hideButtonRef}
             >
               <X className="h-4 w-4" />
