@@ -21,7 +21,6 @@ export * from './error-fallback';
 export * from './hooks';
 export type { PanelPersistenceAdapter } from './hooks/panel-persistence-adapters';
 export {
-  detectDefaultAdapter,
   ElectronPanelPersistenceAdapter,
   LocalStoragePanelPersistenceAdapter,
 } from './hooks/panel-persistence-adapters';

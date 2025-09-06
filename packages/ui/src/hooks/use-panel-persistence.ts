@@ -1,3 +1,4 @@
+import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useRef } from 'react';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
@@ -12,7 +13,14 @@ export function usePanelPersistence(
   defaultShowRightPanel = false,
   adapter?: PanelPersistenceAdapter | null
 ) {
-  const [state, setState, lastSavedRef] = useLoadPanelState(
+  // Phase 2: In dev, disallow implicit adapter selection; require explicit adapter
+  if (!adapter && isDevEnv()) {
+    throw new Error(
+      '[usePanelPersistence] Missing explicit persistence adapter. ' +
+        'Pass LocalStoragePanelPersistenceAdapter or ElectronPanelPersistenceAdapter explicitly.'
+    );
+  }
+  const [state, setState, lastSavedRef, isHydrated] = useLoadPanelState(
     defaultSizes,
     defaultShowConsole,
     defaultShowLeftPanel,
@@ -68,6 +76,7 @@ export function usePanelPersistence(
     showConsole: state.showConsole,
     showLeftPanel: state.showLeftPanel,
     showRightPanel: state.showRightPanel,
+    isHydrated,
     saveLayout,
     toggleConsole,
     toggleLeftPanel,

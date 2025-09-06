@@ -77,6 +77,16 @@ function LayoutShell() {
 }
 ```
 
+### Phase 3: No implicit fallbacks (all environments)
+
+Implicit fallbacks have been removed across all environments:
+
+- `IdeLayout` requires either `PanelLayoutProvider` or controlled props; otherwise it throws.
+- `usePanelPersistence` requires an explicit adapter argument; otherwise it throws.
+- `PanelLayoutProvider` requires an adapter in uncontrolled mode; otherwise it throws.
+
+Use explicit configuration at composition time (provider + adapter, or controlled mode wired to a Zustand store) for deterministic behavior and reliable testing.
+
 You can also drive the layout in a controlled way by passing `controlledState` and `onChange` to
 `PanelLayoutProvider` if you prefer to keep state in your own store and simply persist via `onChange`.
 

@@ -1,44 +1,7 @@
-import { isDevEnv } from '@brainstrike/utils';
 import { useEffect, useRef, useState } from 'react';
-import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
 import { validateAndNormalizeSizes } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
 import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
-
-const STORAGE_KEY = 'panelLayout.v1';
-
-const loadInitialState = (
-  defaultSizes: number[],
-  defaultShowConsole: boolean,
-  defaultShowLeftPanel: boolean,
-  defaultShowRightPanel: boolean
-): PanelPersistenceState => {
-  try {
-    if (typeof window !== 'undefined') {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as PanelPersistenceState;
-        if (parsed && typeof parsed === 'object') {
-          return {
-            sizes: validateAndNormalizeSizes(parsed.sizes ?? defaultSizes),
-            showConsole: parsed.showConsole ?? defaultShowConsole,
-            showLeftPanel: parsed.showLeftPanel ?? defaultShowLeftPanel,
-            showRightPanel: parsed.showRightPanel ?? defaultShowRightPanel,
-          };
-        }
-      }
-    }
-  } catch (_error) {
-    if (isDevEnv()) {
-    }
-  }
-  return {
-    sizes: validateAndNormalizeSizes(defaultSizes),
-    showConsole: defaultShowConsole,
-    showLeftPanel: defaultShowLeftPanel,
-    showRightPanel: defaultShowRightPanel,
-  };
-};
 
 export function useLoadPanelState(
   defaultSizes: number[],
@@ -50,33 +13,20 @@ export function useLoadPanelState(
   PanelPersistenceState,
   React.Dispatch<React.SetStateAction<PanelPersistenceState>>,
   React.MutableRefObject<PanelPersistenceState | null>,
+  boolean,
 ] {
-  const [state, setState] = useState<PanelPersistenceState>(() =>
-    loadInitialState(defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel)
-  );
+  // Start from defaults; adapter (if provided) will hydrate asynchronously
+  const [state, setState] = useState<PanelPersistenceState>(() => ({
+    sizes: validateAndNormalizeSizes(defaultSizes),
+    showConsole: defaultShowConsole,
+    showLeftPanel: defaultShowLeftPanel,
+    showRightPanel: defaultShowRightPanel,
+  }));
 
   const lastSavedStateRef = useRef<PanelPersistenceState | null>(state);
+  const [isHydrated, setIsHydrated] = useState<boolean>(() => !adapter);
 
   useEffect(() => {
-    const loadElectronLayout = async () => {
-      try {
-        const stored = await getElectronAPI()?.loadLayout?.();
-        if (stored) {
-          const electronState: PanelPersistenceState = {
-            sizes: validateAndNormalizeSizes(stored.sizes ?? defaultSizes),
-            showConsole: stored.showConsole ?? defaultShowConsole,
-            showLeftPanel: stored.showLeftPanel ?? defaultShowLeftPanel,
-            showRightPanel: stored.showRightPanel ?? defaultShowRightPanel,
-          };
-          setState(electronState);
-          lastSavedStateRef.current = electronState;
-        }
-      } catch (_error) {
-        if (isDevEnv()) {
-        }
-      }
-    };
-
     const loadFromAdapter = async () => {
       if (!adapter) return;
       try {
@@ -92,14 +42,13 @@ export function useLoadPanelState(
           lastSavedStateRef.current = loadedState;
         }
       } catch {}
+      setIsHydrated(true);
     };
 
     if (adapter) {
       void loadFromAdapter();
-    } else if (hasElectronAPI()) {
-      void loadElectronLayout();
     }
   }, [defaultSizes, defaultShowConsole, defaultShowLeftPanel, defaultShowRightPanel, adapter]);
 
-  return [state, setState, lastSavedStateRef];
+  return [state, setState, lastSavedStateRef, isHydrated];
 }

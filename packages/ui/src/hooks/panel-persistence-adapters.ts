@@ -53,12 +53,4 @@ export class ElectronPanelPersistenceAdapter implements PanelPersistenceAdapter 
   }
 }
 
-export function detectDefaultAdapter(): PanelPersistenceAdapter | null {
-  // If Electron API available, prefer it; otherwise use localStorage in browsers
-  try {
-    const api = getElectronAPI();
-    if (api?.saveLayout || api?.loadLayout) return new ElectronPanelPersistenceAdapter();
-  } catch {}
-  if (typeof window !== 'undefined') return new LocalStoragePanelPersistenceAdapter();
-  return null;
-}
+// Phase 3: remove automatic detection; require explicit adapter selection by the app

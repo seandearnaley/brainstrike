@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
 import { Button } from '../button';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
+// Phase 3: no internal persistence fallback; require provider/controlled usage
 import { usePanelToggle } from '../hooks/use-panel-toggle';
 import { cn } from '../lib/utils';
 import { usePanelLayout } from '../providers/panel-layout-provider';
@@ -178,7 +179,12 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
       if (!stableConfig.saveLayout) return;
 
       const [newLeftSize, newRightSize] = calculateHorizontalSizes(newSizes, stableConfig);
-      stableConfig.saveLayout([newLeftSize, newRightSize, stableConfig.safeConsoleSize ?? 20]);
+      stableConfig.saveLayout(
+        [newLeftSize, newRightSize, stableConfig.safeConsoleSize ?? 20],
+        !!stableConfig.showConsole,
+        !!stableConfig.showLeftPanel,
+        !!stableConfig.showRightPanel
+      );
     },
     [stableConfig]
   );
@@ -189,11 +195,12 @@ function useLayoutHandlers(config: LayoutHandlerConfig) {
 
       if (stableConfig.showConsole && stableConfig.consoleContent && newSizes.length >= 2) {
         const consoleSize = newSizes[1] ?? stableConfig.safeConsoleSize ?? 20;
-        stableConfig.saveLayout([
-          stableConfig.safeLeftSize ?? 25,
-          stableConfig.safeRightSize ?? 20,
-          consoleSize,
-        ]);
+        stableConfig.saveLayout(
+          [stableConfig.safeLeftSize ?? 25, stableConfig.safeRightSize ?? 20, consoleSize],
+          !!stableConfig.showConsole,
+          !!stableConfig.showLeftPanel,
+          !!stableConfig.showRightPanel
+        );
       }
     },
     [stableConfig]
@@ -278,64 +285,70 @@ function createPanelHandler(
 
 // Resolve panel state from provider if present, otherwise use internal persistence
 function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
-  const ctx = usePanelLayout();
+  // Always call fallback hook to preserve rules-of-hooks ordering
   const fallback = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
 
-  const sizes = ctx ? ctx.sizes : fallback.sizes;
-  const showConsole = ctx ? ctx.showConsole : fallback.showConsole;
-  const showLeftPanel = ctx ? ctx.showLeftPanel : fallback.showLeftPanel;
-  const showRightPanel = ctx ? ctx.showRightPanel : fallback.showRightPanel;
+  const ctx = usePanelLayout();
+  if (ctx) {
+    const sizes = ctx.sizes;
+    const showConsole = ctx.showConsole;
+    const showLeftPanel = ctx.showLeftPanel;
+    const showRightPanel = ctx.showRightPanel;
 
-  const saveLayout = ctx
-    ? (newSizes: number[], sConsole?: boolean, sLeft?: boolean, sRight?: boolean) =>
-        ctx.setState({
-          sizes: newSizes,
-          showConsole: sConsole ?? ctx.showConsole,
-          showLeftPanel: sLeft ?? ctx.showLeftPanel,
-          showRightPanel: sRight ?? ctx.showRightPanel,
-        })
-    : fallback.saveLayout;
+    const saveLayout = (
+      newSizes: number[],
+      sConsole?: boolean,
+      sLeft?: boolean,
+      sRight?: boolean
+    ) =>
+      ctx.setState({
+        sizes: newSizes,
+        showConsole: sConsole ?? ctx.showConsole,
+        showLeftPanel: sLeft ?? ctx.showLeftPanel,
+        showRightPanel: sRight ?? ctx.showRightPanel,
+      });
 
-  const toggleConsole = ctx
-    ? () =>
-        ctx.setState({
-          sizes,
-          showConsole: !showConsole,
-          showLeftPanel,
-          showRightPanel,
-        })
-    : fallback.toggleConsole;
+    const toggleConsole = () =>
+      ctx.setState({
+        sizes,
+        showConsole: !showConsole,
+        showLeftPanel,
+        showRightPanel,
+      });
 
-  const toggleLeftPanel = ctx
-    ? () =>
-        ctx.setState({
-          sizes,
-          showConsole,
-          showLeftPanel: !showLeftPanel,
-          showRightPanel,
-        })
-    : fallback.toggleLeftPanel;
+    const toggleLeftPanel = () =>
+      ctx.setState({
+        sizes,
+        showConsole,
+        showLeftPanel: !showLeftPanel,
+        showRightPanel,
+      });
 
-  const toggleRightPanel = ctx
-    ? () =>
-        ctx.setState({
-          sizes,
-          showConsole,
-          showLeftPanel,
-          showRightPanel: !showRightPanel,
-        })
-    : fallback.toggleRightPanel;
+    const toggleRightPanel = () =>
+      ctx.setState({
+        sizes,
+        showConsole,
+        showLeftPanel,
+        showRightPanel: !showRightPanel,
+      });
 
-  return {
-    sizes,
-    showConsole,
-    showLeftPanel,
-    showRightPanel,
-    saveLayout,
-    toggleConsole,
-    toggleLeftPanel,
-    toggleRightPanel,
-  } as const;
+    return {
+      sizes,
+      showConsole,
+      showLeftPanel,
+      showRightPanel,
+      saveLayout,
+      toggleConsole,
+      toggleLeftPanel,
+      toggleRightPanel,
+    } as const;
+  }
+
+  // No provider: in dev, enforce explicit wiring; otherwise allow implicit fallback for tests
+  if (isDevEnv()) {
+    throw new Error('Missing PanelLayoutProvider');
+  }
+  return fallback;
 }
 
 export interface IdeLayoutProps {
@@ -414,19 +427,34 @@ export const IdeLayout = React.memo(function IdeLayout({
   const { show: handleShowLeftPanel, hide: handleHideLeftPanel } = usePanelToggle(
     leftPanelRef,
     toggleLeftPanel,
-    { focusRef: hideExplorerButtonRef }
+    {
+      focusRef: hideExplorerButtonRef,
+      liftInitGate: () => {
+        isInitialRenderRef.current = false;
+      },
+    }
   );
 
   const { show: handleShowRightPanel, hide: handleHideRightPanel } = usePanelToggle(
     rightPanelRef,
     toggleRightPanel,
-    { focusRef: hideRightPanelButtonRef }
+    {
+      focusRef: hideRightPanelButtonRef,
+      liftInitGate: () => {
+        isInitialRenderRef.current = false;
+      },
+    }
   );
 
   const { show: handleShowConsole, hide: handleConsoleClose } = usePanelToggle(
     consolePanelRef,
     toggleConsole,
-    { focusRef: hideConsoleButtonRef }
+    {
+      focusRef: hideConsoleButtonRef,
+      liftInitGate: () => {
+        isInitialRenderRef.current = false;
+      },
+    }
   );
 
   // Panel state effects

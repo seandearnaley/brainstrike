@@ -24,6 +24,16 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   ),
 }));
 
+// Mock UI provider to avoid asynchronous provider effects in unit tests
+vi.mock('@brainstrike/ui', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@brainstrike/ui')>();
+  return {
+    ...original,
+    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    ElectronPanelPersistenceAdapter: vi.fn(() => ({})),
+  };
+});
+
 // Mock the app-shell component (do not import original to avoid transitive deps)
 vi.mock('@brainstrike/app-shell', () => ({
   navigationItems: [],

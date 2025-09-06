@@ -3,6 +3,8 @@ import type { ImperativePanelHandle } from 'react-resizable-panels';
 
 interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
+  // Callback invoked on user-initiated actions to lift any initialization gate
+  liftInitGate?: () => void;
 }
 
 export function usePanelToggle(
@@ -11,6 +13,9 @@ export function usePanelToggle(
   options: UsePanelToggleOptions = {}
 ) {
   const show = useCallback(() => {
+    if (options.liftInitGate) {
+      options.liftInitGate();
+    }
     try {
       if (panelRef.current) {
         if (typeof panelRef.current.expand === 'function') panelRef.current.expand();
@@ -31,6 +36,9 @@ export function usePanelToggle(
   }, [panelRef, toggleFn, options.focusRef]);
 
   const hide = useCallback(() => {
+    if (options.liftInitGate) {
+      options.liftInitGate();
+    }
     try {
       if (panelRef.current) {
         if (typeof panelRef.current.collapse === 'function') panelRef.current.collapse();

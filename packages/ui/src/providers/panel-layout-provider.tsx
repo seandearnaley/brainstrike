@@ -1,3 +1,4 @@
+import { isDevEnv } from '@brainstrike/utils';
 import type { ReactNode } from 'react';
 import { createContext, useContext, useMemo, useRef } from 'react';
 import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';
@@ -31,6 +32,15 @@ export function PanelLayoutProvider({
   controlledState,
   onChange,
 }: PanelLayoutProviderProps) {
+  // Phase 2: In dev, require adapter for uncontrolled mode
+  if (!controlledState && !adapter && isDevEnv()) {
+    throw new Error(
+      '[PanelLayoutProvider] Missing persistence adapter for uncontrolled mode. ' +
+        'Provide LocalStoragePanelPersistenceAdapter or ElectronPanelPersistenceAdapter, ' +
+        'or use controlledState/onChange to manage panel state.'
+    );
+  }
+
   // Uncontrolled: use internal persistence hook
   const uncontrolled = usePanelPersistence(
     initialState?.sizes ?? [25, 55, 20],
@@ -42,7 +52,7 @@ export function PanelLayoutProvider({
 
   const last = useRef<PanelLayoutState | null>(null);
 
-  const merged: PanelLayoutContextValue = useMemo(() => {
+  const merged: PanelLayoutContextValue | null = useMemo(() => {
     const state: PanelLayoutState = controlledState
       ? controlledState
       : {
@@ -67,6 +77,11 @@ export function PanelLayoutProvider({
 
     return { ...state, setState };
   }, [controlledState, uncontrolled, onChange]);
+
+  // Gate rendering until hydrated when using uncontrolled mode with adapter
+  if (!controlledState && adapter && !uncontrolled.isHydrated) {
+    return null;
+  }
 
   return <PanelLayoutContext.Provider value={merged}>{children}</PanelLayoutContext.Provider>;
 }

@@ -1,12 +1,10 @@
 import { createDebounce } from '@brainstrike/hooks';
 import { isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef } from 'react';
-import { getElectronAPI } from '../lib/electron-utils';
 import { statesEqual } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
 import type { PanelPersistenceAdapter } from './panel-persistence-adapters';
 
-const STORAGE_KEY = 'panelLayout.v1';
 const SAVE_DEBOUNCE_MS = 250;
 
 export function useSavePanelState(
@@ -22,12 +20,7 @@ export function useSavePanelState(
         if (adapter) {
           await adapter.save(stateToSave);
         } else {
-          const electronAPI = getElectronAPI();
-          if (electronAPI?.saveLayout) {
-            await electronAPI.saveLayout(stateToSave);
-          } else if (typeof window !== 'undefined') {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
-          }
+          throw new Error('[useSavePanelState] Missing adapter in Phase 3');
         }
         onSaved(stateToSave);
       } catch (_error) {

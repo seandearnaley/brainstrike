@@ -49,6 +49,8 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   const original = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
     ...original,
+    // No-op provider for unit tests (avoids async persistence side effects)
+    PanelLayoutProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     IdeLayout: ({
       children,
       leftPanelContent,
