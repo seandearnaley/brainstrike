@@ -286,6 +286,12 @@ function createPanelHandler(
 
 // Resolve panel state from provider if present, otherwise use internal persistence
 function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
+  const ctx = usePanelLayout();
+  // In dev, enforce explicit provider wiring and avoid invoking fallback persistence at all
+  if (!ctx && isDevEnv()) {
+    throw new Error('Missing PanelLayoutProvider');
+  }
+
   // Always call fallback hook to preserve rules-of-hooks ordering.
   // In dev, provide a noop adapter to satisfy strict adapter requirements without side effects.
   const noopAdapter: PanelPersistenceAdapter = useMemo(
@@ -304,7 +310,6 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
     isDevEnv() ? noopAdapter : null
   );
 
-  const ctx = usePanelLayout();
   if (ctx) {
     const sizes = ctx.sizes;
     const showConsole = ctx.showConsole;
@@ -360,10 +365,6 @@ function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
     } as const;
   }
 
-  // No provider: in dev, enforce explicit wiring; otherwise allow implicit fallback for tests
-  if (isDevEnv()) {
-    throw new Error('Missing PanelLayoutProvider');
-  }
   return fallback;
 }
 
