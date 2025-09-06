@@ -33,7 +33,7 @@ export function usePanelToggle(
         });
       });
     }
-  }, [panelRef, toggleFn, options.focusRef]);
+  }, [panelRef, toggleFn, options.focusRef, options.liftInitGate]);
 
   const hide = useCallback(() => {
     if (options.liftInitGate) {
@@ -47,7 +47,7 @@ export function usePanelToggle(
       // Ignore collapse errors (e.g., panel not fully initialized)
     }
     toggleFn();
-  }, [panelRef, toggleFn]);
+  }, [panelRef, toggleFn, options.liftInitGate]);
 
   return { show, hide };
 }

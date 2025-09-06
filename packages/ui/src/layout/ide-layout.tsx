@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
 import { Button } from '../button';
+import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapters';
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 // Phase 3: no internal persistence fallback; require provider/controlled usage
 import { usePanelToggle } from '../hooks/use-panel-toggle';
@@ -285,8 +286,23 @@ function createPanelHandler(
 
 // Resolve panel state from provider if present, otherwise use internal persistence
 function useResolvedPanelState(leftPanelContent?: React.ReactNode) {
-  // Always call fallback hook to preserve rules-of-hooks ordering
-  const fallback = usePanelPersistence([25, 55, 20], false, !!leftPanelContent, false);
+  // Always call fallback hook to preserve rules-of-hooks ordering.
+  // In dev, provide a noop adapter to satisfy strict adapter requirements without side effects.
+  const noopAdapter: PanelPersistenceAdapter = useMemo(
+    () => ({
+      load: async () => null,
+      save: async () => {},
+      flush: async () => {},
+    }),
+    []
+  );
+  const fallback = usePanelPersistence(
+    [25, 55, 20],
+    false,
+    !!leftPanelContent,
+    false,
+    isDevEnv() ? noopAdapter : null
+  );
 
   const ctx = usePanelLayout();
   if (ctx) {
