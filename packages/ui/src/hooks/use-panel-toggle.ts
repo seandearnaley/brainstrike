@@ -5,6 +5,48 @@ interface UsePanelToggleOptions {
   focusRef?: RefObject<HTMLElement | null>;
   // Callback invoked on user-initiated actions to lift any initialization gate
   liftInitGate?: () => void;
+  // Optional callback before toggling visibility (useful when panel is unmounted)
+  onBeforeShow?: () => void;
+  onBeforeHide?: () => void;
+}
+
+function liftInitGate(fn?: () => void) {
+  fn?.();
+}
+
+function safeCall(fn?: () => void) {
+  try {
+    fn?.();
+  } catch {
+    // ignore
+  }
+}
+
+function expandPanel(ref: RefObject<ImperativePanelHandle | null>) {
+  try {
+    const handle = ref.current;
+    if (handle && typeof handle.expand === 'function') handle.expand();
+  } catch {
+    // ignore impl errors
+  }
+}
+
+function collapsePanel(ref: RefObject<ImperativePanelHandle | null>) {
+  try {
+    const handle = ref.current;
+    if (handle && typeof handle.collapse === 'function') handle.collapse();
+  } catch {
+    // ignore impl errors
+  }
+}
+
+function focusAfterAnimation(ref?: RefObject<HTMLElement | null>) {
+  if (!ref) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      ref.current?.focus();
+    });
+  });
 }
 
 export function usePanelToggle(
@@ -13,41 +55,19 @@ export function usePanelToggle(
   options: UsePanelToggleOptions = {}
 ) {
   const show = useCallback(() => {
-    if (options.liftInitGate) {
-      options.liftInitGate();
-    }
-    try {
-      if (panelRef.current) {
-        if (typeof panelRef.current.expand === 'function') panelRef.current.expand();
-      }
-    } catch (_err) {
-      // Ignore errors from panel impl during tests or init races
-    }
+    liftInitGate(options.liftInitGate);
+    safeCall(options.onBeforeShow);
+    expandPanel(panelRef);
     toggleFn();
-    if (options.focusRef) {
-      // Use rAF sequencing to focus after the expand/collapse animation frame
-      // This is more deterministic than a fixed timeout and avoids test flakiness
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          options.focusRef?.current?.focus();
-        });
-      });
-    }
-  }, [panelRef, toggleFn, options.focusRef, options.liftInitGate]);
+    focusAfterAnimation(options.focusRef);
+  }, [panelRef, toggleFn, options.liftInitGate, options.onBeforeShow, options.focusRef]);
 
   const hide = useCallback(() => {
-    if (options.liftInitGate) {
-      options.liftInitGate();
-    }
-    try {
-      if (panelRef.current) {
-        if (typeof panelRef.current.collapse === 'function') panelRef.current.collapse();
-      }
-    } catch (_err) {
-      // Ignore collapse errors (e.g., panel not fully initialized)
-    }
+    liftInitGate(options.liftInitGate);
+    safeCall(options.onBeforeHide);
+    collapsePanel(panelRef);
     toggleFn();
-  }, [panelRef, toggleFn, options.liftInitGate]);
+  }, [panelRef, toggleFn, options.liftInitGate, options.onBeforeHide]);
 
   return { show, hide };
 }

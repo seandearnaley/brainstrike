@@ -1,8 +1,9 @@
 import { Button, cn } from '@brainstrike/ui';
 import { File, Loader2, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
+import { useEditorViewStateStore } from './stores/editor-view-state-store';
 
 interface TabbedFileEditorProps {
   tabs: FileTab[];
@@ -26,6 +27,9 @@ export function TabbedFileEditor({
   decodeFileSelection,
 }: TabbedFileEditorProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const activeContentRef = useRef<HTMLPreElement>(null);
+  const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
+  const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
 
   // Load content for active tab if not already loaded
   useEffect(() => {
@@ -51,6 +55,75 @@ export function TabbedFileEditor({
       });
     }
   }, []);
+
+  // Restore scroll position for active tab content
+  useEffect(() => {
+    if (!activeTabId) return;
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    if (!activeTab) return;
+    const el = activeContentRef.current;
+    if (el) {
+      el.scrollTop = getScrollTop(activeTab.compositeKey);
+    }
+  }, [activeTabId, tabs, getScrollTop]);
+
+  const handleContentScroll = useCallback(
+    (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => {
+      setScrollTop(compositeKey, (e.currentTarget as HTMLPreElement).scrollTop);
+    },
+    [setScrollTop]
+  );
+
+  const renderTabPanel = useCallback(
+    (
+      tab: FileTab,
+      isActive: boolean,
+      content: string | undefined,
+      isLoading: boolean,
+      path: string
+    ) => {
+      const panelId = `panel-${tab.id}`;
+      const tabButtonId = `tab-${tab.id}`;
+      return (
+        <div
+          key={tab.id}
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={tabButtonId}
+          hidden={!isActive}
+          className="p-4 h-full"
+        >
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin mr-2" />
+              Loading file content...
+            </div>
+          ) : content ? (
+            <pre
+              ref={isActive ? activeContentRef : null}
+              onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
+              className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-auto font-mono h-full"
+            >
+              {content.startsWith('File not accessible') ? (
+                <div className="text-amber-600 dark:text-amber-400">
+                  <p>{content}</p>
+                  <p className="text-sm text-muted-foreground mt-2">
+                    To access this file, please open the folder again using the folder icon button.
+                    This is a security measure of your browser.
+                  </p>
+                </div>
+              ) : (
+                content
+              )}
+            </pre>
+          ) : (
+            <div className="text-muted-foreground">File not found or unable to load: {path}</div>
+          )}
+        </div>
+      );
+    },
+    [activeContentRef, handleContentScroll]
+  );
 
   const getFileName = (path: string) => path.split('/').pop() || path;
 
@@ -166,44 +239,7 @@ export function TabbedFileEditor({
             const content = fileContents[tab.compositeKey];
             const isLoading = loadingFiles.has(tab.compositeKey);
             const { path } = decodeFileSelection(tab.compositeKey);
-            const panelId = `panel-${tab.id}`;
-            const tabButtonId = `tab-${tab.id}`;
-
-            return (
-              <div
-                key={tab.id}
-                id={panelId}
-                role="tabpanel"
-                aria-labelledby={tabButtonId}
-                hidden={!isActive}
-                className="p-4 h-full"
-              >
-                {isLoading ? (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Loading file content...
-                  </div>
-                ) : content ? (
-                  <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
-                    {content.startsWith('File not accessible') ? (
-                      <div className="text-amber-600 dark:text-amber-400">
-                        <p>{content}</p>
-                        <p className="text-sm text-muted-foreground mt-2">
-                          To access this file, please open the folder again using the folder icon
-                          button. This is a security measure of your browser.
-                        </p>
-                      </div>
-                    ) : (
-                      content
-                    )}
-                  </pre>
-                ) : (
-                  <div className="text-muted-foreground">
-                    File not found or unable to load: {path}
-                  </div>
-                )}
-              </div>
-            );
+            return renderTabPanel(tab, isActive, content, isLoading, path);
           })
         )}
       </div>

@@ -416,6 +416,8 @@ describe('IdeLayout', () => {
 
   it('defers persistence until after panel initialization', async () => {
     vi.useFakeTimers();
+    // Ensure left panel is mounted in Phase 2 (conditional rendering)
+    Object.assign(mockState, { showLeftPanel: true });
     const _utils = renderDefaultLayout();
 
     // Initially, persistence should be deferred

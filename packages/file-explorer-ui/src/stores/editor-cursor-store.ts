@@ -1,0 +1,83 @@
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { createWithEqualityFn as create } from 'zustand/traditional';
+
+type Key = string; // compositeKey (folderId:path)
+
+export interface CursorSelection {
+  cursor: number; // caret index in content
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+interface EditorCursorData {
+  selections: Record<Key, CursorSelection | undefined>;
+}
+
+interface EditorCursorActions {
+  setSelection: (key: Key, sel: CursorSelection) => void;
+  getSelection: (key: Key) => CursorSelection | undefined;
+  clear: (key?: Key) => void;
+}
+
+export type EditorCursorStore = EditorCursorData & EditorCursorActions;
+
+const STORE_NAME = 'editor-cursor.v1' as const;
+
+const storage = createJSONStorage(() => {
+  const memory = new Map<string, string>();
+  return {
+    getItem: (k: string) => {
+      try {
+        if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
+      } catch {}
+      return memory.get(k) ?? null;
+    },
+    setItem: (k: string, v: string) => {
+      try {
+        if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
+      } catch {}
+      memory.set(k, v);
+    },
+    removeItem: (k: string) => {
+      try {
+        if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
+      } catch {}
+      memory.delete(k);
+    },
+  };
+});
+
+export const useEditorCursorStore = create<EditorCursorStore>()(
+  persist(
+    (set, get) => ({
+      selections: {},
+      setSelection: (key, sel) => set((s) => ({ selections: { ...s.selections, [key]: sel } })),
+      getSelection: (key) => get().selections[key],
+      clear: (key) => {
+        if (!key) return set({ selections: {} });
+        const { selections } = get();
+        const { [key]: _drop, ...rest } = selections;
+        set({ selections: rest });
+      },
+    }),
+    {
+      name: STORE_NAME,
+      version: 1,
+      storage,
+      partialize: (s) => ({ selections: s.selections }),
+    }
+  )
+);
+
+// Tests helper
+export function __resetEditorCursorStoreForTests() {
+  try {
+    useEditorCursorStore.setState({ selections: {} });
+    const persistApi = (
+      useEditorCursorStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {}
+}

@@ -1,12 +1,12 @@
 import { resolve } from 'node:path';
 import { testBase } from '@brainstrike/test-utils/vitest.base';
+import type { InlineConfig } from 'vitest';
 import { defineConfig } from 'vitest/config';
 // NOTE: TypeScript can get confused about Vitest type identities under pnpm workspaces.
 // Casting `test` here avoids noisy editor errors without affecting runtime behavior.
 
 export default defineConfig({
   // Cast mitigates TS2769 type identity noise in some editors
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   test: {
     ...testBase,
     // Default to happy-dom for speed; jsdom-only suites should annotate at file top
@@ -18,8 +18,7 @@ export default defineConfig({
     // Keep isolation to avoid cross-file state until a deeper audit completes
     isolate: true,
     testTimeout: 30000,
-    // biome-ignore lint/suspicious/noExplicitAny: Required workaround for Vitest type identity issues in pnpm workspaces
-  } as any,
+  } as InlineConfig,
   resolve: {
     alias: {
       '@brainstrike/types': resolve(__dirname, '../types/src'),

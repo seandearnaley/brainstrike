@@ -9,6 +9,7 @@ afterAll(() => {
 });
 
 import { useTabManager } from '../../hooks/use-tab-manager';
+import { __resetTabManagerStoreForTests } from '../../stores/tab-manager-store';
 
 describe('useTabManager', () => {
   // Mock localStorage
@@ -22,6 +23,7 @@ describe('useTabManager', () => {
   beforeEach(() => {
     // Reset mocks before each test
     vi.clearAllMocks();
+    __resetTabManagerStoreForTests();
     Object.defineProperty(window, 'localStorage', {
       value: localStorageMock,
       writable: true,
@@ -42,22 +44,49 @@ describe('useTabManager', () => {
       expect(result.current.activeTabId).toBeNull();
     });
 
-    it('should initialize from localStorage when data exists', () => {
-      const savedState = {
-        tabs: [
-          { id: 'file1', path: '/src/index.ts' },
-          { id: 'file2', path: '/src/app.ts' },
-        ],
-        activeTabId: 'file1',
+    it('should initialize from localStorage when data exists', async () => {
+      const persisted = {
+        state: {
+          tabs: [
+            { id: 'file1', path: '/src/index.ts', compositeKey: 'file1' },
+            { id: 'file2', path: '/src/app.ts', compositeKey: 'file2' },
+          ],
+          activeTabId: 'file1',
+        },
+        version: 1,
       };
-      localStorageMock.getItem.mockReturnValue(JSON.stringify(savedState));
+      localStorageMock.getItem.mockReturnValue(JSON.stringify(persisted));
+      // Rehydrate store explicitly before rendering hook
+      await act(async () => {
+        const mod = await import('../../stores/tab-manager-store');
+        const persistApi = (
+          mod.useTabManagerStore as unknown as {
+            persist?: { rehydrate?: () => Promise<void> };
+          }
+        ).persist;
+        await persistApi?.rehydrate?.();
+      });
 
       const { result } = renderHook(() => useTabManager());
 
       // Content and loading states should be initialized to defaults
       expect(result.current.tabs).toEqual([
-        { id: 'file1', path: '/src/index.ts', content: null, isLoading: false, error: undefined },
-        { id: 'file2', path: '/src/app.ts', content: null, isLoading: false, error: undefined },
+        {
+          id: 'file1',
+          path: '/src/index.ts',
+          compositeKey: 'file1',
+          content: null,
+          isLoading: false,
+          error: undefined,
+        },
+        {
+          id: 'file2',
+          path: '/src/app.ts',
+          compositeKey: 'file2',
+          content: null,
+          isLoading: false,
+          error: undefined,
+        },
       ]);
       expect(result.current.activeTabId).toBe('file1');
     });
@@ -343,36 +372,26 @@ describe('useTabManager', () => {
   });
 
   describe('localStorage persistence', () => {
-    it('should save state to localStorage on changes (throttled)', async () => {
+    it('should save state to localStorage on changes', async () => {
       localStorageMock.getItem.mockReturnValue(null);
       const { result } = renderHook(() => useTabManager());
-
-      // Use fake timers before triggering state changes so throttled save uses fake clock
-      vi.useFakeTimers();
 
       act(() => {
         result.current.openTab('/src/index.ts', 'file1', 'file1');
       });
 
-      // Trigger the 500ms throttle deterministically
-      await act(async () => {
-        vi.advanceTimersByTime(500);
-        await vi.runAllTimersAsync();
-      });
-
-      expect(localStorageMock.setItem).toHaveBeenCalledWith(
-        'fileEditorTabs.v1',
-        JSON.stringify({
-          tabs: [
-            {
-              id: 'file1',
-              path: '/src/index.ts',
-              compositeKey: 'file1',
-            },
-          ],
-          activeTabId: 'file1',
-        })
-      );
+      // Expect a call to the new persist key with JSON payload containing state/version
+      expect(localStorageMock.setItem).toHaveBeenCalled();
+      const [key, val] = localStorageMock.setItem.mock.calls.pop() as [string, string];
+      expect(key).toBe('tab-manager.v1');
+      const parsed = JSON.parse(val) as { state: unknown; version: number };
+      expect(parsed.version).toBe(1);
+      const state = parsed.state as {
+        tabs: Array<{ id: string; path: string; compositeKey: string }>;
+        activeTabId: string;
+      };
+      expect(state.activeTabId).toBe('file1');
+      expect(state.tabs).toEqual([{ id: 'file1', path: '/src/index.ts', compositeKey: 'file1' }]);
     });
 
     it('should handle localStorage errors gracefully', async () => {
@@ -383,17 +402,8 @@ describe('useTabManager', () => {
 
       const { result } = renderHook(() => useTabManager());
 
-      // Use fake timers before triggering state changes so throttled save uses fake clock
-      vi.useFakeTimers();
-
       act(() => {
         result.current.openTab('/src/index.ts', 'file1', 'file1');
-      });
-
-      // Trigger the 500ms throttle deterministically
-      await act(async () => {
-        vi.advanceTimersByTime(500);
-        await vi.runAllTimersAsync();
       });
 
       // The tab should still be opened despite the storage error

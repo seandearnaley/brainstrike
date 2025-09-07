@@ -19,6 +19,7 @@ export const FileFilterBar: React.FC<FileFilterBarProps> = React.memo(
             value={value}
             onChange={(e) => onChange(e.target.value)}
             className="w-full pr-8"
+            data-testid="file-filter-input"
           />
           {value && (
             <Button

@@ -397,9 +397,9 @@ export const IdeLayout = React.memo(function IdeLayout({
   useEffect(() => {
     // Check if all panels are initialized
     const checkPanelsInitialized = () => {
-      const hasLeftPanel = !leftPanelContent || leftPanelRef.current !== null;
-      const hasRightPanel = !rightPanelContent || rightPanelRef.current !== null;
-      const hasConsolePanel = !consoleContent || consolePanelRef.current !== null;
+      const hasLeftPanel = !leftPanelContent || !showLeftPanel || leftPanelRef.current !== null;
+      const hasRightPanel = !rightPanelContent || !showRightPanel || rightPanelRef.current !== null;
+      const hasConsolePanel = !consoleContent || !showConsole || consolePanelRef.current !== null;
 
       return hasLeftPanel && hasRightPanel && hasConsolePanel;
     };
@@ -449,6 +449,10 @@ export const IdeLayout = React.memo(function IdeLayout({
       liftInitGate: () => {
         isInitialRenderRef.current = false;
       },
+      onBeforeShow: () => {
+        // When left panel is unmounted, ensure persistence updates before toggle
+        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, true, undefined);
+      },
     }
   );
 
@@ -460,6 +464,9 @@ export const IdeLayout = React.memo(function IdeLayout({
       liftInitGate: () => {
         isInitialRenderRef.current = false;
       },
+      onBeforeShow: () => {
+        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, undefined, true);
+      },
     }
   );
 
@@ -470,6 +477,9 @@ export const IdeLayout = React.memo(function IdeLayout({
       focusRef: hideConsoleButtonRef,
       liftInitGate: () => {
         isInitialRenderRef.current = false;
+      },
+      onBeforeShow: () => {
+        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], true, undefined, undefined);
       },
     }
   );
@@ -531,7 +541,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               </Button>
             </div>
           )}
-          {leftPanelContent && (
+          {showLeftPanel && leftPanelContent && (
             <LeftPanel
               panelRef={leftPanelRef}
               content={leftPanelContent}
@@ -569,7 +579,7 @@ export const IdeLayout = React.memo(function IdeLayout({
                   </Button>
                 </div>
               )}
-              {consoleContent && (
+              {showConsole && consoleContent && (
                 <ConsolePanel
                   panelRef={consolePanelRef}
                   content={consoleContent}
@@ -596,7 +606,7 @@ export const IdeLayout = React.memo(function IdeLayout({
               </Button>
             </div>
           )}
-          {rightPanelContent && (
+          {showRightPanel && rightPanelContent && (
             <RightPanel
               panelRef={rightPanelRef}
               content={rightPanelContent}
