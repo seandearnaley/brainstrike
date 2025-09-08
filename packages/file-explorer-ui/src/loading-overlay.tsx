@@ -58,16 +58,19 @@ export const LoadingOverlay = React.forwardRef<HTMLDivElement, LoadingOverlayPro
 
     // Track start time to estimate remaining time. Reset when a new load begins.
     const startTimeRef = useRef<number | null>(null);
+    const isLoadingPhase = progressState?.phase === 'loading';
+    const hasJustStarted = progressState?.loaded === 0;
+
     useEffect(() => {
       if (isCancelling) return;
       if (!progressState) {
         startTimeRef.current = null;
         return;
       }
-      if (progressState.phase === 'loading' && progressState.loaded === 0) {
+      if (isLoadingPhase && hasJustStarted) {
         startTimeRef.current = performance.now();
       }
-    }, [progressState?.phase, progressState?.loaded, isCancelling]);
+    }, [isLoadingPhase, hasJustStarted, isCancelling, progressState]);
 
     const handleCancel = useCallback(() => {
       if (onCancel && !isCancelling) {
