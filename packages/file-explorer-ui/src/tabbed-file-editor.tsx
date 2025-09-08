@@ -16,6 +16,61 @@ interface TabbedFileEditorProps {
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
 }
 
+function buildContentNode(opts: {
+  isLoading: boolean;
+  content: string | undefined;
+  isActive: boolean;
+  tab: FileTab;
+  path: string;
+  text: string | undefined;
+  truncated: boolean;
+  activeContentRef: React.RefObject<HTMLPreElement | null>;
+  handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
+}) {
+  const {
+    isLoading,
+    content,
+    isActive,
+    tab,
+    path,
+    text,
+    truncated,
+    activeContentRef,
+    handleContentScroll,
+  } = opts;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading file content...
+      </div>
+    );
+  }
+  if (!content) {
+    return <div className="text-muted-foreground">File not found or unable to load: {path}</div>;
+  }
+  return (
+    <pre
+      ref={isActive ? activeContentRef : null}
+      onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
+      className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-auto font-mono h-full"
+      data-truncated={truncated ? 'true' : 'false'}
+    >
+      {content.startsWith('File not accessible') ? (
+        <div className="text-amber-600 dark:text-amber-400">
+          <p>{content}</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            To access this file, please open the folder again using the folder icon button. This is
+            a security measure of your browser.
+          </p>
+        </div>
+      ) : (
+        text
+      )}
+    </pre>
+  );
+}
+
 export function TabbedFileEditor({
   tabs,
   activeTabId,
@@ -74,6 +129,15 @@ export function TabbedFileEditor({
     [setScrollTop]
   );
 
+  const MaxDomChars = 200_000; // ~200KB of visible text per panel
+
+  const getDisplayContent = (raw?: string) => {
+    if (!raw) return { text: raw, truncated: false } as const;
+    if (raw.length <= MaxDomChars) return { text: raw, truncated: false } as const;
+    const suffix = '\n\n… truncated for display …';
+    return { text: raw.slice(0, MaxDomChars - suffix.length) + suffix, truncated: true } as const;
+  };
+
   const renderTabPanel = useCallback(
     (
       tab: FileTab,
@@ -84,6 +148,20 @@ export function TabbedFileEditor({
     ) => {
       const panelId = `panel-${tab.id}`;
       const tabButtonId = `tab-${tab.id}`;
+      const { text, truncated } = getDisplayContent(content);
+
+      const contentNode = buildContentNode({
+        isLoading,
+        content,
+        isActive,
+        tab,
+        path,
+        text,
+        truncated,
+        activeContentRef,
+        handleContentScroll,
+      });
+
       return (
         <div
           key={tab.id}
@@ -93,36 +171,11 @@ export function TabbedFileEditor({
           hidden={!isActive}
           className="p-4 h-full"
         >
-          {isLoading ? (
-            <div className="flex items-center justify-center h-full text-muted-foreground">
-              <Loader2 className="h-5 w-5 animate-spin mr-2" />
-              Loading file content...
-            </div>
-          ) : content ? (
-            <pre
-              ref={isActive ? activeContentRef : null}
-              onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
-              className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-auto font-mono h-full"
-            >
-              {content.startsWith('File not accessible') ? (
-                <div className="text-amber-600 dark:text-amber-400">
-                  <p>{content}</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    To access this file, please open the folder again using the folder icon button.
-                    This is a security measure of your browser.
-                  </p>
-                </div>
-              ) : (
-                content
-              )}
-            </pre>
-          ) : (
-            <div className="text-muted-foreground">File not found or unable to load: {path}</div>
-          )}
+          {contentNode}
         </div>
       );
     },
-    [activeContentRef, handleContentScroll]
+    [handleContentScroll]
   );
 
   const getFileName = (path: string) => path.split('/').pop() || path;
