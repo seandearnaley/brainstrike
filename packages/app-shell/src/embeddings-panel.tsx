@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
+import { useEffect } from 'react';
 // no-op
 import { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 
@@ -291,6 +292,15 @@ export function EmbeddingsPanel() {
   const handleDispose = async () => {
     await dispose();
   };
+
+  // Ensure the embedding service is disposed when the panel unmounts
+  // to prevent leaking GPU/CPU resources across navigation or tab hides.
+  // The store's dispose() is idempotent and safe to call when idle.
+  useEffect(() => {
+    return () => {
+      void dispose();
+    };
+  }, [dispose]);
 
   return (
     <Card className="h-full">

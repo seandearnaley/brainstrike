@@ -89,7 +89,7 @@ export function useFileSystem() {
     if (coreApi.rootDirectoryHandle && coreApi.rootDirectoryHandle !== storedRootDirectoryHandle) {
       setRootDirectoryHandle(coreApi.rootDirectoryHandle);
     }
-  }, [coreApi.rootDirectoryHandle]);
+  }, [coreApi.rootDirectoryHandle, storedRootDirectoryHandle, setRootDirectoryHandle]);
 
   return useMemo(
     () => ({
