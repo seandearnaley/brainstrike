@@ -33,25 +33,71 @@ type PersistedState = { tabs: PersistedTab[]; activeTabId: string | null };
 const STORE_NAME = 'tab-manager.v1' as const;
 
 const storage = createJSONStorage(() => {
-  // Safe storage wrapper for SSR/tests
+  // Safe storage wrapper for SSR/tests with one-time migration from legacy key
   const memory = new Map<string, string>();
+  const LegacyKey = 'fileEditorTabs.v1';
+
+  const fromLocalStorage = (key: string): string | null => {
+    try {
+      if (typeof localStorage !== 'undefined') return localStorage.getItem(key);
+    } catch {}
+    return null;
+  };
+
+  const writeLocalStorage = (key: string, value: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+    } catch {}
+  };
+
+  const removeLocalStorage = (key: string) => {
+    try {
+      if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+    } catch {}
+  };
+
+  const migrateIfNeeded = (name: string): string | null => {
+    if (name !== STORE_NAME) return null;
+    const legacy = fromLocalStorage(LegacyKey);
+    if (!legacy) return null;
+    try {
+      const parsed = JSON.parse(legacy) as {
+        tabs?: Array<{ id: string; path: string; compositeKey: string }>;
+        activeTabId?: string | null;
+      };
+      const migrated: PersistedState = {
+        tabs: Array.isArray(parsed.tabs)
+          ? parsed.tabs.map((t) => ({
+              id: String(t.id),
+              path: String(t.path),
+              compositeKey: String(t.compositeKey),
+            }))
+          : [],
+        activeTabId: (parsed.activeTabId ?? null) as string | null,
+      };
+      const wrapped = JSON.stringify({ state: migrated, version: 1 });
+      writeLocalStorage(name, wrapped);
+      removeLocalStorage(LegacyKey);
+      return wrapped;
+    } catch {
+      return null;
+    }
+  };
+
   return {
     getItem: (name: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') return localStorage.getItem(name);
-      } catch {}
+      const direct = fromLocalStorage(name);
+      if (direct !== null) return direct;
+      const migrated = migrateIfNeeded(name);
+      if (migrated !== null) return migrated;
       return memory.get(name) ?? null;
     },
     setItem: (name: string, value: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') return localStorage.setItem(name, value);
-      } catch {}
-      memory.set(name, value);
+      writeLocalStorage(name, value);
+      if (!fromLocalStorage(name)) memory.set(name, value);
     },
     removeItem: (name: string) => {
-      try {
-        if (typeof localStorage !== 'undefined') return localStorage.removeItem(name);
-      } catch {}
+      removeLocalStorage(name);
       memory.delete(name);
     },
   };

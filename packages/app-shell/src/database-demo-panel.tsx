@@ -17,7 +17,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { EnhancedImportProgress } from './database-demo';
 import {
   ChunksView,
@@ -37,6 +37,7 @@ import {
   ViewSelector,
 } from './database-demo';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
+import { useDatabaseDemoStore } from './stores/database-demo-store';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export function DatabaseDemoPanel() {
@@ -57,11 +58,20 @@ export function DatabaseDemoPanel() {
   const [chunks, setChunks] = useState<FileChunk[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showImportProgress, setShowImportProgress] = useState(false);
-  const [selectedView, setSelectedView] = useState<'files' | 'chunks' | 'search'>('files');
   const [clearing, setClearing] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const expandedFileIds = useDatabaseDemoStore((s) => s.expandedFileIds);
+  const setSelectedView = useDatabaseDemoStore((s) => s.setSelectedView);
+  const selectedView = useDatabaseDemoStore((s) => s.selectedView);
+  const showSettings = useDatabaseDemoStore((s) => s.showSettings);
+  const setShowSettings = useDatabaseDemoStore((s) => s.setShowSettings);
+  const addExpanded = useDatabaseDemoStore((s) => s.addExpanded);
+  const removeExpanded = useDatabaseDemoStore((s) => s.removeExpanded);
+  const setSearchQueryPersist = useDatabaseDemoStore((s) => s.setSearchQuery);
+  const setSearchThresholdPersist = useDatabaseDemoStore((s) => s.setSearchThreshold);
+  const persistedSearchQuery = useDatabaseDemoStore((s) => s.searchQuery);
+  const persistedThreshold = useDatabaseDemoStore((s) => s.searchThreshold);
+  const expandedFiles = useMemo(() => new Set(expandedFileIds), [expandedFileIds]);
   const [embeddingService, setEmbeddingService] = useState<SimpleEmbeddingService | null>(null);
   const [dbInfo, setDbInfo] = useState<{
     location: string;
@@ -120,6 +130,28 @@ export function DatabaseDemoPanel() {
     importSettings.selectedModel,
     toast
   );
+
+  // Seed search state from persistence on first mount
+  useEffect(() => {
+    if (persistedSearchQuery && persistedSearchQuery !== searchFunctionality.searchQuery) {
+      searchFunctionality.setSearchQuery(persistedSearchQuery);
+    }
+    if (
+      Number.isFinite(persistedThreshold) &&
+      persistedThreshold !== searchFunctionality.searchThreshold
+    ) {
+      searchFunctionality.setSearchThreshold(persistedThreshold);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Keep persisted values in sync with live search state
+  useEffect(() => {
+    setSearchQueryPersist(searchFunctionality.searchQuery);
+  }, [searchFunctionality.searchQuery, setSearchQueryPersist]);
+  useEffect(() => {
+    setSearchThresholdPersist(searchFunctionality.searchThreshold);
+  }, [searchFunctionality.searchThreshold, setSearchThresholdPersist]);
 
   // Initialize embedding service
   useEffect(() => {
@@ -357,17 +389,13 @@ export function DatabaseDemoPanel() {
     );
   }, [clearAllData, toast, loadRecords, loadChunks, chunkRepository, errorBoundary]);
 
-  const toggleFileExpansion = useCallback((fileId: string) => {
-    setExpandedFiles((prev) => {
-      const newSet = new Set(prev);
-      if (newSet.has(fileId)) {
-        newSet.delete(fileId);
-      } else {
-        newSet.add(fileId);
-      }
-      return newSet;
-    });
-  }, []);
+  const toggleFileExpansion = useCallback(
+    (fileId: string) => {
+      if (expandedFiles.has(fileId)) removeExpanded(fileId);
+      else addExpanded(fileId);
+    },
+    [expandedFiles, addExpanded, removeExpanded]
+  );
 
   const getFileChunks = useCallback(
     (fileId: string) => chunks.filter((chunk) => chunk.fileRecordId === fileId),
@@ -451,7 +479,9 @@ export function DatabaseDemoPanel() {
             Import Settings
           </Button>
 
-          {showSettings && <SettingsPanel importSettings={importSettings} />}
+          <div className={showSettings ? '' : 'hidden'}>
+            <SettingsPanel importSettings={importSettings} />
+          </div>
         </div>
 
         {/* Action Buttons */}

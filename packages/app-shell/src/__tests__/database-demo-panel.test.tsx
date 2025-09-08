@@ -1,7 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
+import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
+import { __resetImportSettingsStoreForTests } from '../stores/import-settings-store';
 
 // Mock all external dependencies at the top level
 const mockRepository = {
@@ -131,6 +133,8 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 
 describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
+    __resetDatabaseDemoStoreForTests();
+    __resetImportSettingsStoreForTests();
     vi.clearAllMocks();
 
     // Setup default mock returns
@@ -725,19 +729,20 @@ describe('DatabaseDemoPanel', () => {
       const settingsButton = screen.getByRole('button', { name: /import settings/i });
       await user.click(settingsButton);
 
-      // Enable embeddings - find by looking for the checkbox in the Embeddings section
-      const checkboxes = screen.getAllByRole('checkbox');
-      const embeddingCheckbox = checkboxes[1]; // Second checkbox is for embeddings
+      // Enable embeddings via the Embeddings section (robust selector)
+      const embeddingsLabel = screen.getByText('Embeddings');
+      const embeddingsSection = embeddingsLabel.closest('div');
+      expect(embeddingsSection).toBeTruthy();
+      const embeddingCheckbox = within(embeddingsSection as HTMLElement).getByRole('checkbox');
       await user.click(embeddingCheckbox);
 
-      // Close settings
-      await user.click(settingsButton);
-
-      // Wait a bit for state changes to propagate
+      // Wait a bit for state changes to propagate and verify
       await waitFor(() => {
-        // Just verify the checkbox is checked
         expect(embeddingCheckbox).toBeChecked();
       });
+
+      // Close settings after verifying
+      await user.click(settingsButton);
 
       // Switch to search tab
       const viewButtons = screen.getAllByRole('button');

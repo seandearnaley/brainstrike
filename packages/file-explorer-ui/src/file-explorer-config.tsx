@@ -39,6 +39,7 @@ const ConfigDialogContent: React.FC<{
   setFilters: (i: string[], e: string[]) => void;
   setIncludeProjectTree: (v: boolean) => void;
   setFolderSummaryThreshold: (v: number) => void;
+  persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
 }> = ({
   filterError,
   onFilterChange,
@@ -50,8 +51,9 @@ const ConfigDialogContent: React.FC<{
   setFilters,
   setIncludeProjectTree,
   setFolderSummaryThreshold,
+  persistPatch,
 }) => {
-  const handleApplySettings = () => {
+  const handleApplySettings = async () => {
     const {
       maxSelectionCount: m,
       useRegex: r,
@@ -68,6 +70,20 @@ const ConfigDialogContent: React.FC<{
     setFolderSummaryThreshold(f);
 
     onFilterChange(i, e, r);
+
+    // Defensive: ask store's persist storage to write a merged patch synchronously if available
+    try {
+      await persistPatch({
+        maxSelectionCount: m,
+        useRegex: r,
+        includeFilters: i,
+        excludeFilters: e,
+        includeProjectTree: t,
+        folderSummaryThreshold: f,
+      });
+    } catch {}
+    // Allow persist middleware a brief window to flush writes to storage before closing
+    await new Promise((resolve) => setTimeout(resolve, 50));
     onClose();
   };
 
@@ -136,8 +152,9 @@ const ConfigDialogContainer: React.FC<
       setIncludeProjectTree: (v: boolean) => void;
       setFolderSummaryThreshold: (v: number) => void;
     };
+    persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   }
-> = ({ filterError, onFilterChange, selectors, actions }) => {
+> = ({ filterError, onFilterChange, selectors, actions, persistPatch }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters: selectors.includeFilters,
@@ -147,31 +164,6 @@ const ConfigDialogContainer: React.FC<
     includeProjectTree: selectors.includeProjectTree,
     folderSummaryThreshold: selectors.folderSummaryThreshold,
   }));
-
-  // Parse persisted settings once to avoid repeated JSON work on every dialog open
-  type PersistedSubset = {
-    includeFilters?: string[];
-    excludeFilters?: string[];
-    useRegex?: boolean;
-    maxSelectionCount?: number;
-    includeProjectTree?: boolean;
-    folderSummaryThreshold?: number;
-  };
-  const persistedSnapshot = React.useMemo<PersistedSubset | null>(() => {
-    try {
-      const raw = localStorage.getItem('file-explorer-storage-v4');
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as unknown;
-      const persisted = (
-        parsed && typeof parsed === 'object' && (parsed as { state?: PersistedSubset }).state
-          ? (parsed as { state: PersistedSubset }).state
-          : (parsed as PersistedSubset)
-      ) as PersistedSubset;
-      return persisted;
-    } catch {
-      return null;
-    }
-  }, []);
 
   const handleSettingChange = useCallback(
     <K extends keyof FileExplorerSettings>(key: K, value: FileExplorerSettings[K]) => {
@@ -183,25 +175,14 @@ const ConfigDialogContainer: React.FC<
   // Ensure dialog reflects hydrated store values when opened
   React.useEffect(() => {
     if (!isOpen) return;
-    // Start with hydrated store values, then overlay any persisted snapshot fields
+    // Use hydrated store values as the single source of truth
     setSettings((prev) => ({
-      includeFilters:
-        persistedSnapshot?.includeFilters ?? selectors.includeFilters ?? prev.includeFilters,
-      excludeFilters:
-        persistedSnapshot?.excludeFilters ?? selectors.excludeFilters ?? prev.excludeFilters,
-      useRegex: persistedSnapshot?.useRegex ?? selectors.useRegex ?? prev.useRegex,
-      maxSelectionCount:
-        persistedSnapshot?.maxSelectionCount ??
-        selectors.maxSelectionCount ??
-        prev.maxSelectionCount,
-      includeProjectTree:
-        persistedSnapshot?.includeProjectTree ??
-        selectors.includeProjectTree ??
-        prev.includeProjectTree,
-      folderSummaryThreshold:
-        persistedSnapshot?.folderSummaryThreshold ??
-        selectors.folderSummaryThreshold ??
-        prev.folderSummaryThreshold,
+      includeFilters: selectors.includeFilters ?? prev.includeFilters,
+      excludeFilters: selectors.excludeFilters ?? prev.excludeFilters,
+      useRegex: selectors.useRegex ?? prev.useRegex,
+      maxSelectionCount: selectors.maxSelectionCount ?? prev.maxSelectionCount,
+      includeProjectTree: selectors.includeProjectTree ?? prev.includeProjectTree,
+      folderSummaryThreshold: selectors.folderSummaryThreshold ?? prev.folderSummaryThreshold,
     }));
   }, [
     isOpen,
@@ -211,7 +192,6 @@ const ConfigDialogContainer: React.FC<
     selectors.maxSelectionCount,
     selectors.includeProjectTree,
     selectors.folderSummaryThreshold,
-    persistedSnapshot,
   ]);
 
   return (
@@ -246,6 +226,7 @@ const ConfigDialogContainer: React.FC<
               setFilters={actions.setFilters}
               setIncludeProjectTree={actions.setIncludeProjectTree}
               setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
+              persistPatch={persistPatch}
             />
           </dialog>
         </PopoverContent>
@@ -287,6 +268,66 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
         ] as const
     );
 
+    // Helper to get storage from persist API
+    const getStorage = () => {
+      const persistApi = (
+        store as unknown as {
+          persist?: {
+            getOptions?: () => {
+              name?: string;
+              storage?: {
+                getItem: (key: string) => Promise<string | null> | string | null;
+                setItem: (key: string, value: string) => Promise<void> | void;
+              };
+            };
+          };
+        }
+      ).persist;
+
+      if (!persistApi || typeof persistApi.getOptions !== 'function') {
+        return null;
+      }
+
+      const opts = persistApi.getOptions();
+      const storage = opts?.storage;
+      if (
+        !storage ||
+        typeof storage.getItem !== 'function' ||
+        typeof storage.setItem !== 'function'
+      ) {
+        return null;
+      }
+
+      return { storage, name: opts?.name ?? 'file-explorer-storage-v4' };
+    };
+
+    // Helper to merge patch with existing state
+    const mergeStateWithPatch = (current: unknown, patch: Partial<FileExplorerSettings>) => {
+      const hasWrapper = current && typeof current === 'object' && 'state' in current;
+      const base = (hasWrapper ? (current as { state: unknown }).state : current) || {};
+      const merged = { ...base, ...patch };
+      return hasWrapper ? { ...current, state: merged } : { version: 1, state: merged };
+    };
+
+    // Persist patch via the same storage used by the store's persist layer (worker/localStorage)
+    const persistPatch = async (patch: Partial<FileExplorerSettings>) => {
+      try {
+        const storageInfo = getStorage();
+        if (!storageInfo) return;
+
+        const { storage, name } = storageInfo;
+        const currentJson = await storage.getItem(name);
+        const current = currentJson ? JSON.parse(currentJson) : {};
+        const wrapper = mergeStateWithPatch(current, patch);
+        await storage.setItem(name, JSON.stringify(wrapper));
+      } catch (error) {
+        // ignore persistence errors but log them in development
+        if (process.env['NODE_ENV'] === 'development') {
+          console.warn('Failed to persist patch:', error);
+        }
+      }
+    };
+
     return (
       <ConfigDialogContainer
         filterError={filterError}
@@ -306,6 +347,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
           setIncludeProjectTree,
           setFolderSummaryThreshold,
         }}
+        persistPatch={persistPatch}
       />
     );
   }

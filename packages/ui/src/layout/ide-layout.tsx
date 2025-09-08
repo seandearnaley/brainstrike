@@ -251,13 +251,14 @@ function createPanelHandler(
 
       switch (panelType) {
         case 'left':
-          saveLayout([0, safeRightSize, safeConsoleSize], undefined, false, undefined);
+          // Keep last known size so restore works; just flip visibility
+          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, false, undefined);
           break;
         case 'right':
-          saveLayout([safeLeftSize, 0, safeConsoleSize], undefined, undefined, false);
+          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, undefined, false);
           break;
         case 'console':
-          saveLayout([safeLeftSize, safeRightSize, 0], false, undefined, undefined);
+          saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], false, undefined, undefined);
           break;
       }
     },
@@ -450,8 +451,9 @@ export const IdeLayout = React.memo(function IdeLayout({
         isInitialRenderRef.current = false;
       },
       onBeforeShow: () => {
-        // When left panel is unmounted, ensure persistence updates before toggle
-        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, true, undefined);
+        // Ensure a sensible width when restoring from collapsed/unmounted (do not flip visibility here)
+        const nextLeft = safeLeftSize > 1 ? safeLeftSize : 25;
+        saveLayout([nextLeft, safeRightSize, safeConsoleSize]);
       },
     }
   );
@@ -465,7 +467,8 @@ export const IdeLayout = React.memo(function IdeLayout({
         isInitialRenderRef.current = false;
       },
       onBeforeShow: () => {
-        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], undefined, undefined, true);
+        const nextRight = safeRightSize > 1 ? safeRightSize : 20;
+        saveLayout([safeLeftSize, nextRight, safeConsoleSize]);
       },
     }
   );
@@ -479,7 +482,8 @@ export const IdeLayout = React.memo(function IdeLayout({
         isInitialRenderRef.current = false;
       },
       onBeforeShow: () => {
-        saveLayout([safeLeftSize, safeRightSize, safeConsoleSize], true, undefined, undefined);
+        const nextConsole = safeConsoleSize > 1 ? safeConsoleSize : 20;
+        saveLayout([safeLeftSize, safeRightSize, nextConsole]);
       },
     }
   );

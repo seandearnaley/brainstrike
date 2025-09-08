@@ -14,14 +14,19 @@ import type { SettingsPanelProps } from '../types';
 const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
 
 export function SettingsPanel({ importSettings }: SettingsPanelProps) {
+  const chunkingId = 'enable-chunking';
+  const embeddingsId = 'enable-embeddings';
   return (
     <div className="mt-2 p-3 bg-muted/50 rounded space-y-3">
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <Label className="text-xs">Chunking</Label>
+          <Label className="text-xs" htmlFor={chunkingId}>
+            Chunking
+          </Label>
           <div className="flex items-center gap-2 mt-1">
             <input
               type="checkbox"
+              id={chunkingId}
               checked={importSettings.enableChunking}
               onChange={(e) => importSettings.setEnableChunking(e.target.checked)}
               className="h-3 w-3"
@@ -45,10 +50,13 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
         </div>
 
         <div>
-          <Label className="text-xs">Embeddings</Label>
+          <Label className="text-xs" htmlFor={embeddingsId}>
+            Embeddings
+          </Label>
           <div className="flex items-center gap-2 mt-1">
             <input
               type="checkbox"
+              id={embeddingsId}
               checked={importSettings.enableEmbedding}
               onChange={(e) => importSettings.setEnableEmbedding(e.target.checked)}
               className="h-3 w-3"

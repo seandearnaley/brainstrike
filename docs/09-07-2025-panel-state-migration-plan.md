@@ -92,11 +92,21 @@ Validation checkpoint
 - [x] Identify panel-contained components with internal state that must persist across unmounts
   - [x] Quick filter (file explorer) — migrated to store and persisted
   - [x] Editor view state (scroll position) — migrated to store and persisted
+  - [x] Right panel active tab — migrated to store and persisted
+  - [x] Embeddings panel inputs/model selection — migrated to store and persisted
+  - [x] Vector preferences (device pref, reinit N, CPU fallback, verbose-logs) — persisted
   - [ ] Editor cursor/selection (pending)
   - [ ] Inspector form values (pending)
+  - [ ] Search form filters (pending)
+  - [ ] DB subpanel selections (pending)
 - [x] Create minimal persisted slices (Zustand) for each needed feature
   - Quick filter added to existing File Explorer store (persisted)
   - Editor view state slice added in file-explorer-ui (persisted)
+  - Right panel tab slice: `packages/app-shell/src/stores/right-panel-store.ts`
+  - Embeddings panel slice: `packages/app-shell/src/stores/embeddings-panel-store.ts`
+  - Vector preferences slice: `packages/app-shell/src/stores/vector-preferences-store.ts`
+  - Search filters slice: `packages/app-shell/src/stores/search-panel-store.ts` (wired in RightPanel)
+  - DB subpanel slice: `packages/app-shell/src/stores/db-panel-store.ts` (wired in RightPanel)
 - [ ] Add selectors to keep React Compiler/HMR friendly (tuple or primitives, stable shape)
 
 Files
@@ -111,9 +121,11 @@ What’s left in Phase 4 (before Phase 5)
 - Editor cursor/selection: if/when a real editor is introduced (e.g., Monaco/CodeMirror), persist per-tab `{cursor, selectionRanges}` in a small zustand slice keyed by compositeKey. Acceptance: switch tabs/hide panel/reload without losing caret/selection.
 - Inspector form values (if added later): co-locate a minimal slice per form (primitives/tuples only), persist on change, restore on mount. Acceptance: hide/show panel and reload without losing input values.
 - Stable selectors: add tuple/primitives selectors where components currently consume objects from slices to avoid object churn and stay React Compiler friendly.
+- Search form filters — completed: `useSearchPanelStore` added and wired; persisted primitives (query/flags/globs).
+- DB subpanel selections — completed: `useDbPanelStore` added and wired; persisted primitives (subtab/paging/sort/filter).
 
 Validation checkpoint
-- [ ] Unit tests per feature slice
+- [ ] Unit tests per feature slice (partial: editor view/cursor and tab-manager migration added)
 - [ ] Targeted E2E where user flows cross hide/show cycles
 
 ---
@@ -125,9 +137,34 @@ Validation checkpoint
 
 Outputs
 - [x] PR notes: Visibility hacks removed; presentational-only `hidden/*` remain. Stores now own persistence.
+  - Implemented behavior adjustments:
+    - Collapse preserves last non-zero sizes; show restores a sensible default if needed.
+    - onBeforeShow sets sizes only (does not flip visibility) to avoid double-toggle race.
+  - Desktop wrapper provider removed (duplicate); `PanelLayoutProvider` controlled by Zustand store in app-shell is the canonical source.
+  - Tab manager storage migrated from `fileEditorTabs.v1` → `tab-manager.v1` with one-time automatic migration.
 
 Validation checkpoint
 - [x] grep checks show only presentational `hidden` remains
+
+---
+
+### Phase 6 — File Explorer Configuration Persistence
+
+- [x] Fix popout dialog persistence for File Explorer configuration
+  - [x] Remove legacy localStorage snapshot overlay; rely on hydrated store selectors
+  - [x] On Apply, write merged patch via store’s `persist.storage` to avoid race conditions (worker/localStorage)
+  - [x] Small close delay to tolerate async persist when reloading immediately
+- [x] Add E2E for settings persistence (max selection count)
+
+Files
+- [x] Edit: `packages/file-explorer-ui/src/file-explorer-config.tsx`
+- [x] E2E: `apps/web/e2e/file-explorer-settings.test.ts`
+
+Outputs
+- [x] File Explorer Configuration retains user changes across hide/show and reloads
+
+Validation checkpoint
+- [x] E2E: run `pnpm -w run test:e2e --filter @brainstrike/web` (focus on File Explorer Settings)
 
 ---
 
@@ -158,6 +195,23 @@ Each phase is a safe merge point. Keep PRs small, include context for agents.
   - Run per package with Turborepo filters
 - CI expectations: build, types, lint, unit, e2e must remain green
 
+Performance note: Left panel “load file tree” overlay
+- With conditional unmount, left panel content is unmounted when hidden. The FileExplorerProvider remains mounted, but the feature hook may briefly show the “Please wait while we load the file tree” overlay on remount.
+- This is acceptable as a default. Optional optimizations:
+  - Add a guard in `useFileExplorer` to skip showing initial overlay if `rootDirectoryHandle` is present and a cached tree exists; show only if a fresh read starts or loading exceeds ~150ms.
+  - Keep watchers alive independent of UI mount to avoid re-starts.
+  - As a last resort (if UX requires), keep the left panel mounted and visually hidden — but prefer store-driven solutions per this plan.
+
+Supplemental tasks (Phase 4.1)
+- Search filters slice: `packages/app-shell/src/stores/search-panel-store.ts`
+  - State: query text, flags (regex, case-sensitive, whole-word), include/exclude globs.
+  - Tests: persistence, restore on mount, selectors return tuples.
+  - Wire: `RightPanel > Search` reads/writes store; no local state.
+- DB subpanel slice: `packages/app-shell/src/stores/db-panel-store.ts`
+  - State: active subtab (stats/logs/config), paging, sort, filter text.
+  - Tests: persistence and restore, selectors return tuples.
+  - Wire: DB tab reads/writes store; no local state.
+
 ---
 
 ### Validation Checklist (Run at End of Each Phase)
@@ -165,6 +219,7 @@ Each phase is a safe merge point. Keep PRs small, include context for agents.
 - [ ] pnpm run lint
 - [ ] pnpm run test --filter <affected-pkgs>
 - [ ] pnpm run test:e2e --filter @brainstrike/web (and desktop, if applicable)
+  - Added: Right panel search/DB subtab persistence E2E in `apps/web/e2e/right-panel-persistence.test.ts`.
 - [ ] Manual smoke: panel toggles, resizes, reload persistence, tab switching
 
 ---

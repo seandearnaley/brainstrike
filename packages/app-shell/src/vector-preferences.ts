@@ -1,6 +1,13 @@
 export const ACTIVE_EMBEDDING_SET_KEY = 'brainstrike.activeEmbeddingSetId';
 
+import { useVectorStatusUIStore } from './stores/vector-status-ui-store';
+
 export function getActiveEmbeddingSetId(): string | null {
+  try {
+    // Prefer Zustand store (consistent across mounts)
+    const fromStore = useVectorStatusUIStore.getState().activeEmbeddingSetId;
+    if (fromStore?.trim()) return fromStore;
+  } catch {}
   try {
     if (typeof localStorage === 'undefined') return null;
     const v = localStorage.getItem(ACTIVE_EMBEDDING_SET_KEY);
@@ -11,6 +18,9 @@ export function getActiveEmbeddingSetId(): string | null {
 }
 
 export function setActiveEmbeddingSetId(id: string | null): void {
+  try {
+    useVectorStatusUIStore.getState().setActiveEmbeddingSetId(id);
+  } catch {}
   try {
     if (typeof localStorage === 'undefined') return;
     if (!id) {
