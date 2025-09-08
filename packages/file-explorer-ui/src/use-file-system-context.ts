@@ -85,11 +85,16 @@ export function useFileSystem() {
   };
 
   // Sync core hook's restoration to the store (desktop auto-restore)
+  // Compare by stable identity (path) to avoid reference-churn loops
   useEffect(() => {
-    if (coreApi.rootDirectoryHandle && coreApi.rootDirectoryHandle !== storedRootDirectoryHandle) {
-      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
+    const restored = coreApi.rootDirectoryHandle;
+    const stored = storedRootDirectoryHandle;
+    if (!restored) return;
+    if (!stored || restored.path !== stored.path) {
+      setRootDirectoryHandle(restored);
     }
-  }, [coreApi.rootDirectoryHandle, storedRootDirectoryHandle, setRootDirectoryHandle]);
+    // Only depend on stable fields to prevent unnecessary re-runs
+  }, [coreApi.rootDirectoryHandle?.path, storedRootDirectoryHandle?.path, setRootDirectoryHandle]);
 
   return useMemo(
     () => ({
