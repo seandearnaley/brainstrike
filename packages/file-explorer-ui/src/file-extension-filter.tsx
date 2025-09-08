@@ -18,6 +18,7 @@ interface FileExtensionFilterProps {
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
   useRegex: boolean;
   filterError: string | null;
+  onDraftChange?: (includeFilters: string[], excludeFilters: string[]) => void;
 }
 
 const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
@@ -26,6 +27,7 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
   onFilterChange,
   useRegex,
   filterError,
+  onDraftChange,
 }) => {
   const [includeInput, setIncludeInput] = useState(() => includeFilters.join(', '));
   const [excludeInput, setExcludeInput] = useState(() => excludeFilters.join(', '));
@@ -60,10 +62,12 @@ const FileExtensionFilter: React.FC<FileExtensionFilterProps> = ({
       .map((f) => f.trim())
       .filter(Boolean);
 
-    debouncedFilterChange(
-      isInclude ? newFilters : otherFilters,
-      isInclude ? otherFilters : newFilters
-    );
+    const nextInclude = isInclude ? newFilters : otherFilters;
+    const nextExclude = isInclude ? otherFilters : newFilters;
+    // Notify draft change immediately to update parent state
+    onDraftChange?.(nextInclude, nextExclude);
+    // Debounced callback for expensive downstream effects
+    debouncedFilterChange(nextInclude, nextExclude);
   };
 
   const handleIncludeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {

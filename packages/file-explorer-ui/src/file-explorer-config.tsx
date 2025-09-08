@@ -113,6 +113,10 @@ const ConfigDialogContent: React.FC<{
             onSettingsChange('includeFilters', newInclude);
             onSettingsChange('excludeFilters', newExclude);
           }}
+          onDraftChange={(newInclude: string[], newExclude: string[]) => {
+            onSettingsChange('includeFilters', newInclude);
+            onSettingsChange('excludeFilters', newExclude);
+          }}
           useRegex={settings.useRegex}
           filterError={filterError}
         />
