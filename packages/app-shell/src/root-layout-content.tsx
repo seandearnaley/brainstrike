@@ -1,13 +1,10 @@
 import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
-import {
-  IdeLayout,
-  LocalStoragePanelPersistenceAdapter,
-  PanelLayoutProvider,
-} from '@brainstrike/ui';
-import { useCallback, useMemo, useState } from 'react';
+import { IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
+import { useCallback, useMemo } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { RightPanel } from './right-panel';
+import { usePanelLayoutStore } from './stores/panel-layout-store';
 import type { NavigationItem } from './types';
 
 export function RootLayoutContent({
@@ -19,17 +16,29 @@ export function RootLayoutContent({
   settingsPageContent: React.ReactNode;
   navigationItems: NavigationItem[];
 }) {
-  const [activeTab, setActiveTab] = useState('explorer');
+  const activeTab = usePanelLayoutStore((s) => s.activeTab);
+  const setState = usePanelLayoutStore((s) => s.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
 
-  const handleNavigationClick = useCallback((path: string) => {
-    const tab = path === '/' ? 'explorer' : 'settings';
-    setActiveTab(tab);
-  }, []);
+  const handleNavigationClick = useCallback(
+    (path: string) => {
+      const tab = path === '/' ? 'explorer' : 'settings';
+      setState({ activeTab: tab as 'explorer' | 'settings' });
+    },
+    [setState]
+  );
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
   const rightPanelContent = useMemo(() => <RightPanel />, []);
+
+  // Controlled panel layout state from store
+  const panelState = usePanelLayoutStore((s) => ({
+    sizes: s.sizes,
+    showConsole: s.showConsole,
+    showLeftPanel: s.showLeftPanel,
+    showRightPanel: s.showRightPanel,
+  }));
 
   return (
     <AppLayout
@@ -37,35 +46,37 @@ export function RootLayoutContent({
       currentPath={activeTab === 'explorer' ? '/' : '/settings'}
       onNavigationClick={handleNavigationClick}
     >
-      <div
-        data-testid="explorer-section"
-        className={activeTab === 'explorer' ? 'block h-full' : 'hidden h-full'}
-      >
-        <PanelLayoutProvider
-          initialState={{
-            sizes: [25, 55, 20],
-            showConsole: false,
-            showLeftPanel: true,
-            showRightPanel: false,
-          }}
-          adapter={new LocalStoragePanelPersistenceAdapter()}
-        >
-          <IdeLayout
-            leftPanelContent={sidebarContent}
-            rightPanelContent={rightPanelContent}
-            consoleContent={tabbedEditorContent}
+      {activeTab === 'explorer' ? (
+        <div data-testid="explorer-section" className="h-full">
+          <PanelLayoutProvider
+            controlledState={panelState}
+            onChange={(state) => {
+              setState({
+                sizes: [
+                  (state.sizes?.[0] as number | undefined) ?? panelState.sizes[0],
+                  (state.sizes?.[1] as number | undefined) ?? panelState.sizes[1],
+                  (state.sizes?.[2] as number | undefined) ?? panelState.sizes[2],
+                ] as [number, number, number],
+                showConsole: state.showConsole,
+                showLeftPanel: state.showLeftPanel,
+                showRightPanel: state.showRightPanel,
+              });
+            }}
           >
-            {homePageContent}
-          </IdeLayout>
-        </PanelLayoutProvider>
-      </div>
-
-      <div
-        data-testid="settings-section"
-        className={activeTab === 'settings' ? 'block h-full' : 'hidden h-full'}
-      >
-        {settingsPageContent}
-      </div>
+            <IdeLayout
+              leftPanelContent={sidebarContent}
+              rightPanelContent={rightPanelContent}
+              consoleContent={tabbedEditorContent}
+            >
+              {homePageContent}
+            </IdeLayout>
+          </PanelLayoutProvider>
+        </div>
+      ) : (
+        <div data-testid="settings-section" className="h-full">
+          {settingsPageContent}
+        </div>
+      )}
     </AppLayout>
   );
 }

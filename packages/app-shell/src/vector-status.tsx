@@ -23,6 +23,8 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useVectorPreferencesStore } from './stores/vector-preferences-store';
+import { useVectorStatusUIStore } from './stores/vector-status-ui-store';
 import { setActiveEmbeddingSetId } from './vector-preferences';
 
 type Coverage = { total: number; withSet: number };
@@ -290,8 +292,11 @@ function useActiveEmbeddingSet() {
         createdAt: String(r.createdAt),
       }));
       setSets(mapped);
-      // Restore selection or pick newest
-      const saved = localStorage.getItem('brainstrike.activeEmbeddingSetId');
+      // Restore selection from store (preferred) or pick newest
+      let saved: string | null = null;
+      try {
+        saved = useVectorStatusUIStore.getState().activeEmbeddingSetId;
+      } catch {}
       const id = saved && mapped.find((s) => s.id === saved) ? saved : (mapped[0]?.id ?? null);
       setActiveId(id);
       return mapped.length;
@@ -498,10 +503,22 @@ export function VectorStatusWithDb() {
   // Derive device (best-effort)
   const device = useMemo(() => TransformersBackend.getBestDevice(), []);
 
-  // Embedding worker tuning (UI state)
-  const [devicePref, setDevicePref] = useState<'auto' | 'webgpu' | 'wasm' | 'cpu'>('auto');
-  const [reinitEveryN, setReinitEveryN] = useState<number>(200);
-  const [forceCpuAfterFailures, setForceCpuAfterFailures] = useState<number>(3);
+  // Embedding worker tuning (persisted)
+  const devicePref = useVectorPreferencesStore((s) => s.devicePref);
+  const setDevicePref = useVectorPreferencesStore((s) => s.setDevicePref);
+  const reinitEveryN = useVectorPreferencesStore((s) => s.reinitEveryN);
+  const setReinitEveryN = useVectorPreferencesStore((s) => s.setReinitEveryN);
+  const forceCpuAfterFailures = useVectorPreferencesStore((s) => s.forceCpuAfterFailures);
+  const setForceCpuAfterFailures = useVectorPreferencesStore((s) => s.setForceCpuAfterFailures);
+  const verboseOrtLogs = useVectorPreferencesStore((s) => s.verboseOrtLogs);
+  const setVerboseOrtLogs = useVectorPreferencesStore((s) => s.setVerboseOrtLogs);
+
+  // Apply verbose flag to backend on mount/changes
+  useEffect(() => {
+    try {
+      TransformersBackend.setVerboseOrtLogs(verboseOrtLogs);
+    } catch {}
+  }, [verboseOrtLogs]);
 
   // Local helper (not a hook): batched enqueue with progress
   const enqueueBackfillLocal = async (
@@ -740,7 +757,8 @@ export function VectorStatusWithDb() {
             <input
               type="checkbox"
               className="h-3 w-3"
-              onChange={(e) => TransformersBackend.setVerboseOrtLogs(e.target.checked)}
+              checked={verboseOrtLogs}
+              onChange={(e) => setVerboseOrtLogs(e.target.checked)}
               title="Enable verbose ONNX Runtime logs in console"
             />
             <span className="text-[10px] text-muted-foreground">Verbose ORT logs</span>

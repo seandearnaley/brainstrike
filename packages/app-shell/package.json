@@ -29,6 +29,7 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "peerDependencies": {
+    "zustand": "^5",
     "react": "^19.1.1"
   },
   "dependencies": {
@@ -48,6 +49,7 @@
   },
   "license": "ISC",
   "devDependencies": {
+    "zustand": "^5.0.7",
     "@testing-library/jest-dom": "^6.7.0",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

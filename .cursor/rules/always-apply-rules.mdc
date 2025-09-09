@@ -13,3 +13,5 @@ alwaysApply: true
 - TypeScript: keep build `compilerOptions.types` explicit (e.g., `["node"]`); do not include test-only types in build configs.
 - React compiler/HMR: follow repo rule `react-compiler-and-hmr`; avoid changing hook order/memo shapes; reload on drift.
 - Do not edit shared configs (`tailwind.config.*`, `tsconfig.*`, `turbo.jsonc`) without explicit instruction.
+- No Implicit fallbacks unless explicitly requested/needed.
+- Always timestamp documentation filenames with the date it was written.

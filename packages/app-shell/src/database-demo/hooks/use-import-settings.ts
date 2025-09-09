@@ -1,17 +1,21 @@
-import type { ChunkingStrategy } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
-import { useState } from 'react';
+import { useImportSettingsStore } from '../../stores/import-settings-store';
 import type { ImportSettings } from '../types';
 
-const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
+// Model default handled at store initialization
 
 export function useImportSettings(): ImportSettings {
-  const [enableChunking, setEnableChunking] = useState(true);
-  const [chunkingStrategy, setChunkingStrategy] = useState<ChunkingStrategy>('sentence');
-  const [chunkSize, setChunkSize] = useState(256); // Safer default for in-browser inference
-  const [chunkOverlap, setChunkOverlap] = useState(50); // 10% overlap
-  const [enableEmbedding, setEnableEmbedding] = useState(false);
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODEL_KEY);
+  const enableChunking = useImportSettingsStore((s) => s.enableChunking);
+  const setEnableChunking = useImportSettingsStore((s) => s.setEnableChunking);
+  const chunkingStrategy = useImportSettingsStore((s) => s.chunkingStrategy);
+  const setChunkingStrategy = useImportSettingsStore((s) => s.setChunkingStrategy);
+  const chunkSize = useImportSettingsStore((s) => s.chunkSize);
+  const setChunkSize = useImportSettingsStore((s) => s.setChunkSize);
+  const chunkOverlap = useImportSettingsStore((s) => s.chunkOverlap);
+  const setChunkOverlap = useImportSettingsStore((s) => s.setChunkOverlap);
+  const enableEmbedding = useImportSettingsStore((s) => s.enableEmbedding);
+  const setEnableEmbedding = useImportSettingsStore((s) => s.setEnableEmbedding);
+  const selectedModel = useImportSettingsStore((s) => s.selectedModel);
+  const setSelectedModel = useImportSettingsStore((s) => s.setSelectedModel);
 
   return {
     enableChunking,

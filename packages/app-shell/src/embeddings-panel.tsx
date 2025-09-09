@@ -21,7 +21,9 @@ import {
   SelectValue,
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect } from 'react';
+// no-op
+import { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 
 // Get models from registry
 const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
@@ -232,108 +234,73 @@ const SimilarityInterface = ({
 };
 
 export function EmbeddingsPanel() {
-  const [status, setStatus] = useState<EmbeddingStatus>('idle');
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState('');
-  const [selectedModel, setSelectedModel] = useState<ModelKey>(DEFAULT_MODEL_KEY);
-  const [text1, setText1] = useState('Hello world, this is a test sentence.');
-  const [text2, setText2] = useState('Hi there, this is another test phrase.');
-  const [similarity, setSimilarity] = useState<number | null>(null);
-  const [selectedDevice, setSelectedDevice] = useState<string | undefined>();
-  const [error, setError] = useState<string | null>(null);
-  const serviceRef = useRef<SimpleEmbeddingService | null>(null);
-
-  useEffect(() => {
-    // Initialize the service
-    const service = new SimpleEmbeddingService();
-    serviceRef.current = service;
-
-    return () => {
-      service.dispose();
-    };
-  }, []);
+  const [
+    status,
+    progress,
+    progressMessage,
+    selectedModel,
+    text1,
+    text2,
+    similarity,
+    selectedDevice,
+    error,
+  ] = useEmbeddingsPanelStore((s) => [
+    s.status,
+    s.progress,
+    s.progressMessage,
+    s.selectedModel,
+    s.text1,
+    s.text2,
+    s.similarity,
+    s.selectedDevice,
+    s.error,
+  ]);
+  const setSelectedModel = useEmbeddingsPanelStore((s) => s.setSelectedModel);
+  const setText1 = useEmbeddingsPanelStore((s) => s.setText1);
+  const setText2 = useEmbeddingsPanelStore((s) => s.setText2);
+  const initialize = useEmbeddingsPanelStore((s) => s.initialize);
+  const calculateSimilarity = useEmbeddingsPanelStore((s) => s.calculateSimilarity);
+  const dispose = useEmbeddingsPanelStore((s) => s.dispose);
 
   const handleModelChange = (newModel: ModelKey) => {
     if (status !== 'idle') {
       // If a model is already loaded, show warning
-      setError('Please dispose the current model before switching');
+      useEmbeddingsPanelStore.setState({
+        error: 'Please dispose the current model before switching',
+      });
       return;
     }
     setSelectedModel(newModel);
-    setError(null);
+    useEmbeddingsPanelStore.setState({ error: null });
   };
 
   const handleInitialize = async () => {
-    if (!serviceRef.current) return;
-
-    try {
-      setStatus('initializing');
-      setError(null);
-
-      // Use the new registry-aware initialization method
-      await serviceRef.current.initializeWithModel(selectedModel, (progressInfo) => {
-        setProgress(progressInfo.progress || 0);
-        setProgressMessage(progressInfo.message || '');
-
-        // Update status based on progress stage
-        if (progressInfo.stage === 'downloading') {
-          setStatus('downloading');
-        }
-      });
-
-      // After successful initialization, set status to ready
-      setStatus('ready');
-      setProgress(100);
-
-      // Get selected device info
-      const config = serviceRef.current.getConfig();
-      if (config?.selectedDevice) {
-        setSelectedDevice(config.selectedDevice);
-      }
-    } catch (err) {
+    await initialize();
+    // Translate any raw error to a nicer message if present
+    const e = useEmbeddingsPanelStore.getState().error;
+    if (e) {
       const currentModel = AVAILABLE_MODELS[selectedModel];
-      const errorMessage = formatInitializationError(err, currentModel?.name || selectedModel);
-      setError(errorMessage);
-      setStatus('error');
+      const errorMessage = formatInitializationError(e, currentModel?.name || selectedModel);
+      useEmbeddingsPanelStore.setState({ error: errorMessage });
     }
   };
 
   const handleCalculateSimilarity = async () => {
-    if (!serviceRef.current || status !== 'ready' || !text1.trim() || !text2.trim()) {
-      return;
-    }
-
-    try {
-      setStatus('processing');
-      setError(null);
-      setSimilarity(null);
-      const result1 = await serviceRef.current.generateEmbedding(text1.trim());
-      const result2 = await serviceRef.current.generateEmbedding(text2.trim());
-      const simResult = serviceRef.current.calculateSimilarity(
-        result1.embedding,
-        result2.embedding
-      );
-      setSimilarity(simResult.similarity);
-      setStatus('ready');
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to calculate similarity';
-      setError(errorMessage);
-      setStatus('ready');
-    }
+    await calculateSimilarity();
   };
 
   const handleDispose = async () => {
-    if (!serviceRef.current) return;
-
-    try {
-      await serviceRef.current.dispose();
-      setStatus('idle');
-      setSimilarity(null);
-      setProgress(0);
-      setProgressMessage('');
-      setError(null);
-    } catch (_err) {}
+    await dispose();
   };
+
+  // Ensure the embedding service is disposed when the panel unmounts
+  // to prevent leaking GPU/CPU resources across navigation or tab hides.
+  // The store's dispose() is idempotent and safe to call when idle.
+  useEffect(() => {
+    return () => {
+      void dispose();
+    };
+  }, [dispose]);
 
   return (
     <Card className="h-full">

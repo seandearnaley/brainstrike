@@ -6,7 +6,7 @@
 
 import { useFileSystem as useCoreFileSystem } from '@brainstrike/file-explorer-hooks';
 import type { DirectoryHandle } from '@brainstrike/file-system';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 
 // Error message mappings for consistent user experience
@@ -64,6 +64,8 @@ async function selectDirectoryWithErrorMapping(
 export function useFileSystem() {
   const store = useFileExplorerStoreContext();
   const setCurrentFolderId = store((s) => s.setCurrentFolderId);
+  const storedRootDirectoryHandle = store((s) => s.rootDirectoryHandle);
+  const setRootDirectoryHandle = store((s) => s.setRootDirectoryHandle);
 
   const coreApi = useCoreFileSystem({ setCurrentFolderId });
 
@@ -75,16 +77,33 @@ export function useFileSystem() {
   };
 
   const selectRootDirectory = async (): Promise<DirectoryHandle | null> => {
-    return selectDirectoryWithErrorMapping(coreApi);
+    const handle = await selectDirectoryWithErrorMapping(coreApi);
+    if (handle) {
+      setRootDirectoryHandle(handle);
+    }
+    return handle;
   };
+
+  // Sync core hook's restoration to the store (desktop auto-restore)
+  // Initial one-way sync only: if the core restored a handle and the store is empty.
+  useEffect(() => {
+    if (!storedRootDirectoryHandle && coreApi.rootDirectoryHandle) {
+      setRootDirectoryHandle(coreApi.rootDirectoryHandle);
+    }
+  }, [storedRootDirectoryHandle, coreApi.rootDirectoryHandle, setRootDirectoryHandle]);
 
   return useMemo(
     () => ({
-      rootDirectoryHandle: coreApi.rootDirectoryHandle,
+      rootDirectoryHandle: storedRootDirectoryHandle ?? coreApi.rootDirectoryHandle,
       isAccessLoading: coreApi.isAccessLoading,
       selectRootDirectory,
       isFileSystemAccessSupported,
     }),
-    [coreApi.rootDirectoryHandle, coreApi.isAccessLoading, selectRootDirectory]
+    [
+      storedRootDirectoryHandle,
+      coreApi.rootDirectoryHandle,
+      coreApi.isAccessLoading,
+      selectRootDirectory,
+    ]
   );
 }

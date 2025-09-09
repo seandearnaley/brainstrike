@@ -1,5 +1,5 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
-import { useQuickFilter, useReportGeneration, useReportManager } from '@brainstrike/hooks';
+import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
   Button,
@@ -9,7 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { encodeFileSelection } from '@brainstrike/utils';
+import { encodeFileSelection, parseFilterString } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
@@ -34,6 +34,44 @@ const ActionButtons = lazy(() =>
     default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
   }))
 );
+
+// Quick filter helpers (factored to keep component complexity low)
+function createSearchableText(node: IFileNode): string {
+  return `${node.name.toLowerCase()} ${node.path.toLowerCase()}`;
+}
+
+function shouldInclude(text: string, includes: string[], excludes: string[]): boolean {
+  if (excludes.some((e) => text.includes(e))) return false;
+  return includes.length === 0 || includes.some((i) => text.includes(i));
+}
+
+function filterNodeByPatterns(
+  node: IFileNode,
+  includes: string[],
+  excludes: string[]
+): IFileNode | null {
+  const text = createSearchableText(node);
+  if (node.type === 'directory') {
+    const children = node.children ?? [];
+    const filteredChildren = children
+      .map((c) => filterNodeByPatterns(c, includes, excludes))
+      .filter(Boolean) as IFileNode[];
+    if (filteredChildren.length > 0) return { ...node, children: filteredChildren };
+    if (shouldInclude(text, includes, excludes)) return { ...node, children: [] };
+    return null;
+  }
+  return shouldInclude(text, includes, excludes) ? node : null;
+}
+
+function filterTreeByPatterns(
+  nodes: IFileNode[],
+  includes: string[],
+  excludes: string[]
+): IFileNode[] {
+  return nodes
+    .map((n) => filterNodeByPatterns(n, includes, excludes))
+    .filter(Boolean) as IFileNode[];
+}
 
 function collectVisibleFiles(nodes: IFileNode[], fileSet: Set<string>): void {
   for (const node of nodes) {
@@ -150,12 +188,19 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const stableFileTree = useMemo(() => fileTree || [], [fileTree]);
 
-  const {
-    quickFilter,
-    setQuickFilter,
-    clearFilter,
-    filteredTree: quickFilteredTree,
-  } = useQuickFilter(stableFileTree);
+  const [quickFilterRaw, setQuickFilterRaw, clearQuickFilterRaw] = store(
+    (s) => [s.quickFilter, s.setQuickFilter, s.clearQuickFilter] as const
+  );
+  const quickFilter = typeof quickFilterRaw === 'string' ? quickFilterRaw : '';
+  const setQuickFilter = (setQuickFilterRaw ?? (() => {})) as (v: string) => void;
+  const clearQuickFilter = (clearQuickFilterRaw ?? (() => {})) as () => void;
+
+  // Local filtering utility modeled after hooks/use-quick-filter
+  const quickFilteredTree = useMemo(() => {
+    if (!quickFilter.trim()) return stableFileTree;
+    const { includes, excludes } = parseFilterString(quickFilter);
+    return filterTreeByPatterns(stableFileTree, includes, excludes);
+  }, [quickFilter, stableFileTree]);
 
   // Calculate displayed files from the quick filtered tree
   const displayedFilesRef = React.useRef<Set<string>>(new Set());
@@ -282,7 +327,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             filterError={filterError}
             quickFilter={quickFilter}
             setQuickFilter={setQuickFilter}
-            clearQuickFilter={clearFilter}
+            clearQuickFilter={clearQuickFilter}
             isLoading={isLoading}
             rootDirectoryHandle={rootDirectoryHandle}
             selectedCount={safeSelectedFilesList.length}

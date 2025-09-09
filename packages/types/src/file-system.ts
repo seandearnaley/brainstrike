@@ -60,3 +60,21 @@ declare global {
     entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
   }
 }
+
+// Cross-package compatible handle types used by stores and UI
+export interface DirectoryHandle {
+  path: string;
+  name: string;
+  kind: 'directory';
+  platform: 'web' | 'electron';
+  _internal?: unknown;
+}
+
+export interface FileHandle {
+  path: string;
+  name: string;
+  kind: 'file';
+  size?: number;
+  platform: 'web' | 'electron';
+  _internal?: unknown;
+}

@@ -40,6 +40,7 @@ export interface SerializedState {
   folderSummaryThreshold: number;
   maxSelectionCount: number;
   lastActiveTab: string;
+  quickFilter: string;
 }
 
 export interface FolderState {
@@ -78,6 +79,11 @@ export interface FileExplorerData {
   maxSelectionCount: number;
   lastActiveTab: string;
   fileContents: Record<string, string>;
+  /**
+   * Quick filter input in the sidebar filter bar.
+   * Persisting this improves UX across unmounts and reloads.
+   */
+  quickFilter: string;
 }
 
 export interface CacheStats {
@@ -125,6 +131,14 @@ export interface FileExplorerState extends FileExplorerData {
   clearAllFileContents: () => void;
   getFileContentCacheStats: () => CacheStats;
   evictOldFileContents: (count?: number) => void;
+
+  // UI state actions (ephemeral + lightweight persisted)
+  setQuickFilter: (value: string) => void;
+  clearQuickFilter: () => void;
+
+  // Ephemeral handle for current root directory. Not serialized.
+  rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
+  setRootDirectoryHandle: (handle: import('./file-system').DirectoryHandle | null) => void;
 }
 
 // Constants
@@ -156,4 +170,5 @@ export const DEFAULT_STATE = {
   lastActiveTab: 'files',
   folderAccessOrder: [] as string[],
   fileContents: {} as Record<string, string>,
+  quickFilter: '',
 } as const;

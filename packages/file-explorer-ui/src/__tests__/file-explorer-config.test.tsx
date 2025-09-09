@@ -139,7 +139,10 @@ describe('FileExplorerConfig', () => {
     // Verify settings were applied
     expect(mockOnFilterChange).toHaveBeenCalled();
 
-    // Verify popover is closed
+    // Verify popover is closed (wait for async operations to complete)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 });

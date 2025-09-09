@@ -8,5 +8,6 @@ export * from './queue-hud';
 export * from './right-panel';
 export * from './root-layout-content';
 export * from './settings-page-content';
+export * from './stores/panel-layout-store';
 export * from './types';
 export * from './vector-status';
