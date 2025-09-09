@@ -182,7 +182,7 @@ export async function waitForAppReady(page: Page): Promise<void> {
     await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
     const isCodex = process.env['CODEX_ENV'] === 'true';
     const baseWaitTime = isCodex ? 3000 : 1000;
-    const extendedWaitTime = baseWaitTime + 2000;
+    const extendedWaitTime = baseWaitTime + 0; // added 0 to test
     console.log(`⏱️ Waiting ${extendedWaitTime}ms for app to be fully ready...`);
     await page.waitForTimeout(extendedWaitTime);
     await page.evaluate(() => {

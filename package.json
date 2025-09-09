@@ -28,7 +28,6 @@
     "test:fast": "pnpm -r --filter '!@brainstrike/embeddings' run test",
     "check:fast": "pnpm -s install && pnpm -s run lint-all && pnpm -s run build && pnpm -s run type-check && pnpm -s run test:fast",
     "check:full": "pnpm -s run lint-all && pnpm -s run build && pnpm -s run type-check && pnpm -s run test:coverage:split && pnpm -s run test:e2e",
-    
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "test:e2e": "turbo run test:e2e --filter='./apps/*' --concurrency=1",
     "test:e2e:local-db": "LOCAL_FIRST_DB=true EMBED_QUEUE_ENABLED=true pnpm test:e2e",
@@ -91,6 +90,7 @@
       "esbuild",
       "lefthook",
       "onnxruntime-node",
+      "oxc-resolver",
       "protobufjs",
       "sharp"
     ],
