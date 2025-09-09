@@ -4,6 +4,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Input,
+  Label,
   Tabs,
   TabsContent,
   TabsList,
@@ -13,12 +15,44 @@ import { Brain, Database, FileText, Search } from 'lucide-react';
 import { DatabaseDemoPanel } from './database-demo-panel';
 import { EmbeddingsPanel } from './embeddings-panel';
 import { QueueHud } from './queue-hud';
+import { type DbSubtab, dbPanelSelectors, useDbPanelStore } from './stores/db-panel-store';
+import {
+  type RightPanelTab,
+  rightPanelSelectors,
+  useRightPanelStore,
+} from './stores/right-panel-store';
+import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
 import { VectorStatusWithDb } from './vector-status';
 
 export function RightPanel() {
+  const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
+  const setActiveTab = useRightPanelStore((s) => s.setActiveTab);
+  // Unconditional hooks for DB logs controls (selector tuples to keep shape stable)
+  const filterText = useDbPanelStore(dbPanelSelectors.filter);
+  const [dbSortBy, dbSortDir] = useDbPanelStore(dbPanelSelectors.sorting);
+  const [dbPage, dbPageSize] = useDbPanelStore(dbPanelSelectors.paging);
+  const setDbFilterText = useDbPanelStore((s) => s.setFilterText);
+  const setDbSort = useDbPanelStore((s) => s.setSort);
+  const setDbPage = useDbPanelStore((s) => s.setPage);
+  const setDbPageSize = useDbPanelStore((s) => s.setPageSize);
+  const activeSubtab = useDbPanelStore(dbPanelSelectors.activeSubtab);
+  const setActiveSubtab = useDbPanelStore((s) => s.setActiveSubtab);
+
+  // Search panel filters as stable tuple + actions
+  const [query, regex, caseSensitive, wholeWord] = useSearchPanelStore(
+    searchPanelSelectors.queryAndFlags
+  );
+  const setQuery = useSearchPanelStore((s) => s.setQuery);
+  const toggleRegex = useSearchPanelStore((s) => s.toggleRegex);
+  const toggleCaseSensitive = useSearchPanelStore((s) => s.toggleCaseSensitive);
+  const toggleWholeWord = useSearchPanelStore((s) => s.toggleWholeWord);
   return (
     <div className="h-full flex flex-col">
-      <Tabs defaultValue="properties" className="flex-1 flex flex-col">
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => setActiveTab((v as RightPanelTab) ?? 'properties')}
+        className="flex-1 flex flex-col"
+      >
         <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="properties" className="flex items-center gap-1">
             <FileText className="h-3 w-3" />
@@ -81,6 +115,52 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
+                {/* Persisted search form */}
+                <div className="grid grid-cols-1 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs" htmlFor="rp-search-query">
+                      Query
+                    </Label>
+                    <Input
+                      id="rp-search-query"
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      className="text-xs"
+                      placeholder="Search..."
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3"
+                        checked={regex}
+                        onChange={toggleRegex}
+                      />
+                      <span>Regex</span>
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3"
+                        checked={caseSensitive}
+                        onChange={toggleCaseSensitive}
+                      />
+                      <span>Case</span>
+                    </label>
+                    <label className="flex items-center gap-1">
+                      <input
+                        type="checkbox"
+                        className="h-3 w-3"
+                        checked={wholeWord}
+                        onChange={toggleWholeWord}
+                      />
+                      <span>Whole word</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Existing descriptive content */}
                 <div>
                   <h4 className="font-medium mb-2">Search Options</h4>
                   <p className="text-muted-foreground leading-relaxed">
@@ -101,9 +181,120 @@ export function RightPanel() {
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 min-h-0 flex flex-col gap-2">
-            <DatabaseDemoPanel />
-            <VectorStatusWithDb />
-            <QueueHud />
+            <div className="flex items-center gap-2 px-2">
+              <Label className="text-[11px]">View</Label>
+              <select
+                className="h-7 text-[11px] border rounded px-1"
+                aria-label="DB subtab"
+                value={activeSubtab}
+                onChange={(e) => setActiveSubtab(e.target.value as DbSubtab)}
+              >
+                <option value="overview">Overview</option>
+                <option value="logs">Logs</option>
+                <option value="config">Config</option>
+              </select>
+            </div>
+            {activeSubtab === 'overview' && (
+              <>
+                <DatabaseDemoPanel />
+                <VectorStatusWithDb />
+                <QueueHud />
+              </>
+            )}
+            {activeSubtab === 'logs' && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Logs</CardTitle>
+                  <CardDescription className="text-xs">
+                    Recent database/queue events
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="text-xs text-muted-foreground space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px]" htmlFor="db-logs-filter">
+                        Filter
+                      </Label>
+                      <Input
+                        id="db-logs-filter"
+                        className="h-7 text-[11px]"
+                        value={filterText}
+                        onChange={(e) => setDbFilterText(e.target.value)}
+                        placeholder="e.g., embeddings"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px]" htmlFor="db-logs-sortby">
+                        Sort By
+                      </Label>
+                      <Input
+                        id="db-logs-sortby"
+                        className="h-7 text-[11px]"
+                        value={dbSortBy ?? ''}
+                        onChange={(e) => setDbSort(e.target.value || null, dbSortDir)}
+                        placeholder="column name"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="space-y-1">
+                      <Label className="text-[11px]" htmlFor="db-logs-dir">
+                        Direction
+                      </Label>
+                      <select
+                        id="db-logs-dir"
+                        className="h-7 text-[11px] border rounded px-1"
+                        value={dbSortDir}
+                        onChange={(e) =>
+                          setDbSort(dbSortBy ?? null, e.target.value as 'asc' | 'desc')
+                        }
+                      >
+                        <option value="asc">asc</option>
+                        <option value="desc">desc</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px]" htmlFor="db-logs-page">
+                        Page
+                      </Label>
+                      <Input
+                        id="db-logs-page"
+                        type="number"
+                        className="h-7 text-[11px]"
+                        value={dbPage}
+                        onChange={(e) => setDbPage(Number(e.target.value) || 1)}
+                        min={1}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-[11px]" htmlFor="db-logs-pagesize">
+                        Page Size
+                      </Label>
+                      <Input
+                        id="db-logs-pagesize"
+                        type="number"
+                        className="h-7 text-[11px]"
+                        value={dbPageSize}
+                        onChange={(e) => setDbPageSize(Number(e.target.value) || 10)}
+                        min={1}
+                      />
+                    </div>
+                  </div>
+                  <div>Database is initializing...</div>
+                </CardContent>
+              </Card>
+            )}
+            {activeSubtab === 'config' && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Config</CardTitle>
+                  <CardDescription className="text-xs">Connection and tuning</CardDescription>
+                </CardHeader>
+                <CardContent className="text-xs text-muted-foreground">
+                  Database is initializing...
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </div>
       </Tabs>

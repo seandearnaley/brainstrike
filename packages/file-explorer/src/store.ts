@@ -38,6 +38,8 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     folderAccessOrder: [],
     selectedFilePaths: new Set<string>(),
     expandedDirectoryPaths: new Set<string>(),
+    quickFilter: '',
+    rootDirectoryHandle: null,
   };
 
   const actions = {
@@ -46,6 +48,15 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     ...createDirectoryExpansionActions(set, get),
     ...createSettingsActions(set, get),
     ...createFileContentActions(set, get),
+    setQuickFilter: (value: string) => {
+      set({ quickFilter: value });
+    },
+    clearQuickFilter: () => {
+      set({ quickFilter: '' });
+    },
+    setRootDirectoryHandle: (handle: FileExplorerState['rootDirectoryHandle']) => {
+      set({ rootDirectoryHandle: handle });
+    },
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

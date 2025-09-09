@@ -1,8 +1,9 @@
 import { Button, cn } from '@brainstrike/ui';
 import { File, Loader2, X } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useHotkeys } from 'react-hotkeys-hook';
 import type { FileTab } from './hooks/use-tab-manager';
+import { useEditorViewStateStore } from './stores/editor-view-state-store';
 
 interface TabbedFileEditorProps {
   tabs: FileTab[];
@@ -13,6 +14,61 @@ interface TabbedFileEditorProps {
   onTabClose: (tabId: string) => void;
   onLoadFileContent: (compositeKey: string) => void;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
+}
+
+function buildContentNode(opts: {
+  isLoading: boolean;
+  content: string | undefined;
+  isActive: boolean;
+  tab: FileTab;
+  path: string;
+  text: string | undefined;
+  truncated: boolean;
+  activeContentRef: React.RefObject<HTMLPreElement | null>;
+  handleContentScroll: (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => void;
+}) {
+  const {
+    isLoading,
+    content,
+    isActive,
+    tab,
+    path,
+    text,
+    truncated,
+    activeContentRef,
+    handleContentScroll,
+  } = opts;
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin mr-2" />
+        Loading file content...
+      </div>
+    );
+  }
+  if (!content) {
+    return <div className="text-muted-foreground">File not found or unable to load: {path}</div>;
+  }
+  return (
+    <pre
+      ref={isActive ? activeContentRef : null}
+      onScroll={(e) => handleContentScroll(tab.compositeKey, e)}
+      className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-auto font-mono h-full"
+      data-truncated={truncated ? 'true' : 'false'}
+    >
+      {content.startsWith('File not accessible') ? (
+        <div className="text-amber-600 dark:text-amber-400">
+          <p>{content}</p>
+          <p className="text-sm text-muted-foreground mt-2">
+            To access this file, please open the folder again using the folder icon button. This is
+            a security measure of your browser.
+          </p>
+        </div>
+      ) : (
+        text
+      )}
+    </pre>
+  );
 }
 
 export function TabbedFileEditor({
@@ -26,6 +82,9 @@ export function TabbedFileEditor({
   decodeFileSelection,
 }: TabbedFileEditorProps) {
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const activeContentRef = useRef<HTMLPreElement>(null);
+  const getScrollTop = useEditorViewStateStore((s) => s.getScrollTop);
+  const setScrollTop = useEditorViewStateStore((s) => s.setScrollTop);
 
   // Load content for active tab if not already loaded
   useEffect(() => {
@@ -51,6 +110,73 @@ export function TabbedFileEditor({
       });
     }
   }, []);
+
+  // Restore scroll position for active tab content
+  useEffect(() => {
+    if (!activeTabId) return;
+    const activeTab = tabs.find((t) => t.id === activeTabId);
+    if (!activeTab) return;
+    const el = activeContentRef.current;
+    if (el) {
+      el.scrollTop = getScrollTop(activeTab.compositeKey);
+    }
+  }, [activeTabId, tabs, getScrollTop]);
+
+  const handleContentScroll = useCallback(
+    (compositeKey: string, e: React.UIEvent<HTMLPreElement>) => {
+      setScrollTop(compositeKey, (e.currentTarget as HTMLPreElement).scrollTop);
+    },
+    [setScrollTop]
+  );
+
+  const MaxDomChars = 200_000; // ~200KB of visible text per panel
+
+  const getDisplayContent = (raw?: string) => {
+    if (!raw) return { text: raw, truncated: false } as const;
+    if (raw.length <= MaxDomChars) return { text: raw, truncated: false } as const;
+    const suffix = '\n\n… truncated for display …';
+    return { text: raw.slice(0, MaxDomChars - suffix.length) + suffix, truncated: true } as const;
+  };
+
+  const renderTabPanel = useCallback(
+    (
+      tab: FileTab,
+      isActive: boolean,
+      content: string | undefined,
+      isLoading: boolean,
+      path: string
+    ) => {
+      const panelId = `panel-${tab.id}`;
+      const tabButtonId = `tab-${tab.id}`;
+      const { text, truncated } = getDisplayContent(content);
+
+      const contentNode = buildContentNode({
+        isLoading,
+        content,
+        isActive,
+        tab,
+        path,
+        text,
+        truncated,
+        activeContentRef,
+        handleContentScroll,
+      });
+
+      return (
+        <div
+          key={tab.id}
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={tabButtonId}
+          hidden={!isActive}
+          className="p-4 h-full"
+        >
+          {contentNode}
+        </div>
+      );
+    },
+    [handleContentScroll]
+  );
 
   const getFileName = (path: string) => path.split('/').pop() || path;
 
@@ -166,44 +292,7 @@ export function TabbedFileEditor({
             const content = fileContents[tab.compositeKey];
             const isLoading = loadingFiles.has(tab.compositeKey);
             const { path } = decodeFileSelection(tab.compositeKey);
-            const panelId = `panel-${tab.id}`;
-            const tabButtonId = `tab-${tab.id}`;
-
-            return (
-              <div
-                key={tab.id}
-                id={panelId}
-                role="tabpanel"
-                aria-labelledby={tabButtonId}
-                hidden={!isActive}
-                className="p-4 h-full"
-              >
-                {isLoading ? (
-                  <div className="flex items-center justify-center h-full text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Loading file content...
-                  </div>
-                ) : content ? (
-                  <pre className="whitespace-pre-wrap text-sm bg-muted p-3 rounded-md overflow-x-auto font-mono">
-                    {content.startsWith('File not accessible') ? (
-                      <div className="text-amber-600 dark:text-amber-400">
-                        <p>{content}</p>
-                        <p className="text-sm text-muted-foreground mt-2">
-                          To access this file, please open the folder again using the folder icon
-                          button. This is a security measure of your browser.
-                        </p>
-                      </div>
-                    ) : (
-                      content
-                    )}
-                  </pre>
-                ) : (
-                  <div className="text-muted-foreground">
-                    File not found or unable to load: {path}
-                  </div>
-                )}
-              </div>
-            );
+            return renderTabPanel(tab, isActive, content, isLoading, path);
           })
         )}
       </div>

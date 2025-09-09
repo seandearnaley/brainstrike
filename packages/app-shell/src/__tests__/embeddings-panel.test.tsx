@@ -2,6 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingsPanel } from '../embeddings-panel';
+import { __resetEmbeddingsPanelStoreForTests } from '../stores/embeddings-panel-store';
 
 // Mock clipboard API
 Object.assign(navigator, {
@@ -110,6 +111,7 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     user = userEvent.setup();
+    __resetEmbeddingsPanelStoreForTests();
     if (mockServiceInstance) {
       mockServiceInstance.getStatus.mockReturnValue('idle');
       mockServiceInstance.getConfig.mockReturnValue({
@@ -275,18 +277,18 @@ describe('EmbeddingsPanel - Simple Coverage Tests', () => {
   });
 
   describe('Service Lifecycle', () => {
-    it('creates service instance on mount', () => {
+    it('initializes and disposes via UI controls', async () => {
       render(<EmbeddingsPanel />);
-      // Service should be created - this exercises the useEffect
-      expect(true).toBe(true);
-    });
-
-    it('disposes service on unmount', () => {
-      const { unmount } = render(<EmbeddingsPanel />);
-      unmount();
-
-      // Service dispose should be called during cleanup
-      expect(mockServiceInstance.dispose).toHaveBeenCalled();
+      const initButton = screen.getByRole('button', { name: /Initialize Model/i });
+      await user.click(initButton);
+      await waitFor(() => {
+        expect(mockServiceInstance.initializeWithModel).toHaveBeenCalled();
+      });
+      const disposeButton = screen.getByRole('button', { name: /Dispose Model/i });
+      await user.click(disposeButton);
+      await waitFor(() => {
+        expect(mockServiceInstance.dispose).toHaveBeenCalled();
+      });
     });
   });
 

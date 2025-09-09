@@ -98,8 +98,8 @@ describe('RootLayoutContent', () => {
 
   it('should render explorer view inside IdeLayout by default', () => {
     renderComponent();
-    expect(screen.getByTestId('explorer-section')).toHaveClass('block');
-    expect(screen.getByTestId('settings-section')).toHaveClass('hidden');
+    expect(screen.getByTestId('explorer-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-section')).not.toBeInTheDocument();
   });
 
   it('should switch to settings view and hide IdeLayout on navigation', () => {
@@ -110,8 +110,8 @@ describe('RootLayoutContent', () => {
       mockHandlers.onNavigationClick('/settings');
     });
 
-    expect(screen.getByTestId('explorer-section')).toHaveClass('hidden');
-    expect(screen.getByTestId('settings-section')).toHaveClass('block');
+    expect(screen.queryByTestId('explorer-section')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-section')).toBeInTheDocument();
   });
 
   it('should switch back to explorer view on subsequent navigation', () => {
@@ -121,14 +121,14 @@ describe('RootLayoutContent', () => {
     act(() => {
       mockHandlers.onNavigationClick('/settings');
     });
-    expect(screen.getByTestId('settings-section')).toHaveClass('block');
+    expect(screen.getByTestId('settings-section')).toBeInTheDocument();
 
     // Back to explorer
     act(() => {
       mockHandlers.onNavigationClick('/');
     });
-    expect(screen.getByTestId('explorer-section')).toHaveClass('block');
-    expect(screen.getByTestId('settings-section')).toHaveClass('hidden');
+    expect(screen.getByTestId('explorer-section')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-section')).not.toBeInTheDocument();
   });
 
   it('should render the tabbed file editor panel in console content', () => {

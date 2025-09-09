@@ -416,6 +416,8 @@ describe('IdeLayout', () => {
 
   it('defers persistence until after panel initialization', async () => {
     vi.useFakeTimers();
+    // Ensure left panel is mounted in Phase 2 (conditional rendering)
+    Object.assign(mockState, { showLeftPanel: true });
     const _utils = renderDefaultLayout();
 
     // Initially, persistence should be deferred
@@ -431,5 +433,29 @@ describe('IdeLayout', () => {
     expect(mockState.saveLayout).toHaveBeenCalled();
 
     vi.useRealTimers();
+  });
+
+  it('restores a sensible default size when showing a previously collapsed left panel', () => {
+    // Start with tiny left panel size to trigger default restore
+    Object.assign(mockState, { sizes: [0, 50, 50], showLeftPanel: false });
+    const { rerender } = renderDefaultLayout();
+
+    // Wire toggle to update mocked hook state and trigger rerender
+    (mockState.toggleLeftPanel as Mock).mockImplementation(() => {
+      Object.assign(mockState, { showLeftPanel: true });
+      rerender(
+        <IdeLayout
+          leftPanelContent={leftContent}
+          rightPanelContent={rightContent}
+          consoleContent={consoleContent}
+        >
+          <div>Main Content</div>
+        </IdeLayout>
+      );
+    });
+
+    // Click show-left; onBeforeShow should call saveLayout with default left size (25)
+    fireEvent.click(screen.getByTestId('show-left-panel'));
+    expect(mockState.saveLayout).toHaveBeenCalledWith([25, 50, 50]);
   });
 });

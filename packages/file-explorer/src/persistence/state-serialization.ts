@@ -29,6 +29,7 @@ export function serializeState(state: FileExplorerState): SerializedState {
     folderSummaryThreshold: state.folderSummaryThreshold,
     maxSelectionCount: state.maxSelectionCount,
     lastActiveTab: state.lastActiveTab ?? 'files',
+    quickFilter: state.quickFilter,
   };
 
   return serialized;
@@ -89,6 +90,10 @@ export function mergeState(
         ];
       })
     ),
+    quickFilter:
+      typeof persistedSerialized.quickFilter === 'string'
+        ? persistedSerialized.quickFilter
+        : current.quickFilter,
   };
 
   for (const key in current.folderStates) {
