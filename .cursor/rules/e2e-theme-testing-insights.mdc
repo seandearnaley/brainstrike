@@ -1,10 +1,8 @@
 ---
-description: 
+description: E2E Theme Testing Technical Insights
 globs: *.spec.ts,*.test.ts,*.integration.test.ts
 alwaysApply: false
 ---
-# E2E Theme Testing Technical Insights
-
 ## Applies To
 - **File Pattern**: `**/e2e/**/*.spec.ts`, `**/e2e/**/*.test.ts`
 - **When Working On**: Playwright e2e tests, theme-related functionality, UI component testing

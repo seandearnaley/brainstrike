@@ -3,7 +3,6 @@ description: Brainstrike E2E Development Patterns
 globs: 
 alwaysApply: false
 ---
-# Brainstrike E2E Development Patterns
 
 ## Applies To
 - **File Pattern**: `apps/web/e2e/**/*.spec.ts`, `apps/desktop/src/__tests__/integration/**/*.test.ts`

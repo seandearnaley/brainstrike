@@ -1,10 +1,8 @@
 ---
-description: 
+description: Tailwind v4 Monorepo Shared UI Integration Guide
 globs: 
 alwaysApply: false
 ---
-# Tailwind v4 Monorepo Shared UI Integration Guide
-
 To ensure Tailwind CSS v4 generates utility classes for components in shared packages (e.g., UI libraries, feature packages) in a monorepo, follow these steps:
 
 ## 1. Add a `styles.css` with `@source` in Each Shared Package
