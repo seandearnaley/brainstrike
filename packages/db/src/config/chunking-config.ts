@@ -14,6 +14,10 @@ export const CHUNKING_CONFIG = {
   largeStructuredMaxTokens: 1500, // Smaller chunks for structured data
   largeStructuredOverlap: 150, // Overlap for structured data
 
+  // Code-specific defaults (smaller chunks help retrieval for code)
+  codeMaxTokens: 384,
+  codeOverlap: 48,
+
   // Very large content thresholds and limits
   veryLargeContentThreshold: 100000, // 100KB+ threshold for very large content
   veryLargeMaxTokens: 1000, // Maximum tokens for very large content

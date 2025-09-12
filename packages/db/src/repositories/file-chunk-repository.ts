@@ -367,8 +367,37 @@ export class FileChunkRepository {
       orderExpr = 'embedding <#> $1::vector';
     }
 
+    // Try to tune ANN search parameters (no-op if unsupported)
+    try {
+      const envObj = (
+        globalThis as unknown as {
+          process?: { env?: Record<string, string | undefined> };
+        }
+      ).process?.env;
+      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
+      // Clamp to a reasonable range to avoid pathological settings
+      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
+      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
+    } catch {
+      // ignored: tuning is best-effort
+    }
+    try {
+      const envObj = (
+        globalThis as unknown as {
+          process?: { env?: Record<string, string | undefined> };
+        }
+      ).process?.env;
+      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
+      if (Number.isFinite(rawProbes) && rawProbes > 0) {
+        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10000));
+        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
+      }
+    } catch {
+      // ignored: tuning is best-effort
+    }
+
     // Fetch top candidates by distance; apply threshold in JS to avoid SQL path quirks
-    const overfetchLimit = Math.max(limit * 5, 50);
+    const overfetchLimit = Math.max(limit * 10, 100);
     const result = await this.db.query(
       `SELECT *, 
         ${similarityExpr} as similarity,

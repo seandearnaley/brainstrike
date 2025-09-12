@@ -273,6 +273,13 @@ export function registerIpcHandlers(
           // Clear chunks first due to foreign key constraints
           await tx.query('DELETE FROM file_chunks');
           await tx.query('DELETE FROM file_records');
+          // Clear embedding sets and any queued jobs
+          try {
+            await tx.query('DELETE FROM embedding_sets');
+          } catch {}
+          try {
+            await tx.query('DELETE FROM job_queue');
+          } catch {}
 
           return {
             success: true,
@@ -289,6 +296,17 @@ export function registerIpcHandlers(
         deletedFiles: 0,
         deletedChunks: 0,
       };
+    }
+  });
+
+  // Hard reset database on disk (desktop only)
+  ipcMain.handle('db:resetLocal', async () => {
+    const { resetLocalDatabase } = await import('./db-main');
+    try {
+      await resetLocalDatabase();
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : String(error) };
     }
   });
 

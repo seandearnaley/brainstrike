@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 // Mock heavy modules before importing the module under test
 vi.mock('@brainstrike/ui', () => ({}));
 vi.mock('@brainstrike/embeddings', () => ({ TransformersBackend: { getBestDevice: () => 'cpu' } }));
-vi.mock('@brainstrike/db', () => ({ usePGliteDatabase: () => null }));
+vi.mock('@brainstrike/db', () => ({ usePGliteDatabase: () => null, useFactoryReset: () => null }));
 
 import { handleQueueStateChange, withTransaction } from '../vector-status';
 

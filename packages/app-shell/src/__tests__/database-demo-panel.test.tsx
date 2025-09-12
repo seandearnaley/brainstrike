@@ -29,6 +29,7 @@ const mockChunkRepository = {
 const mockEmbeddingService = {
   dispose: vi.fn(),
   generateEmbedding: vi.fn(),
+  generateQueryEmbedding: vi.fn(),
   search: vi.fn(),
   getStatus: vi.fn().mockReturnValue('ready'),
   initializeWithModel: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileChunkRepository: () => mockChunkRepository,
   useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
   useDbProviderError: () => null,
+  useFactoryReset: () => null,
 }));
 
 vi.mock('@brainstrike/ui', async () => {
@@ -699,10 +701,12 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockChunkRepository.findAll.mockResolvedValue([]);
 
-      // Mock the embedding service generateEmbedding method
-      mockEmbeddingService.generateEmbedding.mockResolvedValue({
+      // Mock the embedding service generateEmbedding/generateQueryEmbedding methods
+      const embedResult = {
         embedding: new Float32Array([0.1, 0.2, 0.3]),
-      });
+      } as unknown as { embedding: Float32Array };
+      mockEmbeddingService.generateEmbedding.mockResolvedValue(embedResult);
+      mockEmbeddingService.generateQueryEmbedding.mockResolvedValue(embedResult);
 
       // Mock the chunk repository searchSimilar method
       mockChunkRepository.searchSimilar.mockResolvedValue(
@@ -800,9 +804,11 @@ describe('DatabaseDemoPanel', () => {
       mockChunkRepository.findAll.mockResolvedValue([]);
 
       // Use the primary path: embed query then repository vector search
-      mockEmbeddingService.generateEmbedding.mockResolvedValue({
+      const embedResult2 = {
         embedding: new Float32Array([0.1, 0.2, 0.3]),
-      });
+      } as unknown as { embedding: Float32Array };
+      mockEmbeddingService.generateEmbedding.mockResolvedValue(embedResult2);
+      mockEmbeddingService.generateQueryEmbedding.mockResolvedValue(embedResult2);
       mockChunkRepository.searchSimilar.mockResolvedValue([]);
 
       const user = userEvent.setup();

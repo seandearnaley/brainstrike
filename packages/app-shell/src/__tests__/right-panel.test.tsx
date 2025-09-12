@@ -11,6 +11,7 @@ vi.mock('@brainstrike/db', () => ({
   useClearAllData: () => null,
   useDbProviderError: () => null,
   useVectorEnabled: () => false,
+  useFactoryReset: () => null,
 }));
 
 // Mock embeddings device helper to avoid module resolution issues in tests

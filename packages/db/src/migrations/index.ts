@@ -7,6 +7,7 @@ import { migration005SafeIndices } from './005-safe-indices.js';
 import { migration006EmbeddingSetsAndColumns } from './006-embedding-sets-and-columns.js';
 import { migration007JobQueue } from './007-job-queue.js';
 import { migration008JobQueueClaimIndex } from './008-job-queue-claim-index.js';
+import { migration009VectorIndexTuning } from './009-vector-index-tuning.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -20,6 +21,7 @@ export const migrations: Migration[] = [
   migration006EmbeddingSetsAndColumns,
   migration007JobQueue,
   migration008JobQueueClaimIndex,
+  migration009VectorIndexTuning,
 ];
 
 // Export base migrations (without chunks table) for test environments

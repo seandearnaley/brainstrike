@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { glob } from 'glob';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { ModelRegistryManager } from '../model-registry';
-import type { EmbeddingProgress } from '../types';
+import type { EmbeddingProgress, EmbeddingResult } from '../types';
 
 /**
  * Code file patterns to include in embedding
@@ -300,47 +300,13 @@ export class CodeEmbeddingCLI {
    */
   async processFiles(): Promise<CodeEmbedding[]> {
     const files = await this.findCodeFiles();
-    const embeddings: CodeEmbedding[] = [];
+    const allEmbeddings: CodeEmbedding[] = [];
     let processedFiles = 0;
 
     for (const file of files) {
       try {
-        const fullPath = path.join(this.config.rootDir, file);
-        const content = fs.readFileSync(fullPath, 'utf-8');
-        const language = this.detectLanguage(file);
-        const chunks = this.splitIntoChunks(content, file);
-
-        this.log(`Processing ${file} (${chunks.length} chunks)`);
-
-        for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          if (!chunk) continue;
-          const id = `${file}:${chunk.startLine}-${chunk.endLine}`;
-
-          try {
-            const result = await this.service.generateEmbedding(chunk.content);
-
-            embeddings.push({
-              id,
-              filePath: file,
-              language,
-              content: chunk.content,
-              startLine: chunk.startLine,
-              endLine: chunk.endLine,
-              embedding: result.embedding,
-              dimensions: result.dimensions,
-              model: result.model,
-              timestamp: new Date().toISOString(),
-            });
-
-            if (this.config.verbose) {
-              this.log(`  Chunk ${i + 1}/${chunks.length}: ${id}`);
-            }
-          } catch (error) {
-            this.log(`Error embedding chunk ${id}: ${error}`);
-          }
-        }
-
+        const fileEmbeddings = await this.processSingleFile(file);
+        allEmbeddings.push(...fileEmbeddings);
         processedFiles++;
         this.log(`Progress: ${processedFiles}/${files.length} files processed`);
       } catch (error) {
@@ -348,7 +314,56 @@ export class CodeEmbeddingCLI {
       }
     }
 
+    return allEmbeddings;
+  }
+
+  private async processSingleFile(file: string): Promise<CodeEmbedding[]> {
+    const fullPath = path.join(this.config.rootDir, file);
+    const content = fs.readFileSync(fullPath, 'utf-8');
+    const language = this.detectLanguage(file);
+    const chunks = this.splitIntoChunks(content, file);
+
+    this.log(`Processing ${file} (${chunks.length} chunks)`);
+
+    const embeddings: CodeEmbedding[] = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      if (!chunk) continue;
+      const embedding = await this.embedChunk(file, language, chunk, i, chunks.length);
+      if (embedding) embeddings.push(embedding);
+    }
     return embeddings;
+  }
+
+  private async embedChunk(
+    file: string,
+    language: string,
+    chunk: { content: string; startLine: number; endLine: number },
+    index: number,
+    total: number
+  ): Promise<CodeEmbedding | null> {
+    const id = `${file}:${chunk.startLine}-${chunk.endLine}`;
+    try {
+      const result: EmbeddingResult = await this.service.generateDocEmbedding(chunk.content);
+      if (this.config.verbose) {
+        this.log(`  Chunk ${index + 1}/${total}: ${id}`);
+      }
+      return {
+        id,
+        filePath: file,
+        language,
+        content: chunk.content,
+        startLine: chunk.startLine,
+        endLine: chunk.endLine,
+        embedding: result.embedding,
+        dimensions: result.dimensions,
+        model: result.model,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      this.log(`Error embedding chunk ${id}: ${error}`);
+      return null;
+    }
   }
 
   /**

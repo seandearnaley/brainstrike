@@ -97,8 +97,16 @@ export const useEmbeddingsPanelStore = create<Store>()(
         if (!service || status !== 'ready' || !text1.trim() || !text2.trim()) return;
         try {
           set({ status: 'processing', error: null, similarity: null });
-          const r1 = await service.generateEmbedding(text1.trim());
-          const r2 = await service.generateEmbedding(text2.trim());
+          const svcAny = service as unknown as {
+            generateQueryEmbedding?: (t: string) => Promise<{ embedding: number[] }>;
+            generateEmbedding: (t: string) => Promise<{ embedding: number[] }>;
+          };
+          const r1 = svcAny.generateQueryEmbedding
+            ? await svcAny.generateQueryEmbedding(text1.trim())
+            : await service.generateEmbedding(text1.trim());
+          const r2 = svcAny.generateQueryEmbedding
+            ? await svcAny.generateQueryEmbedding(text2.trim())
+            : await service.generateEmbedding(text2.trim());
           const res = service.calculateSimilarity(r1.embedding, r2.embedding);
           set({ similarity: res.similarity, status: 'ready' });
         } catch (e) {

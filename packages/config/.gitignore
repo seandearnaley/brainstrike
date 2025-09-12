@@ -1,0 +1,5 @@
+# Prevent accidental emission of build artifacts into source tree
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
