@@ -154,8 +154,6 @@ describe('FileExplorerMiddlePanel', () => {
     expect(screen.getByText('1')).toBeInTheDocument(); // file count
     expect(screen.getByText(/files/)).toBeInTheDocument();
     expect(screen.getByText(/tokens/)).toBeInTheDocument();
-    expect(screen.getByText('Expand')).toBeInTheDocument();
-    expect(screen.getByText('Collapse')).toBeInTheDocument();
   });
 
   it('calls selection change when interacting with the component', async () => {

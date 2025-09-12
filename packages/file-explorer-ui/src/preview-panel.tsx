@@ -12,7 +12,7 @@ import {
   TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { ArrowDown, ArrowUp, Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
+import { Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
@@ -451,7 +451,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     performUndoableAction,
   });
 
-  const { totalStats, expandAllFolders, collapseAllFolders, flatListItems } = state;
+  const { totalStats, flatListItems } = state;
 
   // Use deferred value for expensive transformations to prevent blocking
   const deferredFlatListItems = useDeferredValue(flatListItems);
@@ -792,24 +792,6 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
                 Reset Sort
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={expandAllFolders}
-              title="Expand all folders"
-            >
-              <ArrowDown className="size-3.5" />
-              <span className="hidden sm:inline ml-1">Expand</span>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={collapseAllFolders}
-              title="Collapse all folders"
-            >
-              <ArrowUp className="size-3.5" />
-              <span className="hidden sm:inline ml-1">Collapse</span>
-            </Button>
             <ColumnVisibilityControls
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}
