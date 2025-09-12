@@ -38,7 +38,8 @@
       "Bash(find:*)",
       "Bash(pnpm -s run lint-all)",
       "Bash(pnpm -w run lint-all)",
-      "Bash(npx vitest run:*)"
+      "Bash(npx vitest run:*)",
+      "Bash(pnpm -w build --filter=@brainstrike/file-explorer-ui)"
     ],
     "deny": [],
     "ask": []
