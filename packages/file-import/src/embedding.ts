@@ -29,7 +29,13 @@ export async function processChunkEmbedding(
   if (!embeddingService || !chunkRepository) return false;
   try {
     if (embeddingService.getStatus() !== 'ready') return false;
-    const embeddingResult = await embeddingService.generateEmbedding(chunk.content);
+    const svcAny = embeddingService as unknown as {
+      generateDocEmbedding?: (t: string) => Promise<{ embedding: number[] }>;
+      generateEmbedding: (t: string) => Promise<{ embedding: number[] }>;
+    };
+    const embeddingResult = svcAny.generateDocEmbedding
+      ? await svcAny.generateDocEmbedding(chunk.content)
+      : await embeddingService.generateEmbedding(chunk.content);
     await chunkRepository.update({
       id: chunk.id,
       embedding: embeddingResult.embedding,

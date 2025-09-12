@@ -76,7 +76,7 @@ Critical architectural pattern enabling cross-platform functionality:
 - **Frontend**: React 19, Vite 7, TypeScript 5.9
 - **Styling**: Tailwind CSS v4 with shared configuration
 - **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome 2.1.3
+- **Linting**: Biome 2.2.3
 
 ### Code Standards
 - **TypeScript**: Strict mode enabled across all packages

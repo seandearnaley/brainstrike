@@ -82,7 +82,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/e2e-guidelines.md](./docs/e2e-guidelines.md) for unified rules.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-  - **Biome `2.1.3`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
+- **Biome `2.2.3`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
 - **Commit Linting**:
   - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
   - **Husky**: Manages Git hooks to run linters (like commitlint) automatically. (`.husky/`)

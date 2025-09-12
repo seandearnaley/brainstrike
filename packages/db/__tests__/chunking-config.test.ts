@@ -43,6 +43,8 @@ describe('CHUNKING_CONFIG', () => {
       'defaultOverlap',
       'largeStructuredMaxTokens',
       'largeStructuredOverlap',
+      'codeMaxTokens',
+      'codeOverlap',
       'veryLargeContentThreshold',
       'veryLargeMaxTokens',
       'veryLargeOverlap',

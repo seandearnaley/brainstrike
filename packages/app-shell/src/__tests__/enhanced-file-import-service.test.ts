@@ -34,6 +34,7 @@ vi.mock('@brainstrike/db', () => ({
     chunkContent: vi.fn(),
   })),
   useDbProviderError: () => null,
+  useFactoryReset: () => null,
 }));
 
 vi.mock('@brainstrike/embeddings', () => ({

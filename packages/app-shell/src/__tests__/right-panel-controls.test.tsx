@@ -10,6 +10,7 @@ vi.mock('@brainstrike/db', () => ({
   useClearAllData: () => null,
   useDbProviderError: () => null,
   useVectorEnabled: () => false,
+  useFactoryReset: () => null,
 }));
 
 vi.mock('@brainstrike/embeddings', async () => {

@@ -97,6 +97,20 @@ UI affordances:
 
 ---
 
+## Vector Search Tuning
+
+- Index type: set `VECTOR_INDEX_TYPE=ivfflat` to reduce memory (slower but lighter) or rely on default `hnsw` for faster search (higher memory).
+- IVFFlat: `IVFFLAT_LISTS=100` controls index granularity; `IVFFLAT_PROBES=8..24` at query time trades recall for speed.
+- HNSW: `HNSW_M=16`, `HNSW_EF_CONSTRUCTION=64` tune build memory/quality; `HNSW_EF_SEARCH=32..80` boosts recall at query time.
+- Apply by exporting env vars and restarting the app (auto‑migrations will drop/recreate the vector index accordingly).
+- Code search quality: smaller code chunks and model‑aware query/doc prompts are enabled. You can adjust the search threshold in the UI; default is configurable via env: `VITE_SEARCH_DEFAULT_THRESHOLD` (web) or `SEARCH_DEFAULT_THRESHOLD`/`BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD` (desktop/Node). Value is clamped to [0,1].
+
+Notes:
+- PGlite + pgvector in WASM benefits from IVFFlat on low‑RAM machines; HNSW is best on desktops with more headroom.
+- Vector dimensions are stored per embedding set (`embedding_sets.dimensions`) and validated at runtime. Search queries and chunk writes are scoped by the active set to prevent mixing dimensions. The physical column type may default to `VECTOR(768)`, but the service will guard against mismatches and require using a compatible set for a given model.
+
+---
+
 ## Testing
 
 - Unit/Integration (Vitest): `pnpm test` or `pnpm test --filter <pkg>`.

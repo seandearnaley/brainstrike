@@ -147,14 +147,15 @@ function BackfillButton({
 }) {
   const isWeb =
     typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
-  const isDisabled =
-    !activeId || !db || backfilling || (isWeb && !workerLocalRunning) || !hasChunks;
-  const title =
-    isWeb && !workerLocalRunning
-      ? 'Start worker to enable backfill on Web'
-      : !hasChunks
-        ? 'No chunks available to backfill'
-        : 'Enqueue jobs for chunks missing embeddings for the active set';
+
+  const { disabled: isDisabled, title } = getBackfillDisabledState({
+    activeId,
+    db,
+    backfilling,
+    isWeb,
+    workerLocalRunning,
+    hasChunks,
+  });
 
   return (
     <Button
@@ -173,6 +174,28 @@ function BackfillButton({
         : 'Backfill'}
     </Button>
   );
+}
+
+function getBackfillDisabledState(params: {
+  activeId: string | null;
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>> | null;
+  backfilling: boolean;
+  isWeb: boolean;
+  workerLocalRunning: boolean;
+  hasChunks: boolean;
+}): { disabled: boolean; title: string } {
+  const { activeId, db, backfilling, isWeb, workerLocalRunning, hasChunks } = params;
+  // Evaluate reasons in priority order and early-return to keep complexity low
+  if (!activeId) return { disabled: true, title: 'Select an active embedding set' };
+  if (!db) return { disabled: true, title: 'Database not ready yet' };
+  if (backfilling) return { disabled: true, title: 'Backfilling in progress' };
+  if (isWeb && !workerLocalRunning)
+    return { disabled: true, title: 'Start worker to enable backfill on Web' };
+  if (!hasChunks) return { disabled: true, title: 'No chunks available to backfill' };
+  return {
+    disabled: false,
+    title: 'Enqueue jobs for chunks missing embeddings for the active set',
+  };
 }
 
 function QueueControls({

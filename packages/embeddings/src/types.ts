@@ -113,6 +113,12 @@ export interface EmbeddingService {
   /** Generate embedding for a single text */
   generateEmbedding(text: string): Promise<EmbeddingResult>;
 
+  /** Generate an embedding optimized for documents/passages (indexing) */
+  generateDocEmbedding(text: string): Promise<EmbeddingResult>;
+
+  /** Generate an embedding optimized for search queries */
+  generateQueryEmbedding(text: string): Promise<EmbeddingResult>;
+
   /** Calculate similarity between two embeddings */
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult;
 

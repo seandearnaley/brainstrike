@@ -240,6 +240,8 @@ export async function startEmbeddingWorker(
     vectorEnabledForWrites = false;
   }
 
+  // Note: schema uses VECTOR(768) by default; ensure selected model matches to avoid errors
+
   // Lightweight metrics for observability
   const metrics = {
     startedAt: Date.now(),
@@ -281,7 +283,13 @@ export async function startEmbeddingWorker(
   async function validateAndGenerateEmbedding(
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
   ): Promise<EmbeddingResult> {
-    const result = await service.generateEmbedding(chunk.content);
+    const svcAny = service as unknown as {
+      generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
+      generateEmbedding: (t: string) => Promise<EmbeddingResult>;
+    };
+    const result = svcAny.generateDocEmbedding
+      ? await svcAny.generateDocEmbedding(chunk.content)
+      : await service.generateEmbedding(chunk.content);
 
     const expectedDimensions = modelConfig?.dimensions ?? 0;
     if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimensions) {

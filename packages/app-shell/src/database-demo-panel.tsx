@@ -2,6 +2,7 @@ import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   useClearAllData,
   useDbProviderError,
+  useFactoryReset,
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -44,6 +45,8 @@ export function DatabaseDemoPanel() {
   const repository = useFileRecordRepository();
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
+  const dbContext = usePGliteDatabase();
+  const doFactoryReset = useFactoryReset();
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
     toast,
@@ -389,6 +392,76 @@ export function DatabaseDemoPanel() {
     );
   }, [clearAllData, toast, loadRecords, loadChunks, chunkRepository, errorBoundary]);
 
+  // Factory reset helpers (extracted to reduce inline complexity)
+  const safeDisposeEmbeddingService = useCallback(async () => {
+    if (!embeddingService) return;
+    try {
+      await embeddingService.dispose();
+    } catch (err) {
+      // Log for diagnostics; UI will handle toast on outer error
+      console.warn('Failed to dispose embedding service during factory reset:', err);
+    }
+    setEmbeddingService(null);
+  }, [embeddingService]);
+
+  const clearActiveEmbeddingSetId = () => {
+    try {
+      localStorage.removeItem('brainstrike.activeEmbeddingSetId');
+    } catch (err) {
+      console.warn('Failed to clear active embedding set id:', err);
+    }
+  };
+
+  const bestEffortPurgeDb = useCallback(async () => {
+    if (!dbContext) return;
+    try {
+      await dbContext.query('DELETE FROM job_queue');
+    } catch (err) {
+      console.warn('Failed to purge job_queue during factory reset:', err);
+    }
+    try {
+      await dbContext.query('DELETE FROM embedding_sets');
+    } catch (err) {
+      console.warn('Failed to purge embedding_sets during factory reset:', err);
+    }
+  }, [dbContext]);
+
+  const performFactoryResetOrReload = useCallback(async () => {
+    try {
+      if (typeof doFactoryReset === 'function') {
+        await doFactoryReset();
+      } else {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.warn('Provider-level factory reset failed, reloading window:', err);
+      try {
+        window.location.reload();
+      } catch (e) {
+        console.warn('Window reload after provider-level reset failed:', e);
+      }
+    }
+  }, [doFactoryReset]);
+
+  const handleFactoryResetClick = useCallback(async () => {
+    const ok = window.confirm(
+      'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
+    );
+    if (!ok) return;
+    try {
+      await safeDisposeEmbeddingService();
+      clearActiveEmbeddingSetId();
+      await bestEffortPurgeDb();
+      await performFactoryResetOrReload();
+    } catch (err) {
+      toast({
+        title: 'Factory Reset Failed',
+        description: String(err),
+        variant: 'destructive',
+      });
+    }
+  }, [safeDisposeEmbeddingService, bestEffortPurgeDb, performFactoryResetOrReload, toast]);
+
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
       if (expandedFiles.has(fileId)) removeExpanded(fileId);
@@ -517,6 +590,9 @@ export function DatabaseDemoPanel() {
             setShowClearDialog={setShowClearDialog}
             onClear={handleClearDatabase}
           />
+          <Button size="sm" variant="destructive" onClick={handleFactoryResetClick}>
+            Factory Reset
+          </Button>
         </div>
 
         <ExportButtons records={records} chunks={chunks} exportHandlers={exportHandlers} />

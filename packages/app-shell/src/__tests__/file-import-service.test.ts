@@ -15,6 +15,7 @@ vi.mock('@brainstrike/db', () => ({
   useFileChunkRepository: () => null,
   useClearAllData: () => null,
   useDbProviderError: () => null,
+  useFactoryReset: () => null,
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({

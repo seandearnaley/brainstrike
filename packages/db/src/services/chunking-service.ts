@@ -180,6 +180,16 @@ export class ChunkingService {
     let maxTokens = options.maxTokens ?? CHUNKING_CONFIG.defaultMaxTokens;
     let overlap = options.overlap ?? CHUNKING_CONFIG.defaultOverlap;
 
+    // Prefer smaller chunks for code files (improves semantic retrieval)
+    const isCode =
+      /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
+        fileName.toLowerCase()
+      );
+    if (isCode) {
+      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.codeMaxTokens);
+      overlap = Math.min(overlap, CHUNKING_CONFIG.codeOverlap);
+    }
+
     // For large structured files, use smaller chunks
     for (const pattern of LARGE_STRUCTURED_PATTERNS) {
       if (pattern.test(fileName)) {

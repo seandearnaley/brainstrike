@@ -99,12 +99,41 @@ export class SimpleEmbeddingService implements EmbeddingService {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
-
-    return this._backend.generateEmbedding(text, this._config.modelId);
+    // Default path treats input as a document/passsage for retrieval
+    const withPrompt = applyRetrievalPrompt(
+      text,
+      'document',
+      this._currentModelConfig?.id || this._config.modelId,
+      this._currentModelKey
+    );
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {
     return calculateCosineSimilarity(embedding1, embedding2);
+  }
+
+  /**
+   * Generate an embedding optimized for document/passages (indexing)
+   */
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+
+  /**
+   * Generate an embedding optimized for search queries
+   */
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    if (this._status !== 'ready' || !this._backend.isInitialized()) {
+      throw new Error('Service not initialized. Call initialize() first.');
+    }
+    const withPrompt = applyRetrievalPrompt(
+      text,
+      'query',
+      this._currentModelConfig?.id || this._config.modelId,
+      this._currentModelKey
+    );
+    return this._backend.generateEmbedding(withPrompt, this._config.modelId);
   }
 
   getStatus(): EmbeddingStatus {
@@ -181,4 +210,36 @@ export class SimpleEmbeddingService implements EmbeddingService {
   static listModels(): Record<string, ModelConfig> {
     return ModelRegistryManager.listModels();
   }
+}
+
+// Lightweight, model-aware prompting to improve retrieval alignment
+function applyRetrievalPrompt(
+  text: string,
+  role: 'query' | 'document',
+  modelId: string,
+  modelKey: string | null
+): string {
+  const id = (modelId || '').toLowerCase();
+  const key = (modelKey || '').toLowerCase();
+
+  // BGE family: use query/passsage prefixes per model guidance
+  const isBge = id.includes('bge-') || key.includes('bge-');
+  if (isBge) {
+    return (role === 'query' ? 'query: ' : 'passage: ') + text;
+  }
+
+  // Jina code/base: lightly steer towards code retrieval
+  const isJina = id.includes('jina-embeddings') || key.includes('jina');
+  if (isJina) {
+    if (role === 'query') {
+      return `Represent the programming question for retrieving relevant code snippets:\n${text}`;
+    }
+    return `Represent the following code snippet for retrieval:\n${text}`;
+  }
+
+  // Sentence transformers and general models: generic retrieval steering
+  if (role === 'query') {
+    return `Search query for semantic retrieval:\n${text}`;
+  }
+  return `Document passage for semantic retrieval:\n${text}`;
 }

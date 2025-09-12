@@ -28,6 +28,8 @@ interface DbContextValue {
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
   vectorEnabled: boolean; // Whether pgvector extension is available
+  factoryReset: () => Promise<void>; // Close DB, wipe state, reinitialize
+  clearQueuesAndEmbeddingSets: () => Promise<void>; // Helper to purge job_queue and embedding_sets
 }
 
 interface DbProviderProps {
@@ -292,6 +294,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       const deletedFiles = filesRow?.count || 0;
       await tx.query('DELETE FROM file_records');
 
+      // Also clear embedding sets and queue to avoid stale state
+      try {
+        await tx.query('DELETE FROM embedding_sets');
+      } catch {}
+      try {
+        await tx.query('DELETE FROM job_queue');
+      } catch {}
+
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
   }, [initializeDatabase]);
@@ -324,6 +334,107 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     return await clearViaPGlite();
   }, [useElectronIPC, lazyInitialized, initializeDatabase, clearViaElectronIPC, clearViaPGlite]);
 
+  // Helpers to reduce complexity within contextValue actions
+  const purgeTablesTx = useCallback(async (tx: { query: (sql: string) => Promise<unknown> }) => {
+    try {
+      await tx.query('DELETE FROM job_queue');
+    } catch (err) {
+      logger.warn('Failed to clear job_queue during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM embedding_sets');
+    } catch (err) {
+      logger.warn('Failed to clear embedding_sets during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM file_chunks');
+    } catch (err) {
+      logger.warn('Failed to clear file_chunks during reset:', err);
+    }
+    try {
+      await tx.query('DELETE FROM file_records');
+    } catch (err) {
+      logger.warn('Failed to clear file_records during reset:', err);
+    }
+  }, []);
+
+  const tryElectronHardReset = useCallback(async (): Promise<boolean> => {
+    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+    const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+    if (!(useElectronIPC && w?.electronAPI?.db)) return false;
+    try {
+      await w.electronAPI.db.clearAll?.('CONFIRM_CLEAR_DATABASE');
+    } catch (err) {
+      logger.warn('Electron clearAll during reset failed:', err);
+    }
+    try {
+      const res = await w.electronAPI.db.resetLocal?.();
+      if (res?.success) {
+        try {
+          window.location.reload();
+        } catch (err) {
+          logger.warn('Window reload after Electron reset failed:', err);
+        }
+        return true;
+      }
+    } catch (err) {
+      logger.warn('Electron resetLocal during reset failed:', err);
+    }
+    return false;
+  }, [useElectronIPC]);
+
+  const purgeAndClosePGlite = useCallback(async () => {
+    if (!dbRef.current) return;
+    try {
+      await dbRef.current.transaction(async (tx) => {
+        await purgeTablesTx(tx);
+      });
+    } catch {}
+    try {
+      await dbRef.current.exec('VACUUM');
+    } catch (err) {
+      logger.warn('VACUUM after purge failed:', err);
+    }
+    try {
+      await dbRef.current.close();
+    } catch (err) {
+      logger.warn('Closing database after purge failed:', err);
+    }
+  }, [purgeTablesTx]);
+
+  const purgeQueuesAndSetsElectron = useCallback(async () => {
+    // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+    const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+    if (w?.electronAPI?.db?.query) {
+      try {
+        await w.electronAPI.db.query('DELETE FROM job_queue');
+      } catch (err) {
+        logger.warn('Electron query to clear job_queue failed:', err);
+      }
+      try {
+        await w.electronAPI.db.query('DELETE FROM embedding_sets');
+      } catch (err) {
+        logger.warn('Electron query to clear embedding_sets failed:', err);
+      }
+    }
+  }, []);
+
+  const purgeQueuesAndSetsTx = useCallback(
+    async (tx: { query: (sql: string) => Promise<unknown> }) => {
+      try {
+        await tx.query('DELETE FROM job_queue');
+      } catch (err) {
+        logger.warn('Failed to clear job_queue (transaction):', err);
+      }
+      try {
+        await tx.query('DELETE FROM embedding_sets');
+      } catch (err) {
+        logger.warn('Failed to clear embedding_sets (transaction):', err);
+      }
+    },
+    []
+  );
+
   const contextValue = useMemo(
     () => ({
       fileRecordRepository,
@@ -334,6 +445,33 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       clearAllData,
       initializeDatabase,
       vectorEnabled,
+      factoryReset: async () => {
+        // Try Electron hard reset and early-exit on success
+        try {
+          const handled = await tryElectronHardReset();
+          if (handled) return;
+        } catch {}
+
+        // Fallback: direct PGlite purge and recreate
+        await purgeAndClosePGlite();
+        dbRef.current = null;
+        setFileRecordRepository(null);
+        setChunkRepository(null);
+        setVectorEnabled(false);
+        setReady(false);
+        setLazyInitialized(false);
+        await initializeDirectPGlite({ value: false });
+      },
+      clearQueuesAndEmbeddingSets: async () => {
+        if (useElectronIPC) {
+          await purgeQueuesAndSetsElectron();
+          return;
+        }
+        if (!dbRef.current) return;
+        await dbRef.current.transaction(async (tx) => {
+          await purgeQueuesAndSetsTx(tx);
+        });
+      },
     }),
     [
       fileRecordRepository,
@@ -343,6 +481,12 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       clearAllData,
       initializeDatabase,
       vectorEnabled,
+      useElectronIPC,
+      initializeDirectPGlite,
+      tryElectronHardReset,
+      purgeAndClosePGlite,
+      purgeQueuesAndSetsElectron,
+      purgeQueuesAndSetsTx,
     ]
   );
 
@@ -448,4 +592,30 @@ export function useClearAllData():
   }
 
   return ctx.ready && !ctx.error ? ctx.clearAllData : null;
+}
+
+export function useFactoryReset(): (() => Promise<void>) | null {
+  const ctx = useContext(DbContext);
+  useEffect(() => {
+    if (ctx && !ctx.db && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+  if (!ctx) return null;
+  return ctx.ready && !ctx.error ? ctx.factoryReset : null;
+}
+
+export function useClearQueuesAndEmbeddingSets(): (() => Promise<void>) | null {
+  const ctx = useContext(DbContext);
+  useEffect(() => {
+    if (ctx && !ctx.db && !ctx.error) {
+      ctx.initializeDatabase().catch((err) => {
+        logger.error('Failed to lazy-initialize database:', err);
+      });
+    }
+  }, [ctx]);
+  if (!ctx) return null;
+  return ctx.ready && !ctx.error ? ctx.clearQueuesAndEmbeddingSets : null;
 }

@@ -43,7 +43,7 @@
   },
   "devDependencies": {
     "@babel/core": "^7.28.3",
-    "@biomejs/biome": "2.2.0",
+    "@biomejs/biome": "2.2.3",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/tailwind-config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",

@@ -34,16 +34,16 @@ const service = new SimpleEmbeddingService();
 // Initialize with default Jina Code model
 await service.initializeWithModel();
 
-// Generate embeddings
-const result = await service.generateEmbedding('function add(a, b) { return a + b; }');
+// Generate embeddings (document/passages)
+const result = await service.generateDocEmbedding('function add(a, b) { return a + b; }');
 console.log(`Embedding: ${result.dimensions}D vector`);
 
 // Calculate similarity
 const code = 'def factorial(n): return 1 if n <= 1 else n * factorial(n-1)';
 const prompt = 'Calculate factorial recursively';
 
-const codeEmbedding = await service.generateEmbedding(code);
-const promptEmbedding = await service.generateEmbedding(prompt);
+const codeEmbedding = await service.generateDocEmbedding(code);
+const promptEmbedding = await service.generateQueryEmbedding(prompt);
 
 const similarity = service.calculateSimilarity(
   codeEmbedding.embedding,
@@ -96,7 +96,7 @@ function EmbeddingComponent() {
 
   const handleEmbed = async (text: string) => {
     if (status === 'ready') {
-      const result = await service.generateEmbedding(text);
+      const result = await service.generateDocEmbedding(text);
       return result.embedding;
     }
   };
