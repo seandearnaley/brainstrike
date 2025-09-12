@@ -1,10 +1,7 @@
 ---
+description: Zustand Selectors: React Compiler-Friendly Rules
 globs: packages/**/src/**/*.ts,packages/**/src/**/*.tsx
 ---
-# Zustand Selectors: React Compiler-Friendly Rules
-
-## Do
-
 - Use split selectors: `store((s) => s.slice)` instead of aggregated object-shaped selectors.
 - If you need multiple values, prefer a single array tuple selector with a fixed shape: `store((s) => [s.a, s.b] as const)`.
 - Hoist selector lambdas to top-level whenever possible to avoid recreating functions each render.

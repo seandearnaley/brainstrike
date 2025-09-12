@@ -1,10 +1,8 @@
 ---
-description: filename conventions
+description: Filename Conventions
 globs: 
 alwaysApply: false
 ---
-# Filename Conventions for brainstrike-web
-
 This rule defines the standardized naming conventions for files and directories in the brainstrike-web project.
 
 ## File Naming Conventions

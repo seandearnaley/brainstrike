@@ -1,10 +1,8 @@
 ---
-description: 
+description: TypeScript Declaration Files (.d.ts) in Monorepos
 globs: 
 alwaysApply: false
 ---
-# TypeScript Declaration Files (.d.ts) in Monorepos
-
 For shared TypeScript packages in this monorepo (e.g., `packages/types`, `packages/utils`), it is essential that the build process correctly generates type declaration files (`.d.ts`) in their respective `dist` directories.
 
 **Importance:**

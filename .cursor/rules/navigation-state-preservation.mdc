@@ -1,10 +1,8 @@
 ---
-description: 
+description: Navigation & State Preservation Architecture
 globs: 
 alwaysApply: false
 ---
-# Navigation & State Preservation Architecture
-
 ## Overview
 This project uses a **component mounting strategy** instead of React Router lazy loading to preserve critical file system state during navigation between app tabs.
 

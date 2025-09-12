@@ -1,10 +1,8 @@
 ---
-description: 
+description: Monorepo Build & Dependency Management (Turborepo)
 globs: 
 alwaysApply: false
 ---
-# Monorepo Build & Dependency Management (Turborepo)
-
 When modifying shared packages within this Turborepo setup (e.g., files in `packages/types`, `packages/utils`), it's crucial to **rebuild the modified shared package first** before attempting to build or type-check dependent applications or packages (like `apps/web`).
 
 **Command:**

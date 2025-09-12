@@ -1,9 +1,8 @@
 ---
-description: 
+description: Playwright E2E Guidelines
 globs: *.spec.ts,*.test.ts,*.integration.test.ts
 alwaysApply: false
 ---
-# Playwright E2E Guidelines
 
 These unified rules help keep end-to-end tests reliable across all Brainstrike applications.
 

@@ -1,8 +1,7 @@
 ---
+description: React Compiler Hardening Guidelines
 globs: *.ts,*.tsx
 ---
-# React Compiler Hardening Guidelines
-
 Use these patterns to keep components and hooks compiler-friendly and HMR-stable.
 
 ## Core directives
