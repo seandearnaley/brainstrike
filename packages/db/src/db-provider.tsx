@@ -463,9 +463,15 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         await initializeDirectPGlite({ value: false });
       },
       clearQueuesAndEmbeddingSets: async () => {
+        // Prefer Electron IPC when truly available; otherwise use local DB
         if (useElectronIPC) {
-          await purgeQueuesAndSetsElectron();
-          return;
+          // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
+          const w = (typeof window !== 'undefined' ? (window as any) : null) as any;
+          if (w?.electronAPI?.db?.query) {
+            await purgeQueuesAndSetsElectron();
+            return; // IPC path executed
+          }
+          // If IPC not available despite flag, fall through to local path
         }
         if (!dbRef.current) return;
         await dbRef.current.transaction(async (tx) => {
