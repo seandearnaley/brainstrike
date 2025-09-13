@@ -366,12 +366,10 @@ jobs:
             echo "Using cached desktop dist/"
           fi
 
-      - name: Start Xvfb and run Desktop E2E tests (shard)
+      - name: Run Desktop E2E tests (shard)
         run: |
-          Xvfb :99 -screen 0 1280x960x24 -nolisten tcp &
-          export DISPLAY=:99
           cd apps/desktop
-          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
