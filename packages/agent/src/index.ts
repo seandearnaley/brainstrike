@@ -82,7 +82,10 @@ export function createDevChatAgent(): ChatAgent {
 }
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes
-export async function toAiSdkStyleStream(messages: AgentMessage[]): Promise<StreamIterator> {
+export async function toAiSdkStyleStream(
+  messages: AgentMessage[],
+  runtime?: RuntimeData
+): Promise<StreamIterator> {
   // For now, use the plan-then-act workflow to demonstrate multi-step output.
-  return streamPlanThenAct(messages);
+  return streamPlanThenAct(messages, runtime);
 }

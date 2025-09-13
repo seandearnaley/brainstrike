@@ -12,6 +12,8 @@ export * from './accordion';
 export * from './badge';
 export * from './button';
 export * from './card';
+// Chat panel
+export * from './chat-panel';
 export * from './checkbox';
 export * from './dialog';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';

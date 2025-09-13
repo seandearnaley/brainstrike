@@ -61,7 +61,7 @@ export async function* streamPlanThenAct(
   const answer = shouldSearch(userText)
     ? 'Here is a synthesized answer based on the (simulated) search.'
     : 'Here is a step-by-step reasoning response.';
-  for (const token of ('\n' + answer).split(/(\s+)/)) {
+  for (const token of `\n${answer}`.split(/(\s+)/)) {
     if (token) yield { type: 'text-delta', value: token } satisfies StreamChunk;
     await new Promise((r) => setTimeout(r, 3));
   }

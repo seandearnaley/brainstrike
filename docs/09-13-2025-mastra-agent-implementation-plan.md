@@ -40,6 +40,11 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Added web route `apps/web/src/app/api/chat/route.ts` streaming JSON lines from `@brainstrike/agent`.
   - Inserted `ChatPanelStub` under the Right Panel Properties tab (`data-testid="chat-panel"`).
   - Lints and unit tests pass for new code.
+  - Added zod validation to `/api/chat` for `{ messages, data }` and improved error responses.
+  - Implemented shared `ChatPanel` in `@brainstrike/ui` with local persistence and default web transport to `/api/chat`.
+  - Wired `ChatPanel` into the Right Panel Props tab, replacing the stub.
+  - Added unit tests: route schema/streaming (`apps/web`), ChatPanel streaming (`packages/ui`).
+  - Ran type-check, lint/format, build, and fast tests — all green.
 
 ---
 
@@ -64,16 +69,17 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 ### Phase 2 — Web integration (cut: chat streams in web)
 - [x] Server route in `apps/web` streams from agent
   - [x] Implement POST `/api/chat` → returns newline-delimited JSON chunks
-  - [ ] Accept `{ messages, data }` with schema validation (zod)
+  - [x] Accept `{ messages, data }` with schema validation (zod)
 - [ ] UI hookup
-  - [ ] Add chat panel component from `packages/ui` and wire to `/api/chat`
-  - [ ] Use AI SDK v5 client hooks or assistant-ui to consume stream
-  - [x] Temporary: `ChatPanelStub` present under Props tab (`packages/app-shell/src/right-panel.tsx`)
+  - [x] Add chat panel component from `packages/ui` and wire to `/api/chat`
+  - [x] Use AI SDK v5-compatible stream consumption (custom transport) for now
+  - [ ] Optional: move to AI SDK Elements/assistant-ui
+  - [x] Temporary: `ChatPanelStub` present under Props tab (`packages/app-shell/src/right-panel.tsx`) (replaced)
 - [ ] State persistence
-  - [ ] Persist conversations per workspace/project; restore on reload
-  - [ ] Keep message list + panel UI reactive under routing/tab changes
+  - [x] Persist conversations (local) and restore on reload
+  - [x] Keep message list reactive; state preserved with panel mount
 - Validation
-  - [ ] Web unit/integration tests for route and UI streaming
+  - [x] Web unit/integration tests for route and UI streaming
   - [ ] E2E: basic send/stream/stop, retry, copy, code block rendering
   - [ ] Smoke: long-stream stability, tab switch persistence
 

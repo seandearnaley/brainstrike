@@ -39,6 +39,7 @@
   "license": "ISC",
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
+    "zustand": "^5.0.2",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/utils": "workspace:*",

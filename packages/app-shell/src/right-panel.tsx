@@ -4,6 +4,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ChatPanel,
   Input,
   Label,
   Tabs,
@@ -23,14 +24,6 @@ import {
 } from './stores/right-panel-store';
 import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
 import { VectorStatusWithDb } from './vector-status';
-
-function ChatPanelStub() {
-  return (
-    <div data-testid="chat-panel" className="text-xs text-muted-foreground">
-      Chat panel coming soon. Use the Search tab while we wire this up.
-    </div>
-  );
-}
 
 export function RightPanel() {
   const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
@@ -90,7 +83,7 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                <ChatPanelStub />
+                <ChatPanel />
                 <div>
                   <h4 className="font-medium mb-2">Basic Properties</h4>
                   <p className="text-muted-foreground leading-relaxed">

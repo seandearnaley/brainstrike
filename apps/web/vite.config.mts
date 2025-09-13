@@ -134,6 +134,8 @@ export default defineConfig({
           }),
         ]
       : []), // If no token, don't include the plugin config
+    // Dev/preview middleware for /api/chat to support E2E and local dev
+    devChatApiPlugin(),
   ],
   assetsInclude: ['**/*.png'],
   build: {
@@ -264,3 +266,78 @@ export default defineConfig({
     },
   },
 });
+
+// Minimal dev/preview plugin to serve /api/chat using our agent
+function devChatApiPlugin() {
+  return {
+    name: 'dev-chat-api',
+    configureServer(server) {
+      server.middlewares.use(async (req, res, next) => {
+        if (req.method !== 'POST' || !req.url?.startsWith('/api/chat')) return next();
+        try {
+          const bodyStr = await readBody(req);
+          const body = JSON.parse(bodyStr || '{}');
+          const { toAiSdkStyleStream } = await import('../../packages/agent/dist/index.mjs');
+          const messages = Array.isArray(body?.messages) ? body.messages : [];
+          const data = body?.data ?? undefined;
+          const stream = await toAiSdkStyleStream(messages, data);
+
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          });
+          for await (const chunk of stream) {
+            res.write(`${JSON.stringify(chunk)}\n`);
+          }
+          res.end();
+        } catch (_e) {
+          res.statusCode = 500;
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.end(JSON.stringify({ error: 'dev chat route failed' }));
+        }
+      });
+    },
+    configurePreviewServer(server: import('vite').ViteDevServer) {
+      server.middlewares.use(
+        async (
+          req: import('http').IncomingMessage,
+          res: import('http').ServerResponse,
+          next: () => void
+        ) => {
+          if (req.method !== 'POST' || !req.url?.startsWith('/api/chat')) return next();
+          try {
+            const bodyStr = await readBody(req);
+            const body = JSON.parse(bodyStr || '{}');
+            const { toAiSdkStyleStream } = await import('../../packages/agent/dist/index.mjs');
+            const messages = Array.isArray(body?.messages) ? body.messages : [];
+            const data = body?.data ?? undefined;
+            const stream = await toAiSdkStyleStream(messages, data);
+
+            res.writeHead(200, {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': 'no-store',
+            });
+            for await (const chunk of stream) {
+              res.write(`${JSON.stringify(chunk)}\n`);
+            }
+            res.end();
+          } catch (_e) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: 'preview chat route failed' }));
+          }
+        }
+      );
+    },
+  };
+}
+
+async function readBody(req: import('http').IncomingMessage): Promise<string> {
+  return await new Promise<string>((resolve) => {
+    let data = '';
+    req.on('data', (chunk: Buffer) => {
+      data += chunk;
+    });
+    req.on('end', () => resolve(data));
+  });
+}

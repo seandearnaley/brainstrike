@@ -23,6 +23,7 @@
     "serve-static": "serve dist -p 8080"
   },
   "dependencies": {
+    "zod": "^3.25.76",
     "@brainstrike/app-shell": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
