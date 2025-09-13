@@ -1,9 +1,14 @@
 import { HomePage } from './page-objects/home-page';
 import { expect, test } from './utils/electron-boot-once';
 import { getAppPath, getAppVersion } from './utils/electron-helpers';
+import { resetToAppHome } from './utils/test-reset';
 
 test.describe('Electron App Launch', () => {
   let homePage: HomePage;
+
+  test.beforeEach(async ({ electronWindow }) => {
+    await resetToAppHome(electronWindow);
+  });
 
   test('should launch successfully and show main window', async ({ electronWindow }) => {
     // Verify the app window is visible

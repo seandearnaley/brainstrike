@@ -376,11 +376,11 @@ jobs:
           NODE_ENV: "test"
           CI: "true"
 
-      - name: Upload blob report
+      - name: Upload blob report (desktop shard)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-blob-report
+          name: desktop-blob-report-${{ matrix.shardIndex }}
           path: apps/desktop/blob-report
           retention-days: 1
 

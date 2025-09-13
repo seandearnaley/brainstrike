@@ -1,11 +1,13 @@
 import { expect, test } from './utils/electron-boot-once';
 import type { ElectronAppContext } from './utils/electron-helpers';
 import { mockFileSystemOperations } from './utils/electron-helpers';
+import { resetToAppHome } from './utils/test-reset';
 
 test.describe('File System Integration (A)', () => {
   let appContext: ElectronAppContext;
 
   test.beforeEach(async ({ electronWindow, electronApp }) => {
+    await resetToAppHome(electronWindow);
     await mockFileSystemOperations(electronWindow);
     appContext = { app: electronApp, window: electronWindow } as ElectronAppContext;
   });

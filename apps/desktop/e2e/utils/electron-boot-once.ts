@@ -37,7 +37,11 @@ base.afterAll(async () => {
   if (appRef && windowRef) {
     try {
       await closeElectronApp({ app: appRef, window: windowRef });
-    } catch {}
+    } catch (error) {
+      // Log cleanup errors to aid debugging (non-fatal)
+      // eslint-disable-next-line no-console
+      console.warn('Failed to cleanup Electron app:', error);
+    }
   }
   appRef = null;
   windowRef = null;

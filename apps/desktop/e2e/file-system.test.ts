@@ -2,12 +2,14 @@ import { HomePage } from './page-objects/home-page';
 import { expect, test } from './utils/electron-boot-once';
 import type { ElectronAppContext } from './utils/electron-helpers';
 import { mockFileSystemOperations } from './utils/electron-helpers';
+import { resetToAppHome } from './utils/test-reset';
 
 test.describe('File System Integration', () => {
   let appContext: ElectronAppContext;
   let homePage: HomePage;
 
   test.beforeEach(async ({ electronWindow, electronApp }) => {
+    await resetToAppHome(electronWindow);
     // Mock file system operations to prevent native dialogs
     await mockFileSystemOperations(electronWindow);
     homePage = new HomePage(electronWindow);
