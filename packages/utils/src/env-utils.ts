@@ -34,7 +34,7 @@ export function isDevEnv(): boolean {
   }
 
   // Fallback to Node.js process.env (server/tests) - check if process exists first
-  if (typeof process !== 'undefined' && process.env) {
+  if (process?.env) {
     return process.env[envKey] === 'development';
   }
 

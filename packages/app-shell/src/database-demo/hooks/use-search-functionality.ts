@@ -240,7 +240,7 @@ function getDefaultSearchThreshold(): number {
     try {
       // Node-style
       raw = (
-        typeof process !== 'undefined' && process.env
+        process?.env
           ? process.env['SEARCH_DEFAULT_THRESHOLD'] ||
             process.env['BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD']
           : undefined

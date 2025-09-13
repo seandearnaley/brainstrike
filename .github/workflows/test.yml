@@ -306,13 +306,18 @@ jobs:
 
   # Desktop E2E tests
   desktop-e2e:
-    name: Desktop E2E Tests
+    name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
       TURBO_CACHE_DIR: .turbo
+    strategy:
+      fail-fast: false
+      matrix:
+        shardIndex: [1, 2]
+        shardTotal: [2]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -345,13 +350,28 @@ jobs:
       - name: Install Playwright for Electron (no browsers needed)
         run: pnpm exec playwright install-deps
 
-      - name: Build desktop application
-        run: pnpm run build --filter @brainstrike/desktop
+      - name: Cache desktop dist
+        uses: actions/cache@v4
+        with:
+          path: apps/desktop/dist
+          key: ${{ runner.os }}-desktop-dist-${{ hashFiles('apps/desktop/**', '!apps/desktop/dist/**', 'pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-desktop-dist-
 
-      - name: Run Desktop E2E tests
+      - name: Build desktop application (if cache miss)
         run: |
+          if [ ! -d "apps/desktop/dist" ] || [ -z "$(ls -A apps/desktop/dist)" ]; then
+            pnpm run build --filter @brainstrike/desktop
+          else
+            echo "Using cached desktop dist/"
+          fi
+
+      - name: Start Xvfb and run Desktop E2E tests (shard)
+        run: |
+          Xvfb :99 -screen 0 1280x960x24 -nolisten tcp &
+          export DISPLAY=:99
           cd apps/desktop
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test
+          pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"

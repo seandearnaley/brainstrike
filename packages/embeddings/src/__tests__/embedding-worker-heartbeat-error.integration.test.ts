@@ -47,7 +47,7 @@ describe('embedding-worker: heartbeat error logging', () => {
 
   beforeEach(async () => {
     // @ts-expect-error - process.env is not available in all environments
-    if (typeof process !== 'undefined' && process.env) {
+    if (process?.env) {
       process.env.DISABLE_VECTOR_EXTENSION = 'true';
     }
     db = await wasmLoader.createPGlite('memory://embedding-worker-hb');
