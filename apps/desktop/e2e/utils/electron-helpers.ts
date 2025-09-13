@@ -108,11 +108,11 @@ async function getFirstWindowWithRecovery(
   launchOptions: Parameters<typeof electron.launch>[0]
 ): Promise<{ app: ElectronApplication; window: Page }> {
   let app = initialApp;
-  const maxRetries = 3;
+  const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
+  const maxRetries = isCI ? 4 : 3;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      await delayForAttempt(attempt, maxRetries);
-      const window = await app.firstWindow();
+      const window = await waitForFirstWindow(app, attempt);
       console.log('✅ Successfully got first window');
       return { app, window };
     } catch (error) {
@@ -131,6 +131,13 @@ async function getFirstWindowWithRecovery(
   throw new Error('No window found after launching Electron app');
 }
 
+async function waitForFirstWindow(app: ElectronApplication, attempt: number): Promise<Page> {
+  await delayForAttempt(attempt, 3);
+  const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
+  const timeoutMs = isCI ? 60000 : 30000;
+  return await app.waitForEvent('window', { timeout: timeoutMs });
+}
+
 function pickAvailableWindow(app: ElectronApplication): Page | undefined {
   const windows = app.windows();
   console.log(`🔍 Available windows: ${windows.length}`);
@@ -138,8 +145,16 @@ function pickAvailableWindow(app: ElectronApplication): Page | undefined {
 }
 
 async function delayForAttempt(attempt: number, maxRetries: number): Promise<void> {
-  if (attempt === 0) return;
-  const waitMs = Math.min(2000 + attempt * 2000, 8000);
+  const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
+  if (attempt === 0) {
+    // Give Electron a brief moment to create the initial BrowserWindow (especially in CI)
+    const initialMs = isCI ? 1500 : 0;
+    if (!initialMs) return;
+    console.log(`⏳ Initial wait ${initialMs}ms for window creation...`);
+    await new Promise((r) => setTimeout(r, initialMs));
+    return;
+  }
+  const waitMs = Math.min(2000 + attempt * 2000, isCI ? 12000 : 8000);
   console.log(`🔄 Retry ${attempt}/${maxRetries} - waiting ${waitMs}ms for app init...`);
   await new Promise((r) => setTimeout(r, waitMs));
 }
