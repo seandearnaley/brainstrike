@@ -350,21 +350,8 @@ jobs:
       - name: Install Playwright for Electron (no browsers needed)
         run: pnpm exec playwright install-deps
 
-      - name: Cache desktop dist
-        uses: actions/cache@v4
-        with:
-          path: apps/desktop/dist
-          key: ${{ runner.os }}-desktop-dist-${{ hashFiles('apps/desktop/**', '!apps/desktop/dist/**', 'pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-desktop-dist-
-
-      - name: Build desktop application (if cache miss)
-        run: |
-          if [ ! -d "apps/desktop/dist" ] || [ -z "$(ls -A apps/desktop/dist)" ]; then
-            pnpm run build --filter @brainstrike/desktop
-          else
-            echo "Using cached desktop dist/"
-          fi
+      - name: Build desktop application
+        run: pnpm run build --filter @brainstrike/desktop
 
       - name: Run Desktop E2E tests (shard)
         run: |
