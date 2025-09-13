@@ -20,6 +20,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
 
   const launchOptions = createLaunchOptions(electronPath, mainPath);
   const app = await startElectron(launchOptions);
+  // Original working behavior: use firstWindow directly with a short backoff handled in recovery
   const { app: stableApp, window } = await getFirstWindowWithRecovery(app, launchOptions);
   await window.waitForLoadState('domcontentloaded');
   await setupDialogMocking(stableApp);

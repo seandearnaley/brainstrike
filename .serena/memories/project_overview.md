@@ -9,7 +9,7 @@ BrainStrike is a context management suite for LLMs, featuring both web and deskt
 - **Desktop**: Electron wrapper
 - **Styling**: Tailwind CSS v4
 - **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome 2.2.3
+- **Linting**: Biome 2.2.4
 - **Database**: PGLite (PostgreSQL in browser)
 - **Node**: v22+ required
 

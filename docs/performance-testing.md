@@ -54,6 +54,21 @@ const PERFORMANCE_THRESHOLDS = {
 
 ## Running Performance Tests
 
+Performance tests are isolated from functional E2E tests to speed up development and CI workflows. By default, `pnpm check` and CI runs exclude performance tests.
+
+### Quick Commands
+
+```bash
+# Run functional E2E tests only (default for pnpm check and CI)
+pnpm test:e2e:functional
+
+# Run performance tests on demand
+pnpm test:e2e:perf
+
+# Run all E2E tests (functional + performance)
+pnpm test:e2e:full-browsers
+```
+
 ### Local Development
 
 ```bash
@@ -80,16 +95,18 @@ const PERFORMANCE_THRESHOLDS = {
 ```bash
 cd apps/web
 
-# Run all performance tests (organized in performance/ directory)
+# Run performance tests only (isolated from functional tests)
 pnpm exec playwright test --project=performance
 
-# Run all functional tests (excluding performance tests)
+# Run functional tests only (default behavior)
 pnpm exec playwright test --project=functional
 
 # Run specific performance test files
 pnpm exec playwright test performance/benchmarks.test.ts
 pnpm exec playwright test performance/memory-usage.test.ts
 pnpm exec playwright test performance/tree-rendering.test.ts
+pnpm exec playwright test performance/real-world-performance.test.ts
+pnpm exec playwright test performance/memory-profiling-test.test.ts
 
 # Run with headed browser for debugging
 pnpm exec playwright test performance/benchmarks.test.ts --headed
@@ -103,22 +120,51 @@ PLAYWRIGHT_FULL_BROWSER_COVERAGE=true pnpm exec playwright test --project=perfor
 
 ## CI Integration
 
-### GitHub Actions Workflow
+### Functional vs Performance Test Separation
 
-The `.github/workflows/performance-monitoring.yml` workflow:
+**Default CI Behavior (Fast):**
+- Regular PR builds run only functional E2E tests (`--project=functional`)
+- Performance tests are excluded to speed up CI and reduce resource usage
+- E2E tests are sharded across 4 parallel jobs for faster execution
 
-- **Triggers**: Push to main, PRs, daily scheduled runs
-- **Baseline Management**: Maintains baseline metrics on main branch
-- **PR Comments**: Automatically comments performance results on PRs
-- **Artifact Storage**: Saves metrics for historical tracking
-- **Threshold Enforcement**: Fails builds if thresholds are exceeded
+**Performance Test Execution:**
+- **Scheduled**: Daily at 07:23 UTC via `.github/workflows/performance.yml`
+- **On-Demand**: Manual workflow dispatch in GitHub Actions
+- **PR Labels**: Add `run-perf` or `run-performance-tests` label to any PR to trigger performance tests
 
-### Workflow Features
+### GitHub Actions Workflows
 
-1. **Baseline Comparison**: Compares PR performance against main branch
-2. **Regression Detection**: Identifies performance regressions automatically  
-3. **Historical Tracking**: Stores metrics as artifacts
-4. **PR Feedback**: Provides detailed performance reports in PR comments
+**Main Test Workflow (`.github/workflows/test.yml`):**
+- Runs functional E2E tests only by default
+- Uses 4-way sharding for faster execution
+- Excludes performance tests to maintain fast feedback loops
+
+**Performance Workflow (`.github/workflows/performance.yml`):**
+- **Triggers**: 
+  - Daily scheduled runs (cron: '23 7 * * *')
+  - Manual workflow dispatch with optional project/grep filters
+  - Pull requests with `run-perf` or `run-performance-tests` labels
+- **Features**:
+  - Runs isolated performance test suite
+  - Supports custom project selection (default: 'performance')
+  - Optional test filtering via grep pattern
+  - Saves performance artifacts for 7 days
+### How to Run Performance Tests on PRs
+
+1. **Add Label Method**: Add the `run-perf` or `run-performance-tests` label to your PR
+2. **Manual Trigger**: Go to Actions → "Performance E2E" → "Run workflow" and select your branch
+3. **Custom Filtering**: Use workflow dispatch with grep patterns to run specific tests
+
+### Performance Test Organization
+
+All performance tests are located in `apps/web/e2e/performance/`:
+- `benchmarks.test.ts` - Main benchmark suite with thresholds
+- `memory-usage.test.ts` - Memory leak and usage tests  
+- `tree-rendering.test.ts` - Tree-specific performance tests
+- `regression.test.ts` - Performance regression detection
+- `validation.test.ts` - Simple validation tests
+- `real-world-performance.test.ts` - Real-world performance validation
+- `memory-profiling-test.test.ts` - Comprehensive memory profiling
 
 ## Metrics Collected
 
