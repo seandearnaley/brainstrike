@@ -1,0 +1,50 @@
+{
+  "name": "@brainstrike/agent",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "files": [
+    "dist/**"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
+    "dev": "tsup --watch",
+    "clean": "rimraf dist",
+    "lint": "pnpm -w lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "pnpm -w test:coverage"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "^1.0.0",
+    "@mastra/core": "^0.6.0",
+    "ai": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "rimraf": "^6.0.1",
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "turbo": {
+    "outputs": [
+      "dist/**"
+    ]
+  }
+}

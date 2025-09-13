@@ -53,6 +53,9 @@
       "path": "packages/build-utils"
     },
     {
+      "path": "packages/agent"
+    },
+    {
       "path": "apps/web"
     },
     {
