@@ -33,9 +33,12 @@ export function isDevEnv(): boolean {
     return viteMode === 'development';
   }
 
-  // Fallback to Node.js process.env (server/tests) - check if process exists first
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[envKey] === 'development';
+  // Fallback to Node.js process.env (server/tests) - check if process exists first without
+  // triggering a ReferenceError in browser builds
+  const envObj = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
+    ?.env;
+  if (envObj) {
+    return envObj[envKey] === 'development';
   }
 
   // Default to false if neither environment is available

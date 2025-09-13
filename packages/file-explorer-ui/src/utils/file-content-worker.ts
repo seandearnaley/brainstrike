@@ -5,7 +5,7 @@ import {
 } from '@brainstrike/workers/file-content-worker';
 
 export function getDefaultConcurrency(): number {
-  if (typeof navigator !== 'undefined' && navigator.hardwareConcurrency) {
+  if (navigator?.hardwareConcurrency) {
     return Math.max(5, Math.min(50, navigator.hardwareConcurrency * 2));
   }
   return 20;

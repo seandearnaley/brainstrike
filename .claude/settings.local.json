@@ -39,7 +39,9 @@
       "Bash(pnpm -s run lint-all)",
       "Bash(pnpm -w run lint-all)",
       "Bash(npx vitest run:*)",
-      "Bash(pnpm -w build --filter=@brainstrike/file-explorer-ui)"
+      "Bash(pnpm -w build --filter=@brainstrike/file-explorer-ui)",
+      "Bash(pnpm -w type-check --filter=web)",
+      "Bash(pnpm -w type-check --filter=@brainstrike/web)"
     ],
     "deny": [],
     "ask": []

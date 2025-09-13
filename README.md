@@ -73,10 +73,22 @@ Web UX notes:
 - `pnpm type-check`: Run TypeScript checks across the repo.
 - `pnpm lint`: Biome lint (safe fixes on) and `pnpm format` to write formatting.
 - `pnpm test`: Vitest unit/integration tests through Turborepo.
-- `pnpm test:e2e`: Playwright E2E (web). Desktop E2E: `pnpm test:e2e:desktop`.
+- `pnpm test:e2e`: Playwright E2E (web, functional tests only). Desktop E2E: `pnpm test:e2e:desktop`.
+- `pnpm test:e2e:perf`: Run performance E2E tests on demand.
 - `pnpm clean`: Clean outputs via Turborepo.
 
 Scope to a package with `--filter`, e.g. `pnpm test --filter @brainstrike/utils`.
+
+### Performance Test Isolation
+
+Performance tests are separated from functional E2E tests to speed up development:
+
+- **Default behavior**: `pnpm check` and CI run functional tests only
+- **Performance tests**: Run on-demand via `pnpm test:e2e:perf` or scheduled daily
+- **PR performance testing**: Add `run-perf` label to any PR to trigger performance tests
+- **Manual execution**: GitHub Actions → "Performance E2E" → Run workflow
+
+See `docs/performance-testing.md` for detailed documentation.
 
 ---
 

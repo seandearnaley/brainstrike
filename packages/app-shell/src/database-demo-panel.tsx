@@ -267,7 +267,7 @@ export function DatabaseDemoPanel() {
     try {
       // biome-ignore lint/suspicious/noExplicitAny: window API comes from preload
       const w = window as any;
-      const hasIpcPing = typeof w !== 'undefined' && w?.electronAPI?.db?.ping;
+      const hasIpcPing = w?.electronAPI?.db?.ping;
       if (hasIpcPing) {
         void (async () => {
           try {
@@ -284,7 +284,7 @@ export function DatabaseDemoPanel() {
           }
         })();
       }
-      const hasIpcTest = typeof w !== 'undefined' && w?.electronAPI?.db?.test;
+      const hasIpcTest = w?.electronAPI?.db?.test;
       if (hasIpcTest) {
         void (async () => {
           try {

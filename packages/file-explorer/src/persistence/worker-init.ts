@@ -25,7 +25,7 @@ function isElectronEnvironment(): boolean {
   return (
     (typeof window !== 'undefined' &&
       (window as { process?: { type?: string } }).process?.type === 'renderer') ||
-    (typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron')) ||
+    navigator?.userAgent.toLowerCase().includes('electron') ||
     (typeof globalThis !== 'undefined' && ('require' in globalThis || 'electron' in globalThis)) ||
     (typeof process !== 'undefined' && process.versions?.[electronKey] !== undefined)
   );

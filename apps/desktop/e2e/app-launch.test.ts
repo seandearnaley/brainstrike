@@ -76,6 +76,7 @@ test.describe('Electron App Launch', () => {
     expect(windowBounds?.height).toBeGreaterThanOrEqual(600);
 
     // Verify content is still visible after resize
+    homePage = new HomePage(appContext.window);
     await homePage.shouldBeVisible();
   });
 
@@ -122,6 +123,7 @@ test.describe('Electron App Launch', () => {
 
   test('should handle app interactions', async () => {
     // Verify content is accessible and interactive
+    homePage = new HomePage(appContext.window);
     await homePage.shouldBeVisible();
 
     // Test basic interaction with the app
