@@ -35,3 +35,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Database path (legacy - kept for compatibility)
   getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
 });
+
+// Secure Secrets API
+contextBridge.exposeInMainWorld('secrets', {
+  saveKey: (provider: string, value: string) => ipcRenderer.invoke('secrets:save', provider, value),
+  getKey: (provider: string) => ipcRenderer.invoke('secrets:get', provider),
+  deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
+  list: () => ipcRenderer.invoke('secrets:list'),
+});
+
+// Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
+contextBridge.exposeInMainWorld('agent', {
+  chat: (messages: unknown[], runtime?: unknown) =>
+    ipcRenderer.invoke('agent:chat', messages, runtime),
+});

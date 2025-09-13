@@ -16,7 +16,11 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "exactOptionalPropertyTypes": false,
-    "types": ["node", "electron", "vite/client"]
+    "types": ["node", "electron", "vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
+    }
   },
   "include": ["src/**/*", "index.html"],
   "exclude": ["node_modules", "dist", "e2e/**/*", "playwright.config.ts"],

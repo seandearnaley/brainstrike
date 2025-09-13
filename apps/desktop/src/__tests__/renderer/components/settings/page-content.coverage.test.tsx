@@ -23,8 +23,10 @@ describe('SettingsPageContent (coverage)', () => {
     expect(
       screen.getByRole('heading', { name: 'Desktop Preferences', level: 2 })
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/Desktop-specific settings will be implemented here/i)
-    ).toBeInTheDocument();
+    // New LLM keys settings section
+    expect(screen.getByText('LLM Provider Keys')).toBeInTheDocument();
+    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
+    expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+    expect(screen.getByText('Saved Providers')).toBeInTheDocument();
   });
 });

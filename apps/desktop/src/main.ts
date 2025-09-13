@@ -7,7 +7,10 @@ import { app, BrowserWindow, dialog, Menu } from 'electron';
 import ElectronStore from 'electron-store';
 import { createWindow } from './create-window';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
+import { registerSecretsIpcHandlers } from './ipc-secrets';
+import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 
 const logger = createLogger('DesktopMain');
@@ -37,6 +40,8 @@ const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
 
 logger.info('Setting up IPC handlers...');
 registerIpcHandlers(fileSystem, storage, store);
+registerSecretsIpcHandlers(createSecretsService());
+registerAgentIpcHandlers();
 logger.info('IPC handlers registered successfully');
 
 let stopEmbeddingWorker: null | (() => Promise<void>) = null;

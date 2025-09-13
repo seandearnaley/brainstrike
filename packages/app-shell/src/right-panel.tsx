@@ -1,3 +1,10 @@
+import type {
+  AgentMessage,
+  CancellableIterable,
+  ChatTransport,
+  RuntimeData,
+  StreamChunk,
+} from '@brainstrike/ui';
 import {
   Card,
   CardContent,
@@ -83,7 +90,7 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                <ChatPanel />
+                <ChatPanel {...(desktopTransport ? { transport: desktopTransport } : {})} />
                 <div>
                   <h4 className="font-medium mb-2">Basic Properties</h4>
                   <p className="text-muted-foreground leading-relaxed">
@@ -303,3 +310,36 @@ export function RightPanel() {
     </div>
   );
 }
+// Desktop override: if window.agent.chat exists, provide a transport that
+// calls the local agent via IPC and pseudo-streams the returned chunks.
+const desktopTransport: ChatTransport | undefined = window?.agent?.chat
+  ? async (messages: AgentMessage[], runtime?: RuntimeData) => {
+      let stopped = false;
+      try {
+        const chunks = (await window.agent.chat(messages, runtime)) as StreamChunk[];
+        const gen = (async function* (): AsyncGenerator<StreamChunk> {
+          for (const c of chunks) {
+            if (stopped) break;
+            yield c;
+            // Yield microtask to keep UI responsive
+            // eslint-disable-next-line no-await-in-loop
+            await Promise.resolve();
+          }
+        })();
+        const cancellableGen = gen as CancellableIterable<StreamChunk>;
+        cancellableGen.cancel = () => {
+          stopped = true;
+        };
+        return cancellableGen;
+      } catch (err) {
+        console.warn('Desktop transport failed:', err);
+        // Return empty iterator on failure
+        const empty = (async function* (): AsyncGenerator<StreamChunk> {})();
+        const cancellableEmpty = empty as CancellableIterable<StreamChunk>;
+        cancellableEmpty.cancel = () => {
+          stopped = true;
+        };
+        return cancellableEmpty;
+      }
+    }
+  : undefined;

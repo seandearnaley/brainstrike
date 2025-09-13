@@ -7,11 +7,6 @@ import {
   waitForAppReady,
 } from './utils/electron-helpers';
 
-// Helper function to safely get error message
-function _getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 test.describe('IPC Communication', () => {
   let appContext: ElectronAppContext;
 

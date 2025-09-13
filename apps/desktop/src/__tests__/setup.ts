@@ -32,6 +32,32 @@ Object.defineProperty(window, 'electronAPI', {
   writable: true,
 });
 
+// Mock window.secrets
+const mockSecrets = {
+  saveKey: vi.fn().mockResolvedValue(true as const),
+  getKey: vi.fn().mockResolvedValue(null as string | null),
+  deleteKey: vi.fn().mockResolvedValue(true),
+  list: vi.fn().mockResolvedValue([] as string[]),
+};
+Object.defineProperty(window, 'secrets', {
+  value: mockSecrets,
+  writable: true,
+});
+
+// Mock window.agent
+const mockAgent = {
+  chat: vi.fn().mockResolvedValue([
+    { type: 'tool-event', name: 'plan', status: 'start' },
+    { type: 'text-delta', value: 'Hello' },
+    { type: 'text-delta', value: ' world' },
+    { type: 'tool-event', name: 'plan', status: 'success' },
+  ]),
+};
+Object.defineProperty(window, 'agent', {
+  value: mockAgent,
+  writable: true,
+});
+
 // Mock react-router-dom for components that use it
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');

@@ -45,6 +45,12 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Wired `ChatPanel` into the Right Panel Props tab, replacing the stub.
   - Added unit tests: route schema/streaming (`apps/web`), ChatPanel streaming (`packages/ui`).
   - Ran type-check, lint/format, build, and fast tests — all green.
+  - Added E2E test `apps/web/e2e/assistant-panel.test.ts`; ensured right panel shim is handled; all web E2E now green locally.
+  - Desktop Phase 3 in progress: implemented secrets service (`safeStorage` + `electron-store`), IPC handlers, preload bridge, renderer Settings UI for provider keys, and unit tests; added desktop E2E (`secrets-settings.test.ts`).
+  - Added local agent IPC (`agent:chat`) with desktop transport in Right Panel; preload bridge unit tests added; E2E `agent-ipc.test.ts` added (launch depends on env).
+  - Polished ChatPanel: added Stop/Cancel, Retry, code block rendering with Copy button, and tool-event cards (`data-testid="tool-part"`).
+  - Implemented cancellable transports: web transport uses `AbortController`; desktop IPC transport exposes `cancel()` to stop pseudo-stream.
+  - Added desktop E2E `assistant-panel-interactions.desktop.test.ts` to exercise Stop, Retry, and code block copy (uses Electron clipboard to verify copy). Desktop E2E still depends on local Electron launch/xvfb.
 
 ---
 
@@ -80,25 +86,28 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - [x] Keep message list reactive; state preserved with panel mount
 - Validation
   - [x] Web unit/integration tests for route and UI streaming
-  - [ ] E2E: basic send/stream/stop, retry, copy, code block rendering
-  - [ ] Smoke: long-stream stability, tab switch persistence
+  - [x] E2E: basic send/stream; tab switch persistence
+  - [ ] E2E: stop, retry, copy, code block rendering (web) — desktop covered
+  - [x] Smoke: tab switch persistence
+  - [ ] Smoke: long-stream stability
 
 ---
 
 ### Phase 3 — Desktop integration (cut: secrets + local agent)
 - [ ] Secrets (no .env in renderer)
-  - [ ] Main: implement `safeStorage` + `electron-store|electron-settings`
-  - [ ] Preload: `contextIsolation: true`, `nodeIntegration: false`, narrow IPC surface
-  - [ ] Renderer settings screen to add/edit/delete provider keys
+  - [x] Main: implement `safeStorage` + `electron-store|electron-settings`
+  - [x] Preload: `contextIsolation: true`, `nodeIntegration: false`, narrow IPC surface
+  - [x] Renderer settings screen to add/edit/delete provider keys
 - [ ] Local invocation
-  - [ ] Option A: IPC invoke agent directly in main
+  - [x] Option A: IPC invoke agent directly in main
   - [ ] Option B: lightweight local HTTP (127.0.0.1) only from app
 - [ ] Local-first runtimes (optional toggles)
   - [ ] Provider select: Cloud / Ollama / LM Studio / WebLLM
   - [ ] Health checks and model availability UI
 - Validation
-  - [ ] Electron unit tests for preload bridge and encryption/decryption
-  - [ ] Desktop e2e (headless): settings save/retrieve, send chat
+  - [x] Electron unit tests for encryption/decryption (secrets service)
+  - [x] Electron unit tests for preload bridge
+  - [x] Desktop e2e (headless): settings save/retrieve, send chat, assistant Stop/Retry/Copy flows (tests added; launch depends on env)
   - [ ] Smoke: biometric/OS prompt (if enabled) and restart persistence
 
 ---
@@ -188,9 +197,9 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 
 ### Cut lines and validation gates
 - Cut A (Phase 1):
-  - [ ] packages/agent builds; echo-stream works in tests
+  - [x] packages/agent builds; echo-stream works in tests
 - Cut B (Phase 2):
-  - [ ] Web route streams; basic UI sends/receives; e2e green
+  - [x] Web route streams; basic UI sends/receives; e2e green
 - Cut C (Phase 3):
   - [ ] Desktop secrets OK; local chat works; e2e green
 - Cut D (Phase 4):

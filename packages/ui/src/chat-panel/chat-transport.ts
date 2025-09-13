@@ -27,31 +27,55 @@ export interface RuntimeData {
   mcpEnabled?: boolean;
 }
 
+// Transport can optionally expose a `cancel()` to support Stop in UI.
+export type CancellableIterable<T> = AsyncIterable<T> & { cancel?: () => void };
+
 export type ChatTransport = (
   messages: AgentMessage[],
   runtime?: RuntimeData
-) => AsyncIterable<StreamChunk> | Promise<AsyncIterable<StreamChunk>>;
+) => CancellableIterable<StreamChunk> | Promise<CancellableIterable<StreamChunk>>;
 
-export async function* defaultWebTransport(
+export async function defaultWebTransport(
   messages: AgentMessage[],
   runtime?: RuntimeData
-): AsyncIterable<StreamChunk> {
+): Promise<CancellableIterable<StreamChunk>> {
+  const ctrl = new AbortController();
   const res = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages, data: runtime ?? {} }),
+    signal: ctrl.signal,
   });
   if (!res.ok || !res.body) {
     throw new Error(`Chat transport error: ${res.status}`);
   }
   const reader = res.body.getReader();
-  try {
-    yield* readJsonLines(reader);
-  } finally {
+  let cancelled = false;
+
+  async function* gen(): AsyncIterable<StreamChunk> {
     try {
-      reader.releaseLock();
-    } catch {}
+      for await (const item of readJsonLines(reader)) {
+        if (cancelled) break;
+        yield item as StreamChunk;
+      }
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {}
+    }
   }
+
+  const iterable = gen() as CancellableIterable<StreamChunk>;
+  iterable.cancel = () => {
+    cancelled = true;
+    try {
+      reader.cancel().catch(() => {});
+    } catch {}
+    try {
+      ctrl.abort();
+    } catch {}
+  };
+  return iterable;
 }
 
 async function* readJsonLines(reader: ReadableStreamDefaultReader<Uint8Array>) {

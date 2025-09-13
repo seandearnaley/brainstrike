@@ -1,12 +1,21 @@
 import { expect, test } from '@playwright/test';
+import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Assistant panel', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
+    await waitForAppLoad(page);
   });
 
   test('send message and stream response; persists across tab switches', async ({ page }) => {
-    // Ensure chat panel is visible in Props tab by default
+    // Ensure right panel is visible (it's hidden by default in our layout)
+    const elements = getPanelElements(page);
+    if (await elements.showRightPanelShim.isVisible()) {
+      await elements.showRightPanelShim.click();
+      await expect(elements.rightPanel).toBeVisible();
+    }
+
+    // Chat panel should now be visible within Props tab
     const panel = page.getByTestId('chat-panel');
     await expect(panel).toBeVisible();
 
