@@ -1,19 +1,29 @@
+import { expect, test } from '@playwright/test';
 import { HomePage } from './page-objects/home-page';
-import { expect, test } from './utils/electron-boot-once';
 import type { ElectronAppContext } from './utils/electron-helpers';
-import { mockFileSystemOperations } from './utils/electron-helpers';
-import { resetToAppHome } from './utils/test-reset';
+import {
+  closeElectronApp,
+  launchElectronApp,
+  mockFileSystemOperations,
+  waitForAppReady,
+} from './utils/electron-helpers';
 
 test.describe('File System Integration', () => {
   let appContext: ElectronAppContext;
   let homePage: HomePage;
 
-  test.beforeEach(async ({ electronWindow, electronApp }) => {
-    await resetToAppHome(electronWindow);
+  test.beforeEach(async () => {
+    appContext = await launchElectronApp();
+    await waitForAppReady(appContext.window);
     // Mock file system operations to prevent native dialogs
-    await mockFileSystemOperations(electronWindow);
-    homePage = new HomePage(electronWindow);
-    appContext = { app: electronApp, window: electronWindow } as ElectronAppContext;
+    await mockFileSystemOperations(appContext.window);
+    homePage = new HomePage(appContext.window);
+  });
+
+  test.afterEach(async () => {
+    if (appContext) {
+      await closeElectronApp(appContext);
+    }
   });
 
   test('should handle file system access permissions', async () => {
@@ -140,14 +150,14 @@ test.describe('File System Integration', () => {
     }
   });
 
-  test('should maintain file system state across app restart', async ({ electronWindow }) => {
+  test('should maintain file system state across app restart', async () => {
     // Increase timeout for this test since it involves app restart
     test.setTimeout(120000); // 2 minutes instead of default 60 seconds
 
     // Test state persistence for file system operations
 
     // Perform some file system operation (if available)
-    const fileSystemButtons = electronWindow.getByRole('button').filter({
+    const fileSystemButtons = appContext.window.getByRole('button').filter({
       hasText: /browse|open|select/i,
     });
 
@@ -158,28 +168,31 @@ test.describe('File System Integration', () => {
         .catch(() => false)
     ) {
       await fileSystemButtons.first().click();
-      await expect(electronWindow.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
+      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
     }
 
-    // No per-test app context under boot-once fixture
+    // Store reference to current app context for proper cleanup
+    const originalAppContext = appContext;
 
     // Close the app with extended cleanup time
-    // Boot-once fixture keeps the app session; skip actual close/relaunch here
+    await closeElectronApp(originalAppContext);
 
     // Add extra wait time to ensure complete cleanup before restart
     // This prevents resource conflicts and port binding issues
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 3000));
 
     try {
       // Restart the app with retry logic
-      homePage = new HomePage(electronWindow);
+      appContext = await launchElectronApp();
+      await waitForAppReady(appContext.window);
+      homePage = new HomePage(appContext.window);
 
       // Verify the app starts correctly after file system operations
       await homePage.shouldBeVisible();
 
       // Check that any persistent file system state is maintained
       // This depends on your app's implementation
-      const fileExplorer = electronWindow.getByTestId('file-explorer-panel');
+      const fileExplorer = appContext.window.getByTestId('file-explorer-panel');
       if (await fileExplorer.isVisible().catch(() => false)) {
         // File explorer should be functional after restart
         await expect(fileExplorer).toBeVisible();
@@ -187,7 +200,13 @@ test.describe('File System Integration', () => {
     } catch (error) {
       console.error('❌ Failed to restart app in test:', error);
       // If restart fails, ensure we don't leave a dangling app context
-      // No per-test app to cleanup under boot-once fixture
+      if (appContext && appContext !== originalAppContext) {
+        try {
+          await closeElectronApp(appContext);
+        } catch (cleanupError) {
+          console.error('❌ Failed to cleanup app after restart failure:', cleanupError);
+        }
+      }
       throw error;
     }
   });
