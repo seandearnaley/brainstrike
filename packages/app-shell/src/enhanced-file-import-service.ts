@@ -53,7 +53,7 @@ export function useEnhancedFileImportService(
     try {
       // Prefer explicit env; default disabled
       // @ts-expect-error runtime env may be undefined in browser builds
-      if (typeof process !== 'undefined' && process?.env?.EMBED_QUEUE_ENABLED) {
+      if (process?.env?.EMBED_QUEUE_ENABLED) {
         // @ts-expect-error
         return String(process.env.EMBED_QUEUE_ENABLED).toLowerCase() === 'true';
       }

@@ -1,0 +1,107 @@
+name: Performance E2E
+
+on:
+  schedule:
+    - cron: '23 7 * * *' # Daily at 07:23 UTC
+  pull_request:
+    types: [labeled, synchronize, opened, reopened]
+    branches:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      project:
+        description: 'Playwright project to run'
+        required: false
+        default: 'performance'
+      grep:
+        description: 'Optional grep to filter tests'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  web-perf:
+    name: Web Performance Tests
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      ( github.event_name == 'pull_request' &&
+        ( contains(join(github.event.pull_request.labels.*.name, ','), 'run-perf') ||
+          contains(join(github.event.pull_request.labels.*.name, ','), 'run-performance-tests') ) )
+    runs-on: ubuntu-latest
+    env:
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.14.0'
+          run_install: |
+            - args: [--frozen-lockfile]
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Cache Turborepo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-v3-
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(node -e "console.log(require('./apps/web/package.json').devDependencies['@playwright/test'])")" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers and dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Install Playwright system dependencies only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install-deps chromium
+
+      - name: Build application
+        run: |
+          TAILWIND_DEBUG=1 pnpm run build --filter @brainstrike/web
+
+      - name: Run performance tests
+        run: |
+          cd apps/web
+          PROJECT=${{ github.event.inputs.project || 'performance' }}
+          GREP=${{ github.event.inputs.grep || '' }}
+          if [ -n "$GREP" ]; then
+            pnpm exec playwright test --project="$PROJECT" -g "$GREP"
+          else
+            pnpm exec playwright test --project="$PROJECT"
+          fi
+        env:
+          NODE_ENV: "production"
+          PORT: "8080"
+          BASE_URL: "http://127.0.0.1:8080"
+
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-blob-report
+          path: apps/web/blob-report
+          retention-days: 7
+
+

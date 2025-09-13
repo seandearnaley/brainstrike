@@ -36,7 +36,7 @@ test.describe('File System Integration', () => {
 
       // In a real scenario, this might open a file dialog
       // For testing, we can verify the request was made
-      await appContext.window.waitForTimeout(1000);
+      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
 
       // Verify no errors occurred
       const errorMessage = appContext.window.getByText(/error/i);
@@ -71,7 +71,7 @@ test.describe('File System Integration', () => {
       await fileButtons.first().click();
 
       // Wait for any file operations to complete
-      await appContext.window.waitForTimeout(1000);
+      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
 
       // Verify no critical errors
       const criticalError = appContext.window.getByText(/critical error|fatal/i);
@@ -168,7 +168,7 @@ test.describe('File System Integration', () => {
         .catch(() => false)
     ) {
       await fileSystemButtons.first().click();
-      await appContext.window.waitForTimeout(1000);
+      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
     }
 
     // Store reference to current app context for proper cleanup

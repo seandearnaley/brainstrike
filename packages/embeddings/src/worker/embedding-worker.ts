@@ -128,7 +128,7 @@ async function updateChunkEmbedding(
 function resolveModelKey(fromOptions?: string): string {
   const env = (() => {
     try {
-      if (typeof process !== 'undefined' && process.env && process.env['EMBED_MODEL_KEY']) {
+      if (process?.env?.['EMBED_MODEL_KEY']) {
         return String(process.env['EMBED_MODEL_KEY']);
       }
       return '';
@@ -141,7 +141,7 @@ function resolveModelKey(fromOptions?: string): string {
 
 function resolveBooleanEnv(key: string, defaultValue = false): boolean {
   try {
-    if (typeof process !== 'undefined' && process.env) {
+    if (process?.env) {
       const v = process.env[key];
       return v ? String(v).toLowerCase() === 'true' : defaultValue;
     }

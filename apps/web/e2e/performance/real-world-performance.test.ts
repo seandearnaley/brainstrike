@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from '../utils/layout-helpers';
 
 declare const process: {
   env: Record<string, string | undefined>;
@@ -280,7 +280,7 @@ test.describe('Real-World Performance Validation', () => {
     }
 
     // Analyze memory growth pattern
-    const memoryGrowthRates = [];
+    const memoryGrowthRates = [] as number[];
     for (let i = 1; i < memoryReadings.length; i++) {
       const current = memoryReadings[i];
       const previous = memoryReadings[i - 1];
@@ -346,7 +346,7 @@ test.describe('Real-World Performance Validation', () => {
     console.log(`⏱️  Page load time: ${pageLoadTime}ms`);
 
     // Measure interaction responsiveness
-    const interactionTimes = [];
+    const interactionTimes = [] as number[];
 
     // Find interactive elements
     const buttons = page.locator('button').filter({ hasText: /select|open|click|start/i });

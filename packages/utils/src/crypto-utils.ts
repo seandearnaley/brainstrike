@@ -7,7 +7,7 @@
  */
 export function generateUUID(): string {
   // Try crypto.randomUUID if available (modern browsers and Node.js 16+)
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+  if (crypto?.randomUUID) {
     return crypto.randomUUID();
   }
 
@@ -24,7 +24,7 @@ export function generateUUID(): string {
  */
 export async function generateContentHash(content: string): Promise<string> {
   // Try crypto.subtle if available (HTTPS contexts and modern Node.js)
-  if (typeof crypto !== 'undefined' && crypto.subtle && crypto.subtle.digest) {
+  if (crypto?.subtle?.digest) {
     try {
       const encoder = new TextEncoder();
       const data = encoder.encode(content);

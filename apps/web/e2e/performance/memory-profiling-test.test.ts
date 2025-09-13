@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import type { MemoryAnalysis, MemorySnapshot } from './types/performance';
-import { waitForAppLoad } from './utils/layout-helpers';
+import type { MemoryAnalysis, MemorySnapshot } from '../types/performance';
+import { waitForAppLoad } from '../utils/layout-helpers';
 
 test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
   // Helper function to install memory profiler
