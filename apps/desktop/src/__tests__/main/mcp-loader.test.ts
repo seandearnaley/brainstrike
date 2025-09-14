@@ -3,27 +3,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyDecryptionToEnv,
   applyDecryptionToHeaders,
+  type McpServer,
   withDecryptedSecrets,
 } from '../../mcp-loader';
 
 describe('mcp-loader helpers', () => {
-  // In tests, decryptIfEncrypted falls back to base64 decoding when safeStorage is unavailable.
-  // We still set up a spy if safeStorage exists, otherwise proceed without it.
+  // Set up spy only when Electron safeStorage is available in this environment.
   const electronWithSafeStorage = electron as typeof electron & {
     safeStorage?: { decryptString: (buffer: Buffer) => string };
   };
-  const decryptSpy = electronWithSafeStorage.safeStorage
-    ? vi.spyOn(electronWithSafeStorage.safeStorage, 'decryptString')
-    : ({ mockImplementation: vi.fn() } as ReturnType<typeof vi.spyOn>);
+  // Mock spy for decryptString function
+  let decryptSpy: typeof vi.spyOn | null = null;
 
   beforeEach(() => {
-    decryptSpy.mockImplementation((buf: Buffer) => {
-      try {
-        return Buffer.from(buf).toString('utf-8');
-      } catch {
-        return 'decrypted';
-      }
-    });
+    if (electronWithSafeStorage.safeStorage) {
+      // @ts-expect-error - Complex Vitest spy typing, using explicit cast for test simplicity
+      decryptSpy = vi.spyOn(electronWithSafeStorage.safeStorage, 'decryptString');
+      // @ts-expect-error - Test mock implementation with simplified typing
+      decryptSpy?.mockImplementation((buf: Buffer) => {
+        try {
+          return Buffer.from(buf).toString('utf-8');
+        } catch {
+          return 'decrypted';
+        }
+      });
+    } else {
+      decryptSpy = null;
+    }
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -58,15 +64,13 @@ describe('mcp-loader helpers', () => {
         },
       ],
     });
-    const web = cfg.servers[0];
-    const fs = cfg.servers[1];
-    if (web && 'headers' in web) {
-      expect(
-        (web as Extract<typeof web, { headers: Record<string, string> }>).headers['Authorization']
-      ).toBe('def');
+    const web = cfg.servers[0] as Extract<McpServer, { transport: 'sse' }>;
+    const fs = cfg.servers[1] as Extract<McpServer, { transport: 'stdio' }>;
+    if (web?.headers) {
+      expect(web.headers['Authorization']).toBe('def');
     }
-    if (fs && 'env' in fs) {
-      expect((fs as Extract<typeof fs, { env: Record<string, string> }>).env['SECRET']).toBe('123');
+    if (fs?.env) {
+      expect(fs.env['SECRET']).toBe('123');
     }
   });
 });
