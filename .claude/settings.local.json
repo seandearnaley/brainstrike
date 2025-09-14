@@ -46,7 +46,10 @@
       "Bash(npx tsc:*)",
       "Bash(npm run build:main:*)",
       "Bash(npm run type-check:*)",
-      "Bash(timeout 600 pnpm check)"
+      "Bash(timeout 600 pnpm check)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm -w lint --max-diagnostics=50)",
+      "Bash(pnpm -w build --filter=@brainstrike/app-shell)"
     ],
     "deny": [],
     "ask": []

@@ -6,8 +6,14 @@ import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
 export default function RootLayoutContent() {
+  const Component = SharedRootLayoutContent as React.ComponentType<{
+    navigationItems: unknown;
+    homePageContent: React.ReactNode;
+    settingsPageContent: React.ReactNode;
+  }>;
+
   return (
-    <SharedRootLayoutContent
+    <Component
       navigationItems={navigationItems}
       homePageContent={<HomePageContent />}
       settingsPageContent={<SettingsPageContent />}

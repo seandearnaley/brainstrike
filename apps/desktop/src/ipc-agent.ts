@@ -43,7 +43,11 @@ export function registerAgentIpcHandlers() {
       // Provide a tool dispatcher to the agent workflow
       const rt: RuntimeData = {
         ...(runtime ?? {}),
-        callTool: (name: string, params?: Record<string, unknown>) => callTool(name, params),
+        callTool: (
+          name: string,
+          params?: Record<string, unknown>,
+          opts?: { onProgress?: (payload: unknown) => void }
+        ) => callTool(name, params, opts),
       };
 
       const maybeIter = mod.streamPlanThenAct(messages, rt);

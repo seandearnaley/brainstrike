@@ -1,0 +1,20 @@
+/* Brainstrike overrides for assistant-ui in the Right Panel */
+.bs-thread {
+  --thread-max-width: 100%;
+}
+.aui-thread-viewport {
+  height: calc(100% - 0px);
+}
+.aui-composer-input {
+  font-size: 12px;
+}
+.aui-assistant-message-content,
+.aui-user-message-content {
+  font-size: 12px;
+}
+.aui-button {
+  font-size: 12px;
+}
+.aui-thread-viewport-footer {
+  padding-top: 6px;
+}

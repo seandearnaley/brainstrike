@@ -20,9 +20,10 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { Brain, Database, FileText, Search } from 'lucide-react';
-import { DatabaseDemoPanel } from './database-demo-panel';
+import React, { lazy } from 'react';
 import { EmbeddingsPanel } from './embeddings-panel';
-import { QueueHud } from './queue-hud';
+import { isAssistantUiEnabled, isDbUiEnabled } from './env';
+import { McpBanner } from './mcp-banner';
 import { type DbSubtab, dbPanelSelectors, useDbPanelStore } from './stores/db-panel-store';
 import {
   type RightPanelTab,
@@ -30,7 +31,15 @@ import {
   useRightPanelStore,
 } from './stores/right-panel-store';
 import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
-import { VectorStatusWithDb } from './vector-status';
+
+// Database UI is behind a build flag to avoid bundling DB/WASM in renderer when disabled
+const ENABLE_DB_UI: boolean = isDbUiEnabled();
+let DatabaseTab: React.ComponentType | null = null;
+if (ENABLE_DB_UI) {
+  DatabaseTab = lazy(() =>
+    import('./database-tab-chunk').then((m) => ({ default: m.DatabaseTab }))
+  );
+}
 
 export function RightPanel() {
   const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
@@ -90,14 +99,30 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                <ChatPanel
-                  {...(desktopTransport
-                    ? {
-                        transport: desktopTransport,
-                        runtime: { mcpEnabled: true },
-                      }
-                    : {})}
-                />
+                {isAssistantUiEnabled() ? (
+                  <React.Suspense
+                    fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
+                  >
+                    {React.createElement(
+                      React.lazy(async () => ({
+                        default: (await import('@brainstrike/ui/assistant-ui-panel'))
+                          .AssistantUiPanel,
+                      })),
+                      {}
+                    )}
+                  </React.Suspense>
+                ) : (
+                  <ChatPanel
+                    {...(desktopTransport
+                      ? {
+                          transport: desktopTransport,
+                          runtime: { mcpEnabled: true },
+                        }
+                      : {})}
+                  />
+                )}
+                {/* MCP availability banner (desktop only; no-op on web) */}
+                <McpBanner />
                 <div>
                   <h4 className="font-medium mb-2">Basic Properties</h4>
                   <p className="text-muted-foreground leading-relaxed">
@@ -210,13 +235,16 @@ export function RightPanel() {
                 <option value="config">Config</option>
               </select>
             </div>
-            {activeSubtab === 'overview' && (
-              <>
-                <DatabaseDemoPanel />
-                <VectorStatusWithDb />
-                <QueueHud />
-              </>
-            )}
+            {activeSubtab === 'overview' &&
+              (DatabaseTab ? (
+                <React.Suspense
+                  fallback={<div className="text-xs opacity-70 px-2">Loading DB UI…</div>}
+                >
+                  <DatabaseTab />
+                </React.Suspense>
+              ) : (
+                <div className="text-xs opacity-70 px-2">Database UI disabled in this build.</div>
+              ))}
             {activeSubtab === 'logs' && (
               <Card>
                 <CardHeader className="pb-2">

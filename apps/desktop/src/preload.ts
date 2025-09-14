@@ -56,3 +56,8 @@ contextBridge.exposeInMainWorld('mcp', {
   watch: () => ipcRenderer.invoke('mcp:config:watch'),
   unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
 });
+
+// Assistant UI (data stream) endpoint helper
+contextBridge.exposeInMainWorld('assistant', {
+  getUrl: () => ipcRenderer.invoke('assistant:get-url'),
+});

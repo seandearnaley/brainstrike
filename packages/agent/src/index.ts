@@ -25,7 +25,11 @@ export interface RuntimeData {
   model?: string;
   mcpEnabled?: boolean;
   // Optional tool dispatcher provided by host (desktop main via IPC)
-  callTool?: (name: string, params?: Record<string, unknown>) => Promise<unknown>;
+  callTool?: (
+    name: string,
+    params?: Record<string, unknown>,
+    opts?: { onProgress?: (payload: unknown) => void }
+  ) => Promise<unknown>;
 }
 
 export interface StreamChunkText {

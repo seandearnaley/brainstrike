@@ -33,7 +33,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@brainstrike/agent': resolve(__dirname, '../../packages/agent/src'),
+      '@brainstrike/agent': resolve(__dirname, '../../packages/agent/dist/index.mjs'),
       '@brainstrike/types': resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/hooks': resolve(__dirname, '../../packages/hooks/src'),
       '@brainstrike/ui': resolve(__dirname, '../../packages/ui/src'),

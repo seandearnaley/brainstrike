@@ -14,7 +14,7 @@
     "icons"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
+    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css && mkdir -p dist/assistant-ui-panel && cp src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
@@ -28,6 +28,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./assistant-ui-panel": {
+      "import": "./dist/assistant-ui-panel/assistant-ui-panel.js",
+      "types": "./dist/assistant-ui-panel/assistant-ui-panel.d.ts"
+    },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
@@ -39,6 +43,11 @@
   "license": "ISC",
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
+    "@assistant-ui/react": "^0.11.6",
+    "@assistant-ui/react-data-stream": "^0.11.0",
+    "@assistant-ui/styles": "^0.2.1",
+    "@assistant-ui/react-markdown": "^0.11.0",
+    "remark-gfm": "^4.0.0",
     "zustand": "^5.0.2",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/hooks": "workspace:*",

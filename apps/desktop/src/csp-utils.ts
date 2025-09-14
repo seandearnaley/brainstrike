@@ -54,13 +54,21 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           "'self'",
           'ws://localhost:*',
           'http://localhost:*',
+          'http://127.0.0.1:*',
           'ws://127.0.0.1:*',
           'wss://localhost:*',
           'https://huggingface.co',
           'https://*.hf.co',
           'https://cdn.jsdelivr.net',
         ]
-      : ["'self'", 'https://huggingface.co', 'https://*.hf.co', 'https://cdn.jsdelivr.net'],
+      : [
+          "'self'",
+          'http://127.0.0.1:*',
+          'http://localhost:*',
+          'https://huggingface.co',
+          'https://*.hf.co',
+          'https://cdn.jsdelivr.net',
+        ],
 
     'object-src': ["'none'"],
     'base-uri': ["'self'"],

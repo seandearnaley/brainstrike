@@ -52,6 +52,12 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Implemented cancellable transports: web transport uses `AbortController`; desktop IPC transport exposes `cancel()` to stop pseudo-stream.
   - Added desktop E2E `assistant-panel-interactions.desktop.test.ts` to exercise Stop, Retry, and code block copy (uses Electron clipboard to verify copy). Desktop E2E still depends on local Electron launch/xvfb.
   - Phase 4 scaffold: added MCP config schema in `@brainstrike/agent` and desktop loader (`mcp-loader.ts`) with decryption + file watch, IPC handlers (`mcp:config:get|watch|unwatch`), and preload bridge (`window.mcp`). Unit tests for parser and decryption helpers added.
+- 2025-09-14:
+  - Fixed chat UX leak: removed internal plan text from assistant stream; now only tool events (start/success/progress) are emitted for plan.
+  - Polished synthesize fallback: friendly greeting for “hi/hello/hey”, otherwise echo-style acknowledgement for generic prompts.
+  - Re‑ran unit tests for `@brainstrike/agent` and `@brainstrike/ui` — all green. Web route tests also green.
+  - Removed stray compiled JS from `packages/agent/src/**/*.js` to avoid stale workflows leaking into dev. Updated tsconfig/vitest aliases to target `dist/` types/ESM.
+  - Desktop assistant-ui runtime: added local assistant-stream server in Electron main, preload bridge to expose URL, and AssistantUiPanel auto-detects desktop endpoint. CSP updated to allow 127.0.0.1 in dev/prod. Server lifecycle tied to app quit.
 
 ---
 
@@ -135,19 +141,97 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 ### MCP Wiring — Implementation Notes (Phase 4)
 - Client factory: `apps/desktop/src/mcp-clients.ts`
   - Supports `stdio` "filesystem" demo via Node `fs` for `filesystem.list` (validates command presence but does not speak full MCP yet).
-  - SSE transport placeholder added for future servers.
+  - SSE transport now implements request/response over SSE:
+    - Connects to `<base>/sse` and POSTs tool requests to `<base>/request` with `{ id, tool, params }`.
+    - Correlates replies via SSE `event: tool-result|tool-error` with JSON `data: { id, result|error }`.
+    - Header forwarding supported; timeout via `MCP_SSE_CALL_TIMEOUT_MS`.
+    - Env overrides: `MCP_SSE_EVENTS_PATH`, `MCP_SSE_REQUEST_PATH`, legacy fallback `MCP_SSE_CALL_PATH`.
+  - Additional stdio tools:
+    - `filesystem.read` (size-capped preview, utf8/base64)
+    - `filesystem.search` (recursive filename match with caps, ignores: `node_modules`, `.git`, `dist`, `build`, `.turbo`, `coverage`)
+  - Progress events:
+    - Agent emits `tool-event` with `status: 'progress'` while a tool runs.
+    - SSE `tool-progress` events are parsed in desktop and forwarded to the agent via `callTool(..., { onProgress })`.
+    - Agent normalizes progress payloads (step/percent/note) before emitting to UI.
+
+  - Local SSE demo (for smoke tests):
+    ```ts
+    import http from 'node:http';
+    const streams: http.ServerResponse[] = [];
+    http.createServer((req, res) => {
+      if (req.method === 'GET' && req.url?.endsWith('/sse')) {
+        res.writeHead(200, {'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});
+        res.write(': ok\n\n');
+        streams.push(res);
+        req.on('close', () => streams.splice(streams.indexOf(res), 1));
+        return;
+      }
+      if (req.method === 'POST' && req.url?.endsWith('/request')) {
+        let b=''; req.on('data', c => b+=c).on('end', () => {
+          const { id } = JSON.parse(b);
+          setTimeout(() => {
+            streams.forEach(s => s.write(`event: tool-progress\nid: ${id}\ndata: ${JSON.stringify({ id, step:'starting', percent: 10 })}\n\n`));
+            streams.forEach(s => s.write(`event: tool-result\nid: ${id}\ndata: ${JSON.stringify({ id, result: { ok:true } })}\n\n`));
+          }, 50);
+          res.writeHead(202).end('accepted');
+        });
+        return;
+      }
+      res.writeHead(404).end('not found');
+    }).listen(7801);
+    ```
 - Hot-reload: `apps/desktop/src/ipc-mcp.ts`
   - Initializes clients on `mcp:config:get` and re-inits on file changes while watching.
 - Agent integration: `packages/agent/src/workflows/plan-then-act.ts`
   - Parses prompts like `list files [in <path>]` and, when `runtime.mcpEnabled` is true, calls `runtime.callTool('filesystem.list', { path })`.
   - Emits tool-event chunks (`start|success|error`) consumed by ChatPanel.
+  - New steps: `filesystem.read` via “read file <path>” and `filesystem.search` via “search files <query> [in <path>]”.
+  - Progress: optional `status: 'progress'` event between `start` and `success` on slow tool calls.
 - Desktop runtime bridge: `apps/desktop/src/ipc-agent.ts`
   - Injects `runtime.callTool` backed by desktop `mcp-clients` and forwards to agent workflow.
 - UI: `packages/app-shell/src/right-panel.tsx`
   - Passes `runtime: { mcpEnabled: true }` to `ChatPanel` for desktop transport.
+  - Renders MCP banner (`McpBanner`) to indicate config presence and server count.
+  - Database tab is lazy‑loaded behind a flag to keep bundles lean.
+  - ChatPanel polish: friendly progress line shows `step (percent%) — note` when available; example hints above the composer help smoke tests.
 - Tests:
   - Unit: `apps/desktop/src/__tests__/main/mcp-clients.test.ts` adds client init + hot-reload coverage.
+  - Unit: `apps/desktop/src/__tests__/main/mcp-clients.sse-call.test.ts` covers SSE request/response; added a filename search test.
   - E2E: `apps/desktop/e2e/mcp-filesystem.desktop.test.ts` writes `mcp.config.json`, enables watch, sends "list files", and asserts a `filesystem.list` tool card.
+  - Agent: `workflow.progress.spec.ts` asserts tool-event sequencing with optional progress.
+
+---
+
+### Desktop Build Notes (DB UI)
+
+- DB UI flag: set at build time via `import.meta.env.VITE_ENABLE_DB_UI` in `apps/desktop/vite.config.mts`.
+- Renderer FS adapter: remaps PGlite NodeFS → OPFS to avoid `node:fs`/`path` externals in the renderer bundle:
+  - Aliases map `@electric-sql/pglite/dist/fs/nodefs.js` → `@electric-sql/pglite/dist/fs/opfs-ahp.js` and the relative `./fs/nodefs.js` → `./fs/opfs-ahp.js`.
+- App‑shell TS build compatibility: `right-panel.tsx` no longer hard‑references `import.meta.env` in plain `tsc -b`; it falls back to `globalThis.__VITE_ENABLE_DB_UI__` when not running under Vite.
+
+How to toggle:
+- Enable DB UI (default in desktop now): `VITE_ENABLE_DB_UI=true` in the desktop Vite define.
+- Disable for faster smoke: set to `false` to keep WASM/DB UI out of the renderer bundle.
+
+---
+
+### Current Status Snapshot
+
+- SSE client: request/response with correlation, header forwarding, timeouts, error broadcast when `id` missing.
+- Tools: `filesystem.list`, `filesystem.read`, `filesystem.search`, `web.echo` wired end‑to‑end.
+- ChatPanel: tool cards show progress, payload previews, and errors; expandable payload for reads.
+- MCP config banner surfaces server count and loaded/missing state.
+- Desktop DB UI: re‑enabled; lazy chunked; renderer uses OPFS.
+- Tests: Agent (11), Desktop (build + unit suites green), UI suites remain green.
+
+---
+
+### Follow‑ups (Next Step Candidates)
+
+- SSE tool-progress: parse `event: tool-progress` with `{ id, step, percent? }` and emit `status: 'progress'` tool‑events sourced from the server, not just heuristic delays.
+- Tool payload UX: add “Show JSON” toggle for large search payloads; copy‑to‑clipboard on headers.
+- Desktop E2E: enable a minimal local SSE demo server for CI or document local flow; keep CI-skipped if Electron constraints persist.
+- Agent type exports: consider publishing `@brainstrike/agent` declarations to simplify main TS config; current dynamic import stub works but typed consumers benefit from d.ts.
 - Notes:
   - `decryptIfEncrypted` in `apps/desktop/src/mcp-loader.ts` falls back to base64 decode in test environments where `safeStorage` is unavailable; main process uses OS encryption when available.
 
@@ -198,6 +282,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Structured tool events: `{ type: 'tool', id, name, status, payload }`
   - Final message object with citations/steps taken
 - Client requests (client → server)
+  - Progress payload (normalized): `{ step?: string; percent?: number; note?: string }`
   - `{ messages: Message[]; data?: { projectId, provider, model, mcpEnabled } }`
 - Validation schemas with zod in both directions
 

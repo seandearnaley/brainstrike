@@ -1,0 +1,260 @@
+import http from 'node:http';
+import { createAssistantStreamResponse, type ToolCallStreamController } from 'assistant-stream';
+import { callTool } from './mcp-clients';
+
+interface MessageContent {
+  text?: string;
+  content?: string | Array<{ text?: string; value?: string }>;
+  role?: string;
+  id?: string;
+}
+
+type AgentMessage = {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  parts: Array<{ type: 'text'; text: string }>;
+};
+type RuntimeData = { projectId?: string; provider?: string; model?: string; mcpEnabled?: boolean };
+
+function pickUserText(msg: MessageContent): string | null {
+  if (!msg || msg.role !== 'user') return null;
+  const c = msg.content;
+  if (typeof c === 'string') return c;
+  if (Array.isArray(c)) {
+    const parts = c
+      .map((p) => {
+        if (!p) return '';
+        if (typeof p === 'string') return p;
+        if (typeof p.text === 'string') return p.text;
+        if (typeof p.value === 'string') return p.value;
+        return '';
+      })
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(' ');
+  }
+  if (typeof msg.text === 'string') return msg.text;
+  return null;
+}
+
+function toAgentMessages(rawMessages: MessageContent[]): AgentMessage[] {
+  const out: AgentMessage[] = [];
+  for (const m of rawMessages) {
+    if (!m) continue;
+    const t = pickUserText(m);
+    if (t && m.role === 'user') {
+      out.push({
+        id: String(m.id ?? crypto.randomUUID()),
+        role: 'user',
+        parts: [{ type: 'text', text: t }],
+      });
+    }
+  }
+  if (out.length === 0 && rawMessages.length > 0) {
+    const last = rawMessages[rawMessages.length - 1];
+    if (!last) return out;
+    const t = pickUserText(last);
+    if (t)
+      out.push({
+        id: String(last.id ?? crypto.randomUUID()),
+        role: 'user',
+        parts: [{ type: 'text', text: t }],
+      });
+  }
+  return out;
+}
+
+async function readRequestBody(req: http.IncomingMessage): Promise<string> {
+  let body = '';
+  req.on('data', (c) => {
+    body += c;
+  });
+  await new Promise<void>((resolve) => req.on('end', () => resolve()));
+  return body;
+}
+
+function handleToolStart(
+  ctrl: {
+    addTextPart: () => void;
+    addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
+  },
+  tools: Map<string, ToolCallStreamController>,
+  name: string,
+  payload: unknown
+): void {
+  const t = ctrl.addToolCallPart({ toolName: name });
+  if (payload) {
+    try {
+      t.argsText.append(JSON.stringify(payload, null, 2));
+    } catch {
+      t.argsText.append(String(payload));
+    }
+  }
+  tools.set(name, t);
+}
+
+function handleToolProgress(
+  tools: Map<string, ToolCallStreamController>,
+  name: string,
+  payload: unknown
+): void {
+  const t = tools.get(name);
+  if (t && payload) {
+    const p = payload as Record<string, unknown>;
+    const step = typeof p['step'] === 'string' ? (p['step'] as string) : undefined;
+    const percent = typeof p['percent'] === 'number' ? (p['percent'] as number) : undefined;
+    const note = typeof p['note'] === 'string' ? (p['note'] as string) : undefined;
+    const line = [
+      step ?? 'Progress',
+      typeof percent === 'number' ? `(${Math.round(percent)}%)` : null,
+      note ? `— ${note}` : null,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    t.argsText.append(`\n${line}`);
+  }
+}
+
+function handleToolEnd(
+  tools: Map<string, ToolCallStreamController>,
+  name: string,
+  status: string,
+  payload: unknown
+): void {
+  const t = tools.get(name);
+  if (t) {
+    t.setResponse({
+      result: payload ? JSON.parse(JSON.stringify(payload)) : null,
+      isError: status === 'error',
+    });
+    t.close();
+    tools.delete(name);
+  }
+}
+
+interface StreamChunk {
+  type: 'text-delta' | 'tool-event';
+  value?: string;
+  name?: string;
+  status?: string;
+  payload?: unknown;
+}
+
+interface StreamController {
+  addTextPart: () => void;
+  appendText: (text: string) => void;
+  addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
+  close: () => void;
+}
+
+function handleTextDelta(ctrl: StreamController, value?: string, startedParam?: boolean): boolean {
+  let started = startedParam;
+  if (!started) {
+    ctrl.addTextPart();
+    started = true;
+  }
+  if (value) {
+    ctrl.appendText(value);
+  }
+  return started;
+}
+
+function handleToolEvent(
+  ctrl: StreamController,
+  tools: Map<string, ToolCallStreamController>,
+  chunk: StreamChunk
+): void {
+  const { name, status, payload } = chunk;
+  if (!name || !status) return;
+
+  if (status === 'start') {
+    handleToolStart(ctrl, tools, name, payload);
+  } else if (status === 'progress') {
+    handleToolProgress(tools, name, payload);
+  } else if (status === 'success' || status === 'error') {
+    handleToolEnd(tools, name, status, payload);
+  }
+}
+
+async function processAgentStream(
+  ctrl: StreamController,
+  agentStream: AsyncIterable<StreamChunk>
+): Promise<void> {
+  let started = false;
+  const tools = new Map<string, ToolCallStreamController>();
+
+  for await (const chunk of agentStream) {
+    if (chunk.type === 'text-delta') {
+      started = handleTextDelta(ctrl, chunk.value, started);
+    } else if (chunk.type === 'tool-event') {
+      handleToolEvent(ctrl, tools, chunk);
+    }
+  }
+
+  for (const [, t] of tools) t.close();
+  ctrl.close();
+}
+
+async function streamResponse(
+  res: http.ServerResponse,
+  response: { status: number; headers: Headers; body: ReadableStream | null }
+): Promise<void> {
+  res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+  const reader = (response.body as unknown as ReadableStream).getReader();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    res.write(value);
+  }
+  res.end();
+}
+
+export function startAssistantServer(portHint?: number) {
+  const server = http.createServer(async (req, res) => {
+    try {
+      if (req.method !== 'POST' || !(req.url?.endsWith('/assistant') || req.url === '/')) {
+        res.writeHead(404).end('not found');
+        return;
+      }
+
+      const body = await readRequestBody(req);
+      const parsed = JSON.parse(body || '{}');
+      const rawMessages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+      const data: RuntimeData | undefined = parsed?.data ?? undefined;
+      const messages = toAgentMessages(rawMessages);
+
+      const mod = await import('@brainstrike/agent');
+
+      const response = createAssistantStreamResponse(async (ctrl) => {
+        const agentStream = await mod.toAiSdkStyleStream(messages, {
+          ...data,
+          mcpEnabled: true,
+          callTool: (
+            name: string,
+            params?: Record<string, unknown>,
+            opts?: { onProgress?: (payload: unknown) => void }
+          ) => callTool(name, params, opts),
+        });
+
+        await processAgentStream(ctrl, agentStream);
+      });
+
+      await streamResponse(res, response);
+    } catch {
+      res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ error: 'assistant server error' }));
+    }
+  });
+
+  const port = Number(process.env['BS_ASSISTANT_PORT'] ?? portHint ?? 0) || 0;
+  return new Promise<{ url: string; stop: () => Promise<void> }>((resolve) => {
+    server.listen(port, '127.0.0.1', () => {
+      const addr = server.address();
+      const actualPort = typeof addr === 'object' && addr ? addr.port : port;
+      const url = `http://127.0.0.1:${actualPort}`;
+      resolve({
+        url,
+        stop: async () => await new Promise<void>((r) => server.close(() => r())),
+      });
+    });
+  });
+}

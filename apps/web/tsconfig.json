@@ -10,7 +10,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@web/*": ["./src/*"],
-      "@brainstrike/agent": ["../../packages/agent/src"]
+      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
     },
     "types": ["node", "vite/client"]
   },

@@ -98,6 +98,7 @@ export default defineConfig({
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
+    'globalThis.__VITE_ASSISTANT_UI__': 'true',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
@@ -189,6 +190,9 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
+      '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
+      './fs/nodefs.js': './fs/opfs-ahp.js',
       // remove duplicate hooks alias
     },
   },
@@ -272,72 +276,45 @@ function devChatApiPlugin() {
   return {
     name: 'dev-chat-api',
     configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        if (req.method !== 'POST' || !req.url?.startsWith('/api/chat')) return next();
-        try {
-          const bodyStr = await readBody(req);
-          const body = JSON.parse(bodyStr || '{}');
-          const { toAiSdkStyleStream } = await import('../../packages/agent/dist/index.mjs');
-          const messages = Array.isArray(body?.messages) ? body.messages : [];
-          const data = body?.data ?? undefined;
-          const stream = await toAiSdkStyleStream(messages, data);
-
-          res.writeHead(200, {
-            'Content-Type': 'application/json; charset=utf-8',
-            'Cache-Control': 'no-store',
-          });
-          for await (const chunk of stream) {
-            res.write(`${JSON.stringify(chunk)}\n`);
-          }
-          res.end();
-        } catch (_e) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ error: 'dev chat route failed' }));
-        }
-      });
+      server.middlewares.use(createApiMiddleware('dev'));
     },
     configurePreviewServer(server: import('vite').ViteDevServer) {
-      server.middlewares.use(
-        async (
-          req: import('http').IncomingMessage,
-          res: import('http').ServerResponse,
-          next: () => void
-        ) => {
-          if (req.method !== 'POST' || !req.url?.startsWith('/api/chat')) return next();
-          try {
-            const bodyStr = await readBody(req);
-            const body = JSON.parse(bodyStr || '{}');
-            const { toAiSdkStyleStream } = await import('../../packages/agent/dist/index.mjs');
-            const messages = Array.isArray(body?.messages) ? body.messages : [];
-            const data = body?.data ?? undefined;
-            const stream = await toAiSdkStyleStream(messages, data);
-
-            res.writeHead(200, {
-              'Content-Type': 'application/json; charset=utf-8',
-              'Cache-Control': 'no-store',
-            });
-            for await (const chunk of stream) {
-              res.write(`${JSON.stringify(chunk)}\n`);
-            }
-            res.end();
-          } catch (_e) {
-            res.statusCode = 500;
-            res.setHeader('Content-Type', 'application/json; charset=utf-8');
-            res.end(JSON.stringify({ error: 'preview chat route failed' }));
-          }
-        }
-      );
+      server.middlewares.use(createApiMiddleware('preview'));
     },
   };
 }
 
-async function readBody(req: import('http').IncomingMessage): Promise<string> {
-  return await new Promise<string>((resolve) => {
-    let data = '';
-    req.on('data', (chunk: Buffer) => {
-      data += chunk;
-    });
-    req.on('end', () => resolve(data));
-  });
+async function createApiMiddleware(mode: 'dev' | 'preview') {
+  const { readBody, handleChatEndpoint, handleAssistantEndpoint } = await import(
+    '@/assistant-stream-helpers'
+  );
+
+  return async (
+    req: import('http').IncomingMessage,
+    res: import('http').ServerResponse,
+    next: () => void
+  ) => {
+    if (req.method !== 'POST') return next();
+
+    try {
+      const bodyStr = await readBody(req);
+      const body = JSON.parse(bodyStr || '{}');
+
+      if (req.url?.startsWith('/api/chat')) {
+        await handleChatEndpoint(body, res);
+        return;
+      }
+
+      if (req.url?.startsWith('/api/assistant')) {
+        await handleAssistantEndpoint(body, res);
+        return;
+      }
+
+      return next();
+    } catch (_e) {
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: `${mode} chat route failed` }));
+    }
+  };
 }

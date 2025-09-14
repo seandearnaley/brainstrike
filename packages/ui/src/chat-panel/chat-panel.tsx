@@ -27,19 +27,243 @@ export interface ChatPanelProps {
 interface ToolEventProps {
   name: string;
   status: string;
-  payload:
-    | Array<{ name: string; type: string }>
-    | { text?: string; echo?: string; error?: unknown }
-    | undefined;
+  payload: unknown;
+}
+
+interface FileListItem {
+  name: string;
+  type: string;
+}
+
+interface EchoPayload {
+  echo?: unknown;
+  text?: unknown;
+}
+
+interface FileReadPayload {
+  path?: string;
+  size?: number;
+  content?: string;
+  truncated?: boolean;
+}
+
+interface JsonPreviewProps {
+  obj: unknown;
+  expanded: boolean;
+}
+
+const JsonPreview: React.FC<JsonPreviewProps> = ({ obj, expanded }) => {
+  try {
+    const text = JSON.stringify(obj, null, 2);
+    const trim = !expanded && text.length > 400 ? `${text.slice(0, 400)}…` : text;
+    return (
+      <pre
+        className="mt-1 text-[11px] whitespace-pre-wrap break-words"
+        data-testid="tool-part-details"
+      >
+        {trim}
+      </pre>
+    );
+  } catch {
+    return null;
+  }
+};
+
+interface FileListToolProps {
+  payload: FileListItem[];
+}
+
+const FileListTool: React.FC<FileListToolProps> = ({ payload }) => (
+  <div className="mt-1 text-[11px]">
+    <div className="opacity-70">Items:</div>
+    <ul className="list-disc ml-4">
+      {payload.slice(0, 5).map((f) => (
+        <li key={f.name}>
+          <span>{f.name}</span>
+          <span className="opacity-60"> ({f.type})</span>
+        </li>
+      ))}
+      {payload.length > 5 && <li className="opacity-60">… and {payload.length - 5} more</li>}
+    </ul>
+  </div>
+);
+
+interface EchoToolProps {
+  payload: EchoPayload;
+}
+
+const EchoTool: React.FC<EchoToolProps> = ({ payload }) => (
+  <div className="mt-1 text-[11px] opacity-80">
+    {(payload.echo ? String(payload.echo) : null) ?? (payload.text ? String(payload.text) : '')}
+  </div>
+);
+
+interface FileReadToolProps {
+  payload: FileReadPayload;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+}
+
+const FileReadTool: React.FC<FileReadToolProps> = ({ payload, expanded, onToggleExpanded }) => (
+  <div className="mt-1 text-[11px]">
+    <div className="opacity-70">
+      {payload.path ?? ''} — {payload.size ?? 0} bytes
+      {payload.truncated ? ' (truncated)' : ''}
+    </div>
+    <div className="mt-1 border rounded bg-muted/20">
+      <pre className="p-2 text-[11px] overflow-x-auto max-h-40">
+        {(() => {
+          const c = payload.content ?? '';
+          if (!expanded && c.length > 400) return `${c.slice(0, 400)}…`;
+          return c;
+        })()}
+      </pre>
+      {(payload.content ?? '').length > 400 && (
+        <button
+          type="button"
+          className="w-full text-[11px] py-1 opacity-80 hover:opacity-100"
+          onClick={onToggleExpanded}
+          data-testid="tool-payload-toggle"
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+interface ToolEventDetection {
+  isFsList: boolean;
+  isEcho: boolean;
+  isFsRead: boolean;
+  isFsSearch: boolean;
+}
+
+function detectToolEventType(name: string, payload: unknown): ToolEventDetection {
+  const isFsList = name === 'filesystem.list' && Array.isArray(payload);
+
+  const isEcho = Boolean(
+    name === 'web.echo' &&
+      payload &&
+      typeof payload === 'object' &&
+      ('text' in (payload as Record<string, unknown>) ||
+        'echo' in (payload as Record<string, unknown>))
+  );
+
+  const isFsRead = Boolean(
+    name === 'filesystem.read' &&
+      payload &&
+      typeof payload === 'object' &&
+      'content' in (payload as Record<string, unknown>)
+  );
+
+  const isFsSearch = name === 'filesystem.search' && Array.isArray(payload);
+
+  return {
+    isFsList: Boolean(isFsList),
+    isEcho,
+    isFsRead,
+    isFsSearch: Boolean(isFsSearch),
+  };
+}
+
+function extractProgressData(payload: unknown) {
+  const p = payload as Record<string, unknown>;
+  return {
+    step: typeof p['step'] === 'string' ? (p['step'] as string) : undefined,
+    percent: typeof p['percent'] === 'number' ? (p['percent'] as number) : undefined,
+    note: typeof p['note'] === 'string' ? (p['note'] as string) : undefined,
+  };
+}
+
+function renderProgressLine(step?: string, percent?: number, note?: string): React.ReactNode {
+  return (
+    <div
+      className="mt-1 text-[11px] opacity-80 text-blue-700 flex items-center gap-1"
+      data-testid="tool-progress-line"
+    >
+      <span
+        aria-hidden
+        className="inline-block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"
+      />
+      <span>{step ?? 'Progress'}</span>
+      {typeof percent === 'number' ? <span>{` (${Math.round(percent)}%)`}</span> : null}
+      {note ? <span>{` — ${note}`}</span> : null}
+    </div>
+  );
+}
+
+function renderProgressDetails(
+  status: string,
+  payload: unknown,
+  expanded: boolean
+): React.ReactNode {
+  if (status === 'progress') {
+    const { step, percent, note } = extractProgressData(payload);
+
+    if (step || typeof percent === 'number' || note) {
+      return renderProgressLine(step, percent, note);
+    }
+  }
+  return <JsonPreview obj={payload} expanded={expanded} />;
+}
+
+function renderSuccessPayload(
+  detection: ToolEventDetection,
+  payload: unknown,
+  expanded: boolean,
+  onToggleExpanded: () => void
+): React.ReactNode {
+  if (detection.isFsList) {
+    return <FileListTool payload={payload as FileListItem[]} />;
+  }
+
+  if (detection.isEcho && payload) {
+    return <EchoTool payload={payload as EchoPayload} />;
+  }
+
+  if (detection.isFsRead && payload) {
+    return (
+      <FileReadTool
+        payload={payload as FileReadPayload}
+        expanded={expanded}
+        onToggleExpanded={onToggleExpanded}
+      />
+    );
+  }
+
+  if (detection.isFsSearch) {
+    return (
+      <div className="mt-1 text-[11px]">
+        <div className="opacity-70">Matches:</div>
+        <ul className="list-disc ml-4">
+          {(payload as Array<{ name: string; path: string; type: string }>).slice(0, 5).map((f) => (
+            <li key={f.path}>
+              <span>{f.name}</span>
+              <span className="opacity-60"> ({f.type})</span>
+            </li>
+          ))}
+          {Array.isArray(payload) && (payload as unknown[]).length > 5 && (
+            <li className="opacity-60">… and {(payload as unknown[]).length - 5} more</li>
+          )}
+        </ul>
+      </div>
+    );
+  }
+
+  return <JsonPreview obj={payload} expanded={expanded} />;
 }
 
 const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
-  const isFsList = name === 'filesystem.list' && Array.isArray(payload);
-  const isEcho =
-    name === 'web.echo' &&
-    payload &&
-    typeof payload === 'object' &&
-    ('text' in payload || 'echo' in payload);
+  const [expanded, setExpanded] = useState(false);
+  const detection = detectToolEventType(name, payload);
+
+  const errorText =
+    payload && typeof payload === 'object' && 'error' in (payload as Record<string, unknown>)
+      ? String((payload as { error?: unknown }).error)
+      : null;
+
+  const handleToggleExpanded = () => setExpanded((v) => !v);
 
   return (
     <>
@@ -47,41 +271,28 @@ const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
         <span className="font-medium">{name}</span>
         <span className="text-[11px]">— {status}</span>
       </div>
-      {isFsList && status === 'success' && (
-        <div className="mt-1 text-[11px]">
-          <div className="opacity-70">Items:</div>
-          <ul className="list-disc ml-4">
-            {(payload as Array<{ name: string; type: string }>).slice(0, 5).map((f) => (
-              <li key={f.name}>
-                <span>{f.name}</span>
-                <span className="opacity-60"> ({f.type})</span>
-              </li>
-            ))}
-            {Array.isArray(payload) && payload.length > 5 && (
-              <li className="opacity-60">… and {payload.length - 5} more</li>
-            )}
-          </ul>
-        </div>
+
+      {/* Progress/start details */}
+      {(status === 'start' || status === 'progress') &&
+        payload &&
+        typeof payload === 'object' &&
+        renderProgressDetails(status, payload, expanded)}
+
+      {/* Success payloads */}
+      {status === 'success' &&
+        renderSuccessPayload(detection, payload, expanded, handleToggleExpanded)}
+
+      {/* Error copy */}
+      {status === 'error' && errorText && (
+        <div className="mt-1 text-[11px] text-destructive">Error: {String(errorText)}</div>
       )}
-      {isEcho && status === 'success' && payload && (
-        <div className="mt-1 text-[11px] opacity-80">
-          {('echo' in payload && payload.echo ? String(payload.echo) : null) ??
-            ('text' in payload && payload.text ? String(payload.text) : '')}
-        </div>
-      )}
-      {status === 'error' &&
-      payload &&
-      typeof payload === 'object' &&
-      'error' in payload &&
-      payload.error ? (
-        <div className="mt-1 text-[11px] text-destructive">{String(payload.error)}</div>
-      ) : null}
     </>
   );
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runtime }) => {
   const [input, setInput] = useState('');
+  const lastSendRef = useRef<{ text: string; ts: number } | null>(null);
   const messages = useChatStore(chatSelectors.messages);
   const isStreaming = useChatStore(chatSelectors.isStreaming);
   const addUserMessage = useChatStore((s: ChatStore) => s.addUserMessage);
@@ -101,10 +312,75 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
 
   const activeTransport = useMemo(() => transport ?? defaultWebTransport, [transport]);
 
+  const prepareAgentMessages = useCallback(
+    (
+      messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }>,
+      text: string,
+      userId: string
+    ) => {
+      const agentMessages = messages
+        .map((m) =>
+          m.role === 'user'
+            ? {
+                id: m.id,
+                role: 'user' as const,
+                parts: [{ type: 'text' as const, text: m.content }],
+              }
+            : null
+        )
+        .filter(Boolean) as Array<{
+        id: string;
+        role: 'user';
+        parts: Array<{ type: 'text'; text: string }>;
+      }>;
+
+      agentMessages.push({
+        id: userId,
+        role: 'user',
+        parts: [{ type: 'text', text }],
+      });
+
+      return agentMessages;
+    },
+    []
+  );
+
+  const processStreamChunk = useCallback(
+    (chunk: StreamChunk, assistantId: string) => {
+      if (chunk.type === 'text-delta') {
+        appendAssistantDelta(assistantId, chunk.value);
+      } else if (chunk.type === 'tool-event') {
+        setToolEvents((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${prev.length}`,
+            name: chunk.name,
+            status: chunk.status,
+            payload: chunk.payload,
+          },
+        ]);
+      }
+      doScrollToEnd();
+    },
+    [appendAssistantDelta, doScrollToEnd]
+  );
+
   const handleSendText = useCallback(
     async (textRaw: string) => {
       const text = textRaw.trim();
       if (!text || isStreaming) return;
+
+      // Guard against rapid duplicate sends
+      const now = Date.now();
+      if (
+        lastSendRef.current &&
+        lastSendRef.current.text === text &&
+        now - lastSendRef.current.ts < 1000
+      ) {
+        return;
+      }
+
+      // Setup UI state
       setInput('');
       setLastPrompt(text);
       const user = buildUserMessage(text);
@@ -113,53 +389,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
       startAssistantMessage(assistantId);
       doScrollToEnd();
       setToolEvents([]);
-      try {
-        // Map to minimal agent message form
-        const agentMessages: {
-          id: string;
-          role: 'user';
-          parts: { type: 'text'; text: string }[];
-        }[] = messages
-          .map((m: { id: string; role: 'user' | 'assistant'; content: string }) =>
-            m.role === 'user'
-              ? { id: m.id, role: 'user', parts: [{ type: 'text', text: m.content }] }
-              : null
-          )
-          .filter(Boolean) as {
-          id: string;
-          role: 'user';
-          parts: { type: 'text'; text: string }[];
-        }[];
-        const currentUser: { id: string; role: 'user'; parts: { type: 'text'; text: string }[] } = {
-          id: user.id,
-          role: 'user',
-          parts: [{ type: 'text', text }],
-        };
-        agentMessages.push(currentUser);
 
+      try {
+        const agentMessages = prepareAgentMessages(messages, text, user.id);
         const iterable = await activeTransport(agentMessages, runtime);
         currentIterableRef.current = iterable;
+
         for await (const chunk of iterable) {
-          if (chunk.type === 'text-delta') {
-            appendAssistantDelta(assistantId, chunk.value);
-          } else if (chunk.type === 'tool-event') {
-            setToolEvents((prev) => [
-              ...prev,
-              {
-                id: `${Date.now()}-${prev.length}`,
-                name: chunk.name,
-                status: chunk.status,
-                payload: chunk.payload,
-              },
-            ]);
-          }
-          doScrollToEnd();
+          processStreamChunk(chunk, assistantId);
         }
-      } catch (_e) {
+      } catch {
         appendAssistantDelta(assistantId, '\n[error] failed to stream response');
       } finally {
         finishStreaming();
         currentIterableRef.current = null;
+        lastSendRef.current = { text, ts: Date.now() };
         doScrollToEnd();
       }
     },
@@ -171,6 +415,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
       finishStreaming,
       isStreaming,
       messages,
+      prepareAgentMessages,
+      processStreamChunk,
       runtime,
       startAssistantMessage,
     ]
@@ -284,16 +530,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
                       data-testid="tool-part"
                       data-tool={t.name}
                     >
-                      <ToolEventCard
-                        name={t.name}
-                        status={t.status}
-                        payload={
-                          t.payload as
-                            | Array<{ name: string; type: string }>
-                            | { text?: string; echo?: string; error?: unknown }
-                            | undefined
-                        }
-                      />
+                      <ToolEventCard name={t.name} status={t.status} payload={t.payload} />
                     </div>
                   ))}
                 </div>
@@ -303,6 +540,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
           </ScrollArea>
           <div className="grid grid-cols-[1fr_auto_auto] gap-2 items-end">
             <div className="space-y-1">
+              <div className="text-[10px] text-muted-foreground">
+                Try: <code>list files in ~</code>, <code>read file ./README.md</code>,
+                <code> search files md in ./docs</code>
+              </div>
               <Label className="text-xs" htmlFor="assistant-input">
                 Message
               </Label>
