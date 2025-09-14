@@ -9,6 +9,7 @@ import { createWindow } from './create-window';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
+import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
@@ -42,6 +43,7 @@ logger.info('Setting up IPC handlers...');
 registerIpcHandlers(fileSystem, storage, store);
 registerSecretsIpcHandlers(createSecretsService());
 registerAgentIpcHandlers();
+registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
 
 let stopEmbeddingWorker: null | (() => Promise<void>) = null;

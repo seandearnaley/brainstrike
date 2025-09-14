@@ -24,7 +24,7 @@ const PROVIDERS = [
 
 export function LlmKeysSettings() {
   const { toast } = useToast();
-  const [provider, setProvider] = useState<string>(PROVIDERS[0]?.id);
+  const [provider, setProvider] = useState<string>(PROVIDERS[0]?.id ?? 'openai');
   const [apiKey, setApiKey] = useState('');
   const [providers, setProviders] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);

@@ -33,7 +33,7 @@ test.describe('Secrets Settings', () => {
 
     // Verify via IPC that we can retrieve it
     const fetched = await appContext.window.evaluate(async () => {
-      const key = await window.secrets.getKey('openai');
+      const key = await window.secrets?.getKey?.('openai');
       return key || null;
     });
     expect(fetched).toBe('sk-test-123');

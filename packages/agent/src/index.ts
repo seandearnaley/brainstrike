@@ -24,6 +24,8 @@ export interface RuntimeData {
   provider?: string;
   model?: string;
   mcpEnabled?: boolean;
+  // Optional tool dispatcher provided by host (desktop main via IPC)
+  callTool?: (name: string, params?: Record<string, unknown>) => Promise<unknown>;
 }
 
 export interface StreamChunkText {
@@ -89,3 +91,6 @@ export async function toAiSdkStyleStream(
   // For now, use the plan-then-act workflow to demonstrate multi-step output.
   return streamPlanThenAct(messages, runtime);
 }
+// MCP config types and parser (desktop-only usage typically)
+export type { McpConfig, McpServer } from './mcp/config';
+export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';

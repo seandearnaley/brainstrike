@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "strict": true,
     "isolatedModules": false,
+    "allowJs": false,
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
@@ -18,7 +19,10 @@
     "moduleDetection": "force",
     "verbatimModuleSyntax": false,
     "types": ["node", "electron"],
-    "baseUrl": "."
+    "baseUrl": ".",
+    "paths": {
+      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
+    }
   },
   "include": [
     "src/main.ts",
@@ -27,7 +31,9 @@
     "src/ipc-handlers.ts",
     "src/ipc-secrets.ts",
     "src/ipc-agent.ts",
+    "src/ipc-mcp.ts",
     "src/secrets.ts",
+    "src/mcp-loader.ts",
     "src/create-window.ts",
     "src/setup-security.ts"
   ],

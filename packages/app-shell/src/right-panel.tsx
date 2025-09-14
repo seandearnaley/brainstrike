@@ -90,7 +90,14 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                <ChatPanel {...(desktopTransport ? { transport: desktopTransport } : {})} />
+                <ChatPanel
+                  {...(desktopTransport
+                    ? {
+                        transport: desktopTransport,
+                        runtime: { mcpEnabled: true },
+                      }
+                    : {})}
+                />
                 <div>
                   <h4 className="font-medium mb-2">Basic Properties</h4>
                   <p className="text-muted-foreground leading-relaxed">
@@ -316,7 +323,9 @@ const desktopTransport: ChatTransport | undefined = window?.agent?.chat
   ? async (messages: AgentMessage[], runtime?: RuntimeData) => {
       let stopped = false;
       try {
-        const chunks = (await window.agent.chat(messages, runtime)) as StreamChunk[];
+        const chat = window.agent?.chat;
+        if (!chat) throw new Error('Agent chat not available');
+        const chunks = (await chat(messages, runtime)) as StreamChunk[];
         const gen = (async function* (): AsyncGenerator<StreamChunk> {
           for (const c of chunks) {
             if (stopped) break;

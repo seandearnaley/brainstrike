@@ -23,6 +23,63 @@ export interface ChatPanelProps {
   runtime?: RuntimeData;
 }
 
+// Tool event renderer component to reduce complexity
+interface ToolEventProps {
+  name: string;
+  status: string;
+  payload:
+    | Array<{ name: string; type: string }>
+    | { text?: string; echo?: string; error?: unknown }
+    | undefined;
+}
+
+const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
+  const isFsList = name === 'filesystem.list' && Array.isArray(payload);
+  const isEcho =
+    name === 'web.echo' &&
+    payload &&
+    typeof payload === 'object' &&
+    ('text' in payload || 'echo' in payload);
+
+  return (
+    <>
+      <div className="flex items-center gap-1">
+        <span className="font-medium">{name}</span>
+        <span className="text-[11px]">— {status}</span>
+      </div>
+      {isFsList && status === 'success' && (
+        <div className="mt-1 text-[11px]">
+          <div className="opacity-70">Items:</div>
+          <ul className="list-disc ml-4">
+            {(payload as Array<{ name: string; type: string }>).slice(0, 5).map((f) => (
+              <li key={f.name}>
+                <span>{f.name}</span>
+                <span className="opacity-60"> ({f.type})</span>
+              </li>
+            ))}
+            {Array.isArray(payload) && payload.length > 5 && (
+              <li className="opacity-60">… and {payload.length - 5} more</li>
+            )}
+          </ul>
+        </div>
+      )}
+      {isEcho && status === 'success' && payload && (
+        <div className="mt-1 text-[11px] opacity-80">
+          {('echo' in payload && payload.echo ? String(payload.echo) : null) ??
+            ('text' in payload && payload.text ? String(payload.text) : '')}
+        </div>
+      )}
+      {status === 'error' &&
+      payload &&
+      typeof payload === 'object' &&
+      'error' in payload &&
+      payload.error ? (
+        <div className="mt-1 text-[11px] text-destructive">{String(payload.error)}</div>
+      ) : null}
+    </>
+  );
+};
+
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runtime }) => {
   const [input, setInput] = useState('');
   const messages = useChatStore(chatSelectors.messages);
@@ -146,56 +203,52 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
     if (candidate) void handleSendText(candidate);
   }, [handleSendText, isStreaming, lastPrompt, messages]);
 
-  function escapeHtml(str: string) {
-    return str
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+  function renderTextSegment(segment: string, index: number): React.ReactNode {
+    return segment ? <span key={`t-${index}`}>{segment}</span> : null;
+  }
+
+  function renderCodeBlock(segment: string, index: number): React.ReactNode {
+    const nl = segment.indexOf('\n');
+    const lang: string = nl >= 0 ? segment.slice(0, nl).trim() : 'text';
+    const code: string = nl >= 0 ? segment.slice(nl + 1) : segment;
+
+    return (
+      <div
+        key={`code-${index}`}
+        className="relative group border rounded bg-muted/40 my-1"
+        data-testid="code-block"
+      >
+        <button
+          type="button"
+          className="absolute right-2 top-1 text-[10px] opacity-80 hover:opacity-100"
+          onClick={() => navigator.clipboard.writeText(code)}
+          aria-label="Copy code"
+          data-testid="copy-code"
+        >
+          Copy
+        </button>
+        <pre className="overflow-x-auto p-2 text-[11px]" data-language={lang || 'text'}>
+          <code>{code}</code>
+        </pre>
+      </div>
+    );
   }
 
   function renderContentWithCodeBlocks(text: string) {
-    const parts: React.ReactNode[] = [];
-    const regex = /```(\w+)?\n([\s\S]*?)```/g;
-    let lastIndex = 0;
-    let match: RegExpExecArray | null = regex.exec(text);
-    while (match !== null) {
-      const [full, lang, codeMaybe] = match;
-      const start = match.index;
-      if (start > lastIndex) {
-        const plain = text.slice(lastIndex, start);
-        parts.push(<span key={`t-${start}`}>{plain}</span>);
-      }
-      const code = codeMaybe ?? '';
-      const _safeCode = escapeHtml(code);
-      const language = (lang ?? 'text').toLowerCase();
-      const codeKey = `code-${start}`;
-      parts.push(
-        <div
-          key={codeKey}
-          className="relative group border rounded bg-muted/40"
-          data-testid="code-block"
-        >
-          <button
-            type="button"
-            className="absolute right-2 top-1 text-[10px] opacity-80 hover:opacity-100"
-            onClick={() => navigator.clipboard.writeText(code)}
-            aria-label="Copy code"
-            data-testid="copy-code"
-          >
-            Copy
-          </button>
-          <pre className="overflow-x-auto p-2 text-[11px]" data-language={language}>
-            <code>{code}</code>
-          </pre>
-        </div>
-      );
-      lastIndex = start + full.length;
-      match = regex.exec(text);
-    }
-    if (lastIndex < text.length) parts.push(<span key={'t-end'}>{text.slice(lastIndex)}</span>);
-    return parts;
+    if (!text.includes('```')) return [<span key="t-0">{text}</span>];
+
+    const chunks: string[] = text.split('```');
+    const nodes: React.ReactNode[] = [];
+
+    chunks.forEach((segment, i) => {
+      if (!segment && i % 2 === 0) return;
+
+      const node = i % 2 === 0 ? renderTextSegment(segment, i) : renderCodeBlock(segment, i);
+
+      if (node) nodes.push(node);
+    });
+
+    return nodes;
   }
 
   return (
@@ -219,7 +272,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
                   <span className="font-medium mr-1">
                     {m.role === 'user' ? 'You:' : 'Assistant:'}
                   </span>
-                  <span>{renderContentWithCodeBlocks(m.content)}</span>
+                  {renderContentWithCodeBlocks(m.content)}
                 </div>
               ))}
               {toolEvents.length > 0 && (
@@ -231,9 +284,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
                       data-testid="tool-part"
                       data-tool={t.name}
                     >
-                      <span className="font-medium mr-1">{t.name}</span>
-                      <span className="mr-1">—</span>
-                      <span className="text-[11px]">{t.status}</span>
+                      <ToolEventCard
+                        name={t.name}
+                        status={t.status}
+                        payload={
+                          t.payload as
+                            | Array<{ name: string; type: string }>
+                            | { text?: string; echo?: string; error?: unknown }
+                            | undefined
+                        }
+                      />
                     </div>
                   ))}
                 </div>

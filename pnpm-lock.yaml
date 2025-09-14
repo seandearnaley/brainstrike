@@ -81,6 +81,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@brainstrike/app-shell':
         specifier: workspace:*
         version: link:../../packages/app-shell
@@ -377,6 +380,9 @@ importers:
       ai:
         specifier: ^5.0.0
         version: 5.0.43(zod@3.25.76)
+      zod:
+        specifier: ^3.25.8
+        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^24.3.0

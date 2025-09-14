@@ -49,3 +49,10 @@ contextBridge.exposeInMainWorld('agent', {
   chat: (messages: unknown[], runtime?: unknown) =>
     ipcRenderer.invoke('agent:chat', messages, runtime),
 });
+
+// MCP Config API (desktop-only)
+contextBridge.exposeInMainWorld('mcp', {
+  getConfig: () => ipcRenderer.invoke('mcp:config:get'),
+  watch: () => ipcRenderer.invoke('mcp:config:watch'),
+  unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
+});

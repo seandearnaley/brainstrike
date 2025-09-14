@@ -1,5 +1,6 @@
 import { SettingsPageContent as BaseSettingsPageContent } from '@brainstrike/app-shell';
 import { LlmKeysSettings } from './llm-keys';
+import { McpConfigStatus } from './mcp-config-status';
 
 export default function SettingsPageContent() {
   return (
@@ -12,6 +13,7 @@ export default function SettingsPageContent() {
           <h2 className="text-xl font-semibold">Desktop Preferences</h2>
           <p className="text-sm text-muted-foreground">Manage local desktop-specific settings.</p>
           <LlmKeysSettings />
+          <McpConfigStatus />
         </div>
       </BaseSettingsPageContent>
     </>
