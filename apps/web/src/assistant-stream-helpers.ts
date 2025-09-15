@@ -150,6 +150,9 @@ export async function handleChatEndpoint(
 
   for await (const chunk of stream) {
     res.write(`${JSON.stringify(chunk)}\n`);
+    // Small delay to ensure UI observes streaming state in E2E and dev
+    // This avoids extremely fast streams completing before the UI can disable the Send button
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
 
   res.end();
