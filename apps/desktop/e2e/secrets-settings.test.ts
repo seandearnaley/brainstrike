@@ -19,11 +19,18 @@ test.describe('Secrets Settings', () => {
 
   test('save and retrieve provider key via settings UI + IPC', async () => {
     await homePage.openSettings();
+    // Ensure settings section is visible
+    await expect(appContext.window.getByTestId('settings-section')).toBeVisible();
 
     // Fill API key for OpenAI and save
     const providerSelect = appContext.window.getByTestId('llm-provider');
+    await expect(providerSelect).toBeVisible();
     await providerSelect.click();
-    await appContext.window.getByRole('option', { name: 'OpenAI' }).click();
+    // Select may render listbox options; be flexible
+    const option = appContext.window
+      .getByRole('option', { name: 'OpenAI' })
+      .or(appContext.window.getByRole('option', { name: /OpenAI/i }));
+    await option.click();
 
     await appContext.window.getByTestId('llm-api-key').fill('sk-test-123');
     await appContext.window.getByTestId('save-llm-key').click();
@@ -33,7 +40,10 @@ test.describe('Secrets Settings', () => {
 
     // Verify via IPC that we can retrieve it
     const fetched = await appContext.window.evaluate(async () => {
-      const key = await window.secrets?.getKey?.('openai');
+      const w = window as unknown as {
+        secrets?: { getKey?: (p: string) => Promise<string | null> };
+      };
+      const key = await w.secrets?.getKey?.('openai');
       return key || null;
     });
     expect(fetched).toBe('sk-test-123');

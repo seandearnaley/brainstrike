@@ -24,6 +24,7 @@ export interface RuntimeData {
   provider?: string;
   model?: string;
   mcpEnabled?: boolean;
+  signal?: AbortSignal;
   // Optional tool dispatcher provided by host (desktop main via IPC)
   callTool?: (
     name: string,
@@ -92,7 +93,20 @@ export async function toAiSdkStyleStream(
   messages: AgentMessage[],
   runtime?: RuntimeData
 ): Promise<StreamIterator> {
-  // For now, use the plan-then-act workflow to demonstrate multi-step output.
+  // Prefer real provider when apiKey is present on runtime
+  const apiKey = (runtime as unknown as { apiKey?: string })?.apiKey;
+  if (apiKey && typeof apiKey === 'string' && apiKey.length > 0) {
+    const { toOpenAIStream } = await import('./providers/openai');
+    const model = (runtime as unknown as { model?: string }).model;
+    const signal = (runtime as unknown as { signal?: AbortSignal | null | undefined }).signal;
+    if (signal != null) {
+      return toOpenAIStream(
+        messages,
+        model && model.length > 0 ? { apiKey, model, signal } : { apiKey, signal }
+      );
+    }
+    return toOpenAIStream(messages, model && model.length > 0 ? { apiKey, model } : { apiKey });
+  }
   return streamPlanThenAct(messages, runtime);
 }
 // MCP config types and parser (desktop-only usage typically)

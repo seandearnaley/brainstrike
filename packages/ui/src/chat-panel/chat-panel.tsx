@@ -50,19 +50,38 @@ interface FileReadPayload {
 interface JsonPreviewProps {
   obj: unknown;
   expanded: boolean;
+  onToggle: () => void;
+  enableCopy?: boolean;
 }
 
-const JsonPreview: React.FC<JsonPreviewProps> = ({ obj, expanded }) => {
+const JsonPreview: React.FC<JsonPreviewProps> = ({ obj, expanded, onToggle, enableCopy }) => {
   try {
     const text = JSON.stringify(obj, null, 2);
     const trim = !expanded && text.length > 400 ? `${text.slice(0, 400)}…` : text;
     return (
-      <pre
-        className="mt-1 text-[11px] whitespace-pre-wrap break-words"
-        data-testid="tool-part-details"
-      >
-        {trim}
-      </pre>
+      <div className="mt-1">
+        <pre
+          className="text-[11px] whitespace-pre-wrap break-words"
+          data-testid="tool-part-details"
+        >
+          {trim}
+        </pre>
+        <div className="flex items-center gap-2 mt-1">
+          {text.length > 400 && (
+            <button
+              type="button"
+              className="text-[11px] opacity-80 hover:opacity-100 underline"
+              onClick={onToggle}
+              data-testid="tool-json-toggle"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          )}
+          {enableCopy ? (
+            <CopyButton value={text} ariaLabel="Copy JSON" dataTestId="tool-json-copy" />
+          ) : null}
+        </div>
+      </div>
     );
   } catch {
     return null;
@@ -128,6 +147,13 @@ const FileReadTool: React.FC<FileReadToolProps> = ({ payload, expanded, onToggle
           {expanded ? 'Show less' : 'Show more'}
         </button>
       )}
+      <div className="px-2 pb-2">
+        <CopyButton
+          value={String(payload.content ?? '')}
+          ariaLabel="Copy result"
+          dataTestId="tool-result-copy"
+        />
+      </div>
     </div>
   </div>
 );
@@ -205,7 +231,15 @@ function renderProgressDetails(
       return renderProgressLine(step, percent, note);
     }
   }
-  return <JsonPreview obj={payload} expanded={expanded} />;
+  return (
+    <JsonPreview
+      obj={payload}
+      expanded={expanded}
+      onToggle={() => {
+        /* handled by parent */
+      }}
+    />
+  );
 }
 
 function renderSuccessPayload(
@@ -251,8 +285,15 @@ function renderSuccessPayload(
     );
   }
 
-  return <JsonPreview obj={payload} expanded={expanded} />;
+  return <JsonPreview obj={payload} expanded={expanded} onToggle={onToggleExpanded} enableCopy />;
 }
+
+const statusToBadge: Record<string, string> = {
+  start: 'bg-blue-100 text-blue-800',
+  progress: 'bg-amber-100 text-amber-800',
+  success: 'bg-green-100 text-green-800',
+  error: 'bg-red-100 text-red-800',
+};
 
 const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
   const [expanded, setExpanded] = useState(false);
@@ -267,20 +308,35 @@ const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
 
   return (
     <>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
         <span className="font-medium">{name}</span>
-        <span className="text-[11px]">— {status}</span>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded ${statusToBadge[status] ?? 'bg-gray-100 text-gray-800'}`}
+        >
+          {status}
+        </span>
       </div>
 
       {/* Progress/start details */}
-      {(status === 'start' || status === 'progress') &&
-        payload &&
-        typeof payload === 'object' &&
-        renderProgressDetails(status, payload, expanded)}
+      {(status === 'start' || status === 'progress') && payload && typeof payload === 'object' && (
+        <div className="mt-1">
+          {renderProgressDetails(status, payload, expanded)}
+          <div className="mt-1">
+            <CopyButton
+              value={safeStringify(payload)}
+              ariaLabel="Copy args"
+              dataTestId="tool-args-copy"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Success payloads */}
-      {status === 'success' &&
-        renderSuccessPayload(detection, payload, expanded, handleToggleExpanded)}
+      {status === 'success' && (
+        <div className="mt-1">
+          {renderSuccessPayload(detection, payload, expanded, handleToggleExpanded)}
+        </div>
+      )}
 
       {/* Error copy */}
       {status === 'error' && errorText && (
@@ -289,6 +345,46 @@ const ToolEventCard: React.FC<ToolEventProps> = ({ name, status, payload }) => {
     </>
   );
 };
+
+function safeStringify(obj: unknown): string {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj);
+  }
+}
+
+interface CopyButtonProps {
+  value: string;
+  ariaLabel: string;
+  dataTestId?: string;
+}
+
+function CopyButton({ value, ariaLabel, dataTestId }: CopyButtonProps): React.ReactElement {
+  function copyValue(): void {
+    const electronClipboard = (
+      window as unknown as {
+        clipboard?: { writeText?: (t: string) => boolean };
+      }
+    ).clipboard;
+    if (typeof electronClipboard?.writeText === 'function') {
+      const ok = electronClipboard.writeText(String(value ?? ''));
+      if (ok) return;
+    }
+    void navigator.clipboard.writeText(String(value ?? ''));
+  }
+  return (
+    <button
+      type="button"
+      className="text-[11px] opacity-80 hover:opacity-100 underline"
+      onClick={copyValue}
+      aria-label={ariaLabel}
+      data-testid={dataTestId}
+    >
+      Copy
+    </button>
+  );
+}
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runtime }) => {
   const [input, setInput] = useState('');
@@ -458,6 +554,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
     const lang: string = nl >= 0 ? segment.slice(0, nl).trim() : 'text';
     const code: string = nl >= 0 ? segment.slice(nl + 1) : segment;
 
+    function copyCode(): void {
+      const electronClipboard = (
+        window as unknown as {
+          clipboard?: { writeText?: (t: string) => boolean };
+        }
+      ).clipboard;
+      if (typeof electronClipboard?.writeText === 'function') {
+        const ok = electronClipboard.writeText(String(code));
+        if (ok) return;
+      }
+      void navigator.clipboard.writeText(String(code));
+    }
+
     return (
       <div
         key={`code-${index}`}
@@ -467,7 +576,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ className, transport, runt
         <button
           type="button"
           className="absolute right-2 top-1 text-[10px] opacity-80 hover:opacity-100"
-          onClick={() => navigator.clipboard.writeText(code)}
+          onClick={copyCode}
           aria-label="Copy code"
           data-testid="copy-code"
         >

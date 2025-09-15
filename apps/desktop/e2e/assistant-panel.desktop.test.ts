@@ -38,7 +38,7 @@ test.describe('Assistant panel (desktop)', () => {
     await page.getByRole('button', { name: 'Send' }).click();
 
     // Validate user and assistant rows appear
-    await expect(panel.getByText('You:')).toBeVisible();
-    await expect(panel.getByText('Assistant:')).toBeVisible({ timeout: 10000 });
+    await expect(panel.getByText('You:').first()).toBeVisible();
+    await expect(panel.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
   });
 });

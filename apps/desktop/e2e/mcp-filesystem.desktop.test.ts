@@ -42,7 +42,7 @@ test.describe('MCP filesystem tool (desktop)', () => {
 
     // Start watching for changes (ensures loader picks it up)
     await page.evaluate(async () => {
-      await window.mcp?.watch?.();
+      (window as unknown as { mcp?: { watch?: () => Promise<void> } }).mcp?.watch?.();
     });
 
     // Ensure right panel is visible
@@ -65,7 +65,7 @@ test.describe('MCP filesystem tool (desktop)', () => {
     await page.getByRole('button', { name: 'Send' }).click();
 
     // Expect a tool card for filesystem.list
-    const toolCard = panel.locator('[data-testid="tool-part"][data-tool="filesystem.list"]');
-    await expect(toolCard).toBeVisible({ timeout: 10000 });
+    const toolCards = panel.locator('[data-testid="tool-part"][data-tool="filesystem.list"]');
+    await expect(toolCards.first()).toBeVisible({ timeout: 10000 });
   });
 });

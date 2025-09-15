@@ -99,7 +99,9 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                {isAssistantUiEnabled() ? (
+                {isAssistantUiEnabled() ||
+                (typeof window !== 'undefined' &&
+                  !!(window as unknown as { assistant?: unknown }).assistant) ? (
                   <React.Suspense
                     fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
                   >

@@ -16,7 +16,7 @@ type AgentMessage = {
 };
 type RuntimeData = { projectId?: string; provider?: string; model?: string; mcpEnabled?: boolean };
 
-function pickUserText(msg: MessageContent): string | null {
+function pickUserText(msg: MessageContent | undefined): string | null {
   if (!msg || msg.role !== 'user') return null;
   const c = msg.content;
   if (typeof c === 'string') return c;
@@ -51,17 +51,20 @@ function toAgentMessages(rawMessages: MessageContent[]): AgentMessage[] {
   }
   if (out.length === 0 && rawMessages.length > 0) {
     const last = rawMessages[rawMessages.length - 1];
-    if (!last) return out;
     const t = pickUserText(last);
-    if (t)
+    if (t) {
+      if (!last) return out;
       out.push({
-        id: String(last.id ?? crypto.randomUUID()),
+        id: String((last as MessageContent).id ?? crypto.randomUUID()),
         role: 'user',
         parts: [{ type: 'text', text: t }],
       });
+    }
   }
   return out;
 }
+
+// removed legacy toCoreMessages helper – not used with assistant-stream path
 
 async function readRequestBody(req: http.IncomingMessage): Promise<string> {
   let body = '';
@@ -177,72 +180,131 @@ function handleToolEvent(
 
 async function processAgentStream(
   ctrl: StreamController,
-  agentStream: AsyncIterable<StreamChunk>
+  agentStream: AsyncIterable<StreamChunk>,
+  signal?: AbortSignal | null,
+  preStarted?: boolean
 ): Promise<void> {
-  let started = false;
+  let started = Boolean(preStarted);
   const tools = new Map<string, ToolCallStreamController>();
+  let aborted = Boolean(signal?.aborted);
+  const onAbort = () => {
+    aborted = true;
+  };
+  try {
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    await iterateAgentStream(
+      ctrl,
+      agentStream,
+      tools,
+      () => aborted,
+      (v) => {
+        started = v;
+      },
+      started
+    );
+  } catch (err) {
+    // If aborted, suppress errors from upstream cancellation
+    if (!(aborted && err instanceof Error)) {
+      // no-op; we purposely avoid surfacing provider errors here
+    }
+  } finally {
+    for (const [, t] of tools) t.close();
+    try {
+      ctrl.close();
+    } catch {}
+    if (signal) signal.removeEventListener?.('abort', onAbort as EventListener);
+  }
+}
 
+async function iterateAgentStream(
+  ctrl: StreamController,
+  agentStream: AsyncIterable<StreamChunk>,
+  tools: Map<string, ToolCallStreamController>,
+  isAborted: () => boolean,
+  setStarted: (started: boolean) => void,
+  startedInitial: boolean
+): Promise<void> {
+  let started = startedInitial;
   for await (const chunk of agentStream) {
+    if (isAborted()) break;
     if (chunk.type === 'text-delta') {
-      started = handleTextDelta(ctrl, chunk.value, started);
+      const nextStarted = handleTextDelta(ctrl, chunk.value, started);
+      started = nextStarted;
+      setStarted(nextStarted);
     } else if (chunk.type === 'tool-event') {
       handleToolEvent(ctrl, tools, chunk);
     }
   }
-
-  for (const [, t] of tools) t.close();
-  ctrl.close();
 }
 
 async function streamResponse(
   res: http.ServerResponse,
-  response: { status: number; headers: Headers; body: ReadableStream | null }
+  response: { status: number; headers: Headers; body: ReadableStream | null },
+  signal?: AbortSignal | null
 ): Promise<void> {
-  res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
-  const reader = (response.body as unknown as ReadableStream).getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    res.write(value);
+  writeHeaders(res, response.headers);
+  // Ensure the connection closes at end of stream so the client settles
+  try {
+    res.setHeader('Connection', 'close');
+  } catch {}
+  res.writeHead(response.status);
+
+  const body = response.body as unknown as ReadableStream<Uint8Array> | null;
+  if (!body) {
+    res.end();
+    return;
   }
-  res.end();
+
+  await pumpReadableToResponse(body, res, signal);
+}
+
+function writeHeaders(res: http.ServerResponse, headers: Headers): void {
+  for (const [k, v] of headers.entries()) {
+    try {
+      res.setHeader(k, v);
+    } catch {}
+  }
+}
+
+async function pumpReadableToResponse(
+  body: ReadableStream<Uint8Array>,
+  res: http.ServerResponse,
+  signal?: AbortSignal | null
+): Promise<void> {
+  const reader = (
+    body as unknown as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }
+  ).getReader();
+  let aborted = Boolean(signal?.aborted);
+  const onAbort = () => {
+    aborted = true;
+    try {
+      res.end();
+    } catch {}
+  };
+  try {
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    while (!aborted) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (aborted) break;
+      if (value && value.length > 0) res.write(value);
+    }
+  } catch {
+    // ignore
+  } finally {
+    try {
+      res.end();
+    } catch {}
+    if (signal) signal.removeEventListener?.('abort', onAbort as EventListener);
+  }
 }
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {
-    try {
-      if (req.method !== 'POST' || !(req.url?.endsWith('/assistant') || req.url === '/')) {
-        res.writeHead(404).end('not found');
-        return;
-      }
-
-      const body = await readRequestBody(req);
-      const parsed = JSON.parse(body || '{}');
-      const rawMessages = Array.isArray(parsed?.messages) ? parsed.messages : [];
-      const data: RuntimeData | undefined = parsed?.data ?? undefined;
-      const messages = toAgentMessages(rawMessages);
-
-      const mod = await import('@brainstrike/agent');
-
-      const response = createAssistantStreamResponse(async (ctrl) => {
-        const agentStream = await mod.toAiSdkStyleStream(messages, {
-          ...data,
-          mcpEnabled: true,
-          callTool: (
-            name: string,
-            params?: Record<string, unknown>,
-            opts?: { onProgress?: (payload: unknown) => void }
-          ) => callTool(name, params, opts),
-        });
-
-        await processAgentStream(ctrl, agentStream);
-      });
-
-      await streamResponse(res, response);
-    } catch {
+    await handleAssistantRequest(req, res).catch(() => {
       res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: 'assistant server error' }));
-    }
+    });
   });
 
   const port = Number(process.env['BS_ASSISTANT_PORT'] ?? portHint ?? 0) || 0;
@@ -257,4 +319,75 @@ export function startAssistantServer(portHint?: number) {
       });
     });
   });
+}
+
+async function handleAssistantRequest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
+  if (req.method !== 'POST' || !(req.url?.endsWith('/assistant') || req.url === '/')) {
+    res.writeHead(404).end('not found');
+    return;
+  }
+
+  const body = await readRequestBody(req);
+  const parsed = JSON.parse(body || '{}');
+  const rawMessages = Array.isArray(parsed?.messages) ? parsed.messages : [];
+  const data: RuntimeData | undefined = parsed?.data ?? undefined;
+  const apiKey = await readOpenAIApiKeySafe();
+  const messages = toAgentMessages(rawMessages);
+
+  if (!hasNonEmptyPrompt(messages)) {
+    res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ error: 'empty_prompt' }));
+    return;
+  }
+
+  const mod = await import('@brainstrike/agent');
+  const response = createAssistantStreamResponse(async (ctrl) => {
+    const abortController = new AbortController();
+    const abort = () => abortController.abort();
+    req.on('close', abort);
+    req.on('aborted', abort);
+    abortController.signal.addEventListener(
+      'abort',
+      () => {
+        try {
+          ctrl.close();
+        } catch {}
+      },
+      { once: true }
+    );
+    const agentStream = await mod.toAiSdkStyleStream(messages, {
+      ...data,
+      mcpEnabled: true,
+      ...(apiKey ? { apiKey } : {}),
+      signal: abortController.signal,
+      callTool: (
+        name: string,
+        params?: Record<string, unknown>,
+        opts?: { onProgress?: (payload: unknown) => void }
+      ) => callTool(name, params, opts),
+    });
+
+    await processAgentStream(ctrl, agentStream, abortController.signal, true);
+  });
+
+  await streamResponse(res, response, undefined);
+}
+
+async function readOpenAIApiKeySafe(): Promise<string | undefined> {
+  try {
+    const { getSecretsService } = await import('./secrets');
+    const svc = getSecretsService();
+    return (await svc.getKey('openai')) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
+  const lastUser = messages.length > 0 ? messages[messages.length - 1] : undefined;
+  const lastText = lastUser?.parts.find((p) => p.type === 'text')?.text ?? '';
+  return Boolean(lastText && lastText.trim().length > 0);
 }

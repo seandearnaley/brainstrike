@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, test, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
@@ -104,8 +104,12 @@ describe('RightPanel', () => {
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
 
-    // Should show database content
-    expect(screen.getByText('Database is initializing...')).toBeInTheDocument();
+    // Should show database content; allow either initializing or disabled message depending on build flag
+    const dbPanel = screen.getByRole('tabpanel', { name: /db/i });
+    expect(dbPanel).toBeInTheDocument();
+    expect(
+      within(dbPanel).getByText(/Database (is initializing|UI disabled)/i)
+    ).toBeInTheDocument();
   });
 
   test('has proper tab structure with icons', () => {

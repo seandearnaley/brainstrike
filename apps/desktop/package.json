@@ -50,7 +50,9 @@
     "electron-store": "^10.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "assistant-stream": "^0.2.24"
+    "assistant-stream": "^0.2.24",
+    "ai": "^5.0.0",
+    "@ai-sdk/openai": "^1.0.0"
   },
   "devDependencies": {
     "@brainstrike/build-utils": "workspace:*",

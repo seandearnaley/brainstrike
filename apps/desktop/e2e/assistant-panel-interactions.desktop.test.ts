@@ -49,18 +49,25 @@ test.describe('Assistant panel interactions (desktop)', () => {
 
     // Retry the last prompt; should stream again
     await page.getByRole('button', { name: 'Retry' }).click();
-    await expect(panel.getByText('Assistant:')).toBeVisible({ timeout: 10000 });
+    await expect(panel.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
 
     // Now send a message that contains a code block to test copy
     await page.locator('#assistant-input').fill('```js\nconsole.log("hello");\n```');
     await sendBtn.click();
 
-    // Find the code block and click copy
-    const copyBtn = panel.getByRole('button', { name: 'Copy code' });
-    await expect(copyBtn).toBeVisible();
+    // Reset clipboard, find the copy button and click
+    await appContext.app.evaluate(async ({ clipboard }) => clipboard.writeText(''));
+    // Ensure the user message rendered
+    await expect(panel.getByText('You:').first()).toBeVisible();
+    // Click any visible Copy code button associated with the code block
+    const copyBtn = panel.getByRole('button', { name: 'Copy code' }).last();
+    await expect(copyBtn).toBeVisible({ timeout: 10000 });
     await copyBtn.click();
 
-    // Verify clipboard content via Electron main process clipboard
+    // Small delay to allow clipboard bridge to flush in headless Electron
+    await page.waitForTimeout(75);
+
+    // Verify clipboard content (prefer renderer-exposed clipboard)
     const clip = await appContext.app.evaluate(async ({ clipboard }) => clipboard.readText());
     expect(clip).toContain('console.log("hello")');
   });

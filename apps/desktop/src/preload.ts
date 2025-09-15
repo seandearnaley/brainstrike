@@ -1,5 +1,5 @@
 // Electron preload script - must use CommonJS syntax
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { PanelPersistenceState } from '@brainstrike/ui';
@@ -60,4 +60,23 @@ contextBridge.exposeInMainWorld('mcp', {
 // Assistant UI (data stream) endpoint helper
 contextBridge.exposeInMainWorld('assistant', {
   getUrl: () => ipcRenderer.invoke('assistant:get-url'),
+});
+
+// System Clipboard helper (renderer-friendly)
+contextBridge.exposeInMainWorld('clipboard', {
+  writeText: (text: string) => {
+    try {
+      clipboard.writeText(String(text ?? ''));
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  readText: () => {
+    try {
+      return clipboard.readText();
+    } catch {
+      return '';
+    }
+  },
 });

@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
@@ -53,8 +52,6 @@ function copyFontsPlugin() {
   };
 }
 
-const wasmPath = findPGliteWasm(__dirname);
-
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
 
@@ -62,6 +59,9 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
+
+const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('@brainstrike/build-utils');
+const wasmPath = findPGliteWasm(__dirname);
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '.vite'),
@@ -98,7 +98,7 @@ export default defineConfig({
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
-    'globalThis.__VITE_ASSISTANT_UI__': 'true',
+    'globalThis.__VITE_ASSISTANT_UI__': 'false',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
@@ -278,15 +278,15 @@ function devChatApiPlugin() {
     configureServer(server) {
       server.middlewares.use(createApiMiddleware('dev'));
     },
-    configurePreviewServer(server: import('vite').ViteDevServer) {
-      server.middlewares.use(createApiMiddleware('preview'));
+    async configurePreviewServer(server: import('vite').ViteDevServer) {
+      server.middlewares.use(await createApiMiddleware('preview'));
     },
   };
 }
 
 async function createApiMiddleware(mode: 'dev' | 'preview') {
   const { readBody, handleChatEndpoint, handleAssistantEndpoint } = await import(
-    '@/assistant-stream-helpers'
+    './src/assistant-stream-helpers.ts'
   );
 
   return async (

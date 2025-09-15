@@ -63,3 +63,12 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     },
   } satisfies SecretsService;
 }
+
+// Singleton accessor for consumers (e.g., assistant server) without circular DI
+let __secretsInstance: SecretsService | null = null;
+export function getSecretsService(): SecretsService {
+  if (!__secretsInstance) {
+    __secretsInstance = createSecretsService();
+  }
+  return __secretsInstance;
+}

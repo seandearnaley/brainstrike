@@ -50,13 +50,19 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
     <div className={className} data-testid="chat-panel">
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread">
-          <ThreadPrimitive.Viewport className="aui-thread-viewport">
+          <ThreadPrimitive.Viewport
+            className="aui-thread-viewport"
+            data-testid="assistant-ui-viewport"
+          >
             <ThreadPrimitive.Messages
               components={{
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
                 AssistantMessage: () => (
                   <MessagePrimitive.Root className="aui-assistant-message-root">
                     <div className="aui-assistant-message-content">
+                      <div className="aui-assistant-message-label text-[11px] opacity-70 mb-1">
+                        Assistant:
+                      </div>
                       <MessagePrimitive.Parts
                         components={{
                           /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
@@ -69,8 +75,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
                       hideWhenRunning
                       className="aui-assistant-action-bar-root"
                     >
-                      <ActionBarPrimitive.Copy className="aui-button aui-button-ghost aui-button-icon" />
-                      <ActionBarPrimitive.Reload className="aui-button aui-button-ghost aui-button-icon" />
+                      <ActionBarPrimitive.Reload
+                        aria-label="Retry"
+                        className="aui-button aui-button-ghost aui-button-icon"
+                      />
                     </ActionBarPrimitive.Root>
                   </MessagePrimitive.Root>
                 ),
@@ -78,7 +86,13 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
                 UserMessage: () => (
                   <MessagePrimitive.Root className="aui-user-message-root">
                     <div className="aui-user-message-content">
-                      <MessagePrimitive.Parts />
+                      <div className="aui-user-message-label text-[11px] opacity-70 mb-1">You:</div>
+                      <MessagePrimitive.Parts
+                        components={{
+                          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+                          Text: MarkdownText,
+                        }}
+                      />
                     </div>
                   </MessagePrimitive.Root>
                 ),
@@ -90,6 +104,7 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
                   rows={1}
                   placeholder="Ask the assistant…"
                   className="aui-composer-input"
+                  id="assistant-input"
                 />
                 <ThreadPrimitive.If running={false}>
                   <ComposerPrimitive.Send className="aui-button aui-button-primary aui-composer-send">

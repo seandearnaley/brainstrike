@@ -59,6 +59,31 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Removed stray compiled JS from `packages/agent/src/**/*.js` to avoid stale workflows leaking into dev. Updated tsconfig/vitest aliases to target `dist/` types/ESM.
   - Desktop assistant-ui runtime: added local assistant-stream server in Electron main, preload bridge to expose URL, and AssistantUiPanel auto-detects desktop endpoint. CSP updated to allow 127.0.0.1 in dev/prod. Server lifecycle tied to app quit.
 
+- 2025-09-15 (provider wiring + stability):
+  - Removed greeting fallback in synthesize step to prevent generic repeated replies.
+  - Implemented OpenAI Chat Completions SSE streaming provider:
+    - `packages/agent/src/providers/openai.ts` parses SSE `data:` lines, stops on `[DONE]`, flushes decoder to avoid trailing token hang.
+    - `packages/agent/src/index.ts` prefers OpenAI when `runtime.apiKey` is present; falls back to `plan-then-act` otherwise.
+  - Desktop assistant server injects OpenAI key from `safeStorage`:
+    - `apps/desktop/src/assistant-server.ts` reads provider key via `getSecretsService()` and passes `apiKey` to runtime.
+    - `apps/desktop/src/secrets.ts` adds `getSecretsService()` singleton accessor.
+  - Desktop: right panel now always uses assistant-ui when desktop runtime is present (legacy ChatPanel not used on desktop).
+  - Web: temporary assistant-ui disablement for E2E stability; will re-enable after ToolCall parity.
+  - E2E stabilization (targeted): desktop specs green; web assistant panel specs adjusted to ChatPanel selectors and timeouts; added long‑stream Stop smoke test for web.
+  - New handoff doc: `09-15-2025-assistant-ui-provider-wiring-handoff.md` with copy-paste prompt and next steps.
+
+- 2025-09-15 (provider wiring + stability):
+  - Removed greeting fallback in synthesize step to prevent generic repeated replies.
+  - Implemented OpenAI Chat Completions SSE streaming provider:
+    - `packages/agent/src/providers/openai.ts` parses SSE `data:` lines, stops on `[DONE]`, flushes decoder to avoid trailing token hang.
+    - `packages/agent/src/index.ts` prefers OpenAI when `runtime.apiKey` is present; falls back to `plan-then-act` otherwise.
+  - Desktop assistant server injects OpenAI key from `safeStorage`:
+    - `apps/desktop/src/assistant-server.ts` reads provider key via `getSecretsService()` and passes `apiKey` to runtime.
+    - `apps/desktop/src/secrets.ts` adds `getSecretsService()` singleton accessor.
+  - Desktop: right panel now always uses assistant-ui when desktop runtime is present (legacy ChatPanel not used on desktop).
+  - Web: temporary assistant-ui disablement for E2E stability; will re-enable after ToolCall parity.
+  - New handoff doc: `09-15-2025-assistant-ui-provider-wiring-handoff.md` with copy-paste prompt and next steps.
+
 ---
 
 ### Phase 1 — Shared agent foundation (cut: stream echo bot)

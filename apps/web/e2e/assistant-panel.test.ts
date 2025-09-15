@@ -23,8 +23,8 @@ test.describe('Assistant panel', () => {
     await page.locator('#assistant-input').fill('hello world');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // Expect user message to appear
-    await expect(panel.getByText('You:')).toBeVisible();
+    // Expect user message to appear (allow more time in CI)
+    await expect(panel.getByText('You:')).toBeVisible({ timeout: 10000 });
     await expect(panel.getByText('You:')).toHaveText(/You:/);
 
     // Expect streamed assistant response to appear
@@ -40,8 +40,8 @@ test.describe('Assistant panel', () => {
       .or(page.getByRole('button', { name: 'Props' }))
       .click();
 
-    // State should persist across tab switches
-    await expect(panel.getByText('You:')).toBeVisible();
-    await expect(panel.getByText('Assistant:')).toBeVisible();
+    // State should persist across tab switches (allow time after navigation)
+    await expect(panel.getByText('You:')).toBeVisible({ timeout: 10000 });
+    await expect(panel.getByText('Assistant:')).toBeVisible({ timeout: 10000 });
   });
 });

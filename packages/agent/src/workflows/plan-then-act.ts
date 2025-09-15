@@ -366,14 +366,11 @@ async function* handleSynthesizeStep(
 
   const didSearch = shouldSearch(userText);
   const didList = listReq.match && !!(runtime?.mcpEnabled && runtime?.callTool);
-  const isGreeting = /\b(hi|hello|hey)\b/i.test(userText);
   const answer = didSearch
     ? 'Here is a synthesized answer based on the (simulated) search.'
     : didList
       ? 'Listed files as requested.'
-      : isGreeting
-        ? 'Hello! How can I help?'
-        : `You said: "${userText}"`;
+      : `You said: "${userText}"`;
 
   yield* streamTokens(`\n${answer}`);
   yield { type: 'tool-event', name: 'synthesize', status: 'success' } satisfies StreamChunk;
