@@ -169,7 +169,7 @@ Definition of Done:
 
 ## Rollback Plan
 
-- To disable assistant‑ui and fall back to legacy ChatPanel: set `globalThis.__VITE_ASSISTANT_UI__ = false` in the respective Vite configs, or gate in `packages/app-shell/src/env.ts`.
+Update 2025‑09‑15: ChatPanel removed. Assistant‑ui is always used. You can only disable assistant‑ui in web builds by setting `APP_SHELL_ASSISTANT_UI=false` (not recommended).
 - Desktop server cleans up on app quit; no persistent state is written.
 
 ---
@@ -179,4 +179,3 @@ Definition of Done:
 - The desktop server integrates with MCP clients via `callTool`, so all progress/result mapping remains in one place.  
 - If you change tool schemas, update both the agent zod validators and the assistant‑ui presentation to stay in sync.  
 - Keep changes surgical; do not refactor unrelated UI/tests during this phase.
-

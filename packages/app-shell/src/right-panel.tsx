@@ -1,17 +1,9 @@
-import type {
-  AgentMessage,
-  CancellableIterable,
-  ChatTransport,
-  RuntimeData,
-  StreamChunk,
-} from '@brainstrike/ui';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-  ChatPanel,
   Input,
   Label,
   Tabs,
@@ -22,7 +14,7 @@ import {
 import { Brain, Database, FileText, Search } from 'lucide-react';
 import React, { lazy } from 'react';
 import { EmbeddingsPanel } from './embeddings-panel';
-import { isAssistantUiEnabled, isDbUiEnabled } from './env';
+import { isDbUiEnabled } from './env';
 import { McpBanner } from './mcp-banner';
 import { type DbSubtab, dbPanelSelectors, useDbPanelStore } from './stores/db-panel-store';
 import {
@@ -99,30 +91,17 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                {isAssistantUiEnabled() ||
-                (typeof window !== 'undefined' &&
-                  !!(window as unknown as { assistant?: unknown }).assistant) ? (
-                  <React.Suspense
-                    fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
-                  >
-                    {React.createElement(
-                      React.lazy(async () => ({
-                        default: (await import('@brainstrike/ui/assistant-ui-panel'))
-                          .AssistantUiPanel,
-                      })),
-                      {}
-                    )}
-                  </React.Suspense>
-                ) : (
-                  <ChatPanel
-                    {...(desktopTransport
-                      ? {
-                          transport: desktopTransport,
-                          runtime: { mcpEnabled: true },
-                        }
-                      : {})}
-                  />
-                )}
+                <React.Suspense
+                  fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
+                >
+                  {React.createElement(
+                    React.lazy(async () => ({
+                      default: (await import('@brainstrike/ui/assistant-ui-panel'))
+                        .AssistantUiPanel,
+                    })),
+                    {}
+                  )}
+                </React.Suspense>
                 {/* MCP availability banner (desktop only; no-op on web) */}
                 <McpBanner />
                 <div>
@@ -347,38 +326,3 @@ export function RightPanel() {
     </div>
   );
 }
-// Desktop override: if window.agent.chat exists, provide a transport that
-// calls the local agent via IPC and pseudo-streams the returned chunks.
-const desktopTransport: ChatTransport | undefined = window?.agent?.chat
-  ? async (messages: AgentMessage[], runtime?: RuntimeData) => {
-      let stopped = false;
-      try {
-        const chat = window.agent?.chat;
-        if (!chat) throw new Error('Agent chat not available');
-        const chunks = (await chat(messages, runtime)) as StreamChunk[];
-        const gen = (async function* (): AsyncGenerator<StreamChunk> {
-          for (const c of chunks) {
-            if (stopped) break;
-            yield c;
-            // Yield microtask to keep UI responsive
-            // eslint-disable-next-line no-await-in-loop
-            await Promise.resolve();
-          }
-        })();
-        const cancellableGen = gen as CancellableIterable<StreamChunk>;
-        cancellableGen.cancel = () => {
-          stopped = true;
-        };
-        return cancellableGen;
-      } catch (err) {
-        console.warn('Desktop transport failed:', err);
-        // Return empty iterator on failure
-        const empty = (async function* (): AsyncGenerator<StreamChunk> {})();
-        const cancellableEmpty = empty as CancellableIterable<StreamChunk>;
-        cancellableEmpty.cancel = () => {
-          stopped = true;
-        };
-        return cancellableEmpty;
-      }
-    }
-  : undefined;

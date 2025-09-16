@@ -72,6 +72,26 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - E2E stabilization (targeted): desktop specs green; web assistant panel specs adjusted to ChatPanel selectors and timeouts; added long‑stream Stop smoke test for web.
   - New handoff doc: `09-15-2025-assistant-ui-provider-wiring-handoff.md` with copy-paste prompt and next steps.
 
+- 2025-09-15 (web tool dispatcher + flag fix):
+  - Removed stray compiled JS in `@brainstrike/agent/src` to avoid drift (`mcp/config.js`, `memory/in-memory.js`, `tools/schemas.js`).
+  - Fixed web assistant-ui flag to resolve to a boolean; enable via `APP_SHELL_ASSISTANT_UI=true`.
+  - Implemented server-side tool dispatcher (web-only) for `web.echo` with progress:
+    - `apps/web/src/app/api/chat/route.ts` and `apps/web/src/app/api/assistant/route.ts` now pass `runtime.callTool`.
+    - Dev/preview helper updated: `apps/web/src/assistant-stream-helpers.ts` also wires `callTool`.
+    - Workflow updated to allow `web.echo` without `mcpEnabled` (desktop-only gate remains for filesystem tools).
+  - Type-check, build, and tests re-run across packages — all green.
+
+- 2025-09-15 (assistant-ui E2E on web):
+  - Added Playwright spec `apps/web/e2e/assistant-ui-panel.test.ts`.
+    - Forces Assistant UI via `window.assistant` injection (no build flag changes).
+    - Sends `echo` prompt and asserts assistant streaming and progress lines.
+  - Rationale: Validate assistant-ui stream and basic tool-call semantics on web without changing default flags.
+
+- 2025-09-15 (remove ChatPanel fallback):
+  - Right panel no longer renders ChatPanel. Assistant-UI is always used.
+    - File: `packages/app-shell/src/right-panel.tsx` — removed conditional and desktop transport shim.
+  - Web flag now defaults to assistant-ui, and desktop provides its endpoint; the fallback code path is gone.
+
 - 2025-09-15 (provider wiring + stability):
   - Removed greeting fallback in synthesize step to prevent generic repeated replies.
   - Implemented OpenAI Chat Completions SSE streaming provider:
@@ -83,6 +103,13 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
   - Desktop: right panel now always uses assistant-ui when desktop runtime is present (legacy ChatPanel not used on desktop).
   - Web: temporary assistant-ui disablement for E2E stability; will re-enable after ToolCall parity.
   - New handoff doc: `09-15-2025-assistant-ui-provider-wiring-handoff.md` with copy-paste prompt and next steps.
+
+- 2025-09-16 (Mastra integration + web tools refresh):
+  - Replaced the custom plan-then-act workflow with a Mastra-backed agent runtime that streams AI SDK events.
+  - Added first-party Mastra tool definitions (`web.echo`, `web.searchDocs`, `web.docSummary`) to replace the bespoke dispatcher; web routes now pass these via `mastraTools`.
+  - Added Vitest coverage for the new streaming path and assistant route semantics.
+  - Stabilized assistant-ui theming by shadowing variables under `--bs-*` and re-applying them post import to avoid dark-mode flashes.
+  - Verified builds for `@brainstrike/ui` and smoke-tested web API routes with the Mastra fallback.
 
 ---
 
@@ -111,7 +138,7 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - [ ] UI hookup
   - [x] Add chat panel component from `packages/ui` and wire to `/api/chat`
   - [x] Use AI SDK v5-compatible stream consumption (custom transport) for now
-  - [ ] Optional: move to AI SDK Elements/assistant-ui
+  - [x] Optional: move to AI SDK Elements/assistant-ui
   - [x] Temporary: `ChatPanelStub` present under Props tab (`packages/app-shell/src/right-panel.tsx`) (replaced)
 - [ ] State persistence
   - [x] Persist conversations (local) and restore on reload
@@ -153,9 +180,10 @@ Shared packages: `packages/agent` (Mastra), `packages/ui` (chat UI), `packages/t
 - [x] Loader + hot-reload
   - [x] File watcher to re-init MCP on change; decrypt sensitive values via `safeStorage`
   - [x] IPC: `mcp:config:get|watch|unwatch` + preload bridge `window.mcp.*`
-- [ ] Mastra wiring
+- [ ] Mastra wiring (desktop only)
   - [ ] Create MCP clients and register as toolsets for agent/workflows
   - [ ] Map MCP tool schemas to agent tool calls with validation
+  - Non‑goals: Do not implement MCP or secrets on web.
 - Validation
   - [x] Unit: parse/validate config (`@brainstrike/agent`), decrypt headers/env (desktop)
   - [ ] Desktop e2e: add filesystem server (stdio), run simple tool call
@@ -242,10 +270,10 @@ How to toggle:
 
 ### Current Status Snapshot
 
-- SSE client: request/response with correlation, header forwarding, timeouts, error broadcast when `id` missing.
-- Tools: `filesystem.list`, `filesystem.read`, `filesystem.search`, `web.echo` wired end‑to‑end.
-- ChatPanel: tool cards show progress, payload previews, and errors; expandable payload for reads.
-- MCP config banner surfaces server count and loaded/missing state.
+- Assistant‑UI: sole chat UI on web and desktop (ChatPanel removed). Container `data-testid="chat-panel"`; viewport `data-testid="assistant-ui-viewport"`.
+- Desktop SSE client: request/response with correlation, header forwarding, timeouts, error broadcast when `id` missing.
+- Tools: desktop `filesystem.list|read|search` and `web.echo` wired end‑to‑end; web currently supports `web.echo` only (no MCP on web by design).
+- MCP banner (desktop): shows config presence and server count; no‑op on web.
 - Desktop DB UI: re‑enabled; lazy chunked; renderer uses OPFS.
 - Tests: Agent (11), Desktop (build + unit suites green), UI suites remain green.
 
@@ -253,10 +281,12 @@ How to toggle:
 
 ### Follow‑ups (Next Step Candidates)
 
-- SSE tool-progress: parse `event: tool-progress` with `{ id, step, percent? }` and emit `status: 'progress'` tool‑events sourced from the server, not just heuristic delays.
-- Tool payload UX: add “Show JSON” toggle for large search payloads; copy‑to‑clipboard on headers.
+- Persistent memory: LibSQL/SQLite adapter on desktop + server-backed store for web routes.
+- Assistant-UI E2E parity: expand Playwright coverage for Stop/Retry/progress flows now that assistant-ui is default.
+- SSE tool-progress (desktop): parse `event: tool-progress` and surface normalized progress in UI.
+- Tool payload UX: add “Show JSON” toggle for large search payloads; copy-to-clipboard on headers.
 - Desktop E2E: enable a minimal local SSE demo server for CI or document local flow; keep CI-skipped if Electron constraints persist.
-- Agent type exports: consider publishing `@brainstrike/agent` declarations to simplify main TS config; current dynamic import stub works but typed consumers benefit from d.ts.
+- Agent type exports: consider publishing `@brainstrike/agent` declarations to simplify main TS config.
 - Notes:
   - `decryptIfEncrypted` in `apps/desktop/src/mcp-loader.ts` falls back to base64 decode in test environments where `safeStorage` is unavailable; main process uses OS encryption when available.
 
@@ -264,11 +294,11 @@ How to toggle:
 
 ### Phase 5 — Chat panel UX in Brainstrike (cut: replace Props tab)
 - [ ] Integrate in IDE layout
-  - [ ] Replace or extend the **Props** tab to host chat panel
-  - [ ] Maintain state across tab switches; avoid unmount churn
+  - [x] Replace or extend the **Props** tab to host chat panel
+  - [x] Maintain state across tab switches; avoid unmount churn
   - [ ] Keyboard navigation, roles, `data-testid` for E2E
 - [ ] Rich messages
-  - [ ] Support tool call cards, progress, retry per step
+  - [x] Support tool call cards, progress, retry per step
   - [ ] Attachments (files/selection) with size/type validation
 - [ ] Performance
   - [ ] Virtualize message list for long histories
@@ -427,7 +457,7 @@ How to toggle:
   - Route: `src/app/api/chat/route.ts`
     - Mirror `lv-neon-exp` `mastra-assistant/route.ts` pattern, but call `@brainstrike/agent` `streamForAiSdk`
     - Validate `{ messages, data }` with zod
-  - UI: in `packages/ui`, add `chat-panel/` components and import in right panel’s Props tab
+  - UI: use AssistantUiPanel from `@brainstrike/ui/assistant-ui-panel` in the right panel’s Props tab
 
 - `apps/desktop/`
   - Main: `src/main/secrets.ts` (`safeStorage` + `electron-store`), IPC handlers `secrets:save/get`
@@ -437,7 +467,7 @@ How to toggle:
   - MCP: `src/mcp-loader.ts`, `src/ipc-mcp.ts`, `src/preload.ts` exposes `window.mcp`
 
 - Right panel integration (`packages/app-shell/src/right-panel.tsx`)
-  - Add `ChatPanel` within `TabsContent value="properties"` (or introduce `value="assistant"` if adding a new tab)
+  - Render `AssistantUiPanel` within `TabsContent value="properties"` (or `assistant` if a new tab)
   - Ensure state preservation: component remains mounted; follow `navigation-state-preservation` rule
 
 ---

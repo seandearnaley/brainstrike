@@ -23,6 +23,8 @@ declare module '@brainstrike/agent' {
     provider?: string;
     model?: string;
     mcpEnabled?: boolean;
+    mcpConfig?: unknown;
+    mastraTools?: unknown;
   }
 
   export interface StreamChunkText {
@@ -35,10 +37,24 @@ declare module '@brainstrike/agent' {
     status: 'start' | 'progress' | 'success' | 'error';
     payload?: unknown;
   }
-  export type StreamChunk = StreamChunkText | StreamChunkTool;
+  export interface StreamChunkFinish {
+    type: 'finish';
+    usage: { promptTokens: number; completionTokens: number };
+  }
+  export interface StreamChunkMessageFinish {
+    type: 'message-finish';
+    finishReason: 'stop';
+    usage: { promptTokens: number; completionTokens: number };
+    path: ReadonlyArray<number>;
+  }
+  export type StreamChunk =
+    | StreamChunkText
+    | StreamChunkTool
+    | StreamChunkFinish
+    | StreamChunkMessageFinish;
 
-  export function streamPlanThenAct(
+  export function streamMastraAgent(
     messages: AgentMessage[],
-    runtime?: RuntimeData
-  ): AsyncIterable<StreamChunk> | Promise<AsyncIterable<StreamChunk>>;
+    options?: unknown
+  ): Promise<AsyncIterable<StreamChunk>>;
 }

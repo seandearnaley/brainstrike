@@ -98,7 +98,8 @@ export default defineConfig({
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
-    'globalThis.__VITE_ASSISTANT_UI__': 'false',
+    // Assistant UI default ON; disable only with APP_SHELL_ASSISTANT_UI=false
+    'globalThis.__VITE_ASSISTANT_UI__': process.env.APP_SHELL_ASSISTANT_UI !== 'false',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),

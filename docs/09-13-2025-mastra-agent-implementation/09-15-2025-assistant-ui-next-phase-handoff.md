@@ -58,7 +58,7 @@ Current status:
 - Type-check/build: green across workspace.
 - Unit/Integration: green.
 - Desktop e2e: 30/30 passing (copy code verified via Electron clipboard bridge; settings navigation stable).
-- Web e2e: assistant panel specs green under ChatPanel transport; long‑stream Stop smoke added.
+- Web e2e: assistant panel specs green under assistant‑ui; long‑stream Stop smoke added.
 
 ---
 
@@ -116,7 +116,7 @@ Suggested locations:
 
 ### 3) Web long‑stream stability
 - Added smoke in `apps/web/e2e/assistant-panel-interactions.test.ts`.
-- Temporary: assistant‑ui disabled during web E2E via `globalThis.__VITE_ASSISTANT_UI__ = false` to use ChatPanel transport for stability.
+- Update 2025‑09‑15: assistant‑ui enabled by default; no ChatPanel fallback.
 - Follow‑up: re‑enable assistant‑ui on web and adapt tests once ToolCall UI parity is implemented.
 
 ---
@@ -195,5 +195,4 @@ Notes:
 - Introduced stable labels/selectors in assistant-ui panel.
 - Fixed brittle App Shell test assertion.
 - Stabilized e2e selectors for assistant panel and tool cards; two desktop e2e remain to finalize.
-
 

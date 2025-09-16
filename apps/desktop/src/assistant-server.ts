@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { createAssistantStreamResponse, type ToolCallStreamController } from 'assistant-stream';
-import { callTool } from './mcp-clients';
+import type { McpConfig } from './mcp-loader';
+import { loadMcpConfig } from './mcp-loader';
 
 interface MessageContent {
   text?: string;
@@ -14,7 +15,13 @@ type AgentMessage = {
   role: 'user' | 'assistant' | 'system';
   parts: Array<{ type: 'text'; text: string }>;
 };
-type RuntimeData = { projectId?: string; provider?: string; model?: string; mcpEnabled?: boolean };
+type RuntimeData = {
+  projectId?: string;
+  provider?: string;
+  model?: string;
+  mcpEnabled?: boolean;
+  mcpConfig?: McpConfig;
+};
 
 function pickUserText(msg: MessageContent | undefined): string | null {
   if (!msg || msg.role !== 'user') return null;
@@ -135,11 +142,14 @@ function handleToolEnd(
 }
 
 interface StreamChunk {
-  type: 'text-delta' | 'tool-event';
+  type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
   value?: string;
   name?: string;
   status?: string;
   payload?: unknown;
+  usage?: { promptTokens?: number; completionTokens?: number };
+  finishReason?: string;
+  path?: ReadonlyArray<number>;
 }
 
 interface StreamController {
@@ -147,6 +157,12 @@ interface StreamController {
   appendText: (text: string) => void;
   addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
   close: () => void;
+  enqueue: (chunk: {
+    type: 'message-finish';
+    finishReason: 'stop';
+    usage: { promptTokens: number; completionTokens: number };
+    path: ReadonlyArray<number>;
+  }) => void;
 }
 
 function handleTextDelta(ctrl: StreamController, value?: string, startedParam?: boolean): boolean {
@@ -176,6 +192,30 @@ function handleToolEvent(
   } else if (status === 'success' || status === 'error') {
     handleToolEnd(tools, name, status, payload);
   }
+}
+
+function toMessageFinishChunk(chunk: StreamChunk): {
+  type: 'message-finish';
+  finishReason: 'stop';
+  usage: { promptTokens: number; completionTokens: number };
+  path: ReadonlyArray<number>;
+} {
+  const usage = chunk.usage ?? { promptTokens: 0, completionTokens: 0 };
+  const promptTokensRaw = usage.promptTokens;
+  const completionTokensRaw = usage.completionTokens;
+  const promptTokens =
+    typeof promptTokensRaw === 'number' && Number.isFinite(promptTokensRaw) ? promptTokensRaw : 0;
+  const completionTokens =
+    typeof completionTokensRaw === 'number' && Number.isFinite(completionTokensRaw)
+      ? completionTokensRaw
+      : 0;
+
+  return {
+    type: 'message-finish',
+    finishReason: 'stop',
+    usage: { promptTokens, completionTokens },
+    path: Array.isArray(chunk.path) ? chunk.path : [],
+  };
 }
 
 async function processAgentStream(
@@ -226,6 +266,12 @@ async function iterateAgentStream(
 ): Promise<void> {
   let started = startedInitial;
   for await (const chunk of agentStream) {
+    console.info('[assistant-server] stream chunk', chunk);
+    if (chunk.type === 'finish' || chunk.type === 'message-finish') {
+      ctrl.enqueue(toMessageFinishChunk(chunk));
+      setStarted(false);
+      break;
+    }
     if (isAborted()) break;
     if (chunk.type === 'text-delta') {
       const nextStarted = handleTextDelta(ctrl, chunk.value, started);
@@ -336,6 +382,10 @@ async function handleAssistantRequest(
   const data: RuntimeData | undefined = parsed?.data ?? undefined;
   const apiKey = await readOpenAIApiKeySafe();
   const messages = toAgentMessages(rawMessages);
+  console.info('[assistant-server] request received', {
+    messageCount: messages.length,
+    hasApiKey: Boolean(apiKey),
+  });
 
   if (!hasNonEmptyPrompt(messages)) {
     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -358,19 +408,18 @@ async function handleAssistantRequest(
       },
       { once: true }
     );
+    const mcpConfig = (await loadMcpConfig()).config;
     const agentStream = await mod.toAiSdkStyleStream(messages, {
       ...data,
       mcpEnabled: true,
       ...(apiKey ? { apiKey } : {}),
       signal: abortController.signal,
-      callTool: (
-        name: string,
-        params?: Record<string, unknown>,
-        opts?: { onProgress?: (payload: unknown) => void }
-      ) => callTool(name, params, opts),
+      mcpConfig,
+      mastraTools: mod.webTools,
     });
+    console.info('[assistant-server] stream initialized');
 
-    await processAgentStream(ctrl, agentStream, abortController.signal, true);
+    await processAgentStream(ctrl, agentStream, abortController.signal, false);
   });
 
   await streamResponse(res, response, undefined);

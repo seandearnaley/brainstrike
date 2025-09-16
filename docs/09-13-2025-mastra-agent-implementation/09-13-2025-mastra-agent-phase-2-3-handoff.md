@@ -5,8 +5,8 @@ Owner: Core Platform (Brainstrike)
 Scope: Web chat UI wiring (Phase 2) + Desktop secrets and local agent IPC (Phase 3, partial)
 
 ### Summary
-- Web side: ChatPanel wired into the Right Panel Props tab; route `/api/chat` streams newline-delimited JSON; E2E added and green (send/stream + tab persistence).
-- Desktop side: Implemented secure secrets storage (safeStorage + electron-store) with IPC + preload; created Settings UI for provider keys; added local agent IPC (`agent:chat`) and integrated a desktop transport for ChatPanel so right panel can stream locally without HTTP.
+- Web side (historical): ChatPanel was originally wired into the Right Panel Props tab. Update 2025‑09‑15: Assistant‑ui replaced ChatPanel; routes remain (`/api/chat`, `/api/assistant`).
+- Desktop side: Implemented secure secrets storage (safeStorage + electron-store) with IPC + preload; created Settings UI for provider keys; added local agent IPC (`agent:chat`). Update 2025‑09‑15: Right panel uses assistant‑ui; legacy ChatPanel transport removed.
 - Unit tests are green across agent/ui/desktop; desktop E2E tests added for secrets and agent IPC (launch depends on environment/xvfb).
 
 ### Important Decisions
@@ -18,7 +18,7 @@ Scope: Web chat UI wiring (Phase 2) + Desktop secrets and local agent IPC (Phase
 ### Key Changes
 - Web
   - `apps/web/src/app/api/chat/route.ts`: zod validation + newline-delimited JSON streaming.
-  - `packages/app-shell/src/right-panel.tsx`: embeds `ChatPanel`.
+  - `packages/app-shell/src/right-panel.tsx`: embeds AssistantUiPanel (ChatPanel removed).
   - `apps/web/e2e/assistant-panel.test.ts`: E2E ensuring right panel shim click then streaming.
 - Desktop
   - `apps/desktop/src/secrets.ts`: secrets service with `safeStorage`/`electron-store`.
@@ -55,4 +55,3 @@ Scope: Web chat UI wiring (Phase 2) + Desktop secrets and local agent IPC (Phase
 - `POST /api/chat` (web): `{ messages, data }` → newline-delimited JSON `StreamChunk` lines
 - `window.secrets`: `saveKey(provider, key)`, `getKey(provider)`, `deleteKey(provider)`, `list()`
 - `window.agent.chat(messages, runtime?)` → `StreamChunk[]` (renderer pseudo-streams)
-

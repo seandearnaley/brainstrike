@@ -9,7 +9,7 @@ Overview
 - Goal: Multi-step reasoning chat agent with Mastra workflows and tools, running on web and desktop with a shared core. Desktop adds secure secrets and a desktop-only MCP client.
 - Current status:
   - Phase 1: Agent scaffolding, plan-then-act streaming, types, tests — complete.
-  - Phase 2: Web route + ChatPanel streaming; Stop/Retry/Copy; tool-event cards; web E2E — complete.
+  - Phase 2: Web route streaming; Stop/Retry/Copy; tool-event cards; web E2E — complete. (Update 2025‑09‑15: ChatPanel removed; assistant‑ui is standard.)
   - Phase 3: Desktop secrets (safeStorage + electron-store), preload IPC, Settings UI, desktop IPC chat transport; unit + E2E added (launch depends on env) — functionally complete pending CI env.
   - Phase 4 (scaffold): MCP config schema (agent) and desktop loader with decryption + file watch + IPC; preload API `window.mcp` — complete.
   - Phase 4 (remaining): Create MCP clients, register as tools, add demo tool call E2E — pending.
@@ -29,8 +29,8 @@ Critical File Map
   - packages/agent/src/mcp/config.ts — MCP Zod schema + parser
 - Web
   - apps/web/src/app/api/chat/route.ts — POST /api/chat streaming newline-delimited JSON
-  - packages/ui/src/chat-panel/** — ChatPanel + transport + store
-  - packages/app-shell/src/right-panel.tsx — integrates ChatPanel
+  - packages/ui/src/assistant-ui-panel/** — Assistant UI surface
+  - packages/app-shell/src/right-panel.tsx — integrates AssistantUiPanel
 - Desktop
   - apps/desktop/src/secrets.ts — secrets service (safeStorage + electron-store)
   - apps/desktop/src/ipc-secrets.ts — `secrets:*` IPC
@@ -40,7 +40,7 @@ Critical File Map
   - apps/desktop/src/preload.ts — exposes `window.secrets`, `window.agent`, `window.mcp`
 
 Selectors & Contracts (tests rely on these)
-- Right panel chat container: data-testid="chat-panel"
+- Right panel chat container: data-testid="chat-panel" (rendered by AssistantUiPanel)
 - Chat input: #assistant-input
 - Buttons: role="button" name="Send" | "Stop" | "Retry" | "Copy code"
 - Tool event card: data-testid="tool-part" data-tool="<name>"
@@ -52,7 +52,7 @@ What’s Next (You Will Implement)
     - stdio: spawn configured command/args; manage lifecycle; send/receive per MCP protocol.
     - sse: connect to configured SSE endpoint; authenticate using decrypted headers.
   - Register MCP toolsets with the agent/workflow and map tool schemas to validated tool calls.
-  - Add a simple demo tool (e.g., filesystem list directory) and stream tool events through ChatPanel.
+- Add a simple demo tool (e.g., filesystem list directory) and stream tool events; assistant‑ui renders tool progress and results.
 
 2) E2E + Tests
   - Desktop E2E: write a minimal `mcp.config.json` under userData; assert tool card renders and response stabilizes.
@@ -121,8 +121,7 @@ Quick Reference
 
 Rollback Plan
 - Keep `disposeClients()` and init guarded behind config load; if config invalidates, tear down clients and keep UI functional without tools.
-- Preserve ChatPanel transport behavior; MCP tool rendering is an additive enhancement.
+- Update: ChatPanel was removed on 2025‑09‑15; assistant‑ui is the sole chat UI.
 
 Contact & Ownership
 - Core Platform (Brainstrike). If blocked by Electron launch in CI, validate locally or in a container with xvfb; report findings with logs and minimal repro config.
-

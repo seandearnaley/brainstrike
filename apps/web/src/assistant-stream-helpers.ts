@@ -1,11 +1,15 @@
+import { webTools } from '@brainstrike/agent';
 import type { ToolCallStreamController } from 'assistant-stream';
 
 export interface StreamChunk {
-  type: 'text-delta' | 'tool-event';
+  type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
   value?: string;
   name?: string;
   status?: string;
   payload?: unknown;
+  usage?: { promptTokens: number; completionTokens: number };
+  finishReason?: string;
+  path?: ReadonlyArray<number>;
 }
 
 export interface StreamController {
@@ -13,6 +17,12 @@ export interface StreamController {
   appendText: (text: string) => void;
   addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
   close: () => void;
+  enqueue: (chunk: {
+    type: 'message-finish';
+    finishReason: 'stop';
+    usage: { promptTokens: number; completionTokens: number };
+    path: ReadonlyArray<number>;
+  }) => void;
 }
 
 export function handleToolStart(
@@ -104,6 +114,30 @@ export function handleToolEvent(
   }
 }
 
+function toMessageFinishChunk(chunk: StreamChunk): {
+  type: 'message-finish';
+  finishReason: 'stop';
+  usage: { promptTokens: number; completionTokens: number };
+  path: ReadonlyArray<number>;
+} {
+  const usage = chunk.usage ?? { promptTokens: 0, completionTokens: 0 };
+  const promptTokensRaw = usage.promptTokens;
+  const completionTokensRaw = usage.completionTokens;
+  const promptTokens =
+    typeof promptTokensRaw === 'number' && Number.isFinite(promptTokensRaw) ? promptTokensRaw : 0;
+  const completionTokens =
+    typeof completionTokensRaw === 'number' && Number.isFinite(completionTokensRaw)
+      ? completionTokensRaw
+      : 0;
+
+  return {
+    type: 'message-finish',
+    finishReason: 'stop',
+    usage: { promptTokens, completionTokens },
+    path: Array.isArray(chunk.path) ? chunk.path : [],
+  };
+}
+
 export async function processAgentStream(
   ctrl: StreamController,
   agentStream: AsyncIterable<StreamChunk>
@@ -112,6 +146,10 @@ export async function processAgentStream(
   const tools = new Map<string, ToolCallStreamController>();
 
   for await (const chunk of agentStream) {
+    if (chunk.type === 'finish' || chunk.type === 'message-finish') {
+      ctrl.enqueue(toMessageFinishChunk(chunk));
+      break;
+    }
     if (chunk.type === 'text-delta') {
       started = handleTextDelta(ctrl, chunk.value, started);
     } else if (chunk.type === 'tool-event') {
@@ -141,7 +179,11 @@ export async function handleChatEndpoint(
   const { toAiSdkStyleStream } = await import('@brainstrike/agent');
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const data = body?.data ?? undefined;
-  const stream = await toAiSdkStyleStream(messages, data);
+
+  const stream = await toAiSdkStyleStream(messages, {
+    ...(data ?? {}),
+    mastraTools: webTools,
+  });
 
   res.writeHead(200, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -167,7 +209,10 @@ export async function handleAssistantEndpoint(
 
   const messages = Array.isArray(body?.messages) ? body.messages : [];
   const data = body?.data ?? undefined;
-  const agentStream = await toAiSdkStyleStream(messages, data);
+  const agentStream = await toAiSdkStyleStream(messages, {
+    ...(data ?? {}),
+    mastraTools: webTools,
+  });
 
   const response = createAssistantStreamResponse(async (ctrl) => {
     await processAgentStream(ctrl as StreamController, agentStream as AsyncIterable<StreamChunk>);

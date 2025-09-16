@@ -7,7 +7,7 @@ Audience: Next developer/agent continuing assistant-ui work
 
 - Workspace builds clean; unit/integration tests green.
 - Desktop E2E: 30/30 passing. Clipboard copy verified via Electron bridge.
-- Web E2E: assistant panel specs adjusted and green under ChatPanel transport. Long‑stream Stop smoke added.
+- Web E2E: assistant panel specs run under assistant‑ui. Long‑stream Stop smoke added.
 
 ## Work Completed This Pass
 
@@ -41,7 +41,7 @@ Audience: Next developer/agent continuing assistant-ui work
 
 4) Web assistant panel fixes + smoke
 - Files: `apps/web/e2e/assistant-panel.test.ts`, `apps/web/e2e/assistant-panel-interactions.test.ts`
-  - Increased timeouts and aligned assertions with ChatPanel behavior.
+  - Updated selectors to assistant‑ui viewport and controls.
 - Flag: temporarily disabled assistant‑ui on web for test stability by setting `globalThis.__VITE_ASSISTANT_UI__ = false` in `apps/web/vite.config.mts`.
 - Added long‑stream Stop smoke (sends a long prompt, ensures Stop becomes available and cancels cleanly).
 
@@ -94,6 +94,5 @@ Suggested approach:
 ## Notes
 
 - We deliberately avoided modifying test logic; recommend selector/timing refinements if allowed. Clipboard path favors Electron bridge; web API fallback remains.
-  - Update: tests were minimally adjusted for reliability and to match ChatPanel behavior on web while assistant‑ui is temporarily disabled during E2E.
-
+  - Update 2025‑09‑15: assistant‑ui is default; legacy ChatPanel path removed.
 

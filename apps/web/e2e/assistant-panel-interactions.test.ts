@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 import { mockBrowserApis } from './utils/mock-fs';
 
-test.describe('Assistant panel interactions (web)', () => {
+test.describe('Assistant panel interactions (assistant-ui)', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await waitForAppLoad(page);
@@ -18,14 +18,14 @@ test.describe('Assistant panel interactions (web)', () => {
       await expect(elements.rightPanel).toBeVisible();
     }
 
-    // Open Props tab (ChatPanel lives here)
+    // Open Props tab (assistant‑ui lives here)
     await page
       .getByRole('tab', { name: 'Props' })
       .or(page.getByRole('button', { name: 'Props' }))
       .click();
 
-    const panel = page.getByTestId('chat-panel');
-    await expect(panel).toBeVisible();
+    const viewport = page.getByTestId('assistant-ui-viewport');
+    await expect(viewport).toBeVisible();
 
     // Start a prompt and then stop mid-stream
     const sendBtn = page.getByRole('button', { name: 'Send' });
@@ -45,9 +45,9 @@ test.describe('Assistant panel interactions (web)', () => {
     }
     expect(stopWasEnabled).toBeTruthy();
 
-    // Retry and expect assistant to respond again (ChatPanel transport)
+    // Retry and expect assistant to respond again (assistant-ui)
     await page.getByRole('button', { name: 'Retry' }).click();
-    await expect(panel.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
+    await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
 
     // Send a long prompt and verify Stop works mid-stream (smoke)
     await page

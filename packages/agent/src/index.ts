@@ -1,4 +1,7 @@
-import { streamPlanThenAct } from './workflows/plan-then-act';
+import type { ToolsInput } from '@mastra/core/agent';
+import type { MastraAgentRuntimeOptions } from './mastra/agent-runtime';
+import { streamMastraAgent } from './mastra/agent-runtime';
+import type { McpConfig } from './mcp/config';
 
 export interface AgentMessagePartText {
   type: 'text';
@@ -31,6 +34,9 @@ export interface RuntimeData {
     params?: Record<string, unknown>,
     opts?: { onProgress?: (payload: unknown) => void }
   ) => Promise<unknown>;
+  mcpConfig?: McpConfig;
+  mastraTools?: ToolsInput;
+  apiKey?: string;
 }
 
 export interface StreamChunkText {
@@ -43,71 +49,64 @@ export interface StreamChunkTool {
   status: 'start' | 'progress' | 'success' | 'error';
   payload?: unknown;
 }
-export type StreamChunk = StreamChunkText | StreamChunkTool;
+export interface StreamChunkFinish {
+  type: 'finish';
+  usage: { promptTokens: number; completionTokens: number };
+}
+export interface StreamChunkMessageFinish {
+  type: 'message-finish';
+  finishReason: 'stop';
+  usage: { promptTokens: number; completionTokens: number };
+  path: ReadonlyArray<number>;
+}
+export type StreamChunk =
+  | StreamChunkText
+  | StreamChunkTool
+  | StreamChunkFinish
+  | StreamChunkMessageFinish;
 
 export type StreamIterator = AsyncIterable<StreamChunk>;
 
+export {
+  convertMessagesToMastra,
+  createMastraAgentRuntime,
+  type MastraAgentRuntime,
+  type MastraAgentRuntimeOptions,
+  streamMastraAgent,
+} from './mastra/agent-runtime';
+export { webTools } from './mastra/web-tools';
 // Minimal placeholder agent: echoes user text in a streamed fashion.
-export async function* streamEcho(messages: AgentMessage[]): StreamIterator {
-  const last = [...messages].reverse().find((m) => m.role === 'user');
-  const text = last?.parts.find((p) => p.type === 'text') as AgentMessagePartText | undefined;
-  const content = text?.text ?? '';
-  yield { type: 'tool-event', name: 'plan', status: 'start' } satisfies StreamChunkTool;
-  for (const token of content.split(/(\s+)/)) {
-    if (token.length === 0) continue;
-    yield { type: 'text-delta', value: token } satisfies StreamChunkText;
-    await new Promise((r) => setTimeout(r, 5));
-  }
-  yield {
-    type: 'tool-event',
-    name: 'plan',
-    status: 'success',
-    payload: { tokens: content.length },
-  } satisfies StreamChunkTool;
-}
-
 // Memory store for early development
 export { InMemoryMemoryStore } from './memory/in-memory';
-// Plan-then-act workflow
-export { streamPlanThenAct } from './workflows/plan-then-act';
-
-export interface ChatAgent {
-  id: string;
-  instructions: string;
-  stream: (
-    messages: AgentMessage[],
-    runtime?: RuntimeData
-  ) => StreamIterator | Promise<StreamIterator>;
-}
-
-export function createDevChatAgent(): ChatAgent {
-  return {
-    id: 'chat',
-    instructions: 'You are a helpful, step-by-step assistant.',
-    stream: (messages, runtime) => streamPlanThenAct(messages, runtime),
-  };
-}
+export {
+  type FilesystemListInput,
+  type FilesystemReadInput,
+  type FilesystemSearchInput,
+  validateToolInput,
+  type WebDocSummaryInput,
+  type WebSearchDocsInput,
+} from './tools/schemas';
 
 // Adapter to Vercel AI SDK v5 style data stream if needed by routes
 export async function toAiSdkStyleStream(
   messages: AgentMessage[],
   runtime?: RuntimeData
 ): Promise<StreamIterator> {
-  // Prefer real provider when apiKey is present on runtime
-  const apiKey = (runtime as unknown as { apiKey?: string })?.apiKey;
-  if (apiKey && typeof apiKey === 'string' && apiKey.length > 0) {
-    const { toOpenAIStream } = await import('./providers/openai');
-    const model = (runtime as unknown as { model?: string }).model;
-    const signal = (runtime as unknown as { signal?: AbortSignal | null | undefined }).signal;
-    if (signal != null) {
-      return toOpenAIStream(
-        messages,
-        model && model.length > 0 ? { apiKey, model, signal } : { apiKey, signal }
-      );
-    }
-    return toOpenAIStream(messages, model && model.length > 0 ? { apiKey, model } : { apiKey });
+  const options: MastraAgentRuntimeOptions = {};
+  if (runtime) {
+    options.runtime = runtime;
   }
-  return streamPlanThenAct(messages, runtime);
+  if (runtime?.model) {
+    options.model = runtime.model;
+  }
+  if (runtime?.mcpConfig) {
+    options.mcpConfig = runtime.mcpConfig;
+  }
+  if (runtime?.mastraTools) {
+    options.tools = runtime.mastraTools;
+  }
+
+  return streamMastraAgent(messages, options);
 }
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';

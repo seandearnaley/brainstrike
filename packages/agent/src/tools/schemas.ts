@@ -36,11 +36,30 @@ export type FilesystemSearchInput = z.infer<typeof FilesystemSearchInput>;
 
 const EchoInput = z.object({ text: z.string().min(1) }).strict();
 
+const WebSearchDocsInput = z
+  .object({
+    query: z.string().min(2).max(200),
+    limit: z.number().int().positive().max(10).optional(),
+  })
+  .strict();
+
+export type WebSearchDocsInput = z.infer<typeof WebSearchDocsInput>;
+
+const WebDocSummaryInput = z
+  .object({
+    docId: z.string().min(1).max(120),
+  })
+  .strict();
+
+export type WebDocSummaryInput = z.infer<typeof WebDocSummaryInput>;
+
 const schemaMap: Record<string, z.ZodSchema> = {
   'filesystem.list': FilesystemListInput,
   'filesystem.read': FilesystemReadInput,
   'filesystem.search': FilesystemSearchInput,
   'web.echo': EchoInput,
+  'web.searchDocs': WebSearchDocsInput,
+  'web.docSummary': WebDocSummaryInput,
 };
 
 function parseWithSchema(

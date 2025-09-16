@@ -28,6 +28,7 @@
     "assistant-stream": "^0.2.24",
     "zod": "^3.25.76",
     "@brainstrike/app-shell": "workspace:*",
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",

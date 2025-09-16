@@ -37,7 +37,7 @@ packages/agent/src/index.ts: RuntimeData.callTool?: (name, params) => Promise<un
 packages/agent/src/tools/schemas.ts: zod schemas for filesystem.list and web.echo
 packages/agent/src/workflows/plan-then-act.ts: plan → search (simulated) → tools (filesystem.list, web.echo) → synthesize; emits tool-event chunks with start/success/error
 UI rendering
-packages/ui/src/chat-panel/chat-panel.tsx: tool cards render filesystem.list items and web.echo text; show error messages
+ Update 2025‑09‑15: ChatPanel removed. Assistant‑ui renders tool parts and progress.
 apps/desktop/src/renderer/components/settings/mcp-config-status.tsx: status card shows path, loaded/missing badge, and servers
 Desktop IPC chat transport
 packages/app-shell/src/right-panel.tsx: desktop transport calls window.agent.chat; passes runtime: { mcpEnabled: true }
@@ -79,13 +79,13 @@ packages/agent/src/workflows/plan-then-act.ts
 packages/agent/src/tools/schemas.ts
 packages/agent/src/index.ts
 UI
-packages/ui/src/chat-panel/chat-panel.tsx
+ packages/ui/src/assistant-ui-panel/**
 App shell
 packages/app-shell/src/right-panel.tsx
 packages/app-shell/src/types/global.d.ts
 Acceptance Criteria (Next Phase)
 
-SSE: Demonstrate a real MCP SSE server tool call path (non-POST shim) with validation, returning structured payloads that render in ChatPanel
+ SSE: Demonstrate a real MCP SSE server tool call path (non-POST shim) with validation, returning structured payloads that render in assistant‑ui
 Agent: Map at least one additional tool via zod schemas; validate before dispatch; error surfaces via tool-event chunks
 UI: Tool cards show additional details (progress, result summary, errors); right-panel banner indicating tool availability or config issues
 Tests: Unit tests cover SSE call success/failure + schema validation; desktop E2E (local) exercises a working SSE-backed tool card; keep CI green (skip E2E if needed)
@@ -127,14 +127,14 @@ Review current wiring:
 apps/desktop/src/mcp-clients.ts (SSE + stdio)
 apps/desktop/src/mcp-loader.ts, apps/desktop/src/ipc-mcp.ts, apps/desktop/src/preload.ts
 packages/agent/src/tools/schemas.ts, packages/agent/src/workflows/plan-then-act.ts
-packages/ui/src/chat-panel/chat-panel.tsx
+ packages/ui/src/assistant-ui-panel/**
 Implement SSE request/response following the actual MCP SSE server contract (replace POST <base>/call shim):
 Add a request channel and parse SSE events for tool responses
 Ensure header forwarding; support abort via controller
 Map one additional MCP tool in the agent:
 Add zod schema in packages/agent/src/tools/schemas.ts
 Validate input, then call runtime.callTool(name, params); emit tool-events (start/success/error)
-Enhance ChatPanel tool card rendering:
+ Assistant‑ui tool card rendering:
 Show progress/step details; add expandable payload (truncate long objects)
 Retain current selectors; add data-testid if adding new sections
 Tests:
@@ -150,7 +150,7 @@ Deliverables:
 
 SSE client updates + schema mapping for a new tool
 Agent workflow tool integration (validated) and tool-event streaming
-ChatPanel tool card UX improvements (progress/details/errors)
+ Assistant‑ui tool card UX improvements (progress/details/errors)
 Updated unit tests; E2E validated locally
 Brief docs note in docs/09-13-2025-mastra-agent-implementation-plan.md under “MCP Wiring — Implementation Notes”
 Do/Don’t:
@@ -161,4 +161,3 @@ Do validate tool inputs with zod before dispatch
 Do not include untrusted HTML in UI
 Do preserve existing selectors and transport behavior
 If blocked by SSE contract specifics, implement a thin adapter that can be swapped with a real MCP SSE client later, but keep schemas + UI ready for structured payloads.
-

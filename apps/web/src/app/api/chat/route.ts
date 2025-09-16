@@ -1,5 +1,5 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { toAiSdkStyleStream } from '@brainstrike/agent';
+import { toAiSdkStyleStream, webTools } from '@brainstrike/agent';
 import { z } from 'zod';
 
 // zod schemas for `{ messages, data }`
@@ -53,7 +53,11 @@ export async function POST(req: Request): Promise<Response> {
   try {
     const body = await req.json().catch(() => ({}));
     const { messages, data } = __parseChatBodyForTests(body);
-    const stream = await toAiSdkStyleStream(messages, data);
+
+    const stream = await toAiSdkStyleStream(messages, {
+      ...(data ?? {}),
+      mastraTools: webTools,
+    });
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({

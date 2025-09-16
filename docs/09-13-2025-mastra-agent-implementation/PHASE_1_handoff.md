@@ -12,12 +12,12 @@ Scope: Shared agent foundation + initial web plumbing
 ### What changed in this phase
 - Created `@brainstrike/agent` package with:
   - Typed stream API (`AgentMessage`, `StreamChunk`) and a dev `createDevChatAgent()` wrapper.
-  - Initial workflow `streamPlanThenAct` (plan → optional search → synthesize, streamed).
+  - Initial streaming path now superseded by Mastra runtime (`streamMastraAgent`).
   - Minimal in-memory conversation store for early development.
   - Deps added for forward compatibility: `@mastra/core`, `@ai-sdk/openai`, `ai`.
 - Web: added a streaming API route and a UI placeholder
   - `apps/web/src/app/api/chat/route.ts`: streams newline-delimited JSON chunks from the agent.
-  - `packages/app-shell/src/right-panel.tsx`: `ChatPanelStub` added under Props tab (`data-testid="chat-panel"`).
+- Historical note: `ChatPanelStub` was initially added under Props; update 2025‑09‑15 — assistant‑ui replaced ChatPanel in the right panel.
 - TypeScript project references
   - Root `tsconfig.json`: path mapping for `@brainstrike/agent`.
   - `apps/web/tsconfig.json`: path mapping + reference + `baseUrl`.

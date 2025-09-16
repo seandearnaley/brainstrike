@@ -1,5 +1,5 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { toAiSdkStyleStream } from '@brainstrike/agent';
+import { toAiSdkStyleStream, webTools } from '@brainstrike/agent';
 import type { ToolCallStreamController } from 'assistant-stream';
 import { createAssistantStreamResponse } from 'assistant-stream';
 
@@ -11,11 +11,14 @@ interface MessageContent {
 }
 
 interface StreamChunk {
-  type: 'text-delta' | 'tool-event';
+  type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
   value?: string;
   name?: string;
   status?: string;
   payload?: unknown;
+  usage?: { promptTokens?: number; completionTokens?: number };
+  finishReason?: string;
+  path?: ReadonlyArray<number>;
 }
 
 interface StreamController {
@@ -23,6 +26,12 @@ interface StreamController {
   appendText: (text: string) => void;
   addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
   close: () => void;
+  enqueue: (chunk: {
+    type: 'message-finish';
+    finishReason: 'stop';
+    usage: { promptTokens: number; completionTokens: number };
+    path: ReadonlyArray<number>;
+  }) => void;
 }
 
 function pickUserText(msg: MessageContent): string | null {
@@ -158,6 +167,30 @@ function handleToolEvent(
   }
 }
 
+function toMessageFinishChunk(chunk: StreamChunk): {
+  type: 'message-finish';
+  finishReason: 'stop';
+  usage: { promptTokens: number; completionTokens: number };
+  path: ReadonlyArray<number>;
+} {
+  const usage = chunk.usage ?? { promptTokens: 0, completionTokens: 0 };
+  const promptTokensRaw = usage.promptTokens;
+  const completionTokensRaw = usage.completionTokens;
+  const promptTokens =
+    typeof promptTokensRaw === 'number' && Number.isFinite(promptTokensRaw) ? promptTokensRaw : 0;
+  const completionTokens =
+    typeof completionTokensRaw === 'number' && Number.isFinite(completionTokensRaw)
+      ? completionTokensRaw
+      : 0;
+
+  return {
+    type: 'message-finish',
+    finishReason: 'stop',
+    usage: { promptTokens, completionTokens },
+    path: Array.isArray(chunk.path) ? chunk.path : [],
+  };
+}
+
 async function processAgentStream(
   ctrl: StreamController,
   agentStream: AsyncIterable<StreamChunk>
@@ -166,6 +199,10 @@ async function processAgentStream(
   const tools = new Map<string, ToolCallStreamController>();
 
   for await (const chunk of agentStream) {
+    if (chunk.type === 'finish' || chunk.type === 'message-finish') {
+      ctrl.enqueue(toMessageFinishChunk(chunk));
+      break;
+    }
     if (chunk.type === 'text-delta') {
       started = handleTextDelta(ctrl, chunk.value, started);
     } else if (chunk.type === 'tool-event') {
@@ -187,7 +224,10 @@ export async function POST(req: Request): Promise<Response> {
   const agentMessages = toAgentMessages(rawMessages);
 
   return createAssistantStreamResponse(async (ctrl) => {
-    const stream = await toAiSdkStyleStream(agentMessages, data);
+    const stream = await toAiSdkStyleStream(agentMessages, {
+      ...(data ?? {}),
+      mastraTools: webTools,
+    });
     await processAgentStream(ctrl as StreamController, stream as AsyncIterable<StreamChunk>);
   });
 }

@@ -14,8 +14,8 @@ You are continuing the Brainstrike Assistant UI project in a Turborepo monorepo.
 3) Re-enable assistant-ui on web and adapt E2E to assistant-stream; keep tests fast and stable.
 
 Critical constraints:
-- Desktop must use assistant-ui always (not the legacy ChatPanel).
-- Web can temporarily use ChatPanel only if assistant-ui parity is incomplete; otherwise use assistant-ui with assistant-stream.
+- Desktop uses assistant‑ui always.
+- Web uses assistant‑ui with assistant‑stream.
 - Secrets never in renderer; read OpenAI key from Electron `safeStorage` via preload IPC and pass to agent server.
 - Tests: Playwright headless; prefer role/name/`data-testid` selectors; adjust timeouts rather than brittle selectors.
 
@@ -44,11 +44,11 @@ Provider wiring and stability:
   - `apps/desktop/src/secrets.ts`: added singleton accessor `getSecretsService()` for runtime consumers.
 
 Assistant UI routing:
-- Desktop: forced assistant-ui in right panel when desktop runtime is present; the legacy ChatPanel is no longer used on desktop.
+- Desktop: forced assistant‑ui in right panel; legacy ChatPanel no longer used.
 - Web: temporarily set `globalThis.__VITE_ASSISTANT_UI__ = false` during earlier stabilization; E2E updated. You will re-enable after ToolCall parity.
 
 E2E and typing:
-- Desktop E2E is fully green (30/30). Web E2E green with ChatPanel (assistant-ui re-enable pending ToolCall parity).
+- Desktop E2E is fully green (30/30). Web E2E track assistant‑ui.
 - TS diagnostics fixed for window bridges in E2E by using explicit casts where needed and updating types.
 - Vite config typing warnings suppressed using `@ts-expect-error` for plugins and awaiting async preview middleware.
 
@@ -164,5 +164,4 @@ Use this pattern (already implemented) to parse `data:` lines, ignore keep‑ali
 - Desktop assistant-ui streams real OpenAI completions; Stop/Retry work; no greeting fallback.
 - SSE parsing terminates correctly; no hung dot or stuck cursor.
 - Clear checklist and next actions documented; another agent/dev can continue without missing context.
-
 

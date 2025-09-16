@@ -1,6 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
-import { callTool } from './mcp-clients';
+import type { McpConfig } from './mcp-loader';
+import { loadMcpConfig } from './mcp-loader';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
 type AgentMessage = {
@@ -13,7 +14,7 @@ type RuntimeData = {
   provider?: string;
   model?: string;
   mcpEnabled?: boolean;
-  callTool?: (name: string, params?: Record<string, unknown>) => Promise<unknown>;
+  mcpConfig?: McpConfig;
 };
 type StreamChunk =
   | { type: 'text-delta'; value: string }
@@ -22,6 +23,16 @@ type StreamChunk =
       name: string;
       status: 'start' | 'progress' | 'success' | 'error';
       payload?: unknown;
+    }
+  | {
+      type: 'finish';
+      usage: { promptTokens: number; completionTokens: number };
+    }
+  | {
+      type: 'message-finish';
+      finishReason: 'stop';
+      usage: { promptTokens: number; completionTokens: number };
+      path: ReadonlyArray<number>;
     };
 
 export function registerAgentIpcHandlers() {
@@ -40,17 +51,14 @@ export function registerAgentIpcHandlers() {
       )) as typeof import('@brainstrike/agent');
       const out: StreamChunk[] = [];
 
-      // Provide a tool dispatcher to the agent workflow
-      const rt: RuntimeData = {
-        ...(runtime ?? {}),
-        callTool: (
-          name: string,
-          params?: Record<string, unknown>,
-          opts?: { onProgress?: (payload: unknown) => void }
-        ) => callTool(name, params, opts),
-      };
-
-      const maybeIter = mod.streamPlanThenAct(messages, rt);
+      const config = await loadMcpConfig();
+      const maybeIter = mod.streamMastraAgent(messages, {
+        runtime: {
+          ...(runtime ?? {}),
+          mcpConfig: config.config,
+        },
+        tools: mod.webTools,
+      });
       const asyncIter: AsyncIterable<StreamChunk> =
         maybeIter && typeof maybeIter[Symbol.asyncIterator] === 'function'
           ? maybeIter
