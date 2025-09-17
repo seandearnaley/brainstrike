@@ -6,6 +6,7 @@ import {
   type StreamController,
   processAgentStream as streamAssistantMessages,
 } from '../../../assistant-stream-helpers';
+import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 export async function POST(req: Request): Promise<Response> {
   const body = await req.json().catch(() => ({}));
@@ -15,11 +16,29 @@ export async function POST(req: Request): Promise<Response> {
   const data = (body as Record<string, unknown>)['data'] as RuntimeData | undefined;
   const agentMessages = convertAssistantUiMessages(rawMessages);
 
+  const provider = resolveAssistantProviderConfig();
+  if (!provider.enabled || !provider.apiKey) {
+    return new Response(
+      JSON.stringify({
+        error: 'assistant_disabled',
+        reason: provider.disabledReason ?? 'missing_api_key',
+      }),
+      {
+        status: 503,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store',
+        },
+      }
+    );
+  }
+
   let agentStream: AsyncIterable<StreamChunk>;
   try {
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
       mastraTools: webTools,
+      apiKey: provider.apiKey,
     });
   } catch (error) {
     console.error('[api/assistant] failed to initialize assistant stream', error);

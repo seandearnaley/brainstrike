@@ -1,5 +1,5 @@
 import type { StreamChunk } from '@brainstrike/agent';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@brainstrike/agent', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/agent')>('@brainstrike/agent');
@@ -14,6 +14,22 @@ import { __parseChatBodyForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
 
+const API_KEY_ENV_VARS = [
+  'OPENAI_API_KEY',
+  'BRAINSTRIKE_OPENAI_API_KEY',
+  'BS_OPENAI_API_KEY',
+] as const;
+
+let originalEnv: Partial<Record<(typeof API_KEY_ENV_VARS)[number], string | undefined>> = {};
+
+beforeEach(() => {
+  originalEnv = {};
+  for (const key of API_KEY_ENV_VARS) {
+    originalEnv[key] = process.env[key];
+    process.env[key] = 'test-key';
+  }
+});
+
 function createStream(...chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
   return {
     async *[Symbol.asyncIterator]() {
@@ -26,6 +42,15 @@ function createStream(...chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
 
 afterEach(() => {
   streamMock.mockReset();
+  for (const key of API_KEY_ENV_VARS) {
+    const value = originalEnv[key];
+    if (typeof value === 'string') {
+      process.env[key] = value;
+    } else {
+      delete process.env[key];
+    }
+  }
+  originalEnv = {};
 });
 
 describe('chat route schema', () => {
@@ -67,6 +92,27 @@ describe('chat route schema', () => {
     const firstLine = text.split('\n').filter(Boolean)[0];
     const chunk = JSON.parse(firstLine);
     expect(['tool-event', 'text-delta']).toContain(chunk.type);
+  });
+
+  it('returns 503 when assistant provider key is missing', async () => {
+    process.env.OPENAI_API_KEY = '';
+    process.env.BRAINSTRIKE_OPENAI_API_KEY = '';
+    process.env.BS_OPENAI_API_KEY = '';
+
+    const body = {
+      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+    } as const;
+
+    const req = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(503);
+    const payload = await res.json();
+    expect(payload).toMatchObject({ error: 'assistant_disabled' });
   });
 
   it('streams web.searchDocs tool events for documentation queries', async () => {

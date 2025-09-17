@@ -27,6 +27,8 @@ export function registerMcpIpcHandlers() {
         // Hot-reload clients on config change
         if (cfg.config) {
           initClients(cfg.config);
+        } else {
+          void disposeClients();
         }
       });
       unwatch = () => w.close();

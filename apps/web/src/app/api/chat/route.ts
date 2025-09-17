@@ -1,6 +1,8 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { toAiSdkStyleStream, webTools } from '@brainstrike/agent';
 import { z } from 'zod';
+import type { AssistantProviderConfig } from '../../../server/assistant-config';
+import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 // zod schemas for `{ messages, data }`
 const TextPartSchema = z.object({
@@ -54,9 +56,27 @@ export async function POST(req: Request): Promise<Response> {
     const body = await req.json().catch(() => ({}));
     const { messages, data } = __parseChatBodyForTests(body);
 
+    const provider = resolveAssistantProviderConfig();
+    if (!providerHasApiKey(provider)) {
+      return new Response(
+        JSON.stringify({
+          error: 'assistant_disabled',
+          reason: provider.disabledReason ?? 'missing_api_key',
+        }),
+        {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Cache-Control': 'no-store',
+          },
+          status: 503,
+        }
+      );
+    }
+
     const stream = await toAiSdkStyleStream(messages, {
       ...(data ?? {}),
       mastraTools: webTools,
+      apiKey: provider.apiKey,
     });
 
     const encoder = new TextEncoder();
@@ -82,27 +102,45 @@ export async function POST(req: Request): Promise<Response> {
       status: 200,
     });
   } catch (err) {
-    if (err instanceof Error) {
-      const message = err.message ?? '';
-      if (message.startsWith('mastra_agent_')) {
-        return new Response(JSON.stringify({ error: 'agent_stream_init_failed', message }), {
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          status: 502,
-        });
-      }
-      try {
-        const payload = JSON.parse(message) as { code?: string; issues?: unknown };
-        if (payload?.code === 'invalid_body') {
-          return new Response(JSON.stringify(payload), {
-            headers: { 'Content-Type': 'application/json; charset=utf-8' },
-            status: 400,
-          });
-        }
-      } catch {}
-    }
-    return new Response(JSON.stringify({ error: 'Failed to process chat request' }), {
-      headers: { 'Content-Type': 'application/json; charset=utf-8' },
-      status: 500,
-    });
+    return createErrorResponse(err);
   }
+}
+
+function providerHasApiKey(
+  provider: AssistantProviderConfig
+): provider is AssistantProviderConfig & { apiKey: string } {
+  return Boolean(provider.enabled && provider.apiKey);
+}
+
+function createErrorResponse(err: unknown): Response {
+  if (err instanceof Error) {
+    const message = err.message ?? '';
+    if (message.startsWith('mastra_agent_')) {
+      return new Response(JSON.stringify({ error: 'agent_stream_init_failed', message }), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        status: 502,
+      });
+    }
+    const parsed = parseInvalidBodyError(message);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return new Response(JSON.stringify({ error: 'Failed to process chat request' }), {
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    status: 500,
+  });
+}
+
+function parseInvalidBodyError(message: string): Response | null {
+  try {
+    const payload = JSON.parse(message) as { code?: string; issues?: unknown };
+    if (payload?.code === 'invalid_body') {
+      return new Response(JSON.stringify(payload), {
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        status: 400,
+      });
+    }
+  } catch {}
+  return null;
 }

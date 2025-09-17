@@ -1,5 +1,8 @@
 import { type AssistantUiMessage, convertAssistantUiMessages, webTools } from '@brainstrike/agent';
 import type { ToolCallStreamController } from 'assistant-stream';
+import { createAssistantStreamResponse } from 'assistant-stream';
+import type { AssistantProviderConfig } from './server/assistant-config';
+import { resolveAssistantProviderConfig } from './server/assistant-config';
 
 export interface StreamChunk {
   type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
@@ -338,6 +341,12 @@ export async function handleChatEndpoint(
   body: { messages?: unknown; data?: unknown },
   res: import('http').ServerResponse
 ): Promise<void> {
+  const provider = resolveAssistantProviderConfig();
+  if (!provider.enabled || !provider.apiKey) {
+    sendAssistantDisabledResponse(res, provider);
+    return;
+  }
+
   const { toAiSdkStyleStream } = await import('@brainstrike/agent');
   const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
   const agentMessages = convertAssistantUiMessages(rawMessages);
@@ -348,6 +357,7 @@ export async function handleChatEndpoint(
     stream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
       mastraTools: webTools,
+      apiKey: provider.apiKey,
     });
   } catch (error) {
     console.error('[web assistant] failed to initialize chat stream', error);
@@ -383,7 +393,12 @@ export async function handleAssistantEndpoint(
   body: { messages?: unknown; data?: unknown },
   res: import('http').ServerResponse
 ): Promise<void> {
-  const { createAssistantStreamResponse } = await import('assistant-stream');
+  const provider = resolveAssistantProviderConfig();
+  if (!provider.enabled || !provider.apiKey) {
+    sendAssistantDisabledResponse(res, provider);
+    return;
+  }
+
   const { toAiSdkStyleStream } = await import('@brainstrike/agent');
 
   const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
@@ -394,6 +409,7 @@ export async function handleAssistantEndpoint(
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
       mastraTools: webTools,
+      apiKey: provider.apiKey,
     });
   } catch (error) {
     console.error('[web assistant] failed to initialize assistant stream', error);
@@ -422,4 +438,42 @@ export async function handleAssistantEndpoint(
   }
 
   res.end();
+}
+
+function sendAssistantDisabledResponse(
+  res: import('http').ServerResponse,
+  provider: AssistantProviderConfig
+): void {
+  res.writeHead(503, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(
+    JSON.stringify({
+      error: 'assistant_disabled',
+      reason: assistantStatusPayload(provider).reason,
+    })
+  );
+}
+
+export function sendAssistantStatusResponse(res: import('http').ServerResponse): void {
+  const provider = resolveAssistantProviderConfig();
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(assistantStatusPayload(provider)));
+}
+
+function assistantStatusPayload(provider: AssistantProviderConfig): {
+  enabled: boolean;
+  reason?: string;
+} {
+  if (provider.enabled && provider.apiKey) {
+    return { enabled: true };
+  }
+  return {
+    enabled: false,
+    reason: provider.disabledReason ?? 'missing_api_key',
+  };
 }

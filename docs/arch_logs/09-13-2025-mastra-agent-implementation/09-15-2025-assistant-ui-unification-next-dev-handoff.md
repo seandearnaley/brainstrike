@@ -73,11 +73,18 @@ What To Do Next (Prioritized)
 
 How To Run/Verify
 - Install: `pnpm install`
-- Type‑check: `pnpm turbo run type-check --filter ./...`
+- Type-check: `pnpm turbo run type-check --filter ./...`
 - Lint/format: `pnpm turbo run lint --filter ./...`
 - Build: `pnpm turbo run build --filter ./...`
 - Unit/integration: `pnpm turbo run test --filter <pkg>` (examples: @brainstrike/agent, @brainstrike/web, @brainstrike/desktop, @brainstrike/ui)
 - Web E2E: `pnpm --filter @brainstrike/web run test:e2e` (headless)
+- Assistant env vars: set one of `OPENAI_API_KEY`, `BRAINSTRIKE_OPENAI_API_KEY`, or `BS_OPENAI_API_KEY` before invoking `/api/chat` or `/api/assistant`. Without any of these set the endpoints now return `503 assistant_disabled`.
+- Desktop assistant server also respects the same env vars before falling back to safeStorage secrets.
+- Assistant UI queries `/api/assistant/status` (web) or `/assistant/status` (desktop) on load; when disabled it renders a callout instead of mounting the panel.
+
+Latest Verification Snapshot (2025-09-15)
+- `pnpm --filter @brainstrike/web exec vitest run app/api/chat/__tests__/route.test.ts`
+- `pnpm check`
 
 Key Files (by responsibility)
 - Assistant‑UI rendering:

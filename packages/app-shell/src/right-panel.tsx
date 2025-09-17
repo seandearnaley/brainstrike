@@ -12,7 +12,7 @@ import {
   TabsTrigger,
 } from '@brainstrike/ui';
 import { Brain, Database, FileText, Search } from 'lucide-react';
-import React, { lazy } from 'react';
+import React, { lazy, useEffect, useState } from 'react';
 import { EmbeddingsPanel } from './embeddings-panel';
 import { isDbUiEnabled } from './env';
 import { McpBanner } from './mcp-banner';
@@ -99,29 +99,9 @@ export function RightPanel() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="text-xs space-y-3">
-                <React.Suspense
-                  fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
-                >
-                  <AssistantUiPanelLazy />
-                </React.Suspense>
+                <AssistantPanelSection />
                 {/* MCP availability banner (desktop only; no-op on web) */}
                 <McpBanner />
-                <div>
-                  <h4 className="font-medium mb-2">Basic Properties</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
-                    incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis
-                    nostrud exercitation ullamco laboris.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">Advanced Settings</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu
-                    fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in
-                    culpa qui officia deserunt mollit anim id est laborum.
-                  </p>
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -182,23 +162,6 @@ export function RightPanel() {
                       <span>Whole word</span>
                     </label>
                   </div>
-                </div>
-
-                {/* Existing descriptive content */}
-                <div>
-                  <h4 className="font-medium mb-2">Search Options</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet, consectetur,
-                    adipisci velit, sed quia non numquam eius modi tempora incidunt ut labore et
-                    dolore magnam aliquam quaerat voluptatem.
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-medium mb-2">Replace Functions</h4>
-                  <p className="text-muted-foreground leading-relaxed">
-                    Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis suscipit
-                    laboriosam, nisi ut aliquid ex ea commodi consequatur.
-                  </p>
                 </div>
               </CardContent>
             </Card>
@@ -325,6 +288,156 @@ export function RightPanel() {
           </TabsContent>
         </div>
       </Tabs>
+    </div>
+  );
+}
+
+type AssistantAvailabilityState =
+  | { state: 'loading' }
+  | { state: 'enabled' }
+  | { state: 'disabled'; reason?: string }
+  | { state: 'error'; message: string };
+
+function AssistantPanelSection() {
+  const status = useAssistantAvailability();
+
+  if (status.state === 'loading') {
+    return <div className="text-xs opacity-70">Checking assistant availability…</div>;
+  }
+
+  if (status.state === 'error') {
+    return (
+      <AssistantStatusCallout
+        title="Assistant unavailable"
+        description="Could not determine assistant status."
+        detail={status.message}
+        variant="error"
+      />
+    );
+  }
+
+  if (status.state === 'disabled') {
+    const detailProps = status.reason ? { detail: `Reason: ${status.reason}` } : undefined;
+    return (
+      <AssistantStatusCallout
+        title="Assistant disabled"
+        description="Add an OpenAI API key in Settings → LLM Provider Keys to enable the assistant."
+        variant="warning"
+        {...(detailProps ?? {})}
+      />
+    );
+  }
+
+  return (
+    <React.Suspense fallback={<div className="text-xs opacity-70">Loading assistant…</div>}>
+      <AssistantUiPanelLazy />
+    </React.Suspense>
+  );
+}
+
+function useAssistantAvailability(): AssistantAvailabilityState {
+  const [state, setState] = useState<AssistantAvailabilityState>({ state: 'loading' });
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+
+    fetchAssistantStatusState(controller.signal)
+      .then((next) => {
+        if (!cancelled) setState(next);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if ((error as { name?: string })?.name === 'AbortError') return;
+        setState({
+          state: 'error',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, []);
+
+  return state;
+}
+
+async function resolveAssistantStatusUrl(): Promise<string> {
+  if (typeof window === 'undefined') return '/api/assistant/status';
+
+  type AssistantBridge = {
+    url?: string;
+    getUrl?: () => Promise<string>;
+  };
+
+  const assistantBridge = (window as unknown as { assistant?: AssistantBridge }).assistant;
+
+  if (assistantBridge) {
+    if (typeof assistantBridge.getUrl === 'function') {
+      try {
+        const base = await assistantBridge.getUrl();
+        if (base) {
+          return `${trimTrailingSlash(base)}/assistant/status`;
+        }
+      } catch {}
+    }
+
+    if (typeof assistantBridge.url === 'string' && assistantBridge.url.length > 0) {
+      return `${trimTrailingSlash(assistantBridge.url)}/assistant/status`;
+    }
+  }
+
+  return '/api/assistant/status';
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+async function fetchAssistantStatusState(signal: AbortSignal): Promise<AssistantAvailabilityState> {
+  const url = await resolveAssistantStatusUrl();
+  const res = await fetch(url, {
+    headers: { accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(`status ${res.status}`);
+  }
+  const payload = (await res.json()) as { enabled: boolean; reason?: string };
+  if (payload.enabled) {
+    return { state: 'enabled' };
+  }
+  if (payload.reason) {
+    return { state: 'disabled', reason: payload.reason };
+  }
+  return { state: 'disabled' };
+}
+
+function AssistantStatusCallout({
+  title,
+  description,
+  detail,
+  variant,
+}: {
+  title: string;
+  description: string;
+  detail?: string;
+  variant: 'warning' | 'error';
+}) {
+  const tone =
+    variant === 'error'
+      ? 'border-destructive/50 text-destructive'
+      : 'border-muted-foreground/40 text-muted-foreground';
+  return (
+    <div
+      className={`rounded-md border border-dashed p-3 text-xs leading-relaxed ${tone}`}
+      data-testid="assistant-status-callout"
+    >
+      <div className="font-medium">{title}</div>
+      <div className="mt-1">{description}</div>
+      {detail ? <div className="mt-1 text-[11px] opacity-80">{detail}</div> : null}
     </div>
   );
 }

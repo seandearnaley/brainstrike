@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { convertAssistantUiMessages } from '@brainstrike/agent';
+import { readOpenAIApiKey } from './openai-api-key';
 
 type AgentModule = typeof import('@brainstrike/agent');
 type AgentMessage = AgentModule['AgentMessage'];
@@ -346,7 +347,6 @@ async function iterateAgentStream(
 ): Promise<void> {
   let started = startedInitial;
   for await (const chunk of agentStream) {
-    console.info('[assistant-server] stream chunk', chunk);
     if (chunk.type === 'tool-event' && !started && chunk.status === 'start') {
       ctrl.addTextPart();
       started = true;
@@ -447,6 +447,12 @@ async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
+  const url = req.url ?? '';
+  if (req.method === 'GET' && (url.endsWith('/assistant/status') || url === '/status')) {
+    await handleAssistantStatus(res);
+    return;
+  }
+
   if (req.method !== 'POST' || !(req.url?.endsWith('/assistant') || req.url === '/')) {
     res.writeHead(404).end('not found');
     return;
@@ -458,7 +464,7 @@ async function handleAssistantRequest(
     ? (parsed.messages as AssistantUiMessage[])
     : [];
   const data: RuntimeData | undefined = parsed?.data ?? undefined;
-  const apiKey = await readOpenAIApiKeySafe();
+  const apiKey = await readOpenAIApiKey();
   const messages = convertAssistantUiMessages(rawMessages);
   console.info('[assistant-server] request received', {
     messageCount: messages.length,
@@ -516,13 +522,24 @@ async function handleAssistantRequest(
   await streamResponse(res, response, undefined);
 }
 
-async function readOpenAIApiKeySafe(): Promise<string | undefined> {
+async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
   try {
-    const { getSecretsService } = await import('./secrets');
-    const svc = getSecretsService();
-    return (await svc.getKey('openai')) || undefined;
-  } catch {
-    return undefined;
+    const apiKey = await readOpenAIApiKey();
+    const enabled = Boolean(apiKey);
+    const payload = enabled ? { enabled } : { enabled, reason: 'missing_api_key' };
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(JSON.stringify(payload));
+  } catch (error) {
+    res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        error: 'assistant_status_failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
   }
 }
 

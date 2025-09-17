@@ -286,18 +286,22 @@ function devChatApiPlugin() {
 }
 
 async function createApiMiddleware(mode: 'dev' | 'preview') {
-  const { readBody, handleChatEndpoint, handleAssistantEndpoint } = await import(
-    './src/assistant-stream-helpers.ts'
-  );
+  const { readBody, handleChatEndpoint, handleAssistantEndpoint, sendAssistantStatusResponse } =
+    await import('./src/assistant-stream-helpers.ts');
 
   return async (
     req: import('http').IncomingMessage,
     res: import('http').ServerResponse,
     next: () => void
   ) => {
-    if (req.method !== 'POST') return next();
-
     try {
+      if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
+        sendAssistantStatusResponse(res);
+        return;
+      }
+
+      if (req.method !== 'POST') return next();
+
       const bodyStr = await readBody(req);
       const body = JSON.parse(bodyStr || '{}');
 

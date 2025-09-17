@@ -6,6 +6,14 @@ import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 // Then exercises a simple tool call (web.echo) and checks for streaming + progress.
 
 test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    const response = await request.get('/api/assistant/status');
+    const payload = (await response.json()) as { enabled?: boolean };
+    if (!payload.enabled) {
+      testInfo.skip('Assistant disabled (missing API key)');
+    }
+  });
+
   test.beforeEach(async ({ page }) => {
     await mockAssistantApi(page);
     // Force Assistant UI path without changing build flags

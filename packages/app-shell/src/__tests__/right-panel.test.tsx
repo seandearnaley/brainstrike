@@ -78,7 +78,6 @@ describe('RightPanel', () => {
     // Properties tab should be active by default
     expect(screen.getByText('Properties')).toBeInTheDocument();
     expect(screen.getByText('Element properties and attributes')).toBeInTheDocument();
-    expect(screen.getByText('Basic Properties')).toBeInTheDocument();
   });
 
   test('allows switching between tabs', async () => {
@@ -99,7 +98,6 @@ describe('RightPanel', () => {
 
     // Should show search content
     expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
-    expect(screen.getByText('Search Options')).toBeInTheDocument();
 
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
@@ -139,7 +137,7 @@ describe('RightPanel', () => {
 
     // Switch back to properties tab
     await user.click(screen.getByRole('tab', { name: /props/i }));
-    expect(screen.getByText('Basic Properties')).toBeInTheDocument();
+    expect(screen.getByText('Properties')).toBeInTheDocument();
 
     // Switch to embeddings again - content should still be there
     await user.click(screen.getByRole('tab', { name: /embed/i }));

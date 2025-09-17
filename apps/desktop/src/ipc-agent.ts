@@ -2,6 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
+import { readOpenAIApiKey } from './openai-api-key';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
 type AgentMessage = {
@@ -52,10 +53,12 @@ export function registerAgentIpcHandlers() {
       const out: StreamChunk[] = [];
 
       const config = await loadMcpConfig();
+      const apiKey = await readOpenAIApiKey();
       const maybeIter = mod.streamMastraAgent(messages, {
         runtime: {
           ...(runtime ?? {}),
           mcpConfig: config.config,
+          ...(apiKey ? { apiKey } : {}),
         },
         tools: mod.webTools,
       });

@@ -3,6 +3,14 @@ import { mockAssistantApi } from './utils/assistant-mocks';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Assistant panel (assistant-ui default)', () => {
+  test.beforeEach(async ({ request }, testInfo) => {
+    const response = await request.get('/api/assistant/status');
+    const payload = (await response.json()) as { enabled?: boolean };
+    if (!payload.enabled) {
+      testInfo.skip('Assistant disabled (missing API key)');
+    }
+  });
+
   test.beforeEach(async ({ page }) => {
     await mockAssistantApi(page);
     await page.goto('/');
