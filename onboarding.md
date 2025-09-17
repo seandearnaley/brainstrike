@@ -79,7 +79,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
   - **Vitest `3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.workspace.ts`](./vitest.workspace.ts))
-  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/e2e-guidelines.md](./docs/e2e-guidelines.md) for unified rules.
+  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
 - **Biome `2.2.4`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))

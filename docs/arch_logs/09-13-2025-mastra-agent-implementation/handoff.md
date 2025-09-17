@@ -110,7 +110,7 @@ Single Prompt for an LLM Agent (execute step-by-step)
      - `pnpm --filter @brainstrike/desktop test`
      - `cd apps/desktop && npx playwright test` (local/xvfb)
   7. Update docs:
-     - Add a short “MCP wiring” section to `docs/09-13-2025-mastra-agent-implementation-plan.md` with the chosen tool.
+     - Add a short “MCP wiring” section to `./09-13-2025-mastra-agent-implementation-plan.md` with the chosen tool.
   8. Deliverables:
      - New MCP client module, workflow tool integration, unit + E2E tests, documentation notes.
 

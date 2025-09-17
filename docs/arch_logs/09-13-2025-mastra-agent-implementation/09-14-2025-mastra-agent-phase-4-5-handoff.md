@@ -152,7 +152,7 @@ SSE client updates + schema mapping for a new tool
 Agent workflow tool integration (validated) and tool-event streaming
  Assistant‑ui tool card UX improvements (progress/details/errors)
 Updated unit tests; E2E validated locally
-Brief docs note in docs/09-13-2025-mastra-agent-implementation-plan.md under “MCP Wiring — Implementation Notes”
+Brief docs note in ./09-13-2025-mastra-agent-implementation-plan.md under “MCP Wiring — Implementation Notes”
 Do/Don’t:
 
 Do keep dynamic import typed as any in main

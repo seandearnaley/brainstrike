@@ -127,5 +127,5 @@ These types and helpers are exported from `@brainstrike/db`:
 - Repositories: `FileChunkRepository` (and Electron variant where applicable).
 - Queue: `JobQueue` and stats helpers.
 
-See also: `docs/db-embedding-modernization-2025.md` for the phased plan and validation gates.
+See also: `../09-05-2025-db-embedding-modernization-2025.md` for the phased plan and validation gates.
 
