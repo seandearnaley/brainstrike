@@ -83,8 +83,15 @@ export async function POST(req: Request): Promise<Response> {
     });
   } catch (err) {
     if (err instanceof Error) {
+      const message = err.message ?? '';
+      if (message.startsWith('mastra_agent_')) {
+        return new Response(JSON.stringify({ error: 'agent_stream_init_failed', message }), {
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          status: 502,
+        });
+      }
       try {
-        const payload = JSON.parse(err.message) as { code?: string; issues?: unknown };
+        const payload = JSON.parse(message) as { code?: string; issues?: unknown };
         if (payload?.code === 'invalid_body') {
           return new Response(JSON.stringify(payload), {
             headers: { 'Content-Type': 'application/json; charset=utf-8' },

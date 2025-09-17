@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { mockAssistantApi } from './utils/assistant-mocks';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 // Assistant-UI E2E (web): forces Assistant UI mode by injecting `window.assistant`
@@ -6,6 +7,7 @@ import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
   test.beforeEach(async ({ page }) => {
+    await mockAssistantApi(page);
     // Force Assistant UI path without changing build flags
     await page.addInitScript(() => {
       // @ts-expect-error expose minimal object to gate AssistantUiPanel render path
@@ -36,10 +38,13 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     // Expect assistant to stream content
     await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10_000 });
 
-    // Expect some indication of progress appended into tool args (starting/echoing/finishing)
-    // The exact structure is assistant-ui controlled, so match by text in the viewport.
+    const stopBtn = page.getByRole('button', { name: 'Stop' });
+    await expect(stopBtn).toBeVisible();
+    await expect(stopBtn).toBeEnabled({ timeout: 5_000 });
+
     await expect(viewport.getByText(/starting/i)).toBeVisible({ timeout: 10_000 });
-    await expect(viewport.getByText(/echoing/i)).toBeVisible({ timeout: 10_000 });
-    await expect(viewport.getByText(/finishing/i)).toBeVisible({ timeout: 10_000 });
+
+    await expect(stopBtn).toBeHidden({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible({ timeout: 15_000 });
   });
 });

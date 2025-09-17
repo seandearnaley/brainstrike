@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
+import { mockAssistantApi } from './utils/assistant-mocks';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Assistant panel (assistant-ui default)', () => {
   test.beforeEach(async ({ page }) => {
+    await mockAssistantApi(page);
     await page.goto('/');
     await waitForAppLoad(page);
   });

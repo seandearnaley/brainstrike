@@ -2,13 +2,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
-import type {
-  AgentMessage,
-  AgentMessagePartText,
-  RuntimeData,
-  StreamChunk,
-  StreamIterator,
-} from '../index';
+import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../index';
 import type { McpConfig } from '../mcp/config';
 
 export interface MastraAgentRuntimeOptions {
@@ -233,207 +227,49 @@ function mapToolEvent(
   }
 }
 
-function extractLastUserText(messages: AgentMessage[]): string | undefined {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (!message || message.role !== 'user') continue;
-    const text = message.parts.find((part) => part.type === 'text') as
-      | AgentMessagePartText
-      | undefined;
-    if (text && text.text.trim().length > 0) {
-      return text.text.trim();
-    }
-  }
-  return undefined;
-}
-
-async function fallbackLocalStream(
-  messages: AgentMessage[],
-  tools?: ToolsInput
-): Promise<StreamIterator> {
-  const text = extractLastUserText(messages);
-  const toolEvents: StreamChunk[] = [];
-  const progressLog: string[] = [];
-  const delayConfig = (() => {
-    const env = process.env;
-    const isTestLike =
-      env['NODE_ENV'] === 'test' ||
-      env['VITEST'] === 'true' ||
-      typeof env['JEST_WORKER_ID'] === 'string';
-    if (isTestLike) {
-      return { beforeProgressMs: 25, perStepMs: 25, afterSuccessMs: 25 };
-    }
-    return { beforeProgressMs: 2000, perStepMs: 800, afterSuccessMs: 800 };
-  })();
-  const sleep = (ms: number): Promise<void> =>
-    new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
-    });
-
-  const pushProgressEvents = async (
-    toolName: string,
-    steps: ReadonlyArray<string>
-  ): Promise<void> => {
-    for (const step of steps) {
-      toolEvents.push({
-        type: 'tool-event',
-        name: toolName,
-        status: 'progress',
-        payload: { step },
-      });
-      progressLog.push(step);
-      await sleep(step === 'starting' ? delayConfig.beforeProgressMs : delayConfig.perStepMs);
-    }
-  };
-
-  const buildToolPayload = (
-    input: Record<string, unknown>,
-    output: unknown
-  ): Record<string, unknown> => {
-    const payload: Record<string, unknown> = { input, output };
-    if (output && typeof output === 'object') {
-      const resultObject = output as Record<string, unknown>;
-      if ('results' in resultObject) payload['results'] = resultObject['results'];
-      if ('doc' in resultObject) payload['doc'] = resultObject['doc'];
-    }
-    return payload;
-  };
-
-  async function invokeTool(toolName: string, input: Record<string, unknown>): Promise<unknown> {
-    const tool = tools?.[toolName] as
-      | { execute?: (context: { context: unknown }, options?: unknown) => Promise<unknown> }
-      | undefined;
-    if (!tool?.execute) return undefined;
-    toolEvents.push({ type: 'tool-event', name: toolName, status: 'start', payload: { input } });
-    try {
-      const output = await tool.execute({ context: input }, {});
-      if (toolName === 'web.echo') {
-        await sleep(delayConfig.beforeProgressMs);
-        await pushProgressEvents(toolName, ['starting', 'echoing', 'finishing']);
-        await sleep(delayConfig.afterSuccessMs);
-      }
-      toolEvents.push({
-        type: 'tool-event',
-        name: toolName,
-        status: 'success',
-        payload: buildToolPayload(input, output),
-      });
-      return output;
-    } catch (error) {
-      toolEvents.push({
-        type: 'tool-event',
-        name: toolName,
-        status: 'error',
-        payload: { input, error: error instanceof Error ? error.message : String(error) },
-      });
-      return undefined;
-    }
-  }
-
-  type Intent =
-    | { kind: 'search'; query: string }
-    | { kind: 'summary'; docId: string }
-    | { kind: 'echo' };
-
-  const parseIntent = (t: string): Intent => {
-    const l = t.toLowerCase();
-    if (tools?.['web.searchDocs'] && /search/.test(l)) {
-      const query = t.replace(/search\s+docs?\s*(for|about)?/i, '').trim() || t;
-      return { kind: 'search', query };
-    }
-    if (tools?.['web.docSummary'] && /(doc|summary)/.test(l)) {
-      const m = t.match(/doc(?:ument)?[:#\s]+([a-z0-9-]+)/i);
-      const id = m?.[1]?.trim();
-      if (id) return { kind: 'summary', docId: id };
-    }
-    return { kind: 'echo' };
-  };
-
-  const handleSearch = async (query: string): Promise<string> => {
-    const output = (await invokeTool('web.searchDocs', { query })) as
-      | { results?: Array<{ title?: string; summary?: string }> }
-      | undefined;
-    const results = Array.isArray(output?.results) ? output.results : [];
-    if (results.length > 0) {
-      const [top] = results;
-      return `Found ${results.length} documentation entries. Top result: ${top?.title ?? 'Unknown'} — ${top?.summary ?? ''}`.trim();
-    }
-    return 'No documentation entries matched that query.';
-  };
-
-  const handleSummary = async (docId: string): Promise<string> => {
-    const output = (await invokeTool('web.docSummary', { docId })) as
-      | { doc?: { title: string; summary: string } }
-      | undefined;
-    if (output?.doc) return `${output.doc.title}: ${output.doc.summary}`;
-    return `Could not find documentation for "${docId}".`;
-  };
-
-  const handleEcho = async (): Promise<string> => {
-    if (tools?.['web.echo']) {
-      const output = (await invokeTool('web.echo', { text })) as { text?: string } | undefined;
-      return output?.text ?? text ?? '';
-    }
-    return `You said: ${text ?? ''}`;
-  };
-
-  const deriveResponse = async (): Promise<string> => {
-    if (!text) return 'Please provide a prompt.';
-    const intent = parseIntent(text);
-    switch (intent.kind) {
-      case 'search':
-        return handleSearch(intent.query);
-      case 'summary':
-        return handleSummary(intent.docId);
-      default:
-        return handleEcho();
-    }
-  };
-
-  async function* iterator(): AsyncIterableIterator<StreamChunk> {
-    const responseText = await deriveResponse();
-    for (const event of toolEvents) yield event;
-    if (progressLog.length > 0) {
-      for (const step of progressLog) {
-        yield { type: 'text-delta', value: step } as StreamChunk;
-      }
-    }
-    yield { type: 'text-delta', value: responseText } as StreamChunk;
-    yield {
-      type: 'message-finish',
-      finishReason: 'stop',
-      usage: { promptTokens: 0, completionTokens: 0 },
-      path: [],
-    } as StreamChunk;
-  }
-
-  return iterator();
-}
-
 export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
 ): Promise<StreamIterator> {
   const runtimeData = options.runtime;
-  const fallbackTools = options.tools ?? runtimeData?.mastraTools;
-  const fallback = (reason: string) => {
-    console.warn('[MastraAgent] falling back to local stream:', reason);
-    return fallbackLocalStream(messages, fallbackTools);
+  const fail = (
+    reason: 'missing_api_key' | 'runtime_init_failure' | 'stream_failure',
+    cause?: unknown
+  ): never => {
+    const detail =
+      cause instanceof Error && cause.message
+        ? cause.message
+        : cause && !(cause instanceof Error)
+          ? String(cause)
+          : '';
+    const message = detail ? `mastra_agent_${reason}: ${detail}` : `mastra_agent_${reason}`;
+    if (cause instanceof Error) {
+      throw new Error(message, { cause });
+    }
+    throw new Error(message);
   };
 
   const apiKey = (runtimeData as RuntimeData | undefined)?.apiKey;
-  if (!apiKey) return fallback('missing api key');
-
-  let runtime: MastraAgentRuntime | undefined;
-  let sanitizedNameMap: Map<string, string> | undefined;
-  try {
-    runtime = await createMastraAgentRuntime(options);
-    console.info('[MastraAgent] runtime initialized with tools:', Object.keys(options.tools ?? {}));
-    sanitizedNameMap = runtime.toolNameMap;
-  } catch (err) {
-    console.error('[MastraAgent] failed to initialize runtime, using fallback.', err);
-    return fallback('runtime init failure');
+  if (!apiKey) {
+    console.error('[MastraAgent] missing api key; aborting stream');
+    return fail('missing_api_key');
   }
+
+  let sanitizedNameMap: Map<string, string> | undefined;
+  const runtime = await (async () => {
+    try {
+      const instance = await createMastraAgentRuntime(options);
+      console.info(
+        '[MastraAgent] runtime initialized with tools:',
+        Object.keys(options.tools ?? {})
+      );
+      sanitizedNameMap = instance.toolNameMap;
+      return instance;
+    } catch (err) {
+      console.error('[MastraAgent] failed to initialize runtime', err);
+      return fail('runtime_init_failure', err);
+    }
+  })();
 
   const mastraMessages = convertMessagesToMastra(messages);
 
@@ -512,8 +348,12 @@ export async function streamMastraAgent(
 
     return iterate();
   } catch (err) {
-    console.error('[MastraAgent] streaming failed, using fallback.', err);
-    await runtime.dispose();
-    return fallback('stream failure');
+    console.error('[MastraAgent] streaming failed', err);
+    try {
+      await runtime.dispose();
+    } catch (disposeError) {
+      console.error('[MastraAgent] failed to dispose runtime after stream failure', disposeError);
+    }
+    return fail('stream_failure', err);
   }
 }

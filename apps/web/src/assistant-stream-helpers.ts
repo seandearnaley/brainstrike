@@ -1,13 +1,5 @@
-import type { AgentMessage } from '@brainstrike/agent';
-import { webTools } from '@brainstrike/agent';
+import { type AssistantUiMessage, convertAssistantUiMessages, webTools } from '@brainstrike/agent';
 import type { ToolCallStreamController } from 'assistant-stream';
-
-interface MessageContent {
-  text?: string;
-  content?: string | Array<{ text?: string; value?: string }>;
-  role?: string;
-  id?: string;
-}
 
 export interface StreamChunk {
   type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
@@ -33,62 +25,164 @@ export interface StreamController {
   }) => void;
 }
 
-export function handleToolStart(
-  ctrl: StreamController,
-  tools: Map<string, ToolCallStreamController>,
-  name: string,
-  payload: unknown
-): void {
-  const t = ctrl.addToolCallPart({ toolName: name });
-  if (payload) {
-    try {
-      t.argsText.append(JSON.stringify(payload, null, 2));
-    } catch {
-      t.argsText.append(String(payload));
-    }
-  }
-  tools.set(name, t);
+type ToolRegistryEntry = {
+  controller: ToolCallStreamController;
+  name: string;
+};
+
+type ToolRegistry = {
+  byKey: Map<string, ToolRegistryEntry>;
+  nameToKeys: Map<string, string[]>;
+};
+
+let toolKeyCounter = 0;
+
+function createToolRegistry(): ToolRegistry {
+  return { byKey: new Map(), nameToKeys: new Map() };
 }
 
-export function handleToolProgress(
-  tools: Map<string, ToolCallStreamController>,
-  name: string,
-  payload: unknown
-): string | undefined {
-  const t = tools.get(name);
-  if (t && payload) {
-    const p = payload as Record<string, unknown>;
-    const step = typeof p['step'] === 'string' ? (p['step'] as string) : undefined;
-    const percent = typeof p['percent'] === 'number' ? (p['percent'] as number) : undefined;
-    const note = typeof p['note'] === 'string' ? (p['note'] as string) : undefined;
-    const line = [
-      step ?? 'Progress',
-      typeof percent === 'number' ? `(${Math.round(percent)}%)` : null,
-      note ? `— ${note}` : null,
-    ]
-      .filter(Boolean)
-      .join(' ');
-    t.argsText.append(`\n${line}`);
-    return line;
+function extractCallId(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const record = payload as Record<string, unknown>;
+  const candidates = [record['callId'], record['toolCallId'], record['id']];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate;
+    }
+  }
+  const call = record['call'];
+  if (call && typeof call === 'object') {
+    const nestedId = (call as Record<string, unknown>)['id'];
+    if (typeof nestedId === 'string' && nestedId.trim().length > 0) {
+      return nestedId;
+    }
   }
   return undefined;
 }
 
+function nextSyntheticToolKey(name: string): string {
+  toolKeyCounter += 1;
+  return `${name}#${Date.now()}#${toolKeyCounter}`;
+}
+
+function registerToolController(
+  registry: ToolRegistry,
+  key: string,
+  name: string,
+  controller: ToolCallStreamController
+): void {
+  registry.byKey.set(key, { controller, name });
+  const queue = registry.nameToKeys.get(name) ?? [];
+  queue.push(key);
+  registry.nameToKeys.set(name, queue);
+}
+
+function resolveToolKey(
+  registry: ToolRegistry,
+  name: string,
+  payload: unknown
+): string | undefined {
+  const callId = extractCallId(payload);
+  if (callId && registry.byKey.has(callId)) {
+    return callId;
+  }
+  const queue = registry.nameToKeys.get(name);
+  if (!queue || queue.length === 0) {
+    return undefined;
+  }
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    const candidate = queue[i];
+    if (typeof candidate === 'string' && registry.byKey.has(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+function resolveToolEntry(
+  registry: ToolRegistry,
+  name: string,
+  payload: unknown
+): [string, ToolRegistryEntry] | undefined {
+  const key = resolveToolKey(registry, name, payload);
+  if (!key) return undefined;
+  const entry = registry.byKey.get(key);
+  if (!entry) return undefined;
+  return [key, entry];
+}
+
+function releaseToolEntry(registry: ToolRegistry, key: string): ToolRegistryEntry | undefined {
+  const entry = registry.byKey.get(key);
+  if (!entry) return undefined;
+  registry.byKey.delete(key);
+  const queue = registry.nameToKeys.get(entry.name);
+  if (queue) {
+    const idx = queue.lastIndexOf(key);
+    if (idx >= 0) queue.splice(idx, 1);
+    if (queue.length === 0) {
+      registry.nameToKeys.delete(entry.name);
+    }
+  }
+  return entry;
+}
+
+export function handleToolStart(
+  ctrl: StreamController,
+  tools: ToolRegistry,
+  name: string,
+  payload: unknown
+): void {
+  const key = extractCallId(payload) ?? nextSyntheticToolKey(name);
+  const controller = ctrl.addToolCallPart({ toolName: name });
+  if (payload) {
+    try {
+      controller.argsText.append(JSON.stringify(payload, null, 2));
+    } catch {
+      controller.argsText.append(String(payload));
+    }
+  }
+  registerToolController(tools, key, name, controller);
+}
+
+export function handleToolProgress(
+  tools: ToolRegistry,
+  name: string,
+  payload: unknown
+): string | undefined {
+  const resolved = resolveToolEntry(tools, name, payload);
+  if (!resolved) return undefined;
+  const [, entry] = resolved;
+  if (!payload) return undefined;
+  const p = payload as Record<string, unknown>;
+  const step = typeof p['step'] === 'string' ? (p['step'] as string) : undefined;
+  const percent = typeof p['percent'] === 'number' ? (p['percent'] as number) : undefined;
+  const note = typeof p['note'] === 'string' ? (p['note'] as string) : undefined;
+  const line = [
+    step ?? 'Progress',
+    typeof percent === 'number' ? `(${Math.round(percent)}%)` : null,
+    note ? `— ${note}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  entry.controller.argsText.append(`\n${line}`);
+  return line;
+}
+
 export function handleToolEnd(
-  tools: Map<string, ToolCallStreamController>,
+  tools: ToolRegistry,
   name: string,
   status: string,
   payload: unknown
 ): void {
-  const t = tools.get(name);
-  if (t) {
-    t.setResponse({
-      result: payload ? JSON.parse(JSON.stringify(payload)) : null,
-      isError: status === 'error',
-    });
-    t.close();
-    tools.delete(name);
-  }
+  const resolved = resolveToolEntry(tools, name, payload);
+  if (!resolved) return;
+  const [key, entry] = resolved;
+  entry.controller.setResponse({
+    result: payload ? JSON.parse(JSON.stringify(payload)) : null,
+    isError: status === 'error',
+  });
+  entry.controller.close();
+  releaseToolEntry(tools, key);
 }
 
 export function handleTextDelta(
@@ -109,7 +203,7 @@ export function handleTextDelta(
 
 export function handleToolEvent(
   ctrl: StreamController,
-  tools: Map<string, ToolCallStreamController>,
+  tools: ToolRegistry,
   chunk: StreamChunk
 ): string | undefined {
   const { name, status, payload } = chunk;
@@ -175,7 +269,7 @@ function processTextChunk(
 
 function processToolChunk(
   ctrl: StreamController,
-  tools: Map<string, ToolCallStreamController>,
+  tools: ToolRegistry,
   chunk: StreamChunk,
   started: boolean
 ): ChunkProcessingResult {
@@ -186,7 +280,7 @@ function processToolChunk(
 
 function handleStreamChunk(
   ctrl: StreamController,
-  tools: Map<string, ToolCallStreamController>,
+  tools: ToolRegistry,
   chunk: StreamChunk,
   started: boolean
 ): ChunkProcessingResult {
@@ -210,7 +304,7 @@ export async function processAgentStream(
   agentStream: AsyncIterable<StreamChunk>
 ): Promise<void> {
   let started = false;
-  const tools = new Map<string, ToolCallStreamController>();
+  const tools = createToolRegistry();
 
   for await (const chunk of agentStream) {
     const { started: nextStarted, done } = handleStreamChunk(ctrl, tools, chunk, started);
@@ -218,7 +312,15 @@ export async function processAgentStream(
     if (done) break;
   }
 
-  for (const [, t] of tools) t.close();
+  const remaining = new Set<ToolCallStreamController>();
+  for (const entry of tools.byKey.values()) {
+    remaining.add(entry.controller);
+  }
+  for (const controller of remaining) {
+    try {
+      controller.close();
+    } catch {}
+  }
   ctrl.close();
 }
 
@@ -237,13 +339,30 @@ export async function handleChatEndpoint(
   res: import('http').ServerResponse
 ): Promise<void> {
   const { toAiSdkStyleStream } = await import('@brainstrike/agent');
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
+  const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = body?.data ?? undefined;
 
-  const stream = await toAiSdkStyleStream(messages, {
-    ...(data ?? {}),
-    mastraTools: webTools,
-  });
+  let stream: AsyncIterable<StreamChunk>;
+  try {
+    stream = await toAiSdkStyleStream(agentMessages, {
+      ...(data ?? {}),
+      mastraTools: webTools,
+    });
+  } catch (error) {
+    console.error('[web assistant] failed to initialize chat stream', error);
+    res.writeHead(502, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    });
+    res.end(
+      JSON.stringify({
+        error: 'agent_stream_init_failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
+    return;
+  }
 
   res.writeHead(200, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -267,17 +386,30 @@ export async function handleAssistantEndpoint(
   const { createAssistantStreamResponse } = await import('assistant-stream');
   const { toAiSdkStyleStream } = await import('@brainstrike/agent');
 
-  const rawMessages = Array.isArray(body?.messages) ? (body.messages as MessageContent[]) : [];
-  const agentMessages = toAgentMessages(rawMessages);
+  const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
+  const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = body?.data ?? undefined;
-  const agentStream = await toAiSdkStyleStream(agentMessages as AgentMessage[], {
-    ...(data ?? {}),
-    mastraTools: webTools,
-  });
+  let agentStream: AsyncIterable<StreamChunk>;
+  try {
+    agentStream = await toAiSdkStyleStream(agentMessages, {
+      ...(data ?? {}),
+      mastraTools: webTools,
+    });
+  } catch (error) {
+    console.error('[web assistant] failed to initialize assistant stream', error);
+    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(
+      JSON.stringify({
+        error: 'agent_stream_init_failed',
+        message: error instanceof Error ? error.message : String(error),
+      })
+    );
+    return;
+  }
 
   const response = createAssistantStreamResponse(async (ctrl) => {
     ctrl.addTextPart();
-    await processAgentStream(ctrl as StreamController, agentStream as AsyncIterable<StreamChunk>);
+    await processAgentStream(ctrl as StreamController, agentStream);
   });
 
   res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
@@ -290,51 +422,4 @@ export async function handleAssistantEndpoint(
   }
 
   res.end();
-}
-
-function pickUserText(msg: MessageContent): string | null {
-  if (!msg || msg.role !== 'user') return null;
-  const c = msg.content;
-  if (typeof c === 'string') return c;
-  if (Array.isArray(c)) {
-    const parts = c
-      .map((p) => {
-        if (!p) return '';
-        if (typeof p === 'string') return p;
-        if (typeof p.text === 'string') return p.text;
-        if (typeof p.value === 'string') return p.value;
-        return '';
-      })
-      .filter(Boolean);
-    if (parts.length > 0) return parts.join(' ');
-  }
-  if (typeof msg.text === 'string') return msg.text;
-  return null;
-}
-
-function toAgentMessages(rawMessages: MessageContent[]): AgentMessage[] {
-  const out: AgentMessage[] = [];
-  for (const m of rawMessages) {
-    if (!m) continue;
-    const t = pickUserText(m);
-    if (t && m.role === 'user') {
-      out.push({
-        id: String(m.id ?? crypto.randomUUID()),
-        role: 'user',
-        parts: [{ type: 'text', text: t }],
-      });
-    }
-  }
-  if (out.length === 0 && rawMessages.length > 0) {
-    const last = rawMessages[rawMessages.length - 1];
-    if (!last) return out;
-    const t = pickUserText(last);
-    if (t)
-      out.push({
-        id: String(last.id ?? crypto.randomUUID()),
-        role: 'user',
-        parts: [{ type: 'text', text: t }],
-      });
-  }
-  return out;
 }

@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
+import { mockAssistantApi } from './utils/assistant-mocks';
 import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 import { mockBrowserApis } from './utils/mock-fs';
 
 test.describe('Assistant panel interactions (assistant-ui)', () => {
   test.beforeEach(async ({ page }) => {
+    await mockAssistantApi(page);
     await page.goto('/');
     await waitForAppLoad(page);
     // Enable clipboard mocking for copy tests
