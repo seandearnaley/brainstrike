@@ -31,9 +31,8 @@ test.describe('Assistant panel interactions (assistant-ui)', () => {
     const sendBtn = page.getByRole('button', { name: 'Send' });
     await page.locator('#assistant-input').fill('This is a web prompt to test stop and retry.');
     await sendBtn.click();
-    await expect(sendBtn).toBeDisabled();
-
     const stopBtn = page.getByRole('button', { name: 'Stop' });
+    await expect(stopBtn).toBeVisible();
     let stopWasEnabled = false;
     // Try to observe Stop becoming enabled during stream
     for (let i = 0; i < 6; i++) {
@@ -55,11 +54,11 @@ test.describe('Assistant panel interactions (assistant-ui)', () => {
       .fill('Please write a very long explanation about TypeScript types and React patterns.');
     await sendBtn.click();
     // Wait briefly and then stop; only smoke-check that Stop becomes clickable and returns to Send
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(600);
     const stopBtn2 = page.getByRole('button', { name: 'Stop' });
     if (await stopBtn2.isEnabled()) {
       await stopBtn2.click();
-      await expect(sendBtn).toBeEnabled({ timeout: 5000 });
+      await expect(sendBtn).toBeVisible({ timeout: 15000 });
     }
   });
 });

@@ -33,6 +33,10 @@ if (ENABLE_DB_UI) {
   );
 }
 
+const AssistantUiPanelLazy = lazy(async () => ({
+  default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
+}));
+
 export function RightPanel() {
   const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
   const setActiveTab = useRightPanelStore((s) => s.setActiveTab);
@@ -82,7 +86,11 @@ export function RightPanel() {
         </TabsList>
 
         <div className="flex-1 px-2 pb-2 flex flex-col min-h-0">
-          <TabsContent value="properties" className="flex-1 mt-0 overflow-y-auto min-h-0">
+          <TabsContent
+            value="properties"
+            forceMount
+            className="flex-1 mt-0 overflow-y-auto min-h-0"
+          >
             <Card className="h-full">
               <CardHeader className="pb-3">
                 <CardTitle className="text-sm">Properties</CardTitle>
@@ -94,13 +102,7 @@ export function RightPanel() {
                 <React.Suspense
                   fallback={<div className="text-xs opacity-70">Loading assistant…</div>}
                 >
-                  {React.createElement(
-                    React.lazy(async () => ({
-                      default: (await import('@brainstrike/ui/assistant-ui-panel'))
-                        .AssistantUiPanel,
-                    })),
-                    {}
-                  )}
+                  <AssistantUiPanelLazy />
                 </React.Suspense>
                 {/* MCP availability banner (desktop only; no-op on web) */}
                 <McpBanner />

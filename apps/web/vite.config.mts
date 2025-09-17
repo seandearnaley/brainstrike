@@ -276,8 +276,8 @@ export default defineConfig({
 function devChatApiPlugin() {
   return {
     name: 'dev-chat-api',
-    configureServer(server) {
-      server.middlewares.use(createApiMiddleware('dev'));
+    async configureServer(server) {
+      server.middlewares.use(await createApiMiddleware('dev'));
     },
     async configurePreviewServer(server: import('vite').ViteDevServer) {
       server.middlewares.use(await createApiMiddleware('preview'));
@@ -313,6 +313,7 @@ async function createApiMiddleware(mode: 'dev' | 'preview') {
 
       return next();
     } catch (_e) {
+      console.error(`[dev-chat-api] ${mode} handler error`, _e);
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify({ error: `${mode} chat route failed` }));

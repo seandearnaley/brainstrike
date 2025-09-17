@@ -106,7 +106,7 @@ function handleToolProgress(
   tools: Map<string, ToolCallStreamController>,
   name: string,
   payload: unknown
-): void {
+): string | undefined {
   const t = tools.get(name);
   if (t && payload) {
     const p = payload as Record<string, unknown>;
@@ -121,7 +121,9 @@ function handleToolProgress(
       .filter(Boolean)
       .join(' ');
     t.argsText.append(`\n${line}`);
+    return line;
   }
+  return undefined;
 }
 
 function handleToolEnd(
@@ -181,17 +183,18 @@ function handleToolEvent(
   ctrl: StreamController,
   tools: Map<string, ToolCallStreamController>,
   chunk: StreamChunk
-): void {
+): string | undefined {
   const { name, status, payload } = chunk;
   if (!name || !status) return;
 
   if (status === 'start') {
     handleToolStart(ctrl, tools, name, payload);
   } else if (status === 'progress') {
-    handleToolProgress(tools, name, payload);
+    return handleToolProgress(tools, name, payload);
   } else if (status === 'success' || status === 'error') {
     handleToolEnd(tools, name, status, payload);
   }
+  return undefined;
 }
 
 function toMessageFinishChunk(chunk: StreamChunk): {
@@ -256,6 +259,40 @@ async function processAgentStream(
   }
 }
 
+type DesktopChunkResult = {
+  started: boolean;
+  finished: boolean;
+};
+
+function processDesktopChunk(
+  ctrl: StreamController,
+  tools: Map<string, ToolCallStreamController>,
+  chunk: StreamChunk,
+  started: boolean,
+  setStarted: (started: boolean) => void
+): DesktopChunkResult {
+  if (chunk.type === 'finish' || chunk.type === 'message-finish') {
+    ctrl.enqueue(toMessageFinishChunk(chunk));
+    setStarted(false);
+    return { started, finished: true };
+  }
+
+  if (chunk.type === 'text-delta') {
+    const nextStarted = handleTextDelta(ctrl, chunk.value, started);
+    setStarted(nextStarted);
+    return { started: nextStarted, finished: false };
+  }
+
+  if (chunk.type === 'tool-event') {
+    const progressText = handleToolEvent(ctrl, tools, chunk);
+    const nextStarted = progressText ? handleTextDelta(ctrl, `${progressText}\n`, false) : started;
+    setStarted(nextStarted);
+    return { started: nextStarted, finished: false };
+  }
+
+  return { started, finished: false };
+}
+
 async function iterateAgentStream(
   ctrl: StreamController,
   agentStream: AsyncIterable<StreamChunk>,
@@ -267,19 +304,15 @@ async function iterateAgentStream(
   let started = startedInitial;
   for await (const chunk of agentStream) {
     console.info('[assistant-server] stream chunk', chunk);
-    if (chunk.type === 'finish' || chunk.type === 'message-finish') {
-      ctrl.enqueue(toMessageFinishChunk(chunk));
-      setStarted(false);
-      break;
+    if (chunk.type === 'tool-event' && !started && chunk.status === 'start') {
+      ctrl.addTextPart();
+      started = true;
+      setStarted(true);
     }
     if (isAborted()) break;
-    if (chunk.type === 'text-delta') {
-      const nextStarted = handleTextDelta(ctrl, chunk.value, started);
-      started = nextStarted;
-      setStarted(nextStarted);
-    } else if (chunk.type === 'tool-event') {
-      handleToolEvent(ctrl, tools, chunk);
-    }
+    const result = processDesktopChunk(ctrl, tools, chunk, started, setStarted);
+    started = result.started;
+    if (result.finished) break;
   }
 }
 

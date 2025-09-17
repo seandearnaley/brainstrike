@@ -253,6 +253,38 @@ async function fallbackLocalStream(
 ): Promise<StreamIterator> {
   const text = extractLastUserText(messages);
   const toolEvents: StreamChunk[] = [];
+  const progressLog: string[] = [];
+  const delayConfig = (() => {
+    const env = process.env;
+    const isTestLike =
+      env['NODE_ENV'] === 'test' ||
+      env['VITEST'] === 'true' ||
+      typeof env['JEST_WORKER_ID'] === 'string';
+    if (isTestLike) {
+      return { beforeProgressMs: 25, perStepMs: 25, afterSuccessMs: 25 };
+    }
+    return { beforeProgressMs: 2000, perStepMs: 800, afterSuccessMs: 800 };
+  })();
+  const sleep = (ms: number): Promise<void> =>
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  const pushProgressEvents = async (
+    toolName: string,
+    steps: ReadonlyArray<string>
+  ): Promise<void> => {
+    for (const step of steps) {
+      toolEvents.push({
+        type: 'tool-event',
+        name: toolName,
+        status: 'progress',
+        payload: { step },
+      });
+      progressLog.push(step);
+      await sleep(step === 'starting' ? delayConfig.beforeProgressMs : delayConfig.perStepMs);
+    }
+  };
 
   const buildToolPayload = (
     input: Record<string, unknown>,
@@ -275,6 +307,11 @@ async function fallbackLocalStream(
     toolEvents.push({ type: 'tool-event', name: toolName, status: 'start', payload: { input } });
     try {
       const output = await tool.execute({ context: input }, {});
+      if (toolName === 'web.echo') {
+        await sleep(delayConfig.beforeProgressMs);
+        await pushProgressEvents(toolName, ['starting', 'echoing', 'finishing']);
+        await sleep(delayConfig.afterSuccessMs);
+      }
       toolEvents.push({
         type: 'tool-event',
         name: toolName,
@@ -356,6 +393,11 @@ async function fallbackLocalStream(
   async function* iterator(): AsyncIterableIterator<StreamChunk> {
     const responseText = await deriveResponse();
     for (const event of toolEvents) yield event;
+    if (progressLog.length > 0) {
+      for (const step of progressLog) {
+        yield { type: 'text-delta', value: step } as StreamChunk;
+      }
+    }
     yield { type: 'text-delta', value: responseText } as StreamChunk;
     yield {
       type: 'message-finish',
