@@ -37,6 +37,48 @@ function expandHome(p: string): string {
   return p;
 }
 
+function normalizeRootDir(dir: string): string {
+  return path.resolve(expandHome(dir));
+}
+
+function isPathInsideRoot(rootDir: string, candidate: string): boolean {
+  const relative = path.relative(rootDir, candidate);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+type ResolvedPathResult = { ok: true; path: string } | { ok: false; error: string };
+
+async function resolvePathWithinRoot(
+  rootDir: string,
+  requested: unknown
+): Promise<ResolvedPathResult> {
+  const base = path.resolve(rootDir);
+  const baseReal = await fs.realpath(base).catch(() => base);
+  const raw = typeof requested === 'string' && requested.trim().length > 0 ? requested : '.';
+  const expanded = expandHome(raw);
+  const candidate = path.isAbsolute(expanded)
+    ? path.resolve(expanded)
+    : path.resolve(baseReal, expanded);
+
+  try {
+    const real = await fs.realpath(candidate);
+    if (!isPathInsideRoot(baseReal, real)) {
+      return { ok: false, error: 'Resolved path is outside the configured root.' };
+    }
+    return { ok: true, path: real };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === 'ENOENT') {
+      if (!isPathInsideRoot(baseReal, candidate)) {
+        return { ok: false, error: 'Requested path is outside the configured root.' };
+      }
+      // Path does not exist yet but the resolved path is still within the root boundary
+      return { ok: true, path: candidate };
+    }
+    throw error;
+  }
+}
+
 function resolveBaseDirFromArgs(args?: string[]): string | null {
   if (!args || args.length === 0) return null;
   const candidate = args[args.length - 1];
@@ -45,26 +87,26 @@ function resolveBaseDirFromArgs(args?: string[]): string | null {
 }
 
 async function handleFilesystemList(
-  params?: Record<string, unknown>,
-  defaultDir?: string
+  params: Record<string, unknown> | undefined,
+  rootDir: string
 ): Promise<unknown> {
-  const p =
-    typeof params?.['path'] === 'string' && (params['path'] as string).length > 0
-      ? (params['path'] as string)
-      : defaultDir || process.cwd();
-  const dir = expandHome(p);
+  const resolved = await resolvePathWithinRoot(rootDir, params?.['path']);
+  if (!resolved.ok) return { error: resolved.error };
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fs.readdir(resolved.path, { withFileTypes: true });
     return entries.map((e) => ({ name: e.name, type: e.isDirectory() ? 'dir' : 'file' }));
   } catch (err) {
     return { error: (err as Error).message };
   }
 }
 
-async function handleFilesystemRead(params?: Record<string, unknown>): Promise<unknown> {
-  const p = typeof params?.['path'] === 'string' ? (params['path'] as string) : '';
-  if (!p) return { error: 'path is required' };
-  const filePath = expandHome(p);
+async function handleFilesystemRead(
+  params: Record<string, unknown> | undefined,
+  rootDir: string
+): Promise<unknown> {
+  const resolved = await resolvePathWithinRoot(rootDir, params?.['path']);
+  if (!resolved.ok) return { error: resolved.error };
+  const filePath = resolved.path;
   const encoding =
     (typeof params?.['encoding'] === 'string' ? (params['encoding'] as string) : 'utf8') || 'utf8';
   const maxBytesRaw =
@@ -101,16 +143,15 @@ async function handleFilesystemRead(params?: Record<string, unknown>): Promise<u
 
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: BFS with filtering and capping kept inline for clarity
 async function handleFilesystemSearch(
-  params?: Record<string, unknown>,
-  defaultDir?: string
+  params: Record<string, unknown> | undefined,
+  rootDir: string
 ): Promise<unknown> {
   const q = typeof params?.['query'] === 'string' ? (params['query'] as string) : '';
   if (!q) return { error: 'query is required' };
-  const start =
-    typeof params?.['path'] === 'string' && (params['path'] as string).length > 0
-      ? (params['path'] as string)
-      : defaultDir || process.cwd();
-  const root = expandHome(start);
+  const start = await resolvePathWithinRoot(rootDir, params?.['path']);
+  if (!start.ok) return { error: start.error };
+  const root = start.path;
+  const baseRoot = await fs.realpath(rootDir).catch(() => path.resolve(rootDir));
   const maxResultsRaw =
     typeof params?.['maxResults'] === 'number' ? (params['maxResults'] as number) : undefined;
   const maxResults =
@@ -143,6 +184,8 @@ async function handleFilesystemSearch(
         if (results.length >= maxResults) break;
         const itemPath = path.join(dir, e.name);
         if (ignore.has(e.name)) continue;
+        if (!isPathInsideRoot(baseRoot, path.resolve(itemPath))) continue;
+        if (e.isSymbolicLink?.()) continue;
         if (e.isDirectory()) {
           if (e.name.toLowerCase().includes(lcQuery)) {
             results.push({ name: e.name, path: itemPath, type: 'dir' });
@@ -169,7 +212,8 @@ function createFilesystemClientFromStdio(
   // to satisfy a demo of `filesystem.list` rather than speaking full MCP.
   // We still optionally spawn the configured process to validate presence,
   // but we don't depend on its protocol yet.
-  const baseDir = resolveBaseDirFromArgs(server.args) || process.cwd();
+  const baseDirArg = resolveBaseDirFromArgs(server.args) ?? process.cwd();
+  const rootDir = normalizeRootDir(baseDirArg);
   let child: ChildProcess | null = null;
   try {
     // Best-effort spawn in background; ignore failures
@@ -199,11 +243,11 @@ function createFilesystemClientFromStdio(
     ): Promise<unknown> {
       switch (tool) {
         case 'filesystem.list':
-          return await handleFilesystemList(params, baseDir);
+          return await handleFilesystemList(params, rootDir);
         case 'filesystem.read':
-          return await handleFilesystemRead(params);
+          return await handleFilesystemRead(params, rootDir);
         case 'filesystem.search':
-          return await handleFilesystemSearch(params, baseDir);
+          return await handleFilesystemSearch(params, rootDir);
         default:
           throw new Error(`Unsupported tool: ${tool}`);
       }

@@ -1,5 +1,11 @@
 import http from 'node:http';
-import { convertAssistantUiMessages } from '@brainstrike/agent';
+import {
+  completeToolCall,
+  convertAssistantUiMessages,
+  createToolRegistry,
+  recordToolProgress,
+  startToolCall,
+} from '@brainstrike/agent';
 import { readOpenAIApiKey } from './openai-api-key';
 
 type AgentModule = typeof import('@brainstrike/agent');
@@ -19,165 +25,34 @@ async function readRequestBody(req: http.IncomingMessage): Promise<string> {
   return body;
 }
 
-type ToolRegistryEntry = {
+type ToolControllerEntry = {
   controller: ToolCallStreamController;
   name: string;
 };
 
-type ToolRegistry = {
-  byKey: Map<string, ToolRegistryEntry>;
+type AssistantToolRegistry = {
+  byKey: Map<string, ToolControllerEntry>;
   nameToKeys: Map<string, string[]>;
 };
 
-let toolKeyCounter = 0;
-
-function createToolRegistry(): ToolRegistry {
-  return { byKey: new Map(), nameToKeys: new Map() };
-}
-
-function extractCallId(payload: unknown): string | undefined {
-  if (!payload || typeof payload !== 'object') return undefined;
-  const record = payload as Record<string, unknown>;
-  const candidates = [record['callId'], record['toolCallId'], record['id']];
-  for (const candidate of candidates) {
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate;
-    }
-  }
-  const call = record['call'];
-  if (call && typeof call === 'object') {
-    const nestedId = (call as Record<string, unknown>)['id'];
-    if (typeof nestedId === 'string' && nestedId.trim().length > 0) {
-      return nestedId;
-    }
-  }
-  return undefined;
-}
-
-function nextSyntheticToolKey(name: string): string {
-  toolKeyCounter += 1;
-  return `${name}#${Date.now()}#${toolKeyCounter}`;
-}
-
-function registerToolController(
-  registry: ToolRegistry,
-  key: string,
+const createAssistantToolRegistry = createToolRegistry as unknown as () => AssistantToolRegistry;
+const startToolProxy = startToolCall as unknown as (
+  registry: AssistantToolRegistry,
   name: string,
+  payload: unknown,
   controller: ToolCallStreamController
-): void {
-  registry.byKey.set(key, { controller, name });
-  const queue = registry.nameToKeys.get(name) ?? [];
-  queue.push(key);
-  registry.nameToKeys.set(name, queue);
-}
-
-function resolveToolKey(
-  registry: ToolRegistry,
+) => void;
+const recordToolProgressProxy = recordToolProgress as unknown as (
+  registry: AssistantToolRegistry,
   name: string,
   payload: unknown
-): string | undefined {
-  const callId = extractCallId(payload);
-  if (callId && registry.byKey.has(callId)) {
-    return callId;
-  }
-  const queue = registry.nameToKeys.get(name);
-  if (!queue || queue.length === 0) {
-    return undefined;
-  }
-  for (let i = queue.length - 1; i >= 0; i -= 1) {
-    const candidate = queue[i];
-    if (typeof candidate === 'string' && registry.byKey.has(candidate)) {
-      return candidate;
-    }
-  }
-  return undefined;
-}
-
-function resolveToolEntry(
-  registry: ToolRegistry,
-  name: string,
-  payload: unknown
-): [string, ToolRegistryEntry] | undefined {
-  const key = resolveToolKey(registry, name, payload);
-  if (!key) return undefined;
-  const entry = registry.byKey.get(key);
-  if (!entry) return undefined;
-  return [key, entry];
-}
-
-function releaseToolEntry(registry: ToolRegistry, key: string): ToolRegistryEntry | undefined {
-  const entry = registry.byKey.get(key);
-  if (!entry) return undefined;
-  registry.byKey.delete(key);
-  const queue = registry.nameToKeys.get(entry.name);
-  if (queue) {
-    const idx = queue.lastIndexOf(key);
-    if (idx >= 0) queue.splice(idx, 1);
-    if (queue.length === 0) {
-      registry.nameToKeys.delete(entry.name);
-    }
-  }
-  return entry;
-}
-
-function handleToolStart(
-  ctrl: StreamController,
-  registry: ToolRegistry,
-  name: string,
-  payload: unknown
-): void {
-  const key = extractCallId(payload) ?? nextSyntheticToolKey(name);
-  const controller = ctrl.addToolCallPart({ toolName: name });
-  if (payload) {
-    try {
-      controller.argsText.append(JSON.stringify(payload, null, 2));
-    } catch {
-      controller.argsText.append(String(payload));
-    }
-  }
-  registerToolController(registry, key, name, controller);
-}
-
-function handleToolProgress(
-  registry: ToolRegistry,
-  name: string,
-  payload: unknown
-): string | undefined {
-  const resolved = resolveToolEntry(registry, name, payload);
-  if (!resolved) return undefined;
-  const [, entry] = resolved;
-  if (!payload) return undefined;
-  const p = payload as Record<string, unknown>;
-  const step = typeof p['step'] === 'string' ? (p['step'] as string) : undefined;
-  const percent = typeof p['percent'] === 'number' ? (p['percent'] as number) : undefined;
-  const note = typeof p['note'] === 'string' ? (p['note'] as string) : undefined;
-  const line = [
-    step ?? 'Progress',
-    typeof percent === 'number' ? `(${Math.round(percent)}%)` : null,
-    note ? `— ${note}` : null,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  entry.controller.argsText.append(`\n${line}`);
-  return line;
-}
-
-function handleToolEnd(
-  registry: ToolRegistry,
+) => string | undefined;
+const completeToolProxy = completeToolCall as unknown as (
+  registry: AssistantToolRegistry,
   name: string,
   status: string,
   payload: unknown
-): void {
-  const resolved = resolveToolEntry(registry, name, payload);
-  if (!resolved) return;
-  const [key, entry] = resolved;
-  entry.controller.setResponse({
-    result: payload ? JSON.parse(JSON.stringify(payload)) : null,
-    isError: status === 'error',
-  });
-  entry.controller.close();
-  releaseToolEntry(registry, key);
-}
+) => void;
 
 interface StreamChunk {
   type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
@@ -217,18 +92,19 @@ function handleTextDelta(ctrl: StreamController, value?: string, startedParam?: 
 
 function handleToolEvent(
   ctrl: StreamController,
-  registry: ToolRegistry,
+  registry: AssistantToolRegistry,
   chunk: StreamChunk
 ): string | undefined {
   const { name, status, payload } = chunk;
-  if (!name || !status) return;
+  if (!name || !status) return undefined;
 
   if (status === 'start') {
-    handleToolStart(ctrl, registry, name, payload);
+    const controller = ctrl.addToolCallPart({ toolName: name });
+    startToolProxy(registry, name, payload, controller);
   } else if (status === 'progress') {
-    return handleToolProgress(registry, name, payload);
+    return recordToolProgressProxy(registry, name, payload);
   } else if (status === 'success' || status === 'error') {
-    handleToolEnd(registry, name, status, payload);
+    completeToolProxy(registry, name, status, payload);
   }
   return undefined;
 }
@@ -264,7 +140,7 @@ async function processAgentStream(
   preStarted?: boolean
 ): Promise<void> {
   let started = Boolean(preStarted);
-  const tools = createToolRegistry();
+  const tools = createAssistantToolRegistry();
   let aborted = Boolean(signal?.aborted);
   const onAbort = () => {
     aborted = true;
@@ -287,13 +163,9 @@ async function processAgentStream(
       // no-op; we purposely avoid surfacing provider errors here
     }
   } finally {
-    const remaining = new Set<ToolCallStreamController>();
     for (const entry of tools.byKey.values()) {
-      remaining.add(entry.controller);
-    }
-    for (const controller of remaining) {
       try {
-        controller.close();
+        entry.controller.close();
       } catch {}
     }
     try {
@@ -310,7 +182,7 @@ type DesktopChunkResult = {
 
 function processDesktopChunk(
   ctrl: StreamController,
-  tools: ToolRegistry,
+  tools: AssistantToolRegistry,
   chunk: StreamChunk,
   started: boolean,
   setStarted: (started: boolean) => void
@@ -340,7 +212,7 @@ function processDesktopChunk(
 async function iterateAgentStream(
   ctrl: StreamController,
   agentStream: AsyncIterable<StreamChunk>,
-  tools: ToolRegistry,
+  tools: AssistantToolRegistry,
   isAborted: () => boolean,
   setStarted: (started: boolean) => void,
   startedInitial: boolean

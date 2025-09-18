@@ -23,9 +23,13 @@ declare global {
 }
 
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
-  const [api, setApi] = useState<string>(() =>
-    window.assistant?.url ? `${window.assistant.url}/assistant` : '/api/assistant'
-  );
+  const initialApi =
+    typeof window === 'undefined'
+      ? '/api/assistant'
+      : window.assistant?.url
+        ? `${window.assistant.url}/assistant`
+        : '/api/assistant';
+  const [api, setApi] = useState<string>(initialApi);
   useEffect(() => {
     let mounted = true;
 
@@ -46,12 +50,14 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
   }, []);
   const runtime = useDataStreamRuntime({ api });
 
+  const containerClassName = ['flex h-full min-h-0', className].filter(Boolean).join(' ');
+
   return (
-    <div className={className} data-testid="chat-panel">
+    <div className={containerClassName} data-testid="chat-panel">
       <AssistantRuntimeProvider runtime={runtime}>
-        <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread">
+        <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
           <ThreadPrimitive.Viewport
-            className="aui-thread-viewport"
+            className="aui-thread-viewport flex-1 min-h-0"
             data-testid="assistant-ui-viewport"
           >
             <ThreadPrimitive.Messages

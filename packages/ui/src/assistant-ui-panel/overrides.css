@@ -76,7 +76,7 @@
   --thread-max-width: 100%;
 }
 .aui-thread-viewport {
-  height: calc(100% - 0px);
+  height: auto;
 }
 .aui-composer-input {
   font-size: 12px;

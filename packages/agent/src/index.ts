@@ -249,3 +249,17 @@ export async function toAiSdkStyleStream(
 // MCP config types and parser (desktop-only usage typically)
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
+export {
+  cloneJsonSafe,
+  sanitizeStreamChunk,
+  toJsonSafe,
+} from './stream/json';
+export {
+  completeToolCall,
+  createToolRegistry,
+  recordToolProgress,
+  startToolCall,
+  type ToolCallControllerLike,
+  type ToolRegistry,
+  type ToolRegistryEntry,
+} from './stream/tool-registry';
