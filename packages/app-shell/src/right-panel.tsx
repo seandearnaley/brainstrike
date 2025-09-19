@@ -97,12 +97,14 @@ export function RightPanel() {
             </div>
           </TabsContent>
 
-          <TabsContent value="assistant" className="flex-1 mt-0 min-h-0">
-            {activeTab === 'assistant' ? (
-              <div className="flex h-full flex-col overflow-hidden">
-                <AssistantChatCard />
-              </div>
-            ) : null}
+          <TabsContent
+            value="assistant"
+            forceMount
+            className="flex-1 mt-0 min-h-0 data-[state=inactive]:hidden"
+          >
+            <div className="flex h-full flex-col overflow-hidden">
+              <AssistantChatCard />
+            </div>
           </TabsContent>
 
           <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">

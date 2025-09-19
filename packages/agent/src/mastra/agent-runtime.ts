@@ -4,6 +4,7 @@ import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../index';
 import type { McpConfig } from '../mcp/config';
+import { mapMastraToolEvent } from './tool-event-mapper';
 
 export interface MastraAgentRuntimeOptions {
   instructions?: string;
@@ -157,76 +158,6 @@ Provide concise answers after using tools.`,
   };
 }
 
-function mapToolEvent(
-  part: { type: string } & Record<string, unknown>,
-  toolNames: Map<string, string>,
-  sanitizedNames?: Map<string, string>
-): StreamChunk | undefined {
-  switch (part.type) {
-    case 'tool-call': {
-      toolNames.set(
-        (part as unknown as { toolCallId: string }).toolCallId,
-        (part as unknown as { toolName: string }).toolName
-      );
-      const toolName =
-        sanitizedNames?.get((part as unknown as { toolName: string }).toolName) ??
-        (part as unknown as { toolName: string }).toolName;
-      return {
-        type: 'tool-event',
-        name: toolName,
-        status: 'start',
-        payload: {
-          callId: (part as unknown as { toolCallId: string }).toolCallId,
-          input: (part as unknown as { input?: unknown }).input,
-          providerExecuted: (part as unknown as { providerExecuted?: boolean }).providerExecuted,
-          dynamic: (part as unknown as { dynamic?: boolean }).dynamic,
-          invalid: (part as unknown as { invalid?: boolean }).invalid,
-          error: (part as unknown as { error?: unknown }).error,
-        },
-      } as StreamChunk;
-    }
-    case 'tool-result': {
-      const id = (part as unknown as { toolCallId: string }).toolCallId;
-      const toolNameMaybe =
-        (part as unknown as { toolName?: string }).toolName ?? toolNames.get(id) ?? id;
-      const originalName = sanitizedNames?.get(toolNameMaybe) ?? toolNameMaybe;
-      return {
-        type: 'tool-event',
-        name: originalName,
-        status: 'success',
-        payload: {
-          callId: id,
-          input: (part as unknown as { input?: unknown }).input,
-          output: (part as unknown as { output?: unknown }).output,
-          providerExecuted: (part as unknown as { providerExecuted?: boolean }).providerExecuted,
-          dynamic: (part as unknown as { dynamic?: boolean }).dynamic,
-          preliminary: (part as unknown as { preliminary?: boolean }).preliminary,
-        },
-      } as StreamChunk;
-    }
-    case 'tool-error': {
-      const id = (part as unknown as { toolCallId: string }).toolCallId;
-      const toolNameMaybe =
-        (part as unknown as { toolName?: string }).toolName ?? toolNames.get(id) ?? id;
-      const originalName = sanitizedNames?.get(toolNameMaybe) ?? toolNameMaybe;
-      return {
-        type: 'tool-event',
-        name: originalName,
-        status: 'error',
-        payload: {
-          callId: id,
-          input: (part as unknown as { input?: unknown }).input,
-          error: (part as unknown as { error?: unknown }).error,
-          providerExecuted: (part as unknown as { providerExecuted?: boolean }).providerExecuted,
-          dynamic: (part as unknown as { dynamic?: boolean }).dynamic,
-        },
-      } as StreamChunk;
-    }
-    default:
-      return undefined;
-  }
-}
-
 export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
@@ -315,13 +246,13 @@ export async function streamMastraAgent(
               return;
             }
             case 'tool-call':
+            case 'tool-call-input-streaming-start':
+            case 'tool-call-delta':
+            case 'tool-call-input-streaming-end':
             case 'tool-result':
-            case 'tool-error': {
-              const evt = mapToolEvent(
-                part as { type: string } & Record<string, unknown>,
-                toolNames,
-                sanitizedNameMap
-              );
+            case 'tool-error':
+            case 'tool-output': {
+              const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
               if (evt) yield evt;
               break;
             }
