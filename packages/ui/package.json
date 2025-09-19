@@ -49,6 +49,7 @@
     "@assistant-ui/react-markdown": "^0.11.0",
     "remark-gfm": "^4.0.0",
     "zustand": "^5.0.2",
+    "assistant-stream": "^0.2.24",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -68,7 +69,9 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
     "react-resizable-panels": "^3.0.4",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "peerDependencies": {
     "react": "^19.1.1",
@@ -80,6 +83,7 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24",
+    "@types/json-schema": "^7.0.15",
     "@types/react": "^19",
     "@vitejs/plugin-react": "^5.0.0",
     "jsdom": "^26.1.0",
