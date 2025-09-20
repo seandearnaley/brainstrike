@@ -115,6 +115,50 @@ describe('mastra streaming integration', () => {
     ]);
   });
 
+  it('propagates tool-call events as tool-event chunks', async () => {
+    setMockStreamParts([
+      { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
+      { type: 'tool-call-delta', toolCallId: 'c1', argsTextDelta: 'que' },
+      { type: 'tool-result', toolCallId: 'c1', result: { totalResults: 1 } },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      { runtime: { apiKey: 'test-key' } }
+    );
+
+    const toolEvents: Array<{ type: string; name?: string; status?: string }> = [];
+    let finished = false;
+    for await (const chunk of iterator) {
+      if (chunk.type === 'tool-event') toolEvents.push(chunk);
+      if (chunk.type === 'message-finish') finished = true;
+    }
+
+    expect(toolEvents[0]).toMatchObject({
+      type: 'tool-event',
+      name: 'web.searchDocs',
+      status: 'start',
+    });
+    expect(toolEvents[1]).toMatchObject({ type: 'tool-event', status: 'progress' });
+    expect(toolEvents[2]).toMatchObject({ type: 'tool-event', status: 'success' });
+    expect(finished).toBe(true);
+  });
+
+  it('throws stream_failure when Mastra fullStream resolves to null', async () => {
+    // Override the mock Agent.stream for this test to return a null fullStream
+    const { Agent } = await import('@mastra/core/agent');
+    // @ts-expect-error – test-only override
+    Agent.prototype.stream = async function stream() {
+      return { fullStream: Promise.resolve(null as unknown as AsyncIterable<unknown>) };
+    };
+
+    await expect(
+      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+        runtime: { apiKey: 'test-key' },
+      })
+    ).rejects.toThrow(/mastra_agent_stream_failure/i);
+  });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({
       runtime: { apiKey: 'key' },

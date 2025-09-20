@@ -421,3 +421,10 @@ function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
     lastUser?.parts.find((part: AgentMessage['parts'][number]) => part.type === 'text')?.text ?? '';
   return Boolean(lastText && lastText.trim().length > 0);
 }
+
+// Internal-only test surface to validate streaming glue behavior.
+// Not part of the public API.
+export const __assistantServerTest = {
+  processAgentStream,
+  toMessageFinishChunk,
+};
