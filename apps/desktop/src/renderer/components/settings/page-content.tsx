@@ -10,7 +10,9 @@ export default function SettingsPageContent() {
       <BaseSettingsPageContent>
         <div className="space-y-4">
           <h2 className="text-xl font-semibold">Desktop Preferences</h2>
-          <p className="text-sm text-muted-foreground">Manage local desktop-specific settings.</p>
+          <p className="text-sm text-muted-foreground">
+            Desktop-specific settings will be implemented here.
+          </p>
           <LlmKeysSettings />
         </div>
       </BaseSettingsPageContent>
