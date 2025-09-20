@@ -1,4 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
+import { createLogger } from '@brainstrike/utils';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
@@ -20,6 +21,8 @@ export interface MastraAgentRuntime {
   dispose: () => Promise<void>;
   toolNameMap: Map<string, string>;
 }
+
+const logger = createLogger('MastraAgent');
 
 function toOpenAIMode(model?: string): string {
   return model && model.length > 0 ? model : 'gpt-4o-mini';
@@ -185,7 +188,7 @@ export async function streamMastraAgent(
 
   const apiKey = (runtimeData as RuntimeData | undefined)?.apiKey;
   if (!apiKey) {
-    console.error('[MastraAgent] missing api key; aborting stream');
+    logger.error('Missing API key; aborting stream');
     return fail('missing_api_key');
   }
 
@@ -193,14 +196,13 @@ export async function streamMastraAgent(
   const runtime = await (async () => {
     try {
       const instance = await createMastraAgentRuntime(options);
-      console.info(
-        '[MastraAgent] runtime initialized with tools:',
-        Object.keys(options.tools ?? {})
-      );
+      logger.info('Runtime initialized', {
+        toolCount: Object.keys(options.tools ?? {}).length,
+      });
       sanitizedNameMap = instance.toolNameMap;
       return instance;
     } catch (err) {
-      console.error('[MastraAgent] failed to initialize runtime', err);
+      logger.error('Failed to initialize runtime', err);
       return fail('runtime_init_failure', err);
     }
   })();
@@ -209,7 +211,7 @@ export async function streamMastraAgent(
 
   try {
     const result = await runtime.agent.stream(mastraMessages);
-    console.info('[MastraAgent] stream started');
+    logger.info('Stream started');
 
     const stream = await result.fullStream;
     if (!stream) {
@@ -278,18 +280,18 @@ export async function streamMastraAgent(
           }
         }
       } finally {
-        console.info('[MastraAgent] stream finished');
+        logger.info('Stream finished');
         await runtime?.dispose();
       }
     }
 
     return iterate();
   } catch (err) {
-    console.error('[MastraAgent] streaming failed', err);
+    logger.error('Streaming failed', err);
     try {
       await runtime.dispose();
     } catch (disposeError) {
-      console.error('[MastraAgent] failed to dispose runtime after stream failure', disposeError);
+      logger.error('Failed to dispose runtime after stream failure', disposeError);
     }
     return fail('stream_failure', err);
   }

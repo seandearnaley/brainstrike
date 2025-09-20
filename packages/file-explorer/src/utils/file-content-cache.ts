@@ -7,6 +7,7 @@ export interface CacheEntry {
   timestamp: number;
   lastAccessed: number;
   size: number; // in bytes
+  accessOrder: number;
 }
 
 export interface CacheStats {
@@ -23,6 +24,7 @@ export class FileContentCache {
   private hits = 0;
   private misses = 0;
   private evictions = 0;
+  private accessSequence = 0;
 
   constructor(
     maxSizeBytes = 10 * 1024 * 1024, // 10MB default (much more aggressive)
@@ -39,6 +41,7 @@ export class FileContentCache {
     const entry = this.cache.get(key);
     if (entry) {
       entry.lastAccessed = Date.now();
+      entry.accessOrder = this.nextAccessOrder();
       this.hits++;
       return entry.content;
     }
@@ -64,6 +67,7 @@ export class FileContentCache {
       timestamp: now,
       lastAccessed: now,
       size,
+      accessOrder: this.nextAccessOrder(),
     };
 
     // Remove existing entry if it exists
@@ -158,7 +162,7 @@ export class FileContentCache {
     const entries = Array.from(this.cache.entries());
 
     // Sort by last accessed (oldest first)
-    entries.sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
 
     let currentSize = this.getCurrentSize();
     const targetSize = this.maxSizeBytes * 0.5; // Evict to 50% of max (more aggressive)
@@ -185,7 +189,7 @@ export class FileContentCache {
     const entries = Array.from(this.cache.entries());
 
     // Sort by last accessed (oldest first)
-    entries.sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
 
     const targetCount = Math.floor(this.maxEntries * 0.5); // Evict to 50% of max (more aggressive)
     const toRemove = entries.slice(0, this.cache.size - targetCount);
@@ -211,13 +215,16 @@ export class FileContentCache {
    * Get entries sorted by last accessed (for debugging)
    */
   getEntriesByAccess(): Array<{ key: string; lastAccessed: number; size: number }> {
-    return Array.from(this.cache.entries())
-      .map(([key, entry]) => ({
-        key,
-        lastAccessed: entry.lastAccessed,
-        size: entry.size,
-      }))
-      .sort((a, b) => b.lastAccessed - a.lastAccessed);
+    const entriesWithOrder = Array.from(this.cache.entries()).map(([key, entry]) => ({
+      key,
+      lastAccessed: entry.lastAccessed,
+      size: entry.size,
+      accessOrder: entry.accessOrder,
+    }));
+
+    entriesWithOrder.sort((a, b) => b.accessOrder - a.accessOrder);
+
+    return entriesWithOrder.map(({ accessOrder: _accessOrder, ...rest }) => rest);
   }
 
   /**
@@ -225,7 +232,7 @@ export class FileContentCache {
    */
   evictOldest(count: number): void {
     const entries = Array.from(this.cache.entries());
-    entries.sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+    entries.sort((a, b) => a[1].accessOrder - b[1].accessOrder);
 
     const toRemove = entries.slice(0, count);
     for (const [key] of toRemove) {
@@ -234,5 +241,13 @@ export class FileContentCache {
     }
 
     console.log(`FileContentCache: Force evicted ${toRemove.length} oldest entries`);
+  }
+
+  private nextAccessOrder(): number {
+    this.accessSequence += 1;
+    if (this.accessSequence >= Number.MAX_SAFE_INTEGER) {
+      this.accessSequence = 1;
+    }
+    return this.accessSequence;
   }
 }

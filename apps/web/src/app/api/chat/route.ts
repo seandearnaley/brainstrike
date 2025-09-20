@@ -4,6 +4,17 @@ import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 10;
+
+type RateLimitEntry = {
+  count: number;
+  windowStartedAt: number;
+  blockedUntil?: number;
+};
+
+const rateLimitState = new Map<string, RateLimitEntry>();
+
 // zod schemas for `{ messages, data }`
 const TextPartSchema = z.object({
   type: z.literal('text'),
@@ -53,6 +64,12 @@ export function __parseChatBodyForTests(body: unknown): {
 
 export async function POST(req: Request): Promise<Response> {
   try {
+    const clientIdentifier = resolveClientIdentifier(req);
+    const limitResult = applyRateLimit(clientIdentifier);
+    if (!limitResult.allowed) {
+      return createRateLimitResponse(limitResult.retryAfterMs);
+    }
+
     const body = await req.json().catch(() => ({}));
     const { messages, data } = __parseChatBodyForTests(body);
 
@@ -110,6 +127,89 @@ function providerHasApiKey(
   provider: AssistantProviderConfig
 ): provider is AssistantProviderConfig & { apiKey: string } {
   return Boolean(provider.enabled && provider.apiKey);
+}
+
+function resolveClientIdentifier(req: Request): string {
+  const forwarded = req.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = req.headers.get('x-real-ip');
+  if (realIp && realIp.trim().length > 0) {
+    return realIp.trim();
+  }
+  const cfConnectingIp = req.headers.get('cf-connecting-ip');
+  if (cfConnectingIp && cfConnectingIp.trim().length > 0) {
+    return cfConnectingIp.trim();
+  }
+  const userHash = req.headers.get('brainstrike-client-id');
+  if (userHash && userHash.trim().length > 0) {
+    return userHash.trim();
+  }
+  return 'anonymous';
+}
+
+function applyRateLimit(
+  identifier: string,
+  now: number = Date.now()
+): { allowed: true } | { allowed: false; retryAfterMs: number } {
+  const existing = rateLimitState.get(identifier);
+
+  if (existing?.blockedUntil !== undefined && now < existing.blockedUntil) {
+    return { allowed: false, retryAfterMs: existing.blockedUntil - now };
+  }
+
+  if (!existing) {
+    rateLimitState.set(identifier, {
+      count: 1,
+      windowStartedAt: now,
+    });
+    return { allowed: true };
+  }
+
+  const elapsed = now - existing.windowStartedAt;
+  if (elapsed >= RATE_LIMIT_WINDOW_MS) {
+    rateLimitState.set(identifier, {
+      count: 1,
+      windowStartedAt: now,
+    });
+    return { allowed: true };
+  }
+
+  if (existing.count < RATE_LIMIT_MAX_REQUESTS) {
+    existing.count += 1;
+    rateLimitState.set(identifier, existing);
+    return { allowed: true };
+  }
+
+  const blockedUntil = existing.windowStartedAt + RATE_LIMIT_WINDOW_MS;
+  existing.blockedUntil = blockedUntil;
+  rateLimitState.set(identifier, existing);
+  const retryAfterMs = Math.max(0, blockedUntil - now);
+  return { allowed: false, retryAfterMs };
+}
+
+function createRateLimitResponse(retryAfterMs: number): Response {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  return new Response(
+    JSON.stringify({
+      error: 'rate_limited',
+      retryAfterMs,
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Retry-After': String(retryAfterSeconds),
+      },
+      status: 429,
+    }
+  );
+}
+
+export function __resetRateLimiterForTests(): void {
+  rateLimitState.clear();
 }
 
 function createErrorResponse(err: unknown): Response {

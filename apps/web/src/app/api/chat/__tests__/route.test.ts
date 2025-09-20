@@ -10,7 +10,7 @@ vi.mock('@brainstrike/agent', async () => {
 });
 
 import { toAiSdkStyleStream } from '@brainstrike/agent';
-import { __parseChatBodyForTests, POST } from '../route';
+import { __parseChatBodyForTests, __resetRateLimiterForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
 
@@ -23,6 +23,7 @@ const API_KEY_ENV_VARS = [
 let originalEnv: Partial<Record<(typeof API_KEY_ENV_VARS)[number], string | undefined>> = {};
 
 beforeEach(() => {
+  __resetRateLimiterForTests();
   originalEnv = {};
   for (const key of API_KEY_ENV_VARS) {
     originalEnv[key] = process.env[key];
@@ -179,6 +180,44 @@ describe('chat route schema', () => {
     const payload = (success?.['payload'] ?? {}) as Record<string, unknown>;
     const results = Array.isArray(payload['results']) ? (payload['results'] as unknown[]) : [];
     expect(results.length).toBeGreaterThan(0);
+  });
+
+  it('returns 429 when rate limit is exceeded for a client', async () => {
+    streamMock.mockImplementation(async () =>
+      createStream({ type: 'text-delta', value: 'Hello from mock stream' })
+    );
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-forwarded-for': '203.0.113.1',
+    } as const;
+
+    const body = {
+      messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
+    } as const;
+
+    for (let i = 0; i < 10; i += 1) {
+      const req = new Request('http://localhost/api/chat', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      await res.text();
+    }
+
+    const limitedReq = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+    const limitedRes = await POST(limitedReq);
+    expect(limitedRes.status).toBe(429);
+    expect(limitedRes.headers.get('Retry-After')).not.toBeNull();
+    const payload = await limitedRes.json();
+    expect(payload.error).toBe('rate_limited');
+    expect(typeof payload.retryAfterMs).toBe('number');
   });
 
   it('returns 502 when assistant stream fails to initialize', async () => {

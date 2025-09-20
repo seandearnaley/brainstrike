@@ -22,17 +22,40 @@ export interface AgentMessage {
   parts: AgentMessagePart[];
 }
 
+export type AssistantUiScalar = string | number | bigint | boolean | null;
+
+export interface AssistantUiNodeObject {
+  text?: AssistantUiScalar;
+  value?: AssistantUiScalar;
+  content?: AssistantUiNode;
+  parts?: AssistantUiNode;
+  children?: AssistantUiNode;
+  values?: AssistantUiNode;
+  result?: AssistantUiNode;
+  message?: AssistantUiNode;
+  messages?: AssistantUiNode;
+  [key: string]: AssistantUiScalar | AssistantUiNode | undefined;
+}
+
+export type AssistantUiNode =
+  | AssistantUiScalar
+  | AssistantUiNodeObject
+  | ReadonlyArray<AssistantUiNode>;
+
 export interface AssistantUiMessage {
-  id?: unknown;
-  role?: unknown;
-  text?: unknown;
-  content?: unknown;
-  parts?: unknown;
+  id?: string | number | null;
+  role?: string | null;
+  text?: AssistantUiScalar | undefined;
+  content?: AssistantUiNode;
+  parts?: AssistantUiNode;
 }
 
 type NormalizedRole = 'user' | 'assistant' | 'system';
 
-function normalizeRole(role: unknown, fallback?: NormalizedRole): NormalizedRole | undefined {
+function normalizeRole(
+  role: AssistantUiMessage['role'],
+  fallback?: NormalizedRole
+): NormalizedRole | undefined {
   if (typeof role === 'string') {
     const lower = role.toLowerCase();
     if (lower === 'user' || lower === 'assistant' || lower === 'system') {
@@ -50,7 +73,7 @@ function randomMessageId(): string {
   return `msg_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function ensureMessageId(value: unknown): string {
+function ensureMessageId(value: AssistantUiMessage['id']): string {
   if (typeof value === 'string' && value.trim().length > 0) {
     return value;
   }
@@ -63,65 +86,103 @@ function ensureMessageId(value: unknown): string {
 function extractTextSegments(source: AssistantUiMessage): string[] {
   const segments: string[] = [];
   const seenValues = new Set<string>();
-  const seenObjects = new Set<unknown>();
+  const seenObjects = new Set<AssistantUiNodeObject>();
 
-  const toText = (value: unknown): string | undefined => {
-    if (typeof value === 'string') {
-      return value;
-    }
-    if (typeof value === 'number' || typeof value === 'bigint') {
-      return String(value);
-    }
-    if (typeof value === 'boolean') {
-      return value ? 'true' : 'false';
-    }
-    return undefined;
-  };
-
-  const push = (value: unknown) => {
-    const raw = toText(value);
-    if (!raw) return;
+  const pushText = (raw: string) => {
     const text = raw.trim();
-    if (text.length === 0) return;
-    if (seenValues.has(text)) return;
+    if (text.length === 0 || seenValues.has(text)) {
+      return;
+    }
     seenValues.add(text);
     segments.push(text);
   };
 
-  const walk = (value: unknown): void => {
-    if (value == null) return;
-    if (
-      typeof value === 'string' ||
-      typeof value === 'number' ||
-      typeof value === 'boolean' ||
-      typeof value === 'bigint'
-    ) {
-      push(value);
+  const knownObjectKeys: ReadonlySet<string> = new Set([
+    'text',
+    'value',
+    'content',
+    'parts',
+    'children',
+    'values',
+    'result',
+    'message',
+    'messages',
+  ]);
+
+  const pushScalar = (value: AssistantUiScalar | undefined) => {
+    if (value === null || value === undefined) return;
+    if (typeof value === 'string') {
+      pushText(value);
       return;
     }
-    if (Array.isArray(value)) {
-      for (const item of value) walk(item);
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      pushText(String(value));
       return;
     }
-    if (typeof value === 'object') {
-      if (seenObjects.has(value)) return;
-      seenObjects.add(value);
-      const record = value as Record<string, unknown>;
-      push(record['text']);
-      push(record['value']);
-      walk(record['content']);
-      walk(record['parts']);
-      walk(record['children']);
-      walk(record['values']);
-      walk(record['result']);
-      walk(record['message']);
-      walk(record['messages']);
+    if (typeof value === 'boolean') {
+      pushText(value ? 'true' : 'false');
     }
   };
 
-  push(source.text);
-  walk(source.content);
-  walk(source.parts);
+  const isScalarValue = (value: AssistantUiNode | undefined): value is AssistantUiScalar => {
+    return (
+      value === null ||
+      typeof value === 'string' ||
+      typeof value === 'number' ||
+      typeof value === 'bigint' ||
+      typeof value === 'boolean'
+    );
+  };
+
+  const visitArray = (nodes: ReadonlyArray<AssistantUiNode>): void => {
+    for (const item of nodes) {
+      visit(item);
+    }
+  };
+
+  const visitObject = (record: AssistantUiNodeObject): void => {
+    if (seenObjects.has(record)) {
+      return;
+    }
+    seenObjects.add(record);
+
+    pushScalar(record.text);
+    pushScalar(record.value);
+
+    visit(record.content);
+    visit(record.parts);
+    visit(record.children);
+    visit(record.values);
+    visit(record.result);
+    visit(record.message);
+    visit(record.messages);
+
+    for (const [key, nested] of Object.entries(record)) {
+      if (knownObjectKeys.has(key)) continue;
+      if (isScalarValue(nested as AssistantUiNode | undefined)) {
+        pushScalar(nested as AssistantUiScalar | undefined);
+      } else {
+        visit(nested as AssistantUiNode);
+      }
+    }
+  };
+
+  const visit = (value: AssistantUiNode | undefined): void => {
+    if (value == null) return;
+    if (isScalarValue(value)) {
+      pushScalar(value);
+      return;
+    }
+    if (Array.isArray(value)) {
+      visitArray(value);
+      return;
+    }
+    visitObject(value as AssistantUiNodeObject);
+  };
+
+  pushScalar(source.text);
+  visit(source.content);
+  visit(source.parts);
 
   return segments;
 }

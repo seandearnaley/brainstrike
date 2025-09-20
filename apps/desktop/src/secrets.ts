@@ -49,13 +49,14 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     },
     async deleteKey(provider: string): Promise<boolean> {
       const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
-      if (provider in secrets) {
-        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
-        delete secrets[provider];
-        secretsStore.set('secrets', secrets);
-        return true;
+      if (!Object.hasOwn(secrets, provider)) {
+        return false;
       }
-      return false;
+      const next = Object.fromEntries(
+        Object.entries(secrets).filter(([key]) => key !== provider)
+      ) as SecretsSchema['secrets'];
+      secretsStore.set('secrets', next);
+      return true;
     },
     async listProviders(): Promise<string[]> {
       const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};

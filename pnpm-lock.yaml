@@ -389,6 +389,9 @@ importers:
       '@ai-sdk/openai':
         specifier: ^1.0.0
         version: 1.3.24(zod@3.25.76)
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@mastra/core':
         specifier: ^0.6.0
         version: 0.6.4(encoding@0.1.13)(react@19.1.1)
