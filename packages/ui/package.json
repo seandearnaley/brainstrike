@@ -85,7 +85,7 @@
     "@types/json-schema": "^7.0.15",
     "@types/react": "^19",
     "@vitejs/plugin-react": "^5.0.0",
-    "jsdom": "^26.1.0",
+    "jsdom": "^27.0.0",
     "react-router-dom": "^7.8.1",
     "tailwindcss": "^4.1.12",
     "typescript": "^5.9.2",
