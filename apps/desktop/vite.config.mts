@@ -68,31 +68,66 @@ export default defineConfig({
   },
   resolve: {
     dedupe: ['react', 'react-dom'],
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-      // Map stylesheet import to package root css before package alias
-      '@brainstrike/file-explorer-ui/styles.css': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/styles.css'
-      ),
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      // Stylesheets
+      {
+        find: '@brainstrike/app-shell/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/app-shell/styles.css'),
+      },
+      {
+        find: '@brainstrike/file-explorer-ui/styles.css',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/styles.css'),
+      },
       // Use source for consistent transforms and single React instance
-      '@brainstrike/file-explorer-ui': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-ui/src'
-      ),
-      '@brainstrike/file-explorer-hooks': path.resolve(
-        __dirname,
-        '../../packages/file-explorer-hooks/src'
-      ),
-      '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
-      // remove duplicate hooks alias
-      '@brainstrike/db': path.resolve(__dirname, '../../packages/db/src/index.ts'),
-      '@brainstrike/utils': path.resolve(__dirname, '../../packages/utils/src'),
-      '@brainstrike/storage': path.resolve(__dirname, '../../packages/storage/src'),
-      '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
-      '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
-      '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
-    },
+      {
+        find: '@brainstrike/file-explorer-ui',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer-ui/src'),
+      },
+      {
+        find: '@brainstrike/file-explorer-hooks',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer-hooks/src'),
+      },
+      {
+        find: '@brainstrike/file-explorer',
+        replacement: path.resolve(__dirname, '../../packages/file-explorer/src'),
+      },
+      {
+        find: '@brainstrike/db',
+        replacement: path.resolve(__dirname, '../../packages/db/src/index.ts'),
+      },
+      {
+        find: '@brainstrike/utils',
+        replacement: path.resolve(__dirname, '../../packages/utils/src'),
+      },
+      {
+        find: '@brainstrike/app-shell',
+        replacement: path.resolve(__dirname, '../../packages/app-shell/src'),
+      },
+      {
+        find: '@brainstrike/storage',
+        replacement: path.resolve(__dirname, '../../packages/storage/src'),
+      },
+      {
+        find: '@brainstrike/file-system',
+        replacement: path.resolve(__dirname, '../../packages/file-system/src'),
+      },
+      {
+        find: '@brainstrike/types',
+        replacement: path.resolve(__dirname, '../../packages/types/src'),
+      },
+      {
+        find: '@brainstrike/workers',
+        replacement: path.resolve(__dirname, '../../packages/workers'),
+      },
+      // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
+      {
+        find: /@electric-sql\/pglite\/dist\/fs\/nodefs\.js$/,
+        replacement: '@electric-sql/pglite/dist/fs/opfs-ahp.js',
+      },
+      // Fallback for relative import inside pglite dist
+      { find: './fs/nodefs.js', replacement: './fs/opfs-ahp.js' },
+    ],
   },
   worker: {
     format: 'es',
@@ -116,6 +151,10 @@ export default defineConfig({
   },
   define: {
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
+    // Force PGlite to resolve browser implementation in renderer
+    'process.versions': 'undefined',
+    'import.meta.env.VITE_ENABLE_DB_UI': 'true',
+    'globalThis.__VITE_ASSISTANT_UI__': 'true',
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts

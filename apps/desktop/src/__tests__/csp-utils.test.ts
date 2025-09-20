@@ -14,9 +14,16 @@ describe('Desktop CSP Utils', () => {
       expect(devCSP).toContain("style-src 'self' 'unsafe-inline' http://localhost:*");
       expect(devCSP).toContain("img-src 'self' data: blob: http://localhost:*");
       expect(devCSP).toContain("font-src 'self' data: http://localhost:*");
-      expect(devCSP).toContain(
-        "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net"
-      );
+      // Allowances for development connectivity
+      expect(devCSP).toContain("connect-src 'self'");
+      expect(devCSP).toContain('ws://localhost:*');
+      expect(devCSP).toContain('http://localhost:*');
+      expect(devCSP).toContain('http://127.0.0.1:*');
+      expect(devCSP).toContain('ws://127.0.0.1:*');
+      expect(devCSP).toContain('wss://localhost:*');
+      expect(devCSP).toContain('https://huggingface.co');
+      expect(devCSP).toContain('https://*.hf.co');
+      expect(devCSP).toContain('https://cdn.jsdelivr.net');
       expect(devCSP).toContain("object-src 'none'");
       expect(devCSP).toContain("base-uri 'self'");
       expect(devCSP).toContain("form-action 'self'");
@@ -32,16 +39,19 @@ describe('Desktop CSP Utils', () => {
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob:");
       expect(prodCSP).toContain("font-src 'self' data:");
-      expect(prodCSP).toContain(
-        "connect-src 'self' https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net"
-      );
+      // Production connect-src allows local assistant runtime plus embeddings/CDN
+      expect(prodCSP).toContain("connect-src 'self'");
+      expect(prodCSP).toContain('http://127.0.0.1:*');
+      expect(prodCSP).toContain('http://localhost:*');
+      expect(prodCSP).toContain('https://huggingface.co');
+      expect(prodCSP).toContain('https://*.hf.co');
+      expect(prodCSP).toContain('https://cdn.jsdelivr.net');
       expect(prodCSP).toContain("object-src 'none'");
       expect(prodCSP).toContain("base-uri 'self'");
       expect(prodCSP).toContain("form-action 'self'");
       expect(prodCSP).toContain("frame-ancestors 'none'");
 
-      // Should not contain development-specific directives
-      expect(prodCSP).not.toContain('http://localhost:*');
+      // Should not include dev-only websocket schemes in production
       expect(prodCSP).not.toContain('ws://localhost:*');
       expect(prodCSP).not.toContain('ws://127.0.0.1:*');
       expect(prodCSP).not.toContain('wss://localhost:*');

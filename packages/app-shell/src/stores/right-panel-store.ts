@@ -1,7 +1,7 @@
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type RightPanelTab = 'properties' | 'embeddings' | 'search' | 'database';
+export type RightPanelTab = 'properties' | 'assistant' | 'embeddings' | 'search' | 'database';
 
 interface RightPanelData {
   activeTab: RightPanelTab;

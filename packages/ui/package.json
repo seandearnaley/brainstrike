@@ -14,7 +14,7 @@
     "icons"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css",
+    "build": "rm -rf dist && tsc -b . && cp src/globals.css dist/globals.css && cp styles.css dist/styles.css && mkdir -p dist/assistant-ui-panel && cp src/assistant-ui-panel/overrides.css dist/assistant-ui-panel/overrides.css",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
@@ -28,6 +28,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./assistant-ui-panel": {
+      "import": "./dist/assistant-ui-panel/assistant-ui-panel.js",
+      "types": "./dist/assistant-ui-panel/assistant-ui-panel.d.ts"
+    },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
     "./icons": "./icons/index.ts",
@@ -39,6 +43,12 @@
   "license": "ISC",
   "packageManager": "pnpm@10.14.0",
   "dependencies": {
+    "@assistant-ui/react": "^0.11.6",
+    "@assistant-ui/react-data-stream": "^0.11.0",
+    "@assistant-ui/styles": "^0.2.1",
+    "@assistant-ui/react-markdown": "^0.11.0",
+    "remark-gfm": "^4.0.0",
+    "assistant-stream": "^0.2.24",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -58,7 +68,9 @@
     "clsx": "^2.1.1",
     "lucide-react": "^0.539.0",
     "react-resizable-panels": "^3.0.4",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "zod": "^3.25.76",
+    "zod-to-json-schema": "^3.24.6"
   },
   "peerDependencies": {
     "react": "^19.1.1",
@@ -70,6 +82,7 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^24",
+    "@types/json-schema": "^7.0.15",
     "@types/react": "^19",
     "@vitejs/plugin-react": "^5.0.0",
     "jsdom": "^26.1.0",

@@ -25,7 +25,10 @@ export class HomePage {
   }
 
   get settingsButton() {
-    return this.page.getByRole('button', { name: 'settings' });
+    // Prefer role button, case-insensitive; fall back to link if sidebar renders <a>
+    return this.page
+      .getByRole('button', { name: /settings/i })
+      .or(this.page.getByRole('link', { name: /settings/i }));
   }
 
   get themeToggle() {
@@ -48,8 +51,15 @@ export class HomePage {
   }
 
   async openSettings() {
-    if (await this.settingsButton.isVisible().catch(() => false)) {
-      await this.settingsButton.click();
+    const btn = this.settingsButton;
+    if (await btn.isVisible().catch(() => false)) {
+      await btn.click();
+      return;
+    }
+    // Fallback: click by title attribute on sidebar icon
+    const byTitle = this.page.locator('nav [title="Settings"]');
+    if (await byTitle.isVisible().catch(() => false)) {
+      await byTitle.click();
     }
   }
 

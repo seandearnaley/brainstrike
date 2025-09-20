@@ -15,6 +15,7 @@
       "@brainstrike/workers/*": ["packages/workers/*"],
       "@brainstrike/db": ["packages/db/src"],
       "@brainstrike/build-utils": ["packages/build-utils/src"],
+      "@brainstrike/agent": ["packages/agent/dist/index.d.ts"],
       "@web/*": ["apps/web/src/*"],
       "@desktop/*": ["apps/desktop/src/*"]
     },
@@ -40,6 +41,7 @@
     { "path": "./packages/storage" },
     { "path": "./packages/db" },
     { "path": "./packages/build-utils" },
+    { "path": "./packages/agent" },
     { "path": "./apps/web" }
   ]
 }

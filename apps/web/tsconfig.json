@@ -6,9 +6,11 @@
     "allowImportingTsExtensions": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@web/*": ["./src/*"]
+      "@web/*": ["./src/*"],
+      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
     },
     "types": ["node", "vite/client"]
   },
@@ -39,6 +41,7 @@
     { "path": "../../packages/server-config" },
     { "path": "../../packages/types" },
     { "path": "../../packages/ui" },
-    { "path": "../../packages/utils" }
+    { "path": "../../packages/utils" },
+    { "path": "../../packages/agent" }
   ]
 }

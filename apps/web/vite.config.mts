@@ -1,7 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findPGliteWasm, fullReloadOnCompilerHotspots } from '@brainstrike/build-utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
@@ -53,8 +52,6 @@ function copyFontsPlugin() {
   };
 }
 
-const wasmPath = findPGliteWasm(__dirname);
-
 // React Compiler: enabled in dev and prod; HMR guardrails in dev to avoid mis-compiles
 const ReactCompilerConfig = { compilationMode: 'infer' };
 
@@ -62,6 +59,9 @@ const ReactCompilerConfig = { compilationMode: 'infer' };
 
 // The Tailwind CSS content paths are now managed by `tailwind.config.js`.
 // The @tailwindcss/vite plugin will automatically pick it up.
+
+const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('@brainstrike/build-utils');
+const wasmPath = findPGliteWasm(__dirname);
 
 export default defineConfig({
   cacheDir: path.resolve(__dirname, '.vite'),
@@ -98,6 +98,8 @@ export default defineConfig({
     'process.browser': true,
     'process.version': '"v22.0.0"',
     'process.platform': '"browser"',
+    // Assistant UI default ON; disable only with APP_SHELL_ASSISTANT_UI=false
+    'globalThis.__VITE_ASSISTANT_UI__': process.env.APP_SHELL_ASSISTANT_UI !== 'false',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
@@ -134,6 +136,8 @@ export default defineConfig({
           }),
         ]
       : []), // If no token, don't include the plugin config
+    // Dev/preview middleware for /api/chat to support E2E and local dev
+    devChatApiPlugin(),
   ],
   assetsInclude: ['**/*.png'],
   build: {
@@ -187,6 +191,9 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
+      '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
+      './fs/nodefs.js': './fs/opfs-ahp.js',
       // remove duplicate hooks alias
     },
   },
@@ -264,3 +271,56 @@ export default defineConfig({
     },
   },
 });
+
+// Minimal dev/preview plugin to serve /api/chat using our agent
+function devChatApiPlugin() {
+  return {
+    name: 'dev-chat-api',
+    async configureServer(server) {
+      server.middlewares.use(await createApiMiddleware('dev'));
+    },
+    async configurePreviewServer(server: import('vite').ViteDevServer) {
+      server.middlewares.use(await createApiMiddleware('preview'));
+    },
+  };
+}
+
+async function createApiMiddleware(mode: 'dev' | 'preview') {
+  const { readBody, handleChatEndpoint, handleAssistantEndpoint, sendAssistantStatusResponse } =
+    await import('./src/assistant-stream-helpers.ts');
+
+  return async (
+    req: import('http').IncomingMessage,
+    res: import('http').ServerResponse,
+    next: () => void
+  ) => {
+    try {
+      if (req.method === 'GET' && req.url?.startsWith('/api/assistant/status')) {
+        sendAssistantStatusResponse(res);
+        return;
+      }
+
+      if (req.method !== 'POST') return next();
+
+      const bodyStr = await readBody(req);
+      const body = JSON.parse(bodyStr || '{}');
+
+      if (req.url?.startsWith('/api/chat')) {
+        await handleChatEndpoint(body, res);
+        return;
+      }
+
+      if (req.url?.startsWith('/api/assistant')) {
+        await handleAssistantEndpoint(body, res);
+        return;
+      }
+
+      return next();
+    } catch (_e) {
+      console.error(`[dev-chat-api] ${mode} handler error`, _e);
+      res.statusCode = 500;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ error: `${mode} chat route failed` }));
+    }
+  };
+}

@@ -7,65 +7,165 @@
 /* @import "tailwindcss"; - Removed to prevent conflict with main app's Tailwind import */
 
 :root {
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
+  --bs-background: 0 0% 100%;
+  --bs-foreground: 222.2 84% 4.9%;
 
-  --card: 0 0% 100%;
-  --card-foreground: 222.2 84% 4.9%;
+  --bs-card: 0 0% 100%;
+  --bs-card-foreground: 222.2 84% 4.9%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 222.2 84% 4.9%;
+  --bs-popover: 0 0% 100%;
+  --bs-popover-foreground: 222.2 84% 4.9%;
 
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
+  --bs-primary: 222.2 47.4% 11.2%;
+  --bs-primary-foreground: 210 40% 98%;
 
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
+  --bs-secondary: 210 40% 96.1%;
+  --bs-secondary-foreground: 222.2 47.4% 11.2%;
 
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
+  --bs-muted: 210 40% 96.1%;
+  --bs-muted-foreground: 215.4 16.3% 46.9%;
 
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
+  --bs-accent: 210 40% 96.1%;
+  --bs-accent-foreground: 222.2 47.4% 11.2%;
 
-  --destructive: 0 84.2% 60.2%;
-  --destructive-foreground: 210 40% 98%;
+  --bs-destructive: 0 84.2% 60.2%;
+  --bs-destructive-foreground: 210 40% 98%;
 
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  --bs-border: 214.3 31.8% 91.4%;
+  --bs-input: 214.3 31.8% 91.4%;
+  --bs-ring: 222.2 84% 4.9%;
 
-  --radius: 0.5rem;
+  --bs-chart-1: 199 89% 48%;
+  --bs-chart-2: 222 63% 52%;
+  --bs-chart-3: 162 73% 46%;
+  --bs-chart-4: 46 98% 64%;
+  --bs-chart-5: 12 91% 62%;
+
+  --bs-sidebar: 210 40% 96.1%;
+  --bs-sidebar-foreground: 222.2 47.4% 11.2%;
+  --bs-sidebar-primary: 222.2 84% 4.9%;
+  --bs-sidebar-primary-foreground: 210 40% 98%;
+  --bs-sidebar-accent: 210 40% 96.1%;
+  --bs-sidebar-accent-foreground: 222.2 47.4% 11.2%;
+  --bs-sidebar-border: 214.3 31.8% 91.4%;
+  --bs-sidebar-ring: 222.2 84% 4.9%;
+
+  --bs-radius: 0.5rem;
+
+  --background: var(--bs-background);
+  --foreground: var(--bs-foreground);
+  --card: var(--bs-card);
+  --card-foreground: var(--bs-card-foreground);
+  --popover: var(--bs-popover);
+  --popover-foreground: var(--bs-popover-foreground);
+  --primary: var(--bs-primary);
+  --primary-foreground: var(--bs-primary-foreground);
+  --secondary: var(--bs-secondary);
+  --secondary-foreground: var(--bs-secondary-foreground);
+  --muted: var(--bs-muted);
+  --muted-foreground: var(--bs-muted-foreground);
+  --accent: var(--bs-accent);
+  --accent-foreground: var(--bs-accent-foreground);
+  --destructive: var(--bs-destructive);
+  --destructive-foreground: var(--bs-destructive-foreground);
+  --border: var(--bs-border);
+  --input: var(--bs-input);
+  --ring: var(--bs-ring);
+  --chart-1: var(--bs-chart-1);
+  --chart-2: var(--bs-chart-2);
+  --chart-3: var(--bs-chart-3);
+  --chart-4: var(--bs-chart-4);
+  --chart-5: var(--bs-chart-5);
+  --sidebar: var(--bs-sidebar);
+  --sidebar-foreground: var(--bs-sidebar-foreground);
+  --sidebar-primary: var(--bs-sidebar-primary);
+  --sidebar-primary-foreground: var(--bs-sidebar-primary-foreground);
+  --sidebar-accent: var(--bs-sidebar-accent);
+  --sidebar-accent-foreground: var(--bs-sidebar-accent-foreground);
+  --sidebar-border: var(--bs-sidebar-border);
+  --sidebar-ring: var(--bs-sidebar-ring);
+  --radius: var(--bs-radius);
 }
 
 .dark {
-  --background: 222.2 84% 4.9%;
-  --foreground: 210 40% 98%;
+  --bs-background: 222.2 84% 4.9%;
+  --bs-foreground: 210 40% 98%;
 
-  --card: 222.2 84% 4.9%;
-  --card-foreground: 210 40% 98%;
+  --bs-card: 222.2 84% 4.9%;
+  --bs-card-foreground: 210 40% 98%;
 
-  --popover: 222.2 84% 4.9%;
-  --popover-foreground: 210 40% 98%;
+  --bs-popover: 222.2 84% 4.9%;
+  --bs-popover-foreground: 210 40% 98%;
 
-  --primary: 210 40% 98%;
-  --primary-foreground: 222.2 47.4% 11.2%;
+  --bs-primary: 210 40% 98%;
+  --bs-primary-foreground: 222.2 47.4% 11.2%;
 
-  --secondary: 217.2 32.6% 17.5%;
-  --secondary-foreground: 210 40% 98%;
+  --bs-secondary: 217.2 32.6% 17.5%;
+  --bs-secondary-foreground: 210 40% 98%;
 
-  --muted: 217.2 32.6% 17.5%;
-  --muted-foreground: 215 20.2% 65.1%;
+  --bs-muted: 217.2 32.6% 17.5%;
+  --bs-muted-foreground: 215 20.2% 65.1%;
 
-  --accent: 217.2 32.6% 17.5%;
-  --accent-foreground: 210 40% 98%;
+  --bs-accent: 217.2 32.6% 17.5%;
+  --bs-accent-foreground: 210 40% 98%;
 
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
+  --bs-destructive: 0 62.8% 30.6%;
+  --bs-destructive-foreground: 210 40% 98%;
 
-  --border: 217.2 32.6% 17.5%;
-  --input: 217.2 32.6% 17.5%;
-  --ring: 212.7 26.8% 83.9%;
+  --bs-border: 217.2 32.6% 17.5%;
+  --bs-input: 217.2 32.6% 17.5%;
+  --bs-ring: 212.7 26.8% 83.9%;
+
+  --bs-chart-1: 199 89% 48%;
+  --bs-chart-2: 222 63% 52%;
+  --bs-chart-3: 162 73% 46%;
+  --bs-chart-4: 46 98% 64%;
+  --bs-chart-5: 12 91% 62%;
+
+  --bs-sidebar: 222.2 47.4% 11.2%;
+  --bs-sidebar-foreground: 210 40% 98%;
+  --bs-sidebar-primary: 217.2 32.6% 45%;
+  --bs-sidebar-primary-foreground: 210 40% 98%;
+  --bs-sidebar-accent: 217.2 32.6% 17.5%;
+  --bs-sidebar-accent-foreground: 210 40% 98%;
+  --bs-sidebar-border: 217.2 32.6% 17.5%;
+  --bs-sidebar-ring: 212.7 26.8% 83.9%;
+
+  --bs-radius: 0.5rem;
+
+  --background: var(--bs-background);
+  --foreground: var(--bs-foreground);
+  --card: var(--bs-card);
+  --card-foreground: var(--bs-card-foreground);
+  --popover: var(--bs-popover);
+  --popover-foreground: var(--bs-popover-foreground);
+  --primary: var(--bs-primary);
+  --primary-foreground: var(--bs-primary-foreground);
+  --secondary: var(--bs-secondary);
+  --secondary-foreground: var(--bs-secondary-foreground);
+  --muted: var(--bs-muted);
+  --muted-foreground: var(--bs-muted-foreground);
+  --accent: var(--bs-accent);
+  --accent-foreground: var(--bs-accent-foreground);
+  --destructive: var(--bs-destructive);
+  --destructive-foreground: var(--bs-destructive-foreground);
+  --border: var(--bs-border);
+  --input: var(--bs-input);
+  --ring: var(--bs-ring);
+  --chart-1: var(--bs-chart-1);
+  --chart-2: var(--bs-chart-2);
+  --chart-3: var(--bs-chart-3);
+  --chart-4: var(--bs-chart-4);
+  --chart-5: var(--bs-chart-5);
+  --sidebar: var(--bs-sidebar);
+  --sidebar-foreground: var(--bs-sidebar-foreground);
+  --sidebar-primary: var(--bs-sidebar-primary);
+  --sidebar-primary-foreground: var(--bs-sidebar-primary-foreground);
+  --sidebar-accent: var(--bs-sidebar-accent);
+  --sidebar-accent-foreground: var(--bs-sidebar-accent-foreground);
+  --sidebar-border: var(--bs-sidebar-border);
+  --sidebar-ring: var(--bs-sidebar-ring);
+  --radius: var(--bs-radius);
 }
 
 /* Define animations for components like accordion */

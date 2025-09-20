@@ -9,6 +9,7 @@
     "skipLibCheck": true,
     "strict": true,
     "isolatedModules": false,
+    "allowJs": false,
     "resolveJsonModule": true,
     "outDir": "dist",
     "rootDir": "src",
@@ -17,15 +18,24 @@
     "sourceMap": false,
     "moduleDetection": "force",
     "verbatimModuleSyntax": false,
-    "types": ["node", "electron"]
+    "types": ["node", "electron"],
+    "baseUrl": ".",
+    "paths": {}
   },
   "include": [
     "src/main.ts",
     "src/preload.ts",
     "src/db-main.ts",
     "src/ipc-handlers.ts",
+    "src/ipc-secrets.ts",
+    "src/ipc-agent.ts",
+    "src/ipc-mcp.ts",
+    "src/assistant-server.ts",
+    "src/secrets.ts",
+    "src/mcp-loader.ts",
     "src/create-window.ts",
-    "src/setup-security.ts"
+    "src/setup-security.ts",
+    "src/types/**/*.d.ts"
   ],
   "exclude": [
     "node_modules",

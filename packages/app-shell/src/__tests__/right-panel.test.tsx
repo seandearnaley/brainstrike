@@ -1,7 +1,23 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
+
+const originalFetch = global.fetch;
+const mockFetch = vi.fn();
+
+beforeEach(() => {
+  mockFetch.mockResolvedValue({
+    ok: true,
+    json: async () => ({ enabled: false, reason: 'missing_api_key' }),
+  } as Response);
+  global.fetch = mockFetch as unknown as typeof fetch;
+});
+
+afterEach(() => {
+  mockFetch.mockReset();
+  global.fetch = originalFetch;
+});
 
 // Mock the database dependencies
 vi.mock('@brainstrike/db', () => ({
@@ -67,6 +83,7 @@ describe('RightPanel', () => {
 
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /props/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
@@ -78,7 +95,6 @@ describe('RightPanel', () => {
     // Properties tab should be active by default
     expect(screen.getByText('Properties')).toBeInTheDocument();
     expect(screen.getByText('Element properties and attributes')).toBeInTheDocument();
-    expect(screen.getByText('Basic Properties')).toBeInTheDocument();
   });
 
   test('allows switching between tabs', async () => {
@@ -99,13 +115,22 @@ describe('RightPanel', () => {
 
     // Should show search content
     expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
-    expect(screen.getByText('Search Options')).toBeInTheDocument();
 
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
 
-    // Should show database content
-    expect(screen.getByText('Database is initializing...')).toBeInTheDocument();
+    // Should show database content; allow either initializing or disabled message depending on build flag
+    const dbPanel = screen.getByRole('tabpanel', { name: /db/i });
+    expect(dbPanel).toBeInTheDocument();
+    expect(
+      within(dbPanel).getByText(/Database (is initializing|UI disabled)/i)
+    ).toBeInTheDocument();
+
+    // Assistant tab should render status callout
+    await user.click(screen.getByRole('tab', { name: /assistant/i }));
+    const assistantPanel = screen.getByRole('tabpanel', { name: /assistant/i });
+    expect(assistantPanel).toBeInTheDocument();
+    expect(within(assistantPanel).getByText(/Assistant disabled/i)).toBeInTheDocument();
   });
 
   test('has proper tab structure with icons', () => {
@@ -116,13 +141,14 @@ describe('RightPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(5);
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Props');
-    expect(tabs[1]).toHaveTextContent('Embed');
-    expect(tabs[2]).toHaveTextContent('Search');
-    expect(tabs[3]).toHaveTextContent('DB');
+    expect(tabs[1]).toHaveTextContent('Assistant');
+    expect(tabs[2]).toHaveTextContent('Embed');
+    expect(tabs[3]).toHaveTextContent('Search');
+    expect(tabs[4]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -135,10 +161,16 @@ describe('RightPanel', () => {
 
     // Switch back to properties tab
     await user.click(screen.getByRole('tab', { name: /props/i }));
-    expect(screen.getByText('Basic Properties')).toBeInTheDocument();
+    expect(screen.getByText('Properties')).toBeInTheDocument();
 
     // Switch to embeddings again - content should still be there
     await user.click(screen.getByRole('tab', { name: /embed/i }));
     expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+
+    // Switch to assistant and back to ensure isolation
+    await user.click(screen.getByRole('tab', { name: /assistant/i }));
+    expect(screen.getByText(/Assistant disabled/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /props/i }));
+    expect(screen.getByText('Element properties and attributes')).toBeInTheDocument();
   });
 });

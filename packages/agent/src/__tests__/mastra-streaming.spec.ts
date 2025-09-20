@@ -1,0 +1,216 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createMastraAgentRuntime, streamMastraAgent } from '../mastra/agent-runtime';
+
+const agentInstances: Array<{
+  config: { tools: Record<string, unknown> };
+  tools: Record<string, unknown>;
+}> = [];
+const mcpInstances: unknown[] = [];
+let streamParts: unknown[] = [];
+
+function setMockStreamParts(parts: unknown[]) {
+  streamParts = [...parts];
+}
+
+vi.mock('@ai-sdk/openai', () => ({
+  createOpenAI: () => (modelId: string) => ({ modelId }),
+}));
+
+vi.mock('@mastra/core/agent', () => {
+  return {
+    Agent: class {
+      static reset() {
+        agentInstances.length = 0;
+      }
+
+      config: { tools: Record<string, unknown> };
+      tools: Record<string, unknown>;
+
+      constructor(config: { tools?: Record<string, unknown> }) {
+        const tools = (config.tools ?? {}) as Record<string, unknown>;
+        this.config = { tools };
+        this.tools = tools;
+        agentInstances.push(this);
+      }
+
+      async stream() {
+        async function* generator() {
+          for (const part of streamParts) {
+            yield part;
+          }
+        }
+        return {
+          fullStream: Promise.resolve(generator()),
+        };
+      }
+
+      __setTools(tools: Record<string, unknown>) {
+        this.tools = tools;
+      }
+    },
+  };
+});
+
+vi.mock('@mastra/mcp', () => {
+  return {
+    MCPClient: class {
+      options: unknown;
+
+      constructor(options: unknown) {
+        this.options = options;
+        mcpInstances.push(this);
+      }
+
+      async getTools() {
+        return {
+          'remote tool': { id: 'remote tool', description: 'remote' },
+        } satisfies Record<string, { id: string; description: string }>;
+      }
+
+      async disconnect() {
+        return undefined;
+      }
+    },
+  };
+});
+
+describe('mastra streaming integration', () => {
+  beforeEach(() => {
+    agentInstances.length = 0;
+    mcpInstances.length = 0;
+    setMockStreamParts([]);
+  });
+
+  it('yields streaming chunks by awaiting the Mastra fullStream promise', async () => {
+    setMockStreamParts([
+      { type: 'text-delta', textDelta: 'hello' },
+      { type: 'finish', usage: { promptTokens: 7, completionTokens: 11 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [
+        {
+          id: 'user-1',
+          role: 'user',
+          parts: [{ type: 'text', text: 'hi there' }],
+        },
+      ],
+      { runtime: { apiKey: 'test-key' } }
+    );
+
+    const chunks: unknown[] = [];
+    for await (const chunk of iterator) {
+      chunks.push(chunk);
+    }
+
+    expect(chunks).toEqual([
+      { type: 'text-delta', value: 'hello' },
+      {
+        type: 'message-finish',
+        finishReason: 'stop',
+        usage: { promptTokens: 7, completionTokens: 11 },
+        path: [],
+      },
+    ]);
+  });
+
+  it('propagates tool-call events as tool-event chunks', async () => {
+    setMockStreamParts([
+      { type: 'tool-call', toolName: 'web.searchDocs', toolCallId: 'c1', args: { query: 'x' } },
+      { type: 'tool-call-delta', toolCallId: 'c1', argsTextDelta: 'que' },
+      { type: 'tool-result', toolCallId: 'c1', result: { totalResults: 1 } },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 2 } },
+    ]);
+
+    const iterator = await streamMastraAgent(
+      [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
+      { runtime: { apiKey: 'test-key' } }
+    );
+
+    const toolEvents: Array<{ type: string; name?: string; status?: string }> = [];
+    let finished = false;
+    for await (const chunk of iterator) {
+      if (chunk.type === 'tool-event') toolEvents.push(chunk);
+      if (chunk.type === 'message-finish') finished = true;
+    }
+
+    expect(toolEvents[0]).toMatchObject({
+      type: 'tool-event',
+      name: 'web.searchDocs',
+      status: 'start',
+    });
+    expect(toolEvents[1]).toMatchObject({ type: 'tool-event', status: 'progress' });
+    expect(toolEvents[2]).toMatchObject({ type: 'tool-event', status: 'success' });
+    expect(finished).toBe(true);
+  });
+
+  it('throws stream_failure when Mastra fullStream resolves to null', async () => {
+    // Override the mock Agent.stream for this test to return a null fullStream
+    const { Agent } = await import('@mastra/core/agent');
+    // @ts-expect-error – test-only override
+    Agent.prototype.stream = async function stream() {
+      return { fullStream: Promise.resolve(null as unknown as AsyncIterable<unknown>) };
+    };
+
+    await expect(
+      streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
+        runtime: { apiKey: 'test-key' },
+      })
+    ).rejects.toThrow(/mastra_agent_stream_failure/i);
+  });
+  it('merges local and MCP tools while tracking sanitized tool names', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key' },
+      tools: {
+        'local tool': {
+          id: 'local tool',
+          description: 'local',
+        },
+      },
+      mcpConfig: {
+        servers: [
+          {
+            transport: 'stdio',
+            name: 'filesystem',
+            command: 'echo',
+          },
+        ],
+      },
+    });
+
+    expect(agentInstances).toHaveLength(1);
+    const agentConfig = agentInstances[0]?.config.tools ?? {};
+
+    expect(Object.keys(agentConfig)).toEqual(expect.arrayContaining(['local_tool', 'remote_tool']));
+
+    expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
+    expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
+  });
+
+  it('keeps tools distinct when sanitized ids would otherwise collide', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key' },
+      tools: {
+        'web.search': {
+          id: 'web.search',
+          description: 'first',
+        },
+        'web/search': {
+          id: 'web/search',
+          description: 'second',
+        },
+      },
+    });
+
+    const agentConfig = agentInstances[0]?.config.tools ?? {};
+    const sanitizedNames = Object.keys(agentConfig);
+
+    expect(new Set(sanitizedNames).size).toBe(2);
+    expect(runtime.toolNameMap.get('web_search')).toBe('web.search');
+
+    const collisionResolvedName = sanitizedNames.find((value) => value !== 'web_search');
+    expect(collisionResolvedName).toBeDefined();
+    expect(runtime.toolNameMap.get(collisionResolvedName as string)).toBe('web/search');
+  });
+});

@@ -41,7 +41,20 @@
       "Bash(npx vitest run:*)",
       "Bash(pnpm -w build --filter=@brainstrike/file-explorer-ui)",
       "Bash(pnpm -w type-check --filter=web)",
-      "Bash(pnpm -w type-check --filter=@brainstrike/web)"
+      "Bash(pnpm -w type-check --filter=@brainstrike/web)",
+      "Bash(pnpm -w build --filter=@brainstrike/ui)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run build:main:*)",
+      "Bash(npm run type-check:*)",
+      "Bash(timeout 600 pnpm check)",
+      "Bash(pnpm lint:*)",
+      "Bash(pnpm -w lint --max-diagnostics=50)",
+      "Bash(pnpm -w build --filter=@brainstrike/app-shell)",
+      "Bash(gh pr:*)",
+      "Bash(pnpm test:e2e:*)",
+      "Bash(npx nyc report:*)",
+      "Bash(npx c8 report:*)",
+      "Bash(pnpm --filter @brainstrike/desktop run coverage:enforce)"
     ],
     "deny": [],
     "ask": []

@@ -102,9 +102,9 @@ describe('window setup', () => {
     const cb = vi.fn();
     handler?.({ responseHeaders: {} }, cb);
     const csp = cb.mock.calls[0]?.[0].responseHeaders['Content-Security-Policy'][0];
-    expect(csp).toBe(
-      "default-src 'self'; script-src 'self' 'unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
-    );
+    // Match against the canonical generator to avoid brittle ordering issues
+    const { getCSP } = await import('../../csp-utils');
+    expect(csp).toBe(getCSP('production'));
   });
 
   it('createWindow dev mode tries ports sequentially and opens dev tools', async () => {

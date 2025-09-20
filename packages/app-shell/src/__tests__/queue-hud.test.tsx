@@ -36,20 +36,24 @@ async function importFresh() {
 
 describe.skip('QueueHud', () => {
   it('renders stats and enables retry when failures exist', async () => {
+    vi.useFakeTimers(); // Use fake timers from the start
     const { QueueHud } = await importFresh();
     render(<QueueHud />);
 
     // Initial mocked stats should render
-    await waitFor(() => {
-      expect(screen.getByText('Queued')).toBeInTheDocument();
-      expect(screen.getByText('1')).toBeInTheDocument(); // queued
-      expect(screen.getByText('2')).toBeInTheDocument(); // failed
-      expect(screen.getByLabelText('Retry failed jobs')).toBeEnabled();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('Queued')).toBeInTheDocument();
+        expect(screen.getByText('1')).toBeInTheDocument(); // queued
+        expect(screen.getByText('2')).toBeInTheDocument(); // failed
+        expect(screen.getByLabelText('Retry failed jobs')).toBeEnabled();
+      },
+      { timeout: 1000 }
+    );
 
     // Retry should trigger requeue and refresh stats
     const retry = screen.getByRole('button', { name: /retry failed/i });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null }); // No delay with fake timers
 
     // Update mock to reflect that failures drop to 0 after retry
     const db = await import('@brainstrike/db');
@@ -73,15 +77,20 @@ describe.skip('QueueHud', () => {
       },
     ]);
 
-    // Freeze timers so internal interval does not fire after the update
-    vi.useFakeTimers();
     await user.click(retry);
 
-    await waitFor(() => {
-      // Failed count updated to 0 and button becomes disabled
-      expect(screen.getByText('0')).toBeInTheDocument();
-      expect(screen.getByLabelText('Retry failed jobs')).toBeDisabled();
-    });
+    // Advance timers to allow async operations to complete
+    await vi.runAllTimersAsync();
+
+    await waitFor(
+      () => {
+        // Failed count updated to 0 and button becomes disabled
+        expect(screen.getByText('0')).toBeInTheDocument();
+        expect(screen.getByLabelText('Retry failed jobs')).toBeDisabled();
+      },
+      { timeout: 1000 }
+    );
+
     vi.useRealTimers();
   });
 });
