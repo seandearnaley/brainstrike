@@ -58,7 +58,7 @@ See also: `onboarding.md` and `monorepo-docs.md` for deep dives.
 - Desktop: starts the embedding worker on app ready when enabled; stops on quit.
 - Config: `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`.
 
-Refer to `docs/PHASE_3_HANDOFF.md` (Post-Review Deltas) and `docs/db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/api-contracts.md`.
+Refer to `docs/arch_logs/09-05-2025-db-embedding-modernization/PHASE_3_HANDOFF.md` (Post-Review Deltas) and `docs/arch_logs/09-05-2025-db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/arch_logs/09-05-2025-db-embedding-modernization/api-contracts.md`.
 
 Web UX notes:
 - Start/Stop the local worker from Right Panel → DB → Vector Status (no separate Settings controls).

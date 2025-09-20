@@ -75,14 +75,14 @@ Next:
 ## Phase 6 — API Contracts (completed)
 
 - Added canonical contracts doc with stable DTO shapes and examples:
-  - `docs/api-contracts.md` (search options/results, `EmbeddingSet`, public `Job`)
+  - `docs/arch_logs/09-05-2025-db-embedding-modernization/api-contracts.md` (search options/results, `EmbeddingSet`, public `Job`)
 - Verified `@brainstrike/db` exports for: `ChunkSearchOptions`, `ChunkSearchResult`, `FileChunk`, `EmbeddingSet`, `Job`.
 - Vector Status enhancements:
   - Retry control: “Retry last 20 failed” button
   - Lightweight metrics: latency p50/p95 (60s window) alongside throughput
 
 Files:
-- docs/api-contracts.md
+- docs/arch_logs/09-05-2025-db-embedding-modernization/api-contracts.md
 - packages/app-shell/src/vector-status.tsx
 
 Notes:
