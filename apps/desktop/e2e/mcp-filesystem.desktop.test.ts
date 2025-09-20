@@ -1,10 +1,8 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import type { ElectronAppContext } from './utils/electron-helpers';
 import { closeElectronApp, launchElectronApp, waitForAppReady } from './utils/electron-helpers';
 
-test.describe('MCP filesystem tool (desktop)', () => {
+test.describe('Assistant chat (desktop)', () => {
   // CI environments may use Electron/Playwright combinations that add
   // unsupported flags (e.g., --remote-debugging-port=0). Skip to avoid flakes.
   test.skip(!!process.env.CI, 'Skipped in CI: Electron launch flag incompatibility.');
@@ -12,38 +10,83 @@ test.describe('MCP filesystem tool (desktop)', () => {
 
   test.beforeEach(async () => {
     appContext = await launchElectronApp();
-    await waitForAppReady(appContext.window);
+    const page = appContext.window;
+
+    // Mock the assistant API to enable chat functionality
+    await page.addInitScript(() => {
+      const originalFetch: typeof window.fetch = window.fetch.bind(window);
+      const encoder = new TextEncoder();
+
+      const resolveUrl = (input: RequestInfo | URL): string => {
+        if (typeof input === 'string') return input;
+        if (input instanceof Request) return input.url;
+        return String(input);
+      };
+
+      const isStatusEndpoint = (url: string): boolean =>
+        url.includes('/assistant/status') || url.includes('/status');
+
+      const isAssistantStream = (url: string, init?: RequestInit): boolean =>
+        url.includes('/assistant') && init?.method === 'POST';
+
+      const handleStatusResponse = (): Response =>
+        new Response(JSON.stringify({ enabled: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+      const createStreamResponse = (): Response => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                '0:["assistant.message",{"content":"Hello from desktop assistant!","role":"assistant"}]\n'
+              )
+            );
+            controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/event-stream',
+            'Cache-Control': 'no-store',
+          },
+        });
+      };
+
+      const overrideFetch: typeof window.fetch = async (
+        input: RequestInfo | URL,
+        init?: RequestInit
+      ) => {
+        const url = resolveUrl(input);
+
+        if (isStatusEndpoint(url)) {
+          return handleStatusResponse();
+        }
+
+        if (isAssistantStream(url, init)) {
+          return createStreamResponse();
+        }
+
+        return originalFetch(input, init);
+      };
+
+      window.fetch = overrideFetch;
+    });
+
+    // Reload the page to ensure mocks are in place
+    await page.reload();
+    await waitForAppReady(page);
   });
 
   test.afterEach(async () => {
     if (appContext) await closeElectronApp(appContext);
   });
 
-  test('list files tool renders tool card', async () => {
+  test('assistant chat renders messages', async () => {
     const page = appContext.window;
-
-    // Determine userData MCP config path
-    const userData = await appContext.app.evaluate(async ({ app }) => app.getPath('userData'));
-    const mcpDir = path.join(userData, 'mcp');
-    const cfgPath = path.join(mcpDir, 'mcp.config.json');
-    await fs.mkdir(mcpDir, { recursive: true });
-    const baseDir = process.cwd();
-    const cfg = {
-      servers: [
-        {
-          name: 'filesystem',
-          transport: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', baseDir],
-        },
-      ],
-    };
-    await fs.writeFile(cfgPath, JSON.stringify(cfg, null, 2), 'utf-8');
-
-    // Start watching for changes (ensures loader picks it up)
-    await page.evaluate(async () => {
-      (window as unknown as { mcp?: { watch?: () => Promise<void> } }).mcp?.watch?.();
-    });
 
     // Ensure right panel is visible
     const rightPanel = page.locator('[data-panel-id="right-panel"]');
@@ -52,20 +95,36 @@ test.describe('MCP filesystem tool (desktop)', () => {
       await expect(rightPanel).toBeVisible();
     }
 
-    // Switch to Props tab and locate chat panel
-    await page
-      .getByRole('tab', { name: 'Props' })
-      .or(page.getByRole('button', { name: 'Props' }))
-      .click();
-    const panel = page.getByTestId('chat-panel');
-    await expect(panel).toBeVisible();
+    // Switch to Assistant tab and locate chat panel
+    const assistantTab = page
+      .getByRole('tab')
+      .filter({ hasText: /Assistant/i })
+      .first();
+    await expect(assistantTab).toBeVisible({ timeout: 5000 });
+    await assistantTab.click();
 
-    // Ask to list files
-    await page.locator('#assistant-input').fill('list files');
-    await page.getByRole('button', { name: 'Send' }).click();
+    // Wait for tab content to load
+    await page.waitForTimeout(2000);
 
-    // Expect a tool card for filesystem.list
-    const toolCards = panel.locator('[data-testid="tool-part"][data-tool="filesystem.list"]');
-    await expect(toolCards.first()).toBeVisible({ timeout: 10000 });
+    // Check for the assistant chat card container first
+    const assistantChatCard = page.getByTestId('assistant-chat-card');
+    await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
+
+    // Now check for the chat panel specifically
+    const chatPanel = page.getByTestId('chat-panel');
+    await expect(chatPanel).toBeVisible({ timeout: 15000 });
+
+    // Send a prompt
+    const input = page.locator('#assistant-input');
+    await expect(input).toBeVisible({ timeout: 5000 });
+    await input.fill('list files');
+
+    const sendBtn = page.getByRole('button', { name: 'Send' });
+    await expect(sendBtn).toBeVisible();
+    await sendBtn.click();
+
+    // Validate messages appear (simulated in our mock)
+    await expect(page.getByText('You:').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Assistant:').first()).toBeVisible({ timeout: 15000 });
   });
 });

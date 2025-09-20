@@ -48,6 +48,8 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
       ...(process.platform === 'linux' && process.env['CI'] && !process.env['DISPLAY']
         ? // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
