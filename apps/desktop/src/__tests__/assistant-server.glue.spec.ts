@@ -5,6 +5,10 @@ vi.mock('@brainstrike/agent', () => {
   const nameToKeys = new Map<string, string[]>();
   return {
     createToolRegistry: () => ({ byKey, nameToKeys }),
+    clearToolRegistry: (registry: { byKey: typeof byKey; nameToKeys: typeof nameToKeys }) => {
+      registry.byKey.clear();
+      registry.nameToKeys.clear();
+    },
     startToolCall: (
       registry: { byKey: typeof byKey; nameToKeys: typeof nameToKeys },
       name: string,

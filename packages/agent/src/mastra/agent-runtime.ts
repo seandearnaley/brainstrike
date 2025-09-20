@@ -13,6 +13,8 @@ export interface MastraAgentRuntimeOptions {
   runtime?: RuntimeData;
   mcpConfig?: McpConfig;
   tools?: ToolsInput;
+  // Optional timeout (ms) for initial MCP tool discovery
+  mcpTimeoutMs?: number;
 }
 
 export interface MastraAgentRuntime {
@@ -194,7 +196,7 @@ function createStableHashSuffix(value: string): string {
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
-  const { runtime, instructions, model, mcpConfig, tools: localTools } = options;
+  const { runtime, instructions, model, mcpConfig, tools: localTools, mcpTimeoutMs } = options;
   const apiKey = resolveOpenAIApiKey(runtime);
 
   const servers = toMastraServerMap(mcpConfig);
@@ -206,8 +208,8 @@ export async function createMastraAgentRuntime(
 
   let combinedTools: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
   if (mcpClient) {
-    const toolsFromClient = (await mcpClient.getTools()) as ToolsInput;
-    const sanitizedMcpTools = sanitizeTools(toolsFromClient, toolNameMap);
+    const timeoutMs = resolveMcpTimeoutMs(mcpTimeoutMs);
+    const sanitizedMcpTools = await fetchMcpToolsWithTimeout(mcpClient, toolNameMap, timeoutMs);
     if (sanitizedMcpTools) {
       combinedTools = { ...combinedTools, ...sanitizedMcpTools } as ToolsInput;
     }
@@ -237,6 +239,42 @@ Provide concise answers after using tools.`,
   };
 }
 
+function resolveMcpTimeoutMs(value: number | undefined): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  return 5000;
+}
+
+async function fetchMcpToolsWithTimeout(
+  mcpClient: MCPClient | undefined,
+  toolNameMap: Map<string, string>,
+  timeoutMs: number
+): Promise<ToolsInput | undefined> {
+  if (!mcpClient) return undefined;
+  const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
+    return await new Promise<T>((resolve, reject) => {
+      const t = setTimeout(() => reject(new Error('mcp_tool_discovery_timeout')), ms);
+      p.then((v) => {
+        clearTimeout(t);
+        resolve(v);
+      }).catch((e) => {
+        clearTimeout(t);
+        reject(e);
+      });
+    });
+  };
+  try {
+    const toolsFromClient = (await withTimeout(mcpClient.getTools(), timeoutMs)) as ToolsInput;
+    return sanitizeTools(toolsFromClient, toolNameMap);
+  } catch (err) {
+    logger.warn('MCP tool discovery skipped', {
+      code: 'mcp_tools_unavailable',
+      reason: err instanceof Error ? err.message : String(err),
+      timeoutMs,
+    });
+    return undefined;
+  }
+}
+
 export async function streamMastraAgent(
   messages: AgentMessage[],
   options: MastraAgentRuntimeOptions = {}
@@ -261,7 +299,7 @@ export async function streamMastraAgent(
 
   const apiKey = resolveOpenAIApiKey(runtimeData);
   if (!apiKey) {
-    logger.error('Missing API key; aborting stream');
+    logger.warn('mastra agent missing api key', { code: 'mastra_agent_missing_api_key' });
     return fail('missing_api_key');
   }
 
@@ -269,13 +307,17 @@ export async function streamMastraAgent(
   const runtime = await (async () => {
     try {
       const instance = await createMastraAgentRuntime(options);
-      logger.info('Runtime initialized', {
+      logger.info('mastra runtime initialized', {
+        code: 'mastra_agent_runtime_initialized',
         toolCount: Object.keys(options.tools ?? {}).length,
       });
       sanitizedNameMap = instance.toolNameMap;
       return instance;
     } catch (err) {
-      logger.error('Failed to initialize runtime', err);
+      logger.error('mastra runtime init failed', {
+        code: 'mastra_agent_runtime_init_failed',
+        error: err instanceof Error ? err.message : String(err),
+      });
       return fail('runtime_init_failure', err);
     }
   })();
@@ -284,7 +326,7 @@ export async function streamMastraAgent(
 
   try {
     const result = await runtime.agent.stream(mastraMessages);
-    logger.info('Stream started');
+    logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
     const stream = await result.fullStream;
     if (!stream) {
@@ -353,18 +395,24 @@ export async function streamMastraAgent(
           }
         }
       } finally {
-        logger.info('Stream finished');
+        logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
         await runtime?.dispose();
       }
     }
 
     return iterate();
   } catch (err) {
-    logger.error('Streaming failed', err);
+    logger.error('mastra stream failed', {
+      code: 'mastra_agent_stream_failed',
+      error: err instanceof Error ? err.message : String(err),
+    });
     try {
       await runtime.dispose();
     } catch (disposeError) {
-      logger.error('Failed to dispose runtime after stream failure', disposeError);
+      logger.warn('dispose after stream failure failed', {
+        code: 'mastra_agent_runtime_dispose_failed',
+        error: disposeError instanceof Error ? disposeError.message : String(disposeError),
+      });
     }
     return fail('stream_failure', err);
   }

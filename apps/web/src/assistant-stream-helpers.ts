@@ -1,6 +1,7 @@
 import {
   type StreamChunk as AgentStreamChunk,
   type AssistantUiMessage,
+  clearToolRegistry,
   completeToolCall,
   convertAssistantUiMessages,
   createToolRegistry,
@@ -202,6 +203,9 @@ export async function processAgentStream(
       controller.close();
     } catch {}
   }
+  try {
+    clearToolRegistry(tools);
+  } catch {}
   ctrl.close();
 }
 

@@ -71,6 +71,20 @@ export function completeToolCall<TController extends ToolCallControllerLike>(
   releaseToolEntry(registry, key);
 }
 
+/**
+ * Clear all entries from the registry (for cleanup on abort/teardown).
+ */
+export function clearToolRegistry<TController extends ToolCallControllerLike>(
+  registry: ToolRegistry<TController>
+): void {
+  try {
+    registry.byKey.clear();
+  } catch {}
+  try {
+    registry.nameToKeys.clear();
+  } catch {}
+}
+
 function extractCallId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object') return undefined;
   const record = payload as Record<string, unknown>;

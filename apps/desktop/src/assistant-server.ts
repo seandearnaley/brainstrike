@@ -1,5 +1,6 @@
 import http from 'node:http';
 import {
+  clearToolRegistry,
   completeToolCall,
   convertAssistantUiMessages,
   createToolRegistry,
@@ -53,6 +54,7 @@ const completeToolProxy = completeToolCall as unknown as (
   status: string,
   payload: unknown
 ) => void;
+const clearToolProxy = clearToolRegistry as unknown as (registry: AssistantToolRegistry) => void;
 
 interface StreamChunk {
   type: 'text-delta' | 'tool-event' | 'finish' | 'message-finish';
@@ -168,6 +170,9 @@ async function processAgentStream(
         entry.controller.close();
       } catch {}
     }
+    try {
+      clearToolProxy(tools);
+    } catch {}
     try {
       ctrl.close();
     } catch {}

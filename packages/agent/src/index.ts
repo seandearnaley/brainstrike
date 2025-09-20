@@ -42,6 +42,7 @@ export type AssistantUiNode =
   | AssistantUiNodeObject
   | ReadonlyArray<AssistantUiNode>;
 
+// Assistant UI input message (intentionally permissive; normalized at runtime)
 export interface AssistantUiMessage {
   id?: string | number | null;
   role?: string | null;
@@ -316,6 +317,7 @@ export {
   toJsonSafe,
 } from './stream/json';
 export {
+  clearToolRegistry,
   completeToolCall,
   createToolRegistry,
   recordToolProgress,
