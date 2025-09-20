@@ -42,6 +42,13 @@ export type AssistantUiNode =
   | AssistantUiNodeObject
   | ReadonlyArray<AssistantUiNode>;
 
+// Recommended stricter message shape for first‑party API boundaries.
+export interface AssistantUiMessageStrict {
+  id?: string | undefined;
+  role?: 'user' | 'assistant' | 'system' | undefined;
+  text?: string | undefined;
+}
+
 // Assistant UI input message (intentionally permissive; normalized at runtime)
 export interface AssistantUiMessage {
   id?: string | number | null;
@@ -74,7 +81,7 @@ function randomMessageId(): string {
   return `msg_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function ensureMessageId(value: AssistantUiMessage['id']): string {
+function ensureMessageId(value: AssistantUiMessage['id'] | AssistantUiMessageStrict['id']): string {
   if (typeof value === 'string' && value.trim().length > 0) {
     return value;
   }
@@ -84,7 +91,7 @@ function ensureMessageId(value: AssistantUiMessage['id']): string {
   return randomMessageId();
 }
 
-function extractTextSegments(source: AssistantUiMessage): string[] {
+function extractTextSegments(source: AssistantUiMessage | AssistantUiMessageStrict): string[] {
   const segments: string[] = [];
   const seenValues = new Set<string>();
   const seenObjects = new Set<AssistantUiNodeObject>();
@@ -181,15 +188,18 @@ function extractTextSegments(source: AssistantUiMessage): string[] {
     visitObject(value as AssistantUiNodeObject);
   };
 
-  pushScalar(source.text);
-  visit(source.content);
-  visit(source.parts);
+  // source.text may be string in strict or scalar in permissive shape
+  pushScalar(source.text as AssistantUiScalar | undefined);
+  const maybeContent = (source as { content?: AssistantUiNode }).content;
+  const maybeParts = (source as { parts?: AssistantUiNode }).parts;
+  visit(maybeContent);
+  visit(maybeParts);
 
   return segments;
 }
 
 function toAgentMessage(
-  message: AssistantUiMessage | null | undefined,
+  message: AssistantUiMessage | AssistantUiMessageStrict | null | undefined,
   fallbackRole?: NormalizedRole
 ): AgentMessage | null {
   if (!message) return null;
@@ -205,7 +215,13 @@ function toAgentMessage(
 }
 
 export function convertAssistantUiMessages(
+  messages: ReadonlyArray<AssistantUiMessageStrict | null | undefined>
+): AgentMessage[];
+export function convertAssistantUiMessages(
   messages: ReadonlyArray<AssistantUiMessage | null | undefined>
+): AgentMessage[];
+export function convertAssistantUiMessages(
+  messages: ReadonlyArray<AssistantUiMessage | AssistantUiMessageStrict | null | undefined>
 ): AgentMessage[] {
   const converted: AgentMessage[] = [];
   for (const message of messages) {

@@ -1,6 +1,6 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
-import { disposeClients, initClients } from './mcp-clients';
+import { disposeClients, initClients } from './mcp';
 import { type LoadedMcpConfig, loadMcpConfig, watchMcpConfig } from './mcp-loader';
 
 let unwatch: null | (() => void) = null;

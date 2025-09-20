@@ -21,6 +21,8 @@ vi.mock('../openai-api-key', () => ({
 describe('registerAgentIpcHandlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+    g.__agentModule = undefined;
   });
 
   describe('handler registration', () => {
@@ -90,7 +92,7 @@ describe('registerAgentIpcHandlers', () => {
         { type: 'finish', usage: { promptTokens: 10, completionTokens: 5 } },
       ];
 
-      // Mock dynamic import with eval
+      // Mock agent module
       const mockAsyncIterator = {
         [Symbol.asyncIterator]: () => {
           let index = 0;
@@ -104,11 +106,12 @@ describe('registerAgentIpcHandlers', () => {
           };
         },
       };
-
-      global.eval = vi.fn().mockResolvedValue({
-        streamMastraAgent: vi.fn().mockReturnValue(mockAsyncIterator),
+      const streamMastraAgent = vi.fn().mockReturnValue(mockAsyncIterator);
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent,
         webTools: { someTool: {} },
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -136,7 +139,6 @@ describe('registerAgentIpcHandlers', () => {
       const result = await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(result).toEqual(mockStreamChunks);
-      expect(global.eval).toHaveBeenCalledWith("import('@brainstrike/agent')");
     });
 
     it('should handle async iterable that needs awaiting', async () => {
@@ -157,10 +159,12 @@ describe('registerAgentIpcHandlers', () => {
       };
 
       // Return a promise that resolves to an async iterable
-      global.eval = vi.fn().mockResolvedValue({
-        streamMastraAgent: vi.fn().mockResolvedValue(mockAsyncIterator),
+      const streamMastraAgent = vi.fn().mockResolvedValue(mockAsyncIterator);
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent,
         webTools: {},
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -202,10 +206,12 @@ describe('registerAgentIpcHandlers', () => {
         },
       };
 
-      global.eval = vi.fn().mockResolvedValue({
-        streamMastraAgent: vi.fn().mockReturnValue(mockAsyncIterator),
+      const streamMastraAgent = vi.fn().mockReturnValue(mockAsyncIterator);
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent,
         webTools: {},
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -251,10 +257,12 @@ describe('registerAgentIpcHandlers', () => {
         },
       };
 
-      global.eval = vi.fn().mockResolvedValue({
-        streamMastraAgent: vi.fn().mockReturnValue(mockAsyncIterator),
+      const streamMastraAgent = vi.fn().mockReturnValue(mockAsyncIterator);
+      const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g.__agentModule = {
+        streamMastraAgent,
         webTools: {},
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -284,10 +292,11 @@ describe('registerAgentIpcHandlers', () => {
         }),
       });
 
-      global.eval = vi.fn().mockResolvedValue({
+      const g1 = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g1.__agentModule = {
         streamMastraAgent: mockStreamMastraAgent,
         webTools: { tool1: {}, tool2: {} },
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
@@ -335,10 +344,11 @@ describe('registerAgentIpcHandlers', () => {
         }),
       });
 
-      global.eval = vi.fn().mockResolvedValue({
+      const g2 = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
+      g2.__agentModule = {
         streamMastraAgent: mockStreamMastraAgent,
         webTools: {},
-      });
+      } as unknown as typeof import('@brainstrike/agent');
 
       const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');

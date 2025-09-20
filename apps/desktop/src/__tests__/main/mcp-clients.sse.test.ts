@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { disposeClients, getClient, initClients } from '../../mcp-clients';
+import { disposeClients, getClient, initClients } from '../../mcp';
 
 describe('mcp-clients (sse)', () => {
   afterEach(async () => {

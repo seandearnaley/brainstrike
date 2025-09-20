@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
-import { disposeClients, initClients } from '../../mcp-clients';
+import { disposeClients, initClients } from '../../mcp';
 import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -32,7 +32,7 @@ vi.mock('../../mcp-loader', () => ({
   watchMcpConfig: vi.fn(),
 }));
 
-vi.mock('../../mcp-clients', () => ({
+vi.mock('../../mcp', () => ({
   initClients: vi.fn(),
   disposeClients: vi.fn(),
 }));

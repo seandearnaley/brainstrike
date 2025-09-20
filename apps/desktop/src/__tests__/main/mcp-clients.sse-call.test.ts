@@ -1,6 +1,6 @@
 import http from 'node:http';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
-import { disposeClients, getClient, initClients } from '../../mcp-clients';
+import { disposeClients, getClient, initClients } from '../../mcp';
 
 let server: http.Server;
 let port = 0;

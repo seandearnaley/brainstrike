@@ -1,4 +1,7 @@
-import type { AssistantUiMessage, RuntimeData } from '@brainstrike/agent';
+import type {
+  AssistantUiMessageStrict as AssistantUiMessage,
+  RuntimeData,
+} from '@brainstrike/agent';
 import { convertAssistantUiMessages, toAiSdkStyleStream, webTools } from '@brainstrike/agent';
 import { createAssistantStreamResponse } from 'assistant-stream';
 import {

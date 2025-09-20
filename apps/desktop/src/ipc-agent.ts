@@ -44,12 +44,15 @@ export function registerAgentIpcHandlers() {
       messages: AgentMessage[],
       runtime?: RuntimeData
     ): Promise<StreamChunk[]> => {
-      // Dynamic import via eval to avoid bundler/TS resolution issues in tests/build
-      // eslint-disable-next-line no-eval
-      // biome-ignore lint/security/noGlobalEval: Required for dynamic imports in Electron main process
-      const mod = (await eval(
-        "import('@brainstrike/agent')"
-      )) as typeof import('@brainstrike/agent');
+      // Safe load for CommonJS main process with test hook override
+      const injected = (
+        globalThis as {
+          __agentModule?: typeof import('@brainstrike/agent');
+        }
+      ).__agentModule;
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const mod = (injected ??
+        require('@brainstrike/agent')) as typeof import('@brainstrike/agent');
       const out: StreamChunk[] = [];
 
       const config = await loadMcpConfig();
