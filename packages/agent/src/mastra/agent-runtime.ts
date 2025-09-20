@@ -128,6 +128,15 @@ export async function createMastraAgentRuntime(
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
 
+  let combinedTools: ToolsInput = sanitizedLocalTools ? { ...sanitizedLocalTools } : {};
+  if (mcpClient) {
+    const toolsFromClient = (await mcpClient.getTools()) as ToolsInput;
+    const sanitizedMcpTools = sanitizeTools(toolsFromClient, toolNameMap);
+    if (sanitizedMcpTools) {
+      combinedTools = { ...combinedTools, ...sanitizedMcpTools } as ToolsInput;
+    }
+  }
+
   const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
   const agent = new Agent({
     name: 'Brainstrike Assistant',
@@ -139,14 +148,8 @@ When the user requests a documentation summary, call the web.docSummary tool wit
 For echo requests, use the web.echo tool.
 Provide concise answers after using tools.`,
     model: openaiProvider(toOpenAIMode(model)),
-    tools: (sanitizedLocalTools ?? {}) as ToolsInput,
+    tools: combinedTools,
   });
-
-  if (mcpClient) {
-    const toolsFromClient = (await mcpClient.getTools()) as ToolsInput;
-    const sanitizedMcpTools = sanitizeTools(toolsFromClient, toolNameMap);
-    agent.__setTools({ ...(sanitizedLocalTools ?? {}), ...(sanitizedMcpTools ?? {}) });
-  }
 
   return {
     agent,
@@ -208,7 +211,10 @@ export async function streamMastraAgent(
     const result = await runtime.agent.stream(mastraMessages);
     console.info('[MastraAgent] stream started');
 
-    const stream = result.fullStream;
+    const stream = await result.fullStream;
+    if (!stream) {
+      throw new Error('mastra_agent_empty_stream');
+    }
     const toolNames = new Map<string, string>();
 
     const getDeltaText = (p: unknown): string => {
