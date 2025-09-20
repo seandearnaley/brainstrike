@@ -15,8 +15,12 @@ export function toJsonSafe(value: unknown, seen: WeakSet<object> = new WeakSet()
     return value.toISOString();
   }
 
-  if (Buffer?.isBuffer?.(value)) {
-    return serializeBuffer(value);
+  if (
+    typeof Buffer !== 'undefined' &&
+    typeof Buffer.isBuffer === 'function' &&
+    Buffer.isBuffer(value)
+  ) {
+    return serializeBuffer(value as Buffer);
   }
 
   if (ArrayBuffer.isView(value)) {

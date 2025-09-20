@@ -24,6 +24,28 @@ export interface MastraAgentRuntime {
 
 const logger = createLogger('MastraAgent');
 
+function resolveOpenAIApiKey(runtime?: RuntimeData): string | undefined {
+  if (runtime?.apiKey && typeof runtime.apiKey === 'string' && runtime.apiKey.trim()) {
+    return runtime.apiKey;
+  }
+
+  if (typeof process !== 'undefined') {
+    const env = process.env ?? {};
+    const fromEnv =
+      env['OPENAI_API_KEY'] ??
+      env['AI_OPENAI_API_KEY'] ??
+      env['OPENAI_API_KEY_V1'] ??
+      env['OPENAI_API_KEY_V2'] ??
+      null;
+    const trimmed = fromEnv?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+
+  return undefined;
+}
+
 function toOpenAIMode(model?: string): string {
   return model && model.length > 0 ? model : 'gpt-4o-mini';
 }
@@ -103,26 +125,77 @@ function sanitizeTools(
   map: Map<string, string>
 ): ToolsInput | undefined {
   if (!tools) return undefined;
+
   const sanitized: ToolsInput = {};
+  const usedNames = new Set<string>(map.keys());
+
   for (const [name, tool] of Object.entries(tools)) {
-    const sanitizedName = name.replace(/[^a-zA-Z0-9_-]/g, '_');
-    map.set(sanitizedName, name);
-    if (sanitizedName !== name) {
+    const baseName = sanitizeToolNameBase(name);
+    const uniqueName = ensureUniqueSanitizedName(baseName, name, usedNames);
+
+    map.set(uniqueName, name);
+
+    if (uniqueName !== name) {
       const cloned = Object.assign(Object.create(Object.getPrototypeOf(tool)), tool);
-      cloned.id = sanitizedName;
-      sanitized[sanitizedName] = cloned;
+      cloned.id = uniqueName;
+      sanitized[uniqueName] = cloned;
     } else {
-      sanitized[name] = tool;
+      sanitized[uniqueName] = tool;
     }
   }
+
   return sanitized;
+}
+
+function sanitizeToolNameBase(name: string): string {
+  const sanitized = name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  if (sanitized.trim().length > 0) {
+    return sanitized;
+  }
+  return 'tool';
+}
+
+function ensureUniqueSanitizedName(
+  baseName: string,
+  originalName: string,
+  usedNames: Set<string>
+): string {
+  if (!usedNames.has(baseName)) {
+    usedNames.add(baseName);
+    return baseName;
+  }
+
+  const hash = createStableHashSuffix(originalName);
+  let candidate = `${baseName}_${hash}`;
+  if (!usedNames.has(candidate)) {
+    usedNames.add(candidate);
+    return candidate;
+  }
+
+  let counter = 1;
+  while (true) {
+    candidate = `${baseName}_${hash}_${counter}`;
+    if (!usedNames.has(candidate)) {
+      usedNames.add(candidate);
+      return candidate;
+    }
+    counter += 1;
+  }
+}
+
+function createStableHashSuffix(value: string): string {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
   const { runtime, instructions, model, mcpConfig, tools: localTools } = options;
-  const apiKey = (runtime as unknown as { apiKey?: string })?.apiKey;
+  const apiKey = resolveOpenAIApiKey(runtime);
 
   const servers = toMastraServerMap(mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
@@ -186,7 +259,7 @@ export async function streamMastraAgent(
     throw new Error(message);
   };
 
-  const apiKey = (runtimeData as RuntimeData | undefined)?.apiKey;
+  const apiKey = resolveOpenAIApiKey(runtimeData);
   if (!apiKey) {
     logger.error('Missing API key; aborting stream');
     return fail('missing_api_key');

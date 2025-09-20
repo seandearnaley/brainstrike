@@ -187,4 +187,30 @@ describe('mastra streaming integration', () => {
     expect(runtime.toolNameMap.get('local_tool')).toBe('local tool');
     expect(runtime.toolNameMap.get('remote_tool')).toBe('remote tool');
   });
+
+  it('keeps tools distinct when sanitized ids would otherwise collide', async () => {
+    const runtime = await createMastraAgentRuntime({
+      runtime: { apiKey: 'key' },
+      tools: {
+        'web.search': {
+          id: 'web.search',
+          description: 'first',
+        },
+        'web/search': {
+          id: 'web/search',
+          description: 'second',
+        },
+      },
+    });
+
+    const agentConfig = agentInstances[0]?.config.tools ?? {};
+    const sanitizedNames = Object.keys(agentConfig);
+
+    expect(new Set(sanitizedNames).size).toBe(2);
+    expect(runtime.toolNameMap.get('web_search')).toBe('web.search');
+
+    const collisionResolvedName = sanitizedNames.find((value) => value !== 'web_search');
+    expect(collisionResolvedName).toBeDefined();
+    expect(runtime.toolNameMap.get(collisionResolvedName as string)).toBe('web/search');
+  });
 });
