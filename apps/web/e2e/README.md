@@ -2,7 +2,7 @@
 
 This directory contains end-to-end tests using Playwright for the Brainstrike web application.
 
-For general Playwright guidelines see [docs/e2e-guidelines.md](../../../docs/e2e-guidelines.md).
+For general Playwright guidance see [docs/playwright-ci-optimization.md](../../../docs/playwright-ci-optimization.md).
 
 ## Running Tests
 

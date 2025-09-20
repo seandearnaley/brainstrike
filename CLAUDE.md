@@ -137,6 +137,19 @@ The `pnpm check` command runs comprehensive validation:
 
 Always run this before submitting changes.
 
+# TypeScript Standards for Our Project
+
+## Type safety
+- strict mode and `noImplicitAny: true` in tsconfig.
+- **Never use `any`.** It defeats type checking and hides errors. If a type cannot be inferred, use `unknown` and narrow it with type guards.
+- Always annotate function parameters, return types and object literals.
+
+## Utility types and patterns
+- Prefer utility types (`Partial`, `Pick`, etc.) over handcrafted `any` patches.
+- Use discriminated unions instead of enums for better exhaustiveness checking.
+- Use generics with constraints for reusable functions.
+
+Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
 
 ALWAYS CONSULT THE WEB FOR BEST PRACTICES WITH THE TECHNOLOGY STACK.
 

@@ -3,8 +3,7 @@
 ## Project Structure & Modules
 - Monorepo managed by Turborepo and pnpm.
 - Apps in `apps/`: `web` (React/Vite) and `desktop` (Electron).
-- Shared packages in `packages/`: UI (`@brainstrike/ui`), hooks, utils, types, app-shell, file-explorer*, storage, file-system, config, tailwind-config, server-config, test-utils.
-- Tests are co-located with sources (e.g., `component.tsx` + `component.test.tsx`).
+- Shared packages in `packages/`
 
 ## Build, Test, Development
 - Install deps: `pnpm install`
@@ -17,11 +16,10 @@
 
 ## Coding Style & Naming
 - TypeScript strict; React 19+ with hooks; Tailwind v4.
-- Indentation: 2 spaces; keep imports/tooling defaults; no stray console logs in prod.
 - Filenames: kebab-case (`file-explorer.tsx`, `utility-functions.ts`).
 - Components: PascalCase exports; file remains kebab-case.
 - Hooks: file `use-kebab-case.ts`; export camelCase (`useDataFetcher`).
-- Reuse shared packages (`@brainstrike/ui`, `@brainstrike/hooks`, `@brainstrike/utils`, `@brainstrike/types`).
+- Reuse shared packages.
 
 ## Testing Guidelines
 - Frameworks: Vitest (unit/integration), Playwright (E2E in `apps/web`).
@@ -39,3 +37,29 @@
 - Fail fast. No defensive fallbacks or “temporary” workarounds.
 - Never downgrade to pass builds; fix root causes properly.
 - Use `pnpm turbo run <script> --filter <pkg>` for targeted workflows.
+
+- Do not start dev servers (`dev`, `start`, `serve`) unless explicitly asked. Assume the app/server is running.
+- Playwright: run headless; do not modify `playwright.config.*`. Prefer role/text/`data-testid` selectors over CSS.
+- Vitest: run per package via `pnpm turbo run test --filter <pkg>`; do not modify `vitest.config.*`.
+- Turborepo: prefer `pnpm turbo run <task>` with `--filter` to leverage caching; avoid repo-wide runs unless requested.
+- Vite: use per-package `cacheDir`; never share caches across apps/packages to avoid optimize-deps drift.
+- Tailwind v4: ensure scanning of `apps/*/src` and `packages/*/src`; avoid excluding them in deploy ignores.
+- TypeScript: keep build `compilerOptions.types` explicit (e.g., `["node"]`); do not include test-only types in build configs.
+- React compiler/HMR: follow repo rule `react-compiler-and-hmr`; avoid changing hook order/memo shapes; reload on drift.
+- Do not edit shared configs (`tailwind.config.*`, `tsconfig.*`, `turbo.jsonc`) without explicit instruction.
+- No Implicit fallbacks unless explicitly requested/needed.
+- Always timestamp documentation filenames with the date it was written.
+
+# TypeScript Standards for Our Project
+
+## Type safety
+- strict mode and `noImplicitAny: true` in tsconfig.
+- **Never use `any`.** It defeats type checking and hides errors. If a type cannot be inferred, use `unknown` and narrow it with type guards.
+- Always annotate function parameters, return types and object literals.
+
+## Utility types and patterns
+- Prefer utility types (`Partial`, `Pick`, etc.) over handcrafted `any` patches.
+- Use discriminated unions instead of enums for better exhaustiveness checking.
+- Use generics with constraints for reusable functions.
+
+Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
