@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMastraAgentRuntime, streamMastraAgent } from '../mastra/agent-runtime';
 
 const agentInstances: Array<{
-  config: { tools?: Record<string, unknown> };
-  tools?: Record<string, unknown>;
+  config: { tools: Record<string, unknown> };
+  tools: Record<string, unknown>;
 }> = [];
 const mcpInstances: unknown[] = [];
 let streamParts: unknown[] = [];
@@ -24,12 +24,13 @@ vi.mock('@mastra/core/agent', () => {
         agentInstances.length = 0;
       }
 
-      config: { tools?: Record<string, unknown> };
-      tools?: Record<string, unknown>;
+      config: { tools: Record<string, unknown> };
+      tools: Record<string, unknown>;
 
       constructor(config: { tools?: Record<string, unknown> }) {
-        this.config = config;
-        this.tools = config.tools;
+        const tools = (config.tools ?? {}) as Record<string, unknown>;
+        this.config = { tools };
+        this.tools = tools;
         agentInstances.push(this);
       }
 
