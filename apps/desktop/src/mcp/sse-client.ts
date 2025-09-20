@@ -211,6 +211,9 @@ export function createSseClient(server: Extract<McpServer, { transport: 'sse' }>
     }
   }
 
+  // Establish SSE reader eagerly to avoid missing early server events
+  void startReader();
+
   return {
     name: server.name,
     transport: 'sse',
