@@ -44,5 +44,27 @@ declare global {
       // Database path method (legacy)
       getUserDataPath: () => Promise<string>;
     };
+    secrets: {
+      saveKey: (
+        provider: string,
+        value: string
+      ) => Promise<true | { ok: false; error: 'encryption_unavailable' | 'unknown_error' }>;
+      getKey: (provider: string) => Promise<string | null>;
+      deleteKey: (provider: string) => Promise<boolean>;
+      list: () => Promise<string[]>;
+    };
+    agent: {
+      chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    mcp: {
+      getConfig: () => Promise<{
+        path: string;
+        exists: boolean;
+        servers?: { name: string; transport: 'stdio' | 'sse' }[];
+        loadedAt?: number;
+      }>;
+      watch: () => Promise<{ watching: boolean }>;
+      unwatch: () => Promise<{ watching: false }>;
+    };
   }
 }

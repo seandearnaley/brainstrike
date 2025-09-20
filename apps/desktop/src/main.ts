@@ -3,11 +3,16 @@ import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { app, BrowserWindow, dialog, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import ElectronStore from 'electron-store';
+import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
 import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
+import { registerMcpIpcHandlers } from './ipc-mcp';
+import { registerSecretsIpcHandlers } from './ipc-secrets';
+import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 
 const logger = createLogger('DesktopMain');
@@ -37,9 +42,13 @@ const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
 
 logger.info('Setting up IPC handlers...');
 registerIpcHandlers(fileSystem, storage, store);
+registerSecretsIpcHandlers(createSecretsService());
+registerAgentIpcHandlers();
+registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
 
 let stopEmbeddingWorker: null | (() => Promise<void>) = null;
+let stopAssistantServer: null | (() => Promise<void>) = null;
 
 app.whenReady().then(async () => {
   try {
@@ -143,6 +152,20 @@ app.whenReady().then(async () => {
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
+    // Start local assistant-stream server for desktop assistant-ui
+    let assistantUrl = '';
+    try {
+      const { url, stop } = await startAssistantServer();
+      assistantUrl = url;
+      stopAssistantServer = stop;
+      logger.info(`Assistant server started at ${assistantUrl}`);
+    } catch (err) {
+      logger.error('Failed to start assistant server:', err);
+    }
+
+    // IPC to provide assistant URL to renderer
+    ipcMain.handle('assistant:get-url', () => assistantUrl);
+
     logger.info('Creating main window...');
     await createWindow();
     logger.info('Main window created successfully');
@@ -166,6 +189,10 @@ app.on('before-quit', async () => {
     if (stopEmbeddingWorker) {
       await stopEmbeddingWorker();
       stopEmbeddingWorker = null;
+    }
+    if (stopAssistantServer) {
+      await stopAssistantServer();
+      stopAssistantServer = null;
     }
     await closeDatabase();
   } catch (error) {
