@@ -1,5 +1,5 @@
 // Electron preload script - must use CommonJS syntax
-const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { PanelPersistenceState } from '@brainstrike/ui';
@@ -44,39 +44,4 @@ contextBridge.exposeInMainWorld('secrets', {
   list: () => ipcRenderer.invoke('secrets:list'),
 });
 
-// Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
-contextBridge.exposeInMainWorld('agent', {
-  chat: (messages: unknown[], runtime?: unknown) =>
-    ipcRenderer.invoke('agent:chat', messages, runtime),
-});
-
-// MCP Config API (desktop-only)
-contextBridge.exposeInMainWorld('mcp', {
-  getConfig: () => ipcRenderer.invoke('mcp:config:get'),
-  watch: () => ipcRenderer.invoke('mcp:config:watch'),
-  unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
-});
-
-// Assistant UI (data stream) endpoint helper
-contextBridge.exposeInMainWorld('assistant', {
-  getUrl: () => ipcRenderer.invoke('assistant:get-url'),
-});
-
-// System Clipboard helper (renderer-friendly)
-contextBridge.exposeInMainWorld('clipboard', {
-  writeText: (text: string) => {
-    try {
-      clipboard.writeText(String(text ?? ''));
-      return true;
-    } catch {
-      return false;
-    }
-  },
-  readText: () => {
-    try {
-      return clipboard.readText();
-    } catch {
-      return '';
-    }
-  },
-});
+// (Intentionally no other bridges; secrets only for this extraction)

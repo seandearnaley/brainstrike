@@ -53,18 +53,6 @@ declare global {
       deleteKey: (provider: string) => Promise<boolean>;
       list: () => Promise<string[]>;
     };
-    agent: {
-      chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
-    };
-    mcp: {
-      getConfig: () => Promise<{
-        path: string;
-        exists: boolean;
-        servers?: { name: string; transport: 'stdio' | 'sse' }[];
-        loadedAt?: number;
-      }>;
-      watch: () => Promise<{ watching: boolean }>;
-      unwatch: () => Promise<{ watching: false }>;
-    };
+    // (no agent/mcp typing in this extraction)
   }
 }
