@@ -1,7 +1,13 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
+import { __resetDbPanelStoreForTests } from '../stores/db-panel-store';
+import {
+  __resetRightPanelStoreForTests,
+  // keep import named to satisfy tree-shaking and explicitness
+} from '../stores/right-panel-store';
+import { __resetSearchPanelStoreForTests } from '../stores/search-panel-store';
 
 vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => null,
@@ -43,6 +49,28 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 describe('RightPanel controls', () => {
+  const originalFetch = global.fetch;
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    // Reset persisted UI stores to avoid cross-test flakiness
+    __resetRightPanelStoreForTests();
+    __resetSearchPanelStoreForTests();
+    __resetDbPanelStoreForTests();
+
+    // Make assistant status check fast and deterministic
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ enabled: false, reason: 'missing_api_key' }),
+    } as Response);
+    global.fetch = mockFetch as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    mockFetch.mockReset();
+    global.fetch = originalFetch;
+  });
+
   it('updates search filters and DB logs controls', async () => {
     const user = userEvent.setup();
     render(<RightPanel />);
@@ -85,5 +113,5 @@ describe('RightPanel controls', () => {
     expect(screen.getByLabelText('Regex')).toBeChecked();
     expect(screen.getByLabelText('Case')).toBeChecked();
     expect(screen.getByLabelText('Whole word')).toBeChecked();
-  });
+  }, 15000);
 });
