@@ -32,22 +32,22 @@
     "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
-    "gpt-tokenizer": "^3.0.1",
-    "@brainstrike/types": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
+    "@brainstrike/types": "workspace:*",
+    "gpt-tokenizer": "^3.0.1",
     "minimatch": "^10"
   },
   "devDependencies": {
-    "@swc/core": "^1.13.3",
-    "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",
+    "@stryker-mutator/core": "^9.1.1",
+    "@stryker-mutator/typescript-checker": "^9.1.1",
+    "@stryker-mutator/vitest-runner": "^9.1.1",
+    "@swc/core": "^1.13.5",
+    "@types/node": "^24.5.2",
+    "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4",
-    "rimraf": "^6.0.1",
-    "@stryker-mutator/core": "^9.0.1",
-    "@stryker-mutator/vitest-runner": "^9.0.1",
-    "@stryker-mutator/typescript-checker": "^9.0.1"
+    "vitest": "^3.2.4"
   },
   "publishConfig": {
     "access": "public"

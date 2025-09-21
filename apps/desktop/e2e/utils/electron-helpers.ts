@@ -28,17 +28,26 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   return { app: stableApp, window };
 }
 
+// Use a random port to avoid conflicts when restarting apps in tests
+let debugPort = 9222;
+function getNextDebugPort(): number {
+  // Use a range of ports to avoid conflicts
+  debugPort = 9222 + Math.floor(Math.random() * 100);
+  return debugPort;
+}
+
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
+  const port = getNextDebugPort();
   const baseArgs = [
     mainPath,
     '--test-mode',
     '--disable-dialogs',
-    // Ensure a concrete remote debugging port to satisfy some Electron builds
-    '--remote-debugging-port=9222',
+    // Use a dynamic port to avoid conflicts when restarting
+    `--remote-debugging-port=${port}`,
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
@@ -173,27 +182,53 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
     }
     await appContext.app.close();
     console.log('✅ Electron app closed');
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Wait longer to ensure port is fully released
+    // This is especially important when tests restart the app
+    const waitTime = 3000;
+    console.log(`⏱️ Waiting ${waitTime}ms for port cleanup...`);
+    await new Promise((resolve) => setTimeout(resolve, waitTime));
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Still wait even on error to allow cleanup
+    await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 }
 
 export async function waitForAppReady(page: Page): Promise<void> {
   try {
+    // First check if the page is still open
+    if (page.isClosed()) {
+      throw new Error('Page was closed before app could become ready');
+    }
+
     await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
     const isCodex = process.env['CODEX_ENV'] === 'true';
     const baseWaitTime = isCodex ? 3000 : 1000;
     const extendedWaitTime = baseWaitTime + 0; // added 0 to test
     console.log(`⏱️ Waiting ${extendedWaitTime}ms for app to be fully ready...`);
     await page.waitForTimeout(extendedWaitTime);
+
+    // Check again if page is still open before evaluating
+    if (page.isClosed()) {
+      throw new Error('Page was closed while waiting for app to become ready');
+    }
+
     await page.evaluate(() => {
       return document.readyState === 'complete' && window.innerWidth > 0;
     });
     console.log('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
+
+    // Provide more context about the error
+    if (
+      error instanceof Error &&
+      error.message.includes('Target page, context or browser has been closed')
+    ) {
+      throw new Error('App window was closed unexpectedly during initialization');
+    }
+
     throw new Error(`App failed to become ready: ${error}`);
   }
 }

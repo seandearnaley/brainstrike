@@ -5,7 +5,9 @@
     "apps/web": {
       "entry": [
         "index.html", // Entry for the web app
-        "src/main.tsx" // Main entry point
+        "src/main.tsx", // Main entry point
+        "src/app/api/assistant/route.ts", // Assistant API route
+        "src/app/api/assistant/status/route.ts" // Assistant status API route
       ],
       "project": [
         "src/**/*.{ts,tsx}" // Source files
@@ -136,6 +138,9 @@
       }
     },
     "packages/test-utils": {
+      "entry": [
+        "src/test-timeouts.ts" // Used by vitest configs across the monorepo
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
@@ -188,6 +193,9 @@
       }
     },
     "packages/db": {
+      "entry": [
+        "src/cli/queue-cli.ts" // CLI entry point used via pnpm queue script
+      ],
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "typescript": {
@@ -224,7 +232,9 @@
     "scripts/scan-hooks.cjs"
   ],
   // Keep existing global settings
-  "ignoreBinaries": [],
+  "ignoreBinaries": [
+    "sed" // System binary used in package.json scripts
+  ],
   "ignoreDependencies": [
     // These might need re-evaluation after running Knip
     "@monaco-editor/react",

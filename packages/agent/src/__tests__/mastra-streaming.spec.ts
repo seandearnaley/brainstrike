@@ -45,6 +45,20 @@ vi.mock('@mastra/core/agent', () => {
         };
       }
 
+      async streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            for (const part of streamParts) {
+              controller.enqueue(part);
+            }
+            controller.close();
+          },
+        });
+        return {
+          fullStream: stream,
+        } as { fullStream: ReadableStream<unknown> };
+      }
+
       __setTools(tools: Record<string, unknown>) {
         this.tools = tools;
       }
@@ -146,11 +160,11 @@ describe('mastra streaming integration', () => {
   });
 
   it('throws stream_failure when Mastra fullStream resolves to null', async () => {
-    // Override the mock Agent.stream for this test to return a null fullStream
     const { Agent } = await import('@mastra/core/agent');
+    const originalStreamVNext = Agent.prototype.streamVNext;
     // @ts-expect-error – test-only override
-    Agent.prototype.stream = async function stream() {
-      return { fullStream: Promise.resolve(null as unknown as AsyncIterable<unknown>) };
+    Agent.prototype.streamVNext = async function streamVNext() {
+      return { fullStream: null as unknown as ReadableStream<unknown> };
     };
 
     await expect(
@@ -158,6 +172,8 @@ describe('mastra streaming integration', () => {
         runtime: { apiKey: 'test-key' },
       })
     ).rejects.toThrow(/mastra_agent_stream_failure/i);
+
+    Agent.prototype.streamVNext = originalStreamVNext;
   });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({
@@ -214,3 +230,5 @@ describe('mastra streaming integration', () => {
     expect(runtime.toolNameMap.get(collisionResolvedName as string)).toBe('web/search');
   });
 });
+
+import { ReadableStream } from 'node:stream/web';

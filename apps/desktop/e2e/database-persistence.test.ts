@@ -765,10 +765,11 @@ test.describe('Database Persistence', () => {
     // Close and restart the app to test persistence
     await closeElectronApp(appContext);
 
-    // Wait for complete app shutdown and file system sync
-    await new Promise((resolve) => setTimeout(resolve, 8000)); // Increased back to 8 seconds for proper sync
+    // Wait for complete app shutdown and port cleanup
+    // The closeElectronApp already waits 3 seconds, so we only need a bit more
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // Launch a new instance
+    // Launch a new instance with a different debug port
     appContext = await launchElectronApp();
     await waitForAppReady(appContext.window);
     const newPage = appContext.window;

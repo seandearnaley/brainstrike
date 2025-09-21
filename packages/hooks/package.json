@@ -31,25 +31,25 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/workers": "workspace:*",
-    "minimatch": "^10.0.3",
+    "@types/file-saver": "2.0.7",
     "file-saver": "2.0.5",
-    "@types/file-saver": "2.0.7"
+    "minimatch": "^10.0.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   },
   "devDependencies": {
-    "@swc/core": "^1.13.3",
+    "@brainstrike/test-utils": "workspace:*",
+    "@swc/core": "^1.13.5",
     "@testing-library/react": "^16.3.0",
-    "@types/node": "^24.3.0",
+    "@types/node": "^24.5.2",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.0",
-    "jsdom": "^26.1.0",
-    "@brainstrike/test-utils": "workspace:*",
+    "@vitejs/plugin-react": "^5.0.3",
+    "jsdom": "^27.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

@@ -23,16 +23,16 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@brainstrike/types": "workspace:*",
-    "@brainstrike/platform-utils": "workspace:*"
+    "@brainstrike/platform-utils": "workspace:*",
+    "@brainstrike/types": "workspace:*"
   },
   "optionalDependencies": {
     "chokidar": "^4.0.3"
   },
   "devDependencies": {
-    "@types/node": "^24",
+    "@types/node": "^24.5.2",
     "electron": "^37",
-    "jsdom": "^26.1.0",
+    "jsdom": "^27.0.0",
     "tsup": "^8.5.0",
     "typescript": "^5",
     "vitest": "^3.2.4"
