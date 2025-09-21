@@ -29,8 +29,8 @@
       "types": "./dist/index.d.ts"
     },
     "./assistant-ui-panel": {
-      "import": "./dist/assistant-ui-panel/assistant-ui-panel.js",
-      "types": "./dist/assistant-ui-panel/assistant-ui-panel.d.ts"
+      "import": "./dist/assistant-ui-panel/index.js",
+      "types": "./dist/assistant-ui-panel/index.d.ts"
     },
     "./globals.css": "./dist/globals.css",
     "./styles.css": "./styles.css",
