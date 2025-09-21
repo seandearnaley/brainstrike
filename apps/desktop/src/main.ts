@@ -15,6 +15,8 @@ import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 
+app.setName('BrainStrike Desktop');
+
 const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();

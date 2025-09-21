@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isDevEnv } from '@brainstrike/utils';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, nativeImage } from 'electron';
 
 /**
  * Configure security settings for the browser window.
@@ -25,36 +24,57 @@ function configureSecurity(win: BrowserWindow) {
   });
 
   // Security: CSP is handled in setup-security.ts
-  // No CSP configuration here to avoid conflicts
 }
 
-/**
- * Load built renderer files in production.
- */
-function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
-  if (isDevEnv()) {
+function firstExistingPath(candidates: string[]): string | null {
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
+
+function resolveBuildPath(relative: string): string | null {
+  const candidates = [
+    path.join(app.getAppPath(), 'build', relative),
+    path.join(__dirname, '../build', relative),
+    path.join(process.cwd(), 'apps/desktop/build', relative),
+  ];
+  return firstExistingPath(candidates);
+}
+
+async function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
+  const forcedUrl = getForcedDevUrl();
+  if (forcedUrl) {
+    await win.loadURL(forcedUrl);
+    return;
   }
   win.loadFile(rendererPath);
 }
 
-/**
- * Connect to Vite dev server in development.
- */
+function getForcedDevUrl(): string | null {
+  const envUrl = process.env['DESKTOP_DEV_SERVER_URL'];
+  if (envUrl && /^https?:\/\//.test(envUrl)) return envUrl;
+  const arg = process.argv.find((a) => a.startsWith('--dev-url='));
+  if (arg) {
+    const url = arg.slice('--dev-url='.length);
+    if (/^https?:\/\//.test(url)) return url;
+  }
+  return null;
+}
+
 async function connectToDevServer(win: BrowserWindow) {
-  if (isDevEnv()) {
+  const forcedUrl = getForcedDevUrl();
+  if (forcedUrl) {
+    await win.loadURL(forcedUrl);
+    return;
   }
 
-  const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
-
+  const devPorts = [8081, 8082, 8083];
   for (const port of devPorts) {
     try {
       await win.loadURL(`http://localhost:${port}`);
-      if (isDevEnv()) {
-      }
       return;
     } catch (error) {
-      if (isDevEnv()) {
-      }
       if (port === devPorts[devPorts.length - 1]) {
         throw error;
       }
@@ -62,31 +82,27 @@ async function connectToDevServer(win: BrowserWindow) {
   }
 }
 
-/**
- * Load the renderer content (either built files or dev server).
- */
 async function loadRenderer(win: BrowserWindow) {
   const rendererPath = path.join(__dirname, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
   if (app.isPackaged || hasBuiltRenderer) {
-    loadProductionRenderer(win, rendererPath);
+    await loadProductionRenderer(win, rendererPath);
   } else {
     await connectToDevServer(win);
-    // Open DevTools in development
     win.webContents.openDevTools();
   }
 }
 
-/**
- * Create the main application window and load the appropriate renderer.
- */
 export async function createWindow() {
-  // Check if running in headless mode (for tests) - prefer CI env var over command line flags
-
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
 
-  const win = new BrowserWindow({
+  const winIconPath =
+    process.platform === 'win32'
+      ? resolveBuildPath('icon.ico')
+      : resolveBuildPath(path.join('icons', '256x256.png'));
+
+  const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1536,
     height: 800,
     minWidth: 800,
@@ -102,9 +118,28 @@ export async function createWindow() {
     },
     titleBarStyle: 'default',
     show: false,
-  });
+  };
 
-  // Show window when ready (unless in headless mode)
+  if (process.platform !== 'darwin' && winIconPath) {
+    windowOptions.icon = winIconPath;
+  }
+
+  const win = new BrowserWindow(windowOptions);
+
+  if (process.platform === 'darwin') {
+    const dockIcns = resolveBuildPath('icon.icns');
+    if (dockIcns) {
+      const nimg = nativeImage.createFromPath(dockIcns);
+      if (!nimg.isEmpty()) {
+        app.dock?.setIcon(nimg);
+        win.once('ready-to-show', () => {
+          const nimg2 = nativeImage.createFromPath(dockIcns);
+          if (!nimg2.isEmpty()) app.dock?.setIcon(nimg2);
+        });
+      }
+    }
+  }
+
   if (!isHeadless) {
     win.once('ready-to-show', () => {
       win.show();

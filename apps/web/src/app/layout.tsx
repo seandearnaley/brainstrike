@@ -27,6 +27,9 @@ export default function RootLayout({
         <link rel="icon" type="image/png" sizes="512x512" href={icon512} />
         <link rel="shortcut icon" href="/favicon.ico" />
         <link rel="apple-touch-icon" href={appleTouchIcon} />
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/favicon.ico" media="(prefers-color-scheme: dark)" />
+        <link rel="icon" href="/favicon-light.ico" media="(prefers-color-scheme: light)" />
       </head>
       <body>
         <RouterProvider>{children}</RouterProvider>
