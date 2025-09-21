@@ -24,7 +24,8 @@ test.describe('IPC Communication', () => {
 
   test.afterEach(async () => {
     try {
-      if (appContext?.window && !appContext.window.isClosed()) {
+      // Always attempt cleanup when an app context exists, regardless of window state
+      if (appContext) {
         await closeElectronApp(appContext);
       }
     } catch (error) {
