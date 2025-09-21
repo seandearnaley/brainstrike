@@ -68,7 +68,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
 - **Build & Orchestration**:
   - **Turborepo `2.5.5`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
-  - **pnpm `10.14.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
+  - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
   - **Node.js `v22`**: Specified in [`.nvmrc`](./.nvmrc). Use `nvm use` to switch.
   - **TypeScript `5.9.2`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
@@ -116,7 +116,7 @@ pnpm manages dependencies efficiently within the monorepo structure defined in [
 - **Root `package.json`**:
   - Defines scripts that use `turbo run ...` to execute tasks across workspaces (e.g., `pnpm build` runs `turbo run build`).
   - Lists root-level `devDependencies` essential for the monorepo tooling (turbo, biome, typescript, commitlint, knip, nyc).
-  - Specifies the exact `packageManager` version (`pnpm@10.14.0`).
+  - Specifies the exact `packageManager` version (`pnpm@10.17.0`).
   - `workspaces` field mirrors `pnpm-workspace.yaml`.
   - `pnpm.onlyBuiltDependencies` might optimize installations for certain native packages.
 
