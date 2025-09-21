@@ -2,7 +2,9 @@
   "name": "@brainstrike/build-utils",
   "version": "0.1.0",
   "private": true,
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -14,7 +16,9 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist/**"],
+  "files": [
+    "dist/**"
+  ],
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "clean": "rm -rf dist",
@@ -28,13 +32,15 @@
     "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^24.3.0",
     "@brainstrike/test-utils": "workspace:*",
+    "@types/node": "^24.5.2",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
   },
   "turbo": {
-    "outputs": ["dist/**"]
+    "outputs": [
+      "dist/**"
+    ]
   }
 }

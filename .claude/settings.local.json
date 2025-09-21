@@ -54,7 +54,9 @@
       "Bash(pnpm test:e2e:*)",
       "Bash(npx nyc report:*)",
       "Bash(npx c8 report:*)",
-      "Bash(pnpm --filter @brainstrike/desktop run coverage:enforce)"
+      "Bash(pnpm --filter @brainstrike/desktop run coverage:enforce)",
+      "Bash(sed:*)",
+      "Bash(pnpm -w lint --max-diagnostics=50 --filter=@brainstrike/agent)"
     ],
     "deny": [],
     "ask": []

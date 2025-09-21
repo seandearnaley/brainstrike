@@ -1,3 +1,4 @@
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createLogger } from '@brainstrike/utils';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
@@ -193,6 +194,24 @@ function createStableHashSuffix(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
+async function* readableStreamIterator<T>(
+  stream: NodeReadableStream<T> | ReadableStream<T>
+): AsyncIterableIterator<T> {
+  const webStream = stream as ReadableStream<T>;
+  const reader = webStream.getReader();
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value !== undefined) {
+        yield value;
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
@@ -325,27 +344,54 @@ export async function streamMastraAgent(
   const mastraMessages = convertMessagesToMastra(messages);
 
   try {
-    const result = await runtime.agent.stream(mastraMessages);
+    const streamInput = mastraMessages as unknown as Parameters<
+      typeof runtime.agent.streamVNext
+    >[0];
+    const result = await runtime.agent.streamVNext(streamInput);
     logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
-    const stream = await result.fullStream;
+    const stream = result.fullStream;
     if (!stream) {
       throw new Error('mastra_agent_empty_stream');
     }
     const toolNames = new Map<string, string>();
 
     const getDeltaText = (p: unknown): string => {
-      const part = p as { text?: string; textDelta?: string; delta?: string };
-      return part.text ?? part.textDelta ?? part.delta ?? '';
+      const part = p as {
+        text?: string;
+        textDelta?: string;
+        delta?: string;
+        payload?: { text?: string; textDelta?: string; delta?: string };
+      };
+      const payloadText = part.payload?.text ?? part.payload?.textDelta ?? part.payload?.delta;
+      return part.text ?? part.textDelta ?? part.delta ?? payloadText ?? '';
+    };
+
+    type UsageLike = {
+      promptTokens?: number;
+      completionTokens?: number;
+      inputTokens?: number;
     };
 
     const makeFinishChunk = (p: unknown): StreamChunk => {
-      const part = p as { usage?: { promptTokens?: number; completionTokens?: number } };
-      const promptTokens = Number.isFinite(part.usage?.promptTokens)
-        ? (part.usage?.promptTokens as number)
-        : 0;
-      const completionTokens = Number.isFinite(part.usage?.completionTokens)
-        ? (part.usage?.completionTokens as number)
+      const part = p as {
+        usage?: UsageLike;
+        payload?: {
+          output?: { usage?: UsageLike };
+          metadata?: { usage?: UsageLike };
+          stepResult?: { reason?: string };
+        };
+      };
+      const usageCandidates: Array<UsageLike | undefined> = [
+        part.usage,
+        part.payload?.output?.usage,
+        part.payload?.metadata?.usage,
+      ];
+      const usage = usageCandidates.find((candidate) => candidate !== undefined) ?? {};
+      const promptTokensRaw = usage.promptTokens ?? usage.inputTokens;
+      const promptTokens = Number.isFinite(promptTokensRaw) ? (promptTokensRaw as number) : 0;
+      const completionTokens = Number.isFinite(usage.completionTokens)
+        ? (usage.completionTokens as number)
         : 0;
       return {
         type: 'message-finish',
@@ -355,43 +401,86 @@ export async function streamMastraAgent(
       } as StreamChunk;
     };
 
+    const readTripwireReason = (p: unknown): string | undefined => {
+      const part = p as { tripwireReason?: string; payload?: { tripwireReason?: string } };
+      return part.tripwireReason ?? part.payload?.tripwireReason;
+    };
+
+    const processStreamPart = function* (
+      part: unknown,
+      toolNames: Map<string, string>,
+      sanitizedNameMap?: Map<string, string>
+    ): Generator<StreamChunk, boolean> {
+      const partType = (part as { type: string }).type;
+
+      switch (partType) {
+        case 'text-delta': {
+          const delta = getDeltaText(part);
+          if (delta.length > 0) {
+            yield { type: 'text-delta', value: delta } as StreamChunk;
+          }
+          return false;
+        }
+        case 'finish': {
+          yield makeFinishChunk(part);
+          return true;
+        }
+        case 'tool-call':
+        case 'tool-call-input-streaming-start':
+        case 'tool-call-delta':
+        case 'tool-call-input-streaming-end':
+        case 'tool-result':
+        case 'tool-error':
+        case 'tool-output': {
+          const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
+          if (evt) yield evt;
+          return false;
+        }
+        case 'error': {
+          const payloadCandidate = part as {
+            error?: unknown;
+            payload?: { error?: unknown };
+          };
+          yield {
+            type: 'tool-event',
+            name: 'agent',
+            status: 'error',
+            payload: {
+              error:
+                payloadCandidate.error ?? payloadCandidate.payload?.error ?? 'agent_stream_error',
+            },
+          } as StreamChunk;
+          return false;
+        }
+        case 'tripwire': {
+          const reason = readTripwireReason(part);
+          yield {
+            type: 'tool-event',
+            name: 'agent',
+            status: 'error',
+            payload: { error: reason ?? 'tripwire' },
+          } as StreamChunk;
+          yield makeFinishChunk(part);
+          return true;
+        }
+        default:
+          return false;
+      }
+    };
+
     async function* iterate(): AsyncIterableIterator<StreamChunk> {
       try {
-        for await (const part of stream as AsyncIterable<unknown>) {
-          switch ((part as { type: string }).type) {
-            case 'text-delta': {
-              const delta = getDeltaText(part);
-              if (delta.length > 0) yield { type: 'text-delta', value: delta } as StreamChunk;
-              break;
-            }
-            case 'finish': {
-              yield makeFinishChunk(part);
-              return;
-            }
-            case 'tool-call':
-            case 'tool-call-input-streaming-start':
-            case 'tool-call-delta':
-            case 'tool-call-input-streaming-end':
-            case 'tool-result':
-            case 'tool-error':
-            case 'tool-output': {
-              const evt = mapMastraToolEvent(part, toolNames, sanitizedNameMap);
-              if (evt) yield evt;
-              break;
-            }
-            case 'error': {
-              const p = part as { error: unknown };
-              yield {
-                type: 'tool-event',
-                name: 'agent',
-                status: 'error',
-                payload: { error: p.error },
-              } as StreamChunk;
-              break;
-            }
-            default:
-              // ignore other parts
-              break;
+        for await (const part of readableStreamIterator(stream)) {
+          const generator = processStreamPart(part, toolNames, sanitizedNameMap);
+          let result = generator.next();
+
+          while (!result.done) {
+            yield result.value;
+            result = generator.next();
+          }
+
+          if (result.value) {
+            return;
           }
         }
       } finally {

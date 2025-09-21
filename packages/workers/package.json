@@ -34,7 +34,7 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@types/node": "^24",
+    "@types/node": "^24.5.2",
     "rimraf": "^6",
     "typescript": "^5",
     "vitest": "^3"
