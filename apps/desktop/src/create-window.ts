@@ -2,6 +2,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { app, BrowserWindow, nativeImage } from 'electron';
 
+function logDebug(message: string, meta?: unknown) {
+  if (process.env['DEBUG_DESKTOP_ICONS'] === '1') {
+    // eslint-disable-next-line no-console
+    console.log(`[DesktopIcons] ${message}`, meta ?? '');
+  }
+}
+
 /**
  * Configure security settings for the browser window.
  */
@@ -43,7 +50,9 @@ function resolveBuildPath(relative: string): string | null {
     path.join(__dirname, '../build', relative),
     path.join(process.cwd(), 'apps/desktop/build', relative),
   ];
-  return firstExistingPath(candidates);
+  const resolved = firstExistingPath(candidates);
+  logDebug(`resolveBuildPath(${relative})`, { candidates, resolved });
+  return resolved;
 }
 
 async function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
