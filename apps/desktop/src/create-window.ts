@@ -110,11 +110,6 @@ async function loadRenderer(win: BrowserWindow) {
 export async function createWindow() {
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
 
-  const winIconPath =
-    process.platform === 'win32'
-      ? resolveBuildPath('icon.ico')
-      : resolveBuildPath(path.join('icons', '256x256.png'));
-
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
     width: 1536,
     height: 800,
@@ -132,11 +127,6 @@ export async function createWindow() {
     titleBarStyle: 'default',
     show: false,
   };
-
-  // Set icon only in packaged apps on non-mac platforms
-  if (process.platform !== 'darwin' && app.isPackaged && winIconPath) {
-    windowOptions.icon = winIconPath;
-  }
 
   const win = new BrowserWindow(windowOptions);
 
