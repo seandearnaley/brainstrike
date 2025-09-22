@@ -133,7 +133,8 @@ export async function createWindow() {
     show: false,
   };
 
-  if (process.platform !== 'darwin' && winIconPath) {
+  // Set icon only in packaged apps on non-mac platforms
+  if (process.platform !== 'darwin' && app.isPackaged && winIconPath) {
     windowOptions.icon = winIconPath;
   }
 
