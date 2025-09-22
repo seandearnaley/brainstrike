@@ -34,8 +34,12 @@ function firstExistingPath(candidates: string[]): string | null {
 }
 
 function resolveBuildPath(relative: string): string | null {
+  const appPath =
+    typeof (app as unknown as { getAppPath?: unknown }).getAppPath === 'function'
+      ? app.getAppPath()
+      : process.cwd();
   const candidates = [
-    path.join(app.getAppPath(), 'build', relative),
+    path.join(appPath, 'build', relative),
     path.join(__dirname, '../build', relative),
     path.join(process.cwd(), 'apps/desktop/build', relative),
   ];

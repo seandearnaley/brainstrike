@@ -15,7 +15,10 @@ import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 
-app.setName('BrainStrike Desktop');
+// Guard: some test environments mock Electron app without setName
+if (typeof (app as unknown as { setName?: unknown }).setName === 'function') {
+  app.setName('BrainStrike Desktop');
+}
 
 const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();
