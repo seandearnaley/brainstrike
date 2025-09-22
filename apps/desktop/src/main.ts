@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
@@ -14,6 +16,25 @@ import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
+
+// Ensure a proper semantic version is exposed via app.getVersion in dev/tests
+(function ensureAppVersion() {
+  const current = app.getVersion?.() as string | undefined;
+  const isSemver = typeof current === 'string' && /^\d+\.\d+\.\d+/.test(current);
+  if (!isSemver) {
+    try {
+      const pkgPath = path.resolve(process.cwd(), 'package.json');
+      const raw = fs.readFileSync(pkgPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { version?: string };
+      const v = parsed.version ?? '';
+      if (v && typeof (app as unknown as { setVersion?: unknown }).setVersion === 'function') {
+        (app as unknown as { setVersion: (version: string) => void }).setVersion(v);
+      }
+    } catch {
+      // Ignore; tests may continue with default version
+    }
+  }
+})();
 
 // Guard: some test environments mock Electron app without setName
 if (typeof (app as unknown as { setName?: unknown }).setName === 'function') {
