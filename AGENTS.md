@@ -63,3 +63,10 @@
 - Use generics with constraints for reusable functions.
 
 Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
+
+
+This file should evolve alongside the repo. Treat it as **living  
+documentation**: update it whenever build commands change, new tools are  
+added or security considerations evolve. Keeping AGENTS.md accurate will  
+ensure that coding agents and human contributors alike can work effectively  
+with the Brainstrike monorepo.

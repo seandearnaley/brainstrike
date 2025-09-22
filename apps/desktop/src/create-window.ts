@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { isDevEnv } from '@brainstrike/utils';
 import { app, BrowserWindow } from 'electron';
 
 /**
@@ -24,16 +23,13 @@ function configureSecurity(win: BrowserWindow) {
     event.preventDefault();
   });
 
-  // Security: CSP is handled in setup-security.ts
-  // No CSP configuration here to avoid conflicts
+  // CSP handled elsewhere
 }
 
 /**
  * Load built renderer files in production.
  */
 function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
-  if (isDevEnv()) {
-  }
   win.loadFile(rendererPath);
 }
 
@@ -41,20 +37,12 @@ function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
  * Connect to Vite dev server in development.
  */
 async function connectToDevServer(win: BrowserWindow) {
-  if (isDevEnv()) {
-  }
-
-  const devPorts = [8081, 8082, 8083]; // Port 8080 is reserved for the web app
-
+  const devPorts = [8081, 8082, 8083];
   for (const port of devPorts) {
     try {
       await win.loadURL(`http://localhost:${port}`);
-      if (isDevEnv()) {
-      }
       return;
     } catch (error) {
-      if (isDevEnv()) {
-      }
       if (port === devPorts[devPorts.length - 1]) {
         throw error;
       }
@@ -73,7 +61,6 @@ async function loadRenderer(win: BrowserWindow) {
     loadProductionRenderer(win, rendererPath);
   } else {
     await connectToDevServer(win);
-    // Open DevTools in development
     win.webContents.openDevTools();
   }
 }
@@ -82,8 +69,6 @@ async function loadRenderer(win: BrowserWindow) {
  * Create the main application window and load the appropriate renderer.
  */
 export async function createWindow() {
-  // Check if running in headless mode (for tests) - prefer CI env var over command line flags
-
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
 
   const win = new BrowserWindow({
@@ -104,7 +89,6 @@ export async function createWindow() {
     show: false,
   });
 
-  // Show window when ready (unless in headless mode)
   if (!isHeadless) {
     win.once('ready-to-show', () => {
       win.show();
