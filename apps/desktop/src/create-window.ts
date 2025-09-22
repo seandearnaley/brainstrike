@@ -1,13 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { app, BrowserWindow, nativeImage } from 'electron';
-
-function logDebug(message: string, meta?: unknown) {
-  if (process.env['DEBUG_DESKTOP_ICONS'] === '1') {
-    // eslint-disable-next-line no-console
-    console.log(`[DesktopIcons] ${message}`, meta ?? '');
-  }
-}
+import { app, BrowserWindow } from 'electron';
 
 /**
  * Configure security settings for the browser window.
@@ -30,58 +23,20 @@ function configureSecurity(win: BrowserWindow) {
     event.preventDefault();
   });
 
-  // Security: CSP is handled in setup-security.ts
+  // CSP handled elsewhere
 }
 
-function firstExistingPath(candidates: string[]): string | null {
-  for (const p of candidates) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
-
-function resolveBuildPath(relative: string): string | null {
-  const appPath =
-    typeof (app as unknown as { getAppPath?: unknown }).getAppPath === 'function'
-      ? app.getAppPath()
-      : process.cwd();
-  const candidates = [
-    path.join(appPath, 'build', relative),
-    path.join(__dirname, '../build', relative),
-    path.join(process.cwd(), 'apps/desktop/build', relative),
-  ];
-  const resolved = firstExistingPath(candidates);
-  logDebug(`resolveBuildPath(${relative})`, { candidates, resolved });
-  return resolved;
-}
-
-async function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
-  const forcedUrl = getForcedDevUrl();
-  if (forcedUrl) {
-    await win.loadURL(forcedUrl);
-    return;
-  }
+/**
+ * Load built renderer files in production.
+ */
+function loadProductionRenderer(win: BrowserWindow, rendererPath: string) {
   win.loadFile(rendererPath);
 }
 
-function getForcedDevUrl(): string | null {
-  const envUrl = process.env['DESKTOP_DEV_SERVER_URL'];
-  if (envUrl && /^https?:\/\//.test(envUrl)) return envUrl;
-  const arg = process.argv.find((a) => a.startsWith('--dev-url='));
-  if (arg) {
-    const url = arg.slice('--dev-url='.length);
-    if (/^https?:\/\//.test(url)) return url;
-  }
-  return null;
-}
-
+/**
+ * Connect to Vite dev server in development.
+ */
 async function connectToDevServer(win: BrowserWindow) {
-  const forcedUrl = getForcedDevUrl();
-  if (forcedUrl) {
-    await win.loadURL(forcedUrl);
-    return;
-  }
-
   const devPorts = [8081, 8082, 8083];
   for (const port of devPorts) {
     try {
@@ -95,22 +50,28 @@ async function connectToDevServer(win: BrowserWindow) {
   }
 }
 
+/**
+ * Load the renderer content (either built files or dev server).
+ */
 async function loadRenderer(win: BrowserWindow) {
   const rendererPath = path.join(__dirname, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
   if (app.isPackaged || hasBuiltRenderer) {
-    await loadProductionRenderer(win, rendererPath);
+    loadProductionRenderer(win, rendererPath);
   } else {
     await connectToDevServer(win);
     win.webContents.openDevTools();
   }
 }
 
+/**
+ * Create the main application window and load the appropriate renderer.
+ */
 export async function createWindow() {
   const isHeadless = process.env['CI'] === 'true' || process.argv.includes('--test-mode');
 
-  const windowOptions: Electron.BrowserWindowConstructorOptions = {
+  const win = new BrowserWindow({
     width: 1536,
     height: 800,
     minWidth: 800,
@@ -126,23 +87,7 @@ export async function createWindow() {
     },
     titleBarStyle: 'default',
     show: false,
-  };
-
-  const win = new BrowserWindow(windowOptions);
-
-  if (process.platform === 'darwin') {
-    const dockIcns = resolveBuildPath('icon.icns');
-    if (dockIcns) {
-      const nimg = nativeImage.createFromPath(dockIcns);
-      if (!nimg.isEmpty()) {
-        app.dock?.setIcon(nimg);
-        win.once('ready-to-show', () => {
-          const nimg2 = nativeImage.createFromPath(dockIcns);
-          if (!nimg2.isEmpty()) app.dock?.setIcon(nimg2);
-        });
-      }
-    }
-  }
+  });
 
   if (!isHeadless) {
     win.once('ready-to-show', () => {
