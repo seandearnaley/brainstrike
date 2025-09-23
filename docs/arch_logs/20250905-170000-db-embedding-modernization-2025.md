@@ -66,7 +66,7 @@
 
 **— Gate 0: ✅ COMPLETED - Phase 0 fully implemented and production-tested.**
 
-> **🎯 Next Developer**: See [`PHASE_0_HANDOFF.md`](./PHASE_0_HANDOFF.md) for complete implementation details and Phase 1 preparation.
+> **🎯 Next Developer**: See [`20250905-100000-phase-0-handoff.md`](./20250905-000000-db-embedding-modernization/20250905-100000-phase-0-handoff.md) for complete implementation details and Phase 1 preparation.
 
 ### Phase 0 Implementation Summary
 

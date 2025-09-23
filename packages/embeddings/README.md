@@ -12,6 +12,21 @@ A comprehensive embedding service package for BrainStrike that provides text and
 - 📊 **Export Ready**: CLI tool supports JSON, CSV, and PostgreSQL pgvector formats
 - ⚡ **Optimized**: Automatic quantization for browser stability
 
+## Installation
+
+The embeddings service is delivered as a workspace package. Link it into the
+consumer workspace via pnpm.
+
+```bash
+# Add to a specific workspace (example: apps/desktop)
+pnpm add @brainstrike/embeddings --filter @brainstrike/desktop
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/embeddings": "workspace:*"
+}
+```
+
 ## Models Available
 
 | Model | Dimensions | Size | Best For | Tags |
@@ -109,14 +124,14 @@ function EmbeddingComponent() {
 
 The package includes a powerful CLI tool for batch processing code files:
 
-### Installation
+### Running the CLI from the workspace
 
 ```bash
-# Install globally
-npm install -g @brainstrike/embeddings
+# Show help
+pnpm --filter @brainstrike/embeddings exec embed-code --help
 
-# Or use directly
-npx @brainstrike/embeddings embed-code --help
+# Example invocation
+pnpm --filter @brainstrike/embeddings exec embed-code ./src --output embeddings.json
 ```
 
 ### Basic Usage
@@ -323,16 +338,39 @@ type EmbeddingStatus =
 
 ## Performance Optimization
 
+### Memory Management & Thresholds
+The embeddings service includes configurable memory thresholds to prevent browser crashes and optimize performance:
+
+#### Configurable Memory Limits
+```typescript
+// Default memory thresholds (configurable)
+const MEMORY_THRESHOLDS = {
+  MAX_FILE_SIZE: 1048576,        // 1MB per file (configurable via CLI --max-file-size)
+  MAX_CACHE_ENTRIES: 50,         // Maximum cached embeddings (configurable)
+  MAX_MEMORY_USAGE: 52428800,    // 50MB memory limit (configurable)
+  CHUNK_SIZE: 100,               // Lines per chunk (configurable via CLI --max-lines)
+  CHUNK_OVERLAP: 10              // Overlap between chunks (configurable via CLI --chunk-overlap)
+};
+```
+
+#### Memory Optimization Strategies
+- **Automatic Cleanup**: Call `dispose()` to free model memory
+- **Chunk Processing**: Large files are processed in configurable chunks
+- **Cache Management**: LRU eviction when cache exceeds entry limits
+- **Memory Monitoring**: Built-in memory usage tracking and warnings
+
 ### Browser Environment
 - **WebGPU**: Automatically used when available for fastest inference
 - **WASM Fallback**: Used when WebGPU unavailable
 - **Quantization**: Automatic for models ≤768 dimensions
-- **Caching**: Models cached by transformers.js
+- **Caching**: Models cached by transformers.js with configurable limits
+- **Memory Pressure**: Automatic model unloading under memory constraints
 
 ### Node.js Environment
 - **CPU Inference**: Optimized for server environments
-- **Memory Management**: Proper cleanup with `dispose()`
+- **Memory Management**: Proper cleanup with `dispose()` and configurable thresholds
 - **Chunk Processing**: Configurable chunk sizes for large files
+- **Stream Processing**: Memory-efficient processing of large codebases
 
 ### Model Selection Guidelines
 - **Jina Code**: Best for code similarity and search
@@ -410,40 +448,94 @@ async function findSimilarPatterns(newCode: string, existingCodebase: CodeChunk[
 
 ## Troubleshooting
 
-### Common Issues
+### Common Issues & Solutions
 
+#### Model Loading Issues
 **"Model not found in registry"**
-- Check model key spelling
+- Check model key spelling and case sensitivity
 - Verify model exists in `model-registry.json`
 - Use `SimpleEmbeddingService.listModels()` to see available models
+- Ensure model registry is properly loaded
+
+**"Failed to fetch model"**
+- Check internet connection for model downloads
+- Models are cached after first download - try clearing browser cache
+- Try a smaller model like `all-MiniLM-L6-v2` for testing
+- Verify Hugging Face model IDs are correct
 
 **"Unsupported device: wasm"**
-- In Node.js, service automatically falls back to CPU
-- In browser, ensure transformers.js is properly loaded
+- In Node.js: service automatically falls back to CPU inference
+- In browser: ensure transformers.js is properly loaded
+- Check browser compatibility for WebAssembly support
+- Try disabling WebGPU if causing issues
 
-**"Failed to fetch" errors**
-- Check internet connection for model downloads
-- Models are cached after first download
-- Try a smaller model like `all-MiniLM-L6-v2`
-
+#### Memory & Performance Issues
 **Memory issues in browser**
-- Use quantized models (automatic for ≤768D)
-- Dispose service when not needed
-- Consider smaller models for memory-constrained environments
+- Use quantized models (automatic for ≤768D models)
+- Call `dispose()` when service is no longer needed
+- Reduce `MAX_CACHE_ENTRIES` for memory-constrained environments
+- Process files in smaller chunks using `--max-lines` parameter
 
-### Debug Mode
+**"Out of memory" errors**
+- Reduce `MAX_FILE_SIZE` limit for large files
+- Increase `CHUNK_SIZE` to process files in smaller pieces
+- Monitor memory usage with browser DevTools
+- Consider using smaller models for large-scale processing
 
-Enable verbose logging:
+**Slow inference performance**
+- Enable WebGPU when available (automatic detection)
+- Use smaller models for faster inference
+- Reduce chunk overlap to minimize processing overhead
+- Check system resources and close unnecessary applications
 
+#### Configuration & Environment Issues
+**"Cannot initialize service"**
+- Verify all required dependencies are installed
+- Check browser console for detailed error messages
+- Ensure proper environment setup (Node.js vs browser)
+- Try initializing with a different model
+
+**CLI tool failures**
+- Verify file paths and permissions
+- Check output directory exists and is writable
+- Ensure sufficient disk space for output files
+- Use `--verbose` flag for detailed error information
+
+**Workspace linking issues**
+- Ensure package is properly linked: `pnpm add @brainstrike/embeddings --filter <target>`
+- Check `package.json` dependencies include `"@brainstrike/embeddings": "workspace:*"`
+- Verify Turborepo workspace configuration
+- Run `pnpm install` to refresh workspace links
+
+### Debug Mode & Logging
+
+#### Enable Verbose Logging
 ```typescript
-// In code
+// In code - enable progress callbacks
 await service.initializeWithModel('jina-code', (progress) => {
   console.log(`${progress.stage}: ${progress.message} (${progress.progress}%)`);
 });
 
-// CLI
+// CLI - enable detailed output
 embed-code ./src --verbose
 ```
+
+#### Browser DevTools Debugging
+```typescript
+// Monitor memory usage
+console.log('Memory usage:', performance.memory);
+
+// Check service status
+console.log('Service status:', service.getStatus());
+console.log('Current model:', service.getCurrentModelConfig());
+```
+
+#### Common Error Patterns
+1. **Network Issues**: Check connectivity, try different models, verify CDN access
+2. **Memory Constraints**: Reduce file sizes, use smaller models, enable cleanup
+3. **Browser Compatibility**: Check WebAssembly support, try different browsers
+4. **Configuration Errors**: Verify model registry, check environment variables
+5. **Performance Issues**: Enable WebGPU, use quantized models, optimize chunks
 
 ## Testing
 

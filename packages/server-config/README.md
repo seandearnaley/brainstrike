@@ -4,8 +4,16 @@ Server configuration helpers for BrainStrike services.
 
 ## Installation
 
+Add the config helpers to another workspace via pnpm workspace linking.
+
 ```bash
-pnpm add @brainstrike/server-config
+# Add to a specific workspace (example: apps/desktop)
+pnpm add @brainstrike/server-config --filter @brainstrike/desktop
+
+# Or declare it manually in that workspace package.json
+"dependencies": {
+  "@brainstrike/server-config": "workspace:*"
+}
 ```
 
 ## Usage

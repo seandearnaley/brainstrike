@@ -4,8 +4,17 @@ A UI component library built with Shadcn UI components and Tailwind CSS v4.
 
 ## Installation
 
+This UI kit is a workspace package. Link it locally rather than fetching it from
+the registry.
+
 ```bash
-pnpm add @brainstrike/ui
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/ui --filter @brainstrike/web
+
+# Or declare it manually in the target package.json
+"dependencies": {
+  "@brainstrike/ui": "workspace:*"
+}
 ```
 
 ## Setup

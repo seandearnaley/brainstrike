@@ -4,10 +4,16 @@ Shared Tailwind CSS configuration used across Brainstrike applications and packa
 
 ## Usage
 
-Install the package within the monorepo (already linked via pnpm workspaces):
+Install the package within the monorepo using pnpm workspace linking:
 
 ```bash
-pnpm add @brainstrike/tailwind-config -D
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/tailwind-config -D --filter @brainstrike/web
+
+# Or declare it manually inside the target package.json
+"devDependencies": {
+  "@brainstrike/tailwind-config": "workspace:*"
+}
 ```
 
 Then extend the configuration in your `tailwind.config.js` and provide the `content` globs for your app:

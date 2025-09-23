@@ -4,9 +4,16 @@ This package contains reusable React hooks used across the Brainstrike project.
 
 ## Installation
 
+Link the hooks package through pnpm workspaces rather than the public registry.
+
 ```bash
-# From the project root
-pnpm add @brainstrike/hooks
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/hooks --filter @brainstrike/web
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/hooks": "workspace:*"
+}
 ```
 
 ## Usage

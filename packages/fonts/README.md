@@ -7,8 +7,17 @@ CommonJS environments.
 
 ## Installation
 
+Consume the font package through the workspace—there is no published registry
+version.
+
 ```bash
-pnpm add @brainstrike/fonts
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/fonts --filter @brainstrike/web
+
+# Or pin it directly inside the target package.json
+"dependencies": {
+  "@brainstrike/fonts": "workspace:*"
+}
 ```
 
 ## Usage

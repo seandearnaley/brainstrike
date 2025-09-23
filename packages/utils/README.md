@@ -4,9 +4,16 @@ This package contains shared utility functions used across the Brainstrike proje
 
 ## Installation
 
+Link the utilities package into the consuming workspace using pnpm.
+
 ```bash
-# From the project root
-pnpm add @brainstrike/utils
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/utils --filter @brainstrike/web
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/utils": "workspace:*"
+}
 ```
 
 ## Usage

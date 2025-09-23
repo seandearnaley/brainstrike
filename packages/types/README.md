@@ -4,8 +4,17 @@ Shared TypeScript interfaces, constants and error classes used across Brainstrik
 
 ## Installation
 
+Link the shared types into the consuming workspace via pnpm’s workspace
+protocols.
+
 ```bash
-pnpm add @brainstrike/types
+# Add to a specific workspace (example: packages/utils)
+pnpm add @brainstrike/types --filter @brainstrike/utils
+
+# Or declare it directly inside the target package.json
+"dependencies": {
+  "@brainstrike/types": "workspace:*"
+}
 ```
 
 ## Usage

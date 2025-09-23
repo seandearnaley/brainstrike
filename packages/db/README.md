@@ -4,11 +4,16 @@ Utilities for working with a local SQLite database powered by PGlite. The packag
 
 ## Installation
 
-This package is internal to the monorepo and consumed via workspace linking.
+This package is internal to the monorepo and should be linked via pnpm workspaces.
 
 ```bash
-# From the project root
-pnpm add @brainstrike/db
+# Add to a specific workspace (example: apps/desktop)
+pnpm add @brainstrike/db --filter @brainstrike/desktop
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/db": "workspace:*"
+}
 ```
 
 ## Usage

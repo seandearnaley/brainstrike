@@ -43,7 +43,7 @@ Files
 
 Outputs
 - [x] Store file with typed API and tests
-  - JSDoc header + handoff doc: `./09-07-2025-panel-state-migration/PHASE_1_HANDOFF.md`
+  - JSDoc header + handoff doc: `docs/arch_logs/20250907-000000-panel-state-migration/20250907-090000-phase-1-handoff.md`
 
 Validation checkpoint
 - [x] Unit tests for store actions and persistence adapter interaction
