@@ -424,7 +424,7 @@ Notes
 ### Outputs
 
 * UI components (badges, toasts, settings page additions)
-* `README` and `../review-response.md` update for new flows
+* `README` and `docs/review-response.md` update for new flows
 
 ### Validation
 
@@ -573,7 +573,7 @@ type Job = {
   * `DISABLE_VECTOR_EXTENSION` (already present for tests)
 * **Test data:** add 3 small fixtures (md, ts, json) under `packages/db/__fixtures__`.
 * **Rollbacks:** each phase is additive; migrations have `down` defined; if worker misbehaves, flip `EMBED_QUEUE_ENABLED=false` and ship fallback.
-* **Docs:** append deltas to `../review-response.md` and `./09-05-2025-test-suite-modernization.md`.
+* **Docs:** append deltas to `docs/review-response.md` and `docs/test-suite-modernization-2025.md`.
 
 ---
 
