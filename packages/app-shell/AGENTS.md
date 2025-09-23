@@ -149,10 +149,29 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 ## Security & privacy checklist
 
-* No secrets in client bundles. Period.
-* Assistant panel must **not** echo secrets from tools. Filter tool outputs.
-* If you surface MCP servers, show **counts and transports** only—never dump configs.
-* For on-device ML, default to **private** (no outbound calls) unless the user opts in.
+### Core Security Requirements
+* **No secrets in client bundles.** Period. Use environment variables, bridges, or secure injection patterns.
+* **Input validation** for all user-provided data (file paths, search queries, panel inputs).
+* **Proper error handling** without information leakage—don't expose internal paths or stack traces.
+* **Dependencies scanned** for vulnerabilities using `pnpm audit` and automated scanning in CI.
+
+### Assistant & MCP Security
+* Assistant panel must **not** echo secrets from tools. Filter tool outputs and sanitize responses.
+* If you surface MCP servers, show **counts and transports** only—never dump configs or credentials.
+* **MCP server isolation** - keep transports isolated and pass secrets via environment variables.
+* **Least privilege principle** - prefer ephemeral auth over static tokens in configurations.
+
+### Data & Privacy Protection
+* For on-device ML, default to **private** (no outbound calls) unless the user explicitly opts in.
+* **File system permissions** - validate and sanitize all file paths before operations.
+* **Memory pressure considerations** - dispose of sensitive data promptly, especially in embeddings.
+* **Content Security Policy** - ensure CSP headers are properly configured for web builds.
+
+### Development Security Practices
+* **Secret management warnings** - prominently display warnings about hardcoded credentials.
+* **Dependency security scanning** - run `pnpm audit` before commits and in CI.
+* **Error boundary implementation** - prevent sensitive information from leaking through error messages.
+* **Secure defaults** - all security-sensitive features should default to the most secure option.
 
 ## Browser/Electron behavior you should count on
 

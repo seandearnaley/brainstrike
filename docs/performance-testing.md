@@ -188,6 +188,47 @@ All performance tests are located in `apps/web/e2e/performance/`:
 - **Average Render Time**: Mean time per render
 - **Max Render Time**: Worst-case render performance
 
+## Performance Regression Detection
+
+### Baseline Establishment
+Performance baselines should be established after major changes and updated when intentional performance improvements are made:
+
+```bash
+# Establish new baseline after performance improvements
+./scripts/run-performance-tests.sh run all
+./scripts/run-performance-tests.sh baseline
+
+# Compare current performance against baseline
+./scripts/run-performance-tests.sh compare
+```
+
+### Automated Performance Alerts
+The CI system includes automated performance monitoring:
+
+- **Regression Detection**: Tests fail if performance degrades beyond established thresholds
+- **Performance Trends**: Track performance metrics over time in CI artifacts
+- **Bundle Size Monitoring**: Monitor JavaScript bundle size changes with size-limit integration
+- **Memory Leak Detection**: Automated memory usage monitoring with configurable thresholds
+
+### Bundle Size Monitoring
+Monitor JavaScript bundle size impact across packages:
+
+```bash
+# Check bundle size impact for specific packages
+pnpm --filter @brainstrike/app-shell exec size-limit
+pnpm --filter @brainstrike/file-explorer-ui exec size-limit
+
+# Compare bundle sizes before/after changes
+pnpm exec size-limit --compare
+```
+
+### Performance Regression Workflow
+1. **Detect Regression**: CI alerts when performance thresholds are exceeded
+2. **Investigate**: Use browser DevTools and performance profiling to identify bottlenecks
+3. **Fix Issues**: Address root causes rather than adjusting thresholds
+4. **Update Baseline**: Re-establish baseline after legitimate performance improvements
+5. **Document Changes**: Update performance documentation with new thresholds or patterns
+
 ## Best Practices
 
 ### Writing Performance Tests
@@ -197,6 +238,7 @@ All performance tests are located in `apps/web/e2e/performance/`:
 3. **Isolate Variables**: Test one performance aspect per test
 4. **Clean State**: Reset between tests to avoid interference
 5. **Reasonable Thresholds**: Set achievable but meaningful limits
+6. **Regression Prevention**: Design tests to catch performance regressions early
 
 ### Debugging Performance Issues
 

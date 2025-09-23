@@ -165,9 +165,38 @@ Do these before reaching for cleverness:
 
 ## Security & privacy
 
+### Core Security Requirements
+* **No secrets in client bundles.** Period. Use environment variables or secure injection patterns.
+* **Input validation** for all user-provided data (file paths, search queries, filter inputs).
+* **Proper error handling** without information leakage—don't expose internal paths or stack traces.
+* **Dependencies scanned** for vulnerabilities using `pnpm audit` and automated scanning in CI.
+
+### File System Security
+* File paths must be **validated and sanitized** before operations.
+* **Path traversal prevention** - validate file paths to prevent directory traversal attacks.
+* **File type validation** - ensure only safe file types are processed for preview.
+* **Permission checks** - verify file access permissions before operations.
+
+### Content Security
+* Preview content should **not** execute code or load external resources.
+* **Content sanitization** - sanitize file content before rendering in preview panels.
+* **XSS prevention** - escape user content and use safe rendering methods.
+* **Resource loading restrictions** - prevent loading of external resources in previews.
+
+### Data Privacy Protection
 * Never persist raw file **contents** to durable storage from this package. Store contents in memory or ephemeral workers only.
+* Selection state should **not** persist sensitive file paths in localStorage.
+* **Memory cleanup** - dispose of file content and sensitive data promptly.
+* **Cache management** - implement secure caching with appropriate expiration.
+* **User data isolation** - ensure user data doesn't leak between sessions.
+
+### Development Security Practices
+* **Secret management warnings** - prominently display warnings about hardcoded credentials.
+* **Dependency security scanning** - run `pnpm audit` before commits and in CI.
+* **Error boundary implementation** - prevent sensitive information from leaking through error messages.
+* **Secure defaults** - all security-sensitive features should default to the most secure option.
 * Be explicit about error messages; we intentionally map browser FS errors to friendly strings (permission denied, dialog issues).
-* Respect the File System Access model: require user gestures for new handles; don’t auto-re-prompt. ([Chrome for Developers][4])
+* Respect the File System Access model: require user gestures for new handles; don't auto-re-prompt. ([Chrome for Developers][4])
 
 ---
 

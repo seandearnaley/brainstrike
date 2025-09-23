@@ -187,18 +187,35 @@ fractions, string statuses—and converts them into a consistent `{ step, percen
 
 ## Security and guardrails
 
-AI agents have access to file systems, external APIs and potentially  
-sensitive data. Follow these rules:
+### Core Security Requirements
+* **No secrets in client bundles.** Period. Use environment variables, secure desktop storage, or secure injection patterns.
+* **Input validation** for all user-provided data using zod schemas before processing.
+* **Proper error handling** without information leakage—don't expose internal paths, API keys, or stack traces.
+* **Dependencies scanned** for vulnerabilities using `pnpm audit` and automated scanning in CI.
 
-- **Validate all inputs** with zod before they reach your tool logic. Reject  
-    invalid paths, excessively long strings and unsupported encodings early.
-    
-- **Never echo secrets**. Filter out API keys and tokens from tool outputs.
-    
-- **Limit payload sizes**. Cap the number of results returned by search  
-    tools and impose maximum byte counts when reading files. If your tool  
-    proxies to an external service, enforce request size limits and strip  
-    unneeded fields.
+### AI Agent Security
+AI agents have access to file systems, external APIs and potentially sensitive data. Follow these rules:
+
+* **Validate all inputs** with zod before they reach your tool logic. Reject invalid paths, excessively long strings and unsupported encodings early.
+* **Never echo secrets**. Filter out API keys and tokens from tool outputs.
+* **Limit payload sizes**. Cap the number of results returned by search tools and impose maximum byte counts when reading files. If your tool proxies to an external service, enforce request size limits and strip unneeded fields.
+* **Sanitize outputs** - ensure tool outputs don't contain executable code or sensitive information.
+
+### MCP Integration Security
+Tips for MCP integration:
+
+* Keep remote tool processes isolated and sandboxed. Avoid passing unvalidated user input to remote commands.
+* Do not include secrets directly in `mcp.config.json` – instead, supply credentials via environment variables and read them in the remote process.
+* Use the hot reload mechanism (see `apps/desktop/docs/mcp-hot-reload`) to rebuild remote clients on changes; this emits progress events so the UI remains responsive.
+* **Transport security** - ensure MCP transports use secure protocols and proper authentication.
+* **Least privilege** - grant MCP servers only the minimum permissions required.
+
+### Development Security Practices
+* **Secret management warnings** - prominently display warnings about hardcoded credentials.
+* **Dependency security scanning** - run `pnpm audit` before commits and in CI.
+* **Error boundary implementation** - prevent sensitive information from leaking through error messages.
+* **Secure defaults** - all security-sensitive features should default to the most secure option.
+* Keep secrets out of version control. API keys should be loaded via environment variables or secure desktop storage; never commit them to code or tests.
     
 - **Emit progress** updates for long‑running operations so the UI doesn’t  
     appear hung. In the absence of progress updates the assistant may be  
