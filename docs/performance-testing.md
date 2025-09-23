@@ -25,7 +25,7 @@ Located in `apps/web/e2e/performance/`:
 
 ### Test Organization Benefits
 
-- **Cleaner Directory Structure**: Performance tests are organized in dedicated subdirectory
+- **Cleaner Directory Structure**: Performance tests are organized in a dedicated subdirectory
 - **Project Separation**: Playwright projects allow running performance tests independently
 - **Optimized Timeouts**: Performance tests have longer timeouts (2 minutes vs 1 minute)
 - **Fewer Retries**: Performance tests retry less to avoid skewing measurements
@@ -243,7 +243,7 @@ scripts/
 └── run-performance-tests.sh               # CLI testing tool
 
 .github/workflows/
-└── performance-monitoring.yml             # CI automation
+└── performance.yml                       # CI automation
 ```
 
 ## Troubleshooting
@@ -265,13 +265,13 @@ scripts/
 
 ```bash
 # View detailed test output
-DEBUG=pw:test pnpm exec playwright test performance-benchmarks.test.ts
+DEBUG=pw:test pnpm exec playwright test performance/benchmarks.test.ts
 
 # Run single test with full output  
-pnpm exec playwright test performance-benchmarks.test.ts -g "baseline performance"
+pnpm exec playwright test performance/benchmarks.test.ts -g "baseline performance"
 
 # Generate trace files for analysis
-pnpm exec playwright test performance-benchmarks.test.ts --trace on
+pnpm exec playwright test performance/benchmarks.test.ts --trace on
 ```
 
 ## Contributing
@@ -291,4 +291,4 @@ The performance testing suite is designed to track improvements for the identifi
 - **Memory Leaks**: File contents accumulating without cleanup
 - **Excessive Re-renders**: Missing shallow comparisons in Zustand
 - **Tree Rendering**: Optimization of virtualized tree components
-- **File Loading**: Monitoring file content loading performance
+- **File Loading**: Monitoring file content loading performance regressions.
