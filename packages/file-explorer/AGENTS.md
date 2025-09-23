@@ -1,0 +1,238 @@
+# `@brainstrike/file-explorer` — AGENTS.md (Sept 22, 2025)
+
+> **Purpose**
+> Core state, actions, caching, and persistence for the **Brainstrike file explorer**. This package is **UI-agnostic** (no React/Electron/UI code). It is consumed by apps and UI packages (e.g. `@brainstrike/file-explorer-ui`). Changes here must preserve determinism, serializability, and main-thread performance.
+
+* Languages/Tooling: TypeScript 5.9, Node 22, Zustand v5, Vitest, Stryker, tsup (ESM+CJS).
+* Boundaries: Import only from `@brainstrike/{types,utils,storage,file-system,test-utils}` and listed peers. No DOM, no Electron.
+
+---
+
+## Quickstart (package scope)
+
+### Install, build, test
+
+```bash
+# from repo root
+pnpm install
+pnpm --filter @brainstrike/file-explorer build
+pnpm --filter @brainstrike/file-explorer test
+pnpm --filter @brainstrike/file-explorer run mutation   # Stryker mutation tests
+```
+
+Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package selectors via `--filter`. ([Turborepo][1])
+
+### What this package exports
+
+* **Store & factory**
+  `useFileExplorerStore` (bound store) and `createFileExplorerStore(adapter)` for isolated instances/tests.
+* **Action groups (tree-shakable)**
+  `actions/*` modules are re-exported for focused imports when needed.
+
+---
+
+## Architecture & invariants
+
+### State model (top-level)
+
+* `currentFolderId: string | null`
+* `selectedFilePaths: Set<string>` — **composite keys** `"<folderId>|@|<path>"`. Use `encodeFileSelection()`; never store raw paths.
+* `expandedDirectoryPaths: Set<string>` — expanded dirs; collapsing a parent removes all descendants.
+* `folderStates: Record<string, FolderState>` — per-folder snapshot (filters, tabs, selections, expansions, limits).
+* `fileContents: Record<string, string>` — **volatile** view over cache (filtered under pressure; see below).
+* Filters & settings: `includeFilters: string[]`, `excludeFilters: string[]`, `useRegex: boolean`,
+  `includeProjectTree: boolean`, `folderSummaryThreshold: number` (clamped),
+  `maxSelectionCount: number` (clamped & may trim selection), `lastActiveTab: string`, `quickFilter: string`.
+
+> **Invariants**
+>
+> * Composite keys are mandatory in `selectedFilePaths`.
+> * All sets/records are serializable via our serializer; we convert Sets ⇄ Arrays at the persistence boundary.
+> * No functions/instances in persisted data; only plain data. Use `partialize/merge/migrate` in our persist config. ([Zustand Documentation][2])
+
+### Actions (public contract)
+
+* **Folder context**
+
+  * `setCurrentFolderId(folderId | null)` — saves current folder state; updates LRU order; prunes > `MAX_FOLDER_STATES`; hydrates or creates target folder state.
+  * `hydrateFolderState(folderId)` — reapplies a saved folder’s values to top-level fields.
+* **Selections**
+
+  * `addSelectedFile(folderId, path)` / `removeSelectedFile` / `toggleSelectedFile`
+  * `setSelectedFiles(Set<string>)` (keeps only valid composite keys)
+  * `addMultipleSelectedFiles(folderId, paths[])` / `removeMultipleSelectedFiles(folderId, paths[])`
+    All enforce `maxSelectionCount` and **trim** if the limit is reduced.
+* **Directory expansion**
+
+  * `toggleDirectoryExpansion(path)` (collapsing a parent removes its descendants)
+  * `setExpandedPaths(Set<string>)`, `expandAllDirectories(fileTree)`, `collapseAllDirectories()`.
+* **Settings**
+
+  * `setFilters(include[], exclude[])`, `setUseRegex(bool)`, `setIncludeProjectTree(bool)`
+  * `setFolderSummaryThreshold(n)` (clamped), `setMaxSelectionCount(n)` (clamped + **trims** selection)
+  * `setLastActiveTab(string)`
+* **File content cache**
+
+  * `setFileContent(compositeKey, content)` / `getFileContent(compositeKey)`
+  * `clearFileContents(keys[])`, `clearAllFileContents()`
+  * `getFileContentCacheStats()`, `evictOldFileContents(count?)`
+
+---
+
+## File content cache (LRU) & memory pressure
+
+* In-memory LRU with **\~5 MB cap / 50 entries**; files **>1 MB are skipped** (warned).
+* When cache usage exceeds \~**2 MB** we **filter `fileContents` in state** to: current file + \~10 most recent, while **all content remains in the cache**. Always fetch via `getFileContent()` to avoid reading a filtered-out entry from state.
+* Motivation: avoid multi-MB JSON snapshots on persistence and keep re-renders/lightweight state.
+
+---
+
+## Persistence (Zustand `persist`) & migrations
+
+* Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup.
+* We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate` to normalize old data. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
+* **Never persist large content** (leave it in the LRU). Web Storage is synchronous; large writes/reads can degrade responsiveness—offload to a Worker (below) and keep the payloads small. ([MDN Web Docs][3])
+
+---
+
+## Worker-assisted storage (main-thread safety)
+
+**Why**: `localStorage` API is synchronous and operations occur on the main thread; heavy (de)serialization can hurt interactivity. We offload persistence to a **Web Worker** in browsers and fall back to direct adapter calls in SSR/Electron/headless/tests. MDN: Workers run scripts in **background threads** and communicate via `postMessage`. ([MDN Web Docs][4])
+
+**How we import the worker (bundler-safe)**
+
+```ts
+// Always use the bundler-friendly constructor + import.meta.url pattern:
+const worker = new Worker(new URL('./worker-storage.worker.js', import.meta.url), { type: 'module' })
+```
+
+This pattern makes the URL **relative to the module**, allowing bundlers (Vite/rollup) to emit the worker as a separate chunk reliably. MDN and Vite recommend this form. ([MDN Web Docs][5])
+
+> Notes
+>
+> * In dev/prod, Vite transforms `new URL(..., import.meta.url)` to the right path and emits the worker asset; we also map `*.worker.js` in `tsup` so the file is copied for runtime loading. ([vitejs][6])
+> * The adapter auto-disables the Worker in SSR/tests/Electron/headless and falls back to immediate storage.
+
+---
+
+## React / subscription guidance (for consumers)
+
+Zustand v5 removed equalityFns on `create`; use **`createWithEqualityFn`** (and/or `useStoreWithEqualityFn`) to control re-renders in consumer apps. Subscribe with selectors; avoid grabbing entire state in UI. ([Zustand Documentation][7])
+
+---
+
+## Usage examples
+
+### Basic usage
+
+```ts
+import { useFileExplorerStore } from '@brainstrike/file-explorer';
+
+const { expandedDirectoryPaths, toggleDirectoryExpansion } = useFileExplorerStore();
+toggleDirectoryExpansion('src/components');
+```
+
+### Isolated store (tests or multiple explorers)
+
+```ts
+import { createMemoryStorageAdapter } from '@brainstrike/storage';
+import { createFileExplorerStore } from '@brainstrike/file-explorer';
+
+const adapter = createMemoryStorageAdapter();
+const store = createFileExplorerStore(adapter);
+
+store.getState().setCurrentFolderId('my-folder');
+store.getState().addSelectedFile('my-folder', 'src/index.ts');
+```
+
+### Selecting many files safely
+
+```ts
+store.getState().addMultipleSelectedFiles('repo-root', [
+  'src/a.ts', 'src/b.ts', 'src/c.ts'
+]);
+// Respects maxSelectionCount and de-duplicates composite keys.
+```
+
+### Reading file content under pressure
+
+```ts
+// Always prefer getFileContent(), since state may be filtered under cache pressure:
+const content = store.getState().getFileContent('repo-root|@|src/a.ts');
+```
+
+---
+
+## Performance & guardrails
+
+* **Selection limits**: `maxSelectionCount` is enforced by all selection actions and **trims** when reduced.
+* **Expand/collapse**: Collapsing a parent removes descendants from `expandedDirectoryPaths`.
+* **Cache pressure**: Over \~2 MB, the store filters `fileContents` for memory safety; use `getFileContent()`.
+* **No side effects** in action creators (no I/O, no DOM). I/O happens outside; results flow in via actions.
+* **Persist minimal state**: Only serializable, essential fields—use `partialize`/`merge` rather than ad-hoc storage. ([Zustand Documentation][2])
+
+---
+
+## Testing
+
+* **Unit & integration**: Vitest in `node` environment; colocated under `src/**/__tests__` or `*.test.ts(x)`.
+* **Mutation**: Stryker with the **Vitest Runner**; thresholds configured in `stryker.config.js`. Keep the score high; fix tests when mutants survive. ([Stryker Mutator][8])
+* Tips:
+
+  * Use `zustand/vanilla` to integrate actions without React.
+  * Prefer fake timers and microtask flush to avoid flakiness during worker/persist tests.
+
+---
+
+## Troubleshooting
+
+* **Hydration mismatches**: Ensure your field is included in `serializeState` and reconstructed in `mergeState` (Sets ⇄ Arrays). See Zustand persist docs for `migrate`/`merge`. ([Zustand Documentation][2])
+* **Worker not found / 404**: Use `new URL('./worker.js', import.meta.url)` so the bundler emits a separate worker asset; avoid dynamic/non-analyzable paths. ([Vite][9])
+* **UI jank during saves**: Keep payloads small (don’t persist `fileContents`), and ensure the Worker path is correct. Web Storage is synchronous; big JSON writes can block. ([MDN Web Docs][3])
+
+---
+
+## Monorepo etiquette (apply within this package)
+
+* Prefer **filtered** Turbo runs: `pnpm --filter @brainstrike/file-explorer <cmd>`. ([Turborepo][1])
+* Don’t alter shared root configs (`tsconfig.*`, `turbo.json`, etc.) unless explicitly requested.
+* Don’t start app servers from this package (no dev server here).
+* Keep the worker bundling intact (see tsup config & note above).
+
+---
+
+## Extending the store (checklist)
+
+1. **Types first**: update `@brainstrike/types` (`FileExplorerState`, `FolderState`, and if persisted, `SerializedState`).
+2. **Defaults**: add to `DEFAULT_STATE`.
+3. **Persistence**: wire up in `serializeState`/`mergeState` and bump `version` + `migrate` if schemas change. ([Zustand Documentation][2])
+4. **Actions**: implement in the appropriate `create*Actions` module; keep pure and deterministic.
+5. **Tests**: add Vitest (edge cases + round-trip persist) and keep Stryker score healthy. ([Stryker Mutator][8])
+6. **Docs**: update this file—especially invariants, limits, and persistence/migration notes.
+
+---
+
+## References
+
+* **Zustand v5 & equality functions**: `createWithEqualityFn`, v5 migration notes. ([Zustand Documentation][10])
+* **Zustand `persist`**: versioning, `partialize`, `merge`, `migrate`. ([Zustand Documentation][2])
+* **Web Workers**: background threads & `postMessage`. ([MDN Web Docs][4])
+* **Worker import pattern**: `new Worker(new URL('./worker.js', import.meta.url))` in Vite & MDN Worker docs. ([Vite][9])
+* **Web Storage**: synchronous operations can impact responsiveness; keep payloads small. ([MDN Web Docs][3])
+* **Stryker Vitest runner**: plugin docs. ([Stryker Mutator][8])
+* **Turbo tasks & filters**: docs & run reference. ([Turborepo][1])
+
+---
+
+**This doc is package-scoped.** The monorepo root has its own AGENTS.md for global policy. Treat this as **living documentation**: update it when actions, serializer rules, keys/versions, or worker behavior change.
+
+[1]: https://turborepo.com/docs/crafting-your-repository/running-tasks "Running tasks"
+[2]: https://zustand.docs.pmnd.rs/integrations/persisting-store-data "Persisting store data - Zustand"
+[3]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Storage_API "Web Storage API - MDN - Mozilla"
+[4]: https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers "Using Web Workers - Web APIs - MDN"
+[5]: https://developer.mozilla.org/en-US/docs/Web/API/Worker/Worker "Worker() constructor - Web APIs - MDN"
+[6]: https://vite.dev/guide/assets "Static Asset Handling"
+[7]: https://zustand.docs.pmnd.rs/migrations/migrating-to-v5 "How to Migrate to v5 from v4 - Zustand"
+[8]: https://stryker-mutator.io/docs/stryker-js/vitest-runner/ "Vitest Runner"
+[9]: https://v3.vitejs.dev/guide/features "Features"
+[10]: https://zustand.docs.pmnd.rs/apis/create-with-equality-fn "createWithEqualityFn ⚛️ - Zustand"
