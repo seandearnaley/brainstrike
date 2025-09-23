@@ -4,6 +4,9 @@ import { disposeClients, getClient, initClients } from '../../mcp';
 
 let server: http.Server;
 let port = 0;
+type ToolRequest = Parameters<typeof emitToolResult>[0];
+type StreamList = Parameters<typeof emitToolResult>[1];
+let requestInterceptor: ((parsed: ToolRequest, streams: StreamList) => void) | undefined;
 
 function emitToolResult(
   parsed: { id: string; tool: string; params?: { text?: string } },
@@ -39,13 +42,13 @@ describe('mcp-clients (sse request/response)', () => {
         });
         req.on('end', () => {
           try {
-            const parsed = JSON.parse(body) as {
-              id: string;
-              tool: string;
-              params?: { text?: string };
-            };
-            // stash to echo later on the SSE stream
-            setTimeout(() => emitToolResult(parsed, streams), 10);
+            const parsed = JSON.parse(body) as ToolRequest;
+            const handler =
+              requestInterceptor ??
+              ((req: ToolRequest, resStreams: StreamList): void => {
+                setTimeout(() => emitToolResult(req, resStreams), 10);
+              });
+            handler(parsed, streams);
             res.writeHead(202);
             res.end('accepted');
           } catch {
@@ -84,6 +87,7 @@ describe('mcp-clients (sse request/response)', () => {
 
   afterEach(async () => {
     await disposeClients();
+    requestInterceptor = undefined;
   });
 
   const streams: http.ServerResponse[] = [];
@@ -109,6 +113,17 @@ describe('mcp-clients (sse request/response)', () => {
   });
 
   test('Resolves with error object on tool-error event', async () => {
+    requestInterceptor = (parsed, activeStreams) => {
+      setTimeout(() => {
+        const line =
+          'event: tool-error\n' +
+          `id: ${parsed.id}\n` +
+          `data: ${JSON.stringify({ id: parsed.id, error: 'failed' })}\n\n`;
+        for (const stream of activeStreams) {
+          stream.write(line);
+        }
+      }, 5);
+    };
     // Emit an error for a new request id
     initClients({
       servers: [
@@ -118,14 +133,7 @@ describe('mcp-clients (sse request/response)', () => {
     const client = getClient('web');
     expect(client).toBeTruthy();
 
-    // Hijack server behavior: when request arrives, emit tool-error
     const p = (client as NonNullable<typeof client>).callTool('web.echo', { text: 'boom' });
-    // Allow the client to connect and register pending id, then emit a generic error
-    await new Promise((r) => setTimeout(r, 10));
-    streams.forEach((s) => {
-      const line = `event: tool-error\ndata: ${JSON.stringify({ error: 'failed' })}\n\n`;
-      s.write(line);
-    });
     const res = (await p) as { error?: string };
     expect(res && 'error' in res).toBe(true);
   });

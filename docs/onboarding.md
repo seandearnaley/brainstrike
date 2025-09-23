@@ -21,12 +21,12 @@ The monorepo uses a standard Turborepo layout, organizing code into `apps` and `
 ```
 brainstrike/
 ├── .github/                 # GitHub Actions workflows (CI/CD, etc.) & issue templates
-├── .husky/                  # Git hooks configuration (e.g., pre-commit, commit-msg)
 ├── .nvmrc                   # Specifies required Node.js version (v22)
 ├── .turbo/                  # Turborepo build cache (ignored by Git)
 ├── .vscode/                 # VS Code workspace settings & recommendations
 ├── apps/
-│   └── web/                 # The main frontend application
+│   ├── desktop/             # Electron application (Playwright E2E lives here)
+│   └── web/                 # React/Vite frontend application
 │       ├── public/          # Static assets
 │       ├── src/             # Application source code (React, Vite, TypeScript)
 │       ├── e2e/             # End-to-end tests (Playwright)
@@ -37,10 +37,11 @@ brainstrike/
 │   ├── config/              # Shared configuration files (reusable across packages)
 │   │   ├── biome.json       # Shared Biome (lint/format) configuration
 │   │   └── tsconfig/        # Shared TypeScript base configurations (base.json, react-library.json)
-│   ├── hooks/               # Reusable React hooks (e.g., useAuth, useFetch)
+│   ├── hooks/               # Reusable React hooks
 │   ├── types/               # Shared TypeScript interfaces and types
-│   ├── ui/                  # Core UI component library (built with React/Tailwind/Radix?)
+│   ├── ui/                  # Core UI component library (built with React/Tailwind/Radix)
 │   └── utils/               # Common utility functions (e.g., date formatting, validation)
+├── lefthook.yml             # Git hook automation (pre-commit, commit-msg) managed by Lefthook
 ├── node_modules/            # Project dependencies (managed by pnpm, ignored by Git)
 ├── biome.json               # Root Biome configuration (extends packages/config/biome.json)
 ├── commitlint.config.ts     # Configuration for commit message linting
@@ -50,12 +51,11 @@ brainstrike/
 ├── pnpm-workspace.yaml      # Defines pnpm workspace locations (apps/*, packages/*)
 ├── README.md                # High-level project overview and quick start
 ├── tsconfig.json            # Root TypeScript configuration (references workspaces, sets paths)
-├── turbo.jsonc              # Turborepo pipeline and task configuration
-└── vitest.workspace.ts      # Configuration for running Vitest across the workspace
+└── turbo.jsonc              # Turborepo pipeline and task configuration
 ```
 
 **Key Directories:**
-- **`apps/`**: Contains runnable applications (currently only `web`). Each app is a standalone project within the monorepo.
+- **`apps/`**: Contains runnable applications (`web` for Vite/React, `desktop` for Electron). Each app is a standalone project within the monorepo.
 - **`packages/`**: Houses shared code libraries (UI components, hooks, utilities, types, configurations) consumed by apps or other packages.
 - **`packages/config/`**: Centralizes reusable configurations (TypeScript, Biome) to ensure consistency.
 
@@ -66,7 +66,7 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `2.5.5`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
+  - **Turborepo `2.5.6`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
   - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
@@ -78,16 +78,16 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **React Router**: Handles client-side routing. (Setup likely in `apps/web/src/main.tsx` or similar)
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
-  - **Vitest `3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.workspace.ts`](./vitest.workspace.ts))
+  - **Vitest `3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.config.ts`](./vitest.config.ts))
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-- **Biome `2.2.4`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
-- **Commit Linting**:
+  - **Biome `2.2.4`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
+- **Commit Linting & Hooks**:
   - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
-  - **Husky**: Manages Git hooks to run linters (like commitlint) automatically. (`.husky/`)
+  - **Lefthook**: Automates pre-commit Biome checks and commit message linting via [`lefthook.yml`](../lefthook.yml).
 - **Code Health**:
-  - **Knip `5.62.0`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
+  - **Knip `5.63.1`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
 
 ---
 
@@ -158,7 +158,7 @@ TypeScript ensures type safety. The root config sets up path aliases and referen
 
 ### 5.3 Commit Messages (`commitlint.config.ts`)
 
-Commit messages must follow the Conventional Commits specification (e.g., `feat: add user login`, `fix: resolve validation bug`, `refactor(auth): improve token handling`). This is enforced by Commitlint via a Husky `commit-msg` hook.
+Commit messages must follow the Conventional Commits specification (e.g., `feat: add user login`, `fix: resolve validation bug`, `refactor(auth): improve token handling`). This is enforced by Commitlint via a Lefthook-managed `commit-msg` hook.
 - **Types Allowed**: `feat`, `fix`, `build`, `chore`, `ci`, `docs`, `style`, `refactor`, `perf`, `test`, etc.
 - **Scope**: Optional scope can be provided (e.g., `feat(api): ...`).
 - **Subject**: Must be lowercase, concise, and not end with a period.
@@ -180,7 +180,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 3.  **Running the Web App (Development Mode)**:
     ```bash
     # Option 1: Run only the web app's dev server
-    pnpm --filter web dev
+    pnpm dev --filter @brainstrike/web
 
     # Option 2: Run dev scripts for all packages tagged with 'dev' in turbo.json (if applicable)
     # pnpm dev # This might start multiple processes depending on turbo.json
@@ -199,7 +199,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
     pnpm coverage:report # Report saved in ./coverage
 
     # Run E2E tests (requires the web app to be built or running)
-    # Ensure the web app is built first: pnpm --filter web build
+    # Ensure the web app is built first: pnpm build --filter @brainstrike/web
     pnpm test:e2e # Runs Playwright tests defined in apps/web/e2e
 
     # Run E2E tests with Playwright UI mode
@@ -250,7 +250,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
   - **E2E**: Playwright tests user flows directly in the browser (`apps/web/e2e/`).
   - **Coverage**: NYC aggregates coverage data from Vitest runs across packages.
 - **CI/CD**: GitHub Actions workflows (`.github/workflows`) likely handle automated testing, linting, building, and potentially deployment on pushes/PRs. (Specific workflow details should be checked in the `.github` folder).
-- **Git Hooks**: Husky (`.husky/`) ensures code quality checks (e.g., commit message linting) run automatically before commits or pushes.
+- **Git Hooks**: Lefthook (`lefthook.yml`) ensures code quality checks (Biome and commitlint) run automatically before commits or pushes.
 - **File Explorer Adapter Pattern**: Storage and file system logic is abstracted behind `@brainstrike/storage` and `@brainstrike/file-system`. Adapters for web, memory, and mock implementations allow the explorer to run in browsers, tests, or future Electron apps without changing core code.
 
 ---
@@ -273,7 +273,7 @@ Commit messages must follow the Conventional Commits specification (e.g., `feat:
 - **Type Errors**: Ensure all dependencies are built (`pnpm build`) as type generation relies on built artifacts (`.d.ts` files). Check `tsconfig.json` configurations.
 - **Cache Problems**: If builds or tests behave unexpectedly, clear the Turborepo cache: `pnpm clean` or manually delete `.turbo`.
 - **Biome/Lint Errors**: Run `pnpm format` to fix formatting. Check rule violations reported by `pnpm lint` against the Biome configuration.
-- **Hook Errors (Git)**: Ensure Husky is set up correctly (`pnpm husky install`).
+- **Hook Errors (Git)**: Ensure Lefthook hooks are installed (`pnpm exec lefthook install`).
 
 ---
 
