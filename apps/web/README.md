@@ -12,7 +12,7 @@ This directory contains the Vite-powered React application for BrainStrike, a su
 2.  **Run the Web App Development Server**:
     From the monorepo root, run:
     ```bash
-    pnpm dev --filter web
+    pnpm dev --filter @brainstrike/web
     ```
     The application will typically be available at `http://localhost:3000` (or the port specified by the `PORT` environment variable).
 
@@ -30,7 +30,7 @@ This directory contains the Vite-powered React application for BrainStrike, a su
 To start the development server with hot reloading:
 ```bash
 # From the monorepo root
-pnpm dev --filter web
+pnpm dev --filter @brainstrike/web
 ```
 Or, from the `apps/web` directory:
 ```bash
@@ -41,7 +41,7 @@ pnpm dev
 To create a production build of the web application:
 ```bash
 # From the monorepo root
-pnpm build --filter web
+pnpm build --filter @brainstrike/web
 ```
 Or, from the `apps/web` directory:
 ```bash
@@ -54,7 +54,7 @@ The output files will be located in `apps/web/dist/`.
 -   **Unit and Integration Tests (Vitest)**:
     ```bash
     # From the monorepo root
-    pnpm test --filter web
+    pnpm test --filter @brainstrike/web
     ```
     Or, from the `apps/web` directory:
     ```bash

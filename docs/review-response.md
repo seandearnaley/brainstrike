@@ -20,7 +20,7 @@ This document summarizes the review feedback addressed prior to Phase 4 and the 
 
 - Admin & retention
   - Added `expireLeases()` and `prune(states, olderThan)` helpers.
-  - CLI gained a `prune` command: `pnpm queue -- prune --olderThan <ISO> --states succeeded failed`.
+  - CLI gained a `prune` command: `pnpm queue prune -- --olderThan <ISO> --states succeeded failed`.
 
 - Indexing
   - New deterministic claim index: `idx_job_queue_claim(queue, state, run_at, id)`.

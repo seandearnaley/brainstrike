@@ -8,8 +8,8 @@
 
 **Environment**: 
 - Turborepo monorepo with 13+ packages
-- React 19 + Vite 6 + TypeScript 5
-- Tailwind CSS v4.1.10 with @tailwindcss/vite plugin
+- React 19 + Vite 7 + TypeScript 5
+- Tailwind CSS v4.1.13 with @tailwindcss/vite plugin
 - shadcn/ui component library
 - Vercel deployment with custom build commands
 
