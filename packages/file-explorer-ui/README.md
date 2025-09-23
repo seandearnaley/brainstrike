@@ -8,28 +8,49 @@ The `FileTree` component uses a small in-house virtualization hook to render onl
 
 ## Installation
 
-This package is internal to the `@brainstrike` monorepo and is consumed via workspace linking.
+This package ships as part of the Brainstrike Turborepo. Link it to another
+workspace instead of pulling from the public registry.
 
 ```bash
-# From the project root
-pnpm add @brainstrike/file-explorer-ui
+# Add to a specific workspace (example: the web app)
+pnpm add @brainstrike/file-explorer-ui --filter @brainstrike/web
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/file-explorer-ui": "workspace:*"
+}
 ```
 
 ## Usage
 
 ```tsx
-import { FileTree, FileExplorerSidebar } from "@brainstrike/file-explorer-ui";
+import { AdaptersProvider } from "@brainstrike/file-explorer-hooks";
+import { MemoryStorageAdapter } from "@brainstrike/storage";
+import {
+  FileExplorerProvider,
+  FileExplorerSidebar,
+  FileTree,
+} from "@brainstrike/file-explorer-ui";
 
 function Sidebar() {
   return (
-    <FileExplorerSidebar>
-      <FileTree />
-    </FileExplorerSidebar>
+    <AdaptersProvider
+      fileSystemAdapter={/* platform specific adapter */}
+      storageAdapter={new MemoryStorageAdapter()}
+    >
+      <FileExplorerProvider storageAdapter={new MemoryStorageAdapter()}>
+        <FileExplorerSidebar>
+          <FileTree />
+        </FileExplorerSidebar>
+      </FileExplorerProvider>
+    </AdaptersProvider>
   );
 }
 ```
 
-The components expect state from `useFileExplorerStore` and utilities from `@brainstrike/file-explorer-hooks`.
+Providers from `@brainstrike/file-explorer-hooks` and
+`@brainstrike/file-explorer` must wrap these components so they can resolve the
+Zustand store and worker helpers.
 
 ## Development
 

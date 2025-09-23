@@ -4,11 +4,17 @@ Core state management and actions for the Brainstrike file explorer feature. Thi
 
 ## Installation
 
-This package is internal to the `@brainstrike` monorepo and is consumed via workspace linking.
+This store lives inside the Brainstrike monorepo. Link it into another
+workspace rather than pulling it from a registry.
 
 ```bash
-# From the project root
-pnpm add @brainstrike/file-explorer
+# Add to a specific workspace (example: the desktop app)
+pnpm add @brainstrike/file-explorer --filter @brainstrike/desktop
+
+# Or declare it manually inside that workspace package.json
+"dependencies": {
+  "@brainstrike/file-explorer": "workspace:*"
+}
 ```
 
 ## Usage

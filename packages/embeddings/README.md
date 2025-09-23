@@ -12,6 +12,21 @@ A comprehensive embedding service package for BrainStrike that provides text and
 - 📊 **Export Ready**: CLI tool supports JSON, CSV, and PostgreSQL pgvector formats
 - ⚡ **Optimized**: Automatic quantization for browser stability
 
+## Installation
+
+The embeddings service is delivered as a workspace package. Link it into the
+consumer workspace via pnpm.
+
+```bash
+# Add to a specific workspace (example: apps/desktop)
+pnpm add @brainstrike/embeddings --filter @brainstrike/desktop
+
+# Or declare it manually inside the target package.json
+"dependencies": {
+  "@brainstrike/embeddings": "workspace:*"
+}
+```
+
 ## Models Available
 
 | Model | Dimensions | Size | Best For | Tags |
@@ -109,14 +124,14 @@ function EmbeddingComponent() {
 
 The package includes a powerful CLI tool for batch processing code files:
 
-### Installation
+### Running the CLI from the workspace
 
 ```bash
-# Install globally
-npm install -g @brainstrike/embeddings
+# Show help
+pnpm --filter @brainstrike/embeddings exec embed-code --help
 
-# Or use directly
-npx @brainstrike/embeddings embed-code --help
+# Example invocation
+pnpm --filter @brainstrike/embeddings exec embed-code ./src --output embeddings.json
 ```
 
 ### Basic Usage

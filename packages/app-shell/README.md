@@ -24,27 +24,25 @@
 
 ## Installation
 
+`@brainstrike/app-shell` is distributed as a workspace package. Link it from the
+monorepo instead of pulling from a public registry.
+
 ```bash
-# Using pnpm (recommended)
-pnpm add @brainstrike/app-shell
+# Add to a specific workspace (example: apps/web)
+pnpm add @brainstrike/app-shell --filter @brainstrike/web
 
-# Using npm
-npm install @brainstrike/app-shell
-
-# Using yarn
-yarn add @brainstrike/app-shell
+# Or wire it directly inside the target package.json
+"dependencies": {
+  "@brainstrike/app-shell": "workspace:*"
+}
 ```
 
 ### Peer Dependencies
 
 Ensure you have the following peer dependencies installed:
 
-```json
-{
-  "react": "^19.1.1",
-  "zustand": "^5.0.0"
-}
-```
+Add required peers to the consuming workspace with `pnpm add react zustand
+--filter <workspace>` if they are not already present.
 
 ## Usage
 

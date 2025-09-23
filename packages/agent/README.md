@@ -22,8 +22,17 @@
 
 ## Installation
 
+This runtime is shipped as part of the Brainstrike workspace. Link it into the
+consuming project instead of fetching it from npm.
+
 ```bash
-pnpm add @brainstrike/agent
+# Add to a specific workspace (example: apps/desktop)
+pnpm add @brainstrike/agent --filter @brainstrike/desktop
+
+# Or declare it manually in the target package.json
+"dependencies": {
+  "@brainstrike/agent": "workspace:*"
+}
 ```
 
 ### Peer Dependencies
@@ -31,7 +40,7 @@ pnpm add @brainstrike/agent
 Ensure you have the following peer dependencies installed:
 
 ```bash
-pnpm add zod @ai-sdk/openai @mastra/core @mastra/mcp
+pnpm add zod @ai-sdk/openai @mastra/core @mastra/mcp --filter <workspace>
 ```
 
 ## Quick Start
