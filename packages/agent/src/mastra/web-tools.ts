@@ -194,20 +194,6 @@ function findHighlight(doc: IndexedDoc, tokens: ReadonlyArray<string>): string {
   return doc.summary;
 }
 
-async function pause(ms: number): Promise<void> {
-  await new Promise<void>((resolve) => setTimeout(resolve, ms));
-}
-
-async function echoToolExecute({
-  input,
-}: {
-  input: z.infer<typeof echoInputSchema>;
-}): Promise<{ text: string }> {
-  const text = (input?.text ?? '').trim();
-  await pause(20);
-  return { text };
-}
-
 function tokenizeQuery(query: string): string[] {
   return tokenize(query).slice(0, 8);
 }
@@ -302,10 +288,6 @@ async function docSummaryExecute({
   } satisfies DocSummaryResponse;
 }
 
-const echoInputSchema = z.object({
-  text: z.string().min(1),
-});
-
 const searchDocsInputSchema = z.object({
   query: z.string().min(2).max(200),
   limit: z.number().int().positive().max(10).optional(),
@@ -316,12 +298,7 @@ const docSummaryInputSchema = z.object({
 });
 
 const baseWebTools = {
-  'web.echo': createTool({
-    id: 'web.echo',
-    description: 'Echoes the provided text synchronously.',
-    inputSchema: echoInputSchema,
-    execute: async (context) => echoToolExecute({ input: context.context }),
-  }),
+  // Removed web.echo - was causing agent to unnecessarily route simple responses through a tool
   'web.searchDocs': createTool({
     id: 'web.searchDocs',
     description: 'Searches Brainstrike documentation entries.',

@@ -494,6 +494,7 @@ export class AssistantDataStreamSession {
   private readonly cleanupDelayMs: number;
   private sequence = 0;
   private closed = false;
+  private aborted = false;
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
@@ -544,6 +545,7 @@ export class AssistantDataStreamSession {
         }
       },
       cancel: () => {
+        this.aborted = true;
         this.cancelAllListeners();
       },
     });
@@ -592,37 +594,45 @@ export class AssistantDataStreamSession {
     this.cleanupTimer = timer;
   }
 
+  private emitParts(parts: Iterable<EncodedChunk>): void {
+    for (const part of parts) {
+      this.recordChunk(part);
+    }
+  }
+
+  private async consumeSource(): Promise<void> {
+    for await (const chunk of this.source) {
+      if (this.aborted) {
+        break;
+      }
+      this.emitParts(this.mapper.handleChunk(chunk));
+      if (this.mapper.didEmitFinish()) {
+        break;
+      }
+    }
+  }
+
+  private finalizeStream(): void {
+    if (!this.mapper.didEmitFinish()) {
+      this.emitParts(this.mapper.finalizeOnStreamEnd());
+    }
+    this.closed = true;
+    for (const listener of this.listeners) {
+      listener.close();
+    }
+    if (this.listeners.size === 0) {
+      this.scheduleCleanup();
+    }
+  }
+
   private async startProcessing(): Promise<void> {
     try {
-      for await (const chunk of this.source) {
-        for (const part of this.mapper.handleChunk(chunk)) {
-          this.recordChunk(part);
-        }
-        if (this.mapper.didEmitFinish()) {
-          break;
-        }
-      }
-      const trailing = this.mapper.finalizeOnStreamEnd();
-      for (const part of trailing) {
-        this.recordChunk(part);
-      }
+      await this.consumeSource();
+      this.emitParts(this.mapper.finalizeOnStreamEnd());
     } catch (error) {
-      for (const part of this.mapper.handleError(error)) {
-        this.recordChunk(part);
-      }
+      this.emitParts(this.mapper.handleError(error));
     } finally {
-      if (!this.mapper.didEmitFinish()) {
-        for (const part of this.mapper.finalizeOnStreamEnd()) {
-          this.recordChunk(part);
-        }
-      }
-      this.closed = true;
-      for (const listener of this.listeners) {
-        listener.close();
-      }
-      if (this.listeners.size === 0) {
-        this.scheduleCleanup();
-      }
+      this.finalizeStream();
     }
   }
 
@@ -638,7 +648,7 @@ export class AssistantDataStreamSession {
     this.events.push(stored);
     debugLog('emit', { id, code: chunk.code, value: chunk.value });
     for (const listener of this.listeners) {
-      listener.push(stored);
+      listener.pushImmediate(stored);
     }
   }
 
@@ -675,7 +685,7 @@ class SessionSubscription {
     }
   }
 
-  push(event: StoredChunk): void {
+  pushImmediate(event: StoredChunk): void {
     if (this.closed) {
       return;
     }

@@ -195,19 +195,43 @@ function createStableHashSuffix(value: string): string {
 }
 
 async function* readableStreamIterator<T>(
-  stream: NodeReadableStream<T> | ReadableStream<T>
+  stream: NodeReadableStream<T> | ReadableStream<T>,
+  signal?: AbortSignal
 ): AsyncIterableIterator<T> {
   const webStream = stream as ReadableStream<T>;
   const reader = webStream.getReader();
+
+  const abortPromise = signal
+    ? new Promise<{ done: true; value: undefined }>((resolve) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            resolve({ done: true, value: undefined });
+          },
+          { once: true }
+        );
+      })
+    : new Promise<never>(() => {});
+
   try {
     while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value !== undefined) {
-        yield value;
+      if (signal?.aborted) {
+        break;
+      }
+      const readPromise = reader.read();
+      const result = await Promise.race([readPromise, abortPromise]);
+
+      if (result.done) {
+        break;
+      }
+      if (result.value !== undefined) {
+        yield result.value as T;
       }
     }
   } finally {
+    try {
+      reader.cancel();
+    } catch {}
     reader.releaseLock();
   }
 }
@@ -347,7 +371,8 @@ export async function streamMastraAgent(
     const streamInput = mastraMessages as unknown as Parameters<
       typeof runtime.agent.streamVNext
     >[0];
-    const result = await runtime.agent.streamVNext(streamInput);
+    const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
+    const result = await runtime.agent.streamVNext(streamInput, streamOptions);
     logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
     const stream = result.fullStream;
@@ -470,7 +495,7 @@ export async function streamMastraAgent(
 
     async function* iterate(): AsyncIterableIterator<StreamChunk> {
       try {
-        for await (const part of readableStreamIterator(stream)) {
+        for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
           const generator = processStreamPart(part, toolNames, sanitizedNameMap);
           let result = generator.next();
 
@@ -484,7 +509,11 @@ export async function streamMastraAgent(
           }
         }
       } finally {
-        logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
+        if (runtimeData?.signal?.aborted) {
+          logger.info('mastra stream aborted', { code: 'mastra_agent_stream_aborted' });
+        } else {
+          logger.info('mastra stream finished', { code: 'mastra_agent_stream_finished' });
+        }
         await runtime?.dispose();
       }
     }

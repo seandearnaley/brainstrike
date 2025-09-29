@@ -15,6 +15,10 @@ import { resolveAssistantProviderConfig } from './server/assistant-config';
 
 export type { StreamChunk };
 
+type ServerResponseWithFlush = http.ServerResponse & {
+  flushHeaders?: () => void;
+};
+
 export async function readBody(req: http.IncomingMessage): Promise<string> {
   return await new Promise<string>((resolve) => {
     let data = '';
@@ -69,7 +73,6 @@ export async function handleChatEndpoint(
   for await (const chunk of stream) {
     const safeChunk = sanitizeStreamChunk(chunk);
     res.write(`${JSON.stringify(safeChunk)}\n`);
-    await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
 
   res.end();
@@ -100,12 +103,20 @@ export async function handleAssistantEndpoint(
   const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = (body?.data ?? undefined) as RuntimeData | undefined;
 
+  const abortController = new AbortController();
+  const onAbort = () => abortController.abort();
+  if (req) {
+    req.on('close', onAbort);
+    req.on('aborted', onAbort);
+  }
+
   let agentStream: AsyncIterable<StreamChunk>;
   try {
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
       mastraTools: webTools,
       apiKey: provider.apiKey,
+      signal: abortController.signal,
     });
   } catch (error) {
     console.error('[web assistant] failed to initialize assistant stream', error);
@@ -121,7 +132,14 @@ export async function handleAssistantEndpoint(
 
   const session = assistantDataStreamSessions.create(agentStream);
   const response = session.createResponse();
-  await streamResponse(res, response, req);
+  try {
+    await streamResponse(res, response, req);
+  } finally {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
+  }
 }
 
 export function sendAssistantStatusResponse(res: http.ServerResponse): void {
@@ -171,16 +189,58 @@ function readLastEventId(req: http.IncomingMessage): string | undefined {
   return header;
 }
 
-async function streamResponse(
-  res: http.ServerResponse,
-  response: Response,
-  req?: http.IncomingMessage
-): Promise<void> {
+function writeResponseHeaders(res: http.ServerResponse, response: Response): void {
   const headersObject: Record<string, string> = {};
   for (const [key, value] of response.headers.entries()) {
     headersObject[key] = value;
   }
   res.writeHead(response.status, headersObject);
+}
+
+function flushResponse(res: http.ServerResponse): void {
+  const resWithFlush = res as ServerResponseWithFlush;
+  if (typeof resWithFlush.flushHeaders === 'function') {
+    resWithFlush.flushHeaders();
+  }
+}
+
+async function writeChunkToResponse(value: Uint8Array, res: http.ServerResponse): Promise<void> {
+  const writeResult = res.write(value);
+  flushResponse(res);
+  if (!writeResult) {
+    await new Promise<void>((resolve) => res.once('drain', resolve));
+  }
+}
+
+async function pipeStreamToResponse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: http.ServerResponse,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    while (!signal.aborted && !res.destroyed) {
+      const { done, value } = await reader.read();
+      if (done || signal.aborted || res.destroyed) {
+        break;
+      }
+      if (value?.length > 0) {
+        await writeChunkToResponse(value, res);
+      }
+    }
+  } catch (error) {
+    if (!signal.aborted && !res.destroyed) {
+      console.error('[assistant-stream] failed to stream response', error);
+    }
+  }
+}
+
+async function streamResponse(
+  res: http.ServerResponse,
+  response: Response,
+  req?: http.IncomingMessage
+): Promise<void> {
+  writeResponseHeaders(res, response);
+
   const body = response.body as unknown as ReadableStream<Uint8Array> | null;
   if (!body) {
     res.end();
@@ -188,27 +248,22 @@ async function streamResponse(
   }
 
   const reader = body.getReader();
-  let aborted = false;
-  const abort = () => {
-    aborted = true;
-  };
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+
   if (req) {
     req.on('close', abort);
     req.on('aborted', abort);
   }
+
   try {
-    while (!aborted) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value && value.length > 0) {
-        res.write(value);
-      }
-    }
-  } catch (error) {
-    if (!aborted) {
-      console.error('[assistant-stream] failed to stream response', error);
-    }
+    await pipeStreamToResponse(reader, res, abortController.signal);
   } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancel errors
+    }
     res.end();
     if (req) {
       req.removeListener('close', abort);

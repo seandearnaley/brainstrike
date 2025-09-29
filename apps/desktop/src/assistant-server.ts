@@ -90,16 +90,45 @@ async function handleAssistantRequest(
     return;
   }
 
+  const abortController = new AbortController();
+  const onAbort = () => {
+    abortController.abort();
+  };
+  if (req) {
+    req.on('close', onAbort);
+    req.on('aborted', onAbort);
+  }
+
   const mcpConfig = (await loadMcpConfig()).config;
-  const streamResult = await initializeAgentStream(messages, data, apiKey, mcpConfig);
+  const streamResult = await initializeAgentStream(
+    messages,
+    data,
+    apiKey,
+    mcpConfig,
+    abortController.signal
+  );
   if (!streamResult.ok) {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
     respondJson(res, streamResult.status, streamResult.payload);
     return;
   }
-
-  const session = assistantDataStreamSessions.create(streamResult.stream);
-  const response = session.createResponse();
-  await streamResponse(res, response, undefined);
+  try {
+    const session = assistantDataStreamSessions.create(streamResult.stream);
+    const response = session.createResponse();
+    await streamResponse(res, response, abortController.signal);
+  } catch (error) {
+    if (!abortController.signal.aborted) {
+      console.error('[assistant-server] stream error', error);
+    }
+  } finally {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
+  }
 }
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
@@ -197,13 +226,15 @@ async function initializeAgentStream(
   messages: AgentMessage[],
   runtimeData: RuntimeData | undefined,
   apiKey: string | undefined,
-  mcpConfig: McpConfig | undefined
+  mcpConfig: McpConfig | undefined,
+  signal: AbortSignal
 ): Promise<AgentStreamResult> {
   const runtime: RuntimeData = {
     ...runtimeData,
     mcpEnabled: true,
     mcpConfig,
     mastraTools: webTools,
+    signal,
     ...(apiKey ? { apiKey } : {}),
   };
 
