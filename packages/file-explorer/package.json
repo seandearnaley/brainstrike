@@ -42,7 +42,7 @@
     "@stryker-mutator/core": "^9.1.1",
     "@stryker-mutator/typescript-checker": "^9.1.1",
     "@stryker-mutator/vitest-runner": "^9.1.1",
-    "@types/node": "^24.5.2",
+    "@types/node": "^24.6.0",
     "tsup": "^8",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

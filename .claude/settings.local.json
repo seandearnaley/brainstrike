@@ -77,7 +77,19 @@
       "mcp__chrome-devtools__take_screenshot",
       "mcp__chrome-devtools__list_console_messages",
       "mcp__chrome-devtools__evaluate_script",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(for:*)",
+      "Bash(do)",
+      "Bash(if grep -q '\"\"@types/node\"\": \"\"\\^24\\.5\\.2\"\"' \"$file\")",
+      "Bash(then)",
+      "Bash(echo \"Updated: $file\")",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(if grep -q '\"\"@types/react\"\": \"\"\\^19\"\"' \"$file\")",
+      "Bash(! grep -q '\"\"@types/react\"\": \"\"\\^19\\.1\\.15\"\"' \"$file\")",
+      "Bash(if grep -q '\"\"@types/react\"\":' \"$file\")",
+      "Bash(if grep -q '\"\"@vitejs/plugin-react\"\": \"\"\\^5\\.0\\.3\"\"' \"$file\")",
+      "Bash(pnpm -w test)"
     ],
     "deny": [],
     "ask": []
