@@ -1,20 +1,38 @@
 import http from 'node:http';
-import { convertAssistantUiMessages } from '@brainstrike/agent';
-import { readOpenAIApiKey } from './openai-api-key';
+import {
+  assistantDataStreamSessions,
+  convertAssistantUiMessages,
+  resolveDataStreamSession,
+  toAiSdkStyleStream,
+  webTools,
+} from '@brainstrike/agent';
 
 type AgentModule = typeof import('@brainstrike/agent');
 type AgentMessage = AgentModule['AgentMessage'];
 type AssistantUiMessage = AgentModule['AssistantUiMessageStrict'];
 type RuntimeData = AgentModule['RuntimeData'];
+type StreamChunk = AgentModule['StreamChunk'];
+type McpConfig = AgentModule['McpConfig'];
 
-import { createAssistantStreamResponse } from 'assistant-stream';
+type AssistantRoute = 'status' | 'assistant' | 'not-found';
+interface AssistantRequestPayload {
+  rawMessages: AssistantUiMessage[];
+  data: RuntimeData | undefined;
+}
+interface AgentStreamSuccess {
+  ok: true;
+  stream: AsyncIterable<StreamChunk>;
+}
+interface AgentStreamFailure {
+  ok: false;
+  status: number;
+  payload: { error: string; message: string };
+}
+type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
+
 import { readRequestBody, streamResponse } from './assistant-server/http';
-import {
-  processAgentStream,
-  type StreamChunk,
-  toMessageFinishChunk,
-} from './assistant-server/stream-glue';
 import { loadMcpConfig } from './mcp-loader';
+import { readOpenAIApiKey } from './openai-api-key';
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {
@@ -42,23 +60,18 @@ async function handleAssistantRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse
 ): Promise<void> {
-  const url = req.url ?? '';
-  if (req.method === 'GET' && (url.endsWith('/assistant/status') || url === '/status')) {
+  const route = resolveAssistantRoute(req);
+  if (route === 'status') {
     await handleAssistantStatus(res);
     return;
   }
 
-  if (req.method !== 'POST' || !(req.url?.endsWith('/assistant') || req.url === '/')) {
-    res.writeHead(404).end('not found');
+  if (route === 'not-found') {
+    respondNotFound(res);
     return;
   }
 
-  const body = await readRequestBody(req);
-  const parsed = JSON.parse(body || '{}');
-  const rawMessages = Array.isArray(parsed?.messages)
-    ? (parsed.messages as AssistantUiMessage[])
-    : [];
-  const data: RuntimeData | undefined = parsed?.data ?? undefined;
+  const { rawMessages, data } = await parseAssistantRequestPayload(req);
   const apiKey = await readOpenAIApiKey();
   const messages = convertAssistantUiMessages(rawMessages);
   console.info('[assistant-server] request received', {
@@ -72,49 +85,56 @@ async function handleAssistantRequest(
     return;
   }
 
-  const mod = await import('@brainstrike/agent');
-  const abortController = new AbortController();
-  const mcpConfig = (await loadMcpConfig()).config;
-  let agentStream: AsyncIterable<StreamChunk>;
-  try {
-    agentStream = await mod.toAiSdkStyleStream(messages, {
-      ...data,
-      mcpEnabled: true,
-      ...(apiKey ? { apiKey } : {}),
-      signal: abortController.signal,
-      mcpConfig,
-      mastraTools: mod.webTools,
-    });
-    console.info('[assistant-server] stream initialized');
-  } catch (error) {
-    console.error('[assistant-server] failed to initialize assistant stream', error);
-    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
-    res.end(
-      JSON.stringify({
-        error: 'agent_stream_init_failed',
-        message: error instanceof Error ? error.message : String(error),
-      })
-    );
+  const lastEventId = readLastEventId(req);
+  if (await resumeStreamIfAvailable(res, lastEventId)) {
     return;
   }
 
-  const response = createAssistantStreamResponse(async (ctrl) => {
-    const abort = () => abortController.abort();
-    req.on('close', abort);
-    req.on('aborted', abort);
-    abortController.signal.addEventListener(
-      'abort',
-      () => {
-        try {
-          ctrl.close();
-        } catch {}
-      },
-      { once: true }
-    );
-    await processAgentStream(ctrl, agentStream, abortController.signal, false);
-  });
+  // Create abort controller to propagate cancellation from HTTP request to agent stream
+  // When client disconnects or cancels request, this signal flows through:
+  // 1. HTTP request events (close/aborted) trigger onAbort
+  // 2. Signal passed to initializeAgentStream -> RuntimeData
+  // 3. RuntimeData.signal used by Mastra stream iterator
+  // 4. Session checks abort flag and stops consuming source
+  const abortController = new AbortController();
+  const onAbort = () => {
+    abortController.abort();
+  };
+  if (req) {
+    req.on('close', onAbort);
+    req.on('aborted', onAbort);
+  }
 
-  await streamResponse(res, response, undefined);
+  const mcpConfig = (await loadMcpConfig()).config;
+  const streamResult = await initializeAgentStream(
+    messages,
+    data,
+    apiKey,
+    mcpConfig,
+    abortController.signal
+  );
+  if (!streamResult.ok) {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
+    respondJson(res, streamResult.status, streamResult.payload);
+    return;
+  }
+  try {
+    const session = assistantDataStreamSessions.create(streamResult.stream);
+    const response = session.createResponse();
+    await streamResponse(res, response, abortController.signal);
+  } catch (error) {
+    if (!abortController.signal.aborted) {
+      console.error('[assistant-server] stream error', error);
+    }
+  } finally {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
+  }
 }
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
@@ -145,9 +165,100 @@ function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
   return Boolean(lastText && lastText.trim().length > 0);
 }
 
-// Internal-only test surface to validate streaming glue behavior.
-// Not part of the public API.
-export const __assistantServerTest = {
-  processAgentStream,
-  toMessageFinishChunk,
-};
+function readLastEventId(req: http.IncomingMessage): string | undefined {
+  const header = req.headers['last-event-id'];
+  if (!header) return undefined;
+  if (Array.isArray(header)) {
+    return header[header.length - 1];
+  }
+  return header;
+}
+
+function resolveAssistantRoute(req: http.IncomingMessage): AssistantRoute {
+  const url = req.url ?? '';
+  if (req.method === 'GET' && (url.endsWith('/assistant/status') || url === '/status')) {
+    return 'status';
+  }
+  if (req.method === 'POST' && (url.endsWith('/assistant') || url === '/')) {
+    return 'assistant';
+  }
+  return 'not-found';
+}
+
+function respondNotFound(res: http.ServerResponse): void {
+  res.writeHead(404).end('not found');
+}
+
+function respondJson(
+  res: http.ServerResponse,
+  status: number,
+  payload: { error: string; message: string }
+): void {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
+async function parseAssistantRequestPayload(
+  req: http.IncomingMessage
+): Promise<AssistantRequestPayload> {
+  const body = await readRequestBody(req);
+  const parsed: unknown = JSON.parse(body || '{}');
+  const maybePayload = parsed as Partial<{ messages: AssistantUiMessage[]; data: RuntimeData }>;
+  const rawMessages = Array.isArray(maybePayload?.messages)
+    ? (maybePayload.messages as AssistantUiMessage[])
+    : [];
+  const data = maybePayload?.data ?? undefined;
+  return { rawMessages, data };
+}
+
+async function resumeStreamIfAvailable(
+  res: http.ServerResponse,
+  lastEventId: string | undefined
+): Promise<boolean> {
+  const session = resolveDataStreamSession(lastEventId);
+  if (!session) {
+    return false;
+  }
+
+  console.info('[assistant-server] resuming stream', { lastEventId });
+  const response = session.createResponse(
+    lastEventId ? { resumeFromEventId: lastEventId } : undefined
+  );
+  await streamResponse(res, response, undefined);
+  return true;
+}
+
+async function initializeAgentStream(
+  messages: AgentMessage[],
+  runtimeData: RuntimeData | undefined,
+  apiKey: string | undefined,
+  mcpConfig: McpConfig | undefined,
+  signal: AbortSignal
+): Promise<AgentStreamResult> {
+  // Build runtime context with abort signal for cancellation support
+  // The signal is embedded in RuntimeData and flows through to:
+  // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
+  // - AssistantDataStreamSession (via cancel() on Response stream)
+  const runtime: RuntimeData = {
+    ...runtimeData,
+    mcpEnabled: true,
+    mcpConfig,
+    mastraTools: webTools,
+    signal, // ← AbortSignal passed here, used by stream iterator
+    ...(apiKey ? { apiKey } : {}),
+  };
+
+  try {
+    const stream = await toAiSdkStyleStream(messages, runtime);
+    console.info('[assistant-server] stream initialized');
+    return { ok: true, stream };
+  } catch (error) {
+    console.error('[assistant-server] failed to initialize assistant stream', error);
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      status: 502,
+      payload: { error: 'agent_stream_init_failed', message },
+    };
+  }
+}

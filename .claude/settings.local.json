@@ -56,7 +56,19 @@
       "Bash(npx c8 report:*)",
       "Bash(pnpm --filter @brainstrike/desktop run coverage:enforce)",
       "Bash(sed:*)",
-      "Bash(pnpm -w lint --max-diagnostics=50 --filter=@brainstrike/agent)"
+      "Bash(pnpm -w lint --max-diagnostics=50 --filter=@brainstrike/agent)",
+      "mcp__assistant-ui__assistantUIDocs",
+      "mcp__mastra__mastraDocs",
+      "Bash(pnpm --filter @brainstrike/desktop run type-check:main)",
+      "Bash(pnpm --filter @brainstrike/web run type-check)",
+      "Bash(pnpm --filter @brainstrike/agent build)",
+      "Bash(pnpm -w build --filter=@brainstrike/agent --filter=@brainstrike/desktop --filter=@brainstrike/web)",
+      "Bash(pnpm build:main:*)",
+      "Bash(pnpm --filter @brainstrike/desktop build:main)",
+      "Bash(pnpm --filter @brainstrike/web build)",
+      "Bash(pnpm --filter @brainstrike/agent test data-stream-session)",
+      "Bash(pnpm --filter @brainstrike/agent test)",
+      "Bash(pnpm --filter @brainstrike/agent test -- --coverage)"
     ],
     "deny": [],
     "ask": []

@@ -1,215 +1,25 @@
+import type http from 'node:http';
 import {
-  type StreamChunk as AgentStreamChunk,
   type AssistantUiMessage,
-  clearToolRegistry,
-  completeToolCall,
+  assistantDataStreamSessions,
   convertAssistantUiMessages,
-  createToolRegistry,
-  recordToolProgress,
-  type StreamChunkFinish,
-  type StreamChunkMessageFinish,
+  type RuntimeData,
+  resolveDataStreamSession,
+  type StreamChunk,
   sanitizeStreamChunk,
-  startToolCall,
-  type ToolCallControllerLike,
-  type ToolRegistry,
+  toAiSdkStyleStream,
   webTools,
 } from '@brainstrike/agent';
-import type { ToolCallStreamController } from 'assistant-stream';
-import { createAssistantStreamResponse } from 'assistant-stream';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
 
-export type StreamChunk = AgentStreamChunk;
+export type { StreamChunk };
 
-type TextStreamChunk = Extract<StreamChunk, { type: 'text-delta' }>;
-type ToolEventStreamChunk = Extract<StreamChunk, { type: 'tool-event' }>;
-type FinishStreamChunk = StreamChunkFinish | StreamChunkMessageFinish;
+type ServerResponseWithFlush = http.ServerResponse & {
+  flushHeaders?: () => void;
+};
 
-export interface StreamController {
-  addTextPart: () => void;
-  appendText: (text: string) => void;
-  addToolCallPart: (options: { toolName: string }) => ToolCallStreamController;
-  close: () => void;
-  enqueue: (chunk: {
-    type: 'message-finish';
-    finishReason: 'stop';
-    usage: { promptTokens: number; completionTokens: number };
-    path: ReadonlyArray<number>;
-  }) => void;
-}
-
-type AssistantToolRegistry = ToolRegistry<ToolCallControllerLike>;
-
-export function handleToolStart(
-  ctrl: StreamController,
-  tools: AssistantToolRegistry,
-  name: string,
-  payload: unknown
-): void {
-  const controller = ctrl.addToolCallPart({ toolName: name });
-  startToolCall(tools, name, payload, controller as unknown as ToolCallControllerLike);
-}
-
-export function handleToolProgress(
-  tools: AssistantToolRegistry,
-  name: string,
-  payload: unknown
-): string | undefined {
-  return recordToolProgress(tools, name, payload);
-}
-
-export function handleToolEnd(
-  tools: AssistantToolRegistry,
-  name: string,
-  status: string,
-  payload: unknown
-): void {
-  completeToolCall(tools, name, status, payload);
-}
-
-export function handleTextDelta(
-  ctrl: StreamController,
-  value?: string,
-  startedParam?: boolean
-): boolean {
-  let started = startedParam;
-  if (!started) {
-    ctrl.addTextPart();
-    started = true;
-  }
-  if (value) {
-    ctrl.appendText(value);
-  }
-  return started;
-}
-
-export function handleToolEvent(
-  ctrl: StreamController,
-  tools: AssistantToolRegistry,
-  chunk: StreamChunk
-): string | undefined {
-  if (chunk.type !== 'tool-event') return undefined;
-  const { name, status, payload } = chunk;
-
-  if (status === 'start') {
-    handleToolStart(ctrl, tools, name, payload);
-  } else if (status === 'progress') {
-    const line = handleToolProgress(tools, name, payload);
-    return line;
-  } else if (status === 'success' || status === 'error') {
-    handleToolEnd(tools, name, status, payload);
-  }
-  return undefined;
-}
-
-function toMessageFinishChunk(chunk: FinishStreamChunk): {
-  type: 'message-finish';
-  finishReason: 'stop';
-  usage: { promptTokens: number; completionTokens: number };
-  path: ReadonlyArray<number>;
-} {
-  const usage = chunk.usage;
-  const promptTokensRaw = usage?.promptTokens;
-  const completionTokensRaw = usage?.completionTokens;
-  const promptTokens =
-    typeof promptTokensRaw === 'number' && Number.isFinite(promptTokensRaw) ? promptTokensRaw : 0;
-  const completionTokens =
-    typeof completionTokensRaw === 'number' && Number.isFinite(completionTokensRaw)
-      ? completionTokensRaw
-      : 0;
-
-  return {
-    type: 'message-finish',
-    finishReason: 'stop',
-    usage: { promptTokens, completionTokens },
-    path: chunk.type === 'message-finish' ? chunk.path : [],
-  };
-}
-
-type ChunkProcessingResult = { started: boolean; done: boolean };
-
-function ensureAssistantMessage(
-  ctrl: StreamController,
-  started: boolean,
-  chunk: StreamChunk
-): boolean {
-  if (!started && chunk.type === 'tool-event' && chunk.status === 'start') {
-    ctrl.addTextPart();
-    return true;
-  }
-  return started;
-}
-
-function processTextChunk(
-  ctrl: StreamController,
-  chunk: TextStreamChunk,
-  started: boolean
-): ChunkProcessingResult {
-  const nextStarted = handleTextDelta(ctrl, chunk.value, started);
-  return { started: nextStarted, done: false };
-}
-
-function processToolChunk(
-  ctrl: StreamController,
-  tools: AssistantToolRegistry,
-  chunk: ToolEventStreamChunk,
-  started: boolean
-): ChunkProcessingResult {
-  const progressText = handleToolEvent(ctrl, tools, chunk);
-  const nextStarted = progressText ? handleTextDelta(ctrl, `${progressText}\n`, false) : started;
-  return { started: nextStarted, done: false };
-}
-
-function handleStreamChunk(
-  ctrl: StreamController,
-  tools: AssistantToolRegistry,
-  chunk: StreamChunk,
-  started: boolean
-): ChunkProcessingResult {
-  if (chunk.type === 'finish' || chunk.type === 'message-finish') {
-    ctrl.enqueue(toMessageFinishChunk(chunk));
-    return { started, done: true };
-  }
-
-  const ensuredStarted = ensureAssistantMessage(ctrl, started, chunk);
-  if (chunk.type === 'text-delta') {
-    return processTextChunk(ctrl, chunk, ensuredStarted);
-  }
-  if (chunk.type === 'tool-event') {
-    return processToolChunk(ctrl, tools, chunk, ensuredStarted);
-  }
-  return { started: ensuredStarted, done: false };
-}
-
-export async function processAgentStream(
-  ctrl: StreamController,
-  agentStream: AsyncIterable<StreamChunk>
-): Promise<void> {
-  let started = false;
-  const tools = createToolRegistry<ToolCallControllerLike>();
-
-  for await (const chunk of agentStream) {
-    const { started: nextStarted, done } = handleStreamChunk(ctrl, tools, chunk, started);
-    started = nextStarted;
-    if (done) break;
-  }
-
-  const remaining = new Set<ToolCallControllerLike>();
-  for (const entry of tools.byKey.values()) {
-    remaining.add(entry.controller);
-  }
-  for (const controller of remaining) {
-    try {
-      controller.close();
-    } catch {}
-  }
-  try {
-    clearToolRegistry(tools);
-  } catch {}
-  ctrl.close();
-}
-
-export async function readBody(req: import('http').IncomingMessage): Promise<string> {
+export async function readBody(req: http.IncomingMessage): Promise<string> {
   return await new Promise<string>((resolve) => {
     let data = '';
     req.on('data', (chunk: Buffer) => {
@@ -221,7 +31,7 @@ export async function readBody(req: import('http').IncomingMessage): Promise<str
 
 export async function handleChatEndpoint(
   body: { messages?: unknown; data?: unknown },
-  res: import('http').ServerResponse
+  res: http.ServerResponse
 ): Promise<void> {
   const provider = resolveAssistantProviderConfig();
   if (!provider.enabled || !provider.apiKey) {
@@ -229,7 +39,6 @@ export async function handleChatEndpoint(
     return;
   }
 
-  const { toAiSdkStyleStream } = await import('@brainstrike/agent');
   const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
   const agentMessages = convertAssistantUiMessages(rawMessages);
   const data = body?.data ?? undefined;
@@ -237,7 +46,7 @@ export async function handleChatEndpoint(
   let stream: AsyncIterable<StreamChunk>;
   try {
     stream = await toAiSdkStyleStream(agentMessages, {
-      ...(data ?? {}),
+      ...(data as RuntimeData | undefined),
       mastraTools: webTools,
       apiKey: provider.apiKey,
     });
@@ -264,17 +73,15 @@ export async function handleChatEndpoint(
   for await (const chunk of stream) {
     const safeChunk = sanitizeStreamChunk(chunk);
     res.write(`${JSON.stringify(safeChunk)}\n`);
-    // Small delay to ensure UI observes streaming state in E2E and dev
-    // This avoids extremely fast streams completing before the UI can disable the Send button
-    await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
 
   res.end();
 }
 
 export async function handleAssistantEndpoint(
-  body: { messages?: unknown; data?: unknown },
-  res: import('http').ServerResponse
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  body: { messages?: unknown; data?: unknown }
 ): Promise<void> {
   const provider = resolveAssistantProviderConfig();
   if (!provider.enabled || !provider.apiKey) {
@@ -282,17 +89,34 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  const { toAiSdkStyleStream } = await import('@brainstrike/agent');
+  const lastEventId = readLastEventId(req);
+  const existingSession = resolveDataStreamSession(lastEventId);
+  if (existingSession) {
+    const response = existingSession.createResponse(
+      lastEventId ? { resumeFromEventId: lastEventId } : undefined
+    );
+    await streamResponse(res, response, req);
+    return;
+  }
 
   const rawMessages = Array.isArray(body?.messages) ? (body.messages as AssistantUiMessage[]) : [];
   const agentMessages = convertAssistantUiMessages(rawMessages);
-  const data = body?.data ?? undefined;
+  const data = (body?.data ?? undefined) as RuntimeData | undefined;
+
+  const abortController = new AbortController();
+  const onAbort = () => abortController.abort();
+  if (req) {
+    req.on('close', onAbort);
+    req.on('aborted', onAbort);
+  }
+
   let agentStream: AsyncIterable<StreamChunk>;
   try {
     agentStream = await toAiSdkStyleStream(agentMessages, {
       ...(data ?? {}),
       mastraTools: webTools,
       apiKey: provider.apiKey,
+      signal: abortController.signal,
     });
   } catch (error) {
     console.error('[web assistant] failed to initialize assistant stream', error);
@@ -306,25 +130,29 @@ export async function handleAssistantEndpoint(
     return;
   }
 
-  const response = createAssistantStreamResponse(async (ctrl) => {
-    ctrl.addTextPart();
-    await processAgentStream(ctrl as StreamController, agentStream);
-  });
-
-  res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
-  const reader = (response.body as unknown as ReadableStream).getReader();
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    res.write(value);
+  const session = assistantDataStreamSessions.create(agentStream);
+  const response = session.createResponse();
+  try {
+    await streamResponse(res, response, req);
+  } finally {
+    if (req) {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    }
   }
+}
 
-  res.end();
+export function sendAssistantStatusResponse(res: http.ServerResponse): void {
+  const provider = resolveAssistantProviderConfig();
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
+  res.end(JSON.stringify(assistantStatusPayload(provider)));
 }
 
 function sendAssistantDisabledResponse(
-  res: import('http').ServerResponse,
+  res: http.ServerResponse,
   provider: AssistantProviderConfig
 ): void {
   res.writeHead(503, {
@@ -339,15 +167,6 @@ function sendAssistantDisabledResponse(
   );
 }
 
-export function sendAssistantStatusResponse(res: import('http').ServerResponse): void {
-  const provider = resolveAssistantProviderConfig();
-  res.writeHead(200, {
-    'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-  });
-  res.end(JSON.stringify(assistantStatusPayload(provider)));
-}
-
 function assistantStatusPayload(provider: AssistantProviderConfig): {
   enabled: boolean;
   reason?: string;
@@ -359,4 +178,96 @@ function assistantStatusPayload(provider: AssistantProviderConfig): {
     enabled: false,
     reason: provider.disabledReason ?? 'missing_api_key',
   };
+}
+
+function readLastEventId(req: http.IncomingMessage): string | undefined {
+  const header = req.headers['last-event-id'];
+  if (!header) return undefined;
+  if (Array.isArray(header)) {
+    return header[header.length - 1];
+  }
+  return header;
+}
+
+function writeResponseHeaders(res: http.ServerResponse, response: Response): void {
+  const headersObject: Record<string, string> = {};
+  for (const [key, value] of response.headers.entries()) {
+    headersObject[key] = value;
+  }
+  res.writeHead(response.status, headersObject);
+}
+
+function flushResponse(res: http.ServerResponse): void {
+  const resWithFlush = res as ServerResponseWithFlush;
+  if (typeof resWithFlush.flushHeaders === 'function') {
+    resWithFlush.flushHeaders();
+  }
+}
+
+async function writeChunkToResponse(value: Uint8Array, res: http.ServerResponse): Promise<void> {
+  const writeResult = res.write(value);
+  flushResponse(res);
+  if (!writeResult) {
+    await new Promise<void>((resolve) => res.once('drain', resolve));
+  }
+}
+
+async function pipeStreamToResponse(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: http.ServerResponse,
+  signal: AbortSignal
+): Promise<void> {
+  try {
+    while (!signal.aborted && !res.destroyed) {
+      const { done, value } = await reader.read();
+      if (done || signal.aborted || res.destroyed) {
+        break;
+      }
+      if (value?.length > 0) {
+        await writeChunkToResponse(value, res);
+      }
+    }
+  } catch (error) {
+    if (!signal.aborted && !res.destroyed) {
+      console.error('[assistant-stream] failed to stream response', error);
+    }
+  }
+}
+
+async function streamResponse(
+  res: http.ServerResponse,
+  response: Response,
+  req?: http.IncomingMessage
+): Promise<void> {
+  writeResponseHeaders(res, response);
+
+  const body = response.body as unknown as ReadableStream<Uint8Array> | null;
+  if (!body) {
+    res.end();
+    return;
+  }
+
+  const reader = body.getReader();
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+
+  if (req) {
+    req.on('close', abort);
+    req.on('aborted', abort);
+  }
+
+  try {
+    await pipeStreamToResponse(reader, res, abortController.signal);
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancel errors
+    }
+    res.end();
+    if (req) {
+      req.removeListener('close', abort);
+      req.removeListener('aborted', abort);
+    }
+  }
 }

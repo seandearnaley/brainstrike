@@ -36,7 +36,6 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@monaco-editor/react": "^4.7.0",
-    "assistant-stream": "^0.2.28",
     "dompurify": "^3.2.7",
     "monaco-editor": "^0.53.0",
     "playwright": "^1.55.0",

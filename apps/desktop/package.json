@@ -47,7 +47,6 @@
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.8",
-    "assistant-stream": "^0.2.28",
     "electron-store": "^10.1.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"

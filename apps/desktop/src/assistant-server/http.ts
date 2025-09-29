@@ -1,5 +1,9 @@
 import type http from 'node:http';
 
+type ServerResponseWithFlush = http.ServerResponse & {
+  flushHeaders?: () => void;
+};
+
 export async function readRequestBody(req: http.IncomingMessage): Promise<string> {
   let body = '';
   req.on('data', (c) => {
@@ -12,7 +16,7 @@ export async function readRequestBody(req: http.IncomingMessage): Promise<string
 export async function streamResponse(
   res: http.ServerResponse,
   response: { status: number; headers: Headers; body: ReadableStream | null },
-  signal?: AbortSignal | null
+  signal: AbortSignal | null = null
 ): Promise<void> {
   writeHeaders(res, response.headers);
   try {
@@ -36,6 +40,37 @@ export function writeHeaders(res: http.ServerResponse, headers: Headers): void {
   }
 }
 
+function flushResponse(res: http.ServerResponse): void {
+  const resWithFlush = res as ServerResponseWithFlush;
+  if (typeof resWithFlush.flushHeaders === 'function') {
+    resWithFlush.flushHeaders();
+  }
+}
+
+async function writeChunkToResponse(value: Uint8Array, res: http.ServerResponse): Promise<void> {
+  const writeResult = res.write(value);
+  flushResponse(res);
+  if (!writeResult) {
+    await new Promise<void>((resolve) => res.once('drain', resolve));
+  }
+}
+
+async function pumpChunks(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  res: http.ServerResponse,
+  abortState: { aborted: boolean }
+): Promise<void> {
+  while (!abortState.aborted && !res.destroyed) {
+    const { done, value } = await reader.read();
+    if (done || abortState.aborted || res.destroyed) {
+      break;
+    }
+    if (value?.length > 0) {
+      await writeChunkToResponse(value, res);
+    }
+  }
+}
+
 export async function pumpReadableToResponse(
   body: ReadableStream<Uint8Array>,
   res: http.ServerResponse,
@@ -44,23 +79,27 @@ export async function pumpReadableToResponse(
   const reader = (
     body as unknown as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }
   ).getReader();
-  let aborted = Boolean(signal?.aborted);
+  const abortState = { aborted: Boolean(signal?.aborted) };
   const onAbort = () => {
-    aborted = true;
+    abortState.aborted = true;
+    try {
+      reader.cancel();
+    } catch {}
     try {
       res.end();
     } catch {}
   };
   try {
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
-    while (!aborted) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (aborted) break;
-      if (value && value.length > 0) res.write(value);
+    await pumpChunks(reader, res, abortState);
+  } catch (error) {
+    if (!abortState.aborted && !res.destroyed) {
+      console.error('[desktop] stream error:', error);
     }
-  } catch {
   } finally {
+    try {
+      await reader.cancel();
+    } catch {}
     try {
       res.end();
     } catch {}

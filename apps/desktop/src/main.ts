@@ -152,7 +152,7 @@ app.whenReady().then(async () => {
     ];
     Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate));
 
-    // Start local assistant-stream server for desktop assistant-ui
+    // Start local data stream server for desktop assistant-ui
     let assistantUrl = '';
     try {
       const { url, stop } = await startAssistantServer();

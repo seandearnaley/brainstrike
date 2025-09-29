@@ -311,7 +311,7 @@ async function createApiMiddleware(mode: 'dev' | 'preview') {
       }
 
       if (req.url?.startsWith('/api/assistant')) {
-        await handleAssistantEndpoint(body, res);
+        await handleAssistantEndpoint(req, res, body);
         return;
       }
 
