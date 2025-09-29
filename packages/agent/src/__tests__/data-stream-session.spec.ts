@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { StreamChunk } from '../index';
-import { AssistantDataStreamSession } from '../stream/data-stream';
+import {
+  AssistantDataStreamSession,
+  assistantDataStreamSessions,
+  resolveDataStreamSession,
+} from '../stream/data-stream';
 
 type Encoded = { code: string; value: unknown };
 
@@ -256,6 +260,166 @@ describe('AssistantDataStreamSession', () => {
 
     // Should have consumed very few chunks
     expect(consumedCount).toBeLessThan(10);
+  });
+
+  it('cancels all listeners when response stream is canceled', async () => {
+    let consumedCount = 0;
+    const maxChunks = 20;
+
+    async function* simpleStream(): AsyncIterableIterator<StreamChunk> {
+      for (let i = 0; i < maxChunks; i++) {
+        consumedCount++;
+        yield { type: 'text-delta', value: `chunk${i} ` };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: maxChunks } };
+    }
+
+    const session = new AssistantDataStreamSession(simpleStream(), () => {}, {
+      sessionId: 'cancel-all-test',
+      messageId: 'msg-cancel-all',
+    });
+
+    // Create two concurrent response streams
+    const response1 = session.createResponse();
+    const response2 = session.createResponse();
+
+    const body1 = response1.body as ReadableStream<Uint8Array> | null;
+    const body2 = response2.body as ReadableStream<Uint8Array> | null;
+    if (!body1 || !body2) throw new Error('body is null');
+
+    const reader1 = body1.getReader();
+    const reader2 = body2.getReader();
+
+    // Read a few chunks from both
+    await reader1.read();
+    await reader2.read();
+
+    // Cancel first stream - should cancel all listeners
+    await reader1.cancel();
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Should have stopped consuming early
+    expect(consumedCount).toBeLessThan(maxChunks);
+  });
+
+  it('supports multiple concurrent response streams from same session', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Chunk 1 ' },
+      { type: 'text-delta', value: 'Chunk 2 ' },
+      { type: 'text-delta', value: 'Chunk 3' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 3 } },
+    ];
+
+    const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+      sessionId: 'multi-response',
+      messageId: 'msg-multi',
+    });
+
+    // Create first response and read all
+    const lines1 = await readResponse(session.createResponse());
+    expect(lines1.length).toBeGreaterThan(0);
+
+    // Create second response from same session (should get buffered events)
+    const lines2 = await readResponse(session.createResponse());
+    expect(lines2).toStrictEqual(lines1);
+  });
+
+  it('resolves session by event ID through session manager', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Test' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+    ];
+
+    // Use session manager to create session
+    const session = assistantDataStreamSessions.create(createAsyncStream(chunks), {
+      sessionId: 'manager-test',
+      messageId: 'msg-manager',
+    });
+
+    // Read first chunk to generate event ID
+    const response = session.createResponse();
+    const body = response.body as ReadableStream<Uint8Array> | null;
+    if (!body) throw new Error('body is null');
+    const reader = body.getReader();
+    await reader.read();
+    await reader.cancel();
+
+    // Resolve session by event ID
+    const eventId = 'manager-test:0';
+    const resolved = resolveDataStreamSession(eventId);
+    expect(resolved).toBe(session);
+
+    // Invalid event ID should return undefined
+    const invalidResolved = resolveDataStreamSession('invalid:0');
+    expect(invalidResolved).toBeUndefined();
+
+    // Null/undefined should return undefined
+    expect(resolveDataStreamSession(null)).toBeUndefined();
+    expect(resolveDataStreamSession(undefined)).toBeUndefined();
+  });
+
+  it('resumes stream from specific event ID with flushExisting', async () => {
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'A ' },
+      { type: 'text-delta', value: 'B ' },
+      { type: 'text-delta', value: 'C ' },
+      { type: 'text-delta', value: 'D' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 4 } },
+    ];
+
+    const session = assistantDataStreamSessions.create(createAsyncStream(chunks), {
+      sessionId: 'flush-test',
+      messageId: 'msg-flush',
+    });
+
+    // Read all events
+    const allLines = await readResponse(session.createResponse());
+    expect(allLines.length).toBeGreaterThan(4);
+
+    // Resume from middle
+    const midIndex = 2;
+    const resumeId = `flush-test:${midIndex}`;
+    const resumedLines = await readResponse(
+      session.createResponse({ resumeFromEventId: resumeId })
+    );
+
+    // Should get events after midIndex
+    const expectedTail = allLines.slice(midIndex + 1);
+    expect(resumedLines).toStrictEqual(expectedTail);
+  });
+
+  it('calls cleanup callback when session closes with no listeners', async () => {
+    let cleanupCalled = false;
+    let cleanupSessionId = '';
+
+    const chunks: StreamChunk[] = [
+      { type: 'text-delta', value: 'Quick' },
+      { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+    ];
+
+    const session = new AssistantDataStreamSession(
+      createAsyncStream(chunks),
+      (sessionId) => {
+        cleanupCalled = true;
+        cleanupSessionId = sessionId;
+      },
+      {
+        sessionId: 'cleanup-test',
+        messageId: 'msg-cleanup',
+        cleanupDelayMs: 10, // Short delay for testing
+      }
+    );
+
+    // Read full stream, which should close the session
+    await readResponse(session.createResponse());
+
+    // Wait for cleanup to be scheduled and executed
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(cleanupCalled).toBe(true);
+    expect(cleanupSessionId).toBe('cleanup-test');
   });
 });
 

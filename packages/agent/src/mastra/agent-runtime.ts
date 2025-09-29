@@ -194,6 +194,14 @@ function createStableHashSuffix(value: string): string {
   return Math.abs(hash).toString(36);
 }
 
+/**
+ * Iterate over a ReadableStream with optional abort signal support.
+ * Uses Promise.race to check abort signal on each read, enabling immediate
+ * cancellation when client disconnects or user stops generation.
+ *
+ * @param stream - The ReadableStream to iterate over
+ * @param signal - Optional AbortSignal for cancellation support
+ */
 async function* readableStreamIterator<T>(
   stream: NodeReadableStream<T> | ReadableStream<T>,
   signal?: AbortSignal
@@ -201,6 +209,8 @@ async function* readableStreamIterator<T>(
   const webStream = stream as ReadableStream<T>;
   const reader = webStream.getReader();
 
+  // Create promise that resolves when abort signal fires
+  // This enables Promise.race to detect cancellation during reader.read()
   const abortPromise = signal
     ? new Promise<{ done: true; value: undefined }>((resolve) => {
         signal.addEventListener(
@@ -215,10 +225,13 @@ async function* readableStreamIterator<T>(
 
   try {
     while (true) {
+      // Check if already aborted before starting read
       if (signal?.aborted) {
         break;
       }
       const readPromise = reader.read();
+      // Race read against abort signal - whichever resolves first wins
+      // This ensures we stop immediately when abort fires, even mid-read
       const result = await Promise.race([readPromise, abortPromise]);
 
       if (result.done) {
@@ -371,6 +384,8 @@ export async function streamMastraAgent(
     const streamInput = mastraMessages as unknown as Parameters<
       typeof runtime.agent.streamVNext
     >[0];
+    // Pass abort signal from RuntimeData to Mastra for cancellation support
+    // Signal flows: HTTP request abort → RuntimeData.signal → Mastra → readableStreamIterator
     const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
     const result = await runtime.agent.streamVNext(streamInput, streamOptions);
     logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
@@ -495,6 +510,8 @@ export async function streamMastraAgent(
 
     async function* iterate(): AsyncIterableIterator<StreamChunk> {
       try {
+        // Pass abort signal to readableStreamIterator to enable cancellation
+        // Iterator will stop reading from Mastra stream when signal is aborted
         for await (const part of readableStreamIterator(stream, runtimeData?.signal)) {
           const generator = processStreamPart(part, toolNames, sanitizedNameMap);
           let result = generator.next();

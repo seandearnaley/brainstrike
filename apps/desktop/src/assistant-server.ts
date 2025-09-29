@@ -90,6 +90,12 @@ async function handleAssistantRequest(
     return;
   }
 
+  // Create abort controller to propagate cancellation from HTTP request to agent stream
+  // When client disconnects or cancels request, this signal flows through:
+  // 1. HTTP request events (close/aborted) trigger onAbort
+  // 2. Signal passed to initializeAgentStream -> RuntimeData
+  // 3. RuntimeData.signal used by Mastra stream iterator
+  // 4. Session checks abort flag and stops consuming source
   const abortController = new AbortController();
   const onAbort = () => {
     abortController.abort();
@@ -229,12 +235,16 @@ async function initializeAgentStream(
   mcpConfig: McpConfig | undefined,
   signal: AbortSignal
 ): Promise<AgentStreamResult> {
+  // Build runtime context with abort signal for cancellation support
+  // The signal is embedded in RuntimeData and flows through to:
+  // - toAiSdkStyleStream -> streamMastraAgent -> readableStreamIterator
+  // - AssistantDataStreamSession (via cancel() on Response stream)
   const runtime: RuntimeData = {
     ...runtimeData,
     mcpEnabled: true,
     mcpConfig,
     mastraTools: webTools,
-    signal,
+    signal, // ← AbortSignal passed here, used by stream iterator
     ...(apiKey ? { apiKey } : {}),
   };
 

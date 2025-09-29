@@ -494,6 +494,8 @@ export class AssistantDataStreamSession {
   private readonly cleanupDelayMs: number;
   private sequence = 0;
   private closed = false;
+  // Abort flag set when Response.body stream is canceled (e.g., user clicks stop)
+  // Checked in consumeSource loop to stop consuming from Mastra iterator
   private aborted = false;
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -545,6 +547,9 @@ export class AssistantDataStreamSession {
         }
       },
       cancel: () => {
+        // Called when client cancels response stream (e.g., user stops generation)
+        // Sets abort flag to stop source consumption in consumeSource() loop
+        // This prevents backend from continuing to process after client disconnects
         this.aborted = true;
         this.cancelAllListeners();
       },
@@ -601,7 +606,10 @@ export class AssistantDataStreamSession {
   }
 
   private async consumeSource(): Promise<void> {
+    // Consume chunks from source (Mastra agent stream) and emit them to listeners
+    // Checks abort flag on each iteration to stop when client cancels
     for await (const chunk of this.source) {
+      // Abort check: stop consuming if response stream was canceled
       if (this.aborted) {
         break;
       }
