@@ -33,11 +33,11 @@
   "dependencies": {
     "@brainstrike/db": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.7.3",
+    "@huggingface/transformers": "^3.7.4",
     "glob": "^11.0.3"
   },
   "devDependencies": {
-    "@types/node": "^24.5.2",
+    "@types/node": "^24.6.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
     "typescript": "^5.9.2",

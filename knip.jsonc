@@ -241,7 +241,6 @@
     "monaco-editor",
     "dompurify",
     "@babel/core",
-    "@types/testing-library__jest-dom", // Likely used by root or app vitest.setup.ts
     "glob",
     "husky",
     "identity-obj-proxy", // Likely used for test mocking

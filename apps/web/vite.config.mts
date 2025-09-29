@@ -100,6 +100,8 @@ export default defineConfig({
     'process.platform': '"browser"',
     // Assistant UI default ON; disable only with APP_SHELL_ASSISTANT_UI=false
     'globalThis.__VITE_ASSISTANT_UI__': process.env.APP_SHELL_ASSISTANT_UI !== 'false',
+    // Database UI default ON; disable only with APP_SHELL_DB_UI=false
+    'globalThis.__VITE_ENABLE_DB_UI__': process.env.APP_SHELL_DB_UI !== 'false',
   },
   plugins: [
     fullReloadOnCompilerHotspots(),
