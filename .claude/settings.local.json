@@ -68,7 +68,16 @@
       "Bash(pnpm --filter @brainstrike/web build)",
       "Bash(pnpm --filter @brainstrike/agent test data-stream-session)",
       "Bash(pnpm --filter @brainstrike/agent test)",
-      "Bash(pnpm --filter @brainstrike/agent test -- --coverage)"
+      "Bash(pnpm --filter @brainstrike/agent test -- --coverage)",
+      "Bash(curl:*)",
+      "Bash(pnpm --filter @brainstrike/web run build)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__take_screenshot",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__evaluate_script",
+      "Bash(git checkout:*)"
     ],
     "deny": [],
     "ask": []
