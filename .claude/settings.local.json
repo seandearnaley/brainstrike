@@ -65,7 +65,9 @@
       "Bash(pnpm -w build --filter=@brainstrike/agent --filter=@brainstrike/desktop --filter=@brainstrike/web)",
       "Bash(pnpm build:main:*)",
       "Bash(pnpm --filter @brainstrike/desktop build:main)",
-      "Bash(pnpm --filter @brainstrike/web build)"
+      "Bash(pnpm --filter @brainstrike/web build)",
+      "Bash(pnpm --filter @brainstrike/agent test data-stream-session)",
+      "Bash(pnpm --filter @brainstrike/agent test)"
     ],
     "deny": [],
     "ask": []

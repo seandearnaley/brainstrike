@@ -183,6 +183,78 @@ describe('AssistantDataStreamSession', () => {
     };
     expect(finish?.finishReason).toBe('error');
   });
+
+  it('stops consuming source when response stream is canceled', async () => {
+    let consumedCount = 0;
+    const maxChunks = 10;
+
+    async function* slowStream(): AsyncIterableIterator<StreamChunk> {
+      for (let i = 0; i < maxChunks; i++) {
+        consumedCount++;
+        yield { type: 'text-delta', value: `chunk${i} ` };
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: maxChunks } };
+    }
+
+    const session = new AssistantDataStreamSession(slowStream(), () => {}, {
+      sessionId: 'abort-test',
+      messageId: 'msg-abort',
+    });
+
+    const response = session.createResponse();
+    const body = response.body as ReadableStream<Uint8Array> | null;
+    expect(body).not.toBeNull();
+
+    const reader = body?.getReader();
+
+    // Read first few chunks
+    await reader.read();
+    await reader.read();
+    await reader.read();
+
+    // Cancel the stream
+    await reader.cancel();
+
+    // Give it time to process any in-flight chunks
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Should have stopped consuming well before maxChunks
+    expect(consumedCount).toBeLessThan(maxChunks);
+    // Should have consumed at least the chunks we read (abort is very responsive)
+    expect(consumedCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('handles abort when response is canceled immediately', async () => {
+    let consumedCount = 0;
+
+    async function* longStream(): AsyncIterableIterator<StreamChunk> {
+      for (let i = 0; i < 100; i++) {
+        consumedCount++;
+        yield { type: 'text-delta', value: `chunk${i} ` };
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      yield { type: 'finish', usage: { promptTokens: 1, completionTokens: 100 } };
+    }
+
+    const session = new AssistantDataStreamSession(longStream(), () => {}, {
+      sessionId: 'immediate-abort',
+      messageId: 'msg-immediate',
+    });
+
+    const response = session.createResponse();
+    const body = response.body as ReadableStream<Uint8Array> | null;
+    const reader = body?.getReader();
+
+    // Cancel immediately without reading
+    await reader.cancel();
+
+    // Give it minimal time
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // Should have consumed very few chunks
+    expect(consumedCount).toBeLessThan(10);
+  });
 });
 
 type Usage = { promptTokens: number; completionTokens: number };
