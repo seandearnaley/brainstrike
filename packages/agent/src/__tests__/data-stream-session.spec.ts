@@ -204,9 +204,9 @@ describe('AssistantDataStreamSession', () => {
 
     const response = session.createResponse();
     const body = response.body as ReadableStream<Uint8Array> | null;
-    expect(body).not.toBeNull();
+    if (!body) throw new Error('body is null');
 
-    const reader = body?.getReader();
+    const reader = body.getReader();
 
     // Read first few chunks
     await reader.read();
@@ -244,7 +244,9 @@ describe('AssistantDataStreamSession', () => {
 
     const response = session.createResponse();
     const body = response.body as ReadableStream<Uint8Array> | null;
-    const reader = body?.getReader();
+    if (!body) throw new Error('body is null');
+
+    const reader = body.getReader();
 
     // Cancel immediately without reading
     await reader.cancel();
