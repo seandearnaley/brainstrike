@@ -140,6 +140,39 @@ const stream = await streamMastraAgent(messages, {
 });
 ```
 
+### AI SDK Data Stream Protocol
+
+`@brainstrike/agent` now emits the documented
+[AI SDK Data Stream Protocol](https://ai-sdk.dev/docs/ai-sdk-ui/stream-protocol), so
+`@assistant-ui/react-data-stream` can attach directly. The session adapter returns newline-delimited
+`code:JSON` records (e.g. `0:"hello"`, `b:{...}`) with the `x-vercel-ai-data-stream: v1` header.
+
+```ts
+import {
+  assistantDataStreamSessions,
+  resolveDataStreamSession,
+  toAiSdkStyleStream,
+  type StreamChunk,
+} from '@brainstrike/agent';
+
+const lastEventId = request.headers.get('last-event-id');
+const existing = resolveDataStreamSession(lastEventId);
+if (existing) {
+  return existing.createResponse(lastEventId ? { resumeFromEventId: lastEventId } : undefined);
+}
+
+const agentStream: AsyncIterable<StreamChunk> = await toAiSdkStyleStream(messages, runtime);
+const session = assistantDataStreamSessions.create(agentStream);
+return session.createResponse();
+```
+
+- Codes map to text deltas (`0`), tool streaming (`b`, `c`, `9`, `a`), step boundaries (`f`, `e`), message completion (`d`),
+  and structured errors (`3`)—matching the reference protocol emitted by `assistant-stream`.
+- Each chunk is tracked with an internal `<sessionId>:<sequence>` identifier. If a client reconnects, it can provide the
+  last observed ID via `Last-Event-ID` and the session will replay only the missing records.
+- Set `BRAINSTRIKE_DEBUG_STREAM=1` locally to mirror every emitted part in the server logs when you need to debug the
+  streaming contract.
+
 ## API Reference
 
 ### Core Types

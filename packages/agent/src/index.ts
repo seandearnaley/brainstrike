@@ -328,6 +328,12 @@ export async function toAiSdkStyleStream(
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
 export {
+  AssistantDataStreamSession,
+  AssistantDataStreamSessionManager,
+  assistantDataStreamSessions,
+  resolveDataStreamSession,
+} from './stream/data-stream';
+export {
   cloneJsonSafe,
   sanitizeStreamChunk,
   toJsonSafe,

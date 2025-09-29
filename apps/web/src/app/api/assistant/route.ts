@@ -1,17 +1,26 @@
 import type {
   AssistantUiMessageStrict as AssistantUiMessage,
   RuntimeData,
+  StreamChunk,
 } from '@brainstrike/agent';
-import { convertAssistantUiMessages, toAiSdkStyleStream, webTools } from '@brainstrike/agent';
-import { createAssistantStreamResponse } from 'assistant-stream';
 import {
-  type StreamChunk,
-  type StreamController,
-  processAgentStream as streamAssistantMessages,
-} from '../../../assistant-stream-helpers';
+  assistantDataStreamSessions,
+  convertAssistantUiMessages,
+  resolveDataStreamSession,
+  toAiSdkStyleStream,
+  webTools,
+} from '@brainstrike/agent';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
 
 export async function POST(req: Request): Promise<Response> {
+  const lastEventId = req.headers.get('last-event-id');
+  const sessionFromResume = resolveDataStreamSession(lastEventId);
+  if (sessionFromResume) {
+    return sessionFromResume.createResponse(
+      lastEventId ? { resumeFromEventId: lastEventId } : undefined
+    );
+  }
+
   const body = await req.json().catch(() => ({}));
   const rawMessages = Array.isArray((body as Record<string, unknown>)['messages'])
     ? ((body as Record<string, unknown>)['messages'] as AssistantUiMessage[])
@@ -57,10 +66,6 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  return createAssistantStreamResponse(async (ctrl) => {
-    // Ensure an assistant message container is present immediately on request
-    // so tests can observe the label without waiting for the first delta.
-    ctrl.addTextPart();
-    await streamAssistantMessages(ctrl as StreamController, agentStream);
-  });
+  const session = assistantDataStreamSessions.create(agentStream);
+  return session.createResponse();
 }
