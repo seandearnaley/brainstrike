@@ -15,7 +15,6 @@ import {
 import { Brain, Database, FileText, MessageCircle, Search } from 'lucide-react';
 import React, { lazy, useEffect, useState } from 'react';
 import { EmbeddingsPanel } from './embeddings-panel';
-import { isDbUiEnabled } from './env';
 import { McpBanner } from './mcp-banner';
 import { type DbSubtab, dbPanelSelectors, useDbPanelStore } from './stores/db-panel-store';
 import {
@@ -25,14 +24,10 @@ import {
 } from './stores/right-panel-store';
 import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
 
-// Database UI is behind a build flag to avoid bundling DB/WASM in renderer when disabled
-const ENABLE_DB_UI: boolean = isDbUiEnabled();
-let DatabaseTab: React.ComponentType | null = null;
-if (ENABLE_DB_UI) {
-  DatabaseTab = lazy(() =>
-    import('./database-tab-chunk').then((m) => ({ default: m.DatabaseTab }))
-  );
-}
+// Lazy-load heavy components for code splitting
+const DatabaseTab = lazy(() =>
+  import('./database-tab-chunk').then((m) => ({ default: m.DatabaseTab }))
+);
 
 const AssistantUiPanelLazy = lazy(async () => ({
   default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
@@ -182,16 +177,13 @@ export function RightPanel() {
                 <option value="config">Config</option>
               </select>
             </div>
-            {activeSubtab === 'overview' &&
-              (DatabaseTab ? (
-                <React.Suspense
-                  fallback={<div className="text-xs opacity-70 px-2">Loading DB UI…</div>}
-                >
-                  <DatabaseTab />
-                </React.Suspense>
-              ) : (
-                <div className="text-xs opacity-70 px-2">Database UI disabled in this build.</div>
-              ))}
+            {activeSubtab === 'overview' && (
+              <React.Suspense
+                fallback={<div className="text-xs opacity-70 px-2">Loading DB UI…</div>}
+              >
+                <DatabaseTab />
+              </React.Suspense>
+            )}
             {activeSubtab === 'logs' && (
               <Card>
                 <CardHeader className="pb-2">
