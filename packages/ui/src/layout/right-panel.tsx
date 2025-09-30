@@ -38,7 +38,6 @@ export function RightPanel({
         onCollapse={onCollapse}
         onExpand={onExpand}
         className="bg-background"
-        style={{ overflow: 'clip' }}
       >
         <div className="h-full border-l border-border">
           <div className="flex items-center justify-between p-2 border-b border-border bg-muted/30">

@@ -159,7 +159,7 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="database" className="flex-1 mt-0 min-h-0 flex flex-col gap-2">
+          <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <div className="flex items-center gap-2 px-2">
               <Label className="text-[11px]">View</Label>
               <select
@@ -293,12 +293,12 @@ function PropertiesInspectorCard() {
   const info = buildSelectionInfo(Array.from(selectedFilePaths ?? []), fileContents ?? {});
 
   return (
-    <Card className="flex-shrink-0" data-testid="properties-inspector">
+    <Card className="flex flex-col h-full overflow-hidden" data-testid="properties-inspector">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Properties</CardTitle>
         <CardDescription className="text-xs">Element properties and attributes</CardDescription>
       </CardHeader>
-      <CardContent className="text-xs space-y-3">
+      <CardContent className="text-xs space-y-3 overflow-y-auto flex-1 min-h-0">
         <SelectionDetails info={info} />
         <McpBanner />
       </CardContent>
@@ -381,7 +381,7 @@ function SelectionDetails({ info }: { info: SelectionInfo }) {
           <span className="font-medium text-[11px] uppercase tracking-wide text-muted-foreground">
             Preview
           </span>
-          <pre className="max-h-40 overflow-auto rounded border border-dashed bg-muted/40 p-3 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-40 overflow-auto rounded border border-dashed bg-muted/40 p-3 font-mono text-[11px] leading-relaxed break-all">
             {info.preview.text}
             {info.preview.truncated ? '…' : ''}
           </pre>
