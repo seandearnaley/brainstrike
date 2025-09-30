@@ -22,7 +22,7 @@ declare global {
   }
 }
 
-export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
+export const AssistantUiPanel: FC<AssistantUiPanelProps> = () => {
   const initialApi =
     typeof window === 'undefined'
       ? '/api/assistant'
@@ -30,35 +30,49 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
         ? `${window.assistant.url}/assistant`
         : '/api/assistant';
   const [api, setApi] = useState<string>(initialApi);
-  useEffect(() => {
-    let mounted = true;
 
+  useEffect(() => {
     const updateApi = async () => {
       try {
         const url = await window.assistant?.getUrl?.();
-        if (url && mounted) setApi(`${url}/assistant`);
+        if (url) setApi(`${url}/assistant`);
       } catch {
         // Ignore errors from getUrl
       }
     };
 
     void updateApi();
-
-    return () => {
-      mounted = false;
-    };
   }, []);
+
   const runtime = useDataStreamRuntime({ api });
 
-  const containerClassName = ['flex h-full min-h-0', className].filter(Boolean).join(' ');
-
   return (
-    <div className={containerClassName} data-testid="chat-panel">
+    <section
+      className="flex flex-col h-full min-h-0"
+      data-testid="chat-panel"
+      aria-label="Assistant chat"
+    >
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
+          {/**
+           * Messages Viewport
+           *
+           * CRITICAL: className only includes "aui-thread-viewport" - NO additional Tailwind classes
+           *
+           * WHY: The @assistant-ui library applies its own classes via @apply in CSS.
+           * Adding Tailwind classes here (flex-1, overflow-y-auto, etc.) creates conflicts.
+           *
+           * All layout constraints are handled in overrides.css with !important declarations
+           * to override the library's defaults.
+           *
+           * See: packages/ui/src/assistant-ui-panel/overrides.css
+           * Post-mortem: docs/2025-09-30-assistant-ui-layout-fix-postmortem.md
+           */}
           <ThreadPrimitive.Viewport
-            className="aui-thread-viewport flex-1 min-h-0"
+            className="aui-thread-viewport"
             data-testid="assistant-ui-viewport"
+            aria-live="polite"
+            aria-atomic="false"
           >
             <ThreadPrimitive.Messages
               components={{
@@ -104,30 +118,54 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({ className }) => {
                 ),
               }}
             />
-            <div className="aui-thread-viewport-footer">
-              <ComposerPrimitive.Root className="aui-composer-root">
-                <ComposerPrimitive.Input
-                  rows={1}
-                  placeholder="Ask the assistant…"
-                  className="aui-composer-input"
-                  id="assistant-input"
-                />
-                <ThreadPrimitive.If running={false}>
-                  <ComposerPrimitive.Send className="aui-button aui-button-primary aui-composer-send">
-                    Send
-                  </ComposerPrimitive.Send>
-                </ThreadPrimitive.If>
-                <ThreadPrimitive.If running>
-                  <ComposerPrimitive.Cancel className="aui-button aui-button-primary aui-composer-cancel">
-                    Stop
-                  </ComposerPrimitive.Cancel>
-                </ThreadPrimitive.If>
-              </ComposerPrimitive.Root>
-            </div>
           </ThreadPrimitive.Viewport>
+
+          {/**
+           * Composer: Fixed at bottom of thread
+           *
+           * STRUCTURE: This is a SIBLING to the viewport, not a child
+           *
+           * LAYOUT:
+           * - flex-shrink-0: Never shrinks, always maintains its height
+           * - Viewport above is flex-1: Grows/shrinks to fill available space
+           * - This pattern ensures composer stays at bottom regardless of message content
+           *
+           * LIBRARY DIFFERENCE:
+           * The @assistant-ui library expects the composer INSIDE the viewport as:
+           *   <ThreadPrimitive.Viewport>
+           *     <Messages />
+           *     <div className="aui-thread-viewport-footer" style="position: sticky">
+           *       <Composer />
+           *     </div>
+           *   </ThreadPrimitive.Viewport>
+           *
+           * We extracted it outside to avoid scrolling with messages.
+           * This required aggressive CSS overrides (see overrides.css).
+           */}
+          <div className="flex-shrink-0 border-t border-border bg-background">
+            <ComposerPrimitive.Root className="aui-composer-root">
+              <ComposerPrimitive.Input
+                rows={1}
+                placeholder="Ask the assistant…"
+                className="aui-composer-input"
+                id="assistant-input"
+                aria-label="Message input"
+              />
+              <ThreadPrimitive.If running={false}>
+                <ComposerPrimitive.Send className="aui-button aui-button-primary aui-composer-send">
+                  Send
+                </ComposerPrimitive.Send>
+              </ThreadPrimitive.If>
+              <ThreadPrimitive.If running>
+                <ComposerPrimitive.Cancel className="aui-button aui-button-primary aui-composer-cancel">
+                  Stop
+                </ComposerPrimitive.Cancel>
+              </ThreadPrimitive.If>
+            </ComposerPrimitive.Root>
+          </div>
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
-    </div>
+    </section>
   );
 };
 

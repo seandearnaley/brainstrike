@@ -85,21 +85,17 @@ export function RightPanel() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 px-2 pb-2 flex flex-col min-h-0">
-          <TabsContent value="properties" className="flex-1 mt-0 min-h-0">
-            <div className="flex h-full flex-col overflow-hidden">
-              <PropertiesInspectorCard />
-            </div>
+        <div className="flex-1 px-2 flex flex-col min-h-0">
+          <TabsContent value="properties" className="flex-1 min-h-0 flex flex-col">
+            <PropertiesInspectorCard />
           </TabsContent>
 
           <TabsContent
             value="assistant"
             forceMount
-            className="flex-1 mt-0 min-h-0 data-[state=inactive]:hidden"
+            className="flex-1 min-h-0 data-[state=inactive]:hidden flex flex-col"
           >
-            <div className="flex h-full flex-col overflow-hidden">
-              <AssistantChatCard />
-            </div>
+            <AssistantChatCard />
           </TabsContent>
 
           <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">
@@ -404,17 +400,14 @@ function AssistantChatCard() {
   const status = useAssistantAvailability();
 
   return (
-    <Card
-      className="flex min-h-[320px] flex-1 flex-col overflow-hidden"
-      data-testid="assistant-chat-card"
-    >
-      <CardHeader className="pb-3">
+    <Card className="flex flex-col h-full overflow-hidden" data-testid="assistant-chat-card">
+      <CardHeader className="flex-shrink-0 pb-3">
         <CardTitle className="text-sm">Assistant</CardTitle>
         <CardDescription className="text-xs">
           Chat with the Brainstrike assistant for guidance while editing props.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 p-0">
+      <CardContent className="flex-1 min-h-0 p-0 flex flex-col">
         {status.state === 'loading' && (
           <div className="p-4 text-xs opacity-70">Checking assistant availability…</div>
         )}
@@ -442,7 +435,7 @@ function AssistantChatCard() {
           <React.Suspense
             fallback={<div className="p-4 text-xs opacity-70">Loading assistant…</div>}
           >
-            <AssistantUiPanelLazy className="flex h-full min-h-0 flex-col" />
+            <AssistantUiPanelLazy />
           </React.Suspense>
         )}
       </CardContent>
