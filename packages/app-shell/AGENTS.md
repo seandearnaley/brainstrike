@@ -54,20 +54,15 @@ export function App() {
 }
 ```
 
-### Feature toggles & environment detection
+### Heavy component lazy-loading
 
-Some heavy features are lazy-loaded or gated by flags to keep the renderer lean:
-
-* **DB UI:**
-  Set `globalThis.__VITE_ENABLE_DB_UI__ = true` (Vite) or env `APP_SHELL_DB_UI=true` (Node/vitest) to enable the Database tab’s embedded PGlite UI. See `src/env.ts`.
-* **Assistant UI:**
-  `globalThis.__VITE_ASSISTANT_UI__ = true` or `APP_SHELL_ASSISTANT_UI=true`.
+Heavy components (Database, Assistant) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while making all features available.
 
 **Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`).
 
 **MCP banner:** If `window.mcp?.getConfig?.()` exists, the Properties panel shows an MCP status badge and server count.
 
-> MCP (Model Context Protocol) is the emerging standard for tool / data connectors—think “USB-C for AI apps.” If you wire servers via MCP, tools will be discovered at runtime by the host assistant. Keep secrets out of client configs; prefer envs and isolated processes. ([Model Context Protocol][2])
+> MCP (Model Context Protocol) is the emerging standard for tool / data connectors—think "USB-C for AI apps." If you wire servers via MCP, tools will be discovered at runtime by the host assistant. Keep secrets out of client configs; prefer envs and isolated processes. ([Model Context Protocol][2])
 
 ## Architecture notes & opinions
 
@@ -103,7 +98,7 @@ The shell surfaces a **Vector Status** HUD, an **Embeddings** panel, and a **Que
 
 ### PGlite + pgvector in the browser (DB tab)
 
-When DB UI is enabled, we target a **WASM Postgres** (`PGlite`) with **pgvector** inside the browser/Electron renderer. This is powerful but you must treat it as **local, user-scoped** storage:
+The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** inside the browser/Electron renderer. This is powerful but you must treat it as **local, user-scoped** storage:
 
 * Works in modern browsers and Electron; persists to IndexedDB in the browser.
 * Great for prototyping RAG and offline search; not a server replacement.
@@ -124,7 +119,7 @@ When DB UI is enabled, we target a **WASM Postgres** (`PGlite`) with **pgvector*
 2. **Don’t start servers** or background daemons from here. The shell reflects state; it doesn’t own it.
 3. **Streaming UX only.** Long-running actions must emit progress. Never block the main thread (no tight loops in render; push work to workers or async tasks).
 4. **Keep stores tiny.** Export tuple selectors; persist only primitives necessary across reloads.
-5. **Feature flags required** for heavyweight panels (DB/Embeddings). Default OFF in web builds.
+5. **Lazy loading** for heavyweight panels (DB/Embeddings) to optimize bundle size.
 6. **No secrets in code.** If you need keys, they must be supplied by the host app through env/bridges, not hard-coded.
 7. **Tests:** Use Vitest + RTL. Mock heavy modules (`@brainstrike/db`, `@brainstrike/embeddings`, Electron bridges) like existing tests do. Prefer role/text/`data-testid` queries. ([Next.js][12])
 8. **Build discipline:** Keep `tsconfig` references accurate; use `tsc -b` for libraries. This allows Turborepo to cache and parallelize correctly. ([Turborepo][1])
@@ -134,7 +129,7 @@ When DB UI is enabled, we target a **WASM Postgres** (`PGlite`) with **pgvector*
 * **Assistant:** calls `GET {assistantBase}/assistant/status -> {enabled:boolean,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing.
 * **Embeddings panel:** uses `SimpleEmbeddingService` (browser-local). It’s demo-scale by design; for production retrieval, lean on pgvector+queue path exposed in the DB views.
 * **Search panel:** state lives in `search-panel-store`; keep it persistent and small (query + a few flags). Don’t move search execution here—call into repositories/services instead.
-* **DB tab:** lazy chunk; behind `ENABLE_DB_UI`. Ensure PGlite is present in the environment before toggling it on.
+* **DB tab:** lazy-loaded chunk that initializes PGlite when the tab is accessed.
 
 ## CSV export expectations
 
@@ -177,7 +172,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 * `window.assistant` and `window.mcp` bridges are **optional**. The UI must still render without them.
 * We detect Electron loosely (`window.electronAPI`) only where needed.
-* PGlite presence is determined via hooks; the UI should present “initializing” or “disabled” states cleanly.
+* PGlite is initialized on-demand; the UI presents "initializing" states during setup.
 
 ## Testing guidance (what “good” looks like)
 
@@ -189,7 +184,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 ## When to touch this package vs. somewhere else
 
-* **Here:** layout, panel chrome, HUDs, simple export utilities, tiny stores, feature flags, runtime detection, progress/event wiring.
+* **Here:** layout, panel chrome, HUDs, simple export utilities, tiny stores, runtime detection, progress/event wiring.
 * **Not here:** agent runtime, tool execution, data pipelines, model orchestration, cross-app services.
 
 ## Appendix: background resources we align with

@@ -153,8 +153,6 @@ export default defineConfig({
     'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'true'),
     // Force PGlite to resolve browser implementation in renderer
     'process.versions': 'undefined',
-    'import.meta.env.VITE_ENABLE_DB_UI': 'true',
-    'globalThis.__VITE_ASSISTANT_UI__': 'true',
   },
   server: {
     port: 8081, // Different port from web app to avoid conflicts

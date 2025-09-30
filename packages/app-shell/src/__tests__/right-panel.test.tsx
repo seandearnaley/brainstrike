@@ -119,12 +119,10 @@ describe('RightPanel', () => {
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
 
-    // Should show database content; allow either initializing or disabled message depending on build flag
+    // Should show database loading state (lazy-loaded component)
     const dbPanel = screen.getByRole('tabpanel', { name: /db/i });
     expect(dbPanel).toBeInTheDocument();
-    expect(
-      within(dbPanel).getByText(/Database (is initializing|UI disabled)/i)
-    ).toBeInTheDocument();
+    expect(within(dbPanel).getByText(/Loading DB UI…/i)).toBeInTheDocument();
 
     // Assistant tab should render status callout
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
