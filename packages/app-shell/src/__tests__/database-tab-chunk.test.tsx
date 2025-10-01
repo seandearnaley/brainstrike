@@ -32,7 +32,7 @@ describe('DatabaseTab', () => {
   it('should render components in correct order', () => {
     render(<DatabaseTab />);
 
-    // The DatabaseTab returns a Fragment with 3 child components
+    // The DatabaseTab returns a div with 3 child components
     // Check that all three components are rendered
     expect(screen.getByTestId('database-demo-panel')).toBeInTheDocument();
     expect(screen.getByTestId('vector-status')).toBeInTheDocument();
@@ -52,6 +52,7 @@ describe('DatabaseTab', () => {
     const result = DatabaseTab();
     expect(result).toBeDefined();
     expect(result.props).toBeDefined();
+    // The div wrapper contains the 3 child components
     expect(result.props.children).toHaveLength(3);
   });
 

@@ -26,7 +26,7 @@ import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel
 
 // Lazy-load heavy components for code splitting
 const DatabaseTab = lazy(async () => ({
-  default: (await import('./database-tab-chunk')).default,
+  default: (await import('./database-tab-chunk')).DatabaseTab,
 }));
 
 const AssistantUiPanelLazy = lazy(async () => ({

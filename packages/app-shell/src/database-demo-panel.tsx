@@ -610,28 +610,36 @@ export function DatabaseDemoPanel() {
         {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
       </div>
 
-      {/* Content Area - scrollable container with dynamic height */}
+      {/* Content Area - fixed height scrollable panel */}
       {((selectedView === 'files' && records.length > 0) ||
-        (selectedView === 'chunks' && chunks.length > 0) ||
+        selectedView === 'chunks' ||
         selectedView === 'search') && (
-        <ScrollArea className="flex-1" aria-label={`${selectedView} content`} role="region">
-          <div className="p-4">
-            {selectedView === 'files' && (
-              <FilesView
-                records={records}
-                expandedFiles={expandedFiles}
-                onToggleFileExpansion={toggleFileExpansion}
-                getFileChunks={getFileChunks}
-              />
-            )}
+        <div className="px-4 pb-4">
+          <ScrollArea
+            className="h-[400px] rounded-md border"
+            aria-label={`${selectedView} content`}
+            role="region"
+          >
+            <div className="p-4">
+              {selectedView === 'files' && (
+                <FilesView
+                  records={records}
+                  expandedFiles={expandedFiles}
+                  onToggleFileExpansion={toggleFileExpansion}
+                  getFileChunks={getFileChunks}
+                />
+              )}
 
-            {selectedView === 'chunks' && (
-              <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
-            )}
+              {selectedView === 'chunks' && (
+                <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
+              )}
 
-            {selectedView === 'search' && <SearchView searchFunctionality={searchFunctionality} />}
-          </div>
-        </ScrollArea>
+              {selectedView === 'search' && (
+                <SearchView searchFunctionality={searchFunctionality} />
+              )}
+            </div>
+          </ScrollArea>
+        </div>
       )}
     </div>
   );

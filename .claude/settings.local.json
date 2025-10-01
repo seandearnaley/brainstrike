@@ -89,7 +89,9 @@
       "Bash(! grep -q '\"\"@types/react\"\": \"\"\\^19\\.1\\.15\"\"' \"$file\")",
       "Bash(if grep -q '\"\"@types/react\"\":' \"$file\")",
       "Bash(if grep -q '\"\"@vitejs/plugin-react\"\": \"\"\\^5\\.0\\.3\"\"' \"$file\")",
-      "Bash(pnpm -w test)"
+      "Bash(pnpm -w test)",
+      "Bash(pnpm --filter @brainstrike/app-shell test)",
+      "Bash(pnpm --filter @brainstrike/app-shell test database-demo-panel -- --reporter=verbose)"
     ],
     "deny": [],
     "ask": []
