@@ -26,6 +26,7 @@
 - Naming: `*.test.ts`, `*.integration.test.ts` with source.
 - Focus a spec (from pkg dir): `pnpm vitest run -t "name"`.
 - CI parity: builds, types, lint, unit/integration, and E2E must pass before PR.
+- Note: desktop e2e tests sometimes have trouble running in headless environments
 
 ## Commit & PR Guidelines
 - Conventional Commits: `<type>(<scope>): <subject>`

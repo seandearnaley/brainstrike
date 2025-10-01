@@ -20,6 +20,10 @@ import {
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+
+// UI Constants
+const CONTENT_SCROLL_AREA_HEIGHT = 'h-[400px]';
+
 import type { EnhancedImportProgress } from './database-demo';
 import {
   ChunksView,
@@ -614,7 +618,7 @@ export function DatabaseDemoPanel() {
       {(selectedView === 'files' || selectedView === 'chunks' || selectedView === 'search') && (
         <div className="px-4 pb-4">
           <ScrollArea
-            className="h-[400px] rounded-md border"
+            className={`${CONTENT_SCROLL_AREA_HEIGHT} rounded-md border`}
             aria-label={`${selectedView} content`}
             role="region"
           >

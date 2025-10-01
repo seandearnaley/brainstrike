@@ -90,6 +90,8 @@ export function ChunksView({ chunks, records, pendingChunkIds }: ChunksViewProps
                 type="button"
                 onClick={() => toggle(chunk.id)}
                 className="text-[11px] underline text-blue-600"
+                aria-label={`${expanded.has(chunk.id) ? 'Hide' : 'Show'} embedding vector for chunk ${chunk.chunkIndex}`}
+                aria-expanded={expanded.has(chunk.id)}
               >
                 {expanded.has(chunk.id) ? 'Hide vector' : 'View vector'}
               </button>
