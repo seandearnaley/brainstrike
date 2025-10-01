@@ -25,9 +25,9 @@ import {
 import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
 
 // Lazy-load heavy components for code splitting
-const DatabaseTab = lazy(() =>
-  import('./database-tab-chunk').then((m) => ({ default: m.DatabaseTab }))
-);
+const DatabaseTab = lazy(async () => ({
+  default: (await import('./database-tab-chunk')).default,
+}));
 
 const AssistantUiPanelLazy = lazy(async () => ({
   default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
@@ -60,7 +60,7 @@ export function RightPanel() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab((v as RightPanelTab) ?? 'properties')}
-        className="flex-1 flex flex-col"
+        className="flex-1 flex flex-col min-h-0"
       >
         <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="properties" className="flex items-center gap-1">

@@ -15,6 +15,7 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  ScrollArea,
   useToast,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
@@ -517,7 +518,7 @@ export function DatabaseDemoPanel() {
   }
 
   return (
-    <div className="h-full flex flex-col" data-testid="database-demo-panel">
+    <div className="flex flex-col h-full overflow-hidden" data-testid="database-demo-panel">
       <div className="p-4 border-b flex-shrink-0">
         <div className="text-sm font-medium flex items-center gap-2 mb-1">
           <Database className="h-4 w-4" />
@@ -609,25 +610,29 @@ export function DatabaseDemoPanel() {
         {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
       </div>
 
-      {/* Content Area */}
-      <div className="flex-1 overflow-auto min-h-0">
-        <div className="p-4 h-full">
-          {selectedView === 'files' && (
-            <FilesView
-              records={records}
-              expandedFiles={expandedFiles}
-              onToggleFileExpansion={toggleFileExpansion}
-              getFileChunks={getFileChunks}
-            />
-          )}
+      {/* Content Area - scrollable container with dynamic height */}
+      {((selectedView === 'files' && records.length > 0) ||
+        (selectedView === 'chunks' && chunks.length > 0) ||
+        selectedView === 'search') && (
+        <ScrollArea className="flex-1" aria-label={`${selectedView} content`} role="region">
+          <div className="p-4">
+            {selectedView === 'files' && (
+              <FilesView
+                records={records}
+                expandedFiles={expandedFiles}
+                onToggleFileExpansion={toggleFileExpansion}
+                getFileChunks={getFileChunks}
+              />
+            )}
 
-          {selectedView === 'chunks' && (
-            <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
-          )}
+            {selectedView === 'chunks' && (
+              <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
+            )}
 
-          {selectedView === 'search' && <SearchView searchFunctionality={searchFunctionality} />}
-        </div>
-      </div>
+            {selectedView === 'search' && <SearchView searchFunctionality={searchFunctionality} />}
+          </div>
+        </ScrollArea>
+      )}
     </div>
   );
 }
