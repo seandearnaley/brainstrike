@@ -91,7 +91,15 @@
       "Bash(if grep -q '\"\"@vitejs/plugin-react\"\": \"\"\\^5\\.0\\.3\"\"' \"$file\")",
       "Bash(pnpm -w test)",
       "Bash(pnpm --filter @brainstrike/app-shell test)",
-      "Bash(pnpm --filter @brainstrike/app-shell test database-demo-panel -- --reporter=verbose)"
+      "Bash(pnpm --filter @brainstrike/app-shell test database-demo-panel -- --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/app-shell test database-demo-panel)",
+      "Bash(pnpm exec playwright test:*)",
+      "Bash(pnpm --filter @brainstrike/desktop build)",
+      "Bash(pnpm test:e2e:desktop:*)",
+      "Bash(npm view:*)",
+      "Bash(pnpm -w type-check --filter=@brainstrike/app-shell)",
+      "Bash(pnpm -w lint --filter=@brainstrike/app-shell)",
+      "Bash(npx biome check:*)"
     ],
     "deny": [],
     "ask": []
