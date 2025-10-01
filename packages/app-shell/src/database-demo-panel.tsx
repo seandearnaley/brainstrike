@@ -611,9 +611,7 @@ export function DatabaseDemoPanel() {
       </div>
 
       {/* Content Area - fixed height scrollable panel */}
-      {((selectedView === 'files' && records.length > 0) ||
-        selectedView === 'chunks' ||
-        selectedView === 'search') && (
+      {(selectedView === 'files' || selectedView === 'chunks' || selectedView === 'search') && (
         <div className="px-4 pb-4">
           <ScrollArea
             className="h-[400px] rounded-md border"
