@@ -107,7 +107,16 @@ export interface LoadedMcpConfig {
   loadedAt?: number;
 }
 
+let customConfigPath: string | null = null;
+
+export function setCustomMcpConfigPath(configPath: string | null): void {
+  customConfigPath = configPath;
+}
+
 export function getMcpConfigPath(): string {
+  if (customConfigPath) {
+    return customConfigPath;
+  }
   const dir = path.join(app.getPath('userData'), 'mcp');
   return path.join(dir, 'mcp.config.json');
 }

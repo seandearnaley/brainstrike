@@ -55,6 +55,9 @@ contextBridge.exposeInMainWorld('mcp', {
   getConfig: () => ipcRenderer.invoke('mcp:config:get'),
   watch: () => ipcRenderer.invoke('mcp:config:watch'),
   unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
+  getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
+  setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
+  selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
 });
 
 // Assistant UI (data stream) endpoint helper

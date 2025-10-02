@@ -1,5 +1,14 @@
-import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
-import { useEffect, useState } from 'react';
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  useToast,
+} from '@brainstrike/ui';
+import { useCallback, useEffect, useState } from 'react';
 
 type Loaded = {
   path: string;
@@ -34,6 +43,14 @@ async function fetchMcpConfig(): Promise<{ status: Loaded | null; error: string 
 export function McpConfigStatus() {
   const [status, setStatus] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  const refresh = useCallback(async () => {
+    const result = await fetchMcpConfig();
+    setStatus(result.status);
+    setError(result.error);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -49,6 +66,53 @@ export function McpConfigStatus() {
       mounted = false;
     };
   }, []);
+
+  const handleSelectPath = useCallback(async () => {
+    setBusy(true);
+    try {
+      const selectedPath = await window.mcp?.selectPath?.();
+      if (selectedPath) {
+        const result = await window.mcp?.setPath?.(selectedPath);
+        if (result?.success) {
+          toast({
+            title: 'Config path updated',
+            description: `Now using: ${result.path}`,
+          });
+          await refresh();
+        }
+      }
+    } catch (e) {
+      toast({
+        title: 'Failed to update config path',
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, toast]);
+
+  const handleResetPath = useCallback(async () => {
+    setBusy(true);
+    try {
+      const result = await window.mcp?.setPath?.(null);
+      if (result?.success) {
+        toast({
+          title: 'Config path reset',
+          description: `Using default: ${result.path}`,
+        });
+        await refresh();
+      }
+    } catch (e) {
+      toast({
+        title: 'Failed to reset config path',
+        description: e instanceof Error ? e.message : String(e),
+        variant: 'destructive',
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [refresh, toast]);
 
   return (
     <Card>
@@ -70,6 +134,26 @@ export function McpConfigStatus() {
             )}
           </div>
         )}
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={handleSelectPath}
+            data-testid="select-mcp-config-path"
+          >
+            Change Config File
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={handleResetPath}
+            data-testid="reset-mcp-config-path"
+          >
+            Reset to Default
+          </Button>
+        </div>
         {status?.servers && status.servers.length > 0 && (
           <div>
             <div className="mb-1">Servers:</div>

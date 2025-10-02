@@ -1,7 +1,13 @@
 import type { IpcMainInvokeEvent } from 'electron';
-import { ipcMain } from 'electron';
+import { dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';
-import { type LoadedMcpConfig, loadMcpConfig, watchMcpConfig } from './mcp-loader';
+import {
+  getMcpConfigPath,
+  type LoadedMcpConfig,
+  loadMcpConfig,
+  setCustomMcpConfigPath,
+  watchMcpConfig,
+} from './mcp-loader';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
@@ -16,6 +22,46 @@ export function registerMcpIpcHandlers() {
       await disposeClients();
     }
     return last;
+  });
+
+  ipcMain.handle('mcp:config:getPath', async (): Promise<string> => {
+    return getMcpConfigPath();
+  });
+
+  ipcMain.handle(
+    'mcp:config:setPath',
+    async (
+      _e: IpcMainInvokeEvent,
+      configPath: string | null
+    ): Promise<{ success: boolean; path: string }> => {
+      setCustomMcpConfigPath(configPath);
+      const newPath = getMcpConfigPath();
+      // Reload config from new path
+      last = await loadMcpConfig();
+      if (last.config) {
+        initClients(last.config);
+      } else {
+        await disposeClients();
+      }
+      return { success: true, path: newPath };
+    }
+  );
+
+  ipcMain.handle('mcp:config:selectPath', async (): Promise<string | null> => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [
+        { name: 'JSON Config', extensions: ['json'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      title: 'Select MCP Configuration File',
+    });
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    return result.filePaths[0] ?? null;
   });
 
   ipcMain.handle(
