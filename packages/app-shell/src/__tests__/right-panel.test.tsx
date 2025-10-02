@@ -82,19 +82,19 @@ describe('RightPanel', () => {
     render(<RightPanel />);
 
     // Check that all tab triggers are present
-    expect(screen.getByRole('tab', { name: /props/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
   });
 
-  test('shows properties tab content by default', () => {
+  test('shows assistant tab content by default', () => {
     render(<RightPanel />);
 
-    // Properties tab should be active by default
-    expect(screen.getByText('Properties')).toBeInTheDocument();
-    expect(screen.getByText('Element properties and attributes')).toBeInTheDocument();
+    // Assistant tab should be active by default
+    const assistantCard = screen.getByTestId('assistant-chat-card');
+    expect(assistantCard).toBeInTheDocument();
+    expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
   });
 
   test('allows switching between tabs', async () => {
@@ -139,14 +139,13 @@ describe('RightPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(4);
 
     // Each tab should have text content
-    expect(tabs[0]).toHaveTextContent('Props');
-    expect(tabs[1]).toHaveTextContent('Assistant');
-    expect(tabs[2]).toHaveTextContent('Embed');
-    expect(tabs[3]).toHaveTextContent('Search');
-    expect(tabs[4]).toHaveTextContent('DB');
+    expect(tabs[0]).toHaveTextContent('Assistant');
+    expect(tabs[1]).toHaveTextContent('Embed');
+    expect(tabs[2]).toHaveTextContent('Search');
+    expect(tabs[3]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -157,18 +156,18 @@ describe('RightPanel', () => {
     await user.click(screen.getByRole('tab', { name: /embed/i }));
     expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
 
-    // Switch back to properties tab
-    await user.click(screen.getByRole('tab', { name: /props/i }));
-    expect(screen.getByText('Properties')).toBeInTheDocument();
+    // Switch back to assistant tab
+    await user.click(screen.getByRole('tab', { name: /assistant/i }));
+    expect(screen.getByText(/Assistant disabled/i)).toBeInTheDocument();
 
     // Switch to embeddings again - content should still be there
     await user.click(screen.getByRole('tab', { name: /embed/i }));
     expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
 
-    // Switch to assistant and back to ensure isolation
+    // Switch to search and back to ensure isolation
+    await user.click(screen.getByRole('tab', { name: /search/i }));
+    expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
-    expect(screen.getByText(/Assistant disabled/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /props/i }));
-    expect(screen.getByText('Element properties and attributes')).toBeInTheDocument();
+    expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
   });
 });

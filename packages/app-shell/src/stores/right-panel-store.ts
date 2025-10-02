@@ -1,7 +1,7 @@
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type RightPanelTab = 'properties' | 'assistant' | 'embeddings' | 'search' | 'database';
+export type RightPanelTab = 'assistant' | 'embeddings' | 'search' | 'database';
 
 interface RightPanelData {
   activeTab: RightPanelTab;
@@ -41,7 +41,7 @@ const storage = createJSONStorage(() => ({
 export const useRightPanelStore = create<RightPanelStore>()(
   persist(
     (set) => ({
-      activeTab: 'properties',
+      activeTab: 'assistant',
       setActiveTab: (tab) => set({ activeTab: tab }),
     }),
     {
@@ -62,5 +62,5 @@ export function __resetRightPanelStoreForTests() {
   try {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
   } catch {}
-  useRightPanelStore.setState({ activeTab: 'properties' });
+  useRightPanelStore.setState({ activeTab: 'assistant' });
 }

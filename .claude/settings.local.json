@@ -100,7 +100,8 @@
       "Bash(pnpm -w type-check --filter=@brainstrike/app-shell)",
       "Bash(pnpm -w lint --filter=@brainstrike/app-shell)",
       "Bash(npx biome check:*)",
-      "Bash(pnpm --filter @brainstrike/app-shell test chunks-view)"
+      "Bash(pnpm --filter @brainstrike/app-shell test chunks-view)",
+      "Bash(pnpm --filter @brainstrike/app-shell test right-panel)"
     ],
     "deny": [],
     "ask": []
