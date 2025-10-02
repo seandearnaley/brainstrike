@@ -57,7 +57,7 @@ export function RightPanel({
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
-          <div className="h-[calc(100%-2.5rem)] overflow-auto">{content}</div>
+          <div className="h-[calc(100%-2.5rem)] overflow-hidden flex flex-col">{content}</div>
         </div>
       </Panel>
     </>

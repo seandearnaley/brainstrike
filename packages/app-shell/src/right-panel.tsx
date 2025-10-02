@@ -25,9 +25,9 @@ import {
 import { searchPanelSelectors, useSearchPanelStore } from './stores/search-panel-store';
 
 // Lazy-load heavy components for code splitting
-const DatabaseTab = lazy(() =>
-  import('./database-tab-chunk').then((m) => ({ default: m.DatabaseTab }))
-);
+const DatabaseTab = lazy(async () => ({
+  default: (await import('./database-tab-chunk')).DatabaseTab,
+}));
 
 const AssistantUiPanelLazy = lazy(async () => ({
   default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
@@ -60,7 +60,7 @@ export function RightPanel() {
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab((v as RightPanelTab) ?? 'properties')}
-        className="flex-1 flex flex-col"
+        className="flex-1 flex flex-col min-h-0"
       >
         <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="properties" className="flex items-center gap-1">
@@ -85,21 +85,17 @@ export function RightPanel() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex-1 px-2 pb-2 flex flex-col min-h-0">
-          <TabsContent value="properties" className="flex-1 mt-0 min-h-0">
-            <div className="flex h-full flex-col overflow-hidden">
-              <PropertiesInspectorCard />
-            </div>
+        <div className="flex-1 px-2 flex flex-col min-h-0">
+          <TabsContent value="properties" className="flex-1 min-h-0 flex flex-col">
+            <PropertiesInspectorCard />
           </TabsContent>
 
           <TabsContent
             value="assistant"
             forceMount
-            className="flex-1 mt-0 min-h-0 data-[state=inactive]:hidden"
+            className="flex-1 min-h-0 data-[state=inactive]:hidden flex flex-col"
           >
-            <div className="flex h-full flex-col overflow-hidden">
-              <AssistantChatCard />
-            </div>
+            <AssistantChatCard />
           </TabsContent>
 
           <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">
@@ -163,7 +159,7 @@ export function RightPanel() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="database" className="flex-1 mt-0 min-h-0 flex flex-col gap-2">
+          <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <div className="flex items-center gap-2 px-2">
               <Label className="text-[11px]">View</Label>
               <select
@@ -297,12 +293,12 @@ function PropertiesInspectorCard() {
   const info = buildSelectionInfo(Array.from(selectedFilePaths ?? []), fileContents ?? {});
 
   return (
-    <Card className="flex-shrink-0" data-testid="properties-inspector">
+    <Card className="flex flex-col h-full overflow-hidden" data-testid="properties-inspector">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm">Properties</CardTitle>
         <CardDescription className="text-xs">Element properties and attributes</CardDescription>
       </CardHeader>
-      <CardContent className="text-xs space-y-3">
+      <CardContent className="text-xs space-y-3 overflow-y-auto flex-1 min-h-0">
         <SelectionDetails info={info} />
         <McpBanner />
       </CardContent>
@@ -385,7 +381,7 @@ function SelectionDetails({ info }: { info: SelectionInfo }) {
           <span className="font-medium text-[11px] uppercase tracking-wide text-muted-foreground">
             Preview
           </span>
-          <pre className="max-h-40 overflow-auto rounded border border-dashed bg-muted/40 p-3 font-mono text-[11px] leading-relaxed">
+          <pre className="max-h-40 overflow-auto rounded border border-dashed bg-muted/40 p-3 font-mono text-[11px] leading-relaxed break-all">
             {info.preview.text}
             {info.preview.truncated ? '…' : ''}
           </pre>
@@ -404,17 +400,14 @@ function AssistantChatCard() {
   const status = useAssistantAvailability();
 
   return (
-    <Card
-      className="flex min-h-[320px] flex-1 flex-col overflow-hidden"
-      data-testid="assistant-chat-card"
-    >
-      <CardHeader className="pb-3">
+    <Card className="flex flex-col h-full overflow-hidden" data-testid="assistant-chat-card">
+      <CardHeader className="flex-shrink-0 pb-3">
         <CardTitle className="text-sm">Assistant</CardTitle>
         <CardDescription className="text-xs">
           Chat with the Brainstrike assistant for guidance while editing props.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex-1 min-h-0 p-0">
+      <CardContent className="flex-1 min-h-0 p-0 flex flex-col">
         {status.state === 'loading' && (
           <div className="p-4 text-xs opacity-70">Checking assistant availability…</div>
         )}
@@ -442,7 +435,7 @@ function AssistantChatCard() {
           <React.Suspense
             fallback={<div className="p-4 text-xs opacity-70">Loading assistant…</div>}
           >
-            <AssistantUiPanelLazy className="flex h-full min-h-0 flex-col" />
+            <AssistantUiPanelLazy />
           </React.Suspense>
         )}
       </CardContent>
