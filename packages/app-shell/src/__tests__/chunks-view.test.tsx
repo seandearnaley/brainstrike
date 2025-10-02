@@ -51,10 +51,10 @@ describe('ChunksView', () => {
 
     const user = userEvent.setup();
     // Toggle shows vector preview
-    await user.click(screen.getByRole('button', { name: /view vector/i }));
+    await user.click(screen.getByRole('button', { name: /show embedding vector for chunk 0/i }));
     expect(screen.getByText(/dims\)/i)).toBeInTheDocument();
     // Toggle hides
-    await user.click(screen.getByRole('button', { name: /hide vector/i }));
+    await user.click(screen.getByRole('button', { name: /hide embedding vector for chunk 0/i }));
   });
 
   it('indicates other set when embedding from different set id', () => {
