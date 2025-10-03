@@ -101,7 +101,11 @@
       "Bash(pnpm -w lint --filter=@brainstrike/app-shell)",
       "Bash(npx biome check:*)",
       "Bash(pnpm --filter @brainstrike/app-shell test chunks-view)",
-      "Bash(pnpm --filter @brainstrike/app-shell test right-panel)"
+      "Bash(pnpm --filter @brainstrike/app-shell test right-panel)",
+      "Bash(pnpm -w build --filter=@brainstrike/desktop)",
+      "Bash(pnpm exec tsc:*)",
+      "Bash(pnpm -w build --filter=@brainstrike/agent --filter=@brainstrike/desktop)",
+      "Bash(pnpm --filter @brainstrike/desktop test -- --run)"
     ],
     "deny": [],
     "ask": []

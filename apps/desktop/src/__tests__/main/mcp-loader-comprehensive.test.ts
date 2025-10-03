@@ -193,8 +193,8 @@ describe('mcp-loader comprehensive tests', () => {
   });
 
   describe('getMcpConfigPath', () => {
-    it('should return correct path', () => {
-      const path = getMcpConfigPath();
+    it('should return correct path', async () => {
+      const path = await getMcpConfigPath();
       expect(path).toBe('/mock/user/data/mcp/mcp.config.json');
       expect(app.getPath).toHaveBeenCalledWith('userData');
     });
@@ -485,7 +485,7 @@ describe('mcp-loader comprehensive tests', () => {
       };
       mockedFsp.readFile.mockResolvedValue(JSON.stringify(mockConfig) as never);
 
-      const watcher = watchMcpConfig(onChange);
+      const watcher = await watchMcpConfig(onChange);
 
       // Simulate file change
       const watchCallback = mockedFs.watch.mock.calls[0][1] as (
@@ -508,7 +508,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should ignore non-mcp.config.json file changes', async () => {
       const onChange = vi.fn();
-      watchMcpConfig(onChange);
+      await watchMcpConfig(onChange);
 
       const watchCallback = mockedFs.watch.mock.calls[0][1] as (
         eventType: string,
@@ -528,7 +528,7 @@ describe('mcp-loader comprehensive tests', () => {
       };
       mockedFsp.readFile.mockResolvedValue(JSON.stringify(mockConfig) as never);
 
-      watchMcpConfig(onChange);
+      await watchMcpConfig(onChange);
 
       const watchCallback = mockedFs.watch.mock.calls[0][1] as (
         eventType: string,
@@ -550,7 +550,7 @@ describe('mcp-loader comprehensive tests', () => {
 
     it('should handle undefined filename', async () => {
       const onChange = vi.fn();
-      watchMcpConfig(onChange);
+      await watchMcpConfig(onChange);
 
       const watchCallback = mockedFs.watch.mock.calls[0][1] as (
         eventType: string,
@@ -563,9 +563,12 @@ describe('mcp-loader comprehensive tests', () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it('should ensure directory exists', () => {
-      watchMcpConfig(vi.fn());
-      expect(fsp.mkdir).toHaveBeenCalledWith('/mock/user/data/mcp', { recursive: true });
+    it('should ensure directory exists', async () => {
+      await watchMcpConfig(vi.fn());
+      // Wait a tick for the void ensureMcpDirExists() call to complete
+      await vi.waitFor(() => {
+        expect(fsp.mkdir).toHaveBeenCalledWith('/mock/user/data/mcp', { recursive: true });
+      });
     });
   });
 });

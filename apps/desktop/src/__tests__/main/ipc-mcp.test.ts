@@ -65,10 +65,24 @@ describe('ipc-mcp handlers', () => {
 
   describe('handler registration', () => {
     it('should register all MCP handlers', () => {
+      // Config handlers
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:get', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:getPath', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:setPath', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:selectPath', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:watch', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:config:unwatch', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(3);
+
+      // Tool handlers
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:list', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:enable', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:disable', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:enableServer', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:disableServer', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:reset', expect.any(Function));
+      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:tools:getStats', expect.any(Function));
+
+      expect(ipcMain.handle).toHaveBeenCalledTimes(13);
     });
   });
 
@@ -148,7 +162,7 @@ describe('ipc-mcp handlers', () => {
     it('should start watching when not already watching', async () => {
       const mockWatcher = { close: vi.fn() };
       const mockedWatch = vi.mocked(watchMcpConfig);
-      mockedWatch.mockReturnValue(mockWatcher as never);
+      mockedWatch.mockResolvedValue(mockWatcher as never);
 
       const handler = handlers.get('mcp:config:watch');
       if (!handler) throw new Error('handler not registered');
@@ -161,7 +175,7 @@ describe('ipc-mcp handlers', () => {
     it('should not create duplicate watchers', async () => {
       const mockWatcher = { close: vi.fn() };
       const mockedWatch = vi.mocked(watchMcpConfig);
-      mockedWatch.mockReturnValue(mockWatcher as never);
+      mockedWatch.mockResolvedValue(mockWatcher as never);
 
       const handler = handlers.get('mcp:config:watch');
 
@@ -261,7 +275,7 @@ describe('ipc-mcp handlers', () => {
     it('should stop watching when active', async () => {
       const mockWatcher = { close: vi.fn() };
       const mockedWatch = vi.mocked(watchMcpConfig);
-      mockedWatch.mockReturnValue(mockWatcher as never);
+      mockedWatch.mockResolvedValue(mockWatcher as never);
 
       // Start watching first
       const watchHandler = handlers.get('mcp:config:watch');
@@ -315,7 +329,7 @@ describe('ipc-mcp handlers', () => {
     it('should clear unwatch reference after stopping', async () => {
       const mockWatcher = { close: vi.fn() };
       const mockedWatch = vi.mocked(watchMcpConfig);
-      mockedWatch.mockReturnValue(mockWatcher as never);
+      mockedWatch.mockResolvedValue(mockWatcher as never);
 
       const watchHandler = handlers.get('mcp:config:watch');
       const unwatchHandler = handlers.get('mcp:config:unwatch');

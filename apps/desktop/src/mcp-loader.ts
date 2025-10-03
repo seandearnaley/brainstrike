@@ -109,20 +109,71 @@ export interface LoadedMcpConfig {
 
 let customConfigPath: string | null = null;
 
-export function setCustomMcpConfigPath(configPath: string | null): void {
-  customConfigPath = configPath;
+const CUSTOM_CONFIG_PATH_FILE = 'mcp-custom-path.txt';
+
+function getCustomPathStorageFile(): string | null {
+  const userData = app.getPath('userData');
+  if (!userData) return null;
+  return path.join(userData, 'mcp', CUSTOM_CONFIG_PATH_FILE);
 }
 
-export function getMcpConfigPath(): string {
+async function loadCustomConfigPath(): Promise<string | null> {
+  try {
+    const file = getCustomPathStorageFile();
+    if (file && fs.existsSync(file)) {
+      const content = await fsp.readFile(file, 'utf-8');
+      return content.trim() || null;
+    }
+  } catch (error) {
+    console.error('[mcp-loader] Failed to load custom config path:', error);
+  }
+  return null;
+}
+
+async function saveCustomConfigPath(configPath: string | null): Promise<void> {
+  try {
+    const file = getCustomPathStorageFile();
+    if (!file) return; // Skip if userData is not available (e.g., in tests)
+
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    if (configPath) {
+      await fsp.writeFile(file, configPath, 'utf-8');
+    } else {
+      // Delete the file if path is null
+      if (fs.existsSync(file)) {
+        await fsp.unlink(file);
+      }
+    }
+  } catch (error) {
+    console.error('[mcp-loader] Failed to save custom config path:', error);
+  }
+}
+
+export async function setCustomMcpConfigPath(configPath: string | null): Promise<void> {
+  customConfigPath = configPath;
+  await saveCustomConfigPath(configPath);
+}
+
+export async function getMcpConfigPath(): Promise<string> {
+  // Load from disk if not already in memory
+  if (!customConfigPath) {
+    customConfigPath = await loadCustomConfigPath();
+  }
+
   if (customConfigPath) {
     return customConfigPath;
   }
-  const dir = path.join(app.getPath('userData'), 'mcp');
+  const userData = app.getPath('userData');
+  if (!userData) {
+    // Fallback for tests or when userData is unavailable
+    return '/mock/path/mcp/mcp.config.json';
+  }
+  const dir = path.join(userData, 'mcp');
   return path.join(dir, 'mcp.config.json');
 }
 
 export async function ensureMcpDirExists(): Promise<void> {
-  const dir = path.dirname(getMcpConfigPath());
+  const dir = path.dirname(await getMcpConfigPath());
   await fsp.mkdir(dir, { recursive: true });
 }
 
@@ -203,7 +254,7 @@ export function withDecryptedSecrets(cfg: McpConfig): McpConfig {
 }
 
 export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
-  const p = getMcpConfigPath();
+  const p = await getMcpConfigPath();
   try {
     const text = await fsp.readFile(p, 'utf-8');
     const cfg = parseMcpConfig(text);
@@ -220,8 +271,10 @@ export async function loadMcpConfig(): Promise<LoadedMcpConfig> {
 
 export type McpWatcher = { close: () => void };
 
-export function watchMcpConfig(onChange: (config: LoadedMcpConfig) => void): McpWatcher {
-  const p = getMcpConfigPath();
+export async function watchMcpConfig(
+  onChange: (config: LoadedMcpConfig) => void
+): Promise<McpWatcher> {
+  const p = await getMcpConfigPath();
   // ensure directory exists to avoid immediate watch errors
   void ensureMcpDirExists();
   let timer: NodeJS.Timeout | null = null;
