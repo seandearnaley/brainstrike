@@ -1,6 +1,7 @@
 import { SettingsPageContent as BaseSettingsPageContent } from '@brainstrike/app-shell';
 import { LlmKeysSettings } from './llm-keys';
 import { McpConfigStatus } from './mcp-config-status';
+import { McpToolsPanel } from './mcp-tools-panel';
 
 export default function SettingsPageContent() {
   const Component = BaseSettingsPageContent as React.ComponentType<{
@@ -18,6 +19,7 @@ export default function SettingsPageContent() {
           <p className="text-sm text-muted-foreground">Manage local desktop-specific settings.</p>
           <LlmKeysSettings />
           <McpConfigStatus />
+          <McpToolsPanel />
         </div>
       </Component>
     </>

@@ -100,7 +100,22 @@
       "Bash(pnpm -w type-check --filter=@brainstrike/app-shell)",
       "Bash(pnpm -w lint --filter=@brainstrike/app-shell)",
       "Bash(npx biome check:*)",
-      "Bash(pnpm --filter @brainstrike/app-shell test chunks-view)"
+      "Bash(pnpm --filter @brainstrike/app-shell test chunks-view)",
+      "Bash(pnpm --filter @brainstrike/app-shell test right-panel)",
+      "Bash(pnpm -w build --filter=@brainstrike/desktop)",
+      "Bash(pnpm exec tsc:*)",
+      "Bash(pnpm -w build --filter=@brainstrike/agent --filter=@brainstrike/desktop)",
+      "Bash(pnpm --filter @brainstrike/desktop test -- --run)",
+      "Bash(pnpm exec nyc report:*)",
+      "Bash(pnpm exec c8:*)",
+      "Bash(pnpm --filter @brainstrike/desktop test -- --coverage)",
+      "Bash(pnpm --filter @brainstrike/desktop test -- --coverage --reporter=verbose)",
+      "Bash(pnpm exec vitest run:*)",
+      "Bash(pnpm --filter @brainstrike/desktop exec vitest run --coverage --reporter=json --reporter=verbose)",
+      "Bash(pnpm --filter @brainstrike/desktop exec vitest run --coverage --reporter=html)",
+      "Bash(pnpm:*)",
+      "Bash(open /Users/seandearnaley/Documents/GitHub/brainstrike/apps/desktop/coverage/index.html)",
+      "Bash(pkill:*)"
     ],
     "deny": [],
     "ask": []

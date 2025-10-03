@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
 import type { ElectronApplication, Page } from 'playwright';
@@ -18,6 +19,9 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
+  // Kill any lingering processes to free up ports
+  await killLingeringElectronProcesses();
+
   const launchOptions = createLaunchOptions(electronPath, mainPath);
   const app = await startElectron(launchOptions);
   // Original working behavior: use firstWindow directly with a short backoff handled in recovery
@@ -28,12 +32,26 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   return { app: stableApp, window };
 }
 
-// Use a random port to avoid conflicts when restarting apps in tests
-let debugPort = 9222;
-function getNextDebugPort(): number {
-  // Use a range of ports to avoid conflicts
-  debugPort = 9222 + Math.floor(Math.random() * 100);
-  return debugPort;
+// Helper to kill lingering Electron processes that might be holding ports
+async function killLingeringElectronProcesses(): Promise<void> {
+  try {
+    if (process.platform === 'darwin') {
+      // macOS: Kill Electron processes that might be lingering
+      execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+    } else if (process.platform === 'linux') {
+      // Linux: Similar approach
+      execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+    } else if (process.platform === 'win32') {
+      // Windows: Use taskkill
+      execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+    }
+    // Give OS time to release resources
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log('✅ Cleaned up lingering processes');
+  } catch (_error) {
+    // Ignore errors - processes might not exist
+    console.log('⚠️ No lingering processes to clean up');
+  }
 }
 
 function createLaunchOptions(
@@ -41,13 +59,12 @@ function createLaunchOptions(
   mainPath: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
-  const port = getNextDebugPort();
   const baseArgs = [
     mainPath,
     '--test-mode',
     '--disable-dialogs',
-    // Use a dynamic port to avoid conflicts when restarting
-    `--remote-debugging-port=${port}`,
+    // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
+    // We don't need to specify it explicitly to avoid conflicts
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],

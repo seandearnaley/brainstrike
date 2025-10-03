@@ -55,6 +55,19 @@ contextBridge.exposeInMainWorld('mcp', {
   getConfig: () => ipcRenderer.invoke('mcp:config:get'),
   watch: () => ipcRenderer.invoke('mcp:config:watch'),
   unwatch: () => ipcRenderer.invoke('mcp:config:unwatch'),
+  getPath: () => ipcRenderer.invoke('mcp:config:getPath'),
+  setPath: (configPath: string | null) => ipcRenderer.invoke('mcp:config:setPath', configPath),
+  selectPath: () => ipcRenderer.invoke('mcp:config:selectPath'),
+  // Tool management
+  listTools: () => ipcRenderer.invoke('mcp:tools:list'),
+  enableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:enable', toolIds),
+  disableTools: (toolIds: string[]) => ipcRenderer.invoke('mcp:tools:disable', toolIds),
+  enableServerTools: (serverName: string) =>
+    ipcRenderer.invoke('mcp:tools:enableServer', serverName),
+  disableServerTools: (serverName: string) =>
+    ipcRenderer.invoke('mcp:tools:disableServer', serverName),
+  resetTools: () => ipcRenderer.invoke('mcp:tools:reset'),
+  getToolStats: () => ipcRenderer.invoke('mcp:tools:getStats'),
 });
 
 // Assistant UI (data stream) endpoint helper

@@ -65,6 +65,31 @@ declare global {
       }>;
       watch: () => Promise<{ watching: boolean }>;
       unwatch: () => Promise<{ watching: false }>;
+      getPath: () => Promise<string>;
+      setPath: (configPath: string | null) => Promise<{ success: boolean; path: string }>;
+      selectPath: () => Promise<string | null>;
+      // Tool management
+      listTools: () => Promise<{
+        [serverName: string]: Array<{
+          id: string;
+          serverName: string;
+          description?: string;
+          inputSchema?: unknown;
+          enabled: boolean;
+          discoveredAt: number;
+        }>;
+      }>;
+      enableTools: (toolIds: string[]) => Promise<void>;
+      disableTools: (toolIds: string[]) => Promise<void>;
+      enableServerTools: (serverName: string) => Promise<void>;
+      disableServerTools: (serverName: string) => Promise<void>;
+      resetTools: () => Promise<void>;
+      getToolStats: () => Promise<{
+        total: number;
+        enabled: number;
+        disabled: number;
+        servers: number;
+      }>;
     };
   }
 }

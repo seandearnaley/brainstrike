@@ -21,7 +21,7 @@
     "dist/**"
   ],
   "scripts": {
-    "build": "pnpm run clean && tsup src/index.ts --format esm,cjs --out-dir dist && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "build": "tsup",
     "dev": "tsup src/index.ts --watch --out-dir dist",
     "clean": "rimraf dist",
     "lint": "pnpm -w lint",

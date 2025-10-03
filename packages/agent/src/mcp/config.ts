@@ -8,6 +8,7 @@ const StdioSchema = z.object({
   command: z.string().min(1),
   args: z.array(z.string()).optional(),
   env: z.record(z.string()).optional(),
+  enabledTools: z.array(z.string()).optional(),
 });
 
 const SseSchema = z.object({
@@ -15,6 +16,7 @@ const SseSchema = z.object({
   name: z.string().min(1),
   url: z.string().url(),
   headers: z.record(z.string()).optional(),
+  enabledTools: z.array(z.string()).optional(),
 });
 
 export const McpServerSchema = z.discriminatedUnion('transport', [StdioSchema, SseSchema]);

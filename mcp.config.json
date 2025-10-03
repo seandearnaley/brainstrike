@@ -1,0 +1,16 @@
+{
+    "servers": [
+      {
+        "name": "Mastra",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@mastra/mcp-docs-server"]
+      },
+      {
+        "name": "assistant-ui",
+        "transport": "stdio",
+        "command": "npx",
+        "args": ["-y", "@assistant-ui/mcp-docs-server"]
+      }
+    ]
+  }

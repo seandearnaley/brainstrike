@@ -41,7 +41,6 @@
     { "path": "./packages/storage" },
     { "path": "./packages/db" },
     { "path": "./packages/build-utils" },
-    { "path": "./packages/agent" },
     { "path": "./apps/web" }
   ]
 }

@@ -1,4 +1,3 @@
-import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
   Card,
   CardContent,
@@ -12,7 +11,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@brainstrike/ui';
-import { Brain, Database, FileText, MessageCircle, Search } from 'lucide-react';
+import { Brain, Database, MessageCircle, Search } from 'lucide-react';
 import React, { lazy, useEffect, useState } from 'react';
 import { EmbeddingsPanel } from './embeddings-panel';
 import { McpBanner } from './mcp-banner';
@@ -59,14 +58,10 @@ export function RightPanel() {
     <div className="h-full flex flex-col">
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab((v as RightPanelTab) ?? 'properties')}
+        onValueChange={(v) => setActiveTab((v as RightPanelTab) ?? 'assistant')}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="grid grid-cols-5 mx-2 mt-2 mb-2 flex-shrink-0">
-          <TabsTrigger value="properties" className="flex items-center gap-1">
-            <FileText className="h-3 w-3" />
-            <span className="hidden sm:inline">Props</span>
-          </TabsTrigger>
+        <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="assistant" className="flex items-center gap-1">
             <MessageCircle className="h-3 w-3" />
             <span className="hidden sm:inline">Assistant</span>
@@ -86,10 +81,6 @@ export function RightPanel() {
         </TabsList>
 
         <div className="flex-1 px-2 flex flex-col min-h-0">
-          <TabsContent value="properties" className="flex-1 min-h-0 flex flex-col">
-            <PropertiesInspectorCard />
-          </TabsContent>
-
           <TabsContent
             value="assistant"
             forceMount
@@ -287,115 +278,6 @@ type AssistantAvailabilityState =
   | { state: 'disabled'; reason?: string }
   | { state: 'error'; message: string };
 
-function PropertiesInspectorCard() {
-  const { fileContents } = useFileExplorer();
-  const { selectedFilePaths } = useSelectionManager({ onSelectionLimitExceeded: () => {} });
-  const info = buildSelectionInfo(Array.from(selectedFilePaths ?? []), fileContents ?? {});
-
-  return (
-    <Card className="flex flex-col h-full overflow-hidden" data-testid="properties-inspector">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm">Properties</CardTitle>
-        <CardDescription className="text-xs">Element properties and attributes</CardDescription>
-      </CardHeader>
-      <CardContent className="text-xs space-y-3 overflow-y-auto flex-1 min-h-0">
-        <SelectionDetails info={info} />
-        <McpBanner />
-      </CardContent>
-    </Card>
-  );
-}
-
-type SelectionInfo =
-  | { kind: 'empty' }
-  | {
-      kind: 'selected';
-      path: string;
-      additionalCount: number;
-      preview?: { text: string; truncated: boolean };
-    };
-
-function buildSelectionInfo(
-  selectedPaths: string[],
-  fileContents: Record<string, unknown>
-): SelectionInfo {
-  if (selectedPaths.length === 0) {
-    return { kind: 'empty' };
-  }
-
-  const activeIndex = selectedPaths.length - 1;
-  if (activeIndex < 0) {
-    return { kind: 'empty' };
-  }
-  const activePath = selectedPaths[activeIndex];
-  if (!activePath) {
-    return { kind: 'empty' };
-  }
-  const rawValue = fileContents[activePath];
-  const trimmed = typeof rawValue === 'string' ? rawValue.trim() : undefined;
-
-  if (!trimmed) {
-    return {
-      kind: 'selected',
-      path: activePath,
-      additionalCount: Math.max(0, selectedPaths.length - 1),
-    };
-  }
-
-  const snippet = trimmed.slice(0, 400);
-  return {
-    kind: 'selected',
-    path: activePath,
-    additionalCount: Math.max(0, selectedPaths.length - 1),
-    preview: { text: snippet, truncated: trimmed.length > snippet.length },
-  };
-}
-
-function SelectionDetails({ info }: { info: SelectionInfo }) {
-  if (info.kind === 'empty') {
-    return (
-      <div className="rounded border border-dashed p-3 text-[11px] text-muted-foreground">
-        Select a component or file to inspect its properties.
-      </div>
-    );
-  }
-
-  const additionalSummary =
-    info.additionalCount > 0
-      ? `+${info.additionalCount} additional ${info.additionalCount === 1 ? 'item' : 'items'} selected`
-      : null;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-col gap-1">
-        <span className="font-medium text-[11px] uppercase tracking-wide text-muted-foreground">
-          Selected
-        </span>
-        <code className="rounded bg-muted px-1.5 py-0.5 text-[11px]">{info.path}</code>
-      </div>
-      {additionalSummary ? (
-        <div className="text-[11px] text-muted-foreground">{additionalSummary}</div>
-      ) : null}
-      {info.preview ? (
-        <div>
-          <span className="font-medium text-[11px] uppercase tracking-wide text-muted-foreground">
-            Preview
-          </span>
-          <pre className="max-h-40 overflow-auto rounded border border-dashed bg-muted/40 p-3 font-mono text-[11px] leading-relaxed break-all">
-            {info.preview.text}
-            {info.preview.truncated ? '…' : ''}
-          </pre>
-        </div>
-      ) : (
-        <div className="rounded border border-dashed p-3 text-[11px] text-muted-foreground">
-          No cached preview available for this selection. Choose an element in the editor to inspect
-          its props.
-        </div>
-      )}
-    </div>
-  );
-}
-
 function AssistantChatCard() {
   const status = useAssistantAvailability();
 
@@ -432,11 +314,16 @@ function AssistantChatCard() {
           </div>
         )}
         {status.state === 'enabled' && (
-          <React.Suspense
-            fallback={<div className="p-4 text-xs opacity-70">Loading assistant…</div>}
-          >
-            <AssistantUiPanelLazy />
-          </React.Suspense>
+          <>
+            <div className="px-4 pb-2">
+              <McpBanner />
+            </div>
+            <React.Suspense
+              fallback={<div className="p-4 text-xs opacity-70">Loading assistant…</div>}
+            >
+              <AssistantUiPanelLazy />
+            </React.Suspense>
+          </>
         )}
       </CardContent>
     </Card>

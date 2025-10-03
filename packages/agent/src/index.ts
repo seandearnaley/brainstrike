@@ -328,6 +328,19 @@ export async function toAiSdkStyleStream(
 export type { McpConfig, McpServer } from './mcp/config';
 export { McpConfigSchema, McpServerSchema, McpTransportEnum, parseMcpConfig } from './mcp/config';
 export {
+  createDefaultToolPreferences,
+  deleteToolPreferences,
+  loadToolPreferences,
+  saveToolPreferences,
+  type ToolPreferences,
+} from './mcp/tool-persistence';
+export {
+  type McpToolMetadata,
+  type McpToolsByServer,
+  ToolRegistry as McpToolRegistry,
+  toolRegistry as mcpToolRegistry,
+} from './mcp/tool-registry';
+export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
   assistantDataStreamSessions,

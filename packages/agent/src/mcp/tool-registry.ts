@@ -1,0 +1,279 @@
+import { createLogger } from '@brainstrike/utils';
+import type { ToolsInput } from '@mastra/core/agent';
+
+const logger = createLogger('ToolRegistry');
+
+export interface McpToolMetadata {
+  id: string;
+  serverName: string;
+  description?: string;
+  inputSchema?: unknown;
+  enabled: boolean;
+  discoveredAt: number;
+}
+
+export interface McpToolsByServer {
+  [serverName: string]: McpToolMetadata[];
+}
+
+export interface ToolFilterConfig {
+  enabledTools?: string[];
+}
+
+/**
+ * Registry for tracking MCP tools discovered from servers.
+ * Manages tool metadata, enabled/disabled state, and filtering.
+ */
+export class ToolRegistry {
+  private tools: Map<string, McpToolMetadata> = new Map();
+  private toolsByServer: Map<string, Set<string>> = new Map();
+  private listeners: Array<(tools: McpToolsByServer) => void> = [];
+
+  /**
+   * Register tools from an MCP server
+   */
+  register(serverName: string, tools: ToolsInput, filterConfig?: ToolFilterConfig): void {
+    const toolIds = new Set<string>();
+    const discoveredAt = Date.now();
+
+    for (const [toolId, tool] of Object.entries(tools)) {
+      const existing = this.tools.get(toolId);
+
+      // Preserve enabled state if tool was previously registered
+      const enabled = existing
+        ? existing.enabled
+        : this.isToolEnabledByDefault(toolId, filterConfig);
+
+      const description = this.extractDescription(tool);
+      const inputSchema = this.extractInputSchema(tool);
+
+      const metadata: McpToolMetadata = {
+        id: toolId,
+        serverName,
+        ...(description !== undefined && { description }),
+        ...(inputSchema !== undefined && { inputSchema }),
+        enabled,
+        discoveredAt,
+      };
+
+      this.tools.set(toolId, metadata);
+      toolIds.add(toolId);
+    }
+
+    this.toolsByServer.set(serverName, toolIds);
+    logger.info('tools registered', {
+      code: 'tools_registered',
+      serverName,
+      count: toolIds.size,
+      enabled: Array.from(toolIds).filter((id) => this.tools.get(id)?.enabled).length,
+    });
+
+    this.notifyListeners();
+  }
+
+  /**
+   * Get all registered tools grouped by server
+   */
+  getAllTools(): McpToolsByServer {
+    const result: McpToolsByServer = {};
+
+    for (const [serverName, toolIds] of this.toolsByServer.entries()) {
+      result[serverName] = Array.from(toolIds)
+        .map((id) => this.tools.get(id))
+        .filter((tool): tool is McpToolMetadata => tool !== undefined);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get tools from a specific server
+   */
+  getToolsForServer(serverName: string): McpToolMetadata[] {
+    const toolIds = this.toolsByServer.get(serverName);
+    if (!toolIds) return [];
+
+    return Array.from(toolIds)
+      .map((id) => this.tools.get(id))
+      .filter((tool): tool is McpToolMetadata => tool !== undefined);
+  }
+
+  /**
+   * Enable specific tool(s)
+   */
+  enableTools(toolIds: string[]): void {
+    for (const id of toolIds) {
+      const tool = this.tools.get(id);
+      if (tool) {
+        tool.enabled = true;
+        this.tools.set(id, tool);
+      }
+    }
+    logger.info('tools enabled', { code: 'tools_enabled', count: toolIds.length, toolIds });
+    this.notifyListeners();
+  }
+
+  /**
+   * Disable specific tool(s)
+   */
+  disableTools(toolIds: string[]): void {
+    for (const id of toolIds) {
+      const tool = this.tools.get(id);
+      if (tool) {
+        tool.enabled = false;
+        this.tools.set(id, tool);
+      }
+    }
+    logger.info('tools disabled', { code: 'tools_disabled', count: toolIds.length, toolIds });
+    this.notifyListeners();
+  }
+
+  /**
+   * Enable all tools from a server
+   */
+  enableServerTools(serverName: string): void {
+    const toolIds = this.toolsByServer.get(serverName);
+    if (toolIds) {
+      this.enableTools(Array.from(toolIds));
+    }
+  }
+
+  /**
+   * Disable all tools from a server
+   */
+  disableServerTools(serverName: string): void {
+    const toolIds = this.toolsByServer.get(serverName);
+    if (toolIds) {
+      this.disableTools(Array.from(toolIds));
+    }
+  }
+
+  /**
+   * Get filtered tools suitable for agent runtime (only enabled tools)
+   */
+  getEnabledTools(originalTools: ToolsInput): ToolsInput {
+    const filtered: ToolsInput = {};
+
+    for (const [id, tool] of Object.entries(originalTools)) {
+      const metadata = this.tools.get(id);
+      if (!metadata || metadata.enabled) {
+        filtered[id] = tool;
+      }
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Reset all tools to their default enabled state
+   */
+  reset(filterConfig?: ToolFilterConfig): void {
+    for (const [id, tool] of this.tools.entries()) {
+      tool.enabled = this.isToolEnabledByDefault(id, filterConfig);
+      this.tools.set(id, tool);
+    }
+    logger.info('tools reset to defaults', { code: 'tools_reset' });
+    this.notifyListeners();
+  }
+
+  /**
+   * Clear all registered tools
+   */
+  clear(): void {
+    this.tools.clear();
+    this.toolsByServer.clear();
+    logger.info('registry cleared', { code: 'registry_cleared' });
+    this.notifyListeners();
+  }
+
+  /**
+   * Subscribe to tool state changes
+   */
+  subscribe(listener: (tools: McpToolsByServer) => void): () => void {
+    this.listeners.push(listener);
+    return () => {
+      const index = this.listeners.indexOf(listener);
+      if (index !== -1) {
+        this.listeners.splice(index, 1);
+      }
+    };
+  }
+
+  /**
+   * Get tool count statistics
+   */
+  getStats(): { total: number; enabled: number; disabled: number; servers: number } {
+    const tools = Array.from(this.tools.values());
+    return {
+      total: tools.length,
+      enabled: tools.filter((t) => t.enabled).length,
+      disabled: tools.filter((t) => !t.enabled).length,
+      servers: this.toolsByServer.size,
+    };
+  }
+
+  private extractDescription(tool: unknown): string | undefined {
+    if (tool && typeof tool === 'object' && 'description' in tool) {
+      return String(tool.description);
+    }
+    return undefined;
+  }
+
+  private extractInputSchema(tool: unknown): unknown {
+    if (tool && typeof tool === 'object' && 'inputSchema' in tool) {
+      return tool.inputSchema;
+    }
+    return undefined;
+  }
+
+  private isToolEnabledByDefault(toolId: string, filterConfig?: ToolFilterConfig): boolean {
+    if (!filterConfig?.enabledTools) {
+      return true; // All tools enabled by default
+    }
+
+    const { enabledTools } = filterConfig;
+
+    // Check for explicit exclusions first (higher priority)
+    if (
+      enabledTools.some(
+        (pattern) => pattern.startsWith('!') && this.matchPattern(toolId, pattern.slice(1))
+      )
+    ) {
+      return false;
+    }
+
+    // Check for explicit inclusions or wildcard
+    if (enabledTools.includes('*')) {
+      return true;
+    }
+
+    return enabledTools.some((pattern) => this.matchPattern(toolId, pattern));
+  }
+
+  private matchPattern(toolId: string, pattern: string): boolean {
+    if (pattern === '*') return true;
+    if (pattern === toolId) return true;
+
+    // Support glob-style wildcards
+    const regexPattern = pattern.replace(/\*/g, '.*').replace(/\?/g, '.');
+    const regex = new RegExp(`^${regexPattern}$`);
+    return regex.test(toolId);
+  }
+
+  private notifyListeners(): void {
+    const tools = this.getAllTools();
+    for (const listener of this.listeners) {
+      try {
+        listener(tools);
+      } catch (error) {
+        logger.error('listener error', {
+          code: 'listener_error',
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+}
+
+// Singleton instance for use across the application
+export const toolRegistry = new ToolRegistry();

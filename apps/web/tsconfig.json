@@ -41,7 +41,6 @@
     { "path": "../../packages/server-config" },
     { "path": "../../packages/types" },
     { "path": "../../packages/ui" },
-    { "path": "../../packages/utils" },
-    { "path": "../../packages/agent" }
+    { "path": "../../packages/utils" }
   ]
 }
