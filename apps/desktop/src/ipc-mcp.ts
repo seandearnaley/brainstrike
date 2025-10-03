@@ -166,10 +166,7 @@ export function registerMcpIpcHandlers() {
     return mcpToolRegistry.getStats();
   });
 
-  // Load tool preferences on startup
-  void loadToolPreferencesOnStartup();
-
-  // Discover tools when config changes
+  // Discover tools when config changes; saved preferences are applied after discovery completes
   void discoverMcpToolsOnStartup();
 }
 
@@ -218,6 +215,9 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
 
     // Clean up the runtime
     await runtime.dispose();
+
+    // Apply saved tool preferences now that discovery has populated the registry
+    await loadToolPreferencesOnStartup();
   } catch (error) {
     console.error('[ipc-mcp] Failed to discover tools:', error);
     throw error; // Re-throw to see the full error
