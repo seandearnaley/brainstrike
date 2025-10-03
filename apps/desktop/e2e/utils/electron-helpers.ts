@@ -1,3 +1,4 @@
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
 import type { ElectronApplication, Page } from 'playwright';
@@ -18,6 +19,9 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
+  // Kill any lingering processes to free up ports
+  await killLingeringElectronProcesses();
+
   const launchOptions = createLaunchOptions(electronPath, mainPath);
   const app = await startElectron(launchOptions);
   // Original working behavior: use firstWindow directly with a short backoff handled in recovery
@@ -28,11 +32,34 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   return { app: stableApp, window };
 }
 
-// Use a random port to avoid conflicts when restarting apps in tests
+// Helper to kill lingering Electron processes that might be holding ports
+async function killLingeringElectronProcesses(): Promise<void> {
+  try {
+    if (process.platform === 'darwin') {
+      // macOS: Kill Electron processes that might be lingering
+      execSync("pkill -9 -f 'Electron.*--test-mode' || true", { stdio: 'ignore' });
+    } else if (process.platform === 'linux') {
+      // Linux: Similar approach
+      execSync("pkill -9 -f 'electron.*--test-mode' || true", { stdio: 'ignore' });
+    } else if (process.platform === 'win32') {
+      // Windows: Use taskkill
+      execSync('taskkill /F /IM electron.exe /T 2>nul || exit 0', { stdio: 'ignore' });
+    }
+    // Give OS time to release resources
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log('✅ Cleaned up lingering processes');
+  } catch (_error) {
+    // Ignore errors - processes might not exist
+    console.log('⚠️ No lingering processes to clean up');
+  }
+}
+
+// Use a sequential port to avoid conflicts when restarting apps in tests
 let debugPort = 9222;
 function getNextDebugPort(): number {
-  // Use a range of ports to avoid conflicts
-  debugPort = 9222 + Math.floor(Math.random() * 100);
+  // Use sequential ports in a wider range to avoid conflicts
+  // Increment and wrap around to avoid running out of ports
+  debugPort = ((debugPort - 9222 + 1) % 500) + 9222;
   return debugPort;
 }
 

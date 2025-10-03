@@ -766,8 +766,10 @@ test.describe('Database Persistence', () => {
     await closeElectronApp(appContext);
 
     // Wait for complete app shutdown and port cleanup
-    // The closeElectronApp already waits 3 seconds, so we only need a bit more
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // The closeElectronApp already waits 3 seconds, so we need additional time
+    // to ensure ports are fully released and resources cleaned up
+    console.log('⏱️ Waiting for complete cleanup before restart...');
+    await new Promise((resolve) => setTimeout(resolve, 4000));
 
     // Launch a new instance with a different debug port
     appContext = await launchElectronApp();
