@@ -304,6 +304,16 @@ interface CollectCombinedToolsOptions {
 
 type McpServerConfig = NonNullable<McpConfig['servers']>[number];
 
+function selectToolsForServer(
+  allMcpTools: ToolsInput,
+  serverName: string | undefined,
+  isSingleServer: boolean
+): ToolsInput | undefined {
+  const filteredTools = collectServerTools(allMcpTools, serverName);
+  // If no tools match the server name but this is the only server, use all MCP tools
+  return filteredTools ?? (isSingleServer ? allMcpTools : undefined);
+}
+
 async function collectCombinedTools({
   sanitizedLocalTools,
   mcpClient,
@@ -323,13 +333,21 @@ async function collectCombinedTools({
     return combined;
   }
 
-  for (const server of mcpConfig.servers ?? []) {
-    const filteredTools = collectServerTools(allMcpTools, server?.name);
-    if (!filteredTools) {
+  const serverList = mcpConfig.servers ?? [];
+  const isSingleServer = serverList.length === 1;
+
+  for (const server of serverList) {
+    if (!server) {
       continue;
     }
 
-    const enabled = registerServerTools(server, filteredTools);
+    const toolsForServer = selectToolsForServer(allMcpTools, server.name, isSingleServer);
+
+    if (!toolsForServer || Object.keys(toolsForServer).length === 0) {
+      continue;
+    }
+
+    const enabled = registerServerTools(server, toolsForServer);
     if (enabled) {
       Object.assign(combined, enabled);
     }
