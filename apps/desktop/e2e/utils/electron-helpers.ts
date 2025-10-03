@@ -54,27 +54,17 @@ async function killLingeringElectronProcesses(): Promise<void> {
   }
 }
 
-// Use a sequential port to avoid conflicts when restarting apps in tests
-let debugPort = 9222;
-function getNextDebugPort(): number {
-  // Use sequential ports in a wider range to avoid conflicts
-  // Increment and wrap around to avoid running out of ports
-  debugPort = ((debugPort - 9222 + 1) % 500) + 9222;
-  return debugPort;
-}
-
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
-  const port = getNextDebugPort();
   const baseArgs = [
     mainPath,
     '--test-mode',
     '--disable-dialogs',
-    // Use a dynamic port to avoid conflicts when restarting
-    `--remote-debugging-port=${port}`,
+    // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
+    // We don't need to specify it explicitly to avoid conflicts
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
