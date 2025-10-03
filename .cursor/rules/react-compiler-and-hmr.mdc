@@ -1,5 +1,5 @@
 ---
-globs: *.ts,*.tsx
+globs:
 description: Practical rules of thumb for React Compiler + HMR in a Turborepo monorepo to avoid hook-order and memo cache shape drift
 ---
 
@@ -79,3 +79,31 @@ function fullReloadOnCompilerHotspots() {
 - “Should have a queue … Hooks conditionally” → prior HMR swap invalidated the current compiled hook layout.
 
 Follow the patterns above to avoid these entirely while keeping dev perf fast and prod parity intact.
+---
+Use these patterns to keep components and hooks compiler-friendly and HMR-stable.
+
+## Core directives
+
+- Keep hook order constant in every render. Avoid any conditional hook calls.
+
+## Patterns to use
+
+- Constant dependency vectors: ensure `useMemo`/`useCallback` dependencies have a fixed length. Hoist constants.
+- Use refs to stabilize changing inputs when necessary (e.g., large Sets/Maps) instead of expanding dep arrays.
+- Compute derived data in a single `useMemo` with stable deps; avoid multiple interdependent memos.
+- Avoid mutating props or hook arguments. Create a local copy or use a setter callback.
+  - Example fix implemented in [`packages/ui/src/hooks/use-save-panel-state.ts`](mdc:packages/ui/src/hooks/use-save-panel-state.ts) and its usage in [`packages/ui/src/hooks/use-panel-persistence.ts`](mdc:packages/ui/src/hooks/use-panel-persistence.ts).
+
+
+
+
+# Zustand Selectors: React Compiler-Friendly Rules
+
+- Use split selectors: `store((s) => s.slice)` instead of aggregated object-shaped selectors.
+- If you need multiple values, prefer a single array tuple selector with a fixed shape: `store((s) => [s.a, s.b] as const)`.
+- Hoist selector lambdas to top-level whenever possible to avoid recreating functions each render.
+
+## Avoid
+
+- Returning new objects in selectors (e.g., `{ a: s.a, b: s.b }`) – this triggers identity churn and cache arity changes.
+- Using `shallow` to mask churn; instead, return primitives/tuples and let equality be trivial.
