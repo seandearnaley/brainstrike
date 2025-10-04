@@ -149,7 +149,7 @@ export default defineConfig({
     target: 'es2020',
     assetsInlineLimit: 0,
     rollupOptions: {
-      external: ['electron', 'chokidar'],
+      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
@@ -189,6 +189,8 @@ export default defineConfig({
       '@brainstrike/file-system': path.resolve(__dirname, '../../packages/file-system/src'),
       '@brainstrike/types': path.resolve(__dirname, '../../packages/types/src'),
       '@brainstrike/workers': path.resolve(__dirname, '../../packages/workers'),
+      // Agent client-safe exports (no Mastra dependencies)
+      '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
       // Force PGlite to use browser FS implementation in web renderer to avoid node:fs imports
       '@electric-sql/pglite/dist/fs/nodefs.js': '@electric-sql/pglite/dist/fs/opfs-ahp.js',
       './fs/nodefs.js': './fs/opfs-ahp.js',

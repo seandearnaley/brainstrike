@@ -10,10 +10,23 @@ import { type FC, useEffect, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { MarkdownText } from './markdown-text';
+
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  models: readonly string[];
+  defaultModel: string;
+}
 
 export interface AssistantUiPanelProps {
   className?: string;
+  providers?: ProviderConfig[];
+  selectedProvider?: string;
+  selectedModel?: string;
+  onProviderChange?: (provider: string) => void;
+  onModelChange?: (model: string) => void;
 }
 
 declare global {
@@ -22,7 +35,13 @@ declare global {
   }
 }
 
-export const AssistantUiPanel: FC<AssistantUiPanelProps> = () => {
+export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
+  providers = [],
+  selectedProvider,
+  selectedModel,
+  onProviderChange,
+  onModelChange,
+}) => {
   const initialApi =
     typeof window === 'undefined'
       ? '/api/assistant'
@@ -44,7 +63,18 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = () => {
     void updateApi();
   }, []);
 
-  const runtime = useDataStreamRuntime({ api });
+  const currentProvider = providers.find((p) => p.id === selectedProvider);
+  const availableModels = currentProvider?.models ?? [];
+
+  const runtime = useDataStreamRuntime({
+    api,
+    body: {
+      data: {
+        provider: selectedProvider,
+        model: selectedModel,
+      },
+    },
+  });
 
   return (
     <section
@@ -54,6 +84,51 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = () => {
     >
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
+          {/* Provider and Model Selector Header */}
+          {providers.length > 0 && (
+            <div className="flex-shrink-0 px-3 py-2 border-b border-border bg-muted/30">
+              <div className="flex gap-2 items-center">
+                {onProviderChange && (
+                  <Select value={selectedProvider ?? ''} onValueChange={onProviderChange}>
+                    <SelectTrigger
+                      className="w-36 h-8 text-sm"
+                      data-testid="assistant-provider-select"
+                      aria-label="Select AI provider"
+                    >
+                      <SelectValue placeholder="Select provider" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {providers.map((provider) => (
+                        <SelectItem key={provider.id} value={provider.id}>
+                          {provider.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {onModelChange && (
+                  <Select value={selectedModel ?? ''} onValueChange={onModelChange}>
+                    <SelectTrigger
+                      className="w-52 h-8 text-sm"
+                      data-testid="assistant-model-select"
+                      aria-label="Select model"
+                      disabled={!selectedProvider}
+                    >
+                      <SelectValue placeholder="Select model" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableModels.map((model: string) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
+          )}
           {/**
            * Messages Viewport
            *

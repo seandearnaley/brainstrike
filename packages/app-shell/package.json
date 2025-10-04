@@ -33,6 +33,7 @@
     "zustand": "^5"
   },
   "dependencies": {
+    "@brainstrike/agent": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",

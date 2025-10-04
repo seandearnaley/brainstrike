@@ -29,7 +29,7 @@ const DatabaseTab = lazy(async () => ({
 }));
 
 const AssistantUiPanelLazy = lazy(async () => ({
-  default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
+  default: (await import('./assistant-ui-panel-wrapper')).AssistantUiPanelWrapper,
 }));
 
 export function RightPanel() {

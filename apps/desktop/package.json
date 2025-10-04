@@ -49,7 +49,9 @@
     "@electric-sql/pglite": "^0.3.10",
     "electron-store": "^11.0.0",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "stream-web": "^0.5.2",
+    "web-streams-polyfill": "^4.2.0"
   },
   "devDependencies": {
     "@brainstrike/build-utils": "workspace:*",

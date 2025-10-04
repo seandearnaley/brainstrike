@@ -13,6 +13,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.mjs",
+      "require": "./dist/client.js"
     }
   },
   "sideEffects": false,
@@ -31,6 +36,8 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^2.0.23",
+    "@ai-sdk/google": "^2.0.17",
     "@ai-sdk/openai": "^2.0.40",
     "@brainstrike/utils": "workspace:*",
     "@mastra/core": "^0.18.0",

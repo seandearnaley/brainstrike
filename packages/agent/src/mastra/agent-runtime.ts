@@ -1,5 +1,4 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
-import { createOpenAI } from '@ai-sdk/openai';
 import { createLogger } from '@brainstrike/utils';
 import { Agent, type ToolsInput } from '@mastra/core/agent';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
@@ -7,6 +6,8 @@ import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../index';
 import type { McpConfig } from '../mcp/config';
 import { toolRegistry as mcpToolRegistry } from '../mcp/tool-registry';
+import { isSupportedProvider, resolveProviderApiKey } from '../providers/key-resolver';
+import { createProvider, getDefaultModel } from '../providers/provider-factory';
 import { mapMastraToolEvent } from './tool-event-mapper';
 
 export interface MastraAgentRuntimeOptions {
@@ -27,32 +28,6 @@ export interface MastraAgentRuntime {
 }
 
 const logger = createLogger('MastraAgent');
-
-function resolveOpenAIApiKey(runtime?: RuntimeData): string | undefined {
-  if (runtime?.apiKey && typeof runtime.apiKey === 'string' && runtime.apiKey.trim()) {
-    return runtime.apiKey;
-  }
-
-  if (typeof process !== 'undefined') {
-    const env = process.env ?? {};
-    const fromEnv =
-      env['OPENAI_API_KEY'] ??
-      env['AI_OPENAI_API_KEY'] ??
-      env['OPENAI_API_KEY_V1'] ??
-      env['OPENAI_API_KEY_V2'] ??
-      null;
-    const trimmed = fromEnv?.trim();
-    if (trimmed) {
-      return trimmed;
-    }
-  }
-
-  return undefined;
-}
-
-function toOpenAIMode(model?: string): string {
-  return model && model.length > 0 ? model : 'gpt-4o-mini';
-}
 
 function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['servers'] {
   if (!config || !Array.isArray(config.servers)) return {};
@@ -254,7 +229,11 @@ export async function createMastraAgentRuntime(
   options: MastraAgentRuntimeOptions = {}
 ): Promise<MastraAgentRuntime> {
   const { runtime, instructions, model, mcpConfig, tools: localTools, mcpTimeoutMs } = options;
-  const apiKey = resolveOpenAIApiKey(runtime);
+
+  // Resolve provider and API key
+  const provider = runtime?.provider ?? 'openai';
+  const normalizedProvider = isSupportedProvider(provider) ? provider : 'openai';
+  const apiKey = resolveProviderApiKey(normalizedProvider, runtime);
 
   const servers = toMastraServerMap(mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
@@ -270,7 +249,10 @@ export async function createMastraAgentRuntime(
     timeoutOverrideMs: mcpTimeoutMs,
   });
 
-  const openaiProvider = createOpenAI(apiKey ? { apiKey } : undefined);
+  // Create provider-specific model instance
+  const modelName = model ?? getDefaultModel(normalizedProvider);
+  const languageModel = createProvider(normalizedProvider, apiKey, modelName);
+
   const agent = new Agent({
     name: 'Brainstrike Assistant',
     instructions:
@@ -280,7 +262,7 @@ When the user asks to search documentation, call the web.searchDocs tool to find
 When the user requests a documentation summary, call the web.docSummary tool with the matching doc id.
 For echo requests, use the web.echo tool.
 Provide concise answers after using tools.`,
-    model: openaiProvider(toOpenAIMode(model)),
+    model: languageModel,
     tools: combinedTools,
   });
 
@@ -450,9 +432,14 @@ export async function streamMastraAgent(
     throw new Error(message);
   };
 
-  const apiKey = resolveOpenAIApiKey(runtimeData);
+  const provider = runtimeData?.provider ?? 'openai';
+  const normalizedProvider = isSupportedProvider(provider) ? provider : 'openai';
+  const apiKey = resolveProviderApiKey(normalizedProvider, runtimeData);
   if (!apiKey) {
-    logger.warn('mastra agent missing api key', { code: 'mastra_agent_missing_api_key' });
+    logger.warn('mastra agent missing api key', {
+      code: 'mastra_agent_missing_api_key',
+      provider: normalizedProvider,
+    });
     return fail('missing_api_key');
   }
 

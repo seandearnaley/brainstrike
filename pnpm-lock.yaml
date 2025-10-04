@@ -126,6 +126,12 @@ importers:
       react-dom:
         specifier: ^19.1.1
         version: 19.1.1(react@19.1.1)
+      stream-web:
+        specifier: ^0.5.2
+        version: 0.5.2
+      web-streams-polyfill:
+        specifier: ^4.2.0
+        version: 4.2.0
     devDependencies:
       '@brainstrike/build-utils':
         specifier: workspace:*
@@ -362,6 +368,12 @@ importers:
 
   packages/agent:
     dependencies:
+      '@ai-sdk/anthropic':
+        specifier: ^2.0.23
+        version: 2.0.23(zod@3.25.76)
+      '@ai-sdk/google':
+        specifier: ^2.0.17
+        version: 2.0.17(zod@3.25.76)
       '@ai-sdk/openai':
         specifier: ^2.0.40
         version: 2.0.40(zod@3.25.76)
@@ -396,6 +408,9 @@ importers:
 
   packages/app-shell:
     dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
@@ -1215,11 +1230,23 @@ packages:
   '@adobe/css-tools@4.4.4':
     resolution: {integrity: sha512-Elp+iwUx5rN5+Y8xLt5/GRoG20WGoDCQ/1Fb+1LiGtvwbDavuSk0jhD/eZdckHAuzcDzccnkv+rEjyWfRx18gg==}
 
+  '@ai-sdk/anthropic@2.0.23':
+    resolution: {integrity: sha512-ZEBiiv1UhjGjBwUU63pFhLK5LCSlNDb1idY9K1oZHm5/Fda1cuTojf32tOp0opH0RPbPAN/F8fyyNjbU33n9Kw==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/gateway@1.0.23':
     resolution: {integrity: sha512-ynV7WxpRK2zWLGkdOtrU2hW22mBVkEYVS3iMg1+ZGmAYSgzCqzC74bfOJZ2GU1UdcrFWUsFI9qAYjsPkd+AebA==}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4
+
+  '@ai-sdk/google@2.0.17':
+    resolution: {integrity: sha512-6LyuUrCZuiULg0rUV+kT4T2jG19oUntudorI4ttv1ARkSbwl8A39ue3rA487aDDy6fUScdbGFiV5Yv/o4gidVA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
 
   '@ai-sdk/openai@2.0.40':
     resolution: {integrity: sha512-VFPS6zuDkMTXuZCR7QvYdcrilk1xTa+vfQedK2IBOLDU52GgdC7ywPqR5NScb7vHuxCwm/CKfk6X4WZ08kCr9Q==}
@@ -5567,6 +5594,9 @@ packages:
     resolution: {integrity: sha512-8QmQKqEASLd5nx0U1B1okLElbUuuttJ/AnYmRXbbbGDWh6uS208EjD4Xqq/I9wK7u0v6O08XhTWnt5XtEbR6Dg==}
     engines: {node: '>= 0.4'}
 
+  dejavu-call@0.7.3:
+    resolution: {integrity: sha512-xN5ZFQ0y/GGoUM0lEfzD3I1YXXs688bet5qpEpiNH8gVjtoymjtri9jDeyPu2KsvTuvO12/cKhNoav82PGTnbQ==}
+
   delayed-stream@1.0.0:
     resolution: {integrity: sha512-ZySD7Nf91aLB0RxL4KGrKHBXl7Eds1DAmEdcoVawXnLD7SDhpNgtuII2aAkg7a7QS41jxPSZ17p4VdGnMHk3MQ==}
     engines: {node: '>=0.4.0'}
@@ -6479,6 +6509,9 @@ packages:
 
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
+
+  html-parse-regex@1.2.2:
+    resolution: {integrity: sha512-T3Dh+IRO+VRlkq9eFonVPOH9T/v6qWjrlH9IPm+bqjg6SD4K0KuPSqrAeCHWDBDKecAE0Mk38w6mRVAMrih6ww==}
 
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
@@ -8102,6 +8135,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pytils@1.40.3:
+    resolution: {integrity: sha512-k1Vn87Zg5hIyEhXy29eUs9YrOnOq+TNPOxTt5meSxiOH/3Sv1SkJMTEIBXri7lChdoeIXpc/GY1i0hw3BovCdg==}
+
   qs@6.13.0:
     resolution: {integrity: sha512-+38qI9SOr8tfZ4QmJNplMUxqjbe7LKvvZgWdExBOmd+egZTtjLB67Gu0HRX3u/XOq7UU2Nx6nsjvS16Z9uwfpg==}
     engines: {node: '>=0.6'}
@@ -8652,6 +8688,9 @@ packages:
 
   stream-to-promise@2.2.0:
     resolution: {integrity: sha512-HAGUASw8NT0k8JvIVutB2Y/9iBk7gpgEyAudXwNJmZERdMITGdajOa4VJfD/kNiA3TppQpTP4J+CtcHwdzKBAw==}
+
+  stream-web@0.5.2:
+    resolution: {integrity: sha512-95SbzQOtY+mye89e3F6yCchrPqkqRdWEfR0FCzE7khh1j6nHkSbfQqgcyFDGKrq6qXI49/HspyMKwhDv4F0A6w==}
 
   strict-event-emitter@0.5.1:
     resolution: {integrity: sha512-vMgjE/GGEPEFnhFub6pa4FmJBRBVOLpIII2hvCZ8Kzb7K0hlHo7mQv6xYrBvCL2LtAIBwFUK8wvuJgTVSQ5MFQ==}
@@ -9365,6 +9404,10 @@ packages:
   weapon-regex@1.3.3:
     resolution: {integrity: sha512-vUIqAGXZT33ZPgIMkDUmDYDpy1SraZ0hoNAIoNpVwBJIzjCQ0irEsKH9Hui+jZEENPB1vOpT/VhXPbpwfnP0xg==}
 
+  web-streams-polyfill@4.2.0:
+    resolution: {integrity: sha512-0rYDzGOh9EZpig92umN5g5D/9A1Kff7k0/mzPSSCY8jEQeYkgRMoY7LhbXtUCWzLCMX0TUE9aoHkjFNB7D9pfA==}
+    engines: {node: '>= 8'}
+
   web-vitals@0.2.4:
     resolution: {integrity: sha512-6BjspCO9VriYy12z356nL6JBS0GYeEcA457YyRzD+dD6XYCQ75NKhcOHUMHentOE7OcVCIXXDvOm0jKFfQG2Gg==}
 
@@ -9668,10 +9711,22 @@ snapshots:
 
   '@adobe/css-tools@4.4.4': {}
 
+  '@ai-sdk/anthropic@2.0.23(zod@3.25.76)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.0
+      '@ai-sdk/provider-utils': 3.0.10(zod@3.25.76)
+      zod: 3.25.76
+
   '@ai-sdk/gateway@1.0.23(zod@3.25.76)':
     dependencies:
       '@ai-sdk/provider': 2.0.0
       '@ai-sdk/provider-utils': 3.0.9(zod@3.25.76)
+      zod: 3.25.76
+
+  '@ai-sdk/google@2.0.17(zod@3.25.76)':
+    dependencies:
+      '@ai-sdk/provider': 2.0.0
+      '@ai-sdk/provider-utils': 3.0.10(zod@3.25.76)
       zod: 3.25.76
 
   '@ai-sdk/openai@2.0.40(zod@3.25.76)':
@@ -14492,6 +14547,10 @@ snapshots:
       has-property-descriptors: 1.0.2
       object-keys: 1.1.1
 
+  dejavu-call@0.7.3:
+    dependencies:
+      pytils: 1.40.3
+
   delayed-stream@1.0.0: {}
 
   depd@1.1.2: {}
@@ -15551,6 +15610,11 @@ snapshots:
       whatwg-encoding: 3.1.1
 
   html-escaper@2.0.2: {}
+
+  html-parse-regex@1.2.2:
+    dependencies:
+      dejavu-call: 0.7.3
+      pytils: 1.40.3
 
   html-url-attributes@3.0.1: {}
 
@@ -17327,6 +17391,8 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pytils@1.40.3: {}
+
   qs@6.13.0:
     dependencies:
       side-channel: 1.1.0
@@ -18027,6 +18093,11 @@ snapshots:
       any-promise: 1.3.0
       end-of-stream: 1.1.0
       stream-to-array: 2.3.0
+
+  stream-web@0.5.2:
+    dependencies:
+      html-parse-regex: 1.2.2
+      pytils: 1.40.3
 
   strict-event-emitter@0.5.1:
     optional: true
@@ -18761,6 +18832,8 @@ snapshots:
       defaults: 1.0.4
 
   weapon-regex@1.3.3: {}
+
+  web-streams-polyfill@4.2.0: {}
 
   web-vitals@0.2.4: {}
 

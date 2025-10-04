@@ -5,6 +5,17 @@
 - Apps in `apps/`: `web` (React/Vite) and `desktop` (Electron).
 - Shared packages in `packages/`
 
+## AI Assistant Integration
+- Multi-provider support: OpenAI, Anthropic, Google, OpenRouter
+- Provider/model selection UI in Assistant Panel (right panel)
+- API keys managed via Settings (desktop: encrypted keychain storage)
+- Provider configuration in `packages/agent/src/providers/`
+  - Model lists: `models.ts`
+  - Key resolution: `key-resolver.ts`
+  - Provider factory: `provider-factory.ts`
+- State management: `packages/app-shell/src/stores/assistant-preferences-store.ts`
+- Selection persists across sessions via localStorage
+
 ## Build, Test, Development
 - Install deps: `pnpm install`
 - Dev (web): `pnpm dev --filter @brainstrike/web`
@@ -35,7 +46,7 @@
 - PRs: clear description, linked issues, steps to test, screenshots for UI, note migrations.
 
 ## Quality Bar
-- Fail fast. No defensive fallbacks or “temporary” workarounds.
+- Fail fast. No defensive fallbacks or “temporary” workarounds. No hidden indirection.
 - Never downgrade to pass builds; fix root causes properly.
 - Use `pnpm turbo run <script> --filter <pkg>` for targeted workflows.
 
