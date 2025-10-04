@@ -10,7 +10,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@web/*": ["./src/*"],
-      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
+      "@brainstrike/agent": ["../../packages/agent/src/index.ts"],
+      "@brainstrike/agent/client": ["../../packages/agent/src/client.ts"]
     },
     "types": ["node", "vite/client"]
   },
@@ -31,6 +32,7 @@
   ],
   "references": [
     { "path": "../../packages/app-shell" },
+    { "path": "../../packages/agent/tsconfig.build.json" },
     { "path": "../../packages/db" },
     { "path": "../../packages/embeddings" },
     { "path": "../../packages/file-explorer" },
