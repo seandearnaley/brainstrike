@@ -33,17 +33,9 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
   );
 
   ipcMain.handle('secrets:get', async (_e: IpcMainInvokeEvent, provider: string) => {
-    // In test mode, check in-memory storage first, then fall back to default
+    // In test mode, check in-memory storage
     if (isTestMode()) {
-      const stored = testModeSecrets.get(provider);
-      if (stored) return stored;
-
-      // Default fallback for OpenAI if nothing stored (for assistant panel test)
-      if (provider === 'openai') {
-        return 'test-api-key-for-e2e-tests';
-      }
-
-      return null;
+      return testModeSecrets.get(provider) ?? null;
     }
 
     const v = await secrets.getKey(provider);
@@ -63,12 +55,7 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
   ipcMain.handle('secrets:list', async () => {
     // In test mode, return providers from in-memory storage
     if (isTestMode()) {
-      const stored = Array.from(testModeSecrets.keys());
-      // Always include openai as available (for assistant panel test)
-      if (!stored.includes('openai')) {
-        stored.push('openai');
-      }
-      return stored;
+      return Array.from(testModeSecrets.keys());
     }
 
     return await secrets.listProviders();

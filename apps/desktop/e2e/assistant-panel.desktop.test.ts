@@ -10,8 +10,15 @@ test.describe('Assistant panel (desktop)', () => {
     appContext = await launchElectronApp();
     const page = appContext.window;
 
+    // Save OpenAI key to test mode secrets storage
+    await page.evaluate(async () => {
+      const w = window as Window & {
+        secrets?: { saveKey?: (provider: string, key: string) => Promise<{ ok: boolean }> };
+      };
+      await w.secrets?.saveKey?.('openai', 'test-api-key-for-e2e-tests');
+    });
+
     // Mock the assistant API by intercepting fetch
-    // Note: Secrets API is automatically mocked via --test-mode flag in IPC handlers
     await page.addInitScript(() => {
       // Set localStorage with OpenAI as selected provider
       const defaultModels = {
