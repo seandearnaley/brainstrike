@@ -12,6 +12,38 @@ test.describe('Assistant panel (desktop)', () => {
 
     // Mock the assistant API by overriding fetch
     await page.addInitScript(() => {
+      const defaultModels = {
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-5-haiku-latest',
+        google: 'gemini-2.5-flash',
+        openrouter: 'gpt-4o-mini',
+      } as const;
+
+      try {
+        window.localStorage?.setItem(
+          'assistant-preferences.v1',
+          JSON.stringify({
+            state: {
+              selectedProvider: 'openai',
+              modelsByProvider: defaultModels,
+            },
+            version: 1,
+          })
+        );
+      } catch {
+        // ignore storage errors in test env
+      }
+
+      const secrets = window.secrets ?? {};
+      window.secrets = {
+        ...secrets,
+        list: async () => ['openai'],
+        getKey: async (provider: string) =>
+          provider === 'openai' ? 'test-api-key-for-e2e-tests' : null,
+        saveKey: async () => true,
+        deleteKey: async () => true,
+      };
+
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
 
