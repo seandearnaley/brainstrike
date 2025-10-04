@@ -2,17 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { MastraLanguageModel } from '@mastra/core/agent';
-import type { SupportedProvider } from './types';
-
-/**
- * Default model for each provider
- */
-const DEFAULT_MODELS: Record<SupportedProvider, string> = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-haiku-latest',
-  google: 'gemini-2.5-flash',
-  openrouter: 'gpt-4o-mini',
-};
+import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from './types';
 
 /**
  * Create a language model instance for the specified provider
@@ -28,7 +18,7 @@ export function createProvider(
   apiKey?: string,
   model?: string
 ): MastraLanguageModel {
-  const modelName = model ?? DEFAULT_MODELS[provider as SupportedProvider];
+  const modelName = model ?? PROVIDER_DEFAULT_MODELS[provider as SupportedProvider];
 
   switch (provider) {
     case 'openai': {
@@ -64,5 +54,5 @@ export function createProvider(
  * Get the default model name for a provider
  */
 export function getDefaultModel(provider: SupportedProvider | string): string {
-  return DEFAULT_MODELS[provider as SupportedProvider] ?? DEFAULT_MODELS.openai;
+  return PROVIDER_DEFAULT_MODELS[provider as SupportedProvider] ?? PROVIDER_DEFAULT_MODELS.openai;
 }

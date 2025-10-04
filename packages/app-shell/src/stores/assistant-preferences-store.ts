@@ -1,4 +1,4 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
+import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from '@brainstrike/agent/client';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -18,13 +18,6 @@ interface AssistantPreferencesActions {
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
 
 const STORE_NAME = 'assistant-preferences.v1' as const;
-
-const DEFAULT_MODELS: Record<SupportedProvider, string> = {
-  openai: 'gpt-4o-mini',
-  anthropic: 'claude-3-5-haiku-latest',
-  google: 'gemini-2.5-flash',
-  openrouter: 'gpt-4o-mini',
-};
 
 const memory = new Map<string, string>();
 const storage = createJSONStorage(() => ({
@@ -52,7 +45,7 @@ export const useAssistantPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
       selectedProvider: null,
-      modelsByProvider: DEFAULT_MODELS,
+      modelsByProvider: PROVIDER_DEFAULT_MODELS,
 
       setProvider: (provider) => set({ selectedProvider: provider }),
 
@@ -66,7 +59,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       getSelectedModel: () => {
         const { selectedProvider, modelsByProvider } = get();
         if (!selectedProvider) return null;
-        return modelsByProvider[selectedProvider] ?? DEFAULT_MODELS[selectedProvider];
+        return modelsByProvider[selectedProvider] ?? PROVIDER_DEFAULT_MODELS[selectedProvider];
       },
 
       getAvailableProviders: async () => {
@@ -109,7 +102,7 @@ export function __resetAssistantPreferencesStoreForTests() {
   try {
     useAssistantPreferencesStore.setState({
       selectedProvider: null,
-      modelsByProvider: DEFAULT_MODELS,
+      modelsByProvider: PROVIDER_DEFAULT_MODELS,
     });
     const persistApi = (
       useAssistantPreferencesStore as unknown as {

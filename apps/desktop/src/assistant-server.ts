@@ -190,7 +190,7 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
     const resolvedKey = key ?? undefined;
     console.info(
       `[assistant-server] Retrieved API key for provider "${provider}":`,
-      resolvedKey ? `${resolvedKey.slice(0, 10)}...` : 'undefined'
+      resolvedKey ? 'present' : 'undefined'
     );
     if (resolvedKey) {
       return resolvedKey;
@@ -214,7 +214,7 @@ async function readLegacyOpenAiKey(log = true): Promise<string | undefined> {
     if (log) {
       console.info(
         '[assistant-server] Using legacy OpenAI key:',
-        legacyKey ? `${legacyKey.slice(0, 10)}...` : 'undefined'
+        legacyKey ? 'present' : 'undefined'
       );
     }
     return legacyKey ?? undefined;
