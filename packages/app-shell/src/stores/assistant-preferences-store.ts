@@ -12,6 +12,7 @@ interface AssistantPreferencesActions {
   setModel: (provider: SupportedProvider, model: string) => void;
   getSelectedModel: () => string | null | undefined;
   getAvailableProviders: () => Promise<SupportedProvider[]>;
+  refreshAvailableProviders: () => Promise<SupportedProvider[]>;
   clearProvider: () => void;
 }
 
@@ -91,6 +92,16 @@ export const useAssistantPreferencesStore = create<Store>()(
           return [];
         }
       },
+
+      refreshAvailableProviders: async () => {
+        const providers = await get().getAvailableProviders();
+        // If current provider is no longer available, clear it
+        const current = get().selectedProvider;
+        if (current && !providers.includes(current)) {
+          set({ selectedProvider: null });
+        }
+        return providers;
+      },
     }),
     {
       name: STORE_NAME,
@@ -118,4 +129,11 @@ export function __resetAssistantPreferencesStoreForTests() {
     ).persist;
     persistApi?.clearStorage?.();
   } catch {}
+}
+
+// Expose store API for E2E tests
+if (typeof window !== 'undefined') {
+  (
+    window as Window & { __assistantPreferencesStore?: typeof useAssistantPreferencesStore }
+  ).__assistantPreferencesStore = useAssistantPreferencesStore;
 }

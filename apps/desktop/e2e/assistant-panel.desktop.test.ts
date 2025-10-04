@@ -114,38 +114,27 @@ test.describe('Assistant panel (desktop)', () => {
     // Wait for app to be ready after reload
     await waitForAppReady(page);
 
-    await page.evaluate(() => {
-      const defaultModels = {
-        openai: 'gpt-4o-mini',
-        anthropic: 'claude-3-5-haiku-latest',
-        google: 'gemini-2.5-flash',
-        openrouter: 'gpt-4o-mini',
-      } as const;
+    // Trigger provider refresh now that secrets mock is in place
+    // Wait a bit for the store to be initialized and exposed
+    await page.waitForTimeout(500);
 
-      try {
-        window.localStorage?.setItem(
-          'assistant-preferences.v1',
-          JSON.stringify({
-            state: {
-              selectedProvider: 'openai',
-              modelsByProvider: defaultModels,
-            },
-            version: 1,
-          })
-        );
-      } catch {}
-
-      const secrets = window.secrets ?? {};
-      if (!window.secrets) {
-        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
+    await page.evaluate(async () => {
+      const store = (
+        window as Window & {
+          __assistantPreferencesStore?: {
+            getState: () => {
+              refreshAvailableProviders: () => Promise<unknown>;
+              setProvider: (p: string) => void;
+            };
+          };
+        }
+      ).__assistantPreferencesStore;
+      if (store) {
+        const state = store.getState();
+        await state.refreshAvailableProviders();
+        // Ensure provider is set after refresh
+        state.setProvider('openai');
       }
-      secrets.list = async () => ['openai'];
-      secrets.getKey = async (provider: string) =>
-        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
-      secrets.saveKey = async () => ({ ok: true });
-      secrets.deleteKey = async () => {
-        return;
-      };
     });
   });
 
