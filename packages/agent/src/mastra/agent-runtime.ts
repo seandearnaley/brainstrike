@@ -230,10 +230,24 @@ export async function createMastraAgentRuntime(
 ): Promise<MastraAgentRuntime> {
   const { runtime, instructions, model, mcpConfig, tools: localTools, mcpTimeoutMs } = options;
 
-  // Resolve provider and API key
-  const provider = runtime?.provider ?? 'openai';
-  const normalizedProvider = isSupportedProvider(provider) ? provider : 'openai';
-  const apiKey = resolveProviderApiKey(normalizedProvider, runtime);
+  const runtimeInput = runtime ? { ...runtime } : undefined;
+  const providerValue =
+    typeof runtimeInput?.provider === 'string' ? runtimeInput.provider.trim().toLowerCase() : '';
+
+  if (!isSupportedProvider(providerValue)) {
+    logger.error('mastra runtime missing provider', {
+      code: 'mastra_agent_missing_provider',
+      provided: runtimeInput?.provider,
+    });
+    throw new Error('mastra_agent_missing_provider');
+  }
+
+  const normalizedProvider = providerValue;
+  const sanitizedRuntime = runtimeInput
+    ? { ...runtimeInput, provider: normalizedProvider }
+    : { provider: normalizedProvider };
+
+  const apiKey = resolveProviderApiKey(normalizedProvider, sanitizedRuntime);
 
   const servers = toMastraServerMap(mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
@@ -416,7 +430,7 @@ export async function streamMastraAgent(
 ): Promise<StreamIterator> {
   const runtimeData = options.runtime;
   const fail = (
-    reason: 'missing_api_key' | 'runtime_init_failure' | 'stream_failure',
+    reason: 'missing_provider' | 'missing_api_key' | 'runtime_init_failure' | 'stream_failure',
     cause?: unknown
   ): never => {
     const detail =
@@ -432,9 +446,28 @@ export async function streamMastraAgent(
     throw new Error(message);
   };
 
-  const provider = runtimeData?.provider ?? 'openai';
-  const normalizedProvider = isSupportedProvider(provider) ? provider : 'openai';
-  const apiKey = resolveProviderApiKey(normalizedProvider, runtimeData);
+  const rawProvider = typeof runtimeData?.provider === 'string' ? runtimeData.provider.trim() : '';
+  if (!rawProvider) {
+    logger.warn('mastra agent missing provider', {
+      code: 'mastra_agent_missing_provider',
+    });
+    return fail('missing_provider');
+  }
+
+  const normalizedProvider = rawProvider.toLowerCase();
+  if (!isSupportedProvider(normalizedProvider)) {
+    logger.warn('mastra agent unsupported provider', {
+      code: 'mastra_agent_missing_provider',
+      provider: rawProvider,
+    });
+    return fail('missing_provider');
+  }
+
+  const sanitizedRuntime = runtimeData
+    ? { ...runtimeData, provider: normalizedProvider }
+    : { provider: normalizedProvider };
+
+  const apiKey = resolveProviderApiKey(normalizedProvider, sanitizedRuntime);
   if (!apiKey) {
     logger.warn('mastra agent missing api key', {
       code: 'mastra_agent_missing_api_key',
@@ -446,7 +479,10 @@ export async function streamMastraAgent(
   let sanitizedNameMap: Map<string, string> | undefined;
   const runtime = await (async () => {
     try {
-      const instance = await createMastraAgentRuntime(options);
+      const instance = await createMastraAgentRuntime({
+        ...options,
+        runtime: sanitizedRuntime,
+      });
       logger.info('mastra runtime initialized', {
         code: 'mastra_agent_runtime_initialized',
         toolCount: Object.keys(options.tools ?? {}).length,

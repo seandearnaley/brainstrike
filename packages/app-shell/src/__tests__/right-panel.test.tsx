@@ -9,7 +9,7 @@ const mockFetch = vi.fn();
 beforeEach(() => {
   mockFetch.mockResolvedValue({
     ok: true,
-    json: async () => ({ enabled: false, reason: 'missing_api_key' }),
+    json: async () => ({ enabled: false, reason: 'no_providers_configured', providers: [] }),
   } as Response);
   global.fetch = mockFetch as unknown as typeof fetch;
 });

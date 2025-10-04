@@ -126,7 +126,7 @@ describe('mastra streaming integration', () => {
           parts: [{ type: 'text', text: 'hi there' }],
         },
       ],
-      { runtime: { apiKey: 'test-key' } }
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
     const chunks: unknown[] = [];
@@ -155,7 +155,7 @@ describe('mastra streaming integration', () => {
 
     const iterator = await streamMastraAgent(
       [{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'search' }] }],
-      { runtime: { apiKey: 'test-key' } }
+      { runtime: { apiKey: 'test-key', provider: 'openai' } }
     );
 
     const toolEvents: Array<{ type: string; name?: string; status?: string }> = [];
@@ -185,7 +185,7 @@ describe('mastra streaming integration', () => {
 
     await expect(
       streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
-        runtime: { apiKey: 'test-key' },
+        runtime: { apiKey: 'test-key', provider: 'openai' },
       })
     ).rejects.toThrow(/mastra_agent_stream_failure/i);
 
@@ -193,7 +193,7 @@ describe('mastra streaming integration', () => {
   });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({
-      runtime: { apiKey: 'key' },
+      runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'local tool': {
           id: 'local tool',
@@ -222,7 +222,7 @@ describe('mastra streaming integration', () => {
 
   it('keeps tools distinct when sanitized ids would otherwise collide', async () => {
     const runtime = await createMastraAgentRuntime({
-      runtime: { apiKey: 'key' },
+      runtime: { apiKey: 'key', provider: 'openai' },
       tools: {
         'web.search': {
           id: 'web.search',
@@ -246,9 +246,17 @@ describe('mastra streaming integration', () => {
     expect(runtime.toolNameMap.get(collisionResolvedName as string)).toBe('web/search');
   });
 
-  it('creates agent with OpenAI provider when no provider specified', async () => {
+  it('throws when provider is not specified', async () => {
+    await expect(
+      createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key' },
+      })
+    ).rejects.toThrow('mastra_agent_missing_provider');
+  });
+
+  it('creates agent with OpenAI provider when specified', async () => {
     await createMastraAgentRuntime({
-      runtime: { apiKey: 'test-key' },
+      runtime: { apiKey: 'test-key', provider: 'openai' },
     });
 
     expect(agentInstances).toHaveLength(1);
@@ -310,15 +318,12 @@ describe('mastra streaming integration', () => {
     expect(agent.model?.modelId).toBe('claude-opus-4-1');
   });
 
-  it('falls back to OpenAI for unsupported provider', async () => {
-    await createMastraAgentRuntime({
-      runtime: { apiKey: 'test-key', provider: 'unsupported' },
-    });
-
-    expect(agentInstances).toHaveLength(1);
-    const agent = agentInstances[0];
-    // @ts-expect-error - accessing model for testing
-    expect(agent.model?.provider).toBe('openai');
+  it('throws when provider is unsupported', async () => {
+    await expect(
+      createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'unsupported' },
+      })
+    ).rejects.toThrow('mastra_agent_missing_provider');
   });
 });
 

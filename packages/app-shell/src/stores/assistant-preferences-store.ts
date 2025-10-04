@@ -8,10 +8,11 @@ interface AssistantPreferencesData {
 }
 
 interface AssistantPreferencesActions {
-  setProvider: (provider: SupportedProvider) => void;
+  setProvider: (provider: SupportedProvider | null) => void;
   setModel: (provider: SupportedProvider, model: string) => void;
   getSelectedModel: () => string | null | undefined;
   getAvailableProviders: () => Promise<SupportedProvider[]>;
+  clearProvider: () => void;
 }
 
 type Store = AssistantPreferencesData & AssistantPreferencesActions;
@@ -54,6 +55,8 @@ export const useAssistantPreferencesStore = create<Store>()(
       modelsByProvider: DEFAULT_MODELS,
 
       setProvider: (provider) => set({ selectedProvider: provider }),
+
+      clearProvider: () => set({ selectedProvider: null }),
 
       setModel: (provider, model) =>
         set((state) => ({

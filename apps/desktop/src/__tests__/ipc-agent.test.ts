@@ -18,11 +18,24 @@ vi.mock('../openai-api-key', () => ({
   readOpenAIApiKey: vi.fn(),
 }));
 
+const mockSecretsService = {
+  saveKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
+  deleteKey: vi.fn(),
+  listProviders: vi.fn(() => Promise.resolve(['openai'])),
+};
+
+vi.mock('../secrets', () => ({
+  getSecretsService: vi.fn(() => mockSecretsService),
+}));
+
 describe('registerAgentIpcHandlers', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     const g = globalThis as { __agentModule?: typeof import('@brainstrike/agent') };
     g.__agentModule = undefined;
+    mockSecretsService.getKey.mockResolvedValue('test-api-key');
+    mockSecretsService.listProviders.mockResolvedValue(['openai']);
   });
 
   describe('handler registration', () => {
@@ -170,7 +183,7 @@ describe('registerAgentIpcHandlers', () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
 
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
-      vi.mocked(readOpenAIApiKey).mockResolvedValue(null);
+      vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages = [
         {
@@ -180,7 +193,9 @@ describe('registerAgentIpcHandlers', () => {
         },
       ];
 
-      const result = await chatHandler({} as IpcMainInvokeEvent, messages);
+      const result = await chatHandler({} as IpcMainInvokeEvent, messages, {
+        provider: 'openai',
+      });
 
       expect(result).toEqual(mockStreamChunks);
     });
@@ -227,7 +242,9 @@ describe('registerAgentIpcHandlers', () => {
         },
       ];
 
-      const result = await chatHandler({} as IpcMainInvokeEvent, messages);
+      const result = await chatHandler({} as IpcMainInvokeEvent, messages, {
+        provider: 'openai',
+      });
 
       expect(result).toEqual(mockStreamChunks);
     });
@@ -278,7 +295,9 @@ describe('registerAgentIpcHandlers', () => {
         },
       ];
 
-      const result = await chatHandler({} as IpcMainInvokeEvent, messages);
+      const result = await chatHandler({} as IpcMainInvokeEvent, messages, {
+        provider: 'openai',
+      });
 
       expect(result).toEqual(mockStreamChunks);
     });
@@ -303,7 +322,10 @@ describe('registerAgentIpcHandlers', () => {
 
       const mcpConfig = { servers: { testServer: {} } };
       vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
-      vi.mocked(readOpenAIApiKey).mockResolvedValue('secret-key');
+      vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
+      mockSecretsService.getKey.mockImplementation(async (provider) =>
+        provider === 'anthropic' ? 'secret-key' : 'test-api-key'
+      );
 
       const messages = [
         {
@@ -359,14 +381,9 @@ describe('registerAgentIpcHandlers', () => {
 
       const messages = [];
 
-      await chatHandler({} as IpcMainInvokeEvent, messages);
-
-      expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
-        runtime: {
-          mcpConfig,
-        },
-        tools: {},
-      });
+      await expect(chatHandler({} as IpcMainInvokeEvent, messages)).rejects.toThrow(
+        'missing_provider'
+      );
     });
   });
 });

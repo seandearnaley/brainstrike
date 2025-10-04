@@ -2,11 +2,16 @@ import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { startAssistantServer } from '../assistant-server';
 
 // Mock dependencies
-vi.mock('../assistant-server/http', () => ({
-  readRequestBody: vi.fn(),
-  streamResponse: vi.fn(),
-  writeHeaders: vi.fn(),
-}));
+vi.mock('../assistant-server/http', async () => {
+  const actual = await vi.importActual<typeof import('../assistant-server/http')>(
+    '../assistant-server/http'
+  );
+  return {
+    ...actual,
+    streamResponse: vi.fn(),
+    writeHeaders: vi.fn(),
+  };
+});
 
 vi.mock('../mcp-loader', () => ({
   loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
@@ -14,6 +19,17 @@ vi.mock('../mcp-loader', () => ({
 
 vi.mock('../openai-api-key', () => ({
   readOpenAIApiKey: vi.fn(() => Promise.resolve('test-api-key')),
+}));
+
+const mockSecretsService = {
+  saveKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
+  deleteKey: vi.fn(),
+  listProviders: vi.fn(() => Promise.resolve(['openai'])),
+};
+
+vi.mock('../secrets', () => ({
+  getSecretsService: vi.fn(() => mockSecretsService),
 }));
 
 vi.mock('@brainstrike/agent', () => ({
@@ -34,6 +50,8 @@ vi.mock('@brainstrike/agent', () => ({
     },
   })),
   webTools: [],
+  isSupportedProvider: (provider: string) =>
+    ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
 }));
 
 describe('assistant-server', () => {
@@ -57,6 +75,8 @@ describe('assistant-server', () => {
       server = undefined;
     }
     vi.clearAllMocks();
+    mockSecretsService.getKey.mockResolvedValue('test-api-key');
+    mockSecretsService.listProviders.mockResolvedValue(['openai']);
   }, 15000);
 
   describe('startAssistantServer', () => {
@@ -99,25 +119,29 @@ describe('assistant-server', () => {
     it('should handle status route with API key present', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockResolvedValueOnce('test-key');
+      mockSecretsService.listProviders.mockResolvedValueOnce(['openai']);
+      mockSecretsService.getKey.mockResolvedValueOnce('test-key');
 
       server = await startAssistantServer();
       const response = await fetch(`${server.url}/assistant/status`);
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data).toEqual({ enabled: true });
+      expect(data).toEqual({ enabled: true, providers: ['openai'] });
     }, 10000);
 
     it('should handle status route with missing API key', async () => {
       const { readOpenAIApiKey } = await import('../openai-api-key');
       (readOpenAIApiKey as Mock).mockResolvedValueOnce(undefined);
+      mockSecretsService.listProviders.mockResolvedValueOnce([]);
+      mockSecretsService.getKey.mockResolvedValueOnce(null);
 
       server = await startAssistantServer();
       const response = await fetch(`${server.url}/status`);
 
       expect(response.status).toBe(200);
       const data = await response.json();
-      expect(data).toEqual({ enabled: false, reason: 'missing_api_key' });
+      expect(data).toEqual({ enabled: false, reason: 'no_providers_configured', providers: [] });
     }, 10000);
 
     it('should handle status route errors', async () => {
@@ -149,12 +173,28 @@ describe('assistant-server', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: '   ' }] }],
+          data: { provider: 'openai' },
         }),
       });
 
       expect(response.status).toBe(400);
       const data = await response.json();
       expect(data.error).toBe('empty_prompt');
+    }, 10000);
+
+    it('should reject assistant route when provider is missing', async () => {
+      server = await startAssistantServer();
+      const response = await fetch(`${server.url}/assistant`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+        }),
+      });
+
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toBe('missing_provider');
     }, 10000);
 
     it('should handle POST to assistant route with valid message', async () => {
@@ -182,6 +222,7 @@ describe('assistant-server', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
         }),
       });
 
@@ -218,6 +259,7 @@ describe('assistant-server', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
+          data: { provider: 'openai' },
         }),
       });
 

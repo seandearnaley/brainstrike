@@ -1,3 +1,4 @@
+import { isSupportedProvider } from '@brainstrike/agent';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
@@ -56,19 +57,26 @@ async function runAgentChat(
 ): Promise<StreamChunk[]> {
   const agentModule = resolveAgentModule();
   const config = await loadMcpConfig();
-  const provider = inferAgentProvider(runtime);
+  const provider = resolveAgentProvider(runtime);
+  if (!provider) {
+    throw new Error('missing_provider');
+  }
   const apiKey = await resolveIpcApiKey(provider);
+  if (!apiKey) {
+    throw new Error(`missing_api_key:${provider}`);
+  }
 
   const maybeStream = agentModule.streamMastraAgent(messages, {
     runtime: {
       ...(runtime ?? {}),
+      provider,
       mcpConfig: config.config,
-      ...(apiKey ? { apiKey } : {}),
+      apiKey,
     },
     tools: agentModule.webTools,
   });
 
-  const stream = await ensureAsyncIterable(maybeStream);
+  const stream = await ensureAsyncIterable<StreamChunk>(maybeStream);
   return collectStreamChunks(stream);
 }
 
@@ -81,22 +89,32 @@ function resolveAgentModule(): AgentModule {
   return require('@brainstrike/agent') as AgentModule;
 }
 
-function inferAgentProvider(runtime: RuntimeData | undefined): string {
-  const provider = runtime?.provider;
-  return provider && provider.trim().length > 0 ? provider : 'openai';
+function resolveAgentProvider(runtime: RuntimeData | undefined): string | undefined {
+  const raw = typeof runtime?.provider === 'string' ? runtime.provider.trim() : '';
+  if (!raw) {
+    return undefined;
+  }
+  const normalized = raw.toLowerCase();
+  return isSupportedProvider(normalized) ? normalized : undefined;
 }
 
 async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
+  if (!isSupportedProvider(provider)) {
+    return undefined;
+  }
   try {
     const secretsService = getSecretsService();
     const key = await secretsService.getKey(provider);
     const resolvedKey = key ?? undefined;
-    console.log(
-      `[ipc-agent] Retrieved API key for provider "${provider}":`,
-      resolvedKey ? `${resolvedKey.slice(0, 10)}...` : 'null'
-    );
-    if (resolvedKey || provider !== 'openai') {
+    if (resolvedKey) {
+      console.log(
+        `[ipc-agent] Retrieved API key for provider "${provider}":`,
+        `${resolvedKey.slice(0, 10)}...`
+      );
       return resolvedKey;
+    }
+    if (provider !== 'openai') {
+      return undefined;
     }
   } catch (error) {
     console.error(`[ipc-agent] Error getting API key for provider "${provider}":`, error);
@@ -111,7 +129,9 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
 async function readLegacyOpenAiApiKey(): Promise<string | undefined> {
   try {
     const key = await readOpenAIApiKey();
-    console.log('[ipc-agent] Using legacy OpenAI key:', key ? `${key.slice(0, 10)}...` : 'null');
+    if (key) {
+      console.log('[ipc-agent] Using legacy OpenAI key:', `${key.slice(0, 10)}...`);
+    }
     return key ?? undefined;
   } catch (error) {
     console.error('[ipc-agent] Error reading legacy OpenAI key:', error);

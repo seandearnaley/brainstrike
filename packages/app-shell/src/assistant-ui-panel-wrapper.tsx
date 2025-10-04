@@ -20,6 +20,7 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     selectedProvider,
     modelsByProvider,
     setProvider,
+    clearProvider,
     setModel,
     getSelectedModel,
     getAvailableProviders,
@@ -30,13 +31,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     const loadProviders = async () => {
       const providers = await getAvailableProviders();
       setAvailableProviders(providers);
-      // Auto-select first provider if none selected
-      if (!selectedProvider && providers.length > 0) {
-        setProvider(providers[0] as SupportedProvider);
+      if (selectedProvider && !providers.includes(selectedProvider)) {
+        clearProvider();
       }
     };
     void loadProviders();
-  }, [getAvailableProviders, selectedProvider, setProvider]);
+  }, [getAvailableProviders, selectedProvider, clearProvider]);
 
   const currentModel = getSelectedModel();
 
@@ -77,6 +77,23 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     [availableProviders]
   );
 
+  const isProviderReady = Boolean(
+    selectedProvider && currentModel && availableProviders.includes(selectedProvider)
+  );
+
+  const disabledReason = useMemo(() => {
+    if (availableProviders.length === 0) {
+      return 'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.';
+    }
+    if (!selectedProvider) {
+      return 'Select an AI provider to start chatting.';
+    }
+    if (!currentModel) {
+      return 'Select a model for the chosen provider to continue.';
+    }
+    return undefined;
+  }, [availableProviders.length, selectedProvider, currentModel]);
+
   return (
     <AssistantUiPanel
       providers={providers}
@@ -84,6 +101,8 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
       {...(currentModel ? { selectedModel: currentModel } : {})}
       onProviderChange={handleProviderChange}
       onModelChange={handleModelChange}
+      disabled={!isProviderReady}
+      {...(disabledReason ? { disabledReason } : {})}
     />
   );
 };

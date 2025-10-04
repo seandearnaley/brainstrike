@@ -27,6 +27,8 @@ export interface AssistantUiPanelProps {
   selectedModel?: string;
   onProviderChange?: (provider: string) => void;
   onModelChange?: (model: string) => void;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 declare global {
@@ -41,6 +43,8 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
   selectedModel,
   onProviderChange,
   onModelChange,
+  disabled = false,
+  disabledReason,
 }) => {
   const initialApi =
     typeof window === 'undefined'
@@ -65,6 +69,9 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   const currentProvider = providers.find((p) => p.id === selectedProvider);
   const availableModels = currentProvider?.models ?? [];
+  const isComposerDisabled = Boolean(disabled);
+  const providerSelectDisabled = providers.length === 0;
+  const modelSelectDisabled = !selectedProvider || availableModels.length === 0;
 
   const runtime = useDataStreamRuntime({
     api,
@@ -89,11 +96,16 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             <div className="flex-shrink-0 px-3 py-2 border-b border-border bg-muted/30">
               <div className="flex gap-2 items-center">
                 {onProviderChange && (
-                  <Select value={selectedProvider ?? ''} onValueChange={onProviderChange}>
+                  <Select
+                    value={selectedProvider ?? ''}
+                    onValueChange={onProviderChange}
+                    disabled={providerSelectDisabled}
+                  >
                     <SelectTrigger
                       className="w-36 h-8 text-sm"
                       data-testid="assistant-provider-select"
                       aria-label="Select AI provider"
+                      disabled={providerSelectDisabled}
                     >
                       <SelectValue placeholder="Select provider" />
                     </SelectTrigger>
@@ -108,12 +120,16 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
                 )}
 
                 {onModelChange && (
-                  <Select value={selectedModel ?? ''} onValueChange={onModelChange}>
+                  <Select
+                    value={selectedModel ?? ''}
+                    onValueChange={onModelChange}
+                    disabled={modelSelectDisabled}
+                  >
                     <SelectTrigger
                       className="w-52 h-8 text-sm"
                       data-testid="assistant-model-select"
                       aria-label="Select model"
-                      disabled={!selectedProvider}
+                      disabled={modelSelectDisabled}
                     >
                       <SelectValue placeholder="Select model" />
                     </SelectTrigger>
@@ -149,6 +165,11 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             aria-live="polite"
             aria-atomic="false"
           >
+            {disabledReason && (
+              <p className="px-4 py-3 text-xs text-muted-foreground" aria-live="polite">
+                {disabledReason}
+              </p>
+            )}
             <ThreadPrimitive.Messages
               components={{
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
@@ -218,21 +239,32 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
            * This required aggressive CSS overrides (see overrides.css).
            */}
           <div className="flex-shrink-0 border-t border-border bg-background">
-            <ComposerPrimitive.Root className="aui-composer-root">
+            <ComposerPrimitive.Root
+              className="aui-composer-root"
+              aria-disabled={isComposerDisabled}
+              data-disabled={isComposerDisabled ? '' : undefined}
+            >
               <ComposerPrimitive.Input
                 rows={1}
                 placeholder="Ask the assistant…"
                 className="aui-composer-input"
                 id="assistant-input"
                 aria-label="Message input"
+                disabled={isComposerDisabled}
               />
               <ThreadPrimitive.If running={false}>
-                <ComposerPrimitive.Send className="aui-button aui-button-primary aui-composer-send">
+                <ComposerPrimitive.Send
+                  className="aui-button aui-button-primary aui-composer-send"
+                  disabled={isComposerDisabled}
+                >
                   Send
                 </ComposerPrimitive.Send>
               </ThreadPrimitive.If>
               <ThreadPrimitive.If running>
-                <ComposerPrimitive.Cancel className="aui-button aui-button-primary aui-composer-cancel">
+                <ComposerPrimitive.Cancel
+                  className="aui-button aui-button-primary aui-composer-cancel"
+                  disabled={isComposerDisabled}
+                >
                   Stop
                 </ComposerPrimitive.Cancel>
               </ThreadPrimitive.If>

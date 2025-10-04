@@ -23,6 +23,9 @@ const {
   ipcHandleMock,
   showOpenDialogMock,
   getPathMock,
+  secretsServiceMock,
+  getSecretsServiceMock,
+  readOpenAIApiKeyMock,
 } = vi.hoisted(() => {
   const order: string[] = [];
 
@@ -101,6 +104,16 @@ const {
   const showOpenDialog = vi.fn();
   const getPath = vi.fn(() => 'mock-user-data');
 
+  const secretsService = {
+    saveKey: vi.fn(),
+    getKey: vi.fn(async () => 'test-api-key'),
+    deleteKey: vi.fn(),
+    listProviders: vi.fn(async () => ['openai']),
+  };
+
+  const getSecretsService = vi.fn(() => secretsService);
+  const readOpenAIApiKey = vi.fn(async () => undefined);
+
   return {
     callOrder: order,
     registerToolsMock: register,
@@ -124,6 +137,9 @@ const {
     ipcHandleMock: ipcHandle,
     showOpenDialogMock: showOpenDialog,
     getPathMock: getPath,
+    secretsServiceMock: secretsService,
+    getSecretsServiceMock: getSecretsService,
+    readOpenAIApiKeyMock: readOpenAIApiKey,
   };
 });
 
@@ -132,6 +148,8 @@ vi.mock('@brainstrike/agent', () => ({
   createMastraAgentRuntime: createMastraAgentRuntimeMock,
   loadToolPreferences: loadToolPreferencesMock,
   saveToolPreferences: saveToolPreferencesMock,
+  isSupportedProvider: (provider: string) =>
+    ['openai', 'anthropic', 'google', 'openrouter'].includes(provider),
   mcpToolRegistry: {
     register: registerToolsMock,
     getStats: getStatsMock,
@@ -166,6 +184,16 @@ vi.mock('electron', () => ({
   app: { getPath: getPathMock },
 }));
 
+vi.mock('../../secrets', () => ({
+  __esModule: true,
+  getSecretsService: getSecretsServiceMock,
+}));
+
+vi.mock('../../openai-api-key', () => ({
+  __esModule: true,
+  readOpenAIApiKey: readOpenAIApiKeyMock,
+}));
+
 import { loadToolPreferences, mcpToolRegistry } from '@brainstrike/agent';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
 
@@ -183,6 +211,9 @@ describe('ipc-mcp tool preference loading', () => {
   beforeEach(() => {
     callOrder.length = 0;
     vi.clearAllMocks();
+    secretsServiceMock.getKey.mockResolvedValue('test-api-key');
+    secretsServiceMock.listProviders.mockResolvedValue(['openai']);
+    readOpenAIApiKeyMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
