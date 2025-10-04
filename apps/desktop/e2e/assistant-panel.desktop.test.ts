@@ -10,8 +10,10 @@ test.describe('Assistant panel (desktop)', () => {
     appContext = await launchElectronApp();
     const page = appContext.window;
 
-    // Mock the assistant API by overriding fetch
+    // Mock the assistant API by intercepting fetch
+    // Note: Secrets API is automatically mocked via --test-mode flag in IPC handlers
     await page.addInitScript(() => {
+      // Set localStorage with OpenAI as selected provider
       const defaultModels = {
         openai: 'gpt-4o-mini',
         anthropic: 'claude-3-5-haiku-latest',
@@ -33,18 +35,6 @@ test.describe('Assistant panel (desktop)', () => {
       } catch {
         // ignore storage errors in test env
       }
-
-      const secrets = window.secrets ?? {};
-      if (!window.secrets) {
-        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
-      }
-      secrets.list = async () => ['openai'];
-      secrets.getKey = async (provider: string) =>
-        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
-      secrets.saveKey = async () => ({ ok: true });
-      secrets.deleteKey = async () => {
-        return;
-      };
 
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
@@ -70,9 +60,12 @@ test.describe('Assistant panel (desktop)', () => {
       const createStreamResponse = (): Response => {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
+            // Send assistant message
+            controller.enqueue(encoder.encode('0:"Hello from desktop assistant!"\n'));
+            // Send finish message to properly close the stream
             controller.enqueue(
               encoder.encode(
-                '0:["assistant.message",{"content":"Hello from desktop assistant!","role":"assistant"}]\n'
+                'd:{"finishReason":"stop","usage":{"promptTokens":10,"completionTokens":5}}\n'
               )
             );
             controller.close();
@@ -82,7 +75,8 @@ test.describe('Assistant panel (desktop)', () => {
         return new Response(stream, {
           status: 200,
           headers: {
-            'Content-Type': 'text/event-stream',
+            'Content-Type': 'text/plain; charset=utf-8',
+            'x-vercel-ai-data-stream': 'v1',
             'Cache-Control': 'no-store',
           },
         });
@@ -108,34 +102,11 @@ test.describe('Assistant panel (desktop)', () => {
       window.fetch = overrideFetch;
     });
 
-    // Reload the page to ensure mocks are in place before React components mount
+    // Reload page to ensure init script runs
     await page.reload();
 
-    // Wait for app to be ready after reload
+    // Wait for app to be ready
     await waitForAppReady(page);
-
-    // Trigger provider refresh now that secrets mock is in place
-    // Wait a bit for the store to be initialized and exposed
-    await page.waitForTimeout(500);
-
-    await page.evaluate(async () => {
-      const store = (
-        window as Window & {
-          __assistantPreferencesStore?: {
-            getState: () => {
-              refreshAvailableProviders: () => Promise<unknown>;
-              setProvider: (p: string) => void;
-            };
-          };
-        }
-      ).__assistantPreferencesStore;
-      if (store) {
-        const state = store.getState();
-        await state.refreshAvailableProviders();
-        // Ensure provider is set after refresh
-        state.setProvider('openai');
-      }
-    });
   });
 
   test.afterEach(async () => {
