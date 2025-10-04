@@ -42,8 +42,10 @@ test.describe('Assistant chat (desktop)', () => {
         list: async () => ['openai'],
         getKey: async (provider: string) =>
           provider === 'openai' ? 'test-api-key-for-e2e-tests' : null,
-        saveKey: async () => true,
-        deleteKey: async () => true,
+        saveKey: async () => ({ ok: true }),
+        deleteKey: async () => {
+          return;
+        },
       };
 
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
