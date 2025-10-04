@@ -35,15 +35,15 @@ test.describe('Assistant panel (desktop)', () => {
       }
 
       const secrets = window.secrets ?? {};
-      window.secrets = {
-        ...secrets,
-        list: async () => ['openai'],
-        getKey: async (provider: string) =>
-          provider === 'openai' ? 'test-api-key-for-e2e-tests' : null,
-        saveKey: async () => ({ ok: true }),
-        deleteKey: async () => {
-          return;
-        },
+      if (!window.secrets) {
+        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
+      }
+      secrets.list = async () => ['openai'];
+      secrets.getKey = async (provider: string) =>
+        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
+      secrets.saveKey = async () => ({ ok: true });
+      secrets.deleteKey = async () => {
+        return;
       };
 
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
@@ -136,15 +136,15 @@ test.describe('Assistant panel (desktop)', () => {
       } catch {}
 
       const secrets = window.secrets ?? {};
-      window.secrets = {
-        ...secrets,
-        list: async () => ['openai'],
-        getKey: async (provider: string) =>
-          provider === 'openai' ? 'test-api-key-for-e2e-tests' : null,
-        saveKey: async () => ({ ok: true }),
-        deleteKey: async () => {
-          return;
-        },
+      if (!window.secrets) {
+        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
+      }
+      secrets.list = async () => ['openai'];
+      secrets.getKey = async (provider: string) =>
+        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
+      secrets.saveKey = async () => ({ ok: true });
+      secrets.deleteKey = async () => {
+        return;
       };
     });
   });
