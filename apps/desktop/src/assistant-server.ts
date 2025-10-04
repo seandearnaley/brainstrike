@@ -239,7 +239,6 @@ async function collectAvailableProviders(): Promise<string[]> {
     }
   } catch (error) {
     console.error('[assistant-server] Failed to inspect stored provider keys:', error);
-    throw error;
   }
 
   const legacyOpenAi = await readLegacyOpenAiKey(false);
