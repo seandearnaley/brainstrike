@@ -192,7 +192,11 @@ test.describe('Assistant chat (desktop)', () => {
     await sendBtn.click();
 
     // Validate messages appear (simulated in our mock)
-    await expect(page.getByText('You:').first()).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText('Assistant:').first()).toBeVisible({ timeout: 15000 });
+    // User message should contain our sent text
+    await expect(page.getByText('list files').first()).toBeVisible({ timeout: 10000 });
+    // Assistant message from mock should be visible
+    await expect(page.getByText('Hello from desktop assistant!').first()).toBeVisible({
+      timeout: 15000,
+    });
   });
 });
