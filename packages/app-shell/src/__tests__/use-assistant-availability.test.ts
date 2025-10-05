@@ -71,11 +71,14 @@ describe('resolveAssistantStatusUrl', () => {
 });
 
 describe('fetchAssistantStatusState', () => {
+  const originalAssistant = (window as unknown as { assistant?: unknown }).assistant;
+
   beforeEach(() => {
     (window as unknown as { assistant?: unknown }).assistant = undefined;
   });
 
   afterEach(() => {
+    (window as unknown as { assistant?: unknown }).assistant = originalAssistant;
     vi.restoreAllMocks();
   });
 
