@@ -15,6 +15,7 @@ type PendingFile = { fileNode: IFileNode };
 type ErrorEntry = { file: string; error: string };
 
 const IMPORT_PROCESS_LABEL = 'Import Process';
+const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';
 
 function isContentAccessible(content: string): boolean {
   return (
@@ -89,11 +90,11 @@ async function readTextFile(
   const extension = fileExplorer.getFileExtension(fileNode.path);
 
   if (fileContent.isBinaryExtension(extension)) {
-    throw new FileImportError('unsupported-content', 'Binary file - only text files are supported');
+    throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 
   if (!fileContent.isTextExtension(extension) && !fileContent.isTextContent(content)) {
-    throw new FileImportError('unsupported-content', 'Binary file - only text files are supported');
+    throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 
   return content;
@@ -116,6 +117,13 @@ async function loadMissingFileContents(
   dependencies: FileImportDependencies,
   tracker: ImportProgressTracker
 ): Promise<FileImportRequest[]> {
+  const requests: FileImportRequest[] = [];
+
+  // If no files need loading, return early (file system not required)
+  if (pending.length === 0) {
+    return requests;
+  }
+
   const { fileSystem } = dependencies;
 
   if (!fileSystem) {
@@ -123,8 +131,6 @@ async function loadMissingFileContents(
       progress: tracker.snapshot(),
     });
   }
-
-  const requests: FileImportRequest[] = [];
 
   for (const { fileNode } of pending) {
     tracker.update(tracker.errorCount, fileNode.name);
@@ -178,10 +184,10 @@ export async function runFileImport(
   context: FileImportContext,
   callbacks: FileImportCallbacks = {}
 ): Promise<FileImportOutcome> {
-  const { repository, fileSystem } = dependencies;
+  const { repository } = dependencies;
 
-  if (!repository || !fileSystem) {
-    throw new FileImportError('missing-dependency', 'Database or file system not available');
+  if (!repository) {
+    throw new FileImportError('missing-dependency', 'Database repository not available');
   }
 
   if (context.selectedFilePaths.size === 0) {
