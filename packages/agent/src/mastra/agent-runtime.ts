@@ -133,7 +133,9 @@ export async function createMastraAgentRuntime(
 
   const servers = toMastraServerMap(mcpConfig ?? sanitizedRuntime.mcpConfig);
   const hasServers = Object.keys(servers).length > 0;
-  const mcpClient = hasServers ? new MCPClient({ servers }) : undefined;
+  const mcpClient = hasServers
+    ? new MCPClient({ id: `mcp-client-${Date.now()}-${Math.random()}`, servers })
+    : undefined;
 
   const toolNameMap = new Map<string, string>();
   const sanitizedLocalTools = sanitizeTools(localTools, toolNameMap);
