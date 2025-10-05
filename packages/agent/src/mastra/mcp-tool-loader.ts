@@ -8,6 +8,8 @@ import { sanitizeTools } from './tool-sanitizer';
 
 const logger = createLogger('MastraAgentMcpTools');
 
+const DEFAULT_MCP_TIMEOUT_MS = 5000;
+
 export interface CollectCombinedToolsOptions {
   sanitizedLocalTools: ToolsInput | undefined;
   mcpClient: MCPClient | undefined;
@@ -108,7 +110,7 @@ function registerServerTools(
 
 function resolveMcpTimeoutMs(value: number | undefined): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
-  return 5000;
+  return DEFAULT_MCP_TIMEOUT_MS;
 }
 
 async function fetchMcpToolsWithTimeout(

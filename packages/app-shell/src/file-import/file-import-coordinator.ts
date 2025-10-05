@@ -15,6 +15,7 @@ type PendingFile = { fileNode: IFileNode };
 type ErrorEntry = { file: string; error: string };
 
 const IMPORT_PROCESS_LABEL = 'Import Process';
+const BINARY_FILE_ERROR_MESSAGE = 'Binary file - only text files are supported';
 
 function isContentAccessible(content: string): boolean {
   return (
@@ -89,11 +90,11 @@ async function readTextFile(
   const extension = fileExplorer.getFileExtension(fileNode.path);
 
   if (fileContent.isBinaryExtension(extension)) {
-    throw new FileImportError('unsupported-content', 'Binary file - only text files are supported');
+    throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 
   if (!fileContent.isTextExtension(extension) && !fileContent.isTextContent(content)) {
-    throw new FileImportError('unsupported-content', 'Binary file - only text files are supported');
+    throw new FileImportError('unsupported-content', BINARY_FILE_ERROR_MESSAGE);
   }
 
   return content;
