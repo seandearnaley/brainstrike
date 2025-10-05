@@ -6,7 +6,7 @@ vi.mock('@brainstrike/ui', () => ({}));
 vi.mock('@brainstrike/embeddings', () => ({ TransformersBackend: { getBestDevice: () => 'cpu' } }));
 vi.mock('@brainstrike/db', () => ({ usePGliteDatabase: () => null, useFactoryReset: () => null }));
 
-import { handleQueueStateChange, withTransaction } from '../vector-status';
+import { handleQueueStateChange, withTransaction } from '../vector-status/vector-queue-service';
 
 describe('vector-status helpers', () => {
   it('withTransaction commits on success and rolls back on error', async () => {
