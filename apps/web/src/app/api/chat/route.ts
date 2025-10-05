@@ -1,5 +1,5 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
-import { toAiSdkStyleStream, webTools } from '@brainstrike/agent';
+import { isMastraAgentError, toAiSdkStyleStream, webTools } from '@brainstrike/agent';
 import { z } from 'zod';
 import type { AssistantProviderConfig } from '../../../server/assistant-config';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
@@ -213,14 +213,21 @@ export function __resetRateLimiterForTests(): void {
 }
 
 function createErrorResponse(err: unknown): Response {
-  if (err instanceof Error) {
-    const message = err.message ?? '';
-    if (message.startsWith('mastra_agent_')) {
-      return new Response(JSON.stringify({ error: 'agent_stream_init_failed', message }), {
+  if (isMastraAgentError(err)) {
+    return new Response(
+      JSON.stringify({
+        error: 'agent_stream_init_failed',
+        code: err.code,
+        message: err.message,
+      }),
+      {
         headers: { 'Content-Type': 'application/json; charset=utf-8' },
         status: 502,
-      });
-    }
+      }
+    );
+  }
+  if (err instanceof Error) {
+    const message = err.message ?? '';
     const parsed = parseInvalidBodyError(message);
     if (parsed) {
       return parsed;

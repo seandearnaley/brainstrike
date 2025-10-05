@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createMastraAgentRuntime, streamMastraAgent } from '../mastra/agent-runtime';
+import { MastraAgentError, type MastraAgentErrorCode } from '../mastra/mastra-agent-error';
+import { resolveRuntimeConfiguration } from '../mastra/runtime-configuration';
 
 const agentInstances: Array<{
   config: { tools: Record<string, unknown> };
@@ -11,6 +13,21 @@ let streamParts: unknown[] = [];
 
 function setMockStreamParts(parts: unknown[]) {
   streamParts = [...parts];
+}
+
+async function expectMastraAgentError(
+  promise: Promise<unknown>,
+  code: MastraAgentErrorCode
+): Promise<void> {
+  let received: unknown;
+  try {
+    await promise;
+  } catch (error) {
+    received = error;
+  }
+
+  expect(received).toBeInstanceOf(MastraAgentError);
+  expect((received as MastraAgentError).code).toBe(code);
 }
 
 vi.mock('@ai-sdk/openai', () => ({
@@ -183,11 +200,12 @@ describe('mastra streaming integration', () => {
       return { fullStream: null as unknown as ReadableStream<unknown> };
     };
 
-    await expect(
+    await expectMastraAgentError(
       streamMastraAgent([{ id: 'u1', role: 'user', parts: [{ type: 'text', text: 'hi' }] }], {
         runtime: { apiKey: 'test-key', provider: 'openai' },
-      })
-    ).rejects.toThrow(/mastra_agent_stream_failure/i);
+      }),
+      'mastra_agent_stream_failure'
+    );
 
     Agent.prototype.streamVNext = originalStreamVNext;
   });
@@ -247,11 +265,12 @@ describe('mastra streaming integration', () => {
   });
 
   it('throws when provider is not specified', async () => {
-    await expect(
+    await expectMastraAgentError(
       createMastraAgentRuntime({
         runtime: { apiKey: 'test-key' },
-      })
-    ).rejects.toThrow('mastra_agent_missing_provider');
+      }),
+      'mastra_agent_missing_provider'
+    );
   });
 
   it('creates agent with OpenAI provider when specified', async () => {
@@ -319,11 +338,64 @@ describe('mastra streaming integration', () => {
   });
 
   it('throws when provider is unsupported', async () => {
-    await expect(
+    await expectMastraAgentError(
       createMastraAgentRuntime({
         runtime: { apiKey: 'test-key', provider: 'unsupported' },
-      })
-    ).rejects.toThrow('mastra_agent_missing_provider');
+      }),
+      'mastra_agent_missing_provider'
+    );
+  });
+});
+
+describe('resolveRuntimeConfiguration', () => {
+  const openAiEnvKeys = [
+    'OPENAI_API_KEY',
+    'AI_OPENAI_API_KEY',
+    'OPENAI_API_KEY_V1',
+    'OPENAI_API_KEY_V2',
+  ] as const;
+
+  const originalEnv: Partial<Record<(typeof openAiEnvKeys)[number], string | undefined>> = {};
+
+  beforeEach(() => {
+    for (const key of openAiEnvKeys) {
+      originalEnv[key] = process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of openAiEnvKeys) {
+      const value = originalEnv[key];
+      if (typeof value === 'string') {
+        process.env[key] = value;
+      } else {
+        delete process.env[key];
+      }
+    }
+  });
+
+  it('normalizes providers and returns resolved api key', () => {
+    const result = resolveRuntimeConfiguration({ provider: 'OpenAI', apiKey: 'KEY-123' });
+
+    expect(result.provider).toBe('openai');
+    expect(result.runtime.provider).toBe('openai');
+    expect(result.apiKey).toBe('KEY-123');
+  });
+
+  it('throws when the api key cannot be resolved', () => {
+    for (const key of openAiEnvKeys) {
+      delete process.env[key];
+    }
+
+    let thrown: unknown;
+    try {
+      resolveRuntimeConfiguration({ provider: 'openai' });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(MastraAgentError);
+    expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_api_key');
   });
 });
 
