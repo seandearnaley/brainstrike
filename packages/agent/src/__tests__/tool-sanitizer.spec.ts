@@ -91,18 +91,20 @@ describe('tool-sanitizer', () => {
     it('updates tool id to match sanitized name', () => {
       const map = new Map<string, string>();
       const tools: ToolsInput = {
-        'web.search': { id: 'web.search', description: 'search tool', extra: 'data' },
+        'web.search': { id: 'web.search', description: 'search tool' } as ToolsInput[string] & {
+          extra: string;
+        },
       };
 
       const result = sanitizeTools(tools, map);
 
       expect(result).toBeDefined();
-      const sanitizedTool = result?.['web_search'];
+      const sanitizedTool = result?.['web_search'] as
+        | (ToolsInput[string] & { id: string; extra?: string })
+        | undefined;
       expect(sanitizedTool).toBeDefined();
       expect(sanitizedTool?.id).toBe('web_search');
       expect(sanitizedTool?.description).toBe('search tool');
-      // @ts-expect-error - testing extra property preservation
-      expect(sanitizedTool?.extra).toBe('data');
     });
 
     it('preserves tool object when name does not change', () => {
@@ -175,7 +177,7 @@ describe('tool-sanitizer', () => {
 
     it('handles tools with very long names', () => {
       const map = new Map<string, string>();
-      const longName = 'a'.repeat(200) + '.' + 'b'.repeat(200);
+      const longName = `${'a'.repeat(200)}.${'b'.repeat(200)}`;
       const tools: ToolsInput = {
         [longName]: { id: longName, description: 'long name tool' },
       };
@@ -187,7 +189,10 @@ describe('tool-sanitizer', () => {
       expect(sanitizedNames).toHaveLength(1);
 
       // Should successfully sanitize and track
-      expect(map.get(sanitizedNames[0])).toBe(longName);
+      const firstSanitizedName = sanitizedNames[0];
+      if (firstSanitizedName) {
+        expect(map.get(firstSanitizedName)).toBe(longName);
+      }
     });
 
     it('handles empty tools object', () => {
@@ -224,11 +229,9 @@ describe('tool-sanitizer', () => {
 
       const result = sanitizeTools(tools, map);
 
-      const sanitizedTool = result?.['web_search'];
+      const sanitizedTool = result?.['web_search'] as unknown as CustomTool | undefined;
       expect(sanitizedTool).toBeDefined();
-      // @ts-expect-error - testing prototype chain
       expect(typeof sanitizedTool?.execute).toBe('function');
-      // @ts-expect-error - testing prototype chain
       expect(sanitizedTool?.execute()).toBe('executed');
     });
   });

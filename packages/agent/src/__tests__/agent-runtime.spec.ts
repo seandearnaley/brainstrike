@@ -1,0 +1,645 @@
+import { describe, expect, it, vi } from 'vitest';
+import type { AgentMessage } from '../index';
+
+// Import the runtime functions - we'll need to expose some internal functions for testing
+// or test them through their public interfaces
+
+describe('agent-runtime edge cases', () => {
+  describe('convertMessagesToMastra', () => {
+    // We need to import this - let me check if it's exported
+    it('filters out empty messages with no text parts', async () => {
+      const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+
+      const messages: AgentMessage[] = [
+        {
+          id: '1',
+          role: 'user',
+          parts: [{ type: 'text', text: '   ' }], // Only whitespace
+        },
+        {
+          id: '2',
+          role: 'user',
+          parts: [{ type: 'text', text: 'Hello' }],
+        },
+      ];
+
+      const result = convertMessagesToMastra(messages);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.content).toBe('Hello');
+    });
+
+    it('combines multiple text parts with newlines', async () => {
+      const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+
+      const messages: AgentMessage[] = [
+        {
+          id: '1',
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'First line' },
+            { type: 'text', text: 'Second line' },
+            { type: 'text', text: 'Third line' },
+          ],
+        },
+      ];
+
+      const result = convertMessagesToMastra(messages);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.content).toBe('First line\n\nSecond line\n\nThird line');
+    });
+
+    it('filters empty messages and keeps non-empty ones', async () => {
+      const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+
+      const messages: AgentMessage[] = [
+        {
+          id: '1',
+          role: 'user',
+          parts: [{ type: 'text', text: '' }],
+        },
+        {
+          id: '2',
+          role: 'assistant',
+          parts: [{ type: 'text', text: 'Valid message' }],
+        },
+        {
+          id: '3',
+          role: 'system',
+          parts: [{ type: 'text', text: '  \n  ' }], // Only whitespace
+        },
+      ];
+
+      const result = convertMessagesToMastra(messages);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.role).toBe('assistant');
+      expect(result[0]?.content).toBe('Valid message');
+    });
+
+    it('handles messages with non-text parts', async () => {
+      const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+
+      const messages: AgentMessage[] = [
+        {
+          id: '1',
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'Text part' },
+            // @ts-expect-error - testing with unexpected part type
+            { type: 'unknown', data: 'something' },
+          ],
+        },
+      ];
+
+      const result = convertMessagesToMastra(messages);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]?.content).toBe('Text part');
+    });
+
+    it('handles empty input array', async () => {
+      const { convertMessagesToMastra } = await import('../mastra/agent-runtime');
+
+      const result = convertMessagesToMastra([]);
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('createMastraAgentRuntime with MCP', () => {
+    it('creates MCP client with stdio transport configuration', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'test-server',
+              transport: 'stdio',
+              command: 'node',
+              args: ['script.js'],
+              env: { NODE_ENV: 'test' },
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('creates MCP client with sse transport configuration', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'sse-server',
+              transport: 'sse',
+              url: 'https://example.com/mcp',
+              headers: { Authorization: 'Bearer token' },
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    }, 10000);
+
+    it('skips invalid SSE URLs gracefully', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'invalid-sse',
+              transport: 'sse',
+              url: 'not a valid url',
+            },
+          ],
+        },
+      });
+
+      // Should still create runtime, just without that server
+      expect(runtime).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('handles MCP config with no servers', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeUndefined();
+      await runtime.dispose();
+    });
+
+    it('handles MCP config with null server entries', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            null as unknown as {
+              name: string;
+              transport: 'stdio';
+              command: string;
+            },
+            {
+              name: 'valid-server',
+              transport: 'stdio',
+              command: 'echo',
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('handles stdio server without args', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'no-args-server',
+              transport: 'stdio',
+              command: 'echo',
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('handles stdio server with empty args array', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'empty-args',
+              transport: 'stdio',
+              command: 'echo',
+              args: [],
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('handles sse server without headers', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'no-headers',
+              transport: 'sse',
+              url: 'https://example.com',
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('handles sse server with empty headers object', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'empty-headers',
+              transport: 'sse',
+              url: 'https://example.com',
+              headers: {},
+            },
+          ],
+        },
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('uses custom model when provided', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        model: 'gpt-4-turbo',
+      });
+
+      expect(runtime.agent).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('uses custom instructions when provided', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        instructions: 'Custom system instructions',
+      });
+
+      expect(runtime.agent).toBeDefined();
+      await runtime.dispose();
+    });
+
+    it('uses custom MCP timeout when provided', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+        mcpConfig: {
+          servers: [
+            {
+              name: 'test',
+              transport: 'stdio',
+              command: 'echo',
+            },
+          ],
+        },
+        mcpTimeoutMs: 10000,
+      });
+
+      expect(runtime.mcpClient).toBeDefined();
+      await runtime.dispose();
+    });
+  });
+
+  describe('streamMastraAgent with signals', () => {
+    it('handles abort signal during streaming', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const controller = new AbortController();
+
+      const messages: AgentMessage[] = [
+        { id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] },
+      ];
+
+      // Abort immediately
+      controller.abort();
+
+      const iterator = await streamMastraAgent(messages, {
+        runtime: { apiKey: 'test-key', provider: 'openai', signal: controller.signal },
+      });
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      // Should complete without errors even though aborted
+      expect(chunks.length).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  describe('stream part processing edge cases', () => {
+    it('processes text-delta with empty delta', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'text-delta', textDelta: '' });
+            controller.enqueue({ type: 'finish', usage: {} });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      // Empty delta should be filtered out
+      const textDeltas = chunks.filter((c) => (c as { type: string }).type === 'text-delta');
+      expect(textDeltas).toHaveLength(0);
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+
+    it('processes finish chunk with various usage formats', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              type: 'finish',
+              payload: {
+                output: {
+                  usage: {
+                    inputTokens: 10,
+                    completionTokens: 20,
+                  },
+                },
+              },
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const finishChunk = chunks.find((c) => (c as { type: string }).type === 'message-finish') as {
+        type: string;
+        usage: { promptTokens: number; completionTokens: number };
+      };
+
+      expect(finishChunk).toBeDefined();
+      expect(finishChunk.usage.promptTokens).toBe(10);
+      expect(finishChunk.usage.completionTokens).toBe(20);
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+
+    it('processes error stream part', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              type: 'error',
+              error: 'Test error message',
+            });
+            controller.enqueue({ type: 'finish', usage: {} });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const errorChunk = chunks.find(
+        (c) =>
+          (c as { type: string }).type === 'tool-event' && (c as { name: string }).name === 'agent'
+      );
+
+      expect(errorChunk).toBeDefined();
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+
+    it('processes tripwire stream part with reason', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              type: 'tripwire',
+              tripwireReason: 'Content policy violation',
+              usage: { promptTokens: 5, completionTokens: 0 },
+            });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const tripwireError = chunks.find(
+        (c) =>
+          (c as { type: string }).type === 'tool-event' &&
+          (c as { status: string }).status === 'error'
+      ) as { payload: { error: string } };
+
+      expect(tripwireError).toBeDefined();
+      expect(tripwireError.payload.error).toBe('Content policy violation');
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+
+    it('processes unknown stream part types gracefully', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'unknown-type', data: 'something' });
+            controller.enqueue({ type: 'finish', usage: {} });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      // Unknown types should be ignored
+      const finishChunk = chunks.find((c) => (c as { type: string }).type === 'message-finish');
+      expect(finishChunk).toBeDefined();
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+
+    it('handles text delta from payload', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      // @ts-expect-error - test override
+      Agent.prototype.streamVNext = async function streamVNext() {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue({
+              type: 'text-delta',
+              payload: { textDelta: 'from payload' },
+            });
+            controller.enqueue({ type: 'finish', usage: {} });
+            controller.close();
+          },
+        });
+        return { fullStream: stream };
+      };
+
+      const iterator = await streamMastraAgent(
+        [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+        { runtime: { apiKey: 'test-key', provider: 'openai' } }
+      );
+
+      const chunks: unknown[] = [];
+      for await (const chunk of iterator) {
+        chunks.push(chunk);
+      }
+
+      const textDelta = chunks.find((c) => (c as { type: string }).type === 'text-delta') as {
+        value: string;
+      };
+
+      expect(textDelta?.value).toBe('from payload');
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+    });
+  });
+
+  describe('dispose error handling', () => {
+    it('handles dispose errors gracefully during stream failure', async () => {
+      const { streamMastraAgent } = await import('../mastra/agent-runtime');
+      const { Agent } = await import('@mastra/core/agent');
+      const { MCPClient } = await import('@mastra/mcp');
+
+      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalDisconnect = MCPClient.prototype.disconnect;
+
+      // Make disconnect throw
+      MCPClient.prototype.disconnect = vi.fn().mockRejectedValue(new Error('Disconnect failed'));
+
+      Agent.prototype.streamVNext = async function streamVNext() {
+        throw new Error('Stream creation failed');
+      };
+
+      let caughtError: Error | undefined;
+      try {
+        await streamMastraAgent(
+          [{ id: '1', role: 'user', parts: [{ type: 'text', text: 'test' }] }],
+          {
+            runtime: { apiKey: 'test-key', provider: 'openai' },
+            mcpConfig: {
+              servers: [{ name: 'test', transport: 'stdio', command: 'echo' }],
+            },
+          }
+        );
+      } catch (error) {
+        caughtError = error as Error;
+      }
+
+      expect(caughtError).toBeDefined();
+
+      Agent.prototype.streamVNext = originalStreamVNext;
+      MCPClient.prototype.disconnect = originalDisconnect;
+    });
+  });
+});

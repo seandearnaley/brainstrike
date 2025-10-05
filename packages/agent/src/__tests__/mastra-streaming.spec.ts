@@ -397,6 +397,22 @@ describe('resolveRuntimeConfiguration', () => {
     expect(thrown).toBeInstanceOf(MastraAgentError);
     expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_api_key');
   });
+
+  it('handles undefined runtimeData by creating sanitized runtime with normalized provider', () => {
+    // Set env key for this test
+    process.env['OPENAI_API_KEY'] = 'env-test-key';
+
+    let thrown: unknown;
+    try {
+      resolveRuntimeConfiguration(undefined);
+    } catch (error) {
+      thrown = error;
+    }
+
+    // Should throw missing provider error since undefined runtimeData means no provider
+    expect(thrown).toBeInstanceOf(MastraAgentError);
+    expect((thrown as MastraAgentError | undefined)?.code).toBe('mastra_agent_missing_provider');
+  });
 });
 
 import { ReadableStream } from 'node:stream/web';
