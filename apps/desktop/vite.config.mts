@@ -53,7 +53,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
-      external: ['electron', 'chokidar'],
+      external: ['electron', 'chokidar', '@mastra/core', /^@mastra\//],
       output: {
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
@@ -119,6 +119,11 @@ export default defineConfig({
       {
         find: '@brainstrike/workers',
         replacement: path.resolve(__dirname, '../../packages/workers'),
+      },
+      // Agent client-safe exports (no Mastra dependencies)
+      {
+        find: '@brainstrike/agent/client',
+        replacement: path.resolve(__dirname, '../../packages/agent/src/client.ts'),
       },
       // Force PGlite to use browser FS implementation in renderer to avoid node:fs imports
       {

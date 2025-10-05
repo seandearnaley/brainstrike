@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { registerMcpIpcHandlers } from '../../ipc-mcp';
 import { disposeClients, initClients } from '../../mcp';
 import { loadMcpConfig, watchMcpConfig } from '../../mcp-loader';
+import { readOpenAIApiKey } from '../../openai-api-key';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 type WatchCallback = (config: unknown) => void;
@@ -37,12 +38,30 @@ vi.mock('../../mcp', () => ({
   disposeClients: vi.fn(),
 }));
 
+vi.mock('../../openai-api-key', () => ({
+  readOpenAIApiKey: vi.fn(),
+}));
+
+const mockSecretsService = {
+  saveKey: vi.fn(),
+  getKey: vi.fn(() => Promise.resolve('test-api-key')),
+  deleteKey: vi.fn(),
+  listProviders: vi.fn(() => Promise.resolve(['openai'])),
+};
+
+vi.mock('../../secrets', () => ({
+  getSecretsService: vi.fn(() => mockSecretsService),
+}));
+
 describe('ipc-mcp handlers', () => {
   let handlers: Map<string, RegisteredHandler>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     handlers = new Map();
+    mockSecretsService.getKey.mockResolvedValue('test-api-key');
+    mockSecretsService.listProviders.mockResolvedValue(['openai']);
+    vi.mocked(readOpenAIApiKey).mockResolvedValue('env-openai-key');
 
     // Capture handlers when registered
     const mockHandle = ipcMain.handle as unknown as import('vitest').Mock<

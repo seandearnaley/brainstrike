@@ -29,7 +29,7 @@ const DatabaseTab = lazy(async () => ({
 }));
 
 const AssistantUiPanelLazy = lazy(async () => ({
-  default: (await import('@brainstrike/ui/assistant-ui-panel')).AssistantUiPanel,
+  default: (await import('./assistant-ui-panel-wrapper')).AssistantUiPanelWrapper,
 }));
 
 export function RightPanel() {
@@ -307,7 +307,7 @@ function AssistantChatCard() {
           <div className="p-4">
             <AssistantStatusCallout
               title="Assistant disabled"
-              description="Add an OpenAI API key in Settings → LLM Provider Keys to enable the assistant."
+              description="Configure an AI provider in Settings → LLM Provider Keys to enable the assistant."
               variant="warning"
               {...(status.reason ? { detail: `Reason: ${status.reason}` } : {})}
             />

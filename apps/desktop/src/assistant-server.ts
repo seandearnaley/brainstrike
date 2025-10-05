@@ -2,6 +2,7 @@ import http from 'node:http';
 import {
   assistantDataStreamSessions,
   convertAssistantUiMessages,
+  isSupportedProvider,
   resolveDataStreamSession,
   toAiSdkStyleStream,
   webTools,
@@ -33,6 +34,7 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
+import { getSecretsService } from './secrets';
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {
@@ -71,13 +73,41 @@ async function handleAssistantRequest(
     return;
   }
 
+  await handleAssistantPost(req, res);
+}
+
+async function handleAssistantPost(
+  req: http.IncomingMessage,
+  res: http.ServerResponse
+): Promise<void> {
   const { rawMessages, data } = await parseAssistantRequestPayload(req);
-  const apiKey = await readOpenAIApiKey();
   const messages = convertAssistantUiMessages(rawMessages);
+  const provider = resolveRequestedProvider(data);
+
+  if (!provider) {
+    respondJson(res, 400, {
+      error: 'missing_provider',
+      message: 'No provider specified or provider is not supported.',
+    });
+    return;
+  }
+
+  const runtimeData = data ? { ...data, provider } : { provider };
+  const apiKey = await resolveProviderApiKey(provider);
+
   console.info('[assistant-server] request received', {
     messageCount: messages.length,
+    provider,
     hasApiKey: Boolean(apiKey),
   });
+
+  if (!apiKey) {
+    respondJson(res, 400, {
+      error: 'missing_api_key',
+      message: `No API key configured for provider "${provider}".`,
+    });
+    return;
+  }
 
   if (!hasNonEmptyPrompt(messages)) {
     res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -89,59 +119,40 @@ async function handleAssistantRequest(
   if (await resumeStreamIfAvailable(res, lastEventId)) {
     return;
   }
-
-  // Create abort controller to propagate cancellation from HTTP request to agent stream
-  // When client disconnects or cancels request, this signal flows through:
-  // 1. HTTP request events (close/aborted) trigger onAbort
-  // 2. Signal passed to initializeAgentStream -> RuntimeData
-  // 3. RuntimeData.signal used by Mastra stream iterator
-  // 4. Session checks abort flag and stops consuming source
-  const abortController = new AbortController();
-  const onAbort = () => {
-    abortController.abort();
-  };
-  if (req) {
-    req.on('close', onAbort);
-    req.on('aborted', onAbort);
-  }
-
-  const mcpConfig = (await loadMcpConfig()).config;
-  const streamResult = await initializeAgentStream(
-    messages,
-    data,
-    apiKey,
-    mcpConfig,
-    abortController.signal
-  );
-  if (!streamResult.ok) {
-    if (req) {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
-    }
-    respondJson(res, streamResult.status, streamResult.payload);
-    return;
-  }
+  const { signal, cleanup } = registerRequestAbort(req);
   try {
+    const mcpConfig = (await loadMcpConfig()).config;
+    const streamResult = await initializeAgentStream(
+      messages,
+      runtimeData,
+      apiKey,
+      mcpConfig,
+      signal
+    );
+    if (!streamResult.ok) {
+      respondJson(res, streamResult.status, streamResult.payload);
+      return;
+    }
+
     const session = assistantDataStreamSessions.create(streamResult.stream);
     const response = session.createResponse();
-    await streamResponse(res, response, abortController.signal);
+    await streamResponse(res, response, signal);
   } catch (error) {
-    if (!abortController.signal.aborted) {
+    if (!signal.aborted) {
       console.error('[assistant-server] stream error', error);
     }
   } finally {
-    if (req) {
-      req.removeListener('close', onAbort);
-      req.removeListener('aborted', onAbort);
-    }
+    cleanup();
   }
 }
 
 async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
   try {
-    const apiKey = await readOpenAIApiKey();
-    const enabled = Boolean(apiKey);
-    const payload = enabled ? { enabled } : { enabled, reason: 'missing_api_key' };
+    const providers = await collectAvailableProviders();
+    const enabled = providers.length > 0;
+    const payload = enabled
+      ? { enabled, providers }
+      : { enabled, reason: 'no_providers_configured', providers: [] as string[] };
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
@@ -156,6 +167,108 @@ async function handleAssistantStatus(res: http.ServerResponse): Promise<void> {
       })
     );
   }
+}
+
+function resolveRequestedProvider(data: RuntimeData | undefined): string | undefined {
+  const raw = typeof data?.provider === 'string' ? data.provider.trim() : '';
+  if (!raw) {
+    return undefined;
+  }
+
+  const normalized = raw.toLowerCase();
+  return isSupportedProvider(normalized) ? normalized : undefined;
+}
+
+async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
+  if (!isSupportedProvider(provider)) {
+    return undefined;
+  }
+
+  try {
+    const secretsService = getSecretsService();
+    const key = await secretsService.getKey(provider);
+    const resolvedKey = key ?? undefined;
+    console.info(
+      `[assistant-server] Retrieved API key for provider "${provider}":`,
+      resolvedKey ? 'present' : 'undefined'
+    );
+    if (resolvedKey) {
+      return resolvedKey;
+    }
+    if (provider !== 'openai') {
+      return undefined;
+    }
+  } catch (error) {
+    console.error(`[assistant-server] Error getting API key for provider "${provider}":`, error);
+    if (provider !== 'openai') {
+      return undefined;
+    }
+  }
+
+  return await readLegacyOpenAiKey();
+}
+
+async function readLegacyOpenAiKey(log = true): Promise<string | undefined> {
+  try {
+    const legacyKey = await readOpenAIApiKey();
+    if (log) {
+      console.info(
+        '[assistant-server] Using legacy OpenAI key:',
+        legacyKey ? 'present' : 'undefined'
+      );
+    }
+    return legacyKey ?? undefined;
+  } catch (error) {
+    console.error('[assistant-server] Error reading legacy OpenAI key:', error);
+    throw error;
+  }
+}
+
+async function collectAvailableProviders(): Promise<string[]> {
+  const providers = new Set<string>();
+
+  try {
+    const secretsService = getSecretsService();
+    const stored = await secretsService.listProviders();
+    for (const provider of stored) {
+      if (!isSupportedProvider(provider)) continue;
+      const key = await secretsService.getKey(provider);
+      if (key && key.trim().length > 0) {
+        providers.add(provider);
+      }
+    }
+  } catch (error) {
+    console.error('[assistant-server] Failed to inspect stored provider keys:', error);
+  }
+
+  const legacyOpenAi = await readLegacyOpenAiKey(false);
+  if (legacyOpenAi) {
+    providers.add('openai');
+  }
+
+  return Array.from(providers);
+}
+
+function registerRequestAbort(req: http.IncomingMessage): {
+  signal: AbortSignal;
+  cleanup: () => void;
+} {
+  // Propagate HTTP connection cancellation into the agent stream
+  const abortController = new AbortController();
+  const onAbort = () => {
+    abortController.abort();
+  };
+
+  req.on('close', onAbort);
+  req.on('aborted', onAbort);
+
+  return {
+    signal: abortController.signal,
+    cleanup: () => {
+      req.removeListener('close', onAbort);
+      req.removeListener('aborted', onAbort);
+    },
+  };
 }
 
 function hasNonEmptyPrompt(messages: AgentMessage[]): boolean {
@@ -245,7 +358,7 @@ async function initializeAgentStream(
     mcpConfig,
     mastraTools: webTools,
     signal, // ← AbortSignal passed here, used by stream iterator
-    ...(apiKey ? { apiKey } : {}),
+    apiKey,
   };
 
   try {

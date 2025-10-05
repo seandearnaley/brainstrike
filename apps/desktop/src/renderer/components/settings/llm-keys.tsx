@@ -18,8 +18,8 @@ import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 const PROVIDERS = [
   { id: 'openai', name: 'OpenAI' },
   { id: 'anthropic', name: 'Anthropic' },
+  { id: 'google', name: 'Google' },
   { id: 'openrouter', name: 'OpenRouter' },
-  { id: 'groq', name: 'Groq' },
 ];
 
 export function LlmKeysSettings() {

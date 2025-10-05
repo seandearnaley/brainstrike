@@ -18,7 +18,7 @@ test.describe('Agent IPC', () => {
   test('returns streamed chunks for a simple prompt', async () => {
     const result = await appContext.window.evaluate(async () => {
       const msgs = [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello world' }] }];
-      const chunks = await window.agent?.chat?.(msgs, { projectId: 'e2e' });
+      const chunks = await window.agent?.chat?.(msgs, { projectId: 'e2e', provider: 'openai' });
       return chunks;
     });
 

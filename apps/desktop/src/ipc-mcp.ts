@@ -1,4 +1,9 @@
-import { loadToolPreferences, mcpToolRegistry, saveToolPreferences } from '@brainstrike/agent';
+import {
+  isSupportedProvider,
+  loadToolPreferences,
+  mcpToolRegistry,
+  saveToolPreferences,
+} from '@brainstrike/agent';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';
@@ -9,6 +14,8 @@ import {
   setCustomMcpConfigPath,
   watchMcpConfig,
 } from './mcp-loader';
+import { readOpenAIApiKey } from './openai-api-key';
+import { getSecretsService } from './secrets';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
@@ -203,8 +210,18 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   const { createMastraAgentRuntime } = await import('@brainstrike/agent');
 
   try {
+    const credentials = await resolveDiscoveryCredentials();
+    if (!credentials) {
+      console.warn('[ipc-mcp] Skipping tool discovery - no provider credentials configured');
+      return;
+    }
+
     // Create a temporary runtime just to discover tools
     const runtime = await createMastraAgentRuntime({
+      runtime: {
+        provider: credentials.provider,
+        apiKey: credentials.apiKey,
+      },
       mcpConfig: config,
       mcpTimeoutMs: 10000, // 10 second timeout for discovery
     });
@@ -222,6 +239,36 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     console.error('[ipc-mcp] Failed to discover tools:', error);
     throw error; // Re-throw to see the full error
   }
+}
+
+type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter';
+
+async function resolveDiscoveryCredentials(): Promise<
+  { provider: ProviderId; apiKey: string } | undefined
+> {
+  try {
+    const secrets = getSecretsService();
+    const providers = await secrets.listProviders();
+    for (const candidate of providers) {
+      if (!candidate || !isSupportedProvider(candidate)) {
+        continue;
+      }
+      const key = await secrets.getKey(candidate);
+      if (key && key.trim().length > 0) {
+        const resolvedProvider = candidate as ProviderId;
+        return { provider: resolvedProvider, apiKey: key };
+      }
+    }
+  } catch (error) {
+    console.error('[ipc-mcp] Unable to read stored provider credentials:', error);
+  }
+
+  const envKey = await readOpenAIApiKey();
+  if (envKey) {
+    return { provider: 'openai', apiKey: envKey };
+  }
+
+  return undefined;
 }
 
 async function saveToolPreferencesIfNeeded(): Promise<void> {

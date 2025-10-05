@@ -10,8 +10,39 @@ test.describe('Assistant panel (desktop)', () => {
     appContext = await launchElectronApp();
     const page = appContext.window;
 
-    // Mock the assistant API by overriding fetch
+    // Save OpenAI key to test mode secrets storage
+    await page.evaluate(async () => {
+      const w = window as Window & {
+        secrets?: { saveKey?: (provider: string, key: string) => Promise<{ ok: boolean }> };
+      };
+      await w.secrets?.saveKey?.('openai', 'test-api-key-for-e2e-tests');
+    });
+
+    // Mock the assistant API by intercepting fetch
     await page.addInitScript(() => {
+      // Set localStorage with OpenAI as selected provider
+      const defaultModels = {
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-5-haiku-latest',
+        google: 'gemini-2.5-flash',
+        openrouter: 'gpt-4o-mini',
+      } as const;
+
+      try {
+        window.localStorage?.setItem(
+          'assistant-preferences.v1',
+          JSON.stringify({
+            state: {
+              selectedProvider: 'openai',
+              modelsByProvider: defaultModels,
+            },
+            version: 1,
+          })
+        );
+      } catch {
+        // ignore storage errors in test env
+      }
+
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
 
@@ -36,9 +67,12 @@ test.describe('Assistant panel (desktop)', () => {
       const createStreamResponse = (): Response => {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
+            // Send assistant message
+            controller.enqueue(encoder.encode('0:"Hello from desktop assistant!"\n'));
+            // Send finish message to properly close the stream
             controller.enqueue(
               encoder.encode(
-                '0:["assistant.message",{"content":"Hello from desktop assistant!","role":"assistant"}]\n'
+                'd:{"finishReason":"stop","usage":{"promptTokens":10,"completionTokens":5}}\n'
               )
             );
             controller.close();
@@ -48,7 +82,8 @@ test.describe('Assistant panel (desktop)', () => {
         return new Response(stream, {
           status: 200,
           headers: {
-            'Content-Type': 'text/event-stream',
+            'Content-Type': 'text/plain; charset=utf-8',
+            'x-vercel-ai-data-stream': 'v1',
             'Cache-Control': 'no-store',
           },
         });
@@ -74,10 +109,10 @@ test.describe('Assistant panel (desktop)', () => {
       window.fetch = overrideFetch;
     });
 
-    // Reload the page to ensure mocks are in place before React components mount
+    // Reload page to ensure init script runs
     await page.reload();
 
-    // Wait for app to be ready after reload
+    // Wait for app to be ready
     await waitForAppReady(page);
   });
 

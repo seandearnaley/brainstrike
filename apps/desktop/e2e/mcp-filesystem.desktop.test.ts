@@ -14,6 +14,40 @@ test.describe('Assistant chat (desktop)', () => {
 
     // Mock the assistant API to enable chat functionality
     await page.addInitScript(() => {
+      const defaultModels = {
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-5-haiku-latest',
+        google: 'gemini-2.5-flash',
+        openrouter: 'gpt-4o-mini',
+      } as const;
+
+      try {
+        window.localStorage?.setItem(
+          'assistant-preferences.v1',
+          JSON.stringify({
+            state: {
+              selectedProvider: 'openai',
+              modelsByProvider: defaultModels,
+            },
+            version: 1,
+          })
+        );
+      } catch {
+        // ignore storage errors during setup
+      }
+
+      const secrets = window.secrets ?? {};
+      if (!window.secrets) {
+        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
+      }
+      secrets.list = async () => ['openai'];
+      secrets.getKey = async (provider: string) =>
+        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
+      secrets.saveKey = async () => ({ ok: true });
+      secrets.deleteKey = async () => {
+        return;
+      };
+
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
 
@@ -79,6 +113,40 @@ test.describe('Assistant chat (desktop)', () => {
     // Reload the page to ensure mocks are in place
     await page.reload();
     await waitForAppReady(page);
+
+    await page.evaluate(() => {
+      const defaultModels = {
+        openai: 'gpt-4o-mini',
+        anthropic: 'claude-3-5-haiku-latest',
+        google: 'gemini-2.5-flash',
+        openrouter: 'gpt-4o-mini',
+      } as const;
+
+      try {
+        window.localStorage?.setItem(
+          'assistant-preferences.v1',
+          JSON.stringify({
+            state: {
+              selectedProvider: 'openai',
+              modelsByProvider: defaultModels,
+            },
+            version: 1,
+          })
+        );
+      } catch {}
+
+      const secrets = window.secrets ?? {};
+      if (!window.secrets) {
+        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
+      }
+      secrets.list = async () => ['openai'];
+      secrets.getKey = async (provider: string) =>
+        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
+      secrets.saveKey = async () => ({ ok: true });
+      secrets.deleteKey = async () => {
+        return;
+      };
+    });
   });
 
   test.afterEach(async () => {

@@ -240,7 +240,9 @@ export function convertAssistantUiMessages(
 
 export interface RuntimeData {
   projectId?: string;
-  provider?: string;
+  /** AI provider to use. Defaults to 'openai' if not specified. */
+  provider?: 'openai' | 'anthropic' | 'google' | 'openrouter' | string;
+  /** Model name to use. Uses provider-specific default if not specified. */
   model?: string;
   mcpEnabled?: boolean;
   signal?: AbortSignal;
@@ -252,6 +254,7 @@ export interface RuntimeData {
   ) => Promise<unknown>;
   mcpConfig?: McpConfig;
   mastraTools?: ToolsInput;
+  /** API key for the specified provider. Falls back to environment variables if not provided. */
   apiKey?: string;
 }
 
@@ -340,6 +343,18 @@ export {
   ToolRegistry as McpToolRegistry,
   toolRegistry as mcpToolRegistry,
 } from './mcp/tool-registry';
+// Provider models and utilities (no Mastra dependencies - safe for client-side)
+export {
+  getProviderDefaultModel,
+  getProviderDisplayName,
+  getProviderModels,
+  isSupportedProvider,
+  isValidModelForProvider,
+  PROVIDER_DEFAULT_MODELS,
+  PROVIDER_DISPLAY_NAMES,
+  PROVIDER_MODELS,
+  type SupportedProvider,
+} from './providers/types';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,

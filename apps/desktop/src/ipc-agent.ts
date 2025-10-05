@@ -1,8 +1,10 @@
+import { isSupportedProvider } from '@brainstrike/agent';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
+import { getSecretsService } from './secrets';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
 type AgentMessage = {
@@ -35,6 +37,8 @@ type StreamChunk =
       usage: { promptTokens: number; completionTokens: number };
       path: ReadonlyArray<number>;
     };
+type AgentModule = typeof import('@brainstrike/agent');
+type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
 
 export function registerAgentIpcHandlers() {
   ipcMain.handle(
@@ -43,36 +47,119 @@ export function registerAgentIpcHandlers() {
       _e: IpcMainInvokeEvent,
       messages: AgentMessage[],
       runtime?: RuntimeData
-    ): Promise<StreamChunk[]> => {
-      // Safe load for CommonJS main process with test hook override
-      const injected = (
-        globalThis as {
-          __agentModule?: typeof import('@brainstrike/agent');
-        }
-      ).__agentModule;
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = (injected ??
-        require('@brainstrike/agent')) as typeof import('@brainstrike/agent');
-      const out: StreamChunk[] = [];
-
-      const config = await loadMcpConfig();
-      const apiKey = await readOpenAIApiKey();
-      const maybeIter = mod.streamMastraAgent(messages, {
-        runtime: {
-          ...(runtime ?? {}),
-          mcpConfig: config.config,
-          ...(apiKey ? { apiKey } : {}),
-        },
-        tools: mod.webTools,
-      });
-      const asyncIter: AsyncIterable<StreamChunk> =
-        maybeIter && typeof maybeIter[Symbol.asyncIterator] === 'function'
-          ? maybeIter
-          : await maybeIter;
-      for await (const chunk of asyncIter) {
-        out.push(chunk);
-      }
-      return out;
-    }
+    ): Promise<StreamChunk[]> => runAgentChat(messages, runtime)
   );
+}
+
+async function runAgentChat(
+  messages: AgentMessage[],
+  runtime: RuntimeData | undefined
+): Promise<StreamChunk[]> {
+  const agentModule = resolveAgentModule();
+  const config = await loadMcpConfig();
+  const provider = resolveAgentProvider(runtime);
+  if (!provider) {
+    throw new Error('missing_provider');
+  }
+  const apiKey = await resolveIpcApiKey(provider);
+  if (!apiKey) {
+    throw new Error(`missing_api_key:${provider}`);
+  }
+
+  const maybeStream = agentModule.streamMastraAgent(messages, {
+    runtime: {
+      ...(runtime ?? {}),
+      provider,
+      mcpConfig: config.config,
+      apiKey,
+    },
+    tools: agentModule.webTools,
+  });
+
+  const stream = await ensureAsyncIterable<StreamChunk>(maybeStream);
+  return collectStreamChunks(stream);
+}
+
+function resolveAgentModule(): AgentModule {
+  const injected = (globalThis as { __agentModule?: AgentModule }).__agentModule;
+  if (injected) {
+    return injected;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('@brainstrike/agent') as AgentModule;
+}
+
+function resolveAgentProvider(runtime: RuntimeData | undefined): string | undefined {
+  const raw = typeof runtime?.provider === 'string' ? runtime.provider.trim() : '';
+  if (!raw) {
+    return undefined;
+  }
+  const normalized = raw.toLowerCase();
+  return isSupportedProvider(normalized) ? normalized : undefined;
+}
+
+async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
+  if (!isSupportedProvider(provider)) {
+    return undefined;
+  }
+  try {
+    const secretsService = getSecretsService();
+    const key = await secretsService.getKey(provider);
+    const resolvedKey = key ?? undefined;
+    if (resolvedKey) {
+      console.log(
+        `[ipc-agent] Retrieved API key for provider "${provider}":`,
+        `${resolvedKey.slice(0, 10)}...`
+      );
+      return resolvedKey;
+    }
+    if (provider !== 'openai') {
+      return undefined;
+    }
+  } catch (error) {
+    console.error(`[ipc-agent] Error getting API key for provider "${provider}":`, error);
+    if (provider !== 'openai') {
+      return undefined;
+    }
+  }
+
+  return await readLegacyOpenAiApiKey();
+}
+
+async function readLegacyOpenAiApiKey(): Promise<string | undefined> {
+  try {
+    const key = await readOpenAIApiKey();
+    if (key) {
+      console.log('[ipc-agent] Using legacy OpenAI key:', `${key.slice(0, 10)}...`);
+    }
+    return key ?? undefined;
+  } catch (error) {
+    console.error('[ipc-agent] Error reading legacy OpenAI key:', error);
+    return undefined;
+  }
+}
+
+async function ensureAsyncIterable<T>(
+  maybeIterable: MaybeAsyncIterable<T>
+): Promise<AsyncIterable<T>> {
+  if (isAsyncIterable(maybeIterable)) {
+    return maybeIterable;
+  }
+  return await maybeIterable;
+}
+
+async function collectStreamChunks(stream: AsyncIterable<StreamChunk>): Promise<StreamChunk[]> {
+  const chunks: StreamChunk[] = [];
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function isAsyncIterable<T>(value: unknown): value is AsyncIterable<T> {
+  if (!value) {
+    return false;
+  }
+  const asyncIterator = (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator];
+  return typeof asyncIterator === 'function';
 }
