@@ -117,6 +117,13 @@ async function loadMissingFileContents(
   dependencies: FileImportDependencies,
   tracker: ImportProgressTracker
 ): Promise<FileImportRequest[]> {
+  const requests: FileImportRequest[] = [];
+
+  // If no files need loading, return early (file system not required)
+  if (pending.length === 0) {
+    return requests;
+  }
+
   const { fileSystem } = dependencies;
 
   if (!fileSystem) {
@@ -124,8 +131,6 @@ async function loadMissingFileContents(
       progress: tracker.snapshot(),
     });
   }
-
-  const requests: FileImportRequest[] = [];
 
   for (const { fileNode } of pending) {
     tracker.update(tracker.errorCount, fileNode.name);
@@ -179,10 +184,10 @@ export async function runFileImport(
   context: FileImportContext,
   callbacks: FileImportCallbacks = {}
 ): Promise<FileImportOutcome> {
-  const { repository, fileSystem } = dependencies;
+  const { repository } = dependencies;
 
-  if (!repository || !fileSystem) {
-    throw new FileImportError('missing-dependency', 'Database or file system not available');
+  if (!repository) {
+    throw new FileImportError('missing-dependency', 'Database repository not available');
   }
 
   if (context.selectedFilePaths.size === 0) {
