@@ -168,11 +168,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       src: path.resolve(__dirname, './src'),
       '@brainstrike/file-explorer': path.resolve(__dirname, '../../packages/file-explorer/src'),
-      // Map stylesheet import to package root css before package alias
+      // Map stylesheet imports to source files for consistent theme loading
+      '@brainstrike/app-shell/styles.css': path.resolve(
+        __dirname,
+        '../../packages/app-shell/styles.css'
+      ),
       '@brainstrike/file-explorer-ui/styles.css': path.resolve(
         __dirname,
         '../../packages/file-explorer-ui/styles.css'
       ),
+      '@brainstrike/ui/styles.css': path.resolve(__dirname, '../../packages/ui/styles.css'),
+      '@brainstrike/ui/globals.css': path.resolve(__dirname, '../../packages/ui/src/globals.css'),
       // Source alias to ensure consistent React Compiler transforms and HMR
       '@brainstrike/file-explorer-ui': path.resolve(
         __dirname,

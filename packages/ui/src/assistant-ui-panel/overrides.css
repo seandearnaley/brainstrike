@@ -1,5 +1,56 @@
 /* Brainstrike overrides for assistant-ui in the Right Panel */
 
+/**
+ * CRITICAL: Override assistant-ui's global theme variables
+ *
+ * The @assistant-ui/styles/index.css library defines global :root and .dark
+ * selectors with hardcoded theme values that override our Brainstrike theme.
+ * These rules restore our theme by mapping back to --bs-* variables.
+ */
+:root {
+  --background: var(--bs-background);
+  --foreground: var(--bs-foreground);
+  --card: var(--bs-card);
+  --card-foreground: var(--bs-card-foreground);
+  --popover: var(--bs-popover);
+  --popover-foreground: var(--bs-popover-foreground);
+  --primary: var(--bs-primary);
+  --primary-foreground: var(--bs-primary-foreground);
+  --secondary: var(--bs-secondary);
+  --secondary-foreground: var(--bs-secondary-foreground);
+  --muted: var(--bs-muted);
+  --muted-foreground: var(--bs-muted-foreground);
+  --accent: var(--bs-accent);
+  --accent-foreground: var(--bs-accent-foreground);
+  --destructive: var(--bs-destructive);
+  --destructive-foreground: var(--bs-destructive-foreground);
+  --border: var(--bs-border);
+  --input: var(--bs-input);
+  --ring: var(--bs-ring);
+}
+
+.dark {
+  --background: var(--bs-background);
+  --foreground: var(--bs-foreground);
+  --card: var(--bs-card);
+  --card-foreground: var(--bs-card-foreground);
+  --popover: var(--bs-popover);
+  --popover-foreground: var(--bs-popover-foreground);
+  --primary: var(--bs-primary);
+  --primary-foreground: var(--bs-primary-foreground);
+  --secondary: var(--bs-secondary);
+  --secondary-foreground: var(--bs-secondary-foreground);
+  --muted: var(--bs-muted);
+  --muted-foreground: var(--bs-muted-foreground);
+  --accent: var(--bs-accent);
+  --accent-foreground: var(--bs-accent-foreground);
+  --destructive: var(--bs-destructive);
+  --destructive-foreground: var(--bs-destructive-foreground);
+  --border: var(--bs-border);
+  --input: var(--bs-input);
+  --ring: var(--bs-ring);
+}
+
 /* Restore host theme variables that assistant-ui's default theme overrides */
 .bs-thread {
   --background: var(--bs-background, 0 0% 100%);
