@@ -9,7 +9,7 @@ vi.mock('@brainstrike/agent', async () => {
   };
 });
 
-import { toAiSdkStyleStream } from '@brainstrike/agent';
+import { createMastraAgentError, toAiSdkStyleStream } from '@brainstrike/agent';
 import { __parseChatBodyForTests, __resetRateLimiterForTests, POST } from '../route';
 
 const streamMock = vi.mocked(toAiSdkStyleStream);
@@ -221,7 +221,9 @@ describe('chat route schema', () => {
   });
 
   it('returns 502 when assistant stream fails to initialize', async () => {
-    streamMock.mockRejectedValue(new Error('mastra_agent_missing_api_key: no key'));
+    streamMock.mockRejectedValue(
+      createMastraAgentError('mastra_agent_missing_api_key', { detail: 'no key' })
+    );
 
     const body = {
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],
@@ -236,6 +238,7 @@ describe('chat route schema', () => {
     expect(res.status).toBe(502);
     const payload = await res.json();
     expect(payload.error).toBe('agent_stream_init_failed');
+    expect(payload.code).toBe('mastra_agent_missing_api_key');
     expect(payload.message).toContain('mastra_agent_missing_api_key');
   });
 });

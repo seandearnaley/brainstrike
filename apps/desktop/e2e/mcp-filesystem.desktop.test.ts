@@ -12,6 +12,14 @@ test.describe('Assistant chat (desktop)', () => {
     appContext = await launchElectronApp();
     const page = appContext.window;
 
+    // Save OpenAI key using the real secrets API (contextBridge APIs are immutable)
+    await page.evaluate(async () => {
+      const w = window as Window & {
+        secrets?: { saveKey?: (provider: string, key: string) => Promise<{ ok: boolean } | true> };
+      };
+      await w.secrets?.saveKey?.('openai', 'test-api-key-for-e2e-tests');
+    });
+
     // Mock the assistant API to enable chat functionality
     await page.addInitScript(() => {
       const defaultModels = {
@@ -35,18 +43,6 @@ test.describe('Assistant chat (desktop)', () => {
       } catch {
         // ignore storage errors during setup
       }
-
-      const secrets = window.secrets ?? {};
-      if (!window.secrets) {
-        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
-      }
-      secrets.list = async () => ['openai'];
-      secrets.getKey = async (provider: string) =>
-        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
-      secrets.saveKey = async () => ({ ok: true });
-      secrets.deleteKey = async () => {
-        return;
-      };
 
       const originalFetch: typeof window.fetch = window.fetch.bind(window);
       const encoder = new TextEncoder();
@@ -72,9 +68,22 @@ test.describe('Assistant chat (desktop)', () => {
       const createStreamResponse = (): Response => {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
+            // AI SDK Data Stream Protocol format
+            // 2: metadata, f: step-start, 0: text-delta, e: step-end, d: message-finish
+            const messageId = `msg-${Date.now()}`;
+            const sessionId = `sess-${Date.now()}`;
+
             controller.enqueue(
               encoder.encode(
-                '0:["assistant.message",{"content":"Hello from desktop assistant!","role":"assistant"}]\n'
+                `2:[{"type":"start","messageId":"${messageId}","sessionId":"${sessionId}"}]\n`
+              )
+            );
+            controller.enqueue(encoder.encode('f:null\n'));
+            controller.enqueue(encoder.encode('0:"Hello from desktop assistant!"\n'));
+            controller.enqueue(encoder.encode('e:null\n'));
+            controller.enqueue(
+              encoder.encode(
+                'd:{"finishReason":"stop","usage":{"promptTokens":5,"completionTokens":8}}\n'
               )
             );
             controller.close();
@@ -84,8 +93,10 @@ test.describe('Assistant chat (desktop)', () => {
         return new Response(stream, {
           status: 200,
           headers: {
-            'Content-Type': 'text/event-stream',
+            'Content-Type': 'text/plain; charset=utf-8',
             'Cache-Control': 'no-store',
+            'x-vercel-ai-data-stream': 'v1',
+            'x-vercel-ai-ui-message-stream': 'v1',
           },
         });
       };
@@ -110,43 +121,9 @@ test.describe('Assistant chat (desktop)', () => {
       window.fetch = overrideFetch;
     });
 
-    // Reload the page to ensure mocks are in place
+    // Reload the page to ensure mocks are in place and localStorage is read
     await page.reload();
     await waitForAppReady(page);
-
-    await page.evaluate(() => {
-      const defaultModels = {
-        openai: 'gpt-4o-mini',
-        anthropic: 'claude-3-5-haiku-latest',
-        google: 'gemini-2.5-flash',
-        openrouter: 'gpt-4o-mini',
-      } as const;
-
-      try {
-        window.localStorage?.setItem(
-          'assistant-preferences.v1',
-          JSON.stringify({
-            state: {
-              selectedProvider: 'openai',
-              modelsByProvider: defaultModels,
-            },
-            version: 1,
-          })
-        );
-      } catch {}
-
-      const secrets = window.secrets ?? {};
-      if (!window.secrets) {
-        (window as typeof window & { secrets: typeof secrets }).secrets = secrets;
-      }
-      secrets.list = async () => ['openai'];
-      secrets.getKey = async (provider: string) =>
-        provider === 'openai' ? 'test-api-key-for-e2e-tests' : null;
-      secrets.saveKey = async () => ({ ok: true });
-      secrets.deleteKey = async () => {
-        return;
-      };
-    });
   });
 
   test.afterEach(async () => {
@@ -185,6 +162,11 @@ test.describe('Assistant chat (desktop)', () => {
     // Send a prompt
     const input = page.locator('#assistant-input');
     await expect(input).toBeVisible({ timeout: 5000 });
+
+    // Wait for the input to be enabled (provider/model selection completes asynchronously)
+    // The input will be disabled until availableProviders loads from window.secrets.list()
+    await expect(input).toBeEnabled({ timeout: 15000 });
+
     await input.fill('list files');
 
     const sendBtn = page.getByRole('button', { name: 'Send' });

@@ -2,6 +2,7 @@ import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileImportService } from '../base-file-import-service';
+import { FileImportError } from '../file-import/file-import-errors';
 
 // Mock dependencies to avoid complex setup
 const mockBulkImport = vi.fn();
@@ -92,11 +93,10 @@ describe('useFileImportService', () => {
         await result.current.importFiles(new Set(), [], {});
       });
 
-      expect(onError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'No files selected for import',
-        })
-      );
+      expect(onError).toHaveBeenCalledWith(expect.any(FileImportError));
+      const error = onError.mock.calls.at(-1)?.[0] as FileImportError;
+      expect(error.code).toBe('empty-selection');
+      expect(error.message).toBe('No files selected for import');
     });
   });
 
@@ -157,11 +157,10 @@ describe('useFileImportService', () => {
         });
       });
 
-      expect(onError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Database error',
-        })
-      );
+      expect(onError).toHaveBeenCalledWith(expect.any(FileImportError));
+      const error = onError.mock.calls.at(-1)?.[0] as FileImportError;
+      expect(error.code).toBe('repository-error');
+      expect(error.message).toBe('Database error');
     });
 
     it('should handle bulk import returning null', async () => {
@@ -176,11 +175,10 @@ describe('useFileImportService', () => {
         });
       });
 
-      expect(onError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          message: 'Bulk import not supported by repository',
-        })
-      );
+      expect(onError).toHaveBeenCalledWith(expect.any(FileImportError));
+      const error = onError.mock.calls.at(-1)?.[0] as FileImportError;
+      expect(error.code).toBe('unsupported-operation');
+      expect(error.message).toBe('Bulk import not supported by repository');
     });
   });
 

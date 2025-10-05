@@ -293,6 +293,12 @@ export {
   type MastraAgentRuntimeOptions,
   streamMastraAgent,
 } from './mastra/agent-runtime';
+export {
+  createMastraAgentError,
+  isMastraAgentError,
+  MastraAgentError,
+  type MastraAgentErrorCode,
+} from './mastra/mastra-agent-error';
 export { webTools } from './mastra/web-tools';
 // Minimal placeholder agent: echoes user text in a streamed fashion.
 // Memory store for early development
