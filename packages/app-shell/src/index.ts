@@ -2,6 +2,12 @@ export * from './app-config';
 export * from './app-layout';
 export * from './assistant-ui-panel-wrapper';
 export * from './csv-export-utils';
+export {
+  useDatabaseDemoData,
+  useEmbeddingService,
+  useImportFlow,
+  usePendingChunks,
+} from './database-demo';
 export * from './database-demo-panel';
 export * from './navigation';
 export * from './page-wrapper';
