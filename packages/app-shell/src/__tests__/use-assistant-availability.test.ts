@@ -1,0 +1,128 @@
+import { renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantAvailabilityStatus,
+  type AssistantStatusFetcher,
+  fetchAssistantStatusState,
+  resolveAssistantStatusUrl,
+  useAssistantAvailability,
+} from '../hooks/use-assistant-availability';
+
+describe('useAssistantAvailability', () => {
+  it('returns fetcher result', async () => {
+    const fetcher = vi.fn<AssistantStatusFetcher>().mockResolvedValue({ state: 'enabled' });
+
+    const { result } = renderHook(() => useAssistantAvailability(fetcher));
+
+    expect(result.current.state).toBe('loading');
+    await waitFor(() => expect(result.current.state).toBe('enabled'));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it('maps fetcher errors to error state', async () => {
+    const fetcher = vi.fn<AssistantStatusFetcher>().mockRejectedValue(new Error('boom'));
+
+    const { result } = renderHook(() => useAssistantAvailability(fetcher));
+
+    await waitFor(() => expect(result.current).toEqual({ state: 'error', message: 'boom' }));
+  });
+});
+
+describe('resolveAssistantStatusUrl', () => {
+  const originalAssistant = (window as unknown as { assistant?: unknown }).assistant;
+
+  afterEach(() => {
+    (window as unknown as { assistant?: unknown }).assistant = originalAssistant;
+  });
+
+  it('returns default path when bridge is missing', async () => {
+    (window as unknown as { assistant?: unknown }).assistant = undefined;
+
+    await expect(resolveAssistantStatusUrl()).resolves.toBe('/api/assistant/status');
+  });
+
+  it('prefers async getUrl when provided', async () => {
+    (window as unknown as { assistant?: { getUrl: () => Promise<string> } }).assistant = {
+      async getUrl() {
+        return 'https://bridge.example.com/';
+      },
+    };
+
+    await expect(resolveAssistantStatusUrl()).resolves.toBe(
+      'https://bridge.example.com/assistant/status'
+    );
+  });
+
+  it('falls back to static url when getUrl fails', async () => {
+    (
+      window as unknown as { assistant?: { getUrl: () => Promise<string>; url: string } }
+    ).assistant = {
+      async getUrl() {
+        throw new Error('fail');
+      },
+      url: 'https://fallback.example.com/',
+    };
+
+    await expect(resolveAssistantStatusUrl()).resolves.toBe(
+      'https://fallback.example.com/assistant/status'
+    );
+  });
+});
+
+describe('fetchAssistantStatusState', () => {
+  beforeEach(() => {
+    (window as unknown as { assistant?: unknown }).assistant = undefined;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns enabled status when backend is enabled', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      ok: true,
+      json: async () => ({ enabled: true }),
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      signal: new AbortController().signal,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith('/api/assistant/status', {
+      headers: { accept: 'application/json' },
+      signal: expect.any(AbortSignal),
+    });
+    expect(result).toEqual<AssistantAvailabilityStatus>({ state: 'enabled' });
+  });
+
+  it('returns disabled state with reason', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      ok: true,
+      json: async () => ({ enabled: false, reason: 'missing_key' }),
+    } as unknown as Response);
+
+    const result = await fetchAssistantStatusState({
+      signal: new AbortController().signal,
+      fetchImpl,
+    });
+
+    expect(result).toEqual<AssistantAvailabilityStatus>({
+      state: 'disabled',
+      reason: 'missing_key',
+    });
+  });
+
+  it('throws on non-ok responses', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: async () => ({ enabled: false }),
+    } as unknown as Response);
+
+    await expect(
+      fetchAssistantStatusState({ signal: new AbortController().signal, fetchImpl })
+    ).rejects.toThrowError('status 500');
+  });
+});
