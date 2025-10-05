@@ -13,6 +13,21 @@ export interface AssistantUiPanelWrapperProps {
   className?: string;
 }
 
+/**
+ * Auto-select first provider and its default model
+ */
+function autoSelectFirstProvider(
+  provider: SupportedProvider,
+  setProvider: (p: SupportedProvider) => void,
+  setModel: (p: SupportedProvider, m: string) => void
+): void {
+  setProvider(provider);
+  const defaultModel = getProviderDefaultModel(provider);
+  if (defaultModel) {
+    setModel(provider, defaultModel);
+  }
+}
+
 export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
   const [availableProviders, setAvailableProviders] = useState<SupportedProvider[]>([]);
 
@@ -22,7 +37,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     setProvider,
     clearProvider,
     setModel,
-    getSelectedModel,
     getAvailableProviders,
   } = useAssistantPreferencesStore();
 
@@ -31,22 +45,35 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     const loadProviders = async () => {
       const providers = await getAvailableProviders();
       setAvailableProviders(providers);
+
+      // Clear provider if current selection is no longer available
       if (selectedProvider && !providers.includes(selectedProvider)) {
         clearProvider();
+        return;
+      }
+
+      // Auto-select first provider if none selected and providers are available
+      if (!selectedProvider && providers.length > 0 && providers[0]) {
+        autoSelectFirstProvider(providers[0], setProvider, setModel);
       }
     };
     void loadProviders();
-  }, [getAvailableProviders, selectedProvider, clearProvider]);
+  }, [getAvailableProviders, selectedProvider, clearProvider, setProvider, setModel]);
 
-  const currentModel = getSelectedModel();
+  const currentModel = selectedProvider
+    ? (modelsByProvider[selectedProvider] ?? getProviderDefaultModel(selectedProvider))
+    : null;
 
   const handleProviderChange = useCallback(
     (value: string) => {
       const provider = value as SupportedProvider;
       setProvider(provider);
-      // Auto-select default model for new provider if current model not available
+
+      // Ensure the new provider has a valid model selected
       const models = getProviderModels(provider);
       const currentModelForProvider = modelsByProvider[provider];
+
+      // If no model is set for this provider, or the current model is invalid, set the default
       if (!currentModelForProvider || !models.includes(currentModelForProvider)) {
         const defaultModel = getProviderDefaultModel(provider);
         if (defaultModel) {
