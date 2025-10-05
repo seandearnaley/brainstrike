@@ -3,6 +3,7 @@ export type MastraAgentErrorCode =
   | 'mastra_agent_missing_api_key'
   | 'mastra_agent_runtime_init_failed'
   | 'mastra_agent_stream_failure'
+  | 'mastra_agent_unsupported_provider'
   | 'mcp_tool_discovery_timeout';
 
 export interface MastraAgentErrorOptions {

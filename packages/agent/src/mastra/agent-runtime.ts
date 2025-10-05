@@ -1,6 +1,6 @@
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { createLogger } from '@brainstrike/utils';
-import { Agent, type ToolsInput } from '@mastra/core/agent';
+import { Agent, type MastraLanguageModel, type ToolsInput } from '@mastra/core/agent';
 import { MCPClient, type MCPClientOptions } from '@mastra/mcp';
 // TextStreamPart generic in `ai` is constrained to a ToolSet; avoid it here to keep types generic.
 import type { AgentMessage, RuntimeData, StreamChunk, StreamIterator } from '../index';
@@ -82,6 +82,27 @@ function toMastraServerMap(config: McpConfig | undefined): MCPClientOptions['ser
   return map;
 }
 
+function instantiateLanguageModel(
+  provider: string,
+  apiKey: string | undefined,
+  modelName: string
+): MastraLanguageModel {
+  try {
+    return createProvider(provider, apiKey, modelName);
+  } catch (error) {
+    if (isMastraAgentError(error)) {
+      throw error;
+    }
+    const detail =
+      error instanceof Error && error.message ? error.message : 'provider creation failed';
+    throw createMastraAgentError('mastra_agent_runtime_init_failed', {
+      cause: error,
+      detail,
+      context: { provider, model: modelName },
+    });
+  }
+}
+
 export function convertMessagesToMastra(
   messages: AgentMessage[]
 ): Array<{ role: 'user' | 'assistant' | 'system'; content: string }> {
@@ -149,7 +170,7 @@ export async function createMastraAgentRuntime(
 
   // Create provider-specific model instance
   const modelName = model ?? getDefaultModel(normalizedProvider);
-  const languageModel = createProvider(normalizedProvider, apiKey, modelName);
+  const languageModel = instantiateLanguageModel(normalizedProvider, apiKey, modelName);
 
   const agent = new Agent({
     name: 'Brainstrike Assistant',

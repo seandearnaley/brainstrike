@@ -1,10 +1,37 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentMessage } from '../index';
+import { isMastraAgentError } from '../mastra/mastra-agent-error';
 
 // Import the runtime functions - we'll need to expose some internal functions for testing
 // or test them through their public interfaces
 
 describe('agent-runtime edge cases', () => {
+  describe('createMastraAgentRuntime provider handling', () => {
+    it('propagates MastraAgentError when provider is unsupported', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      await expect(
+        createMastraAgentRuntime({ runtime: { apiKey: 'test-key', provider: 'unsupported' } })
+      ).rejects.toSatisfy((error: unknown) => {
+        if (!isMastraAgentError(error)) return false;
+        expect(error.code).toBe('mastra_agent_unsupported_provider');
+        expect(error.context).toEqual({ provider: 'unsupported' });
+        return true;
+      });
+    });
+
+    it('creates runtime successfully for supported provider', async () => {
+      const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
+
+      const runtime = await createMastraAgentRuntime({
+        runtime: { apiKey: 'test-key', provider: 'openai' },
+      });
+
+      expect(runtime.agent).toBeDefined();
+      await runtime.dispose();
+    });
+  });
+
   describe('convertMessagesToMastra', () => {
     // We need to import this - let me check if it's exported
     it('filters out empty messages with no text parts', async () => {

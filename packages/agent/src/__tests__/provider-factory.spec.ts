@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { isMastraAgentError } from '../mastra/mastra-agent-error';
 import { createProvider, getDefaultModel } from '../providers/provider-factory';
 
 describe('provider-factory', () => {
@@ -55,10 +56,17 @@ describe('provider-factory', () => {
       expect(model.modelId).toBe('claude-3-opus');
     });
 
-    it('throws error for unsupported provider', () => {
-      expect(() => createProvider('unsupported', 'test-key')).toThrow(
-        'Unsupported provider: unsupported'
-      );
+    it('throws MastraAgentError for unsupported provider', () => {
+      try {
+        createProvider('unsupported', 'test-key');
+        throw new Error('Expected unsupported provider to throw');
+      } catch (error) {
+        expect(isMastraAgentError(error)).toBe(true);
+        if (isMastraAgentError(error)) {
+          expect(error.code).toBe('mastra_agent_unsupported_provider');
+          expect(error.context).toEqual({ provider: 'unsupported' });
+        }
+      }
     });
 
     it('creates provider without explicit API key (uses env vars)', () => {
