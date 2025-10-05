@@ -1,4 +1,3 @@
-import type { FileChunk, FileRecord } from '@brainstrike/db';
 import {
   useClearAllData,
   useDbProviderError,
@@ -6,8 +5,6 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
-import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import {
   Button,
   Card,
@@ -24,7 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 // UI Constants
 const CONTENT_SCROLL_AREA_HEIGHT = 'h-[400px]';
 
-import type { EnhancedImportProgress } from './database-demo';
+import type { EnhancedImportProgress, EnhancedImportResult } from './database-demo';
 import {
   ChunksView,
   ClearDatabaseDialog,
@@ -42,7 +39,11 @@ import {
   useSearchFunctionality,
   ViewSelector,
 } from './database-demo';
-import { useEnhancedFileImportService } from './enhanced-file-import-service';
+import { useDatabaseDemoData } from './database-demo/use-database-demo-data';
+import { useEmbeddingService } from './database-demo/use-embedding-service';
+import type { UseImportFlowResult } from './database-demo/use-import-flow';
+import { useImportFlow } from './database-demo/use-import-flow';
+import { usePendingChunks } from './database-demo/use-pending-chunks';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
@@ -56,16 +57,10 @@ export function DatabaseDemoPanel() {
   const errorBoundary = useDatabaseErrorBoundary({
     toast,
     onError: (error) => {
-      // Log critical errors for monitoring in production
       console.error('Database operation error:', error);
     },
   });
 
-  // State
-  const [records, setRecords] = useState<FileRecord[]>([]);
-  const [chunks, setChunks] = useState<FileChunk[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
-  const [showImportProgress, setShowImportProgress] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
   const expandedFileIds = useDatabaseDemoStore((s) => s.expandedFileIds);
@@ -80,57 +75,31 @@ export function DatabaseDemoPanel() {
   const persistedSearchQuery = useDatabaseDemoStore((s) => s.searchQuery);
   const persistedThreshold = useDatabaseDemoStore((s) => s.searchThreshold);
   const expandedFiles = useMemo(() => new Set(expandedFileIds), [expandedFileIds]);
-  const [embeddingService, setEmbeddingService] = useState<SimpleEmbeddingService | null>(null);
-  const [dbInfo, setDbInfo] = useState<{
-    location: string;
-    testResult: string;
-    connected: boolean;
-  } | null>(null);
-  const [pendingChunkIds, setPendingChunkIds] = useState<Set<string>>(new Set());
-  const db = usePGliteDatabase();
 
-  // Custom hooks
   const importSettings = useImportSettings();
-  const exportHandlers = useExportHandlers(records, chunks, toast);
+  const [chunkRepository, setChunkRepository] =
+    useState<UseImportFlowResult['chunkRepository']>(null);
 
-  // File explorer and selection
-  const { fileContents, fileTree } = useFileExplorer();
-  const { selectedFilePaths } = useSelectionManager({
-    onSelectionLimitExceeded: () => {
-      toast({
-        title: 'Selection Limit Reached',
-        description: 'You have reached the maximum number of files that can be selected.',
-        variant: 'destructive',
-      });
-    },
+  const data = useDatabaseDemoData({
+    repository,
+    chunkRepository,
+    toast,
+    database: dbContext,
+  });
+  const { records, chunks, refreshing, dbInfo, loadRecords, loadChunks } = data;
+
+  const { pendingChunkIds } = usePendingChunks({
+    database: dbContext,
+    resolveActiveSetId: getActiveEmbeddingSetId,
   });
 
-  // Enhanced file import service
-  const { isImporting, progress, importFiles, chunkRepository } = useEnhancedFileImportService({
-    onProgress: () => setShowImportProgress(true),
-    onComplete: (results) => {
-      const handler = createImportCompletionHandler(toast, loadRecords, () => {
-        if (chunkRepository) return loadChunks();
-        return Promise.resolve();
-      });
-      handler(results);
-    },
-    onError: (error) => {
-      toast({
-        title: 'Import Failed',
-        description: error.message,
-        variant: 'destructive',
-      });
-    },
-    enableChunking: importSettings.enableChunking,
-    chunkingStrategy: importSettings.chunkingStrategy,
+  const { service: embeddingService, dispose: disposeEmbeddingService } = useEmbeddingService({
     enableEmbedding: importSettings.enableEmbedding,
-    embeddingModel: importSettings.selectedModel,
-    chunkSize: importSettings.chunkSize,
-    chunkOverlap: importSettings.chunkOverlap,
+    model: importSettings.selectedModel ?? null,
   });
 
-  // Search functionality
+  const exportHandlers = useExportHandlers(data.records, data.chunks, toast);
+
   const searchFunctionality = useSearchFunctionality(
     embeddingService,
     chunkRepository,
@@ -153,195 +122,57 @@ export function DatabaseDemoPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep persisted values in sync with live search state
   useEffect(() => {
     setSearchQueryPersist(searchFunctionality.searchQuery);
   }, [searchFunctionality.searchQuery, setSearchQueryPersist]);
+
   useEffect(() => {
     setSearchThresholdPersist(searchFunctionality.searchThreshold);
   }, [searchFunctionality.searchThreshold, setSearchThresholdPersist]);
 
-  // Initialize embedding service
-  useEffect(() => {
-    if (importSettings.enableEmbedding && importSettings.selectedModel) {
-      const service = new SimpleEmbeddingService();
-      setEmbeddingService(service);
-      return () => service.dispose();
-    }
-    return () => {};
-  }, [importSettings.enableEmbedding, importSettings.selectedModel]);
+  const importFlowSettings = useMemo(
+    () => ({
+      enableChunking: importSettings.enableChunking,
+      chunkingStrategy: importSettings.chunkingStrategy,
+      enableEmbedding: importSettings.enableEmbedding,
+      selectedModel: importSettings.selectedModel ?? null,
+      chunkSize: importSettings.chunkSize,
+      chunkOverlap: importSettings.chunkOverlap,
+    }),
+    [
+      importSettings.enableChunking,
+      importSettings.chunkingStrategy,
+      importSettings.enableEmbedding,
+      importSettings.selectedModel,
+      importSettings.chunkSize,
+      importSettings.chunkOverlap,
+    ]
+  );
 
-  // Data loading functions
-  const loadRecords = useCallback(async () => {
-    if (!repository) return;
+  const handleImportComplete = useCallback(
+    (results: EnhancedImportResult[]) => {
+      const handler = createImportCompletionHandler(toast, loadRecords, loadChunks);
+      handler(results);
+    },
+    [toast, loadRecords, loadChunks]
+  );
 
-    try {
-      setRefreshing(true);
-      const importedRecords =
-        (await repository.findAllWithContent?.()) || (await repository.findAll());
-      setRecords(importedRecords);
-    } catch (_error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to load database records',
-        variant: 'destructive',
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [repository, toast]);
+  const importFlow = useImportFlow({
+    importSettings: importFlowSettings,
+    toast,
+    onImportComplete: handleImportComplete,
+    onChunkRepositoryChange: setChunkRepository,
+  });
 
-  const loadChunks = useCallback(async () => {
-    if (!chunkRepository) return;
-
-    try {
-      const allChunks = await chunkRepository.findAll();
-      setChunks(allChunks);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : '';
-      if (!errorMessage.includes('vector') && !errorMessage.includes('chunks')) {
-        toast({
-          title: 'Error',
-          description: 'Failed to load chunks',
-          variant: 'destructive',
-        });
-      }
-      setChunks([]);
-    }
-  }, [chunkRepository, toast]);
-
-  // Poll queued/running jobs to mark pending chunks for the active set
-  useEffect(() => {
-    let canceled = false;
-    if (!db) return;
-    const activeSetId = getActiveEmbeddingSetId() ?? null;
-    if (!activeSetId) return;
-    const fetchPending = async () => {
-      try {
-        const res = await db.query<{ dedupeKey: string | null }>(
-          "SELECT dedupe_key AS \"dedupeKey\" FROM job_queue WHERE queue = 'embeddings' AND state IN ('queued','running')"
-        );
-        const ids = new Set(
-          res.rows
-            .map((r) => (r.dedupeKey ?? '').split(':'))
-            .filter((p) => p.length >= 2 && p[1] === activeSetId && p[0])
-            .map((p) => p[0] as string)
-        );
-        if (!canceled) setPendingChunkIds(ids);
-      } catch {
-        // ignore HUD errors
-      }
-    };
-    void fetchPending();
-    const id = setInterval(fetchPending, 2000);
-    return () => {
-      canceled = true;
-      clearInterval(id);
-    };
-  }, [db]);
-
-  const testDatabaseConnection = useCallback(async () => {
-    if (!repository) {
-      setDbInfo({
-        location: 'Unknown',
-        testResult: 'Repository not available',
-        connected: false,
-      });
-      return;
-    }
-
-    try {
-      const testResult = await repository.count();
-      setDbInfo({
-        location: 'Database connected via DbProvider',
-        testResult: `Successfully connected - ${testResult} file records found`,
-        connected: true,
-      });
-    } catch (error) {
-      setDbInfo({
-        location: 'Unknown',
-        testResult: `Database connection failed: ${error}`,
-        connected: false,
-      });
-    }
-  }, [repository]);
-
-  // Initialize data
-  useEffect(() => {
-    // Fast-path: if running in Electron with IPC, test connectivity directly
-    try {
-      // biome-ignore lint/suspicious/noExplicitAny: window API comes from preload
-      const w = window as any;
-      const hasIpcPing = w?.electronAPI?.db?.ping;
-      if (hasIpcPing) {
-        void (async () => {
-          try {
-            const res = await w.electronAPI.db.ping();
-            if (res?.success) {
-              setDbInfo({
-                location: 'Main Process',
-                testResult: 'connected',
-                connected: true,
-              });
-            }
-          } catch (_e) {
-            // noop
-          }
-        })();
-      }
-      const hasIpcTest = w?.electronAPI?.db?.test;
-      if (hasIpcTest) {
-        void (async () => {
-          try {
-            const res = await w.electronAPI.db.test();
-            if (res?.success) {
-              setDbInfo({
-                location: 'Main Process',
-                testResult: 'Connected (IPC)',
-                connected: true,
-              });
-            }
-          } catch (_e) {
-            // noop, repository-based test below will set proper state
-          }
-        })();
-      }
-    } catch (_err) {
-      // ignore
-    }
-
-    if (repository) {
-      void loadRecords();
-      void testDatabaseConnection();
-    }
-    if (chunkRepository) {
-      void loadChunks();
-    }
-  }, [repository, chunkRepository, loadRecords, loadChunks, testDatabaseConnection]);
-
-  // Auto-refresh chunks when queue drains for embeddings
   useEffect(() => {
     const handler = () => {
-      if (chunkRepository) void loadChunks();
+      void loadChunks();
     };
     window.addEventListener('brainstrike:queue-drained', handler as EventListener);
     return () => {
       window.removeEventListener('brainstrike:queue-drained', handler as EventListener);
     };
-  }, [chunkRepository, loadChunks]);
-
-  // Event handlers
-  const handleImportClick = useCallback(() => {
-    if (selectedFilePaths.size === 0) {
-      toast({
-        title: 'No Files Selected',
-        description: 'Please select files in the explorer before importing.',
-        variant: 'destructive',
-      });
-      return;
-    }
-    void importFiles(selectedFilePaths, fileTree, fileContents);
-  }, [selectedFilePaths, fileTree, fileContents, importFiles, toast]);
+  }, [loadChunks]);
 
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
@@ -355,16 +186,12 @@ export function DatabaseDemoPanel() {
 
     setShowClearDialog(false);
 
-    // Use error boundary with multiple operations for comprehensive error handling
     await errorBoundary.executeMultipleOperations(
       [
         {
-          operation: async () => {
-            const clearResult = await clearAllData();
-            return clearResult;
-          },
+          operation: async () => clearAllData(),
           name: 'Clear Database',
-          critical: true, // If clear fails, don't try to reload data
+          critical: true,
         },
         {
           operation: async () => {
@@ -374,18 +201,14 @@ export function DatabaseDemoPanel() {
           name: 'Reload File Records',
           critical: false,
         },
-        ...(chunkRepository
-          ? [
-              {
-                operation: async () => {
-                  await loadChunks();
-                  return { deletedFiles: 0, deletedChunks: 0 };
-                },
-                name: 'Reload Chunks',
-                critical: false,
-              },
-            ]
-          : []),
+        {
+          operation: async () => {
+            await loadChunks();
+            return { deletedFiles: 0, deletedChunks: 0 };
+          },
+          name: 'Reload Chunks',
+          critical: false,
+        },
       ],
       setClearing,
       {
@@ -395,27 +218,19 @@ export function DatabaseDemoPanel() {
         partialSuccessMessage: 'Database was cleared but some data reload operations failed',
       }
     );
-  }, [clearAllData, toast, loadRecords, loadChunks, chunkRepository, errorBoundary]);
+  }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
 
-  // Factory reset helpers (extracted to reduce inline complexity)
   const safeDisposeEmbeddingService = useCallback(async () => {
-    if (!embeddingService) return;
-    try {
-      await embeddingService.dispose();
-    } catch (err) {
-      // Log for diagnostics; UI will handle toast on outer error
-      console.warn('Failed to dispose embedding service during factory reset:', err);
-    }
-    setEmbeddingService(null);
-  }, [embeddingService]);
+    await disposeEmbeddingService();
+  }, [disposeEmbeddingService]);
 
-  const clearActiveEmbeddingSetId = () => {
+  const clearActiveEmbeddingSetId = useCallback(() => {
     try {
       localStorage.removeItem('brainstrike.activeEmbeddingSetId');
     } catch (err) {
       console.warn('Failed to clear active embedding set id:', err);
     }
-  };
+  }, []);
 
   const bestEffortPurgeDb = useCallback(async () => {
     if (!dbContext) return;
@@ -465,7 +280,13 @@ export function DatabaseDemoPanel() {
         variant: 'destructive',
       });
     }
-  }, [safeDisposeEmbeddingService, bestEffortPurgeDb, performFactoryResetOrReload, toast]);
+  }, [
+    safeDisposeEmbeddingService,
+    clearActiveEmbeddingSetId,
+    bestEffortPurgeDb,
+    performFactoryResetOrReload,
+    toast,
+  ]);
 
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
@@ -476,8 +297,8 @@ export function DatabaseDemoPanel() {
   );
 
   const getFileChunks = useCallback(
-    (fileId: string) => chunks.filter((chunk) => chunk.fileRecordId === fileId),
-    [chunks]
+    (fileId: string) => data.chunks.filter((chunk) => chunk.fileRecordId === fileId),
+    [data.chunks]
   );
 
   if (dbInitError) {
@@ -566,19 +387,19 @@ export function DatabaseDemoPanel() {
         <div className="flex gap-2 pt-2">
           <Button
             size="sm"
-            onClick={handleImportClick}
-            disabled={isImporting}
+            onClick={importFlow.handleImportClick}
+            disabled={importFlow.isImporting}
             className="flex items-center gap-1"
           >
             <FileText className="h-3 w-3" />
-            Import Selected Files ({selectedFilePaths.size})
+            Import Selected Files ({importFlow.selectedFileCount})
           </Button>
           <Button
             size="sm"
             variant="outline"
             onClick={() => {
               void loadRecords();
-              if (chunkRepository) void loadChunks();
+              void loadChunks();
             }}
             disabled={refreshing}
             className="flex items-center gap-1"
@@ -602,11 +423,11 @@ export function DatabaseDemoPanel() {
 
         <ExportButtons records={records} chunks={chunks} exportHandlers={exportHandlers} />
 
-        {showImportProgress && progress && (
+        {importFlow.showImportProgress && importFlow.progress && (
           <div className="mt-4">
             <ImportProgressDisplay
-              progress={progress as EnhancedImportProgress}
-              onClose={() => setShowImportProgress(false)}
+              progress={importFlow.progress as EnhancedImportProgress}
+              onClose={() => importFlow.setShowImportProgress(false)}
             />
           </div>
         )}
