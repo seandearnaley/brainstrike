@@ -43,8 +43,10 @@ test.describe('Assistant UI panel (web, assistant-ui mode)', () => {
     const sendBtn = page.getByRole('button', { name: 'Send' });
     await sendBtn.click();
 
-    // Expect assistant to stream content
-    await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10_000 });
+    // Expect assistant to stream content (mock sends "Assistant: Mock response from tests.")
+    await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
 
     const stopBtn = page.getByRole('button', { name: 'Stop' });
     await expect(stopBtn).toBeVisible();

@@ -202,3 +202,54 @@
 .aui-user-message-root:last-child {
   margin-bottom: 1rem; /* Consistent with assistant last-message spacing */
 }
+
+/**
+ * ACTION BAR STYLING: Enhanced action bars with proper hover and autohide behavior
+ */
+.aui-assistant-action-bar-root,
+.aui-user-action-bar-root {
+  transition: opacity 0.2s ease-in-out;
+}
+
+/* Branch picker styling */
+.aui-branch-picker {
+  padding: 0.25rem 0;
+}
+
+/* Edit composer styling */
+.aui-edit-composer {
+  min-height: 3rem;
+}
+
+.aui-edit-composer textarea {
+  min-height: 2rem;
+  font-size: 0.75rem;
+}
+
+/**
+ * SYNTAX HIGHLIGHTING THEME: Shiki dual theme support
+ *
+ * React-shiki uses CSS variables to switch between light/dark themes.
+ * The dark theme is activated when .dark class is present on html or ancestor.
+ */
+
+/* Dark mode theme switching for class-based dark mode */
+html.dark .shiki,
+html.dark .shiki span {
+  color: var(--shiki-dark);
+  background-color: var(--shiki-dark-bg);
+  font-style: var(--shiki-dark-font-style);
+  font-weight: var(--shiki-dark-font-weight);
+  text-decoration: var(--shiki-dark-text-decoration);
+}
+
+/* Code block container styling */
+.aui-code-block {
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.aui-code-header-root {
+  border-bottom: 1px solid hsl(var(--border));
+}

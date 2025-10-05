@@ -54,9 +54,11 @@ test.describe('Assistant panel interactions (assistant-ui)', () => {
     }
     expect(stopWasEnabled).toBeTruthy();
 
-    // Retry and expect assistant to respond again (assistant-ui)
+    // Retry and expect assistant to respond again (assistant-ui) - mock sends "Assistant: Mock response from tests."
     await page.getByRole('button', { name: 'Retry' }).click();
-    await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
+    await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
+      timeout: 10000,
+    });
 
     // Send a long prompt and verify Stop works mid-stream (smoke)
     await page

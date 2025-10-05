@@ -33,8 +33,10 @@ test.describe('Assistant panel (assistant-ui default)', () => {
     await page.locator('#assistant-input').fill('hello world');
     await page.getByRole('button', { name: 'Send' }).click();
 
-    // Expect streamed assistant response to appear
-    await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10_000 });
+    // Expect streamed assistant response to appear (mock sends "Assistant: Mock response from tests.")
+    await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
 
     // Switch away to Search tab and back to Props
     await page
@@ -47,6 +49,8 @@ test.describe('Assistant panel (assistant-ui default)', () => {
       .click();
 
     // State should persist across tab switches (allow time after navigation)
-    await expect(viewport.getByText('Assistant:').first()).toBeVisible({ timeout: 10000 });
+    await expect(viewport.getByText(/Mock response from tests/i).first()).toBeVisible({
+      timeout: 10000,
+    });
   });
 });

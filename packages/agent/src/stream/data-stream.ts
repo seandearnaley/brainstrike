@@ -395,6 +395,17 @@ class DataStreamMapper {
         (payload as { result?: unknown }).result ??
         'tool_error'
     );
+
+    // Emit ToolCall with args if we haven't already (needed for UI to display tool)
+    const state = this.toolState.get(callId);
+    if (state) {
+      const args = toArgsObject(state.lastInput, state.pendingArgsText);
+      yield {
+        code: DataStreamCode.ToolCall,
+        value: { toolCallId: callId, toolName: state.toolName, args },
+      } satisfies EncodedChunk;
+    }
+
     this.toolState.delete(callId);
     yield {
       code: DataStreamCode.ToolCallResult,

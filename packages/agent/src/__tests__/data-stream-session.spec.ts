@@ -8,6 +8,13 @@ import {
 
 type Encoded = { code: string; value: unknown };
 
+function assertDefined<T>(value: T | undefined, message: string): T {
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
+}
+
 function createAsyncStream(chunks: StreamChunk[]): AsyncIterable<StreamChunk> {
   return {
     async *[Symbol.asyncIterator]() {
@@ -420,6 +427,275 @@ describe('AssistantDataStreamSession', () => {
 
     expect(cleanupCalled).toBe(true);
     expect(cleanupSessionId).toBe('cleanup-test');
+  });
+
+  describe('Tool Error Handling', () => {
+    it('emits ToolCall chunk before ToolCallResult on error', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'testTool',
+          status: 'start',
+          payload: {
+            callId: 'call_123',
+            toolCallId: 'call_123',
+            input: { param: 'value' },
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'testTool',
+          status: 'error',
+          payload: {
+            callId: 'call_123',
+            toolCallId: 'call_123',
+            error: 'Not connected',
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 10, completionTokens: 20 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'tool-error-test',
+        messageId: 'msg-tool-error',
+      });
+
+      const response = await readResponse(session.createResponse());
+      const parsed = parseLines(response);
+
+      // Find the relevant chunks
+      const startToolCall = parsed.find((p) => p.code === 'b'); // StartToolCall
+      const toolCall = parsed.find((p) => p.code === '9'); // ToolCall with args
+      const toolResult = parsed.find((p) => p.code === 'a'); // ToolCallResult
+      const errorChunk = parsed.find((p) => p.code === '3'); // Error
+
+      // Verify StartToolCall was emitted
+      expect(startToolCall).toBeDefined();
+      const startToolCallChunk = assertDefined(startToolCall, 'Expected StartToolCall chunk');
+      expect(startToolCallChunk.value).toMatchObject({
+        toolCallId: 'call_123',
+        toolName: 'testTool',
+      });
+
+      // Verify ToolCall with args was emitted (critical for UI rendering!)
+      expect(toolCall).toBeDefined();
+      const toolCallChunk = assertDefined(toolCall, 'Expected ToolCall chunk');
+      expect(toolCallChunk.value).toMatchObject({
+        toolCallId: 'call_123',
+        toolName: 'testTool',
+        args: { param: 'value' },
+      });
+
+      // Verify ToolCallResult with error flag was emitted
+      expect(toolResult).toBeDefined();
+      const toolResultChunk = assertDefined(toolResult, 'Expected ToolCallResult chunk');
+      expect(toolResultChunk.value).toMatchObject({
+        toolCallId: 'call_123',
+        result: 'Not connected',
+        isError: true,
+      });
+
+      // Verify Error chunk was emitted
+      expect(errorChunk).toBeDefined();
+      const errorChunkEntry = assertDefined(errorChunk, 'Expected Error chunk');
+      expect(errorChunkEntry.value).toBe('Not connected');
+
+      // Verify correct order: StartToolCall -> ToolCall -> ToolCallResult -> Error
+      const startIdx = parsed.indexOf(startToolCallChunk);
+      const toolIdx = parsed.indexOf(toolCallChunk);
+      const resultIdx = parsed.indexOf(toolResultChunk);
+      const errorIdx = parsed.indexOf(errorChunkEntry);
+
+      expect(startIdx).toBeLessThan(toolIdx);
+      expect(toolIdx).toBeLessThan(resultIdx);
+      expect(resultIdx).toBeLessThan(errorIdx);
+    });
+
+    it('handles tool error without explicit input in error payload', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'brokenTool',
+          status: 'start',
+          payload: {
+            callId: 'call_456',
+            toolCallId: 'call_456',
+            input: { query: 'test' },
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'brokenTool',
+          status: 'error',
+          payload: {
+            callId: 'call_456',
+            toolCallId: 'call_456',
+            error: { message: 'Internal error', code: 500 },
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 5, completionTokens: 10 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'tool-error-no-input',
+        messageId: 'msg-error-no-input',
+      });
+
+      const response = await readResponse(session.createResponse());
+      const parsed = parseLines(response);
+
+      const toolCall = parsed.find((p) => p.code === '9');
+      const toolResult = parsed.find((p) => p.code === 'a');
+
+      // Should still emit ToolCall with args from the start event
+      expect(toolCall).toBeDefined();
+      expect(toolCall?.value).toMatchObject({
+        toolCallId: 'call_456',
+        toolName: 'brokenTool',
+        args: { query: 'test' },
+      });
+
+      // Should emit error result with the error object
+      expect(toolResult).toBeDefined();
+      expect(toolResult?.value).toMatchObject({
+        toolCallId: 'call_456',
+        isError: true,
+      });
+      expect(toolResult?.value).toHaveProperty('result');
+    });
+
+    it('handles tool error with args text delta', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'streamTool',
+          status: 'start',
+          payload: {
+            callId: 'call_789',
+            toolCallId: 'call_789',
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'streamTool',
+          status: 'progress',
+          payload: {
+            callId: 'call_789',
+            step: 'input_stream_delta',
+            argsTextDelta: '{"location"',
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'streamTool',
+          status: 'progress',
+          payload: {
+            callId: 'call_789',
+            step: 'input_stream_delta',
+            argsTextDelta: ':"SF"}',
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'streamTool',
+          status: 'error',
+          payload: {
+            callId: 'call_789',
+            toolCallId: 'call_789',
+            error: 'Connection timeout',
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 10, completionTokens: 15 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'tool-error-streamed',
+        messageId: 'msg-error-streamed',
+      });
+
+      const response = await readResponse(session.createResponse());
+      const parsed = parseLines(response);
+
+      const argsDeltas = parsed.filter((p) => p.code === 'c'); // ToolCallArgsTextDelta
+      const toolCall = parsed.find((p) => p.code === '9'); // ToolCall
+      const toolResult = parsed.find((p) => p.code === 'a'); // ToolCallResult
+
+      // Should have emitted the args text deltas
+      expect(argsDeltas).toHaveLength(2);
+      expect(argsDeltas[0]?.value).toMatchObject({
+        toolCallId: 'call_789',
+        argsTextDelta: '{"location"',
+      });
+      expect(argsDeltas[1]?.value).toMatchObject({
+        toolCallId: 'call_789',
+        argsTextDelta: ':"SF"}',
+      });
+
+      // Should emit ToolCall with reconstructed args from deltas
+      expect(toolCall).toBeDefined();
+      expect(toolCall?.value).toMatchObject({
+        toolCallId: 'call_789',
+        toolName: 'streamTool',
+        args: { location: 'SF' },
+      });
+
+      // Should emit error result
+      expect(toolResult).toBeDefined();
+      expect(toolResult?.value).toMatchObject({
+        toolCallId: 'call_789',
+        result: 'Connection timeout',
+        isError: true,
+      });
+    });
+
+    it('marks step as error when tool fails', async () => {
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool-event',
+          name: 'failTool',
+          status: 'start',
+          payload: {
+            callId: 'call_error',
+            toolCallId: 'call_error',
+            input: { test: 'value' },
+          },
+        },
+        {
+          type: 'tool-event',
+          name: 'failTool',
+          status: 'error',
+          payload: {
+            callId: 'call_error',
+            toolCallId: 'call_error',
+            error: 'Tool failed',
+          },
+        },
+        { type: 'finish', usage: { promptTokens: 1, completionTokens: 1 } },
+      ];
+
+      const session = new AssistantDataStreamSession(createAsyncStream(chunks), () => {}, {
+        sessionId: 'step-error-test',
+        messageId: 'msg-step-error',
+      });
+
+      const response = await readResponse(session.createResponse());
+      const parsed = parseLines(response);
+
+      const finishStep = parsed.find((p) => p.code === 'e'); // FinishStep
+      const finishMessage = parsed.find((p) => p.code === 'd'); // FinishMessage
+
+      // Step should be marked with error finish reason
+      expect(finishStep).toBeDefined();
+      expect(finishStep?.value).toMatchObject({
+        finishReason: 'error',
+      });
+
+      // Message should also be marked as error
+      expect(finishMessage).toBeDefined();
+      expect(finishMessage?.value).toMatchObject({
+        finishReason: 'error',
+      });
+    });
   });
 });
 

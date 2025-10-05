@@ -1,17 +1,29 @@
 import {
   ActionBarPrimitive,
   AssistantRuntimeProvider,
+  BranchPickerPrimitive,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
 } from '@assistant-ui/react';
 import { useDataStreamRuntime } from '@assistant-ui/react-data-stream';
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  CopyIcon,
+  PencilIcon,
+  RefreshCwIcon,
+} from 'lucide-react';
 import { type FC, useEffect, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
+import { Button } from '../button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
 import { MarkdownText } from './markdown-text';
+import { ToolFallback } from './tool-fallback';
+import { TooltipIconButton } from './tooltip-icon-button';
 
 export interface ProviderConfig {
   id: string;
@@ -173,45 +185,11 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
             <ThreadPrimitive.Messages
               components={{
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                AssistantMessage: () => (
-                  <MessagePrimitive.Root className="aui-assistant-message-root">
-                    <div className="aui-assistant-message-content">
-                      <div className="aui-assistant-message-label text-[11px] opacity-70 mb-1">
-                        Assistant:
-                      </div>
-                      <MessagePrimitive.Parts
-                        components={{
-                          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-                          Text: MarkdownText,
-                        }}
-                      />
-                    </div>
-                    <ActionBarPrimitive.Root
-                      autohide="not-last"
-                      hideWhenRunning
-                      className="aui-assistant-action-bar-root"
-                    >
-                      <ActionBarPrimitive.Reload
-                        aria-label="Retry"
-                        className="aui-button aui-button-ghost aui-button-icon"
-                      />
-                    </ActionBarPrimitive.Root>
-                  </MessagePrimitive.Root>
-                ),
+                AssistantMessage: AssistantMessage,
                 /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
-                UserMessage: () => (
-                  <MessagePrimitive.Root className="aui-user-message-root">
-                    <div className="aui-user-message-content">
-                      <div className="aui-user-message-label text-[11px] opacity-70 mb-1">You:</div>
-                      <MessagePrimitive.Parts
-                        components={{
-                          /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
-                          Text: MarkdownText,
-                        }}
-                      />
-                    </div>
-                  </MessagePrimitive.Root>
-                ),
+                UserMessage: UserMessage,
+                /* biome-ignore lint/style/useNamingConvention: assistant-ui component key */
+                EditComposer: EditComposer,
               }}
             />
           </ThreadPrimitive.Viewport>
@@ -273,6 +251,135 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
     </section>
+  );
+};
+
+// ===== Message Components =====
+
+const UserMessage: FC = () => {
+  return (
+    <MessagePrimitive.Root className="aui-user-message-root grid w-full auto-rows-auto grid-cols-[minmax(72px,1fr)_auto] gap-y-2 py-3 [&:where(>*)]:col-start-2">
+      <UserActionBar />
+
+      <div className="aui-user-message-content col-start-2 row-start-2 max-w-xl break-words rounded-2xl bg-muted px-4 py-2">
+        <MessagePrimitive.Parts
+          components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+            Text: MarkdownText,
+          }}
+        />
+      </div>
+
+      <BranchPicker className="col-span-full col-start-1 row-start-3 -mr-1 justify-end" />
+    </MessagePrimitive.Root>
+  );
+};
+
+const UserActionBar: FC = () => {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="not-last"
+      className="col-start-1 row-start-2 mr-3 mt-2 flex flex-col items-end"
+    >
+      <ActionBarPrimitive.Edit asChild>
+        <TooltipIconButton tooltip="Edit" aria-label="Edit message">
+          <PencilIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Edit>
+    </ActionBarPrimitive.Root>
+  );
+};
+
+const EditComposer: FC = () => {
+  return (
+    <ComposerPrimitive.Root className="my-4 flex w-full flex-col gap-2 rounded-xl bg-muted">
+      <ComposerPrimitive.Input className="flex h-8 w-full resize-none bg-transparent p-4 pb-0 text-foreground outline-none" />
+
+      <div className="mx-3 mb-3 flex items-center justify-center gap-2 self-end">
+        <ComposerPrimitive.Cancel asChild>
+          <Button variant="ghost" size="sm">
+            Cancel
+          </Button>
+        </ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send asChild>
+          <Button size="sm">Send</Button>
+        </ComposerPrimitive.Send>
+      </div>
+    </ComposerPrimitive.Root>
+  );
+};
+
+const AssistantMessage: FC = () => {
+  return (
+    <MessagePrimitive.Root className="aui-assistant-message-root relative grid w-full grid-cols-[auto_auto_1fr] grid-rows-[auto_1fr] py-3">
+      <div className="aui-assistant-message-content col-span-2 col-start-2 row-start-1 my-1.5 max-w-xl break-words leading-7 text-foreground">
+        <MessagePrimitive.Parts
+          components={{
+            /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Text" key */
+            Text: MarkdownText,
+            tools: {
+              /* biome-ignore lint/style/useNamingConvention: assistant-ui expects "Fallback" key */
+              Fallback: ToolFallback,
+            },
+          }}
+        />
+      </div>
+
+      <AssistantActionBar />
+
+      <BranchPicker className="col-start-2 row-start-2 -ml-2 mr-2" />
+    </MessagePrimitive.Root>
+  );
+};
+
+const AssistantActionBar: FC = () => {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide="not-last"
+      autohideFloat="single-branch"
+      className="col-start-3 row-start-2 -ml-1 flex gap-1 text-muted-foreground data-[floating]:absolute data-[floating]:rounded-md data-[floating]:border data-[floating]:bg-background data-[floating]:p-1 data-[floating]:shadow-sm"
+    >
+      <ActionBarPrimitive.Copy asChild>
+        <TooltipIconButton tooltip="Copy" aria-label="Copy message">
+          <MessagePrimitive.If copied>
+            <CheckIcon className="size-4" />
+          </MessagePrimitive.If>
+          <MessagePrimitive.If copied={false}>
+            <CopyIcon className="size-4" />
+          </MessagePrimitive.If>
+        </TooltipIconButton>
+      </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Reload asChild>
+        <TooltipIconButton tooltip="Retry" aria-label="Regenerate response">
+          <RefreshCwIcon className="size-4" />
+        </TooltipIconButton>
+      </ActionBarPrimitive.Reload>
+    </ActionBarPrimitive.Root>
+  );
+};
+
+const BranchPicker: FC<{ className?: string }> = ({ className }) => {
+  return (
+    <BranchPickerPrimitive.Root
+      hideWhenSingleBranch
+      className={`inline-flex items-center text-xs text-muted-foreground ${className ?? ''}`}
+    >
+      <BranchPickerPrimitive.Previous asChild>
+        <TooltipIconButton tooltip="Previous" aria-label="Previous branch">
+          <ChevronLeftIcon className="size-4" />
+        </TooltipIconButton>
+      </BranchPickerPrimitive.Previous>
+      <span className="font-medium">
+        <BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count />
+      </span>
+      <BranchPickerPrimitive.Next asChild>
+        <TooltipIconButton tooltip="Next" aria-label="Next branch">
+          <ChevronRightIcon className="size-4" />
+        </TooltipIconButton>
+      </BranchPickerPrimitive.Next>
+    </BranchPickerPrimitive.Root>
   );
 };
 
