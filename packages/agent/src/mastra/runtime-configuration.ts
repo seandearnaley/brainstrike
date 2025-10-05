@@ -27,10 +27,10 @@ export function resolveRuntimeConfiguration(
   const normalizedProvider = rawProvider.toLowerCase();
   if (!isSupportedProvider(normalizedProvider)) {
     logger.warn('mastra agent unsupported provider', {
-      code: 'mastra_agent_missing_provider',
+      code: 'mastra_agent_unsupported_provider',
       provider: rawProvider,
     });
-    throw createMastraAgentError('mastra_agent_missing_provider', {
+    throw createMastraAgentError('mastra_agent_unsupported_provider', {
       context: { provider: rawProvider },
     });
   }

@@ -342,7 +342,7 @@ describe('mastra streaming integration', () => {
       createMastraAgentRuntime({
         runtime: { apiKey: 'test-key', provider: 'unsupported' },
       }),
-      'mastra_agent_missing_provider'
+      'mastra_agent_unsupported_provider'
     );
   });
 });

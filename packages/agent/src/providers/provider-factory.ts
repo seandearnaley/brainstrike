@@ -2,6 +2,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import type { MastraLanguageModel } from '@mastra/core/agent';
+import { createMastraAgentError } from '../mastra/mastra-agent-error';
 import { PROVIDER_DEFAULT_MODELS, type SupportedProvider } from './types';
 
 /**
@@ -46,7 +47,10 @@ export function createProvider(
     }
 
     default:
-      throw new Error(`Unsupported provider: ${provider}`);
+      throw createMastraAgentError('mastra_agent_unsupported_provider', {
+        detail: `Unsupported provider: ${provider}`,
+        context: { provider },
+      });
   }
 }
 
