@@ -1,0 +1,290 @@
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { migrate } from '../src/migrations/bootstrap';
+import type { FileImportRequest } from '../src/models/file-record';
+import type { IFileRecordRepository } from '../src/repositories/interfaces';
+import { createFileRecordRepository } from '../src/repositories/repository-factory';
+import { wasmLoader } from '../src/wasm-loader';
+
+describe('Bulk Import with Batching', () => {
+  let db: PGlite;
+  let repository: IFileRecordRepository;
+
+  beforeEach(async () => {
+    db = await wasmLoader.createPGlite();
+    await migrate(db);
+    repository = createFileRecordRepository(db);
+  });
+
+  afterEach(async () => {
+    await db.close();
+  });
+
+  it('should import multiple files in batches', async () => {
+    const requests: FileImportRequest[] = [
+      {
+        name: 'file1.txt',
+        path: '/path/to/file1.txt',
+        size: 100,
+        content: 'Content for file 1',
+      },
+      {
+        name: 'file2.txt',
+        path: '/path/to/file2.txt',
+        size: 200,
+        content: 'Content for file 2',
+      },
+      {
+        name: 'file3.txt',
+        path: '/path/to/file3.txt',
+        size: 300,
+        content: 'Content for file 3',
+      },
+    ];
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.imported && !r.existed && !r.error)).toBe(true);
+    expect(results.every((r) => r.id.length > 0)).toBe(true);
+
+    // Verify all files were actually inserted
+    const allRecords = await repository.findAll();
+    expect(allRecords).toHaveLength(3);
+  });
+
+  it('should detect duplicate files by content hash', async () => {
+    const requests: FileImportRequest[] = [
+      {
+        name: 'file1.txt',
+        path: '/path/to/file1.txt',
+        size: 100,
+        content: 'Duplicate content',
+      },
+      {
+        name: 'file2.txt',
+        path: '/path/to/file2.txt',
+        size: 100,
+        content: 'Duplicate content', // Same content as file1
+      },
+      {
+        name: 'file3.txt',
+        path: '/path/to/file3.txt',
+        size: 200,
+        content: 'Unique content',
+      },
+    ];
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(3);
+
+    // First file should be imported
+    expect(results[0]?.imported).toBe(true);
+    expect(results[0]?.existed).toBe(false);
+
+    // Second file should be detected as duplicate
+    expect(results[1]?.imported).toBe(false);
+    expect(results[1]?.existed).toBe(true);
+    expect(results[1]?.id).toBe(results[0]?.id); // Same ID as first
+
+    // Third file should be imported
+    expect(results[2]?.imported).toBe(true);
+    expect(results[2]?.existed).toBe(false);
+
+    // Only 2 actual records in database
+    const allRecords = await repository.findAll();
+    expect(allRecords).toHaveLength(2);
+  });
+
+  it('should call progress callback during bulk import', async () => {
+    const requests: FileImportRequest[] = Array.from({ length: 5 }, (_, i) => ({
+      name: `file${i}.txt`,
+      path: `/path/to/file${i}.txt`,
+      size: 100 + i,
+      content: `Content for file ${i}`,
+    }));
+
+    const progressCalls: Array<{ completed: number; total: number; current?: string }> = [];
+
+    await repository.bulkImport(requests, (completed, total, current) => {
+      progressCalls.push({ completed, total, current });
+    });
+
+    // Should have progress calls during processing and final call
+    expect(progressCalls.length).toBeGreaterThan(0);
+
+    // Final call should report all files completed
+    const finalCall = progressCalls[progressCalls.length - 1];
+    expect(finalCall?.completed).toBe(5);
+    expect(finalCall?.total).toBe(5);
+  });
+
+  it('should handle large batch import (>100 files)', async () => {
+    const requests: FileImportRequest[] = Array.from({ length: 250 }, (_, i) => ({
+      name: `file${i}.txt`,
+      path: `/path/to/file${i}.txt`,
+      size: 100 + i,
+      content: `Unique content for file ${i}`,
+    }));
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(250);
+    expect(results.every((r) => r.imported && !r.existed && !r.error)).toBe(true);
+
+    // Verify all files were inserted
+    const count = await repository.count();
+    expect(count).toBe(250);
+  });
+
+  it('should handle empty batch', async () => {
+    const results = await repository.bulkImport([]);
+
+    expect(results).toHaveLength(0);
+    expect(await repository.count()).toBe(0);
+  });
+
+  it('should handle batch with some duplicates and some new files', async () => {
+    // First import some files
+    const firstBatch: FileImportRequest[] = [
+      {
+        name: 'existing1.txt',
+        path: '/path/to/existing1.txt',
+        size: 100,
+        content: 'Existing content 1',
+      },
+      {
+        name: 'existing2.txt',
+        path: '/path/to/existing2.txt',
+        size: 200,
+        content: 'Existing content 2',
+      },
+    ];
+
+    await repository.bulkImport(firstBatch);
+
+    // Now import a mixed batch
+    const secondBatch: FileImportRequest[] = [
+      {
+        name: 'existing1_copy.txt',
+        path: '/path/to/copy1.txt',
+        size: 100,
+        content: 'Existing content 1', // Duplicate
+      },
+      {
+        name: 'new1.txt',
+        path: '/path/to/new1.txt',
+        size: 300,
+        content: 'New content 1',
+      },
+      {
+        name: 'existing2_copy.txt',
+        path: '/path/to/copy2.txt',
+        size: 200,
+        content: 'Existing content 2', // Duplicate
+      },
+      {
+        name: 'new2.txt',
+        path: '/path/to/new2.txt',
+        size: 400,
+        content: 'New content 2',
+      },
+    ];
+
+    const results = await repository.bulkImport(secondBatch);
+
+    expect(results).toHaveLength(4);
+
+    // Check which are new vs existing
+    const importedCount = results.filter((r) => r.imported).length;
+    const existedCount = results.filter((r) => r.existed).length;
+
+    expect(importedCount).toBe(2); // 2 new files
+    expect(existedCount).toBe(2); // 2 duplicates
+
+    // Total unique files in database
+    const totalCount = await repository.count();
+    expect(totalCount).toBe(4); // 2 from first batch + 2 new from second
+  });
+
+  it('should correctly count tokens heuristically', async () => {
+    const shortContent = 'Hello world'; // ~2 tokens
+    const longContent = 'The quick brown fox jumps over the lazy dog '.repeat(100); // ~800+ tokens
+
+    const requests: FileImportRequest[] = [
+      {
+        name: 'short.txt',
+        path: '/path/to/short.txt',
+        size: shortContent.length,
+        content: shortContent,
+      },
+      {
+        name: 'long.txt',
+        path: '/path/to/long.txt',
+        size: longContent.length,
+        content: longContent,
+      },
+    ];
+
+    const results = await repository.bulkImport(requests);
+
+    // Check that files were imported
+    const shortRecord = await repository.findById(results[0]?.id);
+    const longRecord = await repository.findById(results[1]?.id);
+
+    expect(shortRecord?.tokenCount).toBeGreaterThan(0);
+    expect(longRecord?.tokenCount).toBeGreaterThan(0);
+    expect(longRecord?.tokenCount).toBeGreaterThan(shortRecord?.tokenCount);
+  });
+
+  it('should maintain order in batch results', async () => {
+    const requests: FileImportRequest[] = Array.from({ length: 10 }, (_, i) => ({
+      name: `file${i}.txt`,
+      path: `/path/to/file${i}.txt`,
+      size: 100 + i,
+      content: `Content ${i}`,
+    }));
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(10);
+
+    // Verify we can find each file by the ID returned in results
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      expect(result).toBeDefined();
+      const record = await repository.findById(result?.id);
+      expect(record).toBeDefined();
+      expect(record?.content).toContain(`Content ${i}`);
+    }
+  });
+
+  it('should handle files with special characters in content', async () => {
+    const requests: FileImportRequest[] = [
+      {
+        name: 'special.txt',
+        path: '/path/to/special.txt',
+        size: 100,
+        content: 'Content with 特殊字符 and émojis 🚀',
+      },
+      {
+        name: 'quotes.txt',
+        path: '/path/to/quotes.txt',
+        size: 50,
+        content: 'Content with "quotes" and \'apostrophes\'',
+      },
+    ];
+
+    const results = await repository.bulkImport(requests);
+
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.imported && !r.error)).toBe(true);
+
+    const record1 = await repository.findById(results[0]?.id);
+    const record2 = await repository.findById(results[1]?.id);
+
+    expect(record1?.content).toBe('Content with 特殊字符 and émojis 🚀');
+    expect(record2?.content).toBe('Content with "quotes" and \'apostrophes\'');
+  });
+});
