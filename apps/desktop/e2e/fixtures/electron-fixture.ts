@@ -1,4 +1,4 @@
-import type { Fixtures, Page, TestInfo } from '@playwright/test';
+import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers';
@@ -90,19 +90,19 @@ class ElectronHarness {
   }
 }
 
-export type ElectronWorkerFixtures = {
-  electron: ElectronHarness;
-};
-
-export type ElectronTestFixtures = {
+type ElectronTestFixtures = {
   electronApp: ElectronAppContext;
   window: Page;
   homePage: HomePage;
 };
 
-const electronFixtures: Fixtures<ElectronTestFixtures, ElectronWorkerFixtures> = {
+type ElectronWorkerFixtures = {
+  electron: ElectronHarness;
+};
+
+export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [
-    async ({}, use: (harness: ElectronHarness) => Promise<void>) => {
+    async ({}, use) => {
       const harness = new ElectronHarness();
       try {
         await use(harness);
@@ -113,12 +113,12 @@ const electronFixtures: Fixtures<ElectronTestFixtures, ElectronWorkerFixtures> =
     { scope: 'worker' },
   ],
 
-  electronApp: async ({ electron }, use: (context: ElectronAppContext) => Promise<void>) => {
+  electronApp: async ({ electron }, use) => {
     const context = await electron.ensureContext();
     await use(context);
   },
 
-  window: async ({ electron }, use: (page: Page) => Promise<void>, testInfo: TestInfo) => {
+  window: async ({ electron }, use, testInfo: TestInfo) => {
     const preserveState = testInfo.annotations.some((annotation) => {
       return annotation.type === 'preserve-electron-state';
     });
@@ -127,12 +127,10 @@ const electronFixtures: Fixtures<ElectronTestFixtures, ElectronWorkerFixtures> =
     await use(page);
   },
 
-  homePage: async ({ window }, use: (homePage: HomePage) => Promise<void>) => {
+  homePage: async ({ window }, use) => {
     const homePage = new HomePage(window);
     await use(homePage);
   },
-};
-
-export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>(electronFixtures);
+});
 
 export const expect = baseExpect;

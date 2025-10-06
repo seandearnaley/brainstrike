@@ -1,26 +1,20 @@
-import { expect, test } from '@playwright/test';
-import type { ElectronAppContext } from './utils/electron-helpers';
-import { closeElectronApp, launchElectronApp, waitForAppReady } from './utils/electron-helpers';
+import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Assistant panel (desktop)', () => {
-  let appContext: ElectronAppContext;
-
-  test.beforeEach(async () => {
-    // Launch app
-    appContext = await launchElectronApp();
-    const page = appContext.window;
-
-    // Save OpenAI key to test mode secrets storage
-    await page.evaluate(async () => {
-      const w = window as Window & {
+  test.beforeEach(async ({ window }) => {
+    await window.evaluate(async () => {
+      const globals = globalThis as unknown as Window & {
         secrets?: { saveKey?: (provider: string, key: string) => Promise<{ ok: boolean }> };
       };
-      await w.secrets?.saveKey?.('openai', 'test-api-key-for-e2e-tests');
+      await globals.secrets?.saveKey?.('openai', 'test-api-key-for-e2e-tests');
     });
 
-    // Mock the assistant API by intercepting fetch
-    await page.addInitScript(() => {
-      // Set localStorage with OpenAI as selected provider
+    await window.addInitScript(() => {
+      const globals = globalThis as unknown as Window & {
+        localStorage?: Storage;
+        fetch: typeof fetch;
+      };
+
       const defaultModels = {
         openai: 'gpt-4o-mini',
         anthropic: 'claude-3-5-haiku-latest',
@@ -29,7 +23,7 @@ test.describe('Assistant panel (desktop)', () => {
       } as const;
 
       try {
-        window.localStorage?.setItem(
+        globals.localStorage?.setItem(
           'assistant-preferences.v1',
           JSON.stringify({
             state: {
@@ -43,7 +37,7 @@ test.describe('Assistant panel (desktop)', () => {
         // ignore storage errors in test env
       }
 
-      const originalFetch: typeof window.fetch = window.fetch.bind(window);
+      const originalFetch: typeof globals.fetch = globals.fetch.bind(globals);
       const encoder = new TextEncoder();
 
       const resolveUrl = (input: RequestInfo | URL): string => {
@@ -67,9 +61,7 @@ test.describe('Assistant panel (desktop)', () => {
       const createStreamResponse = (): Response => {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
-            // Send assistant message
             controller.enqueue(encoder.encode('0:"Hello from desktop assistant!"\n'));
-            // Send finish message to properly close the stream
             controller.enqueue(
               encoder.encode(
                 'd:{"finishReason":"stop","usage":{"promptTokens":10,"completionTokens":5}}\n'
@@ -89,7 +81,7 @@ test.describe('Assistant panel (desktop)', () => {
         });
       };
 
-      const overrideFetch: typeof window.fetch = async (
+      const overrideFetch: typeof globals.fetch = async (
         input: RequestInfo | URL,
         init?: RequestInit
       ) => {
@@ -106,63 +98,44 @@ test.describe('Assistant panel (desktop)', () => {
         return originalFetch(input, init);
       };
 
-      window.fetch = overrideFetch;
+      globals.fetch = overrideFetch;
     });
 
-    // Reload page to ensure init script runs
-    await page.reload();
-
-    // Wait for app to be ready
-    await waitForAppReady(page);
+    await window.reload();
   });
 
-  test.afterEach(async () => {
-    if (appContext) await closeElectronApp(appContext);
-  });
-
-  test('send message and see streamed response in right panel', async () => {
-    const page = appContext.window;
-
-    // Ensure right panel is visible
-    const rightPanel = page.locator('[data-panel-id="right-panel"]');
+  test('send message and see streamed response in right panel', async ({ window }) => {
+    const rightPanel = window.locator('[data-panel-id="right-panel"]');
     if (!(await rightPanel.isVisible())) {
-      await page.getByRole('button', { name: 'Show right panel' }).click();
+      await window.getByRole('button', { name: 'Show right panel' }).click();
       await expect(rightPanel).toBeVisible();
     }
 
-    // Switch to Assistant tab
-    const assistantTab = page
+    const assistantTab = window
       .getByRole('tab')
       .filter({ hasText: /Assistant/i })
       .first();
     await expect(assistantTab).toBeVisible({ timeout: 5000 });
     await assistantTab.click();
 
-    // Wait for the tab content to load
-    await page.waitForTimeout(2000);
+    await window.waitForTimeout(2000);
 
-    // Check for the assistant chat card container first
-    const assistantChatCard = page.getByTestId('assistant-chat-card');
+    const assistantChatCard = window.getByTestId('assistant-chat-card');
     await expect(assistantChatCard).toBeVisible({ timeout: 5000 });
 
-    // Now check for the chat panel specifically (it contains the viewport)
-    const chatPanel = page.getByTestId('chat-panel');
+    const chatPanel = window.getByTestId('chat-panel');
     await expect(chatPanel).toBeVisible({ timeout: 15000 });
 
-    // Send a prompt
-    const input = page.locator('#assistant-input');
+    const input = window.locator('#assistant-input');
     await expect(input).toBeVisible({ timeout: 5000 });
     await input.fill('hello desktop');
 
-    const sendBtn = page.getByRole('button', { name: 'Send' });
+    const sendBtn = window.getByRole('button', { name: 'Send' });
     await expect(sendBtn).toBeVisible();
     await sendBtn.click();
 
-    // Validate user and assistant messages appear
-    // User message should contain our sent text
-    await expect(page.getByText('hello desktop').first()).toBeVisible({ timeout: 10000 });
-    // Assistant message from mock should be visible
-    await expect(page.getByText('Hello from desktop assistant!').first()).toBeVisible({
+    await expect(window.getByText('hello desktop').first()).toBeVisible({ timeout: 10000 });
+    await expect(window.getByText('Hello from desktop assistant!').first()).toBeVisible({
       timeout: 15000,
     });
   });
