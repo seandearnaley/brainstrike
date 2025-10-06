@@ -13,6 +13,9 @@ import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
 
+// Cache for embedding set lookups to avoid repeated database queries
+const embeddingSetCache = new Map<string, string>();
+
 export interface EmbeddingJobQueuePort {
   enqueueBatch(
     chunks: FileChunk[],
@@ -95,16 +98,42 @@ function toEnhancedImportProgress(progress: ImportProgress): EnhancedImportProgr
   };
 }
 
+async function resolveModelKeyFromTargetSet(
+  targetSetId: string,
+  sql: SqlExecutorPort | null | undefined
+): Promise<string | undefined> {
+  if (!sql) {
+    return undefined;
+  }
+
+  const cachedModelKey = embeddingSetCache.get(targetSetId);
+  if (cachedModelKey) {
+    return cachedModelKey;
+  }
+
+  try {
+    const result = await sql.query<{ modelKey: string }>(
+      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+      [targetSetId]
+    );
+    const fetchedModelKey = result.rows[0]?.modelKey;
+    if (!fetchedModelKey) {
+      return undefined;
+    }
+
+    embeddingSetCache.set(targetSetId, fetchedModelKey);
+    return fetchedModelKey;
+  } catch {
+    return undefined;
+  }
+}
+
 async function resolveEmbeddingModel(
   config: EmbeddingConfiguration | undefined,
   ports: RunEnhancedImportPorts | undefined
 ): Promise<{ model?: string; targetSetId?: string }> {
   if (!config?.enabled) {
-    const fallback: { model?: string; targetSetId?: string } = {};
-    if (config?.model) {
-      fallback.model = config.model;
-    }
-    return fallback;
+    return config?.model ? { model: config.model } : {};
   }
 
   const resolved: { model?: string; targetSetId?: string } = {};
@@ -115,16 +144,8 @@ async function resolveEmbeddingModel(
 
   let modelKey = config.model;
 
-  if (!modelKey && ports?.sql && targetSetId) {
-    try {
-      const result = await ports.sql.query<{ modelKey: string }>(
-        'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
-        [targetSetId]
-      );
-      modelKey = result.rows[0]?.modelKey ?? modelKey;
-    } catch {
-      // Ignore lookup errors; fallback to provided model
-    }
+  if (!modelKey && targetSetId) {
+    modelKey = await resolveModelKeyFromTargetSet(targetSetId, ports?.sql ?? null);
   }
 
   if (modelKey) {
@@ -134,16 +155,30 @@ async function resolveEmbeddingModel(
   return resolved;
 }
 
+interface ChunkingOptionsConfig {
+  chunking: ChunkingConfiguration;
+  queuePort: EmbeddingJobQueuePort | null;
+  runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
+  embedding: EmbeddingConfiguration | undefined;
+  embeddingModel: string | undefined;
+  targetSetId: string | undefined;
+  update: ProgressHandlers['update'];
+  processEmbeddingsImpl: typeof processEmbeddings;
+}
+
 function buildChunkingOptions(
-  chunking: ChunkingConfiguration,
-  queuePort: EmbeddingJobQueuePort | null,
-  runInTransaction: SqlExecutorPort['runInTransaction'] | undefined,
-  embedding: EmbeddingConfiguration | undefined,
-  embeddingModel: string | undefined,
-  targetSetId: string | undefined,
-  update: ProgressHandlers['update'],
-  processEmbeddingsImpl: typeof processEmbeddings
+  config: ChunkingOptionsConfig
 ): Parameters<typeof processChunking>[2] {
+  const {
+    chunking,
+    queuePort,
+    runInTransaction,
+    embedding,
+    embeddingModel,
+    targetSetId,
+    update,
+    processEmbeddingsImpl,
+  } = config;
   const options: Parameters<typeof processChunking>[2] = {
     updateProgress: update,
     embedQueueEnabled: Boolean(queuePort),
@@ -290,7 +325,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
 
-    const chunkingOptions = buildChunkingOptions(
+    const chunkingOptions = buildChunkingOptions({
       chunking,
       queuePort,
       runInTransaction,
@@ -298,8 +333,8 @@ export async function runEnhancedImport<TFileNode = unknown>({
       embeddingModel,
       targetSetId,
       update,
-      processEmbeddingsImpl
-    );
+      processEmbeddingsImpl,
+    });
 
     const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
 
