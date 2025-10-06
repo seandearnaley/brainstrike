@@ -2,6 +2,10 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
+const { runEnhancedImportMock } = vi.hoisted(() => ({
+  runEnhancedImportMock: vi.fn(),
+}));
+
 // Mock the base service to prevent provider issues
 vi.mock('../base-file-import-service', () => ({
   useFileImportService: vi.fn(() => ({
@@ -58,9 +62,32 @@ vi.mock('@brainstrike/utils', () => ({
   })),
 }));
 
+vi.mock('@brainstrike/file-import', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/file-import')>(
+    '@brainstrike/file-import'
+  );
+  return {
+    ...actual,
+    runEnhancedImport: runEnhancedImportMock,
+  };
+});
+
 describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    runEnhancedImportMock.mockReset();
+    runEnhancedImportMock.mockImplementation(async (params) => {
+      const baseResults = await params.baseImportRunner({
+        selectedFilePaths: params.request.selectedFilePaths,
+        fileTree: params.request.fileTree,
+        fileContents: params.request.fileContents,
+        onProgress: () => {},
+      });
+      return baseResults.map((result) => ({
+        ...result,
+        chunksCreated: 0,
+      }));
+    });
   });
 
   describe('Basic functionality', () => {
@@ -113,15 +140,8 @@ describe('useEnhancedFileImportService', () => {
     });
 
     it('should handle import errors', async () => {
-      const mockBaseImport = vi.fn().mockRejectedValue(new Error('Import failed'));
+      runEnhancedImportMock.mockRejectedValueOnce(new Error('Import failed'));
       const onError = vi.fn();
-
-      const baseService = await import('../base-file-import-service');
-      vi.mocked(baseService.useFileImportService).mockReturnValue({
-        importFiles: mockBaseImport,
-        isImporting: false,
-        progress: null,
-      });
 
       const { result } = renderHook(() => useEnhancedFileImportService({ onError }));
 
@@ -143,15 +163,14 @@ describe('useEnhancedFileImportService', () => {
       const mockBaseImport = vi.fn();
 
       const baseService = await import('../base-file-import-service');
-      vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
-        importFiles: mockBaseImport.mockImplementation(async () => {
-          if (options?.onComplete) {
-            options.onComplete([{ id: 'file1', imported: true, existed: false }]);
-          }
-        }),
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
         isImporting: false,
         progress: null,
-      }));
+      });
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file1', imported: true, existed: false, chunksCreated: 0 },
+      ]);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
@@ -179,15 +198,15 @@ describe('useEnhancedFileImportService', () => {
       const mockBaseImport = vi.fn();
 
       const baseService = await import('../base-file-import-service');
-      vi.mocked(baseService.useFileImportService).mockImplementation((options) => ({
-        importFiles: mockBaseImport.mockImplementation(async () => {
-          if (options?.onComplete) {
-            options.onComplete([{ id: 'file1', imported: true, existed: false }]);
-          }
-        }),
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
         isImporting: false,
         progress: null,
-      }));
+      });
+
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file1', imported: true, existed: false, chunksCreated: 3 },
+      ]);
 
       const { result } = renderHook(() =>
         useEnhancedFileImportService({
@@ -202,9 +221,12 @@ describe('useEnhancedFileImportService', () => {
         });
       });
 
-      // Since chunking processing would fail due to missing repository setup,
-      // we just check that the service was called
-      expect(mockBaseImport).toHaveBeenCalled();
+      expect(runEnhancedImportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chunking: expect.objectContaining({ enabled: true }),
+        })
+      );
+      expect(onComplete).toHaveBeenCalledWith([expect.objectContaining({ chunksCreated: 3 })]);
     });
   });
 });

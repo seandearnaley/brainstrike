@@ -43,17 +43,19 @@ describe('logger', () => {
       expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error message');
     });
 
-    it('does not log when not in development', () => {
+    it('logs INFO, WARN, ERROR even when not in development (DEBUG requires dev)', () => {
       vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(false);
       debug('debug');
       info('info');
       warn('warn');
       error('error');
 
+      // DEBUG requires dev environment
       expect(logSpy).not.toHaveBeenCalled();
-      expect(infoSpy).not.toHaveBeenCalled();
-      expect(warnSpy).not.toHaveBeenCalled();
-      expect(errorSpy).not.toHaveBeenCalled();
+      // INFO, WARN, ERROR always log (critical for production debugging)
+      expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info');
+      expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn');
+      expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error');
     });
 
     it('logs in production when enableInProduction is true', () => {

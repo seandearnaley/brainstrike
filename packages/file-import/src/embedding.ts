@@ -1,22 +1,41 @@
 import type { FileChunk } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { createLogger } from '@brainstrike/utils';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
+
+const logger = createLogger('FileImport:Embedding');
 
 export async function initializeEmbeddingService(
   embeddingService: SimpleEmbeddingService | null,
   model: string | undefined
 ): Promise<boolean> {
-  if (!embeddingService || !model) return false;
+  if (!embeddingService || !model) {
+    logger.warn('Cannot initialize embedding service: service or model not provided', {
+      hasService: !!embeddingService,
+      model,
+    });
+    return false;
+  }
   const status = embeddingService.getStatus();
-  if (status === 'ready') return true;
+  if (status === 'ready') {
+    logger.info('Embedding service already ready', { model });
+    return true;
+  }
   try {
+    logger.info('Initializing embedding service', { model });
     await embeddingService.initializeWithModel(model);
     await new Promise((resolve) =>
       setTimeout(resolve, CHUNKING_CONFIG.embeddingInitializationDelay)
     );
+    logger.info('Embedding service initialized successfully', { model });
     return true;
-  } catch {
+  } catch (error) {
+    logger.error('Failed to initialize embedding service:', {
+      model,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return false;
   }
 }
@@ -26,9 +45,22 @@ export async function processChunkEmbedding(
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null,
   embeddingService: SimpleEmbeddingService | null
 ): Promise<boolean> {
-  if (!embeddingService || !chunkRepository) return false;
+  if (!embeddingService || !chunkRepository) {
+    logger.warn('Cannot process chunk embedding: service or repository not available', {
+      hasService: !!embeddingService,
+      hasRepository: !!chunkRepository,
+      chunkId: chunk.id,
+    });
+    return false;
+  }
   try {
-    if (embeddingService.getStatus() !== 'ready') return false;
+    if (embeddingService.getStatus() !== 'ready') {
+      logger.warn('Embedding service not ready for chunk', {
+        chunkId: chunk.id,
+        status: embeddingService.getStatus(),
+      });
+      return false;
+    }
     const svcAny = embeddingService as unknown as {
       generateDocEmbedding?: (t: string) => Promise<{ embedding: number[] }>;
       generateEmbedding: (t: string) => Promise<{ embedding: number[] }>;
@@ -41,6 +73,7 @@ export async function processChunkEmbedding(
       embedding: embeddingResult.embedding,
       updatedAt: new Date().toISOString(),
     });
+    logger.debug('Successfully embedded chunk', { chunkId: chunk.id });
     return true;
   } catch (error) {
     if (
@@ -49,10 +82,88 @@ export async function processChunkEmbedding(
         error.message.includes('webgpu') ||
         error.message.includes('tensor'))
     ) {
+      logger.warn(
+        'Embedding failed with known WebGPU/tensor error (expected in some environments)',
+        {
+          chunkId: chunk.id,
+          error: error.message,
+        }
+      );
       return false;
     }
+    logger.error('Unexpected error during chunk embedding:', {
+      chunkId: chunk.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw error;
   }
+}
+
+async function processChunkWithSetId(
+  chunk: FileChunk,
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  embeddingService: SimpleEmbeddingService,
+  targetEmbeddingSetId?: string
+): Promise<boolean> {
+  const ok = await processChunkEmbedding(chunk, chunkRepository, embeddingService);
+  if (ok && targetEmbeddingSetId) {
+    // Update set id metadata if provided so UI badges and coverage reflect inline embeddings
+    await chunkRepository.update({
+      id: chunk.id,
+      embeddingSetId: targetEmbeddingSetId,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+  return ok;
+}
+
+async function processChunksLoop(
+  chunks: FileChunk[],
+  chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
+  embeddingService: SimpleEmbeddingService,
+  embeddingModel: string,
+  updateProgress: (
+    updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
+  ) => void,
+  targetEmbeddingSetId?: string
+): Promise<number> {
+  let chunksWithEmbeddings = 0;
+
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    if (!chunk) continue;
+
+    updateProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'embedding',
+            embeddingProgress: {
+              chunksProcessed: i,
+              totalChunks: chunks.length,
+              currentChunk: `${chunk.content.substring(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
+              modelName: embeddingModel,
+            },
+          }
+        : null
+    );
+
+    const success = await processChunkWithSetId(
+      chunk,
+      chunkRepository,
+      embeddingService,
+      targetEmbeddingSetId
+    );
+
+    if (success) chunksWithEmbeddings++;
+
+    if (i < chunks.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, CHUNKING_CONFIG.embeddingProcessingDelay));
+    }
+  }
+
+  return chunksWithEmbeddings;
 }
 
 export async function processEmbeddings(
@@ -67,54 +178,58 @@ export async function processEmbeddings(
   // Optional: tag embeddings to a specific set id when writing inline (web fallback)
   targetEmbeddingSetId?: string
 ): Promise<void> {
-  if (!embeddingService || !chunkRepository || !embeddingModel) return;
+  if (!embeddingService || !chunkRepository || !embeddingModel) {
+    logger.warn('Skipping embeddings: missing required dependencies', {
+      hasService: !!embeddingService,
+      hasRepository: !!chunkRepository,
+      model: embeddingModel,
+      chunksCount: chunks.length,
+      fileId: result.id,
+    });
+    return;
+  }
+
+  logger.info('Starting embedding processing', {
+    chunksCount: chunks.length,
+    model: embeddingModel,
+    fileId: result.id,
+    targetEmbeddingSetId,
+  });
+
   try {
     const initialized = await initializeEmbeddingService(embeddingService, embeddingModel);
     if (!initialized) {
-      result.error = 'Embedding initialization failed';
+      const errorMsg = 'Embedding initialization failed';
+      logger.error(errorMsg, { model: embeddingModel, fileId: result.id });
+      result.error = errorMsg;
       return;
     }
 
-    let chunksWithEmbeddings = 0;
+    const chunksWithEmbeddings = await processChunksLoop(
+      chunks,
+      chunkRepository,
+      embeddingService,
+      embeddingModel,
+      updateProgress,
+      targetEmbeddingSetId
+    );
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      if (!chunk) continue;
-      updateProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              phase: 'embedding',
-              embeddingProgress: {
-                chunksProcessed: i,
-                totalChunks: chunks.length,
-                currentChunk: `${chunk.content.substring(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
-                modelName: embeddingModel || 'default',
-              },
-            }
-          : null
-      );
-      const success = await (async () => {
-        const ok = await processChunkEmbedding(chunk, chunkRepository, embeddingService);
-        if (ok && targetEmbeddingSetId) {
-          // Update set id metadata if provided so UI badges and coverage reflect inline embeddings
-          await chunkRepository.update({
-            id: chunk.id,
-            embeddingSetId: targetEmbeddingSetId,
-            updatedAt: new Date().toISOString(),
-          });
-        }
-        return ok;
-      })();
-      if (success) chunksWithEmbeddings++;
-      if (i < chunks.length - 1) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, CHUNKING_CONFIG.embeddingProcessingDelay)
-        );
-      }
-    }
     result.chunksWithEmbeddings = chunksWithEmbeddings;
+    logger.info('Embedding processing complete', {
+      fileId: result.id,
+      totalChunks: chunks.length,
+      successfulEmbeddings: chunksWithEmbeddings,
+      failedEmbeddings: chunks.length - chunksWithEmbeddings,
+    });
   } catch (error) {
-    result.error = `Embedding failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    const errorMsg = `Embedding failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
+    logger.error('Embedding processing failed:', {
+      fileId: result.id,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      chunksCount: chunks.length,
+      model: embeddingModel,
+    });
+    result.error = errorMsg;
   }
 }

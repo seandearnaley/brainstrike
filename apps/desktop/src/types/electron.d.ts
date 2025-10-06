@@ -37,6 +37,7 @@ declare global {
           deletedFiles?: number;
           deletedChunks?: number;
         }>;
+        resetLocal: () => Promise<{ success: boolean; message?: string }>;
       };
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<void>;

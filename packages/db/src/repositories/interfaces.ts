@@ -33,4 +33,5 @@ export interface IFileRecordRepository {
  */
 export interface IDatabase {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  transaction?<T>(fn: (tx: IDatabase) => Promise<T>): Promise<T>;
 }
