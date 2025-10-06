@@ -366,79 +366,72 @@ export async function processChunking(
   let filesProcessed = 0;
 
   // Process files in parallel with concurrency limit
-  const enhancedResults = await parallelLimit(
-    importResults,
-    ChunkingConcurrency,
-    async (result, i) => {
-      if (!result) {
-        return {
-          id: '',
-          imported: false,
-          existed: false,
-          error: 'Invalid result',
-          chunksCreated: 0,
-        };
-      }
-
-      try {
-        const { enhancedResult, chunksCreated, chunks } = await processFileChunking(
-          result,
-          i,
-          importResults.length,
-          totalChunksCreated,
-          deps,
-          options
-        );
-
-        if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
-          await options.processEmbeddings(chunks, enhancedResult);
-        }
-
-        totalChunksCreated += chunksCreated;
-        filesProcessed++;
-
-        // Update progress every 10 files to avoid excessive updates
-        if (filesProcessed % 10 === 0) {
-          options.updateProgress((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  phase: 'chunking',
-                  chunkingProgress: {
-                    filesProcessed,
-                    totalFiles: importResults.length,
-                    chunksCreated: totalChunksCreated,
-                  },
-                }
-              : null
-          );
-        }
-
-        return enhancedResult;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        const errorStack = error instanceof Error ? error.stack : undefined;
-        logger.error(`Chunking failed for file ${result.id}:`, {
-          error: errorMessage,
-          stack: errorStack,
-          filePath: result.id,
-          fileIndex: i,
-          totalFiles: importResults.length,
-        });
-        filesProcessed++;
-        return {
-          id: result.id,
-          imported: result.imported,
-          existed: result.existed,
-          error: `Chunking failed: ${errorMessage}`,
-          chunksCreated: 0,
-        };
-      }
+  const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
+    if (!result) {
+      return null; // Mark for filtering
     }
-  );
+
+    try {
+      const { enhancedResult, chunksCreated, chunks } = await processFileChunking(
+        result,
+        i,
+        importResults.length,
+        totalChunksCreated,
+        deps,
+        options
+      );
+
+      if (options.enableEmbedding && options.processEmbeddings && chunks && chunks.length > 0) {
+        await options.processEmbeddings(chunks, enhancedResult);
+      }
+
+      totalChunksCreated += chunksCreated;
+      filesProcessed++;
+
+      // Update progress every 10 files to avoid excessive updates
+      if (filesProcessed % 10 === 0) {
+        options.updateProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: 'chunking',
+                chunkingProgress: {
+                  filesProcessed,
+                  totalFiles: importResults.length,
+                  chunksCreated: totalChunksCreated,
+                },
+              }
+            : null
+        );
+      }
+
+      return enhancedResult;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      logger.error(`Chunking failed for file ${result.id}:`, {
+        error: errorMessage,
+        stack: errorStack,
+        filePath: result.id,
+        fileIndex: i,
+        totalFiles: importResults.length,
+      });
+      filesProcessed++;
+      return {
+        id: result.id,
+        imported: result.imported,
+        existed: result.existed,
+        error: `Chunking failed: ${errorMessage}`,
+        chunksCreated: 0,
+      };
+    }
+  });
+
+  // Filter out null results (from undefined inputs)
+  const enhancedResults = allResults.filter((r): r is EnhancedImportResult => r !== null);
 
   logger.info('Parallel chunking complete', {
-    totalFiles: importResults.length,
+    totalFiles: enhancedResults.length,
     totalChunks: totalChunksCreated,
     filesWithErrors: enhancedResults.filter((r) => r.error).length,
   });
