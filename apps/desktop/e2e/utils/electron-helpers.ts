@@ -189,26 +189,38 @@ export async function closeElectronApp(appContext: ElectronAppContext): Promise<
   try {
     const windows = appContext.app.windows();
     console.log(`📋 Closing ${windows.length} window(s)...`);
+    const windowClosePromises: Promise<void>[] = [];
     for (const window of windows) {
+      if (window.isClosed()) {
+        console.log('ℹ️ Window already closed');
+        continue;
+      }
+
+      const closePromise = window.waitForEvent('close').then(
+        () => {
+          return;
+        },
+        (windowError) => {
+          console.warn('⚠️ Window did not close gracefully:', windowError);
+        }
+      );
+      windowClosePromises.push(closePromise);
       try {
         await window.close();
-        console.log('✅ Window closed successfully');
+        console.log('✅ Requested window close');
       } catch (windowError) {
         console.warn('⚠️ Failed to close window gracefully:', windowError);
       }
     }
-    await appContext.app.close();
-    console.log('✅ Electron app closed');
 
-    // Wait longer to ensure port is fully released
-    // This is especially important when tests restart the app
-    const waitTime = 3000;
-    console.log(`⏱️ Waiting ${waitTime}ms for port cleanup...`);
-    await new Promise((resolve) => setTimeout(resolve, waitTime));
+    const appClosed = appContext.app.waitForEvent('close');
+    await Promise.all(windowClosePromises);
+    await appContext.app.close();
+    await appClosed;
+    console.log('✅ Electron app closed');
   } catch (error) {
     console.error('❌ Error closing Electron app:', error);
-    // Still wait even on error to allow cleanup
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    throw error;
   }
 }
 
@@ -220,20 +232,52 @@ export async function waitForAppReady(page: Page): Promise<void> {
     }
 
     await page.waitForFunction(() => document.readyState === 'complete', { timeout: 30000 });
-    const isCodex = process.env['CODEX_ENV'] === 'true';
-    const baseWaitTime = isCodex ? 3000 : 1000;
-    const extendedWaitTime = baseWaitTime + 0; // added 0 to test
-    console.log(`⏱️ Waiting ${extendedWaitTime}ms for app to be fully ready...`);
-    await page.waitForTimeout(extendedWaitTime);
 
-    // Check again if page is still open before evaluating
-    if (page.isClosed()) {
-      throw new Error('Page was closed while waiting for app to become ready');
+    const readinessCheck = () => {
+      const readyFlag = Boolean(
+        Reflect.get(window as unknown as Record<string, unknown>, '__BRAINSTRIKE_READY__')
+      );
+      if (!readyFlag) {
+        return false;
+      }
+
+      const root = document.querySelector<HTMLElement>('#root');
+      if (!root) {
+        return false;
+      }
+
+      const { width, height } = root.getBoundingClientRect();
+      if (width <= 0 || height <= 0) {
+        return false;
+      }
+
+      const style = window.getComputedStyle(root);
+      return style.visibility !== 'hidden' && style.display !== 'none';
+    };
+
+    const isCodex = process.env['CODEX_ENV'] === 'true';
+
+    if (isCodex) {
+      const pollInterval = 100;
+      const maxAttempts = Math.ceil(30000 / pollInterval);
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        if (page.isClosed()) {
+          throw new Error('Page was closed while waiting for app to become ready');
+        }
+
+        const isReady = await page.evaluate(readinessCheck);
+        if (isReady) {
+          console.log('✅ App is ready and responsive (Codex environment)');
+          return;
+        }
+
+        await page.waitForTimeout(pollInterval);
+      }
+
+      throw new Error('Timed out waiting for app readiness in Codex environment');
     }
 
-    await page.evaluate(() => {
-      return document.readyState === 'complete' && window.innerWidth > 0;
-    });
+    await page.waitForFunction(readinessCheck, { timeout: 30000, polling: 100 });
     console.log('✅ App is ready and responsive');
   } catch (error) {
     console.error('❌ Error waiting for app to be ready:', error);
