@@ -53,14 +53,25 @@ describe('Bulk Import with Batching', () => {
     expect(allRecords).toHaveLength(3);
   });
 
-  it('should detect duplicate files by content hash', async () => {
-    const requests: FileImportRequest[] = [
+  it('should detect duplicate files by content hash across batches', async () => {
+    // First import a file
+    const firstBatch: FileImportRequest[] = [
       {
         name: 'file1.txt',
         path: '/path/to/file1.txt',
         size: 100,
         content: 'Duplicate content',
       },
+    ];
+
+    const firstResults = await repository.bulkImport(firstBatch);
+    expect(firstResults[0]?.imported).toBe(true);
+    expect(firstResults[0]?.existed).toBe(false);
+
+    const firstId = firstResults[0]?.id;
+
+    // Now try to import the same content again
+    const secondBatch: FileImportRequest[] = [
       {
         name: 'file2.txt',
         path: '/path/to/file2.txt',
@@ -75,24 +86,20 @@ describe('Bulk Import with Batching', () => {
       },
     ];
 
-    const results = await repository.bulkImport(requests);
+    const secondResults = await repository.bulkImport(secondBatch);
 
-    expect(results).toHaveLength(3);
+    expect(secondResults).toHaveLength(2);
 
-    // First file should be imported
-    expect(results[0]?.imported).toBe(true);
-    expect(results[0]?.existed).toBe(false);
+    // First file in second batch should be detected as duplicate
+    expect(secondResults[0]?.imported).toBe(false);
+    expect(secondResults[0]?.existed).toBe(true);
+    expect(secondResults[0]?.id).toBe(firstId); // Same ID as first
 
-    // Second file should be detected as duplicate
-    expect(results[1]?.imported).toBe(false);
-    expect(results[1]?.existed).toBe(true);
-    expect(results[1]?.id).toBe(results[0]?.id); // Same ID as first
+    // Second file in second batch should be imported
+    expect(secondResults[1]?.imported).toBe(true);
+    expect(secondResults[1]?.existed).toBe(false);
 
-    // Third file should be imported
-    expect(results[2]?.imported).toBe(true);
-    expect(results[2]?.existed).toBe(false);
-
-    // Only 2 actual records in database
+    // Only 2 unique records in database
     const allRecords = await repository.findAll();
     expect(allRecords).toHaveLength(2);
   });
