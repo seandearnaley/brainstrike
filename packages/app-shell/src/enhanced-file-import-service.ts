@@ -1,4 +1,9 @@
-import type { ChunkingStrategy, IDatabase } from '@brainstrike/db';
+import type {
+  ChunkingStrategy,
+  FileImportResult,
+  IDatabase,
+  ImportProgress,
+} from '@brainstrike/db';
 import {
   JobQueue,
   useFileChunkRepository,
@@ -6,10 +11,24 @@ import {
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
-import type { EnhancedImportProgress, EnhancedImportResult } from '@brainstrike/file-import';
-import { processChunking, processEmbeddings } from '@brainstrike/file-import';
+import type {
+  BaseImportRunner,
+  EmbeddingJobQueuePort,
+  EnhancedImportProgress,
+  EnhancedImportResult,
+  SqlExecutorPort,
+} from '@brainstrike/file-import';
+import { runEnhancedImport } from '@brainstrike/file-import';
 import type { IFileNode } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useFileImportService } from './base-file-import-service';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
@@ -37,12 +56,87 @@ interface EnhancedFileImportServiceReturn {
   chunkRepository: ReturnType<typeof useFileChunkRepository>;
 }
 
+type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
+
+function createEmbeddingConfig(
+  enableEmbedding: boolean | undefined,
+  embeddingModel: string | undefined,
+  embeddingService: SimpleEmbeddingService | null,
+  chunkRepository: ReturnType<typeof useFileChunkRepository>,
+  resolveTargetEmbeddingSetId: () => string | null
+): EnhancedImportParams['embedding'] {
+  if (enableEmbedding === undefined) {
+    return undefined;
+  }
+
+  return {
+    enabled: Boolean(enableEmbedding),
+    service: embeddingService,
+    chunkRepository,
+    resolveTargetEmbeddingSetId,
+    ...(embeddingModel ? { model: embeddingModel } : {}),
+  };
+}
+
+function createPorts(
+  queuePort: EmbeddingJobQueuePort | null,
+  sqlPort: SqlExecutorPort | null
+): EnhancedImportParams['ports'] {
+  const ports: EnhancedImportParams['ports'] = {};
+  if (queuePort) {
+    ports.embeddingQueue = queuePort;
+  }
+  if (sqlPort) {
+    ports.sql = sqlPort;
+  }
+  return Object.keys(ports).length > 0 ? ports : undefined;
+}
+
+function createChunkingConfig(
+  options: EnhancedFileImportOptions,
+  repository: ReturnType<typeof useFileRecordRepository>,
+  chunkRepository: ReturnType<typeof useFileChunkRepository>
+): EnhancedImportParams['chunking'] {
+  const config: EnhancedImportParams['chunking'] = {
+    enabled: Boolean(options.enableChunking),
+    deps: { repository, chunkRepository },
+  };
+  if (options.chunkingStrategy !== undefined) {
+    config.strategy = options.chunkingStrategy;
+  }
+  if (options.chunkSize !== undefined) {
+    config.chunkSize = options.chunkSize;
+  }
+  if (options.chunkOverlap !== undefined) {
+    config.chunkOverlap = options.chunkOverlap;
+  }
+  return config;
+}
+
+function createProgressHandlers(
+  update: Dispatch<SetStateAction<EnhancedImportProgress | null>>,
+  emit: EnhancedFileImportOptions['onProgress']
+): EnhancedImportParams['progressHandlers'] {
+  const handlers: EnhancedImportParams['progressHandlers'] = {
+    update,
+  };
+  if (emit) {
+    handlers.emit = emit;
+  }
+  return handlers;
+}
+
 export function useEnhancedFileImportService(
   options: EnhancedFileImportOptions = {}
 ): EnhancedFileImportServiceReturn {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<EnhancedImportProgress | null>(null);
   const [embeddingService, setEmbeddingService] = useState<SimpleEmbeddingService | null>(null);
+  const baseCallbacksRef = useRef<{
+    onProgress?: (progress: ImportProgress) => void;
+    onComplete?: (results: FileImportResult[]) => void;
+    onError?: (error: Error) => void;
+  } | null>(null);
 
   const repository = useFileRecordRepository();
   const chunkRepository = useFileChunkRepository();
@@ -71,123 +165,75 @@ export function useEnhancedFileImportService(
 
   const baseImportService = useFileImportService({
     onProgress: (progress) => {
-      // Bubble progress up so callers can toggle UI (e.g., showImportProgress)
-      options.onProgress?.(progress as unknown as EnhancedImportProgress);
-      setProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              phase: 'importing',
-              total: progress.total,
-              completed: progress.completed,
-              current: progress.current || '',
-              errors: progress.errors,
-            }
-          : {
-              phase: 'importing',
-              total: progress.total,
-              completed: progress.completed,
-              current: progress.current || '',
-              errors: progress.errors,
-            }
-      );
+      baseCallbacksRef.current?.onProgress?.(progress);
     },
-    onComplete: async (results) => {
-      if (options.enableChunking) {
-        try {
-          const enhanced = await processChunking(
-            results,
-            { repository, chunkRepository },
-            {
-              ...(options.chunkingStrategy !== undefined && {
-                chunkingStrategy: options.chunkingStrategy,
-              }),
-              ...(options.chunkSize !== undefined && { chunkSize: options.chunkSize }),
-              ...(options.chunkOverlap !== undefined && { chunkOverlap: options.chunkOverlap }),
-              updateProgress: setProgress,
-              // Phase 3 queue producer (optional)
-              ...(embedQueueEnabled &&
-                db && {
-                  embedQueueEnabled,
-                  // Non-transactional fallback
-                  enqueueJobsForChunks: async (chunks, fileRecordId) => {
-                    const jq = new JobQueue(db);
-                    for (const ch of chunks) {
-                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
-                      await jq.enqueue({
-                        queue: 'embeddings',
-                        jobType: 'embed_chunk',
-                        payload: {
-                          chunkId: ch.id,
-                          fileRecordId,
-                          embeddingSetId: ch.embeddingSetId ?? null,
-                        },
-                        dedupeKey,
-                      });
-                    }
-                  },
-                  // Transactional path used when available
-                  runInTransaction: async (fn) =>
-                    await db.transaction(async (tx) => fn(tx as IDatabase)),
-                  enqueueJobsForChunksTx: async (tx, chunks, fileRecordId) => {
-                    const jqTx = new JobQueue(tx as IDatabase);
-                    for (const ch of chunks) {
-                      const dedupeKey = `${ch.id}:${ch.embeddingSetId ?? 'none'}:${ch.contentHash}`;
-                      await jqTx.enqueue({
-                        queue: 'embeddings',
-                        jobType: 'embed_chunk',
-                        payload: {
-                          chunkId: ch.id,
-                          fileRecordId,
-                          embeddingSetId: ch.embeddingSetId ?? null,
-                        },
-                        dedupeKey,
-                      });
-                    }
-                  },
-                }),
-              ...(options.enableEmbedding !== undefined && {
-                enableEmbedding: options.enableEmbedding,
-              }),
-              processEmbeddings: async (chunks, result) => {
-                // Prefer the active set's model key if available to avoid dimension mismatches
-                let inlineModelKey = options.embeddingModel;
-                try {
-                  const activeSetId = getActiveEmbeddingSetId();
-                  if (db && activeSetId) {
-                    const res = await db.query<{ modelKey: string }>(
-                      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
-                      [activeSetId]
-                    );
-                    if (res.rows[0]?.modelKey) inlineModelKey = res.rows[0].modelKey;
-                  }
-                } catch {
-                  // ignore, fallback to provided embeddingModel
-                }
-
-                await processEmbeddings(
-                  chunks,
-                  result,
-                  chunkRepository,
-                  embeddingService,
-                  inlineModelKey,
-                  setProgress,
-                  // Attach inline embeddings to the currently active set (if any)
-                  getActiveEmbeddingSetId() ?? undefined
-                );
-              },
-            }
-          );
-          options.onComplete?.(enhanced);
-        } catch (error) {
-          options.onError?.(error instanceof Error ? error : new Error('Chunking failed'));
-        }
-      } else {
-        options.onComplete?.(results.map((r) => ({ ...r, chunksCreated: 0 })));
-      }
+    onComplete: (results) => {
+      baseCallbacksRef.current?.onComplete?.(results);
     },
-    onError: options.onError || (() => {}),
+    onError: (error) => {
+      baseCallbacksRef.current?.onError?.(error);
+    },
   });
+
+  const queuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+    if (!embedQueueEnabled || !db) {
+      return null;
+    }
+
+    return {
+      async enqueueBatch(chunks, fileRecordId, options) {
+        const executor = (options?.transaction ?? db) as IDatabase;
+        const queue = new JobQueue(executor);
+        for (const chunk of chunks) {
+          const dedupeKey = `${chunk.id}:${chunk.embeddingSetId ?? 'none'}:${chunk.contentHash}`;
+          await queue.enqueue({
+            queue: 'embeddings',
+            jobType: 'embed_chunk',
+            payload: {
+              chunkId: chunk.id,
+              fileRecordId,
+              embeddingSetId: chunk.embeddingSetId ?? null,
+            },
+            dedupeKey,
+          });
+        }
+      },
+    } satisfies EmbeddingJobQueuePort;
+  }, [db, embedQueueEnabled]);
+
+  const sqlPort = useMemo<SqlExecutorPort | null>(() => {
+    if (!db) {
+      return null;
+    }
+
+    return {
+      query: (sql, params) => db.query(sql, params),
+      runInTransaction: (fn) => db.transaction((tx) => fn(tx as IDatabase)),
+    } satisfies SqlExecutorPort;
+  }, [db]);
+
+  const baseImportRunner = useCallback<BaseImportRunner<IFileNode>>(
+    ({ selectedFilePaths, fileTree, fileContents, onProgress }) =>
+      new Promise<FileImportResult[]>((resolve, reject) => {
+        baseCallbacksRef.current = {
+          onProgress,
+          onComplete: (results) => {
+            baseCallbacksRef.current = null;
+            resolve(results);
+          },
+          onError: (error) => {
+            baseCallbacksRef.current = null;
+            reject(error);
+          },
+        };
+
+        baseImportService.importFiles(selectedFilePaths, fileTree, fileContents).catch((error) => {
+          baseCallbacksRef.current = null;
+          reject(error instanceof Error ? error : new Error('Import failed'));
+        });
+      }),
+    [baseImportService]
+  );
 
   const importFiles = useCallback(
     async (
@@ -209,14 +255,39 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
-        await baseImportService.importFiles(selectedFilePaths, fileTree, fileContents);
+        const embeddingConfig = createEmbeddingConfig(
+          options.enableEmbedding,
+          options.embeddingModel,
+          embeddingService,
+          chunkRepository,
+          getActiveEmbeddingSetId
+        );
+        const ports = createPorts(queuePort, sqlPort);
+        const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
+
+        const params: EnhancedImportParams = {
+          request: { selectedFilePaths, fileTree, fileContents },
+          baseImportRunner,
+          chunking: createChunkingConfig(options, repository, chunkRepository),
+          progressHandlers,
+        };
+        if (embeddingConfig) {
+          params.embedding = embeddingConfig;
+        }
+        if (ports) {
+          params.ports = ports;
+        }
+
+        const results = await runEnhancedImport<IFileNode>(params);
+
+        options.onComplete?.(results);
       } catch (error) {
         options.onError?.(error instanceof Error ? error : new Error('Import failed'));
       } finally {
         setIsImporting(false);
       }
     },
-    [baseImportService, options]
+    [baseImportRunner, chunkRepository, embeddingService, options, queuePort, repository, sqlPort]
   );
 
   // Cleanup on unmount
