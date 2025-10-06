@@ -206,9 +206,15 @@ export function useEnhancedFileImportService(
       return null;
     }
 
+    // Check if database supports transactions (PGlite does, Electron IPC wrapper doesn't)
+    const supportsTransactions = typeof db.transaction === 'function';
+
     return {
       query: (sql, params) => db.query(sql, params),
-      runInTransaction: (fn) => db.transaction((tx) => fn(tx as IDatabase)),
+      // Only provide runInTransaction if the database supports it
+      ...(supportsTransactions && {
+        runInTransaction: (fn) => db.transaction((tx) => fn(tx as IDatabase)),
+      }),
     } satisfies SqlExecutorPort;
   }, [db]);
 

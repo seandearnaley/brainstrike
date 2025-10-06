@@ -6,9 +6,12 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { createLogger } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
+
+const logger = createLogger('FileImport:Enhanced');
 
 export interface EmbeddingJobQueuePort {
   enqueueBatch(
@@ -144,6 +147,9 @@ function buildChunkingOptions(
   const options: Parameters<typeof processChunking>[2] = {
     updateProgress: update,
     embedQueueEnabled: Boolean(queuePort),
+    // Enable streaming by default for better memory management with large files
+    useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
+    streamBatchSize: chunking.streamBatchSize ?? 250,
   };
 
   if (chunking.strategy !== undefined) {
@@ -154,9 +160,6 @@ function buildChunkingOptions(
   }
   if (chunking.chunkOverlap !== undefined) {
     options.chunkOverlap = chunking.chunkOverlap;
-  }
-  if (chunking.useStreamingForLargeFiles !== undefined) {
-    options.useStreamingForLargeFiles = chunking.useStreamingForLargeFiles;
   }
   if (chunking.streamBatchSize !== undefined) {
     options.streamBatchSize = chunking.streamBatchSize;
@@ -239,45 +242,80 @@ export async function runEnhancedImport<TFileNode = unknown>({
   const update = progressHandlers.update;
   let latestProgress: EnhancedImportProgress | null = null;
 
-  const baseResults = await baseImportRunner({
-    selectedFilePaths,
-    fileTree,
-    fileContents,
-    onProgress(progress) {
-      const enhanced = toEnhancedImportProgress(progress);
-      latestProgress = enhanced;
-      update(() => enhanced);
-      emit?.(enhanced);
-    },
+  logger.info('Starting enhanced file import', {
+    filesCount: selectedFilePaths.size,
+    chunkingEnabled: chunking.enabled,
+    embeddingEnabled: embedding?.enabled ?? false,
+    embeddingModel: embedding?.model,
   });
 
-  if (!chunking.enabled) {
-    const finalProgress = createCompleteProgress(latestProgress, baseResults.length);
-    update(() => finalProgress);
-    emit?.(finalProgress);
-    const mapped = baseResults.map<EnhancedImportResult>((result) => ({
-      ...result,
-      chunksCreated: 0,
-    }));
-    return mapped;
+  try {
+    const baseResults = await baseImportRunner({
+      selectedFilePaths,
+      fileTree,
+      fileContents,
+      onProgress(progress) {
+        const enhanced = toEnhancedImportProgress(progress);
+        latestProgress = enhanced;
+        update(() => enhanced);
+        emit?.(enhanced);
+      },
+    });
+
+    logger.info('Base import complete', {
+      totalFiles: baseResults.length,
+      successfulImports: baseResults.filter((r) => r.imported || r.existed).length,
+      errors: baseResults.filter((r) => r.error).length,
+    });
+
+    if (!chunking.enabled) {
+      logger.info('Chunking disabled, skipping chunking phase');
+      const finalProgress = createCompleteProgress(latestProgress, baseResults.length);
+      update(() => finalProgress);
+      emit?.(finalProgress);
+      const mapped = baseResults.map<EnhancedImportResult>((result) => ({
+        ...result,
+        chunksCreated: 0,
+      }));
+      return mapped;
+    }
+
+    logger.info('Starting chunking phase', {
+      chunkingStrategy: chunking.strategy,
+      chunkSize: chunking.chunkSize,
+      chunkOverlap: chunking.chunkOverlap,
+    });
+
+    const { model: embeddingModel, targetSetId } = await resolveEmbeddingModel(embedding, ports);
+    const queuePort = ports?.embeddingQueue ?? null;
+    const runInTransaction = ports?.sql?.runInTransaction;
+
+    const chunkingOptions = buildChunkingOptions(
+      chunking,
+      queuePort,
+      runInTransaction,
+      embedding,
+      embeddingModel,
+      targetSetId,
+      update,
+      processEmbeddingsImpl
+    );
+
+    const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
+
+    logger.info('Enhanced import complete', {
+      totalFiles: enhancedResults.length,
+      totalChunks: enhancedResults.reduce((sum, r) => sum + (r.chunksCreated || 0), 0),
+      filesWithErrors: enhancedResults.filter((r) => r.error).length,
+    });
+
+    return enhancedResults;
+  } catch (error) {
+    logger.error('Enhanced import failed catastrophically:', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      filesCount: selectedFilePaths.size,
+    });
+    throw error;
   }
-
-  const { model: embeddingModel, targetSetId } = await resolveEmbeddingModel(embedding, ports);
-  const queuePort = ports?.embeddingQueue ?? null;
-  const runInTransaction = ports?.sql?.runInTransaction;
-
-  const chunkingOptions = buildChunkingOptions(
-    chunking,
-    queuePort,
-    runInTransaction,
-    embedding,
-    embeddingModel,
-    targetSetId,
-    update,
-    processEmbeddingsImpl
-  );
-
-  const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
-
-  return enhancedResults;
 }

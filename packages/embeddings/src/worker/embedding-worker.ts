@@ -383,15 +383,26 @@ export async function startEmbeddingWorker(
   }
 
   async function processOne(): Promise<void> {
-    const claimed = await jq.claim({ queue: queueName, leaseMs, workerId });
-    if (!claimed) {
-      await sleep(400); // idle backoff
-      return;
-    }
+    try {
+      const claimed = await jq.claim({ queue: queueName, leaseMs, workerId });
+      if (!claimed) {
+        await sleep(400); // idle backoff
+        return;
+      }
 
-    await handleClaimedJob(claimed);
-    // Small yield to let GC/native resources settle
-    await sleep(5);
+      await handleClaimedJob(claimed);
+      // Small yield to let GC/native resources settle
+      await sleep(5);
+    } catch (err) {
+      // If database is closed/closing, gracefully stop the worker
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('PGlite is closed') || message.includes('closed')) {
+        running = false; // Stop the worker loop
+        return;
+      }
+      // Re-throw other errors
+      throw err;
+    }
   }
 
   const loops: Promise<void>[] = [];

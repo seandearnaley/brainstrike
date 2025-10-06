@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exec: (sql: string) => ipcRenderer.invoke('db:exec', sql),
     test: () => ipcRenderer.invoke('db:test'),
     clearAll: (confirmationToken?: string) => ipcRenderer.invoke('db:clearAll', confirmationToken),
+    resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
   },
   // Database path (legacy - kept for compatibility)
   getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),

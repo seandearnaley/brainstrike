@@ -96,49 +96,52 @@ function debugWithScope(scopePrefix: string | undefined, ...args: unknown[]): vo
 }
 
 /**
- * Log info messages (only in development by default)
+ * Log info messages (ALWAYS logged for import operations)
  */
 export function info(...args: unknown[]): void {
   infoWithScope(undefined, ...args);
 }
 
 /**
- * Log info messages with a specific scope prefix
+ * Log info messages with a specific scope prefix (ALWAYS logged)
  */
 function infoWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
-  if (shouldLog() && currentLogLevel <= LogLevel.INFO) {
+  // ALWAYS log info, critical for tracking import progress
+  if (currentLogLevel <= LogLevel.INFO) {
     console.info(...formatMessage('INFO', args, scopePrefix));
   }
 }
 
 /**
- * Log warning messages (only in development by default)
+ * Log warning messages (ALWAYS logged)
  */
 export function warn(...args: unknown[]): void {
   warnWithScope(undefined, ...args);
 }
 
 /**
- * Log warning messages with a specific scope prefix
+ * Log warning messages with a specific scope prefix (ALWAYS logged)
  */
 function warnWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
-  if (shouldLog() && currentLogLevel <= LogLevel.WARN) {
+  // ALWAYS log warnings
+  if (currentLogLevel <= LogLevel.WARN) {
     console.warn(...formatMessage('WARN', args, scopePrefix));
   }
 }
 
 /**
- * Log error messages (only in development by default)
+ * Log error messages (ALWAYS logged, even in production)
  */
 export function error(...args: unknown[]): void {
   errorWithScope(undefined, ...args);
 }
 
 /**
- * Log error messages with a specific scope prefix
+ * Log error messages with a specific scope prefix (ALWAYS logged)
  */
 function errorWithScope(scopePrefix: string | undefined, ...args: unknown[]): void {
-  if (shouldLog() && currentLogLevel <= LogLevel.ERROR) {
+  // ALWAYS log errors, even in production - critical for debugging
+  if (currentLogLevel <= LogLevel.ERROR) {
     console.error(...formatMessage('ERROR', args, scopePrefix));
   }
 }

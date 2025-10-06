@@ -1,6 +1,8 @@
-import { generateContentHash, generateUUID } from '@brainstrike/utils';
+import { createLogger, generateContentHash, generateUUID } from '@brainstrike/utils';
 import type { FileImportRequest, FileImportResult, FileRecord } from '../models/file-record.js';
 import type { IDatabase, IFileRecordRepository } from './interfaces.js';
+
+const logger = createLogger('DB:FileRecordRepository');
 
 /**
  * Allowed fields for updates - prevents accidental ID updates
@@ -186,69 +188,219 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     requests: FileImportRequest[],
     onProgress?: (completed: number, total: number, current?: string) => void
   ): Promise<FileImportResult[]> {
+    const BATCH_SIZE = 100;
+    const startTime = Date.now();
+
+    logger.info('Starting bulk import', {
+      totalFiles: requests.length,
+      batchSize: BATCH_SIZE,
+    });
+
     const results: FileImportResult[] = [];
 
-    for (let i = 0; i < requests.length; i++) {
-      const request = requests[i];
-      if (!request) continue;
+    // Process in batches to reduce database round-trips
+    for (let batchStart = 0; batchStart < requests.length; batchStart += BATCH_SIZE) {
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, requests.length);
+      const batch = requests.slice(batchStart, batchEnd);
 
-      onProgress?.(i, requests.length, request.name);
+      logger.debug(`Processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1}`, {
+        batchStart,
+        batchEnd,
+        batchSize: batch.length,
+      });
 
+      // Use transaction for atomicity within each batch (if supported)
       try {
-        // Generate content hash for deduplication
-        const contentHash = await generateContentHash(request.content);
+        const batchResults = this.db.transaction
+          ? await this.db.transaction(async (tx: IDatabase) => {
+              return await this.processBatch(batch, tx, onProgress, batchStart, requests.length);
+            })
+          : await this.processBatch(batch, this.db, onProgress, batchStart, requests.length);
 
-        // Check if file with same content already exists
-        const existing = await this.findByContentHash(contentHash);
-
-        if (existing) {
-          results.push({
-            id: existing.id,
-            imported: false,
-            existed: true,
-          });
-          continue;
-        }
-
-        // Count tokens
-        const tokenCount = this.countTokensHeuristic(request.content);
-
-        // Create new record
-        const now = new Date().toISOString();
-        const id = generateUUID();
-
-        const record: FileRecord = {
-          id,
-          name: request.name,
-          path: request.path,
-          size: request.size,
-          createdAt: now,
-          updatedAt: now,
-          content: request.content,
-          contentHash,
-          tokenCount,
-          processedAt: now,
-        };
-
-        await this.createWithContent(record);
-
-        results.push({
-          id,
-          imported: true,
-          existed: false,
-        });
+        results.push(...batchResults);
       } catch (error) {
-        results.push({
-          id: '',
-          imported: false,
-          existed: false,
-          error: error instanceof Error ? error.message : 'Unknown error',
+        logger.error('Batch processing failed, marking all files in batch as errors', {
+          batchStart,
+          batchEnd,
+          error: error instanceof Error ? error.message : String(error),
         });
+
+        // Mark all files in failed batch as errors
+        for (const _request of batch) {
+          results.push({
+            id: '',
+            imported: false,
+            existed: false,
+            error: `Batch failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          });
+        }
       }
     }
 
+    const duration = Date.now() - startTime;
+    const successCount = results.filter((r) => r.imported || r.existed).length;
+    const errorCount = results.filter((r) => r.error).length;
+
+    logger.info('Bulk import complete', {
+      totalFiles: requests.length,
+      successCount,
+      errorCount,
+      durationMs: duration,
+      filesPerSecond: (requests.length / (duration / 1000)).toFixed(2),
+    });
+
     onProgress?.(requests.length, requests.length);
     return results;
+  }
+
+  private async processBatch(
+    batch: FileImportRequest[],
+    tx: IDatabase,
+    onProgress?: (completed: number, total: number, current?: string) => void,
+    offset = 0,
+    total = 0
+  ): Promise<FileImportResult[]> {
+    const results: FileImportResult[] = [];
+
+    // Step 1: Pre-compute all content hashes in parallel
+    const hashPromises = batch.map(async (request, index) => ({
+      index,
+      request,
+      hash: await generateContentHash(request.content),
+    }));
+
+    const hashResults = await Promise.all(hashPromises);
+    const hashes = hashResults.map((r) => r.hash);
+
+    // Step 2: Batch query to check which files already exist (single query!)
+    const existingMap = await this.findByContentHashBatch(hashes, tx);
+
+    // Step 3: Prepare records for batch insert
+    const recordsToInsert: FileRecord[] = [];
+    const now = new Date().toISOString();
+
+    for (const { index, request, hash } of hashResults) {
+      onProgress?.(offset + index, total, request.name);
+
+      const existing = existingMap.get(hash);
+
+      if (existing) {
+        results[index] = {
+          id: existing.id,
+          imported: false,
+          existed: true,
+        };
+        continue;
+      }
+
+      // Count tokens
+      const tokenCount = this.countTokensHeuristic(request.content);
+      const id = generateUUID();
+
+      recordsToInsert.push({
+        id,
+        name: request.name,
+        path: request.path,
+        size: request.size,
+        createdAt: now,
+        updatedAt: now,
+        content: request.content,
+        contentHash: hash,
+        tokenCount,
+        processedAt: now,
+      });
+
+      results[index] = {
+        id,
+        imported: true,
+        existed: false,
+      };
+    }
+
+    // Step 4: Batch insert all new records (single query!)
+    if (recordsToInsert.length > 0) {
+      await this.batchInsert(recordsToInsert, tx);
+      logger.debug('Batch inserted records', { count: recordsToInsert.length });
+    }
+
+    return results;
+  }
+
+  private async findByContentHashBatch(
+    hashes: string[],
+    tx: IDatabase
+  ): Promise<Map<string, FileRecord>> {
+    if (hashes.length === 0) {
+      return new Map();
+    }
+
+    const placeholders = hashes.map((_, i) => `$${i + 1}`).join(', ');
+    const sql = `SELECT * FROM ${this.tableName} WHERE content_hash IN (${placeholders})`;
+
+    const result = await tx.query<Record<string, unknown>>(sql, hashes);
+    const map = new Map<string, FileRecord>();
+
+    for (const row of result.rows) {
+      if (!row || typeof row !== 'object') continue;
+      const record = this.fromRow(row);
+      if (record.contentHash) {
+        map.set(record.contentHash, record);
+      }
+    }
+
+    return map;
+  }
+
+  private async batchInsert(records: FileRecord[], tx: IDatabase): Promise<void> {
+    if (records.length === 0) return;
+
+    const fields = [
+      'id',
+      'name',
+      'path',
+      'size',
+      'created_at',
+      'updated_at',
+      'content',
+      'content_hash',
+      'token_count',
+      'processed_at',
+    ];
+
+    // Build multi-row INSERT with VALUES (row1), (row2), ...
+    const valuesPerRow = fields.length;
+    const rowPlaceholders: string[] = [];
+    const allValues: unknown[] = [];
+
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      if (!record) continue;
+
+      const rowValues = [
+        record.id,
+        record.name,
+        record.path,
+        record.size,
+        record.createdAt,
+        record.updatedAt,
+        record.content,
+        record.contentHash,
+        record.tokenCount,
+        record.processedAt,
+      ];
+
+      const startParam = i * valuesPerRow + 1;
+      const placeholders = rowValues.map((_, j) => `$${startParam + j}`).join(', ');
+      rowPlaceholders.push(`(${placeholders})`);
+      allValues.push(...rowValues);
+    }
+
+    const sql = `
+      INSERT INTO ${this.tableName} (${fields.join(', ')})
+      VALUES ${rowPlaceholders.join(', ')}
+    `;
+
+    await tx.query(sql, allValues);
   }
 
   async clearAll(): Promise<number> {
