@@ -1,8 +1,14 @@
+import path from 'node:path';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
-import { createLogger } from '@brainstrike/utils';
+import {
+  createLogger,
+  type InitializeLoggingOptions,
+  initializeLogging,
+  LogLevel,
+} from '@brainstrike/utils';
 import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
@@ -14,6 +20,44 @@ import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
+
+const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
+const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
+
+const loggingOptions: InitializeLoggingOptions = {
+  runtime: 'electron-main',
+  level: LogLevel.DEBUG,
+  consoleLevel: LogLevel.INFO,
+  includeTimestamp: true,
+  appName: 'brainstrike-desktop',
+  appVersion: app.getVersion(),
+  baseBindings: {
+    platform: process.platform,
+    arch: process.arch,
+    electron: process.versions.electron,
+    node: process.versions.node,
+    ...(logFilePath ? { logFile: logFilePath } : {}),
+  },
+  enableDebugInProduction: true,
+};
+
+if (!disableFileLogs && logFilePath) {
+  loggingOptions.file = {
+    destination: logFilePath,
+    level: LogLevel.DEBUG,
+    mkdir: true,
+    append: true,
+  };
+}
+
+try {
+  initializeLogging(loggingOptions);
+} catch (error) {
+  console.error(
+    'Failed to initialize structured logging; continuing with console-only logs.',
+    error
+  );
+}
 
 const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();

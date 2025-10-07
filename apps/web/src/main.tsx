@@ -2,6 +2,7 @@ import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
+import { initializeLogging, LogLevel } from '@brainstrike/utils';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
@@ -14,6 +15,19 @@ import RootLayoutContent from './app/root-layout-content';
 // Create web adapters
 const fileSystemAdapter = createFileSystemAdapter('web');
 const storageAdapter = createStorageAdapter('web');
+
+const defaultLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+
+initializeLogging({
+  runtime: 'browser',
+  level: defaultLevel,
+  consoleLevel: defaultLevel,
+  appName: 'brainstrike-web',
+  appVersion: import.meta.env.VITE_APP_VERSION ?? 'dev',
+  baseBindings: {
+    mode: import.meta.env.MODE,
+  },
+});
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

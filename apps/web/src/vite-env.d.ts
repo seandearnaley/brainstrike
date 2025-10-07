@@ -8,6 +8,7 @@ declare module '*.png?url' {
 
 interface ImportMetaEnv {
   readonly VITE_APP_TITLE: string;
+  readonly VITE_APP_VERSION?: string;
   readonly MODE: string;
 }
 
