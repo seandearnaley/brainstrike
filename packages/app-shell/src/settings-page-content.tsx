@@ -4,20 +4,94 @@ import { ChevronRight, Palette, Search, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 
+/**
+ * Hash prefix for settings navigation.
+ * URLs follow the pattern: #settings/{categoryId}
+ * Example: #settings/appearance, #settings/desktop-preferences
+ */
 const SETTINGS_HASH_PREFIX = 'settings/';
 
+/**
+ * Represents a settings category that can be rendered in the settings page.
+ *
+ * Categories appear in the left navigation panel and their content is displayed
+ * in the main content area when selected. Each category can be searched by its
+ * title, description, and keywords.
+ *
+ * @example
+ * ```tsx
+ * const category: SettingsCategory = {
+ *   id: 'appearance',
+ *   title: 'Appearance',
+ *   description: 'Customize the look and feel of the application',
+ *   keywords: ['theme', 'color', 'dark mode', 'display'],
+ *   icon: Palette,
+ *   render: () => <ThemeSettings />,
+ * };
+ * ```
+ */
 export interface SettingsCategory {
+  /**
+   * Unique identifier for the category.
+   * Used in URL hash routing (e.g., #settings/appearance).
+   * Must be URL-safe (use kebab-case, no spaces or special characters).
+   */
   id: string;
+
+  /**
+   * Display name shown in the navigation panel and content header.
+   * Should be concise and descriptive (2-3 words recommended).
+   */
   title: string;
+
+  /**
+   * Optional subtitle displayed below the title in both navigation and content area.
+   * Use this to clarify the purpose or scope of the category.
+   */
   description?: string;
+
+  /**
+   * Optional search terms that aren't displayed to users but improve discoverability.
+   * Include synonyms, related terms, or common misspellings.
+   * Searches are case-insensitive and use substring matching.
+   */
   keywords?: string[];
+
+  /**
+   * Optional Lucide icon component displayed in the navigation panel.
+   * Improves visual hierarchy and category recognition.
+   * If omitted, a small dot indicator is shown instead.
+   */
   icon?: LucideIcon;
+
+  /**
+   * Function that returns the React content to display when this category is selected.
+   * Called only when the category is active (lazy rendering).
+   */
   render: () => ReactNode;
 }
 
+/**
+ * Props for the SettingsPageContent component.
+ */
 export interface SettingsPageContentProps {
+  /**
+   * Array of settings categories to display in the navigation panel.
+   * Order determines the display order in navigation.
+   */
   categories: SettingsCategory[];
+
+  /**
+   * Optional ID of the category to show by default when no hash is present.
+   * If not specified, the first category in the array is used.
+   * Overridden by URL hash if present.
+   */
   defaultCategoryId?: string;
+
+  /**
+   * Optional placeholder text for the search input.
+   * @default 'Search settings…'
+   */
   searchPlaceholder?: string;
 }
 

@@ -114,4 +114,19 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.change(searchbox, { target: { value: 'unknown' } });
     expect(screen.getByText(/No settings matched "unknown"/i)).toBeInTheDocument();
   });
+
+  it('renders LLM credentials form fields in Desktop Preferences', async () => {
+    render(
+      <ThemeProvider>
+        <SettingsPageContent />
+      </ThemeProvider>
+    );
+
+    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
+    fireEvent.click(preferencesButton);
+
+    expect(await screen.findByLabelText('Provider')).toBeInTheDocument();
+    expect(screen.getByLabelText('API Key')).toBeInTheDocument();
+    expect(await screen.findByText('Saved Providers')).toBeInTheDocument();
+  });
 });
