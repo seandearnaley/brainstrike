@@ -49,6 +49,7 @@ export function createAppMock(opts?: { whenReadyResolved?: boolean; documentsPat
     whenReady: vi.fn(() => whenReadyPromise),
     getAppPath: vi.fn(() => '/app'),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
+    getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,
     quit: vi.fn(),
     on: vi.fn(),

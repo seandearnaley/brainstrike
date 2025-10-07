@@ -1,3 +1,4 @@
+import type { LogRecord } from '@brainstrike/utils';
 import * as utilsModule from '@brainstrike/utils';
 import { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
@@ -134,27 +135,34 @@ describe('DbProvider', () => {
 
   it('returns null and logs error when initialization fails', async () => {
     const error = new Error('init failed');
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    // Configure logger to enable logging in test environment
-    const { configureLogger } = await import('@brainstrike/utils');
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
     configureLogger({ enableInProduction: true });
+
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'DbProvider') {
+        captured.push(record);
+      }
+    });
 
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockRejectedValue(error);
 
     const { result } = renderHook(() => useFileRecordRepository(), { wrapper });
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        '[DbProvider]',
-        '[ERROR]',
-        'Failed to initialize database:',
-        error
-      );
+      expect(
+        captured.some(
+          (record) =>
+            record.level === LogLevel.ERROR &&
+            record.scope === 'DbProvider' &&
+            record.message === 'Failed to initialize database:' &&
+            record.args.includes(error)
+        )
+      ).toBe(true);
     });
 
     expect(result.current).toBeNull();
-    consoleSpy.mockRestore();
+    unsubscribe();
   });
 
   it('logs an error if closing the db fails on unmount', async () => {
@@ -165,12 +173,18 @@ describe('DbProvider', () => {
     // Mock production environment but enable logging for the test
     const isDevEnvSpy = vi.spyOn(utilsModule, 'isDevEnv').mockReturnValue(false);
     // Configure logger to enable logging in production for this test
-    const { configureLogger } = await import('@brainstrike/utils');
+    const { addLogListener, configureLogger, LogLevel } = await import('@brainstrike/utils');
     configureLogger({ enableInProduction: true });
+
+    const captured: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => {
+      if (record.scope === 'DbProvider') {
+        captured.push(record);
+      }
+    });
 
     const closeError = new Error('close failed');
     const closeSpy = vi.spyOn(mockDb, 'close').mockRejectedValue(closeError);
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { result, unmount } = renderHook(() => useFileRecordRepository(), {
       wrapper,
@@ -185,14 +199,17 @@ describe('DbProvider', () => {
     });
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith(
-        '[DbProvider]',
-        '[ERROR]',
-        'Failed to close database:',
-        closeError
-      );
+      expect(
+        captured.some(
+          (record) =>
+            record.level === LogLevel.ERROR &&
+            record.scope === 'DbProvider' &&
+            record.message === 'Failed to close database:' &&
+            record.args.includes(closeError)
+        )
+      ).toBe(true);
     });
-    consoleSpy.mockRestore();
+    unsubscribe();
     isDevEnvSpy.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { initializeLogging, LogLevel } from '@brainstrike/utils';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
@@ -11,6 +12,20 @@ import RootLayoutContent from './components/root-layout-content';
 // Create renderer-specific adapters that use IPC
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
+
+const rendererLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+
+initializeLogging({
+  runtime: 'electron-renderer',
+  level: rendererLevel,
+  consoleLevel: rendererLevel,
+  appName: 'brainstrike-desktop',
+  appVersion: import.meta.env.VITE_APP_VERSION ?? 'desktop-renderer',
+  baseBindings: {
+    mode: import.meta.env.MODE,
+    userAgent: window.navigator.userAgent,
+  },
+});
 
 declare global {
   interface Window {

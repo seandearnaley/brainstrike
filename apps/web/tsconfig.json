@@ -11,7 +11,8 @@
       "@/*": ["./src/*"],
       "@web/*": ["./src/*"],
       "@brainstrike/agent": ["../../packages/agent/src/index.ts"],
-      "@brainstrike/agent/client": ["../../packages/agent/src/client.ts"]
+      "@brainstrike/agent/client": ["../../packages/agent/src/client.ts"],
+      "@brainstrike/utils": ["../../packages/utils/src/index.ts"]
     },
     "types": ["node", "vite/client"]
   },

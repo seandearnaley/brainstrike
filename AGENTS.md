@@ -76,6 +76,13 @@
 
 Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
 
+## Logging
+- Logging is centralized in `packages/utils/src/logger.ts` and uses Pino v10 for consistent output across runtimes.
+- Prefer `initializeLogging` from `@brainstrike/utils` to register transports; pass `runtime` (`browser`, `electron-main`, `electron-renderer`) so shared defaults stay in sync.
+- Desktop main configures logging during module evaluation and records both to the console and to `${app.getPath('logs')}/brainstrike.log` (debug level to file, info to console).
+- Browser and renderer entry points call `initializeLogging` in their respective `main.tsx` files to share bindings (mode, app/version identifiers).
+- Use `addLogListener` for tests or future remote sinks (e.g., Datadog) instead of mocking console APIs.
+
 
 This file should evolve alongside the repo. Treat it as **living  
 documentation**: update it whenever build commands change, new tools are  

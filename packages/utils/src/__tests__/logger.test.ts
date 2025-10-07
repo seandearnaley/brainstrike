@@ -1,206 +1,202 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as envUtils from '../env-utils';
 import {
+  addLogListener,
   configureLogger,
   createLogger,
   debug,
   error,
   info,
   LogLevel,
+  type LogRecord,
+  log,
+  logError,
+  logInfo,
+  logWarn,
   resetLogger,
   setLogLevel,
   warn,
 } from '../logger';
 
-// Create spies without mocking initially
-const logSpy = vi.spyOn(console, 'log');
-const infoSpy = vi.spyOn(console, 'info');
-const warnSpy = vi.spyOn(console, 'warn');
-const errorSpy = vi.spyOn(console, 'error');
+function collectLogs(callback: () => void): LogRecord[] {
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => {
+    records.push(record);
+  });
+
+  try {
+    callback();
+  } finally {
+    unsubscribe();
+  }
+
+  return records;
+}
+
+function setEnvironment(isDev: boolean): void {
+  vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(isDev);
+  resetLogger();
+}
 
 describe('logger', () => {
   beforeEach(() => {
-    // Reset logger configuration to defaults
-    resetLogger();
-    vi.clearAllMocks();
+    vi.restoreAllMocks();
   });
 
   afterEach(() => {
-    // Don't restore mocks here as it breaks the spies
+    vi.restoreAllMocks();
   });
 
-  describe('basic logging', () => {
-    it('logs to console when in development', () => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
-      debug('debug message');
-      info('info message');
-      warn('warn message');
-      error('error message');
+  describe('environment sensitive levels', () => {
+    it('suppresses debug logs in production by default', () => {
+      setEnvironment(false);
 
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
-      expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info message');
-      expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn message');
-      expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error message');
+      const records = collectLogs(() => {
+        debug('debug message');
+        info('info message');
+        warn('warn message');
+        error('error message');
+      });
+
+      expect(records.map((record) => record.level)).toEqual([
+        LogLevel.INFO,
+        LogLevel.WARN,
+        LogLevel.ERROR,
+      ]);
     });
 
-    it('logs INFO, WARN, ERROR even when not in development (DEBUG requires dev)', () => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(false);
-      debug('debug');
-      info('info');
-      warn('warn');
-      error('error');
-
-      // DEBUG requires dev environment
-      expect(logSpy).not.toHaveBeenCalled();
-      // INFO, WARN, ERROR always log (critical for production debugging)
-      expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info');
-      expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn');
-      expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error');
-    });
-
-    it('logs in production when enableInProduction is true', () => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(false);
+    it('enables debug logging in production when configured', () => {
+      setEnvironment(false);
       configureLogger({ enableInProduction: true });
 
-      debug('debug message');
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug message');
+      const records = collectLogs(() => {
+        debug('debug message');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.DEBUG);
+      expect(records[0]?.message).toBe('debug message');
     });
   });
 
-  describe('log levels', () => {
+  describe('log level overrides', () => {
     beforeEach(() => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
+      setEnvironment(true);
     });
 
-    it('respects log level filtering', () => {
+    it('filters logs below the configured level', () => {
       setLogLevel(LogLevel.WARN);
 
-      debug('debug');
-      info('info');
-      warn('warn');
-      error('error');
+      const records = collectLogs(() => {
+        debug('debug message');
+        info('info message');
+        warn('warn message');
+        error('error message');
+      });
 
-      expect(logSpy).not.toHaveBeenCalled();
-      expect(infoSpy).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalled();
-      expect(errorSpy).toHaveBeenCalled();
+      expect(records.map((record) => record.level)).toEqual([LogLevel.WARN, LogLevel.ERROR]);
     });
 
-    it('silences all logs when level is NONE', () => {
-      setLogLevel(LogLevel.NONE);
+    it('silences all logs when level is silent', () => {
+      setLogLevel(LogLevel.SILENT);
 
-      debug('debug');
-      info('info');
-      warn('warn');
-      error('error');
+      const records = collectLogs(() => {
+        debug('debug message');
+        error('error message');
+      });
 
-      expect(logSpy).not.toHaveBeenCalled();
-      expect(infoSpy).not.toHaveBeenCalled();
-      expect(warnSpy).not.toHaveBeenCalled();
-      expect(errorSpy).not.toHaveBeenCalled();
+      expect(records).toHaveLength(0);
     });
   });
 
-  describe('formatting', () => {
+  describe('structured metadata', () => {
     beforeEach(() => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
+      setEnvironment(true);
     });
 
-    it('adds prefix when configured', () => {
-      configureLogger({ prefix: 'MyApp' });
+    it('adds global bindings when configured', () => {
+      configureLogger({
+        prefix: 'Brainstrike',
+        baseBindings: { environment: 'test' },
+      });
 
-      debug('test message');
-      expect(logSpy).toHaveBeenCalledWith('[MyApp]', '[DEBUG]', 'test message');
+      const [record] = collectLogs(() => {
+        info('hello world');
+      });
+
+      expect(record?.bindings.prefix).toBe('Brainstrike');
+      expect(record?.bindings.environment).toBe('test');
     });
 
-    it('adds timestamp when configured', () => {
-      const mockDate = new Date('2024-01-01T12:00:00.000Z');
-      vi.spyOn(global, 'Date').mockImplementation(() => mockDate);
+    it('uses custom scope keys for scoped loggers', () => {
+      configureLogger({ scopeKey: 'component' });
+      const scopedLogger = createLogger('Importer');
 
-      configureLogger({ includeTimestamp: true });
+      const [record] = collectLogs(() => {
+        scopedLogger.debug('component ready');
+      });
 
-      debug('test message');
-      expect(logSpy).toHaveBeenCalledWith('[2024-01-01T12:00:00.000Z]', '[DEBUG]', 'test message');
+      expect(record?.bindings.component).toBe('Importer');
+      expect(record?.level).toBe(LogLevel.DEBUG);
     });
 
-    it('combines prefix and timestamp', () => {
-      const mockDate = new Date('2024-01-01T12:00:00.000Z');
-      vi.spyOn(global, 'Date').mockImplementation(() => mockDate);
+    it('captures scoped metadata with default key', () => {
+      const scopedLogger = createLogger('DbProvider');
 
-      configureLogger({ prefix: 'MyApp', includeTimestamp: true });
+      const [record] = collectLogs(() => {
+        scopedLogger.warn('initialising');
+      });
 
-      debug('test message');
-      expect(logSpy).toHaveBeenCalledWith(
-        '[2024-01-01T12:00:00.000Z]',
-        '[MyApp]',
-        '[DEBUG]',
-        'test message'
-      );
+      expect(record?.bindings.scope).toBe('DbProvider');
+      expect(record?.message).toBe('initialising');
     });
   });
 
-  describe('createLogger', () => {
+  describe('listeners', () => {
     beforeEach(() => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
+      setEnvironment(true);
     });
 
-    it('creates logger with specific prefix', () => {
-      const logger = createLogger('ComponentA');
+    it('allows listeners to unsubscribe cleanly', () => {
+      const captured: LogRecord[] = [];
+      const unsubscribe = addLogListener((record) => {
+        captured.push(record);
+      });
 
-      logger.debug('test');
-      expect(logSpy).toHaveBeenCalledWith('[ComponentA]', '[DEBUG]', 'test');
+      unsubscribe();
+      debug('ignored');
+
+      expect(captured).toHaveLength(0);
     });
 
-    it('preserves global prefix after using created logger', () => {
-      configureLogger({ prefix: 'GlobalApp' });
-      const logger = createLogger('ComponentA');
+    it('captures all arguments passed to log methods', () => {
+      const [record] = collectLogs(() => {
+        warn('warn message', { foo: 'bar' }, 42);
+      });
 
-      logger.debug('component message');
-      debug('global message');
-
-      expect(logSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'component message');
-      expect(logSpy).toHaveBeenNthCalledWith(2, '[GlobalApp]', '[DEBUG]', 'global message');
-    });
-
-    it('handles undefined global prefix correctly', () => {
-      const logger = createLogger('ComponentA');
-
-      logger.debug('test');
-      debug('global');
-
-      expect(logSpy).toHaveBeenNthCalledWith(1, '[ComponentA]', '[DEBUG]', 'test');
-      expect(logSpy).toHaveBeenNthCalledWith(2, '[DEBUG]', 'global');
+      expect(record?.args).toEqual(['warn message', { foo: 'bar' }, 42]);
     });
   });
 
   describe('legacy aliases', () => {
     beforeEach(() => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
+      setEnvironment(true);
     });
 
-    it('provides backward compatibility aliases', async () => {
-      const { log, logInfo, logError, logWarn } = await import('../logger');
+    it('continues to emit records for legacy helpers', () => {
+      const records = collectLogs(() => {
+        log('debug via log');
+        logInfo('info via logInfo');
+        logWarn('warn via logWarn');
+        logError('error via logError');
+      });
 
-      log('debug via log');
-      logInfo('info via logInfo');
-      logWarn('warn via logWarn');
-      logError('error via logError');
-
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'debug via log');
-      expect(infoSpy).toHaveBeenCalledWith('[INFO]', 'info via logInfo');
-      expect(warnSpy).toHaveBeenCalledWith('[WARN]', 'warn via logWarn');
-      expect(errorSpy).toHaveBeenCalledWith('[ERROR]', 'error via logError');
-    });
-  });
-
-  describe('multiple arguments', () => {
-    beforeEach(() => {
-      vi.spyOn(envUtils, 'isDevEnv').mockReturnValue(true);
-    });
-
-    it('handles multiple arguments correctly', () => {
-      debug('message', { foo: 'bar' }, 123, true);
-      expect(logSpy).toHaveBeenCalledWith('[DEBUG]', 'message', { foo: 'bar' }, 123, true);
+      expect(records.map((record) => record.level)).toEqual([
+        LogLevel.DEBUG,
+        LogLevel.INFO,
+        LogLevel.WARN,
+        LogLevel.ERROR,
+      ]);
     });
   });
 });

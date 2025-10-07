@@ -32,6 +32,7 @@ const mockApp = {
   whenReady: whenReadyMock,
   on: vi.fn(),
   getPath: vi.fn(),
+  getVersion: vi.fn(() => '0.0.0-test'),
   quit: vi.fn(),
 };
 
@@ -52,9 +53,20 @@ const createLoggerMock = vi.fn(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }));
+const initializeLoggingMock = vi.fn();
 vi.mock('@brainstrike/utils', () => ({
   isDevEnv: isDevEnvMock,
   createLogger: createLoggerMock,
+  initializeLogging: initializeLoggingMock,
+  LogLevel: {
+    TRACE: 'trace',
+    DEBUG: 'debug',
+    INFO: 'info',
+    WARN: 'warn',
+    ERROR: 'error',
+    FATAL: 'fatal',
+    SILENT: 'silent',
+  },
 }));
 vi.mock('electron-store', () => ({ default: vi.fn(() => ({})) }));
 
@@ -62,6 +74,7 @@ describe('window setup', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockApp.getPath.mockReturnValue('/tmp/brainstrike-test-logs');
   });
 
   it('setupSecurity dev mode sets dev CSP and logs when isDevEnv is true', async () => {
