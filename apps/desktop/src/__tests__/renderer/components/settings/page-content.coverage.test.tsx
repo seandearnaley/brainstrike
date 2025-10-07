@@ -1,41 +1,40 @@
+import { ThemeProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
-
-// Mock BaseSettingsPageContent to render headings similar to the real component
-vi.mock('@brainstrike/app-shell', () => ({
-  SettingsPageContent: ({ children }: { children?: React.ReactNode }) => (
-    <div>
-      <h1>Settings</h1>
-      <h2>Appearance</h2>
-      <div>theme-settings-mock</div>
-      {children}
-    </div>
-  ),
-}));
-
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsPageContent from '../../../../renderer/components/settings/page-content';
 
+type SecretsApi = {
+  list: () => Promise<string[]>;
+  saveKey: (provider: string, key: string) => Promise<unknown>;
+  getKey: (provider: string) => Promise<string | null>;
+  deleteKey: (provider: string) => Promise<boolean>;
+};
+
+const getWindowWithSecrets = () => window as typeof window & { secrets?: SecretsApi };
+
+beforeEach(() => {
+  const secrets: SecretsApi = {
+    list: vi.fn().mockResolvedValue([]),
+    saveKey: vi.fn().mockResolvedValue(true),
+    getKey: vi.fn().mockResolvedValue(null),
+    deleteKey: vi.fn().mockResolvedValue(true),
+  };
+  getWindowWithSecrets().secrets = secrets;
+});
+
 describe('SettingsPageContent (coverage)', () => {
-  it('renders desktop-specific section content', async () => {
-    // Provide a stable secrets API to avoid act() warnings from async updates
-    const globalWithWindow = global as typeof globalThis & { window?: Window };
-    global.window = globalWithWindow.window || ({} as Window);
-    window.secrets = {
-      list: async () => [],
-      saveKey: async () => true,
-      getKey: async () => null,
-      deleteKey: async () => true,
-    };
+  it('renders LLM credentials form fields', async () => {
+    render(
+      <ThemeProvider>
+        <SettingsPageContent />
+      </ThemeProvider>
+    );
 
-    render(<SettingsPageContent />);
+    // Switch to desktop preferences pane to expose the form
+    const preferencesButton = await screen.findByRole('button', { name: /Desktop Preferences/i });
+    preferencesButton.click();
 
-    // Verify desktop-specific section renders
-    expect(
-      screen.getByRole('heading', { name: 'Desktop Preferences', level: 2 })
-    ).toBeInTheDocument();
-    // New LLM keys settings section
-    expect(screen.getByText('LLM Provider Keys')).toBeInTheDocument();
-    expect(screen.getByLabelText('Provider')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Provider')).toBeInTheDocument();
     expect(screen.getByLabelText('API Key')).toBeInTheDocument();
     expect(await screen.findByText('Saved Providers')).toBeInTheDocument();
   });

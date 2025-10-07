@@ -5,6 +5,11 @@ test.describe('Secrets Settings', () => {
     await homePage.openSettings();
     await expect(window.getByTestId('settings-section')).toBeVisible();
 
+    await window
+      .getByRole('navigation', { name: /settings categories/i })
+      .getByRole('button', { name: /Desktop Preferences/i })
+      .click();
+
     const providerSelect = window.getByTestId('llm-provider');
     await expect(providerSelect).toBeVisible();
     await providerSelect.click();

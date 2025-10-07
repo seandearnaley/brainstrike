@@ -1,5 +1,6 @@
+import type React from 'react';
+
 declare module '@brainstrike/app-shell/navigation' {
-  // Lightweight shim for desktop renderer type-check; runtime resolves via Vite alias
   export const navigationItems: unknown;
 }
 
@@ -8,11 +9,41 @@ declare module '@brainstrike/app-shell/root-layout-content' {
 }
 
 declare module '@brainstrike/app-shell/settings-page-content' {
-  export const SettingsPageContent: React.ComponentType;
+  export interface SettingsCategory {
+    id: string;
+    title: string;
+    description?: string;
+    keywords?: string[];
+    icon?: React.ComponentType<{ className?: string }>;
+    render: () => React.ReactNode;
+  }
+
+  export interface SettingsPageContentProps {
+    categories: SettingsCategory[];
+    defaultCategoryId?: string;
+    searchPlaceholder?: string;
+  }
+
+  export const SettingsPageContent: React.ComponentType<SettingsPageContentProps>;
+  export function createAppearanceSettingsCategory(): SettingsCategory;
 }
 
 declare module '@brainstrike/app-shell' {
   export const navigationItems: unknown;
   export const RootLayoutContent: React.ComponentType;
-  export const SettingsPageContent: React.ComponentType;
+  export interface SettingsCategory {
+    id: string;
+    title: string;
+    description?: string;
+    keywords?: string[];
+    icon?: React.ComponentType<{ className?: string }>;
+    render: () => React.ReactNode;
+  }
+  export interface SettingsPageContentProps {
+    categories: SettingsCategory[];
+    defaultCategoryId?: string;
+    searchPlaceholder?: string;
+  }
+  export const SettingsPageContent: React.ComponentType<SettingsPageContentProps>;
+  export function createAppearanceSettingsCategory(): SettingsCategory;
 }

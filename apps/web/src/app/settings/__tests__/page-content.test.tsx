@@ -1,10 +1,9 @@
 import { ThemeSettings } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { HelmetProvider } from 'react-helmet-async';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 import SettingsPageContent from '../page-content';
 
-// Mock the ThemeSettings component
 vi.mock('@brainstrike/ui', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/ui')>();
   return {
@@ -13,7 +12,6 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-// Stub App Shell HUD components that depend on DbProvider
 vi.mock('@brainstrike/app-shell', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/app-shell')>();
   return {
@@ -23,71 +21,61 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => {
   };
 });
 
-// Mock DB hooks to avoid requiring DbProvider in this shallow page test
-vi.mock('@brainstrike/db', async () => {
-  return {
-    usePGliteDatabase: () => null,
-    useVectorEnabled: () => false,
-  };
-});
+vi.mock('@brainstrike/db', async () => ({
+  usePGliteDatabase: () => null,
+  useVectorEnabled: () => false,
+}));
 
-describe('SettingsPageContent', () => {
+describe('Web SettingsPageContent', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.location.hash = '';
   });
 
-  test('renders settings page with correct structure', () => {
+  const renderPage = () =>
     render(
       <HelmetProvider>
         <SettingsPageContent />
       </HelmetProvider>
     );
 
-    // Check for main heading
-    expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
+  test('renders navigation and defaults to appearance category', () => {
+    renderPage();
 
-    // Check for appearance section heading
-    expect(screen.getByRole('heading', { name: 'Appearance', level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
 
-    // Check for more settings section heading
-    expect(screen.getByRole('heading', { name: 'More Settings', level: 2 })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    const appearanceButton = within(nav).getByRole('button', { name: /Appearance/i });
+    expect(appearanceButton).toHaveAttribute('aria-current', 'page');
 
-    // Check for future updates text
-    expect(
-      screen.getByText(/Additional settings will be added here in future updates/i)
-    ).toBeInTheDocument();
-  });
-
-  test('renders ThemeSettings component', () => {
-    render(
-      <HelmetProvider>
-        <SettingsPageContent />
-      </HelmetProvider>
-    );
-
-    // Verify ThemeSettings is rendered
     expect(ThemeSettings).toHaveBeenCalled();
     expect(screen.getByTestId('theme-settings-mock')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/appearance');
   });
 
-  test('has correct container styling', () => {
-    render(
-      <HelmetProvider>
-        <SettingsPageContent />
-      </HelmetProvider>
-    );
+  test('renders embedding worker widgets when the category is selected', async () => {
+    renderPage();
 
-    // Find the main container
-    const container = screen.getByText('Settings').closest('div');
-    expect(container).toHaveClass('container');
-    expect(container).toHaveClass('max-w-2xl');
-    expect(container).toHaveClass('mx-auto');
-    expect(container).toHaveClass('py-8');
+    fireEvent.click(screen.getByRole('button', { name: /Embedding Worker/i }));
 
-    // Check for proper spacing between sections
-    const sectionsContainer = screen.getByText('Appearance').closest('div');
-    const parentElement = sectionsContainer?.parentElement;
-    expect(parentElement).not.toBeNull();
-    expect(parentElement).toHaveClass('space-y-6');
+    const pane = await screen.findByTestId('settings-category-embedding-worker');
+    const headings = await within(pane).findAllByRole('heading', { name: /Embedding Worker/i });
+    expect(headings.length).toBeGreaterThan(0);
+    expect(within(pane).getByTestId('queue-hud-mock')).toBeInTheDocument();
+    expect(within(pane).getByTestId('vector-status-mock')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/embedding-worker');
+  });
+
+  test('filters categories with the settings search input', () => {
+    renderPage();
+
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/i });
+    fireEvent.change(searchbox, { target: { value: 'upcoming' } });
+
+    expect(screen.getByRole('button', { name: /Upcoming Preferences/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Appearance/i })).not.toBeInTheDocument();
+
+    fireEvent.change(searchbox, { target: { value: 'missing' } });
+    expect(screen.getByText(/No settings matched "missing"/i)).toBeInTheDocument();
   });
 });
