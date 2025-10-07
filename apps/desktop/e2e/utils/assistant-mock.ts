@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { waitForAppReady } from './electron-helpers';
 
 const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-4o-mini',
@@ -153,5 +154,6 @@ export async function setupAssistantMock(
     }
   );
 
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await waitForAppReady(page);
 }
