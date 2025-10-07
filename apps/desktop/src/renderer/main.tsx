@@ -12,6 +12,13 @@ import RootLayoutContent from './components/root-layout-content';
 const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
 
+declare global {
+  interface Window {
+    // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
+    __BRAINSTRIKE_READY__?: boolean;
+  }
+}
+
 function App() {
   const [dbPath, setDbPath] = useState<string | null>(null);
 
@@ -19,6 +26,18 @@ function App() {
     // Use IndexedDB storage for desktop app (renderer process can't access filesystem directly)
     setDbPath('idb://brainstrike-desktop');
   }, []);
+
+  useEffect(() => {
+    if (!dbPath) {
+      return;
+    }
+
+    if (!window.__BRAINSTRIKE_READY__) {
+      window.__BRAINSTRIKE_READY__ = true;
+    }
+
+    window.dispatchEvent(new Event('brainstrike:ready'));
+  }, [dbPath]);
 
   if (!dbPath) {
     return (

@@ -1,59 +1,32 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
-import type { ElectronAppContext } from './utils/electron-helpers';
-import {
-  closeElectronApp,
-  launchElectronApp,
-  mockFileSystemOperations,
-  waitForAppReady,
-} from './utils/electron-helpers';
+import { mockFileSystemOperations } from './utils/electron-helpers';
 
 test.describe('File System Integration', () => {
-  let appContext: ElectronAppContext;
-  let homePage: HomePage;
-
-  test.beforeEach(async () => {
-    appContext = await launchElectronApp();
-    await waitForAppReady(appContext.window);
-    // Mock file system operations to prevent native dialogs
-    await mockFileSystemOperations(appContext.window);
-    homePage = new HomePage(appContext.window);
+  test.beforeEach(async ({ window }) => {
+    // Mock file system operations to prevent native dialogs for every test
+    await mockFileSystemOperations(window);
   });
 
-  test.afterEach(async () => {
-    if (appContext) {
-      await closeElectronApp(appContext);
-    }
-  });
-
-  test('should handle file system access permissions', async () => {
-    // Test that the app can request file system access
-    const fileSystemButton = appContext.window.getByRole('button', { name: /browse/i });
+  test('should handle file system access permissions', async ({ window }) => {
+    const fileSystemButton = window.getByRole('button', { name: /browse/i });
 
     if (await fileSystemButton.isVisible().catch(() => false)) {
-      // Click the browse button to trigger file system access
       await fileSystemButton.click();
+      await expect(window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
 
-      // In a real scenario, this might open a file dialog
-      // For testing, we can verify the request was made
-      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
-
-      // Verify no errors occurred
-      const errorMessage = appContext.window.getByText(/error/i);
+      const errorMessage = window.getByText(/error/i);
       await expect(errorMessage).not.toBeVisible();
     }
   });
 
-  test('should handle directory operations', async () => {
-    // Test directory-related functionality
-    const fileExplorerPanel = appContext.window.getByTestId('file-explorer-panel');
+  test('should handle directory operations', async ({ window }) => {
+    const fileExplorerPanel = window.getByTestId('file-explorer-panel');
 
     if (await fileExplorerPanel.isVisible().catch(() => false)) {
-      // Look for directory tree or file list
-      const directoryTree = appContext.window.getByRole('tree');
-      const fileList = appContext.window.getByRole('list');
+      const directoryTree = window.getByRole('tree');
+      const fileList = window.getByRole('list');
 
-      // At least one should be present
       const hasTree = await directoryTree.isVisible().catch(() => false);
       const hasList = await fileList.isVisible().catch(() => false);
 
@@ -61,43 +34,29 @@ test.describe('File System Integration', () => {
     }
   });
 
-  test('should handle file operations', async () => {
-    // Test file-related operations
-    const fileButtons = appContext.window.getByRole('button').filter({ hasText: /file/i });
+  test('should handle file operations', async ({ window }) => {
+    const fileButtons = window.getByRole('button').filter({ hasText: /file/i });
     const fileCount = await fileButtons.count();
 
     if (fileCount > 0) {
-      // Click the first file-related button
       await fileButtons.first().click();
+      await expect(window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
 
-      // Wait for any file operations to complete
-      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
-
-      // Verify no critical errors
-      const criticalError = appContext.window.getByText(/critical error|fatal/i);
+      const criticalError = window.getByText(/critical error|fatal/i);
       await expect(criticalError).not.toBeVisible();
     }
   });
 
-  test('should handle large directory structures', async () => {
-    // This test simulates handling large file structures
-    // which is a common desktop-specific issue
-
-    // Navigate to file explorer if available
-    const explorerButtons = appContext.window.getByRole('button').filter({ hasText: /explorer/i });
+  test('should handle large directory structures', async ({ window, homePage }) => {
+    const explorerButtons = window.getByRole('button').filter({ hasText: /explorer/i });
 
     if ((await explorerButtons.count()) > 0) {
-      // Use the first explorer button if multiple exist
       await explorerButtons.first().click();
+      await window.waitForTimeout(2000);
 
-      // Wait for potential loading
-      await appContext.window.waitForTimeout(2000);
+      const loadingIndicator = window.getByText(/loading/i);
+      const spinner = window.locator('[data-testid*="loading"], [class*="spinner"]');
 
-      // Check for performance indicators
-      const loadingIndicator = appContext.window.getByText(/loading/i);
-      const spinner = appContext.window.locator('[data-testid*="loading"], [class*="spinner"]');
-
-      // Wait for loading to complete (if present)
       if (await loadingIndicator.isVisible().catch(() => false)) {
         await loadingIndicator.waitFor({ state: 'hidden', timeout: 10000 });
       }
@@ -106,37 +65,29 @@ test.describe('File System Integration', () => {
         await spinner.waitFor({ state: 'hidden', timeout: 10000 });
       }
 
-      // Verify the UI is responsive after loading
-      const mainContent = appContext.window.getByTestId('main-content-area');
+      const mainContent = window.getByTestId('main-content-area');
       if (await mainContent.isVisible().catch(() => false)) {
         await expect(mainContent).toBeVisible();
       } else {
-        // Just verify the app is still functional
         await homePage.shouldBeVisible();
       }
     }
   });
 
-  test('should handle file system errors gracefully', async () => {
-    // Test error handling for file system operations
-
-    // Try to trigger a file system operation that might fail
-    const buttons = appContext.window.getByRole('button');
+  test('should handle file system errors gracefully', async ({ window, homePage }) => {
+    const buttons = window.getByRole('button');
     const buttonCount = await buttons.count();
 
-    // Click various buttons to test error handling
     for (let i = 0; i < Math.min(buttonCount, 3); i++) {
       const button = buttons.nth(i);
       const buttonText = await button.textContent();
 
       if (buttonText && !buttonText.toLowerCase().includes('close')) {
         await button.click();
-        await appContext.window.waitForTimeout(500);
+        await window.waitForTimeout(500);
 
-        // Check that any errors are handled gracefully
-        const errorDialog = appContext.window.getByRole('dialog').filter({ hasText: /error/i });
+        const errorDialog = window.getByRole('dialog').filter({ hasText: /error/i });
 
-        // If an error dialog appears, it should be dismissible
         if (await errorDialog.isVisible().catch(() => false)) {
           const closeButton = errorDialog.getByRole('button', { name: /close|ok|dismiss/i });
           if (await closeButton.isVisible()) {
@@ -144,22 +95,15 @@ test.describe('File System Integration', () => {
           }
         }
 
-        // App should remain functional
         await homePage.shouldBeVisible();
       }
     }
   });
 
-  test('should maintain file system state across app restart', async () => {
-    // Increase timeout for this test since it involves app restart
-    test.setTimeout(120000); // 2 minutes instead of default 60 seconds
+  test('should maintain file system state across app restart', async ({ electron, window }) => {
+    test.setTimeout(120000);
 
-    // Test state persistence for file system operations
-
-    // Perform some file system operation (if available)
-    const fileSystemButtons = appContext.window.getByRole('button').filter({
-      hasText: /browse|open|select/i,
-    });
+    const fileSystemButtons = window.getByRole('button').filter({ hasText: /browse|open|select/i });
 
     if (
       await fileSystemButtons
@@ -168,46 +112,19 @@ test.describe('File System Integration', () => {
         .catch(() => false)
     ) {
       await fileSystemButtons.first().click();
-      await expect(appContext.window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
+      await expect(window.getByRole('dialog')).not.toBeVisible({ timeout: 2000 });
     }
 
-    // Store reference to current app context for proper cleanup
-    const originalAppContext = appContext;
+    await electron.restart();
+    const restartedWindow = await electron.ensureWindow();
+    await mockFileSystemOperations(restartedWindow);
 
-    // Close the app with extended cleanup time
-    await closeElectronApp(originalAppContext);
+    const restartedHome = new HomePage(restartedWindow);
+    await restartedHome.shouldBeVisible();
 
-    // Add extra wait time to ensure complete cleanup before restart
-    // This prevents resource conflicts and port binding issues
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    try {
-      // Restart the app with retry logic
-      appContext = await launchElectronApp();
-      await waitForAppReady(appContext.window);
-      homePage = new HomePage(appContext.window);
-
-      // Verify the app starts correctly after file system operations
-      await homePage.shouldBeVisible();
-
-      // Check that any persistent file system state is maintained
-      // This depends on your app's implementation
-      const fileExplorer = appContext.window.getByTestId('file-explorer-panel');
-      if (await fileExplorer.isVisible().catch(() => false)) {
-        // File explorer should be functional after restart
-        await expect(fileExplorer).toBeVisible();
-      }
-    } catch (error) {
-      console.error('❌ Failed to restart app in test:', error);
-      // If restart fails, ensure we don't leave a dangling app context
-      if (appContext && appContext !== originalAppContext) {
-        try {
-          await closeElectronApp(appContext);
-        } catch (cleanupError) {
-          console.error('❌ Failed to cleanup app after restart failure:', cleanupError);
-        }
-      }
-      throw error;
+    const fileExplorer = restartedWindow.getByTestId('file-explorer-panel');
+    if (await fileExplorer.isVisible().catch(() => false)) {
+      await expect(fileExplorer).toBeVisible();
     }
   });
 });

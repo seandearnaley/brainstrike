@@ -1,24 +1,14 @@
 import type { StreamChunk } from '@brainstrike/agent';
-import { expect, test } from '@playwright/test';
-import type { ElectronAppContext } from './utils/electron-helpers';
-import { closeElectronApp, launchElectronApp, waitForAppReady } from './utils/electron-helpers';
+import { expect, test } from './fixtures/electron-fixture';
 
 test.describe('Agent IPC', () => {
-  let appContext: ElectronAppContext;
-
-  test.beforeEach(async () => {
-    appContext = await launchElectronApp();
-    await waitForAppReady(appContext.window);
-  });
-
-  test.afterEach(async () => {
-    if (appContext) await closeElectronApp(appContext);
-  });
-
-  test('returns streamed chunks for a simple prompt', async () => {
-    const result = await appContext.window.evaluate(async () => {
+  test('returns streamed chunks for a simple prompt', async ({ window }) => {
+    const result = await window.evaluate(async () => {
       const msgs = [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello world' }] }];
-      const chunks = await window.agent?.chat?.(msgs, { projectId: 'e2e', provider: 'openai' });
+      const globals = window as unknown as {
+        agent?: { chat?: (messages: typeof msgs, runtime?: unknown) => Promise<unknown[]> };
+      };
+      const chunks = await globals.agent?.chat?.(msgs, { projectId: 'e2e', provider: 'openai' });
       return chunks;
     });
 

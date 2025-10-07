@@ -20,6 +20,7 @@ import type {
 } from '@brainstrike/file-import';
 import { runEnhancedImport } from '@brainstrike/file-import';
 import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import {
   type Dispatch,
   type SetStateAction,
@@ -31,6 +32,8 @@ import {
 } from 'react';
 import { useFileImportService } from './base-file-import-service';
 import { getActiveEmbeddingSetId } from './vector-preferences';
+
+const logger = createLogger('AppShell:EnhancedFileImport');
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -146,12 +149,13 @@ export function useEnhancedFileImportService(
   const embedQueueEnabled = (() => {
     try {
       // Prefer explicit env; default disabled
-      // @ts-expect-error runtime env may be undefined in browser builds
-      if (process?.env?.EMBED_QUEUE_ENABLED) {
-        // @ts-expect-error
-        return String(process.env.EMBED_QUEUE_ENABLED).toLowerCase() === 'true';
+      // Use proper type guard for Node.js environment
+      if (process?.env?.['EMBED_QUEUE_ENABLED']) {
+        return String(process.env['EMBED_QUEUE_ENABLED']).toLowerCase() === 'true';
       }
-    } catch (_e) {}
+    } catch (_e) {
+      // Silently fail in browser environments
+    }
     return false;
   })();
 
@@ -184,7 +188,18 @@ export function useEnhancedFileImportService(
       async enqueueBatch(chunks, fileRecordId, options) {
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
+
+        // Validate chunks before enqueueing
         for (const chunk of chunks) {
+          if (!chunk.id || !chunk.contentHash) {
+            logger.error('Invalid chunk data: missing required fields', {
+              chunkId: chunk.id,
+              hasContentHash: !!chunk.contentHash,
+              fileRecordId,
+            });
+            continue; // Skip invalid chunks
+          }
+
           const dedupeKey = `${chunk.id}:${chunk.embeddingSetId ?? 'none'}:${chunk.contentHash}`;
           await queue.enqueue({
             queue: 'embeddings',
