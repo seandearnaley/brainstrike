@@ -149,9 +149,24 @@ function createDefaultConfig(): InternalLoggerConfig {
   };
 }
 
+function parseEnvLogLevel(): LogLevel | undefined {
+  const envLevel = typeof process !== 'undefined' ? process.env?.['LOG_LEVEL'] : undefined;
+  if (!envLevel) {
+    return undefined;
+  }
+
+  const upperLevel = envLevel.toUpperCase() as keyof typeof LogLevel;
+  return LogLevel[upperLevel];
+}
+
 function resolveEffectiveLevel(config: InternalLoggerConfig): LogLevel {
   if (config.explicitLevel) {
     return config.explicitLevel;
+  }
+
+  const envLevel = parseEnvLogLevel();
+  if (envLevel) {
+    return envLevel;
   }
 
   if (isDevEnv() || config.enableInProduction) {
@@ -244,6 +259,7 @@ function resolveBaseBindings(
 
 function rebuildRootLogger(): void {
   if (rootLogger && typeof rootLogger.flush === 'function') {
+    // Flush any pending logs before rebuilding
     rootLogger.flush();
   }
 
@@ -266,14 +282,30 @@ function createRootLogger(): PinoLogger {
     level: resolvedLevel,
     base: resolveBaseBindings(internalConfig),
     timestamp: internalConfig.includeTimestamp ? pino.stdTimeFunctions.isoTime : false,
+    serializers: {
+      err: pino.stdSerializers.err,
+      req: pino.stdSerializers.req,
+      res: pino.stdSerializers.res,
+      // Redact sensitive fields
+      apiKey: () => '[REDACTED]',
+      password: () => '[REDACTED]',
+      token: () => '[REDACTED]',
+      secret: () => '[REDACTED]',
+      authorization: () => '[REDACTED]',
+      cookie: () => '[REDACTED]',
+    },
   };
 
   if (internalConfig.redactPaths) {
     baseOptions.redact = Array.from(internalConfig.redactPaths);
   }
 
-  if (internalConfig.browser) {
-    baseOptions.browser = internalConfig.browser;
+  if (isBrowserEnvironment) {
+    baseOptions.browser = {
+      asObject: false,
+      serialize: true,
+      ...internalConfig.browser,
+    };
   }
 
   let destination: DestinationStream | undefined;
@@ -410,8 +442,11 @@ function emitLogRecord(level: LogLevel, scope: string | undefined, args: readonl
   for (const listener of logListeners) {
     try {
       listener(record);
-    } catch {
-      // Listener errors must not break logging
+    } catch (listenerError) {
+      // Listener errors must not break logging, but we should report them
+      if (console?.error) {
+        console.error('[Logger] Listener error:', listenerError);
+      }
     }
   }
 }
@@ -501,11 +536,7 @@ export function setLogLevel(level: LogLevel): void {
     explicitLevel: level,
   };
 
-  currentLevel = level;
-
-  if (rootLogger) {
-    rootLogger.level = level;
-  }
+  rebuildRootLogger();
 }
 
 export function resetLogger(): void {
@@ -514,34 +545,71 @@ export function resetLogger(): void {
   rebuildRootLogger();
 }
 
+// Type-safe overloads for structured logging
+export function trace(message: string, data?: Record<string, unknown>): void;
+export function trace(...args: unknown[]): void;
+export function trace(...args: unknown[]): void {
+  logInternal(LogLevel.TRACE, undefined, args);
+}
+
+export function debug(message: string, data?: Record<string, unknown>): void;
+export function debug(...args: unknown[]): void;
 export function debug(...args: unknown[]): void {
   logInternal(LogLevel.DEBUG, undefined, args);
 }
 
+export function info(message: string, data?: Record<string, unknown>): void;
+export function info(...args: unknown[]): void;
 export function info(...args: unknown[]): void {
   logInternal(LogLevel.INFO, undefined, args);
 }
 
+export function warn(message: string, data?: Record<string, unknown>): void;
+export function warn(...args: unknown[]): void;
 export function warn(...args: unknown[]): void {
   logInternal(LogLevel.WARN, undefined, args);
 }
 
+export function error(message: string, data?: Record<string, unknown>): void;
+export function error(...args: unknown[]): void;
 export function error(...args: unknown[]): void {
   logInternal(LogLevel.ERROR, undefined, args);
 }
 
-export function createLogger(scope: string): {
+export function fatal(message: string, data?: Record<string, unknown>): void;
+export function fatal(...args: unknown[]): void;
+export function fatal(...args: unknown[]): void {
+  logInternal(LogLevel.FATAL, undefined, args);
+}
+
+export interface ScopedLogger {
+  trace: (...args: unknown[]) => void;
   debug: (...args: unknown[]) => void;
   info: (...args: unknown[]) => void;
   warn: (...args: unknown[]) => void;
   error: (...args: unknown[]) => void;
-} {
-  return {
+  fatal: (...args: unknown[]) => void;
+}
+
+const loggerCache = new Map<string, ScopedLogger>();
+
+export function createLogger(scope: string): ScopedLogger {
+  const cached = loggerCache.get(scope);
+  if (cached) {
+    return cached;
+  }
+
+  const logger: ScopedLogger = {
+    trace: (...args: unknown[]) => logInternal(LogLevel.TRACE, scope, args),
     debug: (...args: unknown[]) => logInternal(LogLevel.DEBUG, scope, args),
     info: (...args: unknown[]) => logInternal(LogLevel.INFO, scope, args),
     warn: (...args: unknown[]) => logInternal(LogLevel.WARN, scope, args),
     error: (...args: unknown[]) => logInternal(LogLevel.ERROR, scope, args),
+    fatal: (...args: unknown[]) => logInternal(LogLevel.FATAL, scope, args),
   };
+
+  loggerCache.set(scope, logger);
+  return logger;
 }
 
 export function addLogListener(listener: LogListener): () => void {

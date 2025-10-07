@@ -199,4 +199,145 @@ describe('logger', () => {
       ]);
     });
   });
+
+  describe('trace and fatal levels', () => {
+    beforeEach(() => {
+      setEnvironment(true);
+      setLogLevel(LogLevel.TRACE);
+    });
+
+    it('supports trace level logging', async () => {
+      const { trace } = await import('../logger');
+      const records = collectLogs(() => {
+        trace('trace message');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.TRACE);
+      expect(records[0]?.message).toBe('trace message');
+    });
+
+    it('supports fatal level logging', async () => {
+      const { fatal } = await import('../logger');
+      const records = collectLogs(() => {
+        fatal('fatal message');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.FATAL);
+      expect(records[0]?.message).toBe('fatal message');
+    });
+
+    it('includes trace and fatal in scoped loggers', () => {
+      const scopedLogger = createLogger('TestScope');
+      const records = collectLogs(() => {
+        scopedLogger.trace('trace from scope');
+        scopedLogger.fatal('fatal from scope');
+      });
+
+      expect(records).toHaveLength(2);
+      expect(records[0]?.level).toBe(LogLevel.TRACE);
+      expect(records[1]?.level).toBe(LogLevel.FATAL);
+      expect(records[0]?.bindings.scope).toBe('TestScope');
+      expect(records[1]?.bindings.scope).toBe('TestScope');
+    });
+  });
+
+  describe('logger caching', () => {
+    beforeEach(() => {
+      setEnvironment(true);
+    });
+
+    it('returns the same logger instance for the same scope', () => {
+      const logger1 = createLogger('CachedScope');
+      const logger2 = createLogger('CachedScope');
+
+      expect(logger1).toBe(logger2);
+    });
+
+    it('returns different logger instances for different scopes', () => {
+      const logger1 = createLogger('ScopeA');
+      const logger2 = createLogger('ScopeB');
+
+      expect(logger1).not.toBe(logger2);
+    });
+  });
+
+  describe('environment variable log level', () => {
+    beforeEach(() => {
+      setEnvironment(true);
+      resetLogger();
+    });
+
+    afterEach(() => {
+      process.env['LOG_LEVEL'] = undefined;
+      resetLogger();
+    });
+
+    it('uses LOG_LEVEL env var when set', () => {
+      process.env['LOG_LEVEL'] = 'error';
+      resetLogger();
+
+      const records = collectLogs(() => {
+        debug('should be filtered');
+        info('should be filtered');
+        warn('should be filtered');
+        error('should appear');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.ERROR);
+    });
+
+    it('handles case-insensitive LOG_LEVEL', () => {
+      process.env['LOG_LEVEL'] = 'WaRn';
+      resetLogger();
+
+      const records = collectLogs(() => {
+        debug('filtered');
+        warn('appears');
+      });
+
+      expect(records).toHaveLength(1);
+      expect(records[0]?.level).toBe(LogLevel.WARN);
+    });
+
+    it('ignores invalid LOG_LEVEL values', () => {
+      process.env['LOG_LEVEL'] = 'invalid';
+      resetLogger();
+
+      const records = collectLogs(() => {
+        debug('should appear with default level');
+      });
+
+      expect(records).toHaveLength(1);
+    });
+  });
+
+  describe('listener error handling', () => {
+    beforeEach(() => {
+      setEnvironment(true);
+    });
+
+    it('logs listener errors to console without breaking logging', () => {
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const throwingListener = vi.fn(() => {
+        throw new Error('Listener failed');
+      });
+      const workingListener = vi.fn();
+
+      const unsubscribe1 = addLogListener(throwingListener);
+      const unsubscribe2 = addLogListener(workingListener);
+
+      info('test message');
+
+      expect(throwingListener).toHaveBeenCalled();
+      expect(workingListener).toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[Logger] Listener error:', expect.any(Error));
+
+      unsubscribe1();
+      unsubscribe2();
+      consoleErrorSpy.mockRestore();
+    });
+  });
 });

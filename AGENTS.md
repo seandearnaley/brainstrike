@@ -77,11 +77,49 @@
 Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
 
 ## Logging
-- Logging is centralized in `packages/utils/src/logger.ts` and uses Pino v10 for consistent output across runtimes.
+- Logging is centralized in `packages/utils/src/logger.ts` and uses Pino v10 for structured, performant logging across all runtimes.
 - Prefer `initializeLogging` from `@brainstrike/utils` to register transports; pass `runtime` (`browser`, `electron-main`, `electron-renderer`) so shared defaults stay in sync.
 - Desktop main configures logging during module evaluation and records both to the console and to `${app.getPath('logs')}/brainstrike.log` (debug level to file, info to console).
 - Browser and renderer entry points call `initializeLogging` in their respective `main.tsx` files to share bindings (mode, app/version identifiers).
 - Use `addLogListener` for tests or future remote sinks (e.g., Datadog) instead of mocking console APIs.
+
+### Log Levels
+Available levels: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`
+- Set via code: `setLogLevel(LogLevel.DEBUG)`
+- Set via environment: `LOG_LEVEL=debug` (case-insensitive)
+- Priority: explicit code level > env var > dev/prod defaults
+
+### Structured Logging
+Prefer structured logging with data objects:
+```typescript
+// Good - structured
+logger.info('User authenticated', { userId: '123', method: 'oauth' });
+
+// Also works - backward compatible
+logger.info('User authenticated', userId, method);
+```
+
+### Scoped Loggers
+Create scoped loggers for components:
+```typescript
+const logger = createLogger('FileImporter');
+logger.debug('Starting import', { fileCount: 10 });
+// Output includes scope binding: { scope: 'FileImporter', fileCount: 10 }
+```
+
+### Sensitive Data
+Default serializers automatically redact: `apiKey`, `password`, `token`, `secret`, `authorization`, `cookie`
+Add custom redaction via `redactPaths` in `configureLogger`
+
+### Testing
+Use `addLogListener` to capture logs in tests:
+```typescript
+const logs: LogRecord[] = [];
+const unsubscribe = addLogListener((record) => logs.push(record));
+// run test code
+unsubscribe();
+expect(logs).toHaveLength(1);
+```
 
 
 This file should evolve alongside the repo. Treat it as **living  

@@ -41,9 +41,9 @@ const loggingOptions: InitializeLoggingOptions = {
   enableDebugInProduction: true,
 };
 
-if (!disableFileLogs) {
+if (!disableFileLogs && logFilePath) {
   loggingOptions.file = {
-    destination: logFilePath ?? path.join(app.getPath('logs'), 'brainstrike.log'),
+    destination: logFilePath,
     level: LogLevel.DEBUG,
     mkdir: true,
     append: true,
