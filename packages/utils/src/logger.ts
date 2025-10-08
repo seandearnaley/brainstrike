@@ -3,7 +3,6 @@ import pino, {
   type LoggerOptions,
   type Logger as PinoLogger,
   type TransportTargetOptions,
-  transport,
 } from 'pino';
 import { isDevEnv } from './env-utils';
 
@@ -314,13 +313,28 @@ function createRootLogger(): PinoLogger {
     const targets = buildTransportTargets(resolvedLevel);
 
     if (targets.length > 0) {
-      destination = transport({ targets });
+      const nodeTransport = resolveNodeTransport();
+      destination = nodeTransport({ targets });
     }
   }
 
   const logger = destination ? pino(baseOptions, destination) : pino(baseOptions);
   logger.level = resolvedLevel;
   return logger;
+}
+
+function resolveNodeTransport(): typeof import('pino')['transport'] {
+  const maybeTransport = (
+    pino as typeof pino & {
+      transport?: typeof import('pino')['transport'];
+    }
+  ).transport;
+
+  if (!maybeTransport) {
+    throw new Error('pino transport is not available in this environment');
+  }
+
+  return maybeTransport;
 }
 
 function buildTransportTargets(level: LogLevel): TransportTargetOptions<Record<string, unknown>>[] {

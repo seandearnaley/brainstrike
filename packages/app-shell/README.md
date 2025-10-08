@@ -197,14 +197,29 @@ import { QueueHUD } from "@brainstrike/app-shell";
 ```
 
 #### `SettingsPageContent`
-Pre-built settings page with theme and configuration management.
+Render a master–detail settings experience with category navigation and in-page search.
 
 ```tsx
-import { SettingsPageContent } from "@brainstrike/app-shell";
+import {
+  SettingsPageContent,
+  createAppearanceSettingsCategory,
+  type SettingsCategory,
+} from "@brainstrike/app-shell";
+import { Key } from "lucide-react";
 
-<SettingsPageContent
-  onSave={(settings) => console.log("Settings saved:", settings)}
-/>
+const categories: SettingsCategory[] = [
+  createAppearanceSettingsCategory(),
+  {
+    id: "account",
+    title: "Account",
+    description: "Manage authentication, linked identities, and access tokens.",
+    keywords: ["auth", "tokens", "security"],
+    icon: Key,
+    render: () => <AccountSettings />,
+  },
+];
+
+<SettingsPageContent categories={categories} defaultCategoryId="appearance" />;
 ```
 
 ## State Management
