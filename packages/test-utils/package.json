@@ -48,6 +48,7 @@
     "@brainstrike/types": "workspace:*"
   },
   "devDependencies": {
+    "@stryker-mutator/api": "^9.2.0",
     "@stryker-mutator/core": "^9.2.0",
     "@stryker-mutator/typescript-checker": "^9.2.0",
     "@stryker-mutator/vitest-runner": "^9.2.0",

@@ -536,6 +536,9 @@ importers:
         specifier: ^19.1.1
         version: 19.2.0(react@19.2.0)
     devDependencies:
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -631,6 +634,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -689,6 +695,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -904,6 +913,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -1001,6 +1013,9 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -1244,6 +1259,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)

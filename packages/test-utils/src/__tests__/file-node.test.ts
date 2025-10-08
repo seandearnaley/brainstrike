@@ -122,6 +122,29 @@ describe('createNestedDirectoryStructure', () => {
     expect(totalFiles).toBe((depth + 1) * filesPerLevel);
     expect(deepest).toBe(depth);
   });
+
+  it('uses the root fallback name and generated file names', () => {
+    const root = createNestedDirectoryStructure('/', 0, 1);
+    expect(root.name).toBe('root');
+    const onlyChild = root.children?.[0];
+    expect(onlyChild?.name).toBe('file0.txt');
+    expect(onlyChild?.path).toBe('//file0.txt');
+    expect(onlyChild?.depth).toBe(0);
+  });
+
+  it('creates deterministic subdirectory names per depth', () => {
+    const root = createNestedDirectoryStructure('/base', 2, 0);
+    const level1Dir = root.children?.[0];
+    const level2Dir = level1Dir?.children?.[0];
+
+    expect(level1Dir?.name).toBe('subdir2');
+    expect(level1Dir?.path).toBe('/base/subdir2');
+    expect(level1Dir?.depth).toBe(1);
+
+    expect(level2Dir?.name).toBe('subdir1');
+    expect(level2Dir?.path).toBe('/base/subdir2/subdir1');
+    expect(level2Dir?.depth).toBe(2);
+  });
 });
 
 describe('createFileTreeFromStructure', () => {

@@ -237,4 +237,51 @@ describe('file-content-worker', () => {
     expect(progress.map((p) => p.loaded)).toEqual([1, 2, 3]);
     expect(progress.every((p) => p.total === 3)).toBe(true);
   });
+
+  it('handles text extension file with text content successfully', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/document.txt');
+    MockFileSystemAdapter.setMockFileContent('/document.txt', 'This is text content');
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(true);
+    vi.spyOn(fileContent, 'isTextContent').mockReturnValue(true);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('This is text content');
+    expect(fileContent.isTextContent).toHaveBeenCalledWith('This is text content');
+  });
+
+  it('uses custom concurrency setting', async () => {
+    class ConcurrencyTracker extends MockFileSystemAdapter {
+      active = 0;
+      maxActive = 0;
+
+      override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {
+        this.active += 1;
+        this.maxActive = Math.max(this.maxActive, this.active);
+        await new Promise((r) => setTimeout(r, 10));
+        const result = await super.readFile(handle);
+        this.active -= 1;
+        return result;
+      }
+    }
+
+    const adapter = new ConcurrencyTracker();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 3 });
+    const requests = ['/1.txt', '/2.txt', '/3.txt', '/4.txt', '/5.txt'].map(createRequest);
+    requests.forEach((req) => {
+      MockFileSystemAdapter.setMockFileContent(req.path, `content-${req.path}`);
+    });
+
+    vi.useFakeTimers();
+    const promise = worker(requests);
+    await vi.runAllTimersAsync();
+    const results = await promise;
+    vi.useRealTimers();
+
+    expect(Object.keys(results)).toHaveLength(5);
+    expect(adapter.maxActive).toBeLessThanOrEqual(3);
+  });
 });

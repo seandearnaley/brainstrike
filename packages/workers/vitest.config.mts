@@ -7,5 +7,18 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['*.test.ts', '*.test.tsx', '**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    coverage: {
+      exclude: [
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/__tests__/**',
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/*.config.*',
+        '**/vitest.*',
+        'stryker.config.js',
+        'test-helpers.ts',
+      ],
+    },
   },
 });

@@ -116,7 +116,8 @@
       "Bash(pnpm:*)",
       "Bash(open /Users/seandearnaley/Documents/GitHub/brainstrike/apps/desktop/coverage/index.html)",
       "Bash(pkill:*)",
-      "Bash(/dev/null)"
+      "Bash(/dev/null)",
+      "Bash(test:*)"
     ],
     "deny": [],
     "ask": []

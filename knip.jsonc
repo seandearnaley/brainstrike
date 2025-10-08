@@ -54,7 +54,12 @@
     },
     "packages/hooks": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -93,14 +98,24 @@
     },
     "packages/file-explorer": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
     },
     "packages/file-explorer-hooks": {
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -142,7 +157,12 @@
         "src/test-timeouts.ts" // Used by vitest configs across the monorepo
       ],
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "ignoreDependencies": [
         // Used via dynamic require in render-with-providers.tsx
         "@testing-library/react"
@@ -154,7 +174,12 @@
     "packages/workers": {
       "entry": ["file-content-worker.ts"],
       "project": ["*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -197,7 +222,12 @@
         "src/cli/queue-cli.ts" // CLI entry point used via pnpm queue script
       ],
       "project": ["src/**/*.{ts,tsx}"],
-      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "vitest.mutation.config.ts", // Used by Stryker mutation testing
+        "stryker.config.js" // Mutation testing config
+      ],
       "typescript": {
         "config": "tsconfig.json"
       }
@@ -247,7 +277,8 @@
     "tailwindcss", // Likely used via PostCSS, might be flagged
     "ts-node", // Likely used for scripts/configs
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
-    "@vitejs/plugin-react" // Only used in Vite config
+    "@vitejs/plugin-react", // Only used in Vite config
+    "@stryker-mutator/api" // Used for JSDoc type annotations in stryker.config.js files
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
