@@ -820,6 +820,10 @@ describe('useFileTree', () => {
       await firstRefresh;
       await secondRefresh;
       expect(firstError).toBeInstanceOf(DOMException);
+      if (firstError instanceof DOMException) {
+        expect(firstError.name).toBe('AbortError');
+        expect(firstError.message).toBe('Operation was cancelled');
+      }
       expect(secondError).toBeUndefined();
 
       readSpy.mockRestore();
@@ -878,6 +882,48 @@ describe('useFileTree', () => {
         throw new Error('Expected refreshPromise to be defined');
       }
       await refreshPromise;
+
+      readSpy.mockRestore();
+      MockFileSystemAdapter.clearMockData();
+    });
+
+    it('initial load transitions progress phase to loading', async () => {
+      const firstHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'phase-root',
+        path: 'phase-root',
+        platform: 'web',
+      };
+
+      const originalReadDirectory = MockFileSystemAdapter.prototype.readDirectory;
+      const readQueue: Array<() => void> = [];
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockImplementation(function (this, handle) {
+          return new Promise<IFileNode[]>((resolve, reject) => {
+            readQueue.push(() => {
+              originalReadDirectory.call(this, handle).then(resolve, reject);
+            });
+          });
+        });
+
+      MockFileSystemAdapter.setMockDirectoryData('phase-root', []);
+
+      const { result } = renderHook(() => useFileTree(firstHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(readQueue.length).toBeGreaterThan(0));
+      expect(result.current.isLoading).toBe(true);
+      expect(result.current.loadingProgress.phase).toBe('loading');
+      expect(result.current.loadingProgress.loaded).toBe(0);
+
+      await act(async () => {
+        readQueue.shift()?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
 
       readSpy.mockRestore();
       MockFileSystemAdapter.clearMockData();
