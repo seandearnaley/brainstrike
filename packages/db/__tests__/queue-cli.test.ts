@@ -1,0 +1,99 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const originalArgv = [...process.argv];
+const originalExit = process.exit;
+const originalLog = console.log;
+const originalError = console.error;
+
+describe('queue-cli smoke tests', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.argv = [...originalArgv];
+  });
+
+  afterEach(() => {
+    process.argv = [...originalArgv];
+    process.exit = originalExit;
+    console.log = originalLog;
+    console.error = originalError;
+    vi.restoreAllMocks();
+  });
+
+  it('prints help and exits gracefully when no command is provided', async () => {
+    const exitCalls: number[] = [];
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      exitCalls.push(code ?? 0);
+      if ((code ?? 0) === 0) {
+        throw new Error('help exit');
+      }
+      return undefined as never;
+    }) as never);
+    const logMock = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    process.argv = ['node', 'queue-cli'];
+
+    const createPGlite = vi.fn();
+    vi.doMock('../src/wasm-loader.js', () => ({
+      wasmLoader: {
+        createPGlite,
+      },
+    }));
+    vi.doMock('../src/queue/job-queue.js', () => ({
+      JobQueue: vi.fn().mockReturnValue({
+        getQueueStats: vi.fn(),
+        requeueFailed: vi.fn(),
+        clear: vi.fn(),
+        prune: vi.fn(),
+      }),
+    }));
+
+    await import('../src/cli/queue-cli.ts');
+
+    await vi.waitFor(() => {
+      expect(exitMock).toHaveBeenCalledWith(0);
+    });
+    expect(exitCalls[0]).toBe(0);
+    expect(createPGlite).not.toHaveBeenCalled();
+    expect(logMock).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: queue-cli <stats|requeue|clear|prune>')
+    );
+  });
+
+  it('executes stats command against the job queue', async () => {
+    const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`unexpected exit ${code ?? 0}`);
+    }) as never);
+    const logMock = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    process.argv = ['node', 'queue-cli', 'stats', '--queue', 'embeddings'];
+
+    const statsPayload = { queued: 2, running: 1 };
+    const getQueueStats = vi.fn().mockResolvedValue(statsPayload);
+    const createPGlite = vi.fn().mockResolvedValue({ database: 'memory://' });
+
+    vi.doMock('../src/wasm-loader.js', () => ({
+      wasmLoader: { createPGlite },
+    }));
+    const JobQueueMock = vi.fn().mockImplementation(() => ({
+      getQueueStats,
+      requeueFailed: vi.fn(),
+      clear: vi.fn(),
+      prune: vi.fn(),
+    }));
+    vi.doMock('../src/queue/job-queue.js', () => ({
+      JobQueue: JobQueueMock,
+    }));
+
+    await import('../src/cli/queue-cli.ts');
+
+    await vi.waitFor(async () => {
+      expect(createPGlite).toHaveBeenCalledWith('memory://');
+      expect(JobQueueMock).toHaveBeenCalledTimes(1);
+      expect(getQueueStats).toHaveBeenCalledWith('embeddings');
+      expect(logMock).toHaveBeenCalledWith(JSON.stringify(statsPayload, null, 2));
+    });
+
+    expect(exitMock).not.toHaveBeenCalled();
+  });
+});

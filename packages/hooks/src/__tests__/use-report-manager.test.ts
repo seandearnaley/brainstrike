@@ -224,4 +224,108 @@ describe('useReportManager', () => {
     // Should not show a success toast
     expect(mockShowToast).not.toHaveBeenCalled();
   });
+
+  it('should handle toast with no return value', async () => {
+    const mockToastNoReturn = vi.fn();
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToastNoReturn,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleCopyReport();
+    });
+
+    expect(mockGenerateReportWithContent).toHaveBeenCalled();
+    expect(mockToastNoReturn).toHaveBeenCalledWith({
+      title: FileExplorerStrings.loading.generatingReport,
+      description: FileExplorerStrings.prompts.waitForReport,
+      duration: Number.POSITIVE_INFINITY,
+    });
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.success.title,
+      description: FileExplorerStrings.success.reportCopied,
+    });
+  });
+
+  it('should handle missing dismiss method gracefully', async () => {
+    const mockToastNoDismiss = vi.fn().mockReturnValue({});
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToastNoDismiss,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleCopyReport();
+    });
+
+    // Should handle missing dismiss gracefully
+    expect(mockGenerateReportWithContent).toHaveBeenCalled();
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.success.title,
+      description: FileExplorerStrings.success.reportCopied,
+    });
+  });
+
+  it('should handle undefined dismiss method on download', async () => {
+    const mockToastNoDismiss = vi.fn().mockReturnValue({});
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToastNoDismiss,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleDownloadReport();
+    });
+
+    expect(mockGenerateReportWithContent).toHaveBeenCalled();
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.success.title,
+      description: FileExplorerStrings.success.reportDownloaded,
+    });
+  });
+
+  it('should pass error message in description when copy fails', async () => {
+    const errorMessage = 'Custom clipboard error';
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error(errorMessage)),
+      },
+      writable: true,
+    });
+
+    const { result } = renderHook(() =>
+      useReportManager({
+        rootDirectoryHandle: mockRootDirectoryHandle,
+        generateReportWithContent: mockGenerateReportWithContent,
+        showToast,
+        toast: mockToast,
+      })
+    );
+
+    await act(async () => {
+      await result.current.handleCopyReport();
+    });
+
+    expect(mockShowToast).toHaveBeenCalledWith({
+      title: FileExplorerStrings.error.title,
+      description: `${FileExplorerStrings.error.reportCopyFailed}: ${errorMessage}`,
+      variant: 'destructive',
+    });
+  });
 });

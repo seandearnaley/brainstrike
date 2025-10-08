@@ -30,6 +30,7 @@ async function loadVectorExtension() {
 
   try {
     // Dynamic import for pgvector extension (ES module compatible)
+    /* Stryker disable next-line StringLiteral */
     const { vector } = await import('@electric-sql/pglite/vector');
     return vector;
   } catch (e) {

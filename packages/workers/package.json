@@ -25,7 +25,10 @@
     "build": "pnpm run clean && tsc -b .",
     "prepublishOnly": "pnpm run build",
     "type-check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "pnpm -w test:coverage",
+    "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
     "@brainstrike/file-system": "workspace:*",
@@ -34,6 +37,9 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
     "@types/node": "^24.7.0",
     "rimraf": "^6.0.1",
     "typescript": "^5.9.3",

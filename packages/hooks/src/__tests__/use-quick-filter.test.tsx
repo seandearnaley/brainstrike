@@ -103,4 +103,96 @@ describe('useQuickFilter', () => {
     expect(children[0].name).toBe('file4999.txt');
     expect(duration).toBeLessThan(200);
   });
+
+  it('should handle case-insensitive matching for both name and path', () => {
+    const tree: IFileNode[] = [
+      fileNode('MyFile.ts', '/Path/To/MyFile.ts'),
+      fileNode('another.ts', '/another.ts'),
+    ];
+
+    const { result } = renderHook(() => useQuickFilter(tree));
+
+    act(() => {
+      result.current.setQuickFilter('myfile');
+    });
+
+    let filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].name).toBe('MyFile.ts');
+
+    // Also test path matching
+    act(() => {
+      result.current.setQuickFilter('path/to');
+    });
+
+    filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].name).toBe('MyFile.ts');
+  });
+
+  it('should handle empty or whitespace-only filters', () => {
+    const tree: IFileNode[] = [fileNode('file.ts', '/file.ts')];
+
+    const { result } = renderHook(() => useQuickFilter(tree));
+
+    act(() => {
+      result.current.setQuickFilter('   ');
+    });
+
+    const filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1); // Should return all
+  });
+
+  it('should filter out files that match exclusion patterns', () => {
+    const tree: IFileNode[] = [
+      fileNode('include.ts', '/include.ts'),
+      fileNode('exclude.ts', '/exclude.ts'),
+    ];
+
+    const { result } = renderHook(() => useQuickFilter(tree));
+
+    act(() => {
+      result.current.setQuickFilter('include -exclude');
+    });
+
+    const filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].name).toBe('include.ts');
+  });
+
+  it('should handle directories with filtered children', () => {
+    const tree: IFileNode[] = [
+      dirNode('src', 'src', [
+        fileNode('foo.txt', 'src/foo.txt'),
+        dirNode('nested', 'src/nested', [fileNode('bar.txt', 'src/nested/bar.txt')]),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useQuickFilter(tree));
+
+    act(() => {
+      result.current.setQuickFilter('bar');
+    });
+
+    const filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1);
+    const srcNode = filtered[0];
+    const children = srcNode.children ?? [];
+    expect(children).toHaveLength(1);
+    expect(children[0].name).toBe('nested');
+  });
+
+  it('should handle join separator in searchable text', () => {
+    const tree: IFileNode[] = [fileNode('test.txt', '/path/to/test.txt')];
+
+    const { result } = renderHook(() => useQuickFilter(tree));
+
+    // The join uses a space, so searching for terms that would match name or path
+    act(() => {
+      result.current.setQuickFilter('test path');
+    });
+
+    const filtered = result.current.filteredTree;
+    expect(filtered).toHaveLength(1);
+  });
 });
