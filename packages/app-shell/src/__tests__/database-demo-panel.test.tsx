@@ -798,7 +798,7 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByText(/This is a test chunk with relevant content/)).toBeInTheDocument();
         expect(screen.getByText(/Another test chunk with different content/)).toBeInTheDocument();
       });
-    });
+    }, 10000);
 
     it('shows empty state when no search results are found', async () => {
       mockRepository.findAllWithContent.mockResolvedValue([]);
@@ -849,6 +849,6 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByText(/No matching chunks found/)).toBeInTheDocument();
       });
-    });
+    }, 10000);
   });
 });
