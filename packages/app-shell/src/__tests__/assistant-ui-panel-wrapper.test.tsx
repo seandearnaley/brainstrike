@@ -127,18 +127,18 @@ describe('AssistantUiPanelWrapper', () => {
 
     render(<AssistantUiPanelWrapper />);
 
-    // Wait for auto-selection to occur
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('openai');
-    });
+    // Wait for auto-selection to occur - this waits for all async effects
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
 
-    // Check that default model is also selected
-    const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-    expect(modelSelect.value).toBe('gpt-4o-mini');
-
-    // Panel should be enabled
-    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+        expect(providerSelect.value).toBe('openai');
+        expect(modelSelect.value).toBe('gpt-4o-mini');
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+      },
+      { timeout: 3000 }
+    );
   });
 
   test('shows disabled reason when no providers available', async () => {
@@ -146,13 +146,15 @@ describe('AssistantUiPanelWrapper', () => {
 
     render(<AssistantUiPanelWrapper />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-        'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
-      );
-    });
-
-    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+    await waitFor(
+      () => {
+        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+          'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+        );
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+      },
+      { timeout: 3000 }
+    );
   });
 
   test('allows changing provider and auto-selects default model', async () => {
@@ -162,23 +164,24 @@ describe('AssistantUiPanelWrapper', () => {
     render(<AssistantUiPanelWrapper />);
 
     // Wait for initial auto-selection
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('openai');
-    });
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        expect(providerSelect.value).toBe('openai');
+      },
+      { timeout: 3000 }
+    );
 
     // Change provider to anthropic
     const providerSelect = screen.getByTestId('provider-select');
     await user.selectOptions(providerSelect, 'anthropic');
 
-    // Wait for model to update
+    // Wait for model to update and panel to remain enabled
     await waitFor(() => {
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
       expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+      expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
     });
-
-    // Panel should remain enabled
-    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
   });
 
   test('allows changing model for selected provider', async () => {
@@ -188,10 +191,13 @@ describe('AssistantUiPanelWrapper', () => {
     render(<AssistantUiPanelWrapper />);
 
     // Wait for auto-selection
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('openai');
-    });
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        expect(providerSelect.value).toBe('openai');
+      },
+      { timeout: 3000 }
+    );
 
     // Change model
     const modelSelect = screen.getByTestId('model-select');
@@ -211,10 +217,13 @@ describe('AssistantUiPanelWrapper', () => {
     const { rerender } = render(<AssistantUiPanelWrapper />);
 
     // Wait for auto-selection
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('openai');
-    });
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        expect(providerSelect.value).toBe('openai');
+      },
+      { timeout: 3000 }
+    );
 
     // Manually select a different provider
     const user = userEvent.setup();
@@ -228,9 +237,11 @@ describe('AssistantUiPanelWrapper', () => {
     // Re-render component
     rerender(<AssistantUiPanelWrapper />);
 
-    // Selection should persist
-    const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-    expect(providerSelect.value).toBe('google');
+    // Selection should persist - wait for re-render to complete
+    await waitFor(() => {
+      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+      expect(providerSelect.value).toBe('google');
+    });
   });
 
   test('starts with first provider when initially loaded', async () => {
@@ -239,18 +250,19 @@ describe('AssistantUiPanelWrapper', () => {
 
     render(<AssistantUiPanelWrapper />);
 
-    // Should auto-select the only available provider
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('anthropic');
-    });
+    // Should auto-select the only available provider and update all state
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        expect(providerSelect.value).toBe('anthropic');
 
-    // Should also select the default model
-    const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-    expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
+        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+        expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
 
-    // Panel should be enabled
-    expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+      },
+      { timeout: 3000 }
+    );
   });
 
   test('model selector is disabled when no provider selected', async () => {
@@ -258,10 +270,13 @@ describe('AssistantUiPanelWrapper', () => {
 
     render(<AssistantUiPanelWrapper />);
 
-    await waitFor(() => {
-      const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-      expect(modelSelect).toBeDisabled();
-    });
+    await waitFor(
+      () => {
+        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+        expect(modelSelect).toBeDisabled();
+      },
+      { timeout: 3000 }
+    );
   });
 
   test('shows correct models for each provider', async () => {
@@ -270,14 +285,17 @@ describe('AssistantUiPanelWrapper', () => {
     render(<AssistantUiPanelWrapper />);
 
     // Wait for auto-selection (openai)
-    await waitFor(() => {
-      const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-      expect(providerSelect.value).toBe('openai');
-    });
+    await waitFor(
+      () => {
+        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+        expect(providerSelect.value).toBe('openai');
+      },
+      { timeout: 3000 }
+    );
 
     // Check OpenAI models are available
-    let modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-    let options = Array.from(modelSelect.options).map((o) => o.value);
+    const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+    const options = Array.from(modelSelect.options).map((o) => o.value);
     expect(options).toContain('gpt-4o');
     expect(options).toContain('gpt-4o-mini');
 
@@ -285,17 +303,17 @@ describe('AssistantUiPanelWrapper', () => {
     const user = userEvent.setup();
     await user.selectOptions(screen.getByTestId('provider-select'), 'google');
 
+    // Wait for provider switch and model update to complete
     await waitFor(() => {
       const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
       expect(providerSelect.value).toBe('google');
-    });
 
-    // Check Google models are available
-    modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-    options = Array.from(modelSelect.options).map((o) => o.value);
-    expect(options).toContain('gemini-2.5-flash');
-    expect(options).toContain('gemini-2.0-pro');
-    expect(options).not.toContain('gpt-4o');
+      const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+      const options = Array.from(modelSelect.options).map((o) => o.value);
+      expect(options).toContain('gemini-2.5-flash');
+      expect(options).toContain('gemini-2.0-pro');
+      expect(options).not.toContain('gpt-4o');
+    });
   });
 
   test('persists provider and model selections in store', async () => {

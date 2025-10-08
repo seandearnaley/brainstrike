@@ -78,7 +78,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 }));
 
 describe('RightPanel', () => {
-  test('renders with all tabs', () => {
+  test('renders with all tabs', async () => {
     render(<RightPanel />);
 
     // Check that all tab triggers are present
@@ -86,13 +86,16 @@ describe('RightPanel', () => {
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
+
+    // Wait for async state updates to complete
+    await screen.findByTestId('assistant-chat-card');
   });
 
-  test('shows assistant tab content by default', () => {
+  test('shows assistant tab content by default', async () => {
     render(<RightPanel />);
 
-    // Assistant tab should be active by default
-    const assistantCard = screen.getByTestId('assistant-chat-card');
+    // Assistant tab should be active by default - wait for async updates
+    const assistantCard = await screen.findByTestId('assistant-chat-card');
     expect(assistantCard).toBeInTheDocument();
     expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
   });
@@ -131,8 +134,11 @@ describe('RightPanel', () => {
     expect(within(assistantPanel).getByText(/Assistant disabled/i)).toBeInTheDocument();
   });
 
-  test('has proper tab structure with icons', () => {
+  test('has proper tab structure with icons', async () => {
     render(<RightPanel />);
+
+    // Wait for async state updates
+    await screen.findByTestId('assistant-chat-card');
 
     // Check that tabs have icons (we can't easily test the actual icons, but we can check the structure)
     const tabList = screen.getByRole('tablist');

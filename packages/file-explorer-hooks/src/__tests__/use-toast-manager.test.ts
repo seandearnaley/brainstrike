@@ -1,55 +1,76 @@
 import { FileExplorerStrings, PartialRefreshError } from '@brainstrike/types';
 import type { ToastActionElement } from '@brainstrike/ui';
 import { useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useToastManager } from '../use-toast-manager';
 
-// Mock dependencies
+type MockLogger = {
+  error: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  info: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
+};
+
+type MockToastResult = {
+  toast: ReturnType<typeof vi.fn>;
+  dismiss: ReturnType<typeof vi.fn>;
+  toasts: [];
+};
+
+const mockLogger = vi.hoisted<MockLogger>(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+
 vi.mock('@brainstrike/ui', () => ({
   useToast: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', () => ({
-  createLogger: vi.fn(() => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-    debug: vi.fn(),
-  })),
+  createLogger: vi.fn(() => mockLogger),
 }));
+
+const createLoggerMock = vi.mocked(createLogger);
 
 describe('useToastManager', () => {
   let mockToast: ReturnType<typeof vi.fn>;
   let mockDismiss: ReturnType<typeof vi.fn>;
+  let currentToastResult: MockToastResult;
 
   beforeEach(() => {
-    // Reset mocks before each test
-    vi.clearAllMocks();
+    vi.mocked(useToast).mockReset();
 
-    // Setup fresh mocks for useToast
     mockToast = vi.fn();
     mockDismiss = vi.fn();
-    vi.mocked(useToast).mockReturnValue({
+    currentToastResult = {
       toast: mockToast,
       dismiss: mockDismiss,
       toasts: [],
-    });
+    };
+
+    mockLogger.error.mockReset();
+    mockLogger.warn.mockReset();
+    mockLogger.info.mockReset();
+    mockLogger.debug.mockReset();
+
+    createLoggerMock.mockReturnValue(mockLogger);
+
+    vi.mocked(useToast).mockImplementation(() => currentToastResult);
   });
 
   afterEach(() => {
-    // Restore mocks after each test
-    vi.restoreAllMocks();
+    vi.mocked(useToast).mockReset();
   });
 
-  const setup = () => {
-    const { result } = renderHook(() => useToastManager());
-    return { result, mockToast };
-  };
+  const setup = () => renderHook(() => useToastManager());
 
   describe('showToast', () => {
-    it('should call toast with provided parameters', () => {
-      const { result, mockToast } = setup();
+    it('calls toast with provided parameters', () => {
+      const { result } = setup();
       const toastParams = {
         title: 'Test Toast',
         description: 'This is a test toast',
@@ -61,8 +82,8 @@ describe('useToastManager', () => {
       expect(mockToast).toHaveBeenCalledWith(toastParams);
     });
 
-    it('should call toast with destructive variant', () => {
-      const { result, mockToast } = setup();
+    it('calls toast with destructive variant', () => {
+      const { result } = setup();
       const toastParams = {
         title: 'Error Toast',
         description: 'This is an error toast',
@@ -74,9 +95,8 @@ describe('useToastManager', () => {
       expect(mockToast).toHaveBeenCalledWith(toastParams);
     });
 
-    it('should call toast with an action', () => {
-      const { result, mockToast } = setup();
-      // Create a mock action element
+    it('applies default variant when missing', () => {
+      const { result } = setup();
       const mockAction = {} as ToastActionElement;
       const toastParams = {
         title: 'Action Toast',
@@ -88,14 +108,14 @@ describe('useToastManager', () => {
 
       expect(mockToast).toHaveBeenCalledWith({
         ...toastParams,
-        variant: 'default', // Default variant
+        variant: 'default',
       });
     });
   });
 
   describe('handlePartialRefreshError', () => {
-    it('should show destructive toast with error message', () => {
-      const { result, mockToast } = setup();
+    it('shows destructive toast with error message', () => {
+      const { result } = setup();
       const error = new PartialRefreshError('Partial refresh failed', 5, 3);
 
       result.current.handlePartialRefreshError(error);
@@ -109,8 +129,8 @@ describe('useToastManager', () => {
   });
 
   describe('handleRefreshError', () => {
-    it('should handle PartialRefreshError', () => {
-      const { result, mockToast } = setup();
+    it('handles PartialRefreshError', () => {
+      const { result } = setup();
       const error = new PartialRefreshError('Partial refresh failed', 5, 3);
 
       result.current.handleRefreshError(error);
@@ -122,8 +142,8 @@ describe('useToastManager', () => {
       });
     });
 
-    it('should handle generic errors', () => {
-      const { result, mockToast } = setup();
+    it('handles generic errors', () => {
+      const { result } = setup();
       const error = new Error('Generic error');
 
       result.current.handleRefreshError(error);
@@ -137,8 +157,8 @@ describe('useToastManager', () => {
   });
 
   describe('handleBrowserCompatibilityError', () => {
-    it('should show toast with browser compatibility error', () => {
-      const { result, mockToast } = setup();
+    it('shows toast with browser compatibility error', () => {
+      const { result } = setup();
       const reason = 'Browser does not support FileSystem API';
 
       result.current.handleBrowserCompatibilityError(reason);
@@ -152,13 +172,16 @@ describe('useToastManager', () => {
   });
 
   describe('handleDirectorySelectError', () => {
-    it('should log error and show toast', () => {
-      const { result, mockToast } = setup();
+    it('logs error and shows toast', () => {
+      const { result } = setup();
       const error = new Error('Failed to select directory');
 
       result.current.handleDirectorySelectError(error);
 
-      // The logger.error call is tested indirectly through the mock
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Failed to select root directory. Raw error:',
+        error
+      );
       expect(mockToast).toHaveBeenCalledWith({
         title: FileExplorerStrings.error.title,
         description: FileExplorerStrings.error.rootDirectoryFailed,
@@ -168,8 +191,8 @@ describe('useToastManager', () => {
   });
 
   describe('handleSelectionLimitError', () => {
-    it('should show selection limit exceeded toast', () => {
-      const { result, mockToast } = setup();
+    it('shows selection limit exceeded toast', () => {
+      const { result } = setup();
 
       result.current.handleSelectionLimitError();
 
@@ -179,5 +202,44 @@ describe('useToastManager', () => {
         variant: 'destructive',
       });
     });
+  });
+
+  describe('memoization', () => {
+    it('uses latest toast implementation across callbacks after re-render', () => {
+      const { result, rerender } = setup();
+      const initialToast = mockToast;
+      const nextToast = vi.fn();
+
+      result.current.showToast({
+        title: 'Initial',
+        description: 'Initial render',
+      });
+      expect(initialToast).toHaveBeenCalledTimes(1);
+
+      currentToastResult = {
+        ...currentToastResult,
+        toast: nextToast,
+      };
+      vi.mocked(useToast).mockImplementation(() => currentToastResult);
+      rerender();
+
+      result.current.showToast({
+        title: 'Updated',
+        description: 'After re-render',
+      });
+      result.current.handlePartialRefreshError(new PartialRefreshError('Updated error', 2, 1));
+      result.current.handleRefreshError(new Error('Generic'));
+      result.current.handleBrowserCompatibilityError('Reason');
+      result.current.handleDirectorySelectError(new Error('Select'));
+      result.current.handleSelectionLimitError();
+
+      expect(nextToast).toHaveBeenCalledTimes(6);
+      expect(initialToast).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('creates a logger with the ToastManager scope', () => {
+    setup();
+    expect(createLoggerMock).toHaveBeenCalledWith('ToastManager');
   });
 });
