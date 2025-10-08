@@ -1,10 +1,36 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
+import { createFileNode } from '@brainstrike/test-utils';
 import type { IFileNode } from '@brainstrike/types';
 import { PartialRefreshError } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileTree } from '../use-file-tree';
 import { AdaptersTestWrapper, MockFileSystemAdapter } from './test-helpers';
+
+type MockLogger = {
+  error: ReturnType<typeof vi.fn>;
+  warn: ReturnType<typeof vi.fn>;
+  info: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
+};
+
+const loggerMock = vi.hoisted<MockLogger>(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: vi.fn(() => loggerMock),
+  };
+});
+
+const createLoggerMock = vi.mocked(createLogger);
 
 describe('useFileTree', () => {
   let mockDirectoryHandle: DirectoryHandle;
@@ -12,6 +38,11 @@ describe('useFileTree', () => {
   beforeEach(() => {
     // Clear any previous mock data
     MockFileSystemAdapter.clearMockData();
+    loggerMock.error.mockReset();
+    loggerMock.warn.mockReset();
+    loggerMock.info.mockReset();
+    loggerMock.debug.mockReset();
+    createLoggerMock.mockReturnValue(loggerMock);
 
     mockDirectoryHandle = {
       kind: 'directory',
@@ -450,5 +481,410 @@ describe('useFileTree', () => {
       expect(result.current.fileTree).toEqual([]);
       vi.useRealTimers();
     });
+  });
+
+  describe('Lifecycle behavior', () => {
+    it('reloads the tree when the root directory handle changes', async () => {
+      const firstHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-a',
+        path: 'root-a',
+        platform: 'web',
+      };
+      const secondHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-b',
+        path: 'root-b',
+        platform: 'web',
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root-a', [
+        {
+          name: 'first.txt',
+          path: 'root-a/first.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root-a',
+        },
+      ]);
+      MockFileSystemAdapter.setMockDirectoryData('root-b', [
+        {
+          name: 'second.txt',
+          path: 'root-b/second.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root-b',
+        },
+      ]);
+
+      const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
+        initialProps: { handle: firstHandle },
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.fileTree[0]?.name).toBe('first.txt'));
+
+      rerender({ handle: secondHandle });
+
+      await waitFor(() => expect(result.current.fileTree[0]?.name).toBe('second.txt'));
+    });
+
+    it('refreshTree uses updated dependencies after rerender', async () => {
+      const staleHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-old',
+        path: 'root-old',
+        platform: 'web',
+      };
+      const freshHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-new',
+        path: 'root-new',
+        platform: 'web',
+      };
+
+      MockFileSystemAdapter.setMockDirectoryData('root-old', [
+        {
+          name: 'old.txt',
+          path: 'root-old/old.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root-old',
+        },
+      ]);
+      MockFileSystemAdapter.setMockDirectoryData('root-new', [
+        {
+          name: 'new.txt',
+          path: 'root-new/new.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root-new',
+        },
+      ]);
+
+      const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
+        initialProps: { handle: staleHandle },
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.fileTree[0]?.name).toBe('old.txt'));
+
+      MockFileSystemAdapter.setMockDirectoryError(
+        'root-old',
+        new Error('stale root should not be used')
+      );
+      rerender({ handle: freshHandle });
+
+      await waitFor(() => expect(result.current.fileTree[0]?.name).toBe('new.txt'));
+
+      MockFileSystemAdapter.setMockDirectoryData('root-new', [
+        {
+          name: 'newer.txt',
+          path: 'root-new/newer.txt',
+          type: 'file',
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'root-new',
+        },
+      ]);
+
+      await act(async () => {
+        await result.current.refreshTree();
+      });
+
+      expect(result.current.fileTree[0]?.name).toBe('newer.txt');
+    });
+
+    it('aborts any in-flight load when unmounted', async () => {
+      const abortSpy = vi.spyOn(AbortController.prototype, 'abort');
+      let resolveDirectory: ((value: IFileNode[]) => void) | undefined;
+      const readDirectorySpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockImplementation(
+          () =>
+            new Promise<IFileNode[]>((resolve) => {
+              resolveDirectory = resolve;
+            })
+        );
+
+      const { unmount } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(readDirectorySpy).toHaveBeenCalled());
+
+      await act(async () => {
+        unmount();
+      });
+
+      expect(abortSpy).toHaveBeenCalled();
+
+      resolveDirectory?.([]);
+      readDirectorySpy.mockRestore();
+      abortSpy.mockRestore();
+    });
+
+    it('logs initial load failures with descriptive messaging', async () => {
+      MockFileSystemAdapter.setMockDirectoryError('root', new Error('initial load failed'));
+
+      renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() =>
+        expect(loggerMock.error).toHaveBeenCalledWith(
+          'Error in initial tree load:',
+          expect.any(Error)
+        )
+      );
+    });
+  });
+
+  describe('State management guarantees', () => {
+    it('resets loading indicators when the root directory changes', async () => {
+      const firstHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-one',
+        path: 'root-one',
+        platform: 'web',
+      };
+      const secondHandle: DirectoryHandle = {
+        kind: 'directory',
+        name: 'root-two',
+        path: 'root-two',
+        platform: 'web',
+      };
+
+      const readQueue: Array<() => void> = [];
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockImplementation(() => {
+          return new Promise<IFileNode[]>((resolve) => {
+            readQueue.push(() => resolve([]));
+          });
+        });
+
+      const { result, rerender } = renderHook(({ handle }) => useFileTree(handle), {
+        initialProps: { handle: firstHandle },
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(readSpy).toHaveBeenCalledTimes(1));
+
+      rerender({ handle: secondHandle });
+
+      await waitFor(() => expect(readSpy).toHaveBeenCalledTimes(2));
+      await waitFor(() => {
+        const { loadingProgress } = result.current;
+        expect(typeof loadingProgress.loaded).toBe('number');
+        expect(['counting', 'loading']).toContain(loadingProgress.phase);
+        expect(typeof loadingProgress.total).toBe('number');
+      });
+      expect(result.current.isLoading).toBe(true);
+
+      await act(async () => {
+        while (readQueue.length > 0) {
+          readQueue.shift()?.();
+          await Promise.resolve();
+        }
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      readSpy.mockRestore();
+    });
+
+    it('logs refresh failures with detailed context', async () => {
+      const refreshError = new Error('refresh failure');
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockResolvedValueOnce([])
+        .mockRejectedValueOnce(refreshError);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      let caught: unknown;
+      await act(async () => {
+        try {
+          await result.current.refreshTree();
+        } catch (error) {
+          caught = error;
+        }
+      });
+
+      expect(caught).toBeInstanceOf(Error);
+      expect((caught as Error).message).toContain('Failed to refresh file tree');
+      expect(loggerMock.error).toHaveBeenCalledWith('Error loading file tree:', caught);
+
+      readSpy.mockRestore();
+    });
+
+    it('ignores aborted refresh results', async () => {
+      const initialNode = createFileNode({
+        name: 'initial.txt',
+        path: 'root/initial.txt',
+        rootFolderId: 'root',
+      });
+      const abortedNode = createFileNode({
+        name: 'aborted.txt',
+        path: 'root/aborted.txt',
+        rootFolderId: 'root',
+      });
+      const finalNode = createFileNode({
+        name: 'final.txt',
+        path: 'root/final.txt',
+        rootFolderId: 'root',
+      });
+
+      const originalReadDirectory = MockFileSystemAdapter.prototype.readDirectory;
+      const readQueue: Array<() => void> = [];
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockImplementation(function (this, handle) {
+          return new Promise<IFileNode[]>((resolve, reject) => {
+            readQueue.push(() => {
+              originalReadDirectory.call(this, handle).then(resolve, reject);
+            });
+          });
+        });
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [initialNode]);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(readQueue.length).toBeGreaterThan(0));
+
+      await act(async () => {
+        readQueue.shift()?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      MockFileSystemAdapter.setMockDirectoryData('root', [abortedNode]);
+
+      let firstError: unknown;
+      let firstRefresh: Promise<void> | undefined;
+      await act(async () => {
+        firstRefresh = result.current.refreshTree().catch((error) => {
+          firstError = error;
+        });
+      });
+
+      await waitFor(() => expect(readQueue.length).toBeGreaterThan(0));
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [finalNode]);
+
+      let secondError: unknown;
+      let secondRefresh: Promise<void> | undefined;
+      await act(async () => {
+        secondRefresh = result.current.refreshTree().catch((error) => {
+          secondError = error;
+        });
+      });
+
+      await waitFor(() => expect(readQueue.length).toBeGreaterThan(1));
+
+      const abortedResolve = readQueue.shift();
+      await act(async () => {
+        abortedResolve?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.fileTree.some((node) => node.name === 'aborted.txt')).toBe(false)
+      );
+
+      const finalResolve = readQueue.pop();
+      await act(async () => {
+        finalResolve?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+      await waitFor(() => expect(result.current.fileTree[0]?.name).toBe('final.txt'));
+      await firstRefresh;
+      await secondRefresh;
+      expect(firstError).toBeInstanceOf(DOMException);
+      expect(secondError).toBeUndefined();
+
+      readSpy.mockRestore();
+      MockFileSystemAdapter.clearMockData();
+    });
+
+    it('clears existing tree and resets progress before reloading', async () => {
+      const initialNode = createFileNode({
+        name: 'stale.txt',
+        path: 'root/stale.txt',
+        rootFolderId: 'root',
+      });
+
+      const originalReadDirectory = MockFileSystemAdapter.prototype.readDirectory;
+      const readQueue: Array<() => void> = [];
+      const readSpy = vi
+        .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
+        .mockImplementation(function (this, handle) {
+          return new Promise<IFileNode[]>((resolve, reject) => {
+            readQueue.push(() => {
+              originalReadDirectory.call(this, handle).then(resolve, reject);
+            });
+          });
+        });
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [initialNode]);
+
+      const { result } = renderHook(() => useFileTree(mockDirectoryHandle), {
+        wrapper: AdaptersTestWrapper,
+      });
+
+      await waitFor(() => expect(readQueue.length).toBeGreaterThan(0));
+      await act(async () => {
+        readQueue.shift()?.();
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(result.current.fileTree.length).toBeGreaterThan(0));
+
+      MockFileSystemAdapter.setMockDirectoryData('root', [initialNode]);
+
+      let refreshPromise: Promise<void> | undefined;
+      await act(async () => {
+        refreshPromise = result.current.refreshTree();
+      });
+
+      await waitFor(() => expect(result.current.fileTree).toEqual([]));
+      await waitFor(() => expect(result.current.loadingProgress.loaded).toBe(0));
+      expect(result.current.loadingProgress.currentPath ?? '').toBe('');
+
+      await act(async () => {
+        readQueue.shift()?.();
+        await Promise.resolve();
+      });
+      if (!refreshPromise) {
+        throw new Error('Expected refreshPromise to be defined');
+      }
+      await refreshPromise;
+
+      readSpy.mockRestore();
+      MockFileSystemAdapter.clearMockData();
+    });
+  });
+
+  it('creates a logger scoped to useFileTree', () => {
+    expect(createLoggerMock).toHaveBeenCalledWith('useFileTree');
   });
 });
