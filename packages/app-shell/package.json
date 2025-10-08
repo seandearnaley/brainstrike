@@ -47,16 +47,16 @@
     "@brainstrike/utils": "workspace:*",
     "file-saver": "2.0.5",
     "jszip": "^3.10.1",
-    "lucide-react": "^0.544.0"
+    "lucide-react": "^0.545.0"
   },
   "license": "ISC",
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.8.0",
+    "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/file-saver": "2.0.7",
-    "@types/node": "^24.6.0",
-    "@types/react": "^19.1.15",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.2.2",
     "jsdom": "^27.0.0",
     "vitest": "^3.2.4",
     "zustand": "^5.0.8"

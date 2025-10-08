@@ -35,19 +35,19 @@
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "gpt-tokenizer": "^3.0.1",
-    "minimatch": "^10",
+    "minimatch": "^10.0.3",
     "pino": "^10.0.0"
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
-    "@stryker-mutator/core": "^9.1.1",
-    "@stryker-mutator/typescript-checker": "^9.1.1",
-    "@stryker-mutator/vitest-runner": "^9.1.1",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
     "@swc/core": "^1.13.5",
-    "@types/node": "^24.6.0",
+    "@types/node": "^24.7.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.2",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "publishConfig": {

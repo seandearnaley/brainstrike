@@ -69,7 +69,10 @@ export const useInspectorViewStore = create<InspectorViewStore>()(
         })),
       getFields: (ctx) => get().byContext[ctx] ?? DEFAULTS,
       clear: (ctx) => {
-        if (!ctx) return set({ byContext: {} });
+        if (!ctx) {
+          set({ byContext: {} });
+          return;
+        }
         const { byContext } = get();
         const { [ctx]: _drop, ...rest } = byContext;
         set({ byContext: rest });

@@ -54,7 +54,10 @@ export const useEditorCursorStore = create<EditorCursorStore>()(
       setSelection: (key, sel) => set((s) => ({ selections: { ...s.selections, [key]: sel } })),
       getSelection: (key) => get().selections[key],
       clear: (key) => {
-        if (!key) return set({ selections: {} });
+        if (!key) {
+          set({ selections: {} });
+          return;
+        }
         const { selections } = get();
         const { [key]: _drop, ...rest } = selections;
         set({ selections: rest });

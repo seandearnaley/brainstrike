@@ -395,11 +395,9 @@ async function createStreamIteratorFromRuntime({
   const mastraMessages = convertMessagesToMastra(messages);
 
   try {
-    const streamInput = mastraMessages as unknown as Parameters<
-      typeof runtime.agent.streamVNext
-    >[0];
+    const streamInput = mastraMessages as unknown as Parameters<typeof runtime.agent.stream>[0];
     const streamOptions = runtimeData?.signal ? { abortSignal: runtimeData.signal } : undefined;
-    const result = await runtime.agent.streamVNext(streamInput, streamOptions);
+    const result = await runtime.agent.stream(streamInput, streamOptions);
     logger.info('mastra stream started', { code: 'mastra_agent_stream_started' });
 
     const stream = result.fullStream;
