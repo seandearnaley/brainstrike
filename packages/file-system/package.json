@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
+    "mutation": "npx @stryker-mutator/core run",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -31,6 +32,9 @@
   },
   "devDependencies": {
     "@types/node": "^24.7.0",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
     "electron": "^38.2.2",
     "jsdom": "^27.0.0",
     "tsup": "^8.5.0",

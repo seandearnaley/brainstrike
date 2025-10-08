@@ -821,6 +821,15 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@types/node':
         specifier: ^24.7.0
         version: 24.7.0

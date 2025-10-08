@@ -3,13 +3,16 @@ import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AccessError, PermissionError } from '../errors';
 import type { DirectoryHandle } from '../types';
 import {
+  createLimiter,
   extractNativeDirectoryHandle,
   extractNativeDirectoryHandleAsNull,
   extractNativeDirectoryHandleAsUndefined,
+  isFileSystemDirectoryHandle,
+  isFileSystemFileHandle,
   isValidDirectoryHandle,
+  normalizeDirectoryReadOptions,
   validateDirectoryPath,
 } from '../utils';
 
@@ -119,6 +122,112 @@ describe('utils', () => {
     });
   });
 
+  describe('isFileSystemDirectoryHandle', () => {
+    it('returns true for objects with directory shape', () => {
+      const handle = {
+        kind: 'directory',
+        name: 'root',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+
+      expect(isFileSystemDirectoryHandle(handle)).toBe(true);
+    });
+
+    it('returns false when required properties are missing or invalid', () => {
+      const noEntries = { kind: 'directory', name: 'root' } as unknown as FileSystemDirectoryHandle;
+      const wrongKind = {
+        kind: 'file',
+        name: 'root',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+      const missingName = {
+        kind: 'directory',
+        entries: vi.fn(),
+      } as unknown as FileSystemDirectoryHandle;
+
+      expect(isFileSystemDirectoryHandle(null)).toBe(false);
+      expect(isFileSystemDirectoryHandle(undefined)).toBe(false);
+      expect(isFileSystemDirectoryHandle('directory')).toBe(false);
+      expect(isFileSystemDirectoryHandle(noEntries)).toBe(false);
+      expect(isFileSystemDirectoryHandle(wrongKind)).toBe(false);
+      expect(isFileSystemDirectoryHandle(missingName)).toBe(false);
+    });
+  });
+
+  describe('isFileSystemFileHandle', () => {
+    it('returns true for objects with file handle shape', () => {
+      const handle = {
+        kind: 'file',
+        name: 'file.txt',
+        getFile: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+
+      expect(isFileSystemFileHandle(handle)).toBe(true);
+    });
+
+    it('returns false when shape checks fail', () => {
+      const wrongKind = {
+        kind: 'directory',
+        name: 'file.txt',
+        getFile: vi.fn(),
+      } as unknown as FileSystemFileHandle;
+      const missingName = { kind: 'file', getFile: vi.fn() } as unknown as FileSystemFileHandle;
+      const missingGetFile = { kind: 'file', name: 'file.txt' } as unknown as FileSystemFileHandle;
+
+      expect(isFileSystemFileHandle(null)).toBe(false);
+      expect(isFileSystemFileHandle(42)).toBe(false);
+      expect(isFileSystemFileHandle(wrongKind)).toBe(false);
+      expect(isFileSystemFileHandle(missingName)).toBe(false);
+      expect(isFileSystemFileHandle(missingGetFile)).toBe(false);
+    });
+  });
+
+  describe('normalizeDirectoryReadOptions', () => {
+    it('applies defaults when options are undefined', () => {
+      const result = normalizeDirectoryReadOptions();
+      expect(result.includeMetadata).toBe(true);
+      expect(result.concurrency).toBe(64);
+      expect(typeof result.limiter).toBe('function');
+    });
+
+    it('floors finite concurrency and bypasses limiter for non-positive values', async () => {
+      const result = normalizeDirectoryReadOptions({ includeMetadata: false, concurrency: 2.8 });
+      expect(result.includeMetadata).toBe(false);
+      expect(result.concurrency).toBe(2);
+
+      const unlimited = normalizeDirectoryReadOptions({ concurrency: 0 }).limiter;
+
+      const task = vi.fn().mockResolvedValue('done');
+      expect(await unlimited(task)).toBe('done');
+      expect(task).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('createLimiter', () => {
+    it('enforces concurrency limits and drains queued tasks', async () => {
+      const limiter = createLimiter(1);
+      const executionOrder: number[] = [];
+      let active = 0;
+      let peak = 0;
+
+      const makeTask = (id: number, delay = 0) =>
+        limiter(async () => {
+          active++;
+          peak = Math.max(peak, active);
+          executionOrder.push(id);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          active--;
+          return id;
+        });
+
+      const results = await Promise.all([makeTask(1, 10), makeTask(2), makeTask(3)]);
+
+      expect(results).toEqual([1, 2, 3]);
+      expect(executionOrder).toEqual([1, 2, 3]);
+      expect(peak).toBe(1);
+    });
+  });
+
   describe('validateDirectoryPath', () => {
     let tempDir: string;
 
@@ -137,12 +246,18 @@ describe('utils', () => {
     it('throws AccessError for a file path', async () => {
       const file = path.join(tempDir, 'file.txt');
       fs.writeFileSync(file, 'data');
-      await expect(validateDirectoryPath(file)).rejects.toBeInstanceOf(AccessError);
+      await expect(validateDirectoryPath(file)).rejects.toMatchObject({
+        message: 'Selected path is not a directory',
+        path: file,
+      });
     });
 
     it('throws PermissionError when stat fails', async () => {
       vi.spyOn(fsPromises, 'stat').mockRejectedValueOnce(new Error('deny'));
-      await expect(validateDirectoryPath(tempDir)).rejects.toBeInstanceOf(PermissionError);
+      await expect(validateDirectoryPath(tempDir)).rejects.toMatchObject({
+        message: 'Cannot access selected directory: deny',
+        path: tempDir,
+      });
     });
   });
 });

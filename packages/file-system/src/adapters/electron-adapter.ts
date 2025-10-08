@@ -103,6 +103,7 @@ export class ElectronFileSystemAdapter implements FileSystemAdapter {
     // Dynamically import electron to avoid issues in browser/test environments
     let dialog: Electron.Dialog;
     try {
+      // Stryker disable next-line StringLiteral
       const electron = await import('electron');
       dialog = electron.dialog;
     } catch {

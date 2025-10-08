@@ -33,6 +33,7 @@ export async function startChokidarWatch(
   handle: DirectoryHandle,
   callback: (changes: FileSystemChange[]) => void
 ): Promise<() => void> {
+  // Stryker disable next-line StringLiteral
   const mod = await import('chokidar');
   const chokidar: typeof import('chokidar') =
     // biome-ignore lint/suspicious/noExplicitAny: inter-op handling
