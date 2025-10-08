@@ -33,14 +33,14 @@
   "dependencies": {
     "@brainstrike/db": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@huggingface/transformers": "^3.7.4",
+    "@huggingface/transformers": "^3.7.5",
     "glob": "^11.0.3"
   },
   "devDependencies": {
-    "@types/node": "^24.6.0",
+    "@types/node": "^24.7.0",
     "rimraf": "^6.0.1",
     "tsup": "^8.5.0",
-    "typescript": "^5.9.2",
+    "typescript": "^5.9.3",
     "vitest": "^3.2.4"
   },
   "peerDependencies": {

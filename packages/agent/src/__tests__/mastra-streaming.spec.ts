@@ -68,17 +68,6 @@ vi.mock('@mastra/core/agent', () => {
       }
 
       async stream() {
-        async function* generator() {
-          for (const part of streamParts) {
-            yield part;
-          }
-        }
-        return {
-          fullStream: Promise.resolve(generator()),
-        };
-      }
-
-      async streamVNext() {
         const stream = new ReadableStream({
           start(controller) {
             for (const part of streamParts) {
@@ -194,9 +183,9 @@ describe('mastra streaming integration', () => {
 
   it('throws stream_failure when Mastra fullStream resolves to null', async () => {
     const { Agent } = await import('@mastra/core/agent');
-    const originalStreamVNext = Agent.prototype.streamVNext;
+    const originalStream = Agent.prototype.stream;
     // @ts-expect-error – test-only override
-    Agent.prototype.streamVNext = async function streamVNext() {
+    Agent.prototype.stream = async function stream() {
       return { fullStream: null as unknown as ReadableStream<unknown> };
     };
 
@@ -207,7 +196,7 @@ describe('mastra streaming integration', () => {
       'mastra_agent_stream_failure'
     );
 
-    Agent.prototype.streamVNext = originalStreamVNext;
+    Agent.prototype.stream = originalStream;
   });
   it('merges local and MCP tools while tracking sanitized tool names', async () => {
     const runtime = await createMastraAgentRuntime({

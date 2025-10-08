@@ -22,9 +22,8 @@
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run"
   },
-  "dependencies": {},
   "devDependencies": {
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.3"
   },
   "license": "ISC",
   "turbo": {

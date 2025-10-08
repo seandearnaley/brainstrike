@@ -29,8 +29,8 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "devDependencies": {
-    "@types/node": "^24.6.0",
-    "typescript": "^5"
+    "@types/node": "^24.7.0",
+    "typescript": "^5.9.3"
   },
   "license": "ISC"
 }

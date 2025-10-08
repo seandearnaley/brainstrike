@@ -398,9 +398,9 @@ describe('agent-runtime edge cases', () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({ type: 'text-delta', textDelta: '' });
@@ -425,16 +425,16 @@ describe('agent-runtime edge cases', () => {
       const textDeltas = chunks.filter((c) => (c as { type: string }).type === 'text-delta');
       expect(textDeltas).toHaveLength(0);
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
 
     it('processes finish chunk with various usage formats', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
@@ -473,16 +473,16 @@ describe('agent-runtime edge cases', () => {
       expect(finishChunk.usage.promptTokens).toBe(10);
       expect(finishChunk.usage.completionTokens).toBe(20);
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
 
     it('processes error stream part', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
@@ -513,16 +513,16 @@ describe('agent-runtime edge cases', () => {
 
       expect(errorChunk).toBeDefined();
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
 
     it('processes tripwire stream part with reason', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
@@ -555,16 +555,16 @@ describe('agent-runtime edge cases', () => {
       expect(tripwireError).toBeDefined();
       expect(tripwireError.payload.error).toBe('Content policy violation');
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
 
     it('processes unknown stream part types gracefully', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({ type: 'unknown-type', data: 'something' });
@@ -589,16 +589,16 @@ describe('agent-runtime edge cases', () => {
       const finishChunk = chunks.find((c) => (c as { type: string }).type === 'message-finish');
       expect(finishChunk).toBeDefined();
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
 
     it('handles text delta from payload', async () => {
       const { streamMastraAgent } = await import('../mastra/agent-runtime');
       const { Agent } = await import('@mastra/core/agent');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       // @ts-expect-error - test override
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         const stream = new ReadableStream({
           start(controller) {
             controller.enqueue({
@@ -628,7 +628,7 @@ describe('agent-runtime edge cases', () => {
 
       expect(textDelta?.value).toBe('from payload');
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
     });
   });
 
@@ -638,13 +638,13 @@ describe('agent-runtime edge cases', () => {
       const { Agent } = await import('@mastra/core/agent');
       const { MCPClient } = await import('@mastra/mcp');
 
-      const originalStreamVNext = Agent.prototype.streamVNext;
+      const originalStream = Agent.prototype.stream;
       const originalDisconnect = MCPClient.prototype.disconnect;
 
       // Make disconnect throw
       MCPClient.prototype.disconnect = vi.fn().mockRejectedValue(new Error('Disconnect failed'));
 
-      Agent.prototype.streamVNext = async function streamVNext() {
+      Agent.prototype.stream = async function stream() {
         throw new Error('Stream creation failed');
       };
 
@@ -665,7 +665,7 @@ describe('agent-runtime edge cases', () => {
 
       expect(caughtError).toBeDefined();
 
-      Agent.prototype.streamVNext = originalStreamVNext;
+      Agent.prototype.stream = originalStream;
       MCPClient.prototype.disconnect = originalDisconnect;
     });
   });
