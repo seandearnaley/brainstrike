@@ -223,13 +223,15 @@ export function useEnhancedFileImportService(
 
     const baseQuery: SqlExecutorPort['query'] = (sql, params) => db.query(sql, params);
 
-    let runInTransaction: SqlExecutorPort['runInTransaction'];
-    if (typeof db.transaction === 'function') {
-      runInTransaction = async <T>(fn: (tx: IDatabase) => Promise<T>) =>
-        db.transaction?.((tx) => fn(tx as IDatabase));
+    const transactionFn = db.transaction;
+    if (typeof transactionFn === 'function') {
+      const runInTransaction: SqlExecutorPort['runInTransaction'] = async <T>(
+        fn: (tx: IDatabase) => Promise<T>
+      ) => transactionFn((tx) => fn(tx as IDatabase));
+      return { query: baseQuery, runInTransaction };
     }
 
-    return runInTransaction ? { query: baseQuery, runInTransaction } : { query: baseQuery };
+    return { query: baseQuery };
   }, [db]);
 
   const baseImportRunner = useCallback<BaseImportRunner<IFileNode>>(
