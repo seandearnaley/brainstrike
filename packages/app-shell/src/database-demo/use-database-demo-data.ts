@@ -7,8 +7,9 @@ import type {
   FileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import { MigrationRunner, migrations } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
-import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export interface DatabaseInfo {
   location: string;
@@ -42,9 +43,6 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
-const MAX_RETRY_ATTEMPTS = 3;
-const RETRY_DELAY_MS = 500;
-
 function extractErrorMessage(error: unknown): string | null {
   if (error instanceof Error) {
     return error.message ?? null;
@@ -61,102 +59,6 @@ function isMissingRelation(message: string | null, table: string): boolean {
   return pattern.test(message);
 }
 
-function isToastCorruption(message: string | null): boolean {
-  return typeof message === 'string' && /pg_toast/i.test(message);
-}
-
-function scheduleRetry(ref: MutableRefObject<number>, retry: () => void): boolean {
-  if (ref.current >= MAX_RETRY_ATTEMPTS) {
-    ref.current = 0;
-    return false;
-  }
-  ref.current += 1;
-  const timer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
-  timer(() => {
-    void retry();
-  }, RETRY_DELAY_MS);
-  return true;
-}
-
-interface RecordLoadErrorContext {
-  error: unknown;
-  repository: FileRecordRepository | ElectronFileRecordRepository;
-  retryRef: MutableRefObject<number>;
-  retry: () => Promise<void>;
-  setRecords: (records: FileRecord[]) => void;
-  toast: ReturnType<typeof useToast>['toast'];
-}
-
-async function handleRecordLoadError({
-  error,
-  repository,
-  retryRef,
-  retry,
-  setRecords,
-  toast,
-}: RecordLoadErrorContext): Promise<void> {
-  console.error('[DatabaseDemo] Failed to load file records', error);
-  const message = extractErrorMessage(error);
-
-  if (
-    isMissingRelation(message, 'file_records') &&
-    scheduleRetry(retryRef, () => {
-      void retry();
-    })
-  ) {
-    return;
-  }
-
-  if (isToastCorruption(message)) {
-    try {
-      const fallbackRecords = await repository.findAll();
-      setRecords(fallbackRecords);
-      retryRef.current = 0;
-      return;
-    } catch (fallbackError) {
-      console.error('[DatabaseDemo] Fallback load records failed', fallbackError);
-    }
-  }
-
-  retryRef.current = 0;
-  toast({
-    title: 'Error',
-    description: 'Failed to load database records',
-    variant: 'destructive',
-  });
-}
-
-interface ChunkLoadErrorContext {
-  error: unknown;
-  retryRef: MutableRefObject<number>;
-  retry: () => Promise<void>;
-  toast: ReturnType<typeof useToast>['toast'];
-}
-
-function handleChunkLoadError({ error, retryRef, retry, toast }: ChunkLoadErrorContext): void {
-  console.error('[DatabaseDemo] Failed to load chunks', error);
-  const message = extractErrorMessage(error);
-
-  if (
-    isMissingRelation(message, 'file_chunks') &&
-    scheduleRetry(retryRef, () => {
-      void retry();
-    })
-  ) {
-    return;
-  }
-
-  retryRef.current = 0;
-  const safeMessage = message ?? '';
-  if (!safeMessage.includes('vector') && !safeMessage.includes('chunks')) {
-    toast({
-      title: 'Error',
-      description: 'Failed to load chunks',
-      variant: 'destructive',
-    });
-  }
-}
-
 export function useDatabaseDemoData({
   repository,
   chunkRepository,
@@ -167,31 +69,84 @@ export function useDatabaseDemoData({
   const [chunks, setChunks] = useState<FileChunk[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
-  const recordRetryRef = useRef(0);
-  const chunkRetryRef = useRef(0);
+  const schemaStateRef = useRef<{
+    db: ReturnType<typeof usePGliteDatabase> | null;
+    ensured: boolean;
+    promise: Promise<void> | null;
+  }>({
+    db: null,
+    ensured: false,
+    promise: null,
+  });
+
+  useEffect(() => {
+    if (schemaStateRef.current.db !== database) {
+      schemaStateRef.current = {
+        db: database ?? null,
+        ensured: false,
+        promise: null,
+      };
+    }
+  }, [database]);
+
+  const ensureSchema = useCallback(async () => {
+    if (!database) {
+      return;
+    }
+
+    if (!schemaStateRef.current.promise) {
+      schemaStateRef.current.promise = (async () => {
+        const runner = new MigrationRunner(
+          database as unknown as ConstructorParameters<typeof MigrationRunner>[0]
+        );
+        await runner.initialize();
+        await runner.up(migrations);
+        schemaStateRef.current.ensured = true;
+      })().catch((error) => {
+        schemaStateRef.current.promise = null;
+        throw error;
+      });
+    }
+
+    await schemaStateRef.current.promise;
+  }, [database]);
+
+  useEffect(() => {
+    if (!database) return;
+    ensureSchema().catch((error) => {
+      console.error('[DatabaseDemo] Failed to verify schema', error);
+    });
+  }, [database, ensureSchema]);
 
   const loadRecords = useCallback(async () => {
     if (!repository) return;
 
     try {
       setRefreshing(true);
-      const importedRecords =
-        (await repository.findAllWithContent?.()) || (await repository.findAll());
+      await ensureSchema();
+      const importedRecords = await repository.findAll();
       setRecords(importedRecords);
-      recordRetryRef.current = 0;
     } catch (error) {
-      await handleRecordLoadError({
-        error,
-        repository,
-        retryRef: recordRetryRef,
-        retry: loadRecords,
-        setRecords,
-        toast,
+      console.error('[DatabaseDemo] Failed to load file records', error);
+      const message = extractErrorMessage(error);
+      const description = (() => {
+        if (message && isMissingRelation(message, 'file_records')) {
+          return 'File storage is missing or needs migration. Run Factory Reset to rebuild the database.';
+        }
+        if (message && /pg_toast/i.test(message)) {
+          return 'Stored file contents appear corrupted. Run Factory Reset in settings and retry.';
+        }
+        return 'Failed to load database records';
+      })();
+      toast({
+        title: 'Error',
+        description,
+        variant: 'destructive',
       });
     } finally {
       setRefreshing(false);
     }
-  }, [repository, toast]);
+  }, [repository, ensureSchema, toast]);
 
   const loadChunks = useCallback(async () => {
     if (!chunkRepository) {
@@ -200,19 +155,23 @@ export function useDatabaseDemoData({
     }
 
     try {
+      await ensureSchema();
       const allChunks = await chunkRepository.findAll();
       setChunks(allChunks);
-      chunkRetryRef.current = 0;
     } catch (error) {
-      handleChunkLoadError({
-        error,
-        retryRef: chunkRetryRef,
-        retry: loadChunks,
-        toast,
+      console.error('[DatabaseDemo] Failed to load chunks', error);
+      const message = extractErrorMessage(error);
+      toast({
+        title: 'Error',
+        description:
+          message && isMissingRelation(message, 'file_chunks')
+            ? 'Chunk storage is missing or out of date. Run Factory Reset to rebuild the database.'
+            : 'Failed to load chunks',
+        variant: 'destructive',
       });
       setChunks([]);
     }
-  }, [chunkRepository, toast]);
+  }, [chunkRepository, ensureSchema, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
     if (!repository) {

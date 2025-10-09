@@ -292,7 +292,6 @@ describe('DatabaseDemoPanel', () => {
         },
       ];
 
-      mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
 
       const user = userEvent.setup();
@@ -608,7 +607,7 @@ describe('DatabaseDemoPanel', () => {
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       await user.click(refreshButton);
 
-      expect(mockRepository.findAllWithContent).toHaveBeenCalled();
+      expect(mockRepository.findAll).toHaveBeenCalled();
     });
   });
 
