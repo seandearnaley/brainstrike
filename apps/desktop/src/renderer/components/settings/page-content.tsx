@@ -3,9 +3,10 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/app-shell';
-import { Key, Layers } from 'lucide-react';
+import { FileCog, Key, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { LlmKeysSettings } from './llm-keys';
+import { DesktopLoggingSettings } from './logging-settings';
 import { McpConfigStatus } from './mcp-config-status';
 import { McpToolsPanel } from './mcp-tools-panel';
 
@@ -50,6 +51,14 @@ export default function SettingsPageContent() {
         keywords: ['desktop', 'preferences', 'api keys', 'llm', 'encryption', 'credentials'],
         icon: Key,
         render: () => <DesktopPreferencesCategory />,
+      },
+      {
+        id: 'logging',
+        title: 'Logging & Diagnostics',
+        description: 'Control renderer log verbosity and manage file logging for debugging.',
+        keywords: ['logging', 'diagnostics', 'debugging', 'log file'],
+        icon: FileCog,
+        render: () => <DesktopLoggingSettings />,
       },
       {
         id: 'mcp-integrations',

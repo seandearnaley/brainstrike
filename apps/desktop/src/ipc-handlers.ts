@@ -9,17 +9,12 @@ import type { PanelPersistenceState } from '@brainstrike/ui';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
+import type { DesktopSettingsStoreSchema } from './store-schema';
 
 // import { getDatabase } from './db-main'; // Disabled - using renderer process database
 
 // Storage keys for persistent data
 const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
-
-interface StoreSchema {
-  panelLayout: {
-    v1: PanelPersistenceState;
-  };
-}
 
 /**
  * Register all IPC handlers used by the desktop application.
@@ -27,7 +22,7 @@ interface StoreSchema {
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  store: ElectronStore<StoreSchema>
+  store: ElectronStore<DesktopSettingsStoreSchema>
 ) {
   ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
     storage.getItem(key)
@@ -186,18 +181,19 @@ export function registerIpcHandlers(
   ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
     // TypeScript has issues with electron-store method resolution during build
     // Using type assertion to access inherited Conf methods
-    (store as ElectronStore<StoreSchema> & { set: (key: string, value: unknown) => void }).set(
-      'panelLayout',
-      { v1: state }
-    );
+    (
+      store as ElectronStore<DesktopSettingsStoreSchema> & {
+        set: (key: string, value: unknown) => void;
+      }
+    ).set('panelLayout', { v1: state });
   });
 
   ipcMain.handle('layout:load', async () => {
     // TypeScript has issues with electron-store method resolution during build
     // Using type assertion to access inherited Conf methods
-    const layout = (store as ElectronStore<StoreSchema> & { get: (key: string) => unknown }).get(
-      'panelLayout'
-    ) as StoreSchema['panelLayout'] | undefined;
+    const layout = (
+      store as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
+    ).get('panelLayout') as DesktopSettingsStoreSchema['panelLayout'] | undefined;
     return layout?.v1;
   });
 

@@ -54,10 +54,27 @@ const createLoggerMock = vi.fn(() => ({
   error: vi.fn(),
 }));
 const initializeLoggingMock = vi.fn();
+const createDefaultLoggingPreferencesMock = vi.fn(() => ({
+  level: 'info',
+  consoleLevel: 'info',
+  includeTimestamp: false,
+  consoleEnabled: true,
+  redactPaths: [],
+  file: {
+    enabled: false,
+    destination: null,
+    level: 'info',
+    append: true,
+    mkdir: true,
+  },
+}));
+const applyLoggingPreferencesMock = vi.fn();
 vi.mock('@brainstrike/utils', () => ({
   isDevEnv: isDevEnvMock,
   createLogger: createLoggerMock,
   initializeLogging: initializeLoggingMock,
+  createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
+  applyLoggingPreferences: applyLoggingPreferencesMock,
   LogLevel: {
     TRACE: 'trace',
     DEBUG: 'debug',

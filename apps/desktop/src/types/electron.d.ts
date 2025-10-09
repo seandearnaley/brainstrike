@@ -1,6 +1,8 @@
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { IFileNode } from '@brainstrike/types';
 import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingSettingsPayload } from '../logging-shared';
 
 interface QueryResult {
   rows: unknown[];
@@ -56,6 +58,12 @@ declare global {
     };
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
+    };
+    logging: {
+      getPreferences: () => Promise<LoggingSettingsPayload>;
+      setPreferences: (preferences: LoggingPreferences) => Promise<LoggingSettingsPayload>;
+      selectDestination: () => Promise<string | null>;
+      openDestination: (target: string | null) => Promise<boolean>;
     };
     mcp: {
       getConfig: () => Promise<{
