@@ -3,7 +3,12 @@ import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
-import { applyLoggingPreferences, initializeLogging, LogLevel } from '@brainstrike/utils';
+import {
+  applyLoggingPreferences,
+  initializeLogging,
+  installConsoleGuard,
+  LogLevel,
+} from '@brainstrike/utils';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
@@ -18,6 +23,10 @@ const fileSystemAdapter = createFileSystemAdapter('web');
 const storageAdapter = createStorageAdapter('web');
 
 const defaultLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+
+if (typeof window !== 'undefined') {
+  installConsoleGuard();
+}
 
 initializeLogging({
   runtime: 'browser',

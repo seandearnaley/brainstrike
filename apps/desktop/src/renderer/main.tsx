@@ -1,7 +1,12 @@
 import { useLoggingPreferencesStore } from '@brainstrike/app-shell';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { applyLoggingPreferences, initializeLogging, LogLevel } from '@brainstrike/utils';
+import {
+  applyLoggingPreferences,
+  initializeLogging,
+  installConsoleGuard,
+  LogLevel,
+} from '@brainstrike/utils';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
@@ -15,6 +20,10 @@ const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
 const storageAdapter = new ElectronRendererStorageAdapter();
 
 const rendererLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+
+if (typeof window !== 'undefined') {
+  installConsoleGuard();
+}
 
 initializeLogging({
   runtime: 'electron-renderer',

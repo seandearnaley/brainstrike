@@ -480,11 +480,19 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
   const target = getLoggerForScope(scope);
   const logMethod = target[methodName] as unknown as PinoLogMethod;
 
-  if (args.length === 0) {
-    logMethod.call(target, '');
-  } else {
-    const [first, ...rest] = args;
-    logMethod.call(target, first, ...rest);
+  try {
+    if (args.length === 0) {
+      logMethod.call(target, '');
+    } else {
+      const [first, ...rest] = args;
+      logMethod.call(target, first, ...rest);
+    }
+  } catch (logError) {
+    // Some tooling (React DevTools) patches console methods and can throw runtime
+    // exceptions when inspecting complex payloads. Logging must never break app flow.
+    if (typeof window === 'undefined' || !('__REACT_DEVTOOLS_GLOBAL_HOOK__' in window)) {
+      throw logError;
+    }
   }
 
   emitLogRecord(level, scope, args);

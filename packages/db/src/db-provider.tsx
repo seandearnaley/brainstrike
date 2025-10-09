@@ -15,16 +15,28 @@ import { ElectronFileChunkRepository } from './repositories/electron-file-chunk-
 import { ElectronFileRecordRepository } from './repositories/electron-file-record-repository.js';
 import { FileChunkRepository } from './repositories/file-chunk-repository.js';
 import { FileRecordRepository } from './repositories/file-record-repository.js';
+import type { IDatabase } from './repositories/interfaces.js';
 import { wasmLoader } from './wasm-loader.js';
 
 const logger = createLogger('DbProvider');
+
+interface DbHandle extends IDatabase {
+  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  readonly raw?: unknown;
+}
+
+type QueryExecutor = {
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: unknown[] }>;
+  exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
+  transaction?: <T>(fn: (tx: QueryExecutor) => Promise<T>) => Promise<T>;
+};
 
 interface DbContextValue {
   fileRecordRepository: FileRecordRepository | ElectronFileRecordRepository | null;
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null;
   error: Error | null;
   ready: boolean;
-  db: PGlite | null; // Exposed for accessing PGlite features like FileChunkRepository
+  db: DbHandle | null;
   clearAllData: () => Promise<{ deletedFiles: number; deletedChunks: number }>;
   initializeDatabase: () => Promise<void>; // Lazy initialization trigger
   vectorEnabled: boolean; // Whether pgvector extension is available
@@ -64,6 +76,35 @@ function requireNodePath(): { join: (...parts: string[]) => string } {
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
+function createDbHandle(executor: QueryExecutor): DbHandle {
+  const query = executor.query.bind(executor) as DbHandle['query'];
+  const handle: DbHandle = {
+    query,
+  };
+
+  if (typeof executor.exec === 'function') {
+    handle.exec = executor.exec.bind(executor);
+  }
+
+  if (typeof executor.transaction === 'function') {
+    const tx = executor.transaction;
+    const transactionWrapper: DbHandle['transaction'] = async <T,>(
+      fn: (txHandle: DbHandle) => Promise<T>
+    ) => {
+      return tx.call(executor, async (inner) => fn(createDbHandle(inner))) as Promise<T>;
+    };
+    handle.transaction = transactionWrapper;
+  }
+
+  Object.defineProperty(handle, 'raw', {
+    value: executor,
+    enumerable: false,
+    configurable: false,
+  });
+
+  return handle;
+}
+
 export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps) {
   const resolvedPath = dbPath ?? getDefaultDbPath();
   const [fileRecordRepository, setFileRecordRepository] = useState<
@@ -76,6 +117,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const [ready, setReady] = useState(false);
   const [lazyInitialized, setLazyInitialized] = useState(false);
   const [vectorEnabled, setVectorEnabled] = useState(false);
+  const [exposedDb, setExposedDb] = useState<DbHandle | null>(null);
 
   const dbRef = useRef<PGlite | null>(null);
   const initializingRef = useRef<boolean>(false);
@@ -138,9 +180,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       );
 
       if (!cancelled.value) {
-        // Expose a minimal DB interface through the context for components/utilities
-        // that operate on IDatabase (query/exec). Cast to PGlite to satisfy typing.
-        dbRef.current = { query: electronDB.query, exec: electronDB.exec } as unknown as PGlite;
+        dbRef.current = electronDB as unknown as PGlite;
+        setExposedDb(createDbHandle(electronDB as unknown as QueryExecutor));
         setFileRecordRepository(repository);
         setChunkRepository(chunkRepo);
         setVectorEnabled(hasVector);
@@ -180,6 +221,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setVectorEnabled(hasVector);
         setError(null);
         setReady(true);
+        setExposedDb(createDbHandle(db as unknown as QueryExecutor));
       }
     },
     [resolvedPath]
@@ -400,6 +442,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('Closing database after purge failed:', err);
     }
+    dbRef.current = null;
+    setExposedDb(null);
   }, [purgeTablesTx]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
@@ -441,7 +485,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       chunkRepository,
       error,
       ready,
-      db: dbRef.current,
+      db: exposedDb,
       clearAllData,
       initializeDatabase,
       vectorEnabled,
@@ -455,6 +499,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Fallback: direct PGlite purge and recreate
         await purgeAndClosePGlite();
         dbRef.current = null;
+        setExposedDb(null);
         setFileRecordRepository(null);
         setChunkRepository(null);
         setVectorEnabled(false);
@@ -493,6 +538,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       purgeAndClosePGlite,
       purgeQueuesAndSetsElectron,
       purgeQueuesAndSetsTx,
+      exposedDb,
     ]
   );
 
@@ -530,7 +576,7 @@ export function useFileRecordRepository():
   return ctx.ready && !ctx.error ? ctx.fileRecordRepository : null;
 }
 
-export function usePGliteDatabase(): PGlite | null {
+export function usePGliteDatabase(): DbHandle | null {
   const ctx = useContext(DbContext);
 
   // Trigger lazy initialization when first accessed

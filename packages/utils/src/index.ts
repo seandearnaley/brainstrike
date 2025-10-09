@@ -1,6 +1,7 @@
 import type { ColorScheme, FolderColors } from './color-utils';
 
 export * from './color-utils';
+export * from './console-guard';
 export * from './crypto-utils';
 export * from './dev/hmr-utils';
 export * from './dev/is-compiler-hotspot';
