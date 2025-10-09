@@ -8,7 +8,7 @@ import type {
   usePGliteDatabase,
 } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 export interface DatabaseInfo {
   location: string;
@@ -42,6 +42,121 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 500;
+
+function extractErrorMessage(error: unknown): string | null {
+  if (error instanceof Error) {
+    return error.message ?? null;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return null;
+}
+
+function isMissingRelation(message: string | null, table: string): boolean {
+  if (!message) return false;
+  const pattern = new RegExp(`relation .*${table}`, 'i');
+  return pattern.test(message);
+}
+
+function isToastCorruption(message: string | null): boolean {
+  return typeof message === 'string' && /pg_toast/i.test(message);
+}
+
+function scheduleRetry(ref: MutableRefObject<number>, retry: () => void): boolean {
+  if (ref.current >= MAX_RETRY_ATTEMPTS) {
+    ref.current = 0;
+    return false;
+  }
+  ref.current += 1;
+  const timer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
+  timer(() => {
+    void retry();
+  }, RETRY_DELAY_MS);
+  return true;
+}
+
+interface RecordLoadErrorContext {
+  error: unknown;
+  repository: FileRecordRepository | ElectronFileRecordRepository;
+  retryRef: MutableRefObject<number>;
+  retry: () => Promise<void>;
+  setRecords: (records: FileRecord[]) => void;
+  toast: ReturnType<typeof useToast>['toast'];
+}
+
+async function handleRecordLoadError({
+  error,
+  repository,
+  retryRef,
+  retry,
+  setRecords,
+  toast,
+}: RecordLoadErrorContext): Promise<void> {
+  console.error('[DatabaseDemo] Failed to load file records', error);
+  const message = extractErrorMessage(error);
+
+  if (
+    isMissingRelation(message, 'file_records') &&
+    scheduleRetry(retryRef, () => {
+      void retry();
+    })
+  ) {
+    return;
+  }
+
+  if (isToastCorruption(message)) {
+    try {
+      const fallbackRecords = await repository.findAll();
+      setRecords(fallbackRecords);
+      retryRef.current = 0;
+      return;
+    } catch (fallbackError) {
+      console.error('[DatabaseDemo] Fallback load records failed', fallbackError);
+    }
+  }
+
+  retryRef.current = 0;
+  toast({
+    title: 'Error',
+    description: 'Failed to load database records',
+    variant: 'destructive',
+  });
+}
+
+interface ChunkLoadErrorContext {
+  error: unknown;
+  retryRef: MutableRefObject<number>;
+  retry: () => Promise<void>;
+  toast: ReturnType<typeof useToast>['toast'];
+}
+
+function handleChunkLoadError({ error, retryRef, retry, toast }: ChunkLoadErrorContext): void {
+  console.error('[DatabaseDemo] Failed to load chunks', error);
+  const message = extractErrorMessage(error);
+
+  if (
+    isMissingRelation(message, 'file_chunks') &&
+    scheduleRetry(retryRef, () => {
+      void retry();
+    })
+  ) {
+    return;
+  }
+
+  retryRef.current = 0;
+  const safeMessage = message ?? '';
+  if (!safeMessage.includes('vector') && !safeMessage.includes('chunks')) {
+    toast({
+      title: 'Error',
+      description: 'Failed to load chunks',
+      variant: 'destructive',
+    });
+  }
+}
+
 export function useDatabaseDemoData({
   repository,
   chunkRepository,
@@ -52,6 +167,8 @@ export function useDatabaseDemoData({
   const [chunks, setChunks] = useState<FileChunk[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
+  const recordRetryRef = useRef(0);
+  const chunkRetryRef = useRef(0);
 
   const loadRecords = useCallback(async () => {
     if (!repository) return;
@@ -61,11 +178,15 @@ export function useDatabaseDemoData({
       const importedRecords =
         (await repository.findAllWithContent?.()) || (await repository.findAll());
       setRecords(importedRecords);
-    } catch (_error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to load database records',
-        variant: 'destructive',
+      recordRetryRef.current = 0;
+    } catch (error) {
+      await handleRecordLoadError({
+        error,
+        repository,
+        retryRef: recordRetryRef,
+        retry: loadRecords,
+        setRecords,
+        toast,
       });
     } finally {
       setRefreshing(false);
@@ -81,15 +202,14 @@ export function useDatabaseDemoData({
     try {
       const allChunks = await chunkRepository.findAll();
       setChunks(allChunks);
+      chunkRetryRef.current = 0;
     } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      if (!message.includes('vector') && !message.includes('chunks')) {
-        toast({
-          title: 'Error',
-          description: 'Failed to load chunks',
-          variant: 'destructive',
-        });
-      }
+      handleChunkLoadError({
+        error,
+        retryRef: chunkRetryRef,
+        retry: loadChunks,
+        toast,
+      });
       setChunks([]);
     }
   }, [chunkRepository, toast]);

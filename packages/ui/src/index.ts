@@ -14,7 +14,6 @@ export * from './button';
 export * from './card';
 export * from './checkbox';
 export * from './data-table';
-export * from './data-table-column-header';
 export * from './dialog';
 export * from './dropdown-menu';
 export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
