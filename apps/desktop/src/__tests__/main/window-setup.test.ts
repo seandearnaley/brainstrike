@@ -43,8 +43,19 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
 }));
 
-const existsSyncMock = vi.fn();
-vi.mock('node:fs', () => ({ default: { existsSync: existsSyncMock } }));
+const statSyncMock = vi.fn(() => ({
+  isDirectory: () => true,
+}));
+const accessSyncMock = vi.fn();
+const existsSyncMock = vi.fn(() => true);
+vi.mock('node:fs', () => ({
+  default: {
+    statSync: statSyncMock,
+    accessSync: accessSyncMock,
+    existsSync: existsSyncMock,
+    constants: { W_OK: 0o200 },
+  },
+}));
 
 const isDevEnvMock = vi.fn();
 const createLoggerMock = vi.fn(() => ({

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
@@ -90,6 +91,8 @@ function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPre
     normalized.file.destination = trimmedDestination ?? logFilePath ?? null;
     if (!normalized.file.destination) {
       normalized.file.enabled = false;
+    } else if (!isWritableLogDestination(normalized.file.destination)) {
+      normalized.file.enabled = false;
     }
   } else {
     normalized.file.destination = trimmedDestination;
@@ -109,15 +112,32 @@ function readStoredLoggingPreferences(): LoggingPreferences | undefined {
   }
 }
 
-function persistLoggingPreferences(preferences: LoggingPreferences) {
+function isWritableLogDestination(destination: string): boolean {
+  try {
+    const resolved = path.resolve(destination);
+    const directory = path.dirname(resolved);
+    const stats = fs.statSync(directory);
+    if (!stats.isDirectory()) {
+      return false;
+    }
+    fs.accessSync(directory, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
   try {
     (
       settingsStore as ElectronStore<DesktopSettingsStoreSchema> & {
         set: (key: string, value: unknown) => void;
       }
     ).set('loggingPreferences', { v1: cloneLoggingPreferences(preferences) });
+    return true;
   } catch {
     // Persistence failures should not crash the app; preferences can be reapplied during runtime.
+    return false;
   }
 }
 
@@ -215,8 +235,10 @@ function applyAndPersistLoggingPreferences(
   preferences: LoggingPreferences
 ): LoggingSettingsPayload {
   const normalized = sanitizeDesktopPreferences(preferences);
+  if (!persistLoggingPreferences(normalized)) {
+    return getLoggingSettingsPayload();
+  }
   currentLoggingPreferences = normalized;
-  persistLoggingPreferences(currentLoggingPreferences);
   applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
     baseBindings: {
       logFile:

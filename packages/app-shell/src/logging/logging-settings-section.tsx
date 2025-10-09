@@ -18,7 +18,7 @@ import {
 } from '@brainstrike/ui';
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { FolderOpen, RefreshCw } from 'lucide-react';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
@@ -85,6 +85,7 @@ export function LoggingSettingsSection({
   const resetPreferences = useLoggingPreferencesStore((state) => state.resetPreferences);
   const [isSyncing, setIsSyncing] = useState(false);
   const { toast } = useToast();
+  const updateTokenRef = useRef(0);
 
   const pending = busy || isSyncing;
 
@@ -114,18 +115,30 @@ export function LoggingSettingsSection({
     [onCommitPreferences, setPreferences, toast]
   );
 
+  const clonePreferences = useCallback((prefs: LoggingPreferences): LoggingPreferences => {
+    return {
+      ...prefs,
+      redactPaths: [...prefs.redactPaths],
+      file: { ...prefs.file },
+    };
+  }, []);
+
   const applyUpdates = useCallback(
     async (updates: Partial<LoggingPreferences>) => {
-      const previous = useLoggingPreferencesStore.getState().preferences;
+      const previous = clonePreferences(useLoggingPreferencesStore.getState().preferences);
       updatePreferences(updates);
-      const next = useLoggingPreferencesStore.getState().preferences;
+      const requestId = updateTokenRef.current + 1;
+      updateTokenRef.current = requestId;
+      const next = clonePreferences(useLoggingPreferencesStore.getState().preferences);
       try {
         await commitPreferences(next);
       } catch {
-        setPreferences(previous);
+        if (updateTokenRef.current === requestId) {
+          setPreferences(previous);
+        }
       }
     },
-    [commitPreferences, setPreferences, updatePreferences]
+    [clonePreferences, commitPreferences, setPreferences, updatePreferences]
   );
 
   const applyNestedUpdates = useCallback(

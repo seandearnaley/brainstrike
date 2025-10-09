@@ -51,6 +51,7 @@ function mergeLoggingPreferences(
 }
 
 const memory = new Map<string, string>();
+const MAX_MEMORY_ENTRIES = 32;
 
 const storage = createJSONStorage(() => ({
   getItem: (key: string) => {
@@ -59,7 +60,13 @@ const storage = createJSONStorage(() => ({
         return localStorage.getItem(key);
       }
     } catch {}
-    return memory.get(key) ?? null;
+    if (!memory.has(key)) {
+      return null;
+    }
+    const value = memory.get(key) as string;
+    memory.delete(key);
+    memory.set(key, value);
+    return value;
   },
   setItem: (key: string, value: string) => {
     try {
@@ -68,6 +75,12 @@ const storage = createJSONStorage(() => ({
         return;
       }
     } catch {}
+    if (!memory.has(key) && memory.size >= MAX_MEMORY_ENTRIES) {
+      const oldestEntryKey = memory.keys().next().value as string | undefined;
+      if (oldestEntryKey !== undefined) {
+        memory.delete(oldestEntryKey);
+      }
+    }
     memory.set(key, value);
   },
   removeItem: (key: string) => {

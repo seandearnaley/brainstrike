@@ -1,4 +1,4 @@
-import { LogLevel } from '@brainstrike/utils';
+import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { createContext, useContext, useMemo } from 'react';
@@ -204,5 +204,35 @@ describe('LoggingSettingsSection', () => {
       'password',
       'token',
     ]);
+  });
+
+  it('does not revert newer updates when an earlier commit fails later', async () => {
+    let rejectFirst: ((reason?: unknown) => void) | null = null;
+    const onCommit = vi.fn((preferences: LoggingPreferences) => {
+      if (!rejectFirst) {
+        return new Promise<LoggingPreferences>((_resolve, reject) => {
+          rejectFirst = reject;
+        });
+      }
+      return Promise.resolve(preferences);
+    });
+
+    render(<LoggingSettingsSection runtime="browser" onCommitPreferences={onCommit} />);
+
+    const consoleSwitch = screen.getByRole('switch', { name: /console logging/i });
+    fireEvent.click(consoleSwitch);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+
+    const timestampSwitch = screen.getByRole('switch', { name: /include timestamp/i });
+    fireEvent.click(timestampSwitch);
+
+    await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
+
+    rejectFirst?.(new Error('simulated failure'));
+
+    await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
+    const state = useLoggingPreferencesStore.getState().preferences;
+    expect(state.consoleEnabled).toBe(false);
+    expect(state.includeTimestamp).toBe(true);
   });
 });
