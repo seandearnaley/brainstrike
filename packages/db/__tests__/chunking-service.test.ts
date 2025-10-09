@@ -33,7 +33,67 @@ describe('ChunkingService', () => {
       expect(result.skipReason).toContain('Lock file');
       expect(result.chunks).toHaveLength(0);
     });
+  });
 
+  describe('skip heuristics coverage', () => {
+    const lockAndArtifactCases = [
+      ['npm lockfile', 'package-lock.json'],
+      ['pnpm lockfile', 'pnpm-lock.yaml'],
+      ['yarn lockfile', 'yarn.lock'],
+      ['composer lockfile', 'composer.lock'],
+      ['gemfile lockfile', 'Gemfile.lock'],
+      ['pip lockfile', 'Pipfile.lock'],
+      ['poetry lockfile', 'poetry.lock'],
+      ['go sum file', 'go.sum'],
+      ['cargo lockfile', 'Cargo.lock'],
+      ['npm shrinkwrap', 'npm-shrinkwrap.json'],
+      ['minified js', 'bundle.min.js'],
+      ['source map', 'app.js.map'],
+      ['wasm artifact', 'module.wasm'],
+      ['binary artifact', 'payload.bin'],
+      ['node_modules directory', 'packages/node_modules/acme/index.js'],
+      ['dist directory', 'output/dist/app.js'],
+      ['build directory', 'release/build/app.js'],
+      ['coverage directory', 'reports/coverage/index.json'],
+    ] as const;
+
+    it.each(lockAndArtifactCases)('skips %s', async (_label, fileName) => {
+      const result = await chunkingService.chunkContent('lock content', 'file-lock', {
+        strategy: 'sentence',
+        fileName,
+      });
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toContain('Lock file or dependency manifest');
+      expect(result.chunks).toHaveLength(0);
+    });
+
+    it('skips binary-like content containing NUL bytes', async () => {
+      const binaryLike = 'abc\u0000def';
+
+      const result = await chunkingService.chunkContent(binaryLike, 'file-binary', {
+        strategy: 'sentence',
+        fileName: 'binary.dat',
+      });
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe('Binary content detected (NUL bytes present)');
+    });
+
+    it('skips highly repetitive generated content', async () => {
+      const repetitive = 'SAME LINE\n'.repeat(2000);
+
+      const result = await chunkingService.chunkContent(repetitive, 'file-repeat', {
+        strategy: 'sentence',
+        fileName: 'generated.txt',
+      });
+
+      expect(result.skipped).toBe(true);
+      expect(result.skipReason).toBe('Highly repetitive content (likely generated file)');
+    });
+  });
+
+  describe('chunkContent', () => {
     it('should skip chunking for files exceeding size limit', async () => {
       const largeContent = 'x'.repeat(CHUNKING_CONFIG.maxChunkableSize + 1);
 

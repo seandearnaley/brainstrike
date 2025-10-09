@@ -536,6 +536,18 @@ importers:
         specifier: ^19.1.1
         version: 19.2.0(react@19.2.0)
     devDependencies:
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@testing-library/react':
         specifier: ^16.3.0
         version: 16.3.0(@testing-library/dom@10.4.1)(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -622,6 +634,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -680,6 +695,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
       '@stryker-mutator/core':
         specifier: ^9.2.0
         version: 9.2.0(@types/node@24.7.0)
@@ -821,6 +839,15 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@types/node':
         specifier: ^24.7.0
         version: 24.7.0
@@ -886,6 +913,18 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@swc/core':
         specifier: ^1.13.5
         version: 1.13.5
@@ -974,6 +1013,18 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@swc/core':
         specifier: ^1.13.5
         version: 1.13.5
@@ -1208,6 +1259,18 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@stryker-mutator/api':
+        specifier: ^9.2.0
+        version: 9.2.0
+      '@stryker-mutator/core':
+        specifier: ^9.2.0
+        version: 9.2.0(@types/node@24.7.0)
+      '@stryker-mutator/typescript-checker':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(typescript@5.9.3)
+      '@stryker-mutator/vitest-runner':
+        specifier: ^9.2.0
+        version: 9.2.0(@stryker-mutator/core@9.2.0(@types/node@24.7.0))(vitest@3.2.4)
       '@types/node':
         specifier: ^24.7.0
         version: 24.7.0

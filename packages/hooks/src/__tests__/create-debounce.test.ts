@@ -104,4 +104,53 @@ describe('createDebounce', () => {
 
     expect(mockFn).toHaveBeenCalledWith('boom');
   });
+
+  it('should not clear timer when timer is already null', async () => {
+    const mockFn = vi.fn();
+    const { run, flush } = createDebounce(mockFn, 100);
+
+    // Call run without timer set
+    run('test');
+    await flush(); // This clears the timer
+
+    // Call flush again - should handle null timer gracefully
+    await flush();
+    expect(mockFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('should properly reset timer on multiple rapid calls', async () => {
+    const mockFn = vi.fn();
+    const { run } = createDebounce(mockFn, 100);
+
+    run('a');
+    vi.advanceTimersByTime(50);
+    run('b'); // Should clear previous timer
+    vi.advanceTimersByTime(50);
+
+    expect(mockFn).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(50);
+    await vi.runAllTimersAsync();
+
+    expect(mockFn).toHaveBeenCalledTimes(1);
+    expect(mockFn).toHaveBeenCalledWith('b');
+  });
+
+  it('should handle consecutive run calls that clear existing timer', async () => {
+    const mockFn = vi.fn();
+    const { run } = createDebounce(mockFn, 100);
+
+    run('first');
+    expect(mockFn).not.toHaveBeenCalled();
+
+    // Immediately call again before timer fires
+    run('second');
+    expect(mockFn).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+
+    expect(mockFn).toHaveBeenCalledTimes(1);
+    expect(mockFn).toHaveBeenCalledWith('second');
+  });
 });

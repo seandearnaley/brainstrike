@@ -17,6 +17,8 @@
       "!**/.vite",
       "!**/.nyc_output",
       "!**/blob-report",
+      "!**/.stryker-tmp",
+      "!**/reports",
       "!**/*.db"
     ]
   },
@@ -131,7 +133,8 @@
                 "filenameCases": ["kebab-case"]
               }
             },
-            "useNamingConvention": "off"
+            "useNamingConvention": "off",
+            "noNonNullAssertion": "off"
           },
           "correctness": {
             "noUnusedVariables": "error",
@@ -140,6 +143,9 @@
           },
           "complexity": {
             "useLiteralKeys": "off"
+          },
+          "nursery": {
+            "noFloatingPromises": "off"
           }
         }
       }

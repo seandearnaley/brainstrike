@@ -253,6 +253,45 @@ describe('WebFileSystemAdapter', () => {
       };
       await expect(adapter.readFile(handle)).rejects.toThrow('nope');
     });
+
+    it('throws AccessError when handle lacks a file implementation', async () => {
+      const handle: FileHandle = {
+        path: 'missing',
+        name: 'missing',
+        kind: 'file',
+        platform: 'web',
+        _internal: {} as unknown as FileSystemFileHandle,
+      };
+
+      await expect(adapter.readFile(handle)).rejects.toMatchObject({
+        name: 'AccessError',
+        message: 'Invalid file handle',
+        path: 'missing',
+      });
+    });
+
+    it('rejects files larger than the 1MB limit', async () => {
+      const largeContent = 'x'.repeat(1024 * 1024 + 1);
+      const file = createFile('big.bin', largeContent);
+      const fileHandle = {
+        kind: 'file',
+        name: 'big.bin',
+        getFile: vi.fn().mockResolvedValue(file),
+      } as unknown as FileSystemFileHandle;
+      const handle: FileHandle = {
+        path: 'big.bin',
+        name: 'big.bin',
+        kind: 'file',
+        platform: 'web',
+        _internal: fileHandle,
+      };
+
+      await expect(adapter.readFile(handle)).rejects.toMatchObject({
+        name: 'AccessError',
+        message: expect.stringContaining('File too large'),
+        path: 'big.bin',
+      });
+    });
   });
 
   describe('exists', () => {

@@ -164,4 +164,68 @@ describe('useFileFilters', () => {
 
     globalThis.RegExp = OriginalRegExp;
   });
+
+  it('should handle paths with and without leading slash', () => {
+    const tree: IFileNode[] = [
+      dirNode('root', '/root', [
+        fileNode('file1.ts', 'file1.ts'),
+        fileNode('file2.ts', '/file2.ts'),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    expect(filtered).toHaveLength(1);
+    const rootDir = filtered[0];
+    const children = rootDir.children ?? [];
+    expect(children).toHaveLength(2);
+  });
+
+  it('should preserve directory structure when children match', () => {
+    const tree: IFileNode[] = [
+      dirNode('root', '/root', [dirNode('src', '/src', [fileNode('app.ts', '/src/app.ts')])]),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    const srcDir = filtered[0].children?.[0];
+    expect(srcDir?.children).toHaveLength(1);
+  });
+
+  it('should handle empty children array', () => {
+    const tree: IFileNode[] = [dirNode('root', '/root', [dirNode('empty', '/empty', [])])];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    expect(filtered).toHaveLength(1);
+    const rootDir = filtered[0];
+    const children = rootDir.children ?? [];
+    expect(children).toHaveLength(1); // empty directory should be preserved
+  });
+
+  it('should correctly filter files vs directories', () => {
+    const tree: IFileNode[] = [
+      dirNode('root', '/root', [
+        fileNode('file.ts', '/file.ts'),
+        dirNode('dir', '/dir', [fileNode('nested.ts', '/dir/nested.ts')]),
+      ]),
+    ];
+
+    const { result } = renderHook(() => useFileFilters());
+    const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
+
+    const rootDir = filtered[0];
+    const children = rootDir.children ?? [];
+    expect(children).toHaveLength(2);
+
+    const fileChild = children.find((n) => n.type === 'file');
+    const dirChild = children.find((n) => n.type === 'directory');
+
+    expect(fileChild).toBeDefined();
+    expect(dirChild).toBeDefined();
+    expect(dirChild?.children).toHaveLength(1);
+  });
 });

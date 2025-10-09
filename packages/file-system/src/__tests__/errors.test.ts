@@ -23,6 +23,11 @@ describe('File system errors', () => {
     expect(error.message).toBe('cancelled');
   });
 
+  it('UserCancelledError defaults to the canned message', () => {
+    const error = new UserCancelledError();
+    expect(error.message).toBe('User cancelled directory selection');
+  });
+
   it('PermissionError should store path parameter', () => {
     const error = new PermissionError('no access', '/path/to/file');
     expect(error).toBeInstanceOf(PermissionError);
@@ -48,6 +53,21 @@ describe('File system errors', () => {
     expect(error).toBeInstanceOf(FileSystemError);
     expect(error.name).toBe('DialogError');
     expect(error.message).toBe('dialog failed');
+  });
+
+  it('FileSystemError handles missing Error.captureStackTrace', () => {
+    const errorConstructor = Error as { captureStackTrace?: typeof Error.captureStackTrace };
+    const original = errorConstructor.captureStackTrace;
+    try {
+      errorConstructor.captureStackTrace = undefined;
+      expect(() => new PermissionError('no access', '/path/to/file')).not.toThrow();
+    } finally {
+      if (original) {
+        errorConstructor.captureStackTrace = original;
+      } else {
+        errorConstructor.captureStackTrace = undefined;
+      }
+    }
   });
 });
 

@@ -2,7 +2,10 @@ import { createFileNode } from '@brainstrike/test-utils';
 import * as utils from '@brainstrike/utils';
 import { fileContent } from '@brainstrike/utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createFileContentWorker } from './file-content-worker';
+import {
+  createFileContentWorker,
+  type ProgressEvent as FileProgressEvent,
+} from './file-content-worker';
 import { MockFileSystemAdapter } from './test-helpers';
 
 vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -141,5 +144,144 @@ describe('file-content-worker', () => {
     expect(progress).toEqual([1, 2]);
     expect(results[successReq.compositeKey]).toBe('ok');
     expect(results[failReq.compositeKey]).toMatch('Error accessing file');
+  });
+
+  it('handles empty request queue immediately', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+
+    const results = await worker([]);
+
+    expect(results).toEqual({});
+  });
+
+  it('validates error contains specific error message for FileContentError', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/fail.txt');
+    MockFileSystemAdapter.setMockReadFileError('/fail.txt', new Error('disk failure'));
+
+    const results = await worker([req]);
+
+    // The error should be the generic message, not the original error message
+    expect(results[req.compositeKey]).toBe('Error accessing file');
+    expect(results[req.compositeKey]).not.toContain('disk failure');
+  });
+
+  it('rejects text extension file with binary content', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/fake.txt');
+    MockFileSystemAdapter.setMockFileContent('/fake.txt', 'binary-data');
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(true);
+    vi.spyOn(fileContent, 'isTextContent').mockReturnValue(false);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+    expect(utils.isTextExtension).toHaveBeenCalledWith('.txt');
+    expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
+  });
+
+  it('accepts unknown extension file with text content', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/file.xyz');
+    MockFileSystemAdapter.setMockFileContent('/file.xyz', 'text content');
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(false);
+    vi.spyOn(fileContent, 'isTextContent').mockReturnValue(true);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('text content');
+    expect(fileContent.isTextContent).toHaveBeenCalledWith('text content');
+  });
+
+  it('rejects unknown extension file with binary content', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/file.xyz');
+    MockFileSystemAdapter.setMockFileContent('/file.xyz', 'binary-data');
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(false);
+    vi.spyOn(fileContent, 'isTextContent').mockReturnValue(false);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toMatch('Binary file - preview not available');
+    expect(fileContent.isTextContent).toHaveBeenCalledWith('binary-data');
+  });
+
+  it('completes all requests even with mixed successes and failures', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 1 });
+    const req1 = createRequest('/file1.txt');
+    const req2 = createRequest('/file2.txt');
+    const req3 = createRequest('/file3.txt');
+    MockFileSystemAdapter.setMockFileContent('/file1.txt', 'content1');
+    MockFileSystemAdapter.setMockReadFileError('/file2.txt', new Error('fail'));
+    MockFileSystemAdapter.setMockFileContent('/file3.txt', 'content3');
+
+    const progress: FileProgressEvent[] = [];
+    const results = await worker([req1, req2, req3], (e) => progress.push(e));
+
+    // Verify all three files were processed
+    expect(Object.keys(results)).toHaveLength(3);
+    expect(results[req1.compositeKey]).toBe('content1');
+    expect(results[req2.compositeKey]).toMatch('Error accessing file');
+    expect(results[req3.compositeKey]).toBe('content3');
+    // Verify progress tracked all completions
+    expect(progress).toHaveLength(3);
+    expect(progress.map((p) => p.loaded)).toEqual([1, 2, 3]);
+    expect(progress.every((p) => p.total === 3)).toBe(true);
+  });
+
+  it('handles text extension file with text content successfully', async () => {
+    const adapter = new MockFileSystemAdapter();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter });
+    const req = createRequest('/document.txt');
+    MockFileSystemAdapter.setMockFileContent('/document.txt', 'This is text content');
+    vi.spyOn(utils, 'isBinaryExtension').mockReturnValue(false);
+    vi.spyOn(utils, 'isTextExtension').mockReturnValue(true);
+    vi.spyOn(fileContent, 'isTextContent').mockReturnValue(true);
+
+    const results = await worker([req]);
+
+    expect(results[req.compositeKey]).toBe('This is text content');
+    expect(fileContent.isTextContent).toHaveBeenCalledWith('This is text content');
+  });
+
+  it('uses custom concurrency setting', async () => {
+    class ConcurrencyTracker extends MockFileSystemAdapter {
+      active = 0;
+      maxActive = 0;
+
+      override async readFile(handle: Parameters<MockFileSystemAdapter['readFile']>[0]) {
+        this.active += 1;
+        this.maxActive = Math.max(this.maxActive, this.active);
+        await new Promise((r) => setTimeout(r, 10));
+        const result = await super.readFile(handle);
+        this.active -= 1;
+        return result;
+      }
+    }
+
+    const adapter = new ConcurrencyTracker();
+    const worker = createFileContentWorker({ fileSystemAdapter: adapter, concurrency: 3 });
+    const requests = ['/1.txt', '/2.txt', '/3.txt', '/4.txt', '/5.txt'].map(createRequest);
+    requests.forEach((req) => {
+      MockFileSystemAdapter.setMockFileContent(req.path, `content-${req.path}`);
+    });
+
+    vi.useFakeTimers();
+    const promise = worker(requests);
+    await vi.runAllTimersAsync();
+    const results = await promise;
+    vi.useRealTimers();
+
+    expect(Object.keys(results)).toHaveLength(5);
+    expect(adapter.maxActive).toBeLessThanOrEqual(3);
   });
 });

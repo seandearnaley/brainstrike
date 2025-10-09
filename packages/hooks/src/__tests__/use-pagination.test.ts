@@ -75,4 +75,88 @@ describe('usePagination', () => {
     expect(result.current.totalPages).toBe(3);
     expect(result.current.currentPage).toBe(0);
   });
+
+  it('should handle edge case when totalPages is exactly 0', () => {
+    const { result } = renderHook(() => usePagination({ totalItems: 0, pageSize: 10 }));
+
+    expect(result.current.currentPage).toBe(0);
+    expect(result.current.totalPages).toBe(0);
+    expect(result.current.isFirstPage).toBe(true);
+    expect(result.current.isLastPage).toBe(true);
+  });
+
+  it('should handle transition from non-zero to zero pages', () => {
+    const { result, rerender } = renderHook(
+      ({ totalItems }) => usePagination({ totalItems, pageSize: 10 }),
+      { initialProps: { totalItems: 50 } }
+    );
+
+    act(() => {
+      result.current.goToPage(2);
+    });
+
+    expect(result.current.currentPage).toBe(2);
+
+    act(() => {
+      rerender({ totalItems: 0 });
+    });
+
+    // When totalPages is 0, the reset condition (totalPages > 0) is false
+    // so currentPage stays at 2, but isLastPage becomes true
+    expect(result.current.currentPage).toBe(2);
+    expect(result.current.totalPages).toBe(0);
+    expect(result.current.isLastPage).toBe(true);
+  });
+
+  it('should reset to first page when current page equals totalPages', () => {
+    const { result, rerender } = renderHook(
+      ({ totalItems }) => usePagination({ totalItems, pageSize: 10 }),
+      { initialProps: { totalItems: 50 } }
+    );
+
+    act(() => {
+      result.current.goToPage(4); // Last page (0-indexed)
+    });
+
+    expect(result.current.currentPage).toBe(4);
+
+    act(() => {
+      rerender({ totalItems: 30 }); // Reduces to 3 pages
+    });
+
+    expect(result.current.totalPages).toBe(3);
+    expect(result.current.currentPage).toBe(0);
+  });
+
+  it('should handle page boundary when totalPages is 1', () => {
+    const { result } = renderHook(() => usePagination({ totalItems: 5, pageSize: 10 }));
+
+    expect(result.current.totalPages).toBe(1);
+    expect(result.current.isFirstPage).toBe(true);
+    expect(result.current.isLastPage).toBe(true);
+
+    act(() => {
+      result.current.goToNextPage();
+    });
+    expect(result.current.currentPage).toBe(0);
+
+    act(() => {
+      result.current.goToPreviousPage();
+    });
+    expect(result.current.currentPage).toBe(0);
+  });
+
+  it('should correctly calculate isLastPage for exact page boundary', () => {
+    const { result } = renderHook(() => usePagination({ totalItems: 50, pageSize: 10 }));
+
+    expect(result.current.totalPages).toBe(5);
+
+    act(() => {
+      result.current.goToPage(4);
+    });
+
+    expect(result.current.currentPage).toBe(4);
+    expect(result.current.isLastPage).toBe(true);
+    expect(result.current.endIndex).toBe(50);
+  });
 });

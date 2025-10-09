@@ -28,7 +28,8 @@
     "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "pnpm -w test:coverage"
+    "test:coverage": "pnpm -w test:coverage",
+    "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
     "@brainstrike/file-system": "workspace:*",
@@ -43,6 +44,10 @@
   },
   "devDependencies": {
     "@brainstrike/test-utils": "workspace:*",
+    "@stryker-mutator/api": "^9.2.0",
+    "@stryker-mutator/core": "^9.2.0",
+    "@stryker-mutator/typescript-checker": "^9.2.0",
+    "@stryker-mutator/vitest-runner": "^9.2.0",
     "@swc/core": "^1.13.5",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.7.0",
