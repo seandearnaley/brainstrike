@@ -2,6 +2,7 @@ export { ChunksView } from './chunks-view';
 export { ClearDatabaseDialog } from './clear-database-dialog';
 export { DbInfoDisplay } from './db-info-display';
 export { ExportButtons } from './export-buttons';
+export { ExportDropdown } from './export-dropdown';
 export { FilesView } from './files-view';
 export { ImportProgressDisplay } from './import-progress-display';
 export { SearchInterface } from './search-interface';

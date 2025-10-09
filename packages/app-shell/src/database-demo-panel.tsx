@@ -19,7 +19,7 @@ import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 // UI Constants
-const CONTENT_SCROLL_AREA_HEIGHT = 'h-[400px]';
+const CONTENT_SCROLL_AREA_HEIGHT = 'h-[200px]';
 
 import type { EnhancedImportProgress, EnhancedImportResult } from './database-demo';
 import {
@@ -27,7 +27,7 @@ import {
   ClearDatabaseDialog,
   createImportCompletionHandler,
   DbInfoDisplay,
-  ExportButtons,
+  ExportDropdown,
   FilesView,
   ImportProgressDisplay,
   SearchInterface,
@@ -384,7 +384,7 @@ export function DatabaseDemoPanel() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button
             size="sm"
             onClick={importFlow.handleImportClick}
@@ -407,6 +407,7 @@ export function DatabaseDemoPanel() {
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <ExportDropdown records={records} chunks={chunks} exportHandlers={exportHandlers} />
           <ClearDatabaseDialog
             clearAllData={clearAllData}
             records={records}
@@ -420,8 +421,6 @@ export function DatabaseDemoPanel() {
             Factory Reset
           </Button>
         </div>
-
-        <ExportButtons records={records} chunks={chunks} exportHandlers={exportHandlers} />
 
         {importFlow.showImportProgress && importFlow.progress && (
           <div className="mt-4">
