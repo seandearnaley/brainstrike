@@ -1,12 +1,13 @@
 import {
   createAppearanceSettingsCategory,
+  LoggingSettingsSection,
   QueueHud,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
   VectorStatusWithDb,
 } from '@brainstrike/app-shell';
 import { Badge } from '@brainstrike/ui';
-import { Cpu, Sparkles } from 'lucide-react';
+import { Cpu, FileCog, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 
@@ -57,6 +58,14 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
+      {
+        id: 'logging',
+        title: 'Logging & Diagnostics',
+        description: 'Control browser log verbosity and redaction for debugging.',
+        keywords: ['logging', 'debugging', 'console', 'diagnostics'],
+        icon: FileCog,
+        render: () => <LoggingSettingsSection runtime="browser" />,
+      },
       {
         id: 'embedding-worker',
         title: 'Embedding Worker',

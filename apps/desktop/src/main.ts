@@ -1,15 +1,18 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
-import type { PanelPersistenceState } from '@brainstrike/ui';
 import {
+  applyLoggingPreferences,
+  createDefaultLoggingPreferences,
   createLogger,
   type InitializeLoggingOptions,
   initializeLogging,
+  type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
-import { app, BrowserWindow, dialog, ipcMain, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
@@ -18,17 +21,137 @@ import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
+import {
+  cloneLoggingPreferences,
+  cloneLoggingSettingsPayload,
+  registerLoggingIpcHandlers,
+} from './logging-ipc';
+import type { LoggingSettingsPayload } from './logging-shared';
 import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
+import type { DesktopSettingsStoreSchema } from './store-schema';
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
 
+const settingsStore: ElectronStore<DesktopSettingsStoreSchema> =
+  new ElectronStore<DesktopSettingsStoreSchema>({
+    name: 'brainstrike-settings',
+  });
+
+function createDesktopDefaultPreferences(): LoggingPreferences {
+  return createDefaultLoggingPreferences({
+    level: LogLevel.DEBUG,
+    consoleLevel: LogLevel.INFO,
+    includeTimestamp: true,
+    file: {
+      enabled: !disableFileLogs && Boolean(logFilePath),
+      destination: logFilePath ?? null,
+      level: LogLevel.DEBUG,
+      append: true,
+      mkdir: true,
+    },
+  });
+}
+
+function mergeStoredPreferences(
+  base: LoggingPreferences,
+  stored: LoggingPreferences | undefined
+): LoggingPreferences {
+  if (!stored) {
+    return base;
+  }
+
+  return {
+    ...base,
+    ...stored,
+    redactPaths: stored.redactPaths ?? base.redactPaths,
+    file: {
+      ...base.file,
+      ...(stored.file ?? {}),
+    },
+  };
+}
+
+function sanitizeDesktopPreferences(preferences: LoggingPreferences): LoggingPreferences {
+  const normalized: LoggingPreferences = {
+    ...preferences,
+    redactPaths: preferences.redactPaths
+      .map((value) => value.trim())
+      .filter((value) => value.length),
+    file: { ...preferences.file },
+  };
+
+  const trimmedDestination = normalized.file.destination?.trim() ?? null;
+
+  if (disableFileLogs) {
+    normalized.file.enabled = false;
+    normalized.file.destination = null;
+  } else if (normalized.file.enabled) {
+    normalized.file.destination = trimmedDestination ?? logFilePath ?? null;
+    if (!normalized.file.destination) {
+      normalized.file.enabled = false;
+    } else if (!isWritableLogDestination(normalized.file.destination)) {
+      normalized.file.enabled = false;
+    }
+  } else {
+    normalized.file.destination = trimmedDestination;
+  }
+
+  return normalized;
+}
+
+function readStoredLoggingPreferences(): LoggingPreferences | undefined {
+  try {
+    const record = (
+      settingsStore as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
+    ).get('loggingPreferences') as DesktopSettingsStoreSchema['loggingPreferences'] | undefined;
+    return record?.v1;
+  } catch {
+    return undefined;
+  }
+}
+
+function isWritableLogDestination(destination: string): boolean {
+  try {
+    const resolved = path.resolve(destination);
+    const directory = path.dirname(resolved);
+    const stats = fs.statSync(directory);
+    if (!stats.isDirectory()) {
+      return false;
+    }
+    fs.accessSync(directory, fs.constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function persistLoggingPreferences(preferences: LoggingPreferences): boolean {
+  try {
+    (
+      settingsStore as ElectronStore<DesktopSettingsStoreSchema> & {
+        set: (key: string, value: unknown) => void;
+      }
+    ).set('loggingPreferences', { v1: cloneLoggingPreferences(preferences) });
+    return true;
+  } catch {
+    // Persistence failures should not crash the app; preferences can be reapplied during runtime.
+    return false;
+  }
+}
+
+const defaultPreferences = createDesktopDefaultPreferences();
+const storedPreferences = readStoredLoggingPreferences();
+const initialLoggingPreferences = sanitizeDesktopPreferences(
+  mergeStoredPreferences(defaultPreferences, storedPreferences)
+);
+
 const loggingOptions: InitializeLoggingOptions = {
   runtime: 'electron-main',
-  level: LogLevel.DEBUG,
-  consoleLevel: LogLevel.INFO,
-  includeTimestamp: true,
+  level: initialLoggingPreferences.level,
+  consoleLevel: initialLoggingPreferences.consoleLevel,
+  includeTimestamp: initialLoggingPreferences.includeTimestamp,
   appName: 'brainstrike-desktop',
   appVersion: app.getVersion(),
   baseBindings: {
@@ -36,17 +159,19 @@ const loggingOptions: InitializeLoggingOptions = {
     arch: process.arch,
     electron: process.versions.electron,
     node: process.versions.node,
-    ...(logFilePath ? { logFile: logFilePath } : {}),
+    ...(initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination
+      ? { logFile: initialLoggingPreferences.file.destination }
+      : {}),
   },
   enableDebugInProduction: true,
 };
 
-if (!disableFileLogs && logFilePath) {
+if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination) {
   loggingOptions.file = {
-    destination: logFilePath,
-    level: LogLevel.DEBUG,
-    mkdir: true,
-    append: true,
+    destination: initialLoggingPreferences.file.destination,
+    level: initialLoggingPreferences.file.level,
+    mkdir: initialLoggingPreferences.file.mkdir,
+    append: initialLoggingPreferences.file.append,
   };
 }
 
@@ -59,9 +184,96 @@ try {
   );
 }
 
+let currentLoggingPreferences = initialLoggingPreferences;
+applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
+  baseBindings: {
+    logFile:
+      currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
+        ? currentLoggingPreferences.file.destination
+        : null,
+  },
+});
+persistLoggingPreferences(currentLoggingPreferences);
+
+const loggingCapabilities = {
+  runtime: 'electron' as const,
+  fileLoggingSupported: !disableFileLogs,
+  canSelectDestination: !disableFileLogs,
+  defaultDestination: logFilePath ?? null,
+  reason: disableFileLogs ? 'File logging disabled by BRAINSTRIKE_DISABLE_FILE_LOGS=1' : null,
+};
+
+function getLoggingSettingsPayload(): LoggingSettingsPayload {
+  return cloneLoggingSettingsPayload({
+    preferences: currentLoggingPreferences,
+    capabilities: loggingCapabilities,
+  });
+}
+
+async function selectLogDestination(): Promise<string | null> {
+  if (!loggingCapabilities.canSelectDestination) {
+    return null;
+  }
+
+  const defaultPath =
+    currentLoggingPreferences.file.destination ?? logFilePath ?? app.getPath('logs');
+
+  const result = await dialog.showSaveDialog({
+    title: 'Choose log file location',
+    buttonLabel: 'Use Log File',
+    defaultPath,
+  });
+
+  if (result.canceled || !result.filePath) {
+    return null;
+  }
+
+  return result.filePath;
+}
+
+function applyAndPersistLoggingPreferences(
+  preferences: LoggingPreferences
+): LoggingSettingsPayload {
+  const normalized = sanitizeDesktopPreferences(preferences);
+  if (!persistLoggingPreferences(normalized)) {
+    return getLoggingSettingsPayload();
+  }
+  currentLoggingPreferences = normalized;
+  applyLoggingPreferences(currentLoggingPreferences, 'electron-main', {
+    baseBindings: {
+      logFile:
+        currentLoggingPreferences.file.enabled && currentLoggingPreferences.file.destination
+          ? currentLoggingPreferences.file.destination
+          : null,
+    },
+  });
+  return getLoggingSettingsPayload();
+}
+
+async function openLogDestination(target: string | null): Promise<boolean> {
+  const destination =
+    target ?? currentLoggingPreferences.file.destination ?? loggingCapabilities.defaultDestination;
+  if (!destination) {
+    return false;
+  }
+  try {
+    shell.showItemInFolder(destination);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const logger = createLogger('DesktopMain');
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
+
+registerLoggingIpcHandlers({
+  getState: getLoggingSettingsPayload,
+  setPreferences: applyAndPersistLoggingPreferences,
+  selectDestination: selectLogDestination,
+  openDestination: openLogDestination,
+});
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
@@ -74,18 +286,8 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled promise rejection at:', promise, 'reason:', reason);
 });
 
-interface StoreSchema {
-  panelLayout: {
-    v1: PanelPersistenceState;
-  };
-}
-
-const store: ElectronStore<StoreSchema> = new ElectronStore<StoreSchema>({
-  name: 'brainstrike-settings',
-});
-
 logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, store);
+registerIpcHandlers(fileSystem, storage, settingsStore);
 registerSecretsIpcHandlers(createSecretsService());
 registerAgentIpcHandlers();
 registerMcpIpcHandlers();

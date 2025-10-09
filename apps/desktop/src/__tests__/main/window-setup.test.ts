@@ -43,8 +43,19 @@ vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn() },
 }));
 
-const existsSyncMock = vi.fn();
-vi.mock('node:fs', () => ({ default: { existsSync: existsSyncMock } }));
+const statSyncMock = vi.fn(() => ({
+  isDirectory: () => true,
+}));
+const accessSyncMock = vi.fn();
+const existsSyncMock = vi.fn(() => true);
+vi.mock('node:fs', () => ({
+  default: {
+    statSync: statSyncMock,
+    accessSync: accessSyncMock,
+    existsSync: existsSyncMock,
+    constants: { W_OK: 0o200 },
+  },
+}));
 
 const isDevEnvMock = vi.fn();
 const createLoggerMock = vi.fn(() => ({
@@ -54,10 +65,27 @@ const createLoggerMock = vi.fn(() => ({
   error: vi.fn(),
 }));
 const initializeLoggingMock = vi.fn();
+const createDefaultLoggingPreferencesMock = vi.fn(() => ({
+  level: 'info',
+  consoleLevel: 'info',
+  includeTimestamp: false,
+  consoleEnabled: true,
+  redactPaths: [],
+  file: {
+    enabled: false,
+    destination: null,
+    level: 'info',
+    append: true,
+    mkdir: true,
+  },
+}));
+const applyLoggingPreferencesMock = vi.fn();
 vi.mock('@brainstrike/utils', () => ({
   isDevEnv: isDevEnvMock,
   createLogger: createLoggerMock,
   initializeLogging: initializeLoggingMock,
+  createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
+  applyLoggingPreferences: applyLoggingPreferencesMock,
   LogLevel: {
     TRACE: 'trace',
     DEBUG: 'debug',

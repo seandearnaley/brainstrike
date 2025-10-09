@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer, clipboard } = require('electron');
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingSettingsPayload } from './logging-shared';
 
 // Expose storage APIs to renderer
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -74,6 +76,16 @@ contextBridge.exposeInMainWorld('mcp', {
 // Assistant UI (data stream) endpoint helper
 contextBridge.exposeInMainWorld('assistant', {
   getUrl: () => ipcRenderer.invoke('assistant:get-url'),
+});
+
+contextBridge.exposeInMainWorld('logging', {
+  getPreferences: (): Promise<LoggingSettingsPayload> =>
+    ipcRenderer.invoke('logging:get-preferences'),
+  setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
+    ipcRenderer.invoke('logging:set-preferences', preferences),
+  selectDestination: (): Promise<string | null> => ipcRenderer.invoke('logging:select-destination'),
+  openDestination: (target: string | null): Promise<boolean> =>
+    ipcRenderer.invoke('logging:open-destination', target ?? null),
 });
 
 // System Clipboard helper (renderer-friendly)

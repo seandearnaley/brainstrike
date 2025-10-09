@@ -1,8 +1,9 @@
+import { useLoggingPreferencesStore } from '@brainstrike/app-shell';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { createStorageAdapter } from '@brainstrike/storage';
-import { initializeLogging, LogLevel } from '@brainstrike/utils';
+import { applyLoggingPreferences, initializeLogging, LogLevel } from '@brainstrike/utils';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { HelmetProvider } from 'react-helmet-async';
@@ -28,6 +29,26 @@ initializeLogging({
     mode: import.meta.env.MODE,
   },
 });
+
+const loggingStore = useLoggingPreferencesStore.getState();
+if (!loggingStore.hasHydrated) {
+  loggingStore.updatePreferences({
+    level: defaultLevel,
+    consoleLevel: defaultLevel,
+  });
+}
+
+applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'browser');
+
+const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
+  applyLoggingPreferences(state.preferences, 'browser');
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unsubscribeLoggingPreferences();
+  });
+}
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {

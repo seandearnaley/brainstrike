@@ -1,6 +1,7 @@
+import { useLoggingPreferencesStore } from '@brainstrike/app-shell';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { initializeLogging, LogLevel } from '@brainstrike/utils';
+import { applyLoggingPreferences, initializeLogging, LogLevel } from '@brainstrike/utils';
 import React, { useEffect, useState } from 'react';
 import ReactDOM from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
@@ -26,6 +27,26 @@ initializeLogging({
     userAgent: window.navigator.userAgent,
   },
 });
+
+const loggingStore = useLoggingPreferencesStore.getState();
+if (!loggingStore.hasHydrated) {
+  loggingStore.updatePreferences({
+    level: rendererLevel,
+    consoleLevel: rendererLevel,
+  });
+}
+
+applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
+
+const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
+  applyLoggingPreferences(state.preferences, 'electron-renderer');
+});
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    unsubscribeLoggingPreferences();
+  });
+}
 
 declare global {
   interface Window {

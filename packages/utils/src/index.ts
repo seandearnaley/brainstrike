@@ -14,6 +14,7 @@ export * from './filter-utils';
 export * from './hash-utils';
 export * from './logger';
 export * from './logging-initializer';
+export * from './logging-preferences';
 export * from './path-filter';
 export * from './path-utils';
 export * from './quick-filter-utils';
