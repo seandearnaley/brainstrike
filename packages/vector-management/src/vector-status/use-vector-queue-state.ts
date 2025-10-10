@@ -95,7 +95,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
 
   useEffect(() => {
     autoBackfillRef.current = null;
-  }, [activeEmbeddingSetId]);
+  }, []);
 
   const backfillActiveSet = useCallback(async () => {
     if (!service || !activeEmbeddingSetId) return;

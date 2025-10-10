@@ -43,6 +43,7 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/vector-management": "workspace:*",
     "lucide-react": "^0.545.0"
   },
   "license": "ISC",

@@ -1,0 +1,123 @@
+import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  __resetImportSettingsStoreForTests,
+  importSettingsSelectors,
+  useImportSettingsStore,
+} from '../stores/import-settings-store';
+
+type PersistApi<T> = T & {
+  persist?: {
+    getOptions?: () => {
+      name: string;
+      storage: {
+        getItem: (name: string) => string | null;
+        setItem: (name: string, value: string) => void;
+        removeItem: (name: string) => void;
+      };
+    };
+    clearStorage?: () => void;
+  };
+};
+
+const storeWithPersist = useImportSettingsStore as PersistApi<typeof useImportSettingsStore>;
+
+describe('import-settings-store', () => {
+  beforeEach(() => {
+    __resetImportSettingsStoreForTests();
+    vi.restoreAllMocks();
+  });
+
+  it('initializes with default configuration', () => {
+    const store = useImportSettingsStore.getState();
+    expect(store.enableChunking).toBe(true);
+    expect(store.chunkingStrategy).toBe('sentence');
+    expect(store.chunkSize).toBe(256);
+    expect(store.chunkOverlap).toBe(50);
+    expect(store.enableEmbedding).toBe(false);
+    expect(store.selectedModel).toBe(SimpleEmbeddingService.getDefaultModelKey());
+  });
+
+  it('normalizes chunk settings and embedding toggle', () => {
+    const snapshot = useImportSettingsStore.getState();
+
+    snapshot.setChunkSize(-42.7);
+    snapshot.setChunkOverlap(-9.4);
+    snapshot.setEnableEmbedding(1 as unknown as boolean);
+
+    const next = useImportSettingsStore.getState();
+    expect(next.chunkSize).toBe(1);
+    expect(next.chunkOverlap).toBe(0);
+    expect(next.enableEmbedding).toBe(true);
+  });
+
+  it('updates selectors in response to state changes', () => {
+    const snapshot = useImportSettingsStore.getState();
+    snapshot.setEnableChunking(false);
+    snapshot.setChunkingStrategy('paragraph');
+    snapshot.setChunkSize(512);
+    snapshot.setChunkOverlap(24);
+    snapshot.setEnableEmbedding(true);
+    snapshot.setSelectedModel('test-model');
+
+    const next = useImportSettingsStore.getState();
+    const chunking = importSettingsSelectors.chunking(next);
+    const sizes = importSettingsSelectors.sizes(next);
+    const embedding = importSettingsSelectors.embedding(next);
+
+    expect(chunking).toEqual([false, 'paragraph']);
+    expect(sizes).toEqual([512, 24]);
+    expect(embedding).toEqual([true, 'test-model']);
+  });
+
+  it('persists via in-memory storage if localStorage throws', () => {
+    const persistApi = storeWithPersist.persist;
+    expect(persistApi).toBeDefined();
+    const options = persistApi?.getOptions?.();
+    expect(options?.storage).toBeDefined();
+    if (!persistApi || !options?.storage) {
+      throw new Error('persist storage unavailable for test');
+    }
+
+    const storage = options.storage;
+
+    vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    vi.spyOn(window.localStorage, 'getItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+    vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('quota exceeded');
+    });
+
+    const store = useImportSettingsStore.getState();
+    store.setEnableChunking(false);
+    store.setChunkSize(128);
+
+    const persistedValue = storage.getItem(options.name);
+    expect(persistedValue).not.toBeNull();
+
+    if (
+      !persistedValue ||
+      typeof (persistedValue as { state?: unknown }) !== 'object' ||
+      Array.isArray(persistedValue)
+    ) {
+      throw new Error('unexpected persisted snapshot');
+    }
+
+    const snapshot = persistedValue as {
+      state?: {
+        enableChunking: boolean;
+        chunkSize: number;
+      };
+    };
+
+    expect(snapshot.state?.enableChunking).toBe(false);
+    expect(snapshot.state?.chunkSize).toBe(128);
+
+    persistApi.clearStorage?.();
+    const afterClear = storage.getItem(options.name);
+    expect(afterClear).toBeNull();
+  });
+});

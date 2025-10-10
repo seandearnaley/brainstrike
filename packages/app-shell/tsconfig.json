@@ -33,6 +33,7 @@
     { "path": "../storage" },
     { "path": "../file-import" },
     { "path": "../preferences" },
-    { "path": "../db-explorer" }
+    { "path": "../db-explorer" },
+    { "path": "../vector-management" }
   ]
 }
