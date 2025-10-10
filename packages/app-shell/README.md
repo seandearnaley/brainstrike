@@ -161,10 +161,12 @@ Page container with title and breadcrumb support.
 ### Feature Components
 
 #### `DatabaseDemoPanel`
-Complete vector database management interface.
+Complete vector database management interface (re-exported from `@brainstrike/db-explorer`).
 
 ```tsx
 import { DatabaseDemoPanel } from "@brainstrike/app-shell";
+// Or import directly from:
+// import { DatabaseDemoPanel } from "@brainstrike/db-explorer";
 
 <DatabaseDemoPanel
   onClose={() => setShowPanel(false)}
@@ -173,10 +175,12 @@ import { DatabaseDemoPanel } from "@brainstrike/app-shell";
 ```
 
 #### `VectorStatus`
-Real-time vector database status indicator.
+Real-time vector database status indicator (re-exported from `@brainstrike/vector-management`).
 
 ```tsx
 import { VectorStatus } from "@brainstrike/app-shell";
+// Or import directly from:
+// import { VectorStatus } from "@brainstrike/vector-management";
 
 <VectorStatus
   showDetails={true}
@@ -185,10 +189,12 @@ import { VectorStatus } from "@brainstrike/app-shell";
 ```
 
 #### `QueueHUD`
-Background task monitoring overlay.
+Background task monitoring overlay (re-exported from `@brainstrike/vector-management`).
 
 ```tsx
 import { QueueHUD } from "@brainstrike/app-shell";
+// Or import directly from:
+// import { QueueHUD } from "@brainstrike/vector-management";
 
 <QueueHUD
   position="bottom-right"
@@ -345,11 +351,14 @@ pnpm test:coverage
 This package integrates with other BrainStrike packages:
 
 - `@brainstrike/ui` - UI component library
+- `@brainstrike/preferences` - User preferences and settings stores
+- `@brainstrike/db-explorer` - Database exploration and file import UI
+- `@brainstrike/vector-management` - Vector/embedding status and queue management
 - `@brainstrike/file-explorer-ui` - File explorer components
-- `@brainstrike/file-system` - File system abstraction
+- `@brainstrike/file-explorer-hooks` - File explorer hooks
 - `@brainstrike/storage` - Persistent storage adapters
-- `@brainstrike/db` - Database operations
-- `@brainstrike/embeddings` - Vector embedding management
+- `@brainstrike/agent` - Mastra AI agent integration
+- `@brainstrike/utils` - Common utilities
 - `@brainstrike/types` - Shared TypeScript definitions
 
 ### File Structure

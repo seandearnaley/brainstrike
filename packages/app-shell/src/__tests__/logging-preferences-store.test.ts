@@ -1,9 +1,9 @@
-import { LogLevel } from '@brainstrike/utils';
-import { beforeEach, describe, expect, it } from 'vitest';
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
-} from '../stores/logging-preferences-store';
+} from '@brainstrike/preferences';
+import { LogLevel } from '@brainstrike/utils';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 describe('logging-preferences-store', () => {
   beforeEach(() => {

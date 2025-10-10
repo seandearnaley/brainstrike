@@ -1,0 +1,53 @@
+{
+  "name": "@brainstrike/vector-management",
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "private": true,
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -b .",
+    "dev": "tsc --build --watch --preserveWatchOutput --verbose",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "pnpm -w test:coverage"
+  },
+  "peerDependencies": {
+    "react": "^19.1.1",
+    "zustand": "^5"
+  },
+  "dependencies": {
+    "@brainstrike/db": "workspace:*",
+    "@brainstrike/db-explorer": "workspace:*",
+    "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.10",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^24.7.0",
+    "@types/react": "^19.2.2",
+    "jsdom": "^27.0.0",
+    "vitest": "^3.2.4",
+    "zustand": "^5.0.8"
+  },
+  "license": "ISC"
+}

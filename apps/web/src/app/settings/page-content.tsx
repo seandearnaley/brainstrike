@@ -1,11 +1,10 @@
+import { QueueHud, VectorStatusWithDb } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
   LoggingSettingsSection,
-  QueueHud,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-  VectorStatusWithDb,
-} from '@brainstrike/app-shell';
+} from '@brainstrike/preferences';
 import { Badge } from '@brainstrike/ui';
 import { Cpu, FileCog, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';

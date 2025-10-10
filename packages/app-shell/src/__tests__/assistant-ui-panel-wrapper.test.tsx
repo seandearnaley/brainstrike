@@ -1,11 +1,11 @@
+import {
+  __resetAssistantPreferencesStoreForTests,
+  useAssistantPreferencesStore,
+} from '@brainstrike/preferences';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
-import {
-  __resetAssistantPreferencesStoreForTests,
-  useAssistantPreferencesStore,
-} from '../stores/assistant-preferences-store';
 
 // Mock the agent/client exports
 vi.mock('@brainstrike/agent/client', () => {

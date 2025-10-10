@@ -1,7 +1,7 @@
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
-} from '@brainstrike/app-shell';
+} from '@brainstrike/preferences';
 import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,

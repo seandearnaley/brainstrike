@@ -191,7 +191,9 @@
         "packages/ui/**",
         "packages/file-explorer-ui/**",
         "packages/file-explorer-hooks/**",
-        "packages/app-shell/**"
+        "packages/app-shell/**",
+        "packages/preferences/**",
+        "packages/db-explorer/**"
       ],
       "linter": {
         "rules": {
