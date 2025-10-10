@@ -6,7 +6,9 @@ import {
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
+import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
 import { TransformersBackend } from '@brainstrike/embeddings';
+import { useVectorPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -23,8 +25,6 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useVectorPreferencesStore } from './stores/vector-preferences-store';
-import { useVectorStatusUIStore } from './stores/vector-status-ui-store';
 import { setActiveEmbeddingSetId } from './vector-preferences';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';

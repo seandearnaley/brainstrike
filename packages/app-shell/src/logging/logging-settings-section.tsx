@@ -1,3 +1,4 @@
+import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
   Button,
@@ -19,7 +20,6 @@ import {
 import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
 import { FolderOpen, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.TRACE,

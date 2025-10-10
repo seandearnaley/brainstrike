@@ -1,18 +1,17 @@
-import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type React from 'react';
-import { createContext, useContext, useMemo } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { LoggingSettingsSection } from '../logging/logging-settings-section';
 import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
-} from '../stores/logging-preferences-store';
+} from '@brainstrike/preferences';
+import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { LoggingSettingsSection } from '../logging/logging-settings-section';
 
 const toastSpy = vi.fn();
 
-vi.mock('@brainstrike/ui', () => {
-  const SelectContext = createContext<{ select: (value: string) => void } | null>(null);
+vi.mock('@brainstrike/ui', async () => {
+  const React = await import('react');
+  const SelectContext = React.createContext<{ select: (value: string) => void } | null>(null);
 
   const Select = ({
     value,
@@ -23,7 +22,7 @@ vi.mock('@brainstrike/ui', () => {
     onValueChange?: (value: string) => void;
     children: React.ReactNode;
   }) => {
-    const contextValue = useMemo(
+    const contextValue = React.useMemo(
       () => ({
         select: (next: string) => {
           onValueChange?.(next);
@@ -45,7 +44,7 @@ vi.mock('@brainstrike/ui', () => {
   );
   const SelectContent = ({ children }: { children: React.ReactNode }) => <div>{children}</div>;
   const SelectItem = ({ value, children }: { value: string; children: React.ReactNode }) => {
-    const ctx = useContext(SelectContext);
+    const ctx = React.useContext(SelectContext);
     return (
       <button type="button" onClick={() => ctx?.select(value)}>
         {children}

@@ -5,9 +5,9 @@ import {
   PROVIDER_MODELS,
   type SupportedProvider,
 } from '@brainstrike/agent/client';
+import { useAssistantPreferencesStore } from '@brainstrike/preferences';
 import { AssistantUiPanel } from '@brainstrike/ui/assistant-ui-panel';
 import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
-import { useAssistantPreferencesStore } from './stores/assistant-preferences-store';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
