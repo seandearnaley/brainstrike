@@ -1,5 +1,5 @@
+import { DatabaseDemoPanel } from '@brainstrike/db-explorer';
 import type React from 'react';
-import { DatabaseDemoPanel } from './database-demo-panel';
 import { QueueHud } from './queue-hud';
 import { VectorStatusWithDb } from './vector-status';
 

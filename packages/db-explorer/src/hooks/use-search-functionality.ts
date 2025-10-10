@@ -10,8 +10,8 @@ import { usePGliteDatabase } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useRef, useState } from 'react';
-import { getActiveEmbeddingSetId } from '../../vector-preferences';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
+import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 export function useSearchFunctionality(
   embeddingService: SimpleEmbeddingService | null,

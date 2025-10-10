@@ -17,7 +17,7 @@ let latestOptions: {
 let selectionPaths = new Set<string>();
 let selectionOptions: { onSelectionLimitExceeded?: () => void } = {};
 
-vi.mock('../../enhanced-file-import-service', () => ({
+vi.mock('../enhanced-file-import-service', () => ({
   useEnhancedFileImportService: (options: typeof latestOptions) => {
     latestOptions = options;
     return importServiceReturn;

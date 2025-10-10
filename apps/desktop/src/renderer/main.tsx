@@ -1,6 +1,6 @@
-import { useLoggingPreferencesStore } from '@brainstrike/app-shell';
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import {
   applyLoggingPreferences,
   initializeLogging,

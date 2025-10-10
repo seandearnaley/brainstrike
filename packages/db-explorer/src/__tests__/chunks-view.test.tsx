@@ -2,7 +2,7 @@ import type { FileChunk } from '@brainstrike/db';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { ChunksView } from '../database-demo/components/chunks-view';
+import { ChunksView } from '../components/chunks-view';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 function makeChunk(overrides: Partial<FileChunk> = {}): FileChunk {

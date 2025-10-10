@@ -16,12 +16,9 @@ import {
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-
-import type { EnhancedImportProgress, EnhancedImportResult } from './database-demo';
 import {
   ChunksViewTable,
   ClearDatabaseDialog,
-  createImportCompletionHandler,
   DbInfoDisplay,
   ExportDropdown,
   FilesViewTable,
@@ -29,18 +26,22 @@ import {
   SearchInterface,
   SearchViewTable,
   SettingsPanel,
+  ViewSelector,
+} from './components';
+import {
+  createImportCompletionHandler,
   useDatabaseErrorBoundary,
   useExportHandlers,
   useImportSettings,
   useSearchFunctionality,
-  ViewSelector,
-} from './database-demo';
-import { useDatabaseDemoData } from './database-demo/use-database-demo-data';
-import { useEmbeddingService } from './database-demo/use-embedding-service';
-import type { UseImportFlowResult } from './database-demo/use-import-flow';
-import { useImportFlow } from './database-demo/use-import-flow';
-import { usePendingChunks } from './database-demo/use-pending-chunks';
+} from './hooks';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
+import type { EnhancedImportProgress, EnhancedImportResult } from './types';
+import { useDatabaseDemoData } from './use-database-demo-data';
+import { useEmbeddingService } from './use-embedding-service';
+import type { UseImportFlowResult } from './use-import-flow';
+import { useImportFlow } from './use-import-flow';
+import { usePendingChunks } from './use-pending-chunks';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export function DatabaseDemoPanel() {

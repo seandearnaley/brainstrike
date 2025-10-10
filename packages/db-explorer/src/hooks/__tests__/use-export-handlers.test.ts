@@ -1,11 +1,11 @@
 import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as csvExportUtils from '../../../csv-export-utils';
+import * as csvExportUtils from '../../csv-export-utils';
 import { useExportHandlers } from '../use-export-handlers';
 
 // Mock the CSV export utilities
-vi.mock('../../../csv-export-utils', () => ({
+vi.mock('../../csv-export-utils', () => ({
   createCSVBlob: vi.fn((content: string) => new Blob([content], { type: 'text/csv' })),
   exportAllDataAsZip: vi.fn(),
   generateChunksCSV: vi.fn(() => 'chunk,data'),

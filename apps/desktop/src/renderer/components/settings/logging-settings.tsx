@@ -2,7 +2,7 @@ import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
   useLoggingPreferencesStore,
-} from '@brainstrike/app-shell';
+} from '@brainstrike/preferences';
 import {
   Card,
   CardContent,

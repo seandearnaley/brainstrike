@@ -2,8 +2,8 @@ import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { Badge, ScrollArea } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { getActiveEmbeddingSetId } from '../../vector-preferences';
 import { formatDate } from '../utils/format';
+import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 interface ChunksViewProps {
   chunks: FileChunk[];

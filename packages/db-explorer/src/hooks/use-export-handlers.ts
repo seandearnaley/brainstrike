@@ -8,7 +8,7 @@ import {
   generateCSVFilename,
   generateEmbeddingsCSV,
   generateFilesWithChunksCSV,
-} from '../../csv-export-utils';
+} from '../csv-export-utils';
 import type { ExportHandlers } from '../types';
 
 export function useExportHandlers(

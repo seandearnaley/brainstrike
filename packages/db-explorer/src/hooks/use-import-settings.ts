@@ -1,4 +1,4 @@
-import { useImportSettingsStore } from '../../stores/import-settings-store';
+import { useImportSettingsStore } from '@brainstrike/preferences';
 import type { ImportSettings } from '../types';
 
 // Model default handled at store initialization

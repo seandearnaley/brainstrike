@@ -118,7 +118,17 @@
       "Bash(pkill:*)",
       "Bash(/dev/null)",
       "Bash(test:*)",
-      "Bash(cloc:*)"
+      "Bash(cloc:*)",
+      "Bash(awk:*)",
+      "Bash(xargs:*)",
+      "Bash(while read file)",
+      "Bash(do sed -i '' -e \"s|from ''''../stores/import-settings-store''''|from ''''@brainstrike/preferences''''|g\" -e \"s|from ''''./csv-export-utils''''|from ''''../csv-export-utils''''|g\" -e \"s|from ''''./enhanced-file-import-service''''|from ''''../enhanced-file-import-service''''|g\" -e \"s|from ''''./file-import-service''''|from ''''../base-file-import-service''''|g\" -e \"s|from ''''../../../vector-preferences''''|from ''''../vector-preferences''''|g\" -e \"s|from ''''../../vector-preferences''''|from ''''../vector-preferences''''|g\" \"$file\" done)",
+      "Bash(if [ -f \"$file\" ])",
+      "Bash(\"$file\")",
+      "Bash(packages/app-shell/src/__tests__/embeddings-panel.test.tsx )",
+      "Bash(packages/app-shell/src/__tests__/embeddings-tab.test.tsx)",
+      "Bash(packages/app-shell/src/__tests__/enhanced-file-import-service.test.ts )",
+      "Bash(packages/app-shell/src/__tests__/file-import-service.test.ts)"
     ],
     "deny": [],
     "ask": []

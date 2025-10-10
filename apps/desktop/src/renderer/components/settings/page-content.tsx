@@ -2,7 +2,7 @@ import {
   createAppearanceSettingsCategory,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
-} from '@brainstrike/app-shell';
+} from '@brainstrike/preferences';
 import { FileCog, Key, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { LlmKeysSettings } from './llm-keys';

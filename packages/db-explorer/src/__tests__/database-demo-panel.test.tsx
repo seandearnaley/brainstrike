@@ -1,9 +1,9 @@
+import { __resetImportSettingsStoreForTests } from '@brainstrike/preferences';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
-import { __resetImportSettingsStoreForTests } from '../stores/import-settings-store';
 
 // Mock all external dependencies at the top level
 const mockRepository = {
