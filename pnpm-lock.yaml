@@ -602,6 +602,12 @@ importers:
       '@brainstrike/file-import':
         specifier: workspace:*
         version: link:../file-import
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
+      '@brainstrike/platform-utils':
+        specifier: workspace:*
+        version: link:../platform-utils
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences

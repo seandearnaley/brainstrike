@@ -24,6 +24,8 @@
     { "path": "../file-explorer-hooks" },
     { "path": "../file-explorer-ui" },
     { "path": "../file-import" },
+    { "path": "../file-system" },
+    { "path": "../platform-utils" },
     { "path": "../preferences" },
     { "path": "../types" },
     { "path": "../ui" },
