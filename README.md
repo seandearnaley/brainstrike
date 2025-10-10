@@ -35,6 +35,9 @@ packages/
   utils/              # Common utilities
   types/              # Shared types
   app-shell/          # App layout and navigation
+  preferences/        # User preferences and settings stores
+  db-explorer/        # Database exploration and file import UI
+  vector-management/  # Vector/embedding status and queue management
   file-explorer/      # Core file explorer state/logic
   file-explorer-ui/   # File explorer UI components
   file-explorer-hooks/# File explorer hooks
@@ -44,7 +47,9 @@ packages/
   tailwind-config/    # Shared Tailwind v4 config
   config/             # Biome + TSConfig
   db/                 # Local DB helpers
-  test-utils/, fonts/, workers/, styles/, platform-utils/, embeddings/, file-* ...
+  agent/              # Mastra AI agent integration
+  embeddings/         # Vector embedding generation
+  test-utils/, fonts/, workers/, styles/, platform-utils/, file-* ...
 ```
 
 See also: `onboarding.md` and `monorepo-docs.md` for deep dives.

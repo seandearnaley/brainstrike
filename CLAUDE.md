@@ -51,14 +51,20 @@ pnpm type-check     # TypeScript validation
 ### Monorepo Structure
 - **`apps/web`**: Vite + React 19 web application
 - **`apps/desktop`**: Electron wrapper for native desktop experience
-- **`packages/`**: 13+ shared packages with specific purposes
+- **`packages/`**: 27 shared packages with specific purposes
 
 ### Key Packages
 - **`@brainstrike/ui`**: React components based on shadcn/ui + Radix
+- **`@brainstrike/app-shell`**: IDE-style layout system
+- **`@brainstrike/preferences`**: User preferences and settings stores
+- **`@brainstrike/db-explorer`**: Database exploration and file import UI
+- **`@brainstrike/vector-management`**: Vector/embedding status and queue management
 - **`@brainstrike/file-explorer`**: Core file analysis logic (platform-agnostic)
 - **`@brainstrike/file-system`**: Abstracted file operations with adapters
 - **`@brainstrike/storage`**: Persistent storage with platform adapters
-- **`@brainstrike/app-shell`**: IDE-style layout system
+- **`@brainstrike/agent`**: Mastra AI agent integration
+- **`@brainstrike/embeddings`**: Vector embedding generation
+- **`@brainstrike/db`**: PGlite database operations
 - **`@brainstrike/types`**: Shared TypeScript definitions
 
 ### Adapter Pattern

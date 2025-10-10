@@ -128,7 +128,8 @@
       "Bash(packages/app-shell/src/__tests__/embeddings-panel.test.tsx )",
       "Bash(packages/app-shell/src/__tests__/embeddings-tab.test.tsx)",
       "Bash(packages/app-shell/src/__tests__/enhanced-file-import-service.test.ts )",
-      "Bash(packages/app-shell/src/__tests__/file-import-service.test.ts)"
+      "Bash(packages/app-shell/src/__tests__/file-import-service.test.ts)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
