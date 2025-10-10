@@ -34,9 +34,7 @@
   },
   "dependencies": {
     "@brainstrike/agent": "workspace:*",
-    "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
-    "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
