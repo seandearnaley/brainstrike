@@ -1,10 +1,14 @@
 export { ChunksView } from './chunks-view';
+export { ChunksViewTable } from './chunks-view-table';
 export { ClearDatabaseDialog } from './clear-database-dialog';
 export { DbInfoDisplay } from './db-info-display';
 export { ExportButtons } from './export-buttons';
+export { ExportDropdown } from './export-dropdown';
 export { FilesView } from './files-view';
+export { FilesViewTable } from './files-view-table';
 export { ImportProgressDisplay } from './import-progress-display';
 export { SearchInterface } from './search-interface';
 export { SearchView } from './search-view';
+export { SearchViewTable } from './search-view-table';
 export { SettingsPanel } from './settings-panel';
 export { ViewSelector } from './view-selector';

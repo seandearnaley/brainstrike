@@ -12,26 +12,22 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  ScrollArea,
   useToast,
 } from '@brainstrike/ui';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-// UI Constants
-const CONTENT_SCROLL_AREA_HEIGHT = 'h-[400px]';
-
 import type { EnhancedImportProgress, EnhancedImportResult } from './database-demo';
 import {
-  ChunksView,
+  ChunksViewTable,
   ClearDatabaseDialog,
   createImportCompletionHandler,
   DbInfoDisplay,
-  ExportButtons,
-  FilesView,
+  ExportDropdown,
+  FilesViewTable,
   ImportProgressDisplay,
   SearchInterface,
-  SearchView,
+  SearchViewTable,
   SettingsPanel,
   useDatabaseErrorBoundary,
   useExportHandlers,
@@ -384,7 +380,7 @@ export function DatabaseDemoPanel() {
         </div>
 
         {/* Action Buttons */}
-        <div className="flex gap-2 pt-2">
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button
             size="sm"
             onClick={importFlow.handleImportClick}
@@ -407,6 +403,7 @@ export function DatabaseDemoPanel() {
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
+          <ExportDropdown records={records} chunks={chunks} exportHandlers={exportHandlers} />
           <ClearDatabaseDialog
             clearAllData={clearAllData}
             records={records}
@@ -421,8 +418,6 @@ export function DatabaseDemoPanel() {
           </Button>
         </div>
 
-        <ExportButtons records={records} chunks={chunks} exportHandlers={exportHandlers} />
-
         {importFlow.showImportProgress && importFlow.progress && (
           <div className="mt-4">
             <ImportProgressDisplay
@@ -435,33 +430,25 @@ export function DatabaseDemoPanel() {
         {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
       </div>
 
-      {/* Content Area - fixed height scrollable panel */}
+      {/* Content Area - virtualized tables */}
       {(selectedView === 'files' || selectedView === 'chunks' || selectedView === 'search') && (
         <div className="px-4 pb-4">
-          <ScrollArea
-            className={`${CONTENT_SCROLL_AREA_HEIGHT} rounded-md border`}
-            aria-label={`${selectedView} content`}
-            role="region"
-          >
-            <div className="p-4">
-              {selectedView === 'files' && (
-                <FilesView
-                  records={records}
-                  expandedFiles={expandedFiles}
-                  onToggleFileExpansion={toggleFileExpansion}
-                  getFileChunks={getFileChunks}
-                />
-              )}
+          {selectedView === 'files' && (
+            <FilesViewTable
+              records={records}
+              expandedFiles={expandedFiles}
+              onToggleFileExpansion={toggleFileExpansion}
+              getFileChunks={getFileChunks}
+            />
+          )}
 
-              {selectedView === 'chunks' && (
-                <ChunksView chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
-              )}
+          {selectedView === 'chunks' && (
+            <ChunksViewTable chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
+          )}
 
-              {selectedView === 'search' && (
-                <SearchView searchFunctionality={searchFunctionality} />
-              )}
-            </div>
-          </ScrollArea>
+          {selectedView === 'search' && (
+            <SearchViewTable searchFunctionality={searchFunctionality} />
+          )}
         </div>
       )}
     </div>

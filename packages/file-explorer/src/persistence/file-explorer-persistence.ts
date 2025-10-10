@@ -73,7 +73,13 @@ export const createPersistOptions = (
 
     onRehydrateStorage: (state) => {
       if (shouldLog) {
-        logger.debug('onRehydrateStorage - Storage rehydrated. Final state in store:', state);
+        // Log summary only to avoid DevTools serialization issues
+        logger.debug(
+          'onRehydrateStorage - Storage rehydrated. Folder count:',
+          Object.keys(state.folderStates).length,
+          'Current folder:',
+          state.currentFolderId
+        );
       }
     },
   };

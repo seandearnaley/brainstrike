@@ -40,13 +40,15 @@ export function mergeState(
   current: FileExplorerState,
   shouldLog: boolean
 ): FileExplorerState {
-  if (shouldLog)
+  if (shouldLog) {
+    // Log summary only to avoid DevTools serialization issues with large objects
     logger.debug(
-      'Merge - Persisted (SerializedState from migrate):',
-      persisted,
-      'Current (FileExplorerState from initial):',
-      current
+      'Merge - Persisted folder count:',
+      Object.keys(persisted?.folderStates ?? {}).length,
+      'Current folder count:',
+      Object.keys(current.folderStates).length
     );
+  }
   if (!persisted) {
     if (shouldLog) logger.debug('Merge - No persisted state, returning current initial state.');
     return current;
@@ -102,7 +104,14 @@ export function mergeState(
     }
   }
 
-  if (shouldLog)
-    logger.debug('Merge - Resulting merged FileExplorerState (with Sets):', mergedState);
+  if (shouldLog) {
+    // Log summary only to avoid DevTools serialization issues
+    logger.debug(
+      'Merge complete - Total folders:',
+      Object.keys(mergedState.folderStates).length,
+      'Current folder ID:',
+      mergedState.currentFolderId
+    );
+  }
   return mergedState;
 }

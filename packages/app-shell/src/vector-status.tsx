@@ -2,6 +2,7 @@ import {
   type EmbeddingSet,
   FileChunkRepository,
   JobQueue,
+  useFileChunkRepository,
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
@@ -333,6 +334,7 @@ function useActiveEmbeddingSet() {
 export function VectorStatusWithDb() {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
+  const chunkRepository = useFileChunkRepository();
   const queueEnabled = isQueueEnabled();
   const { sets, activeId, setActiveId } = useActiveEmbeddingSet();
   const { toast } = useToast();
@@ -353,14 +355,32 @@ export function VectorStatusWithDb() {
     } catch {}
   }, [verboseOrtLogs]);
 
+  const coverageRepository = useMemo(() => {
+    if (chunkRepository && 'getCoverageForSet' in chunkRepository) {
+      return chunkRepository;
+    }
+    const raw = db?.raw as { query?: unknown } | undefined;
+    if (raw && typeof (raw as { query?: unknown }).query === 'function' && vectorEnabled) {
+      try {
+        return new FileChunkRepository(
+          raw as ConstructorParameters<typeof FileChunkRepository>[0],
+          vectorEnabled
+        );
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [chunkRepository, db, vectorEnabled]);
+
   const service = useMemo(() => {
-    if (!db) return null;
+    if (!db || !coverageRepository) return null;
     return createVectorQueueService({
       db,
       jobQueue: new JobQueue(db),
-      chunkRepository: new FileChunkRepository(db, vectorEnabled),
+      chunkRepository: coverageRepository,
     });
-  }, [db, vectorEnabled]);
+  }, [coverageRepository, db]);
 
   const backfillRef = useRef<() => Promise<void>>(async () => {});
   const invokeBackfill = useCallback(async () => {

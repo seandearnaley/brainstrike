@@ -221,16 +221,17 @@ export function useEnhancedFileImportService(
       return null;
     }
 
-    // Check if database supports transactions (PGlite does, Electron IPC wrapper doesn't)
-    const supportsTransactions = typeof db.transaction === 'function';
+    const baseQuery: SqlExecutorPort['query'] = (sql, params) => db.query(sql, params);
 
-    return {
-      query: (sql, params) => db.query(sql, params),
-      // Only provide runInTransaction if the database supports it
-      ...(supportsTransactions && {
-        runInTransaction: (fn) => db.transaction((tx) => fn(tx as IDatabase)),
-      }),
-    } satisfies SqlExecutorPort;
+    const transactionFn = db.transaction;
+    if (typeof transactionFn === 'function') {
+      const runInTransaction: SqlExecutorPort['runInTransaction'] = async <T>(
+        fn: (tx: IDatabase) => Promise<T>
+      ) => transactionFn((tx) => fn(tx as IDatabase));
+      return { query: baseQuery, runInTransaction };
+    }
+
+    return { query: baseQuery };
   }, [db]);
 
   const baseImportRunner = useCallback<BaseImportRunner<IFileNode>>(
