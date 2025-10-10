@@ -1067,6 +1067,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/embeddings':
+        specifier: workspace:*
+        version: link:../embeddings
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage

@@ -21,6 +21,7 @@
   "references": [
     { "path": "../agent" },
     { "path": "../db" },
+    { "path": "../embeddings" },
     { "path": "../storage" },
     { "path": "../ui" },
     { "path": "../utils" }
