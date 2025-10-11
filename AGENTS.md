@@ -1,5 +1,7 @@
 # Repository Guidelines
 
+October 2025: Note electron desktop e2e tests have trouble running in agent environments complaining of remote port issues, avoid running them in tests, instead ask the user to run them in their environment and report back.
+
 ## Project Structure & Modules
 - Monorepo managed by Turborepo and pnpm.
 - Apps in `apps/`: `web` (React/Vite) and `desktop` (Electron).
