@@ -8,13 +8,37 @@ import { defineConfig } from 'vitest/config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const isCoverageRun =
+  process.env.COVERAGE === 'true' ||
+  process.env.VITEST_COVERAGE === 'true' ||
+  process.argv.includes('--coverage');
+
+const poolConfig = isCoverageRun
+  ? {
+      pool: 'threads' as const,
+      poolOptions: {
+        threads: {
+          maxWorkers: 1,
+          minWorkers: 1,
+        },
+      },
+    }
+  : {
+      pool: 'forks' as const,
+      poolOptions: {
+        forks: {
+          singleFork: false,
+        },
+      },
+    };
+
 export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
-    pool: 'forks',
+    ...poolConfig,
     coverage: {
       enabled: process.env.COVERAGE === 'true',
       provider: 'v8',
