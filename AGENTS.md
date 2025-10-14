@@ -6,6 +6,8 @@ October 2025: Note electron desktop e2e tests have trouble running in agent envi
 - Monorepo managed by Turborepo and pnpm.
 - Apps in `apps/`: `web` (React/Vite) and `desktop` (Electron).
 - Shared packages in `packages/`
+  - `queue`: browser/Electron embedding queue (workerpool + p-queue fallback)
+  - `embedding-worker`: Transformers.js module worker that exposes `resolveEmbeddingWorkerUrl()`
 
 ## AI Assistant Integration
 - Multi-provider support: OpenAI, Anthropic, Google, OpenRouter

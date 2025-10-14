@@ -1,10 +1,13 @@
 // Main components
 
+export {
+  EmbeddingQueueProvider,
+  useEmbeddingQueue,
+} from './embedding-queue-provider';
 export { QueueHud } from './queue-hud';
 // Vector preferences
 export * from './vector-preferences';
 export { VectorStatus, VectorStatusWithDb } from './vector-status';
-
 // Vector status hooks
 export { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 export { useVectorQueueState } from './vector-status/use-vector-queue-state';

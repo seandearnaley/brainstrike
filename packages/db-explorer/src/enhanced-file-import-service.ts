@@ -18,7 +18,8 @@ import type {
   EnhancedImportResult,
   SqlExecutorPort,
 } from '@brainstrike/file-import';
-import { runEnhancedImport } from '@brainstrike/file-import';
+import { createBrowserEmbeddingQueuePort, runEnhancedImport } from '@brainstrike/file-import';
+import type { QueueAdapter } from '@brainstrike/queue';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import {
@@ -46,6 +47,7 @@ interface EnhancedFileImportOptions {
   embeddingModel?: string;
   chunkSize?: number;
   chunkOverlap?: number;
+  embeddingQueue?: QueueAdapter | null;
 }
 
 interface EnhancedFileImportServiceReturn {
@@ -179,7 +181,21 @@ export function useEnhancedFileImportService(
     },
   });
 
-  const queuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+  const browserQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+    if (!options.embeddingQueue || !chunkRepository) {
+      return null;
+    }
+
+    return createBrowserEmbeddingQueuePort({
+      queue: options.embeddingQueue,
+      chunkRepository,
+    });
+  }, [chunkRepository, options.embeddingQueue]);
+
+  const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+    if (browserQueuePort) {
+      return null;
+    }
     if (!embedQueueEnabled || !db) {
       return null;
     }
@@ -189,7 +205,6 @@ export function useEnhancedFileImportService(
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
 
-        // Validate chunks before enqueueing
         for (const chunk of chunks) {
           if (!chunk.id || !chunk.contentHash) {
             logger.error('Invalid chunk data: missing required fields', {
@@ -197,7 +212,7 @@ export function useEnhancedFileImportService(
               hasContentHash: !!chunk.contentHash,
               fileRecordId,
             });
-            continue; // Skip invalid chunks
+            continue;
           }
 
           const dedupeKey = `${chunk.id}:${chunk.embeddingSetId ?? 'none'}:${chunk.contentHash}`;
@@ -214,7 +229,9 @@ export function useEnhancedFileImportService(
         }
       },
     } satisfies EmbeddingJobQueuePort;
-  }, [db, embedQueueEnabled]);
+  }, [browserQueuePort, db, embedQueueEnabled]);
+
+  const queuePort = browserQueuePort ?? jobQueuePort;
 
   const sqlPort = useMemo<SqlExecutorPort | null>(() => {
     if (!db) {

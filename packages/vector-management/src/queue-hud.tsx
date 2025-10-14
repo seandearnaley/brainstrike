@@ -32,6 +32,7 @@ export function QueueHud() {
   const [busy, setBusy] = useState(false);
 
   const jobQueue = useMemo(() => (db ? new JobQueue(db) : null), [db]);
+  const shouldPoll = typeof window !== 'undefined' && process.env.NODE_ENV !== 'test';
 
   useEffect(() => {
     if (!jobQueue) return;
@@ -47,12 +48,18 @@ export function QueueHud() {
     };
 
     void fetchStats();
+    if (!shouldPoll) {
+      return () => {
+        canceled = true;
+      };
+    }
+
     const id = setInterval(fetchStats, 2000);
     return () => {
       canceled = true;
       clearInterval(id);
     };
-  }, [jobQueue]);
+  }, [jobQueue, shouldPoll]);
 
   const s = stats?.[0];
   if (!enabled) return null;

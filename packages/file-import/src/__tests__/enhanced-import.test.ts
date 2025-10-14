@@ -100,6 +100,26 @@ describe('runEnhancedImport', () => {
       }),
       expect.objectContaining({ embedQueueEnabled: true })
     );
+    const options = chunkingImpl.mock.calls[0]?.[2];
+    await options?.enqueueJobsForChunks?.(
+      [
+        {
+          id: 'chunk-1',
+          fileRecordId: '1',
+          content: 'example',
+          contentHash: 'hash',
+        } as never,
+      ],
+      '1'
+    );
+    expect(queuePort.enqueueBatch).toHaveBeenCalledWith(
+      expect.any(Array),
+      '1',
+      expect.objectContaining({
+        model: null,
+        targetEmbeddingSetId: null,
+      })
+    );
     expect(results[0]?.chunksCreated).toBe(2);
   });
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEmbeddingQueue } from '../embedding-queue-provider';
 import {
   handleQueueStateChange,
   type QueueCounts,
@@ -37,7 +38,9 @@ const DEFAULT_LATENCY: { avgMs: number; p50Ms: number; p95Ms: number } = {
 const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
-  const { service, activeEmbeddingSetId, shouldAutoBackfill, pollIntervalMs = 2500 } = params;
+  const { activeEmbeddingSetId, shouldAutoBackfill, pollIntervalMs = 2500 } = params;
+  const { metrics } = useEmbeddingQueue();
+  const service = params.service;
 
   const [coverage, setCoverage] = useState<{ total: number; withSet: number }>(DEFAULT_COVERAGE);
   const [queueCounts, setQueueCounts] = useState(DEFAULT_QUEUE_COUNTS);
@@ -59,9 +62,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       } else if (!activeEmbeddingSetId) {
         setCoverage(DEFAULT_COVERAGE);
       }
-      setQueueCounts(snapshot.queueCounts);
       setThroughput(snapshot.throughput);
-      setLastError(snapshot.lastError);
+      setLastError((prev) => snapshot.lastError ?? prev);
       setLatencyStats(snapshot.latency);
       handleQueueStateChange(snapshot.queueCounts, busyRef, activeEmbeddingSetId ?? null);
     } catch {
@@ -96,6 +98,37 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   useEffect(() => {
     autoBackfillRef.current = null;
   }, []);
+
+  useEffect(() => {
+    setQueueCounts((prev) => {
+      const derived: QueueCounts = {
+        queued: metrics.active,
+        running: metrics.active,
+        failed: metrics.failed,
+        succeeded: metrics.completed,
+      };
+      if (
+        prev.queued === derived.queued &&
+        prev.running === derived.running &&
+        prev.failed === derived.failed &&
+        prev.succeeded === derived.succeeded
+      ) {
+        return prev;
+      }
+      return derived;
+    });
+    if (metrics.lastError) {
+      setLastError(metrics.lastError);
+    }
+    if (Number.isFinite(metrics.throughputPerMinute)) {
+      setThroughput(metrics.throughputPerMinute);
+    }
+    setLatencyStats({
+      avgMs: metrics.latencyAvgMs ?? 0,
+      p50Ms: metrics.latencyP50Ms ?? 0,
+      p95Ms: metrics.latencyP95Ms ?? 0,
+    });
+  }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
     if (!service || !activeEmbeddingSetId) return;

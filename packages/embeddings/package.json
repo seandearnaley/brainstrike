@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@brainstrike/db": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/utils": "workspace:*",
     "@huggingface/transformers": "^3.7.5",
     "glob": "^11.0.3"

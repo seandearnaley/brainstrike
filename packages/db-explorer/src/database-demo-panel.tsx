@@ -5,6 +5,7 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
   Card,
@@ -44,7 +45,11 @@ import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
-export function DatabaseDemoPanel() {
+interface DatabaseDemoPanelProps {
+  embeddingQueue?: QueueAdapter | null;
+}
+
+export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
@@ -159,6 +164,7 @@ export function DatabaseDemoPanel() {
     toast,
     onImportComplete: handleImportComplete,
     onChunkRepositoryChange: setChunkRepository,
+    embeddingQueue,
   });
 
   useEffect(() => {

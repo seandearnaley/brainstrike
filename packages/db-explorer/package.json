@@ -39,6 +39,7 @@
     "@brainstrike/file-import": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

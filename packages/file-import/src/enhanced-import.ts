@@ -20,7 +20,11 @@ export interface EmbeddingJobQueuePort {
   enqueueBatch(
     chunks: FileChunk[],
     fileRecordId: string,
-    options?: { transaction?: IDatabase | null }
+    options?: {
+      transaction?: IDatabase | null;
+      model?: string | null;
+      targetEmbeddingSetId?: string | null;
+    }
   ): Promise<void>;
 }
 
@@ -201,14 +205,21 @@ function buildChunkingOptions(
   }
   if (queuePort) {
     options.enqueueJobsForChunks = (chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId);
+      queuePort.enqueueBatch(chunks, fileRecordId, {
+        model: embeddingModel ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+      });
   }
   if (runInTransaction) {
     options.runInTransaction = runInTransaction;
   }
   if (queuePort && runInTransaction) {
     options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId, { transaction: tx });
+      queuePort.enqueueBatch(chunks, fileRecordId, {
+        transaction: tx,
+        model: embeddingModel ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+      });
   }
   if (embedding?.enabled !== undefined) {
     options.enableEmbedding = embedding.enabled;

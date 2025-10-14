@@ -9,6 +9,7 @@ import {
 import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
 import { TransformersBackend } from '@brainstrike/embeddings';
 import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
   Button,
@@ -25,10 +26,46 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { setActiveEmbeddingSetId } from './vector-preferences';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
+
+type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
+type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
+
+const DISABLED_QUEUE_RESULT = {
+  type: 'result',
+  id: 'queue-disabled',
+  vectors: [],
+  metadata: {
+    model: 'disabled',
+    device: 'wasm',
+    dtype: 'fp16',
+    batchSize: 0,
+    elapsedMs: 0,
+    fallbackApplied: false,
+    dimensions: 0,
+  },
+} as QueueAddReturn;
+
+function createDisabledQueueAdapter(): QueueAdapter {
+  return {
+    async add(): Promise<QueueAddReturn> {
+      return DISABLED_QUEUE_RESULT;
+    },
+    async addBulk(tasks): Promise<QueueAddBulkReturn> {
+      return tasks.map(() => DISABLED_QUEUE_RESULT) as QueueAddBulkReturn;
+    },
+    onProgress() {
+      return () => {};
+    },
+    pause() {},
+    resume() {},
+    async drain() {},
+  };
+}
 
 function WorkerControls({
   db,
@@ -331,7 +368,11 @@ function useActiveEmbeddingSet() {
   return { sets, active, activeId, setActiveId } as const;
 }
 
-export function VectorStatusWithDb() {
+interface VectorStatusWithDbProps {
+  queueAdapter?: QueueAdapter | null;
+}
+
+export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
@@ -415,8 +456,12 @@ export function VectorStatusWithDb() {
   );
 
   const hasDb = Boolean(db);
+  const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
+    () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
+    [queueEnabled]
+  );
 
-  return (
+  const content = (
     <Card>
       <CardHeader className="py-1.5 px-3 border-b">
         <div className="flex items-center justify-between">
@@ -613,6 +658,10 @@ export function VectorStatusWithDb() {
       </CardContent>
     </Card>
   );
+
+  const providerAdapter = queueAdapter ?? fallbackQueueAdapter;
+  const providerProps = providerAdapter ? { adapter: providerAdapter } : undefined;
+  return <EmbeddingQueueProvider {...providerProps}>{content}</EmbeddingQueueProvider>;
 }
 
 // Safe, hook-less variant for contexts without DbProvider (e.g., shallow tests)

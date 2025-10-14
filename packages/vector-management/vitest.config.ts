@@ -1,21 +1,22 @@
 /// <reference types="vitest" />
 /// <reference types="@testing-library/jest-dom" />
 
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 2,
-      },
-    },
+    pool: 'forks',
     coverage: {
+      enabled: process.env.COVERAGE === 'true',
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
@@ -34,6 +35,12 @@ export default defineConfig({
         branches: 60,
         statements: 70,
       },
+    },
+  },
+  resolve: {
+    alias: {
+      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
     },
   },
 });
