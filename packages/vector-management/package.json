@@ -23,7 +23,7 @@
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit",
-    "test": "vitest run --runTestsByFile --runInBand",
+    "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"
   },
