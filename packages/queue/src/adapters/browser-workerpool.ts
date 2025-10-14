@@ -2,7 +2,7 @@ import { resolveEmbeddingWorkerUrl } from '@brainstrike/embedding-worker';
 import { createLogger } from '@brainstrike/utils';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
 import workerpool from 'workerpool';
-import { emitQueueTelemetry } from '../telemetry';
+import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 import {
   type QueueAdapter,
   type QueueAddBulkOptions,
@@ -115,15 +115,15 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
     opts?: QueueAddOptions | QueueAddBulkOptions
   ): Promise<QueueResult> => {
     await waitForResume();
-    const { promise, cancelable } = createExecutionPromise(task);
+    const { promise, cancelable, startedAt } = createExecutionPromise(task);
     attachAbort((opts as QueueAddOptions | undefined)?.signal, cancelable, task.id);
     activeTasks += 1;
     try {
       const result = await promise;
-      onTaskComplete(task, promise.startedAt, result);
+      onTaskComplete(task, startedAt);
       return result;
     } catch (error) {
-      onTaskError(task, promise.startedAt, error);
+      onTaskError(task, startedAt, error);
       throw error;
     } finally {
       activeTasks = Math.max(activeTasks - 1, 0);
@@ -142,22 +142,27 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       },
     }) as WorkerPoolPromise<QueueResult>;
 
-    emitQueueTelemetry({
+    const pendingTasks = readPendingTasks();
+    const statsMetadata = readStatsMetadata();
+    const telemetry: QueueTelemetryEvent = {
       timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'enqueue',
       taskId: task.id,
       model: task.model,
       activeBefore: activeTasks,
-      pending: readPendingTasks(),
-      metadata: readStatsMetadata(),
-    });
+      ...(pendingTasks !== undefined ? { pending: pendingTasks } : {}),
+      ...(statsMetadata !== undefined ? { metadata: statsMetadata } : {}),
+    };
+    emitQueueTelemetry(telemetry);
 
-    return { promise: Object.assign(execPromise, { startedAt }), cancelable: execPromise };
+    return { promise: execPromise, cancelable: execPromise, startedAt };
   };
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
-    emitQueueTelemetry({
+    const pendingTasks = readPendingTasks();
+    const statsMetadata = readStatsMetadata();
+    const telemetry: QueueTelemetryEvent = {
       timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'complete',
@@ -166,20 +171,22 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       elapsedMs: calculateElapsed(startedAt),
       activeBefore: activeTasks,
       activeAfter: Math.max(activeTasks - 1, 0),
-      pending: readPendingTasks(),
-      metadata: readStatsMetadata(),
-    });
+      ...(pendingTasks !== undefined ? { pending: pendingTasks } : {}),
+      ...(statsMetadata !== undefined ? { metadata: statsMetadata } : {}),
+    };
+    emitQueueTelemetry(telemetry);
     logger.info('Workerpool embedding task complete', {
       taskId: task.id,
       elapsedMs: calculateElapsed(startedAt),
       activeBeforeRelease: activeTasks,
       activeAfterRelease: Math.max(activeTasks - 1, 0),
-      pending: readPendingTasks(),
+      pending: pendingTasks,
     });
   };
 
   const onTaskError = (task: TaskPayload, startedAt: number, error: unknown) => {
-    emitQueueTelemetry({
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const telemetry: QueueTelemetryEvent = {
       timestamp: Date.now(),
       adapter: 'workerpool',
       event: 'error',
@@ -188,14 +195,16 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
       elapsedMs: calculateElapsed(startedAt),
       activeBefore: activeTasks,
       activeAfter: Math.max(activeTasks - 1, 0),
-      errorMessage: error instanceof Error ? error.message : String(error),
-    });
+      errorMessage,
+    };
+    emitQueueTelemetry(telemetry);
     logger.error('Workerpool embedding task failed', {
       taskId: task.id,
       elapsedMs: calculateElapsed(startedAt),
       activeBeforeRelease: activeTasks,
       activeAfterRelease: Math.max(activeTasks - 1, 0),
-      error: error instanceof Error ? error.message : String(error),
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
     });
   };
 

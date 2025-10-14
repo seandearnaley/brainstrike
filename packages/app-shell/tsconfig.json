@@ -34,6 +34,7 @@
     { "path": "../file-import" },
     { "path": "../preferences" },
     { "path": "../db-explorer" },
-    { "path": "../vector-management" }
+    { "path": "../vector-management" },
+    { "path": "../queue" }
   ]
 }

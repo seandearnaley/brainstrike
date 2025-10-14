@@ -1,3 +1,4 @@
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Card,
   CardContent,
@@ -14,7 +15,11 @@ const DatabaseTabChunk = lazy(async () => ({
   default: (await import('./database-tab-chunk')).DatabaseTab,
 }));
 
-export function DatabaseTab(): ReactElement {
+interface DatabaseTabProps {
+  readonly embeddingQueue?: QueueAdapter | null;
+}
+
+export function DatabaseTab({ embeddingQueue = null }: DatabaseTabProps): ReactElement {
   const filterText = useDbPanelStore(dbPanelSelectors.filter);
   const [dbSortBy, dbSortDir] = useDbPanelStore(dbPanelSelectors.sorting);
   const [dbPage, dbPageSize] = useDbPanelStore(dbPanelSelectors.paging);
@@ -42,7 +47,7 @@ export function DatabaseTab(): ReactElement {
       </div>
       {activeSubtab === 'overview' && (
         <React.Suspense fallback={<div className="text-xs opacity-70 px-2">Loading DB UI…</div>}>
-          <DatabaseTabChunk />
+          <DatabaseTabChunk embeddingQueue={embeddingQueue} />
         </React.Suspense>
       )}
       {activeSubtab === 'logs' && (

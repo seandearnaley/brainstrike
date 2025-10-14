@@ -19,7 +19,8 @@
     "types": ["node", "electron", "vite/client"],
     "baseUrl": ".",
     "paths": {
-      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"]
+      "@brainstrike/agent": ["../../packages/agent/dist/index.d.ts"],
+      "@brainstrike/queue": ["../../packages/queue/src/index.ts"]
     }
   },
   "include": ["src/**/*", "index.html"],
@@ -32,5 +33,9 @@
     "src/**/*.test.*",
     "src/**/*.spec.*"
   ],
-  "references": [{ "path": "../../packages/db" }]
+  "references": [
+    { "path": "../../packages/app-shell" },
+    { "path": "../../packages/db" },
+    { "path": "../../packages/queue" }
+  ]
 }

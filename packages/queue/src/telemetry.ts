@@ -52,7 +52,7 @@ function computePercentile(values: readonly number[], percentile: number): numbe
   }
   const sorted = [...values].sort((a, b) => a - b);
   const index = Math.min(sorted.length - 1, Math.floor((percentile / 100) * sorted.length));
-  return sorted[index];
+  return sorted[index] ?? null;
 }
 
 export function createQueueTelemetryAggregator(windowMs = 60_000) {
@@ -60,7 +60,11 @@ export function createQueueTelemetryAggregator(windowMs = 60_000) {
 
   const prune = (now: number) => {
     const threshold = now - windowMs;
-    while (events.length > 0 && events[0]?.timestamp < threshold) {
+    while (events.length > 0) {
+      const [oldest] = events;
+      if (oldest === undefined || oldest.timestamp >= threshold) {
+        break;
+      }
       events.shift();
     }
   };

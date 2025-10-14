@@ -7,11 +7,11 @@ type ChunkRepository = {
   update: (chunk: {
     id: string;
     embedding?: number[];
-    embeddingSetId?: string | null;
+    embeddingSetId?: string;
     embeddingUpdatedAt?: string;
-    embeddingHash?: string | null;
+    embeddingHash?: string;
     updatedAt: string;
-  }) => Promise<unknown>;
+  }) => Promise<FileChunk | null>;
 };
 
 type BrowserQueuePortOptions = {
@@ -170,12 +170,15 @@ async function persistEmbedding({
   const embeddingHash =
     chunk.contentHash !== undefined ? await computeEmbeddingHash(chunk.contentHash, model) : null;
 
+  const nextEmbeddingSetId =
+    targetEmbeddingSetId ?? (chunk.embeddingSetId !== undefined ? chunk.embeddingSetId : undefined);
+
   await repository.update({
     id: chunk.id,
     embedding,
-    embeddingSetId: targetEmbeddingSetId ?? chunk.embeddingSetId ?? null,
+    ...(nextEmbeddingSetId !== undefined ? { embeddingSetId: nextEmbeddingSetId } : {}),
     embeddingUpdatedAt: now,
-    embeddingHash,
+    ...(embeddingHash !== null ? { embeddingHash } : {}),
     updatedAt: now,
   });
 }

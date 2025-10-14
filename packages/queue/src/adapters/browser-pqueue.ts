@@ -9,7 +9,7 @@ import { createLogger } from '@brainstrike/utils';
 import type { FeatureExtractionPipeline, Tensor } from '@huggingface/transformers';
 import type { QueueAddOptions as PQueueAddOptions } from 'p-queue';
 import PQueue from 'p-queue';
-import { emitQueueTelemetry } from '../telemetry';
+import { emitQueueTelemetry, type QueueTelemetryEvent } from '../telemetry';
 import type {
   QueueAdapter,
   QueueAddOptions,
@@ -49,17 +49,18 @@ export function createPQueueAdapter(options: PQueueAdapterOptions = {}): QueueAd
     startedAt: number,
     errorMessage?: string
   ) => {
-    emitQueueTelemetry({
+    const telemetry: QueueTelemetryEvent = {
       timestamp: Date.now(),
       adapter: 'pqueue',
       event,
       taskId: task.id,
       model: task.model,
-      elapsedMs: event === 'enqueue' ? undefined : calculateElapsed(startedAt),
       pending: queue.pending,
-      errorMessage,
       metadata: { queued: queue.size, running: queue.pending },
-    });
+      ...(event !== 'enqueue' ? { elapsedMs: calculateElapsed(startedAt) } : {}),
+      ...(errorMessage !== undefined ? { errorMessage } : {}),
+    };
+    emitQueueTelemetry(telemetry);
   };
 
   const addTask = async (task: TaskPayload, opts?: QueueAddOptions): Promise<QueueResult> => {
@@ -199,11 +200,11 @@ async function getEmbedder(model: string, dtype?: EmbeddingDType): Promise<Featu
     const transformers = await loadTransformers();
     transformers.env.allowRemoteModels = transformers.env.allowRemoteModels ?? true;
     const pipelineFn = transformers.pipeline as typeof import('@huggingface/transformers').pipeline;
-    const result = (await pipelineFn('feature-extraction', model, {
+    const raw = await pipelineFn('feature-extraction', model, {
       device: 'wasm',
       dtype: dtype ?? DEFAULT_DTYPE,
-    })) as FeatureExtractor;
-    return result;
+    });
+    return raw as unknown as FeatureExtractor;
   })();
 
   embedderCache.set(cacheKey, loader);

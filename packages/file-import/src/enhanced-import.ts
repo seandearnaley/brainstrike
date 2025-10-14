@@ -185,42 +185,26 @@ function buildChunkingOptions(
   } = config;
   const options: Parameters<typeof processChunking>[2] = {
     updateProgress: update,
-    embedQueueEnabled: Boolean(queuePort),
+    embedQueueEnabled: false,
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
     streamBatchSize: chunking.streamBatchSize ?? 250,
   };
 
-  if (chunking.strategy !== undefined) {
-    options.chunkingStrategy = chunking.strategy;
+  const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModel);
+  if (queueActive) {
+    options.embedQueueEnabled = true;
   }
-  if (chunking.chunkSize !== undefined) {
-    options.chunkSize = chunking.chunkSize;
-  }
-  if (chunking.chunkOverlap !== undefined) {
-    options.chunkOverlap = chunking.chunkOverlap;
-  }
-  if (chunking.streamBatchSize !== undefined) {
-    options.streamBatchSize = chunking.streamBatchSize;
-  }
-  if (queuePort) {
-    options.enqueueJobsForChunks = (chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId, {
-        model: embeddingModel ?? null,
-        targetEmbeddingSetId: targetSetId ?? null,
-      });
-  }
-  if (runInTransaction) {
-    options.runInTransaction = runInTransaction;
-  }
-  if (queuePort && runInTransaction) {
-    options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId, {
-        transaction: tx,
-        model: embeddingModel ?? null,
-        targetEmbeddingSetId: targetSetId ?? null,
-      });
-  }
+
+  applyChunkingConfiguration(options, chunking);
+  attachQueueOptions(options, {
+    queueActive,
+    queuePort,
+    runInTransaction,
+    embedding,
+    embeddingModel,
+    targetSetId,
+  });
   if (embedding?.enabled !== undefined) {
     options.enableEmbedding = embedding.enabled;
   }
@@ -239,6 +223,66 @@ function buildChunkingOptions(
   }
 
   return options;
+}
+
+type QueueOptionParams = {
+  readonly queueActive: boolean;
+  readonly queuePort: EmbeddingJobQueuePort | null;
+  readonly runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
+  readonly embedding: EmbeddingConfiguration | undefined;
+  readonly embeddingModel: string | undefined;
+  readonly targetSetId: string | undefined;
+};
+
+function attachQueueOptions(
+  options: Parameters<typeof processChunking>[2],
+  params: QueueOptionParams
+): void {
+  const { queueActive, queuePort, runInTransaction, embedding, embeddingModel, targetSetId } =
+    params;
+  if (!queueActive || queuePort === null) {
+    if (embedding?.enabled && !embeddingModel) {
+      logger.warn('Embedding queue requested without a resolved model, skipping enqueue phase');
+    }
+    if (runInTransaction) {
+      options.runInTransaction = runInTransaction;
+    }
+    return;
+  }
+
+  options.enqueueJobsForChunks = (chunks, fileRecordId) =>
+    queuePort.enqueueBatch(chunks, fileRecordId, {
+      model: embeddingModel ?? null,
+      targetEmbeddingSetId: targetSetId ?? null,
+    });
+
+  if (runInTransaction) {
+    options.runInTransaction = runInTransaction;
+    options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
+      queuePort.enqueueBatch(chunks, fileRecordId, {
+        transaction: tx,
+        model: embeddingModel ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+      });
+  }
+}
+
+function applyChunkingConfiguration(
+  options: Parameters<typeof processChunking>[2],
+  chunking: ChunkingConfiguration
+): void {
+  if (chunking.strategy !== undefined) {
+    options.chunkingStrategy = chunking.strategy;
+  }
+  if (chunking.chunkSize !== undefined) {
+    options.chunkSize = chunking.chunkSize;
+  }
+  if (chunking.chunkOverlap !== undefined) {
+    options.chunkOverlap = chunking.chunkOverlap;
+  }
+  if (chunking.streamBatchSize !== undefined) {
+    options.streamBatchSize = chunking.streamBatchSize;
+  }
 }
 
 function createCompleteProgress(

@@ -373,10 +373,30 @@ interface VectorStatusWithDbProps {
 }
 
 export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
+  const queueEnabled = isQueueEnabled();
+  const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
+    () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
+    [queueEnabled]
+  );
+  const providerAdapter = queueAdapter ?? fallbackQueueAdapter;
+
+  const providerProps = providerAdapter ? { adapter: providerAdapter } : undefined;
+
+  return (
+    <EmbeddingQueueProvider {...providerProps}>
+      <VectorStatusWithDbContent queueEnabled={queueEnabled} />
+    </EmbeddingQueueProvider>
+  );
+}
+
+interface VectorStatusWithDbContentProps {
+  queueEnabled: boolean;
+}
+
+function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
-  const queueEnabled = isQueueEnabled();
   const { sets, activeId, setActiveId } = useActiveEmbeddingSet();
   const { toast } = useToast();
 
@@ -456,10 +476,6 @@ export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbPr
   );
 
   const hasDb = Boolean(db);
-  const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
-    () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
-    [queueEnabled]
-  );
 
   const content = (
     <Card>
@@ -659,9 +675,7 @@ export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbPr
     </Card>
   );
 
-  const providerAdapter = queueAdapter ?? fallbackQueueAdapter;
-  const providerProps = providerAdapter ? { adapter: providerAdapter } : undefined;
-  return <EmbeddingQueueProvider {...providerProps}>{content}</EmbeddingQueueProvider>;
+  return content;
 }
 
 // Safe, hook-less variant for contexts without DbProvider (e.g., shallow tests)

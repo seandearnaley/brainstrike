@@ -86,6 +86,12 @@ describe('runEnhancedImport', () => {
         deps: { repository: {} as never, chunkRepository: {} as never },
       },
       ports: { embeddingQueue: queuePort },
+      embedding: {
+        enabled: true,
+        model: 'mock-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+      },
       progressHandlers: {
         update: (updater) => updater(null),
       },
@@ -116,7 +122,7 @@ describe('runEnhancedImport', () => {
       expect.any(Array),
       '1',
       expect.objectContaining({
-        model: null,
+        model: 'mock-model',
         targetEmbeddingSetId: null,
       })
     );

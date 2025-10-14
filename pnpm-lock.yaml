@@ -105,6 +105,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -241,6 +244,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
       '@brainstrike/server-config':
         specifier: workspace:*
         version: link:../../packages/server-config
@@ -432,6 +438,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -673,6 +682,9 @@ importers:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
       '@brainstrike/queue':
         specifier: workspace:*
         version: link:../queue
