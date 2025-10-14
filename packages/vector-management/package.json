@@ -23,7 +23,7 @@
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
     "type-check": "tsc --noEmit",
-    "test": "pnpm exec vitest run src/__tests__/vector-status-helpers.test.ts && pnpm exec vitest run src/__tests__/vector-queue-service.test.ts && pnpm exec vitest run src/__tests__/use-embedding-worker-controls.test.ts && pnpm exec vitest run src/__tests__/embedding-queue.integration.test.tsx && pnpm exec vitest run src/__tests__/queue-hud.test.tsx && pnpm exec vitest run src/__tests__/vector-preferences.test.ts && pnpm exec vitest run src/__tests__/vector-status.test.tsx",
+    "test": "vitest run --runTestsByFile --runInBand",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"
   },
