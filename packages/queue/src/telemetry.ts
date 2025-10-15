@@ -55,7 +55,7 @@ function computePercentile(values: readonly number[], percentile: number): numbe
   return sorted[index] ?? null;
 }
 
-export function createQueueTelemetryAggregator(windowMs = 60_000) {
+export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 5_000) {
   const events: QueueTelemetryEvent[] = [];
 
   const prune = (now: number) => {
@@ -71,6 +71,9 @@ export function createQueueTelemetryAggregator(windowMs = 60_000) {
 
   const unsubscribe = addQueueTelemetryListener((event) => {
     events.push(event);
+    if (events.length > maxEvents) {
+      events.splice(0, events.length - maxEvents);
+    }
     prune(event.timestamp);
   });
 

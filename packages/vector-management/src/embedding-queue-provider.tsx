@@ -35,6 +35,7 @@ type QueueMetrics = {
   readonly latencyAvgMs: number | null;
   readonly latencyP50Ms: number | null;
   readonly latencyP95Ms: number | null;
+  readonly windowErrorCount: number;
 };
 
 const INITIAL_METRICS: QueueMetrics = {
@@ -48,6 +49,7 @@ const INITIAL_METRICS: QueueMetrics = {
   latencyAvgMs: null,
   latencyP50Ms: null,
   latencyP95Ms: null,
+  windowErrorCount: 0,
 };
 
 type EmbeddingQueueContextValue = {
@@ -227,6 +229,7 @@ export function EmbeddingQueueProvider({
         latencyAvgMs: snapshot.averageLatencyMs,
         latencyP50Ms: snapshot.latencyP50Ms,
         latencyP95Ms: snapshot.latencyP95Ms,
+        windowErrorCount: snapshot.errorCount,
       }));
     });
     return () => unsubscribeTelemetry();

@@ -44,6 +44,20 @@ export interface EnhancedImportProgress extends ImportProgress {
     currentChunk?: string | undefined;
     modelName: string;
   };
+  queueProgress?: {
+    pending: number;
+    processed: number;
+    failed: number;
+    totalQueued: number;
+    lastError: string | null;
+    lastEvent?: {
+      chunkId: string;
+      status: 'queued' | 'completed' | 'error';
+      model: string;
+      elapsedMs?: number;
+      errorMessage?: string;
+    };
+  };
 }
 
 export interface ImportProgressDisplayProps {

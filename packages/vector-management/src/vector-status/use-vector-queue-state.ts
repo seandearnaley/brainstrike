@@ -21,6 +21,7 @@ export interface UseVectorQueueStateResult {
   throughput: number;
   latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
   lastError: string | null;
+  recentErrorCount: number;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
   backfillActiveSet: () => Promise<void>;
@@ -47,6 +48,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const [throughput, setThroughput] = useState(0);
   const [latencyStats, setLatencyStats] = useState(DEFAULT_LATENCY);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
 
@@ -78,6 +80,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       setThroughput(0);
       setLastError(null);
       setLatencyStats(DEFAULT_LATENCY);
+      setRecentErrorCount(0);
       return;
     }
 
@@ -128,6 +131,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       p50Ms: metrics.latencyP50Ms ?? 0,
       p95Ms: metrics.latencyP95Ms ?? 0,
     });
+    setRecentErrorCount(metrics.windowErrorCount);
   }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
@@ -208,6 +212,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throughput,
       latencyStats,
       lastError,
+      recentErrorCount,
       backfilling,
       backfillProgress,
       backfillActiveSet,
@@ -221,6 +226,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throughput,
       latencyStats,
       lastError,
+      recentErrorCount,
       backfilling,
       backfillProgress,
       backfillActiveSet,

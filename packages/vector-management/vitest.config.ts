@@ -8,25 +8,17 @@ import { defineConfig } from 'vitest/config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const isCoverageRun =
-  (process.env['COVERAGE'] ?? '').toLowerCase() === 'true' ||
-  (process.env['VITEST_COVERAGE'] ?? '').toLowerCase() === 'true' ||
-  process.argv.includes('--coverage');
-
-const poolConfig = isCoverageRun
-  ? {
-      pool: 'threads' as const,
-      poolOptions: {
-        threads: {
-          minThreads: 1,
-          maxThreads: 1,
-          singleThread: true,
-        },
-      },
-    }
-  : {
-      pool: 'forks' as const,
-    };
+const poolConfig = {
+  pool: 'forks' as const,
+  poolOptions: {
+    forks: {
+      minForks: 1,
+      maxForks: 1,
+      singleFork: true,
+      execArgv: ['--max-old-space-size=8192'],
+    },
+  },
+};
 
 export default defineConfig({
   test: {

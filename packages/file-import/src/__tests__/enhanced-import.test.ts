@@ -33,6 +33,14 @@ describe('runEnhancedImport', () => {
     const onProgress = vi.fn();
     let latest: EnhancedImportProgress | null = null;
 
+    const injectedQueueProgress = {
+      pending: 2,
+      processed: 3,
+      failed: 1,
+      totalQueued: 4,
+      lastError: 'temporary failure',
+    } as EnhancedImportProgress['queueProgress'];
+
     const results = await runEnhancedImport({
       request: {
         selectedFilePaths: new Set(['1']),
@@ -48,6 +56,12 @@ describe('runEnhancedImport', () => {
         emit: onProgress,
         update: (updater) => {
           latest = updater(latest);
+          if (latest && !latest.queueProgress) {
+            latest = {
+              ...latest,
+              queueProgress: injectedQueueProgress,
+            };
+          }
         },
       },
     });
@@ -56,7 +70,14 @@ describe('runEnhancedImport', () => {
     expect(onProgress).toHaveBeenCalledWith(
       expect.objectContaining({ phase: 'importing', total: 1, completed: 1 })
     );
-    expect(latest).toEqual(expect.objectContaining({ phase: 'complete', total: 1, completed: 1 }));
+    expect(latest).toEqual(
+      expect.objectContaining({
+        phase: 'complete',
+        total: 1,
+        completed: 1,
+        queueProgress: injectedQueueProgress,
+      })
+    );
   });
 
   it('passes queue ports through to chunking implementation', async () => {

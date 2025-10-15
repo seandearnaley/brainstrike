@@ -125,6 +125,12 @@ unsubscribe();
 expect(logs).toHaveLength(1);
 ```
 
+## Embedding Queue Telemetry
+- Remote queue telemetry is opt-in. Set `VITE_QUEUE_TELEMETRY_ENDPOINT` (and optional `VITE_QUEUE_TELEMETRY_API_KEY`) in web/desktop builds to enable `initializeQueueTelemetrySink` batching.
+- The sink batches up to 20 events or 5s, prefers `navigator.sendBeacon`, and falls back to `fetch`. It is disabled automatically when `NODE_ENV=test`.
+- If you need telemetry outside the renderers, call `initializeQueueTelemetrySink` directly with an endpoint derived from your runtime config.
+- Renderer layers dispatch `brainstrike:queue-progress` events containing `pending/processed/failed` counts so UI surfaces can react without polling. Subscribe via `window.addEventListener('brainstrike:queue-progress', handler)`.
+
 
 This file should evolve alongside the repo. Treat it as **living  
 documentation**: update it whenever build commands change, new tools are  

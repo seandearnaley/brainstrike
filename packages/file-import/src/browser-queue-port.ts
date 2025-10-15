@@ -18,24 +18,104 @@ type BrowserQueuePortOptions = {
   queue: QueueAdapter;
   chunkRepository: ChunkRepository | null;
   dispatchDrainEvent?: (embeddingSetId: string | null) => void;
+  dispatchProgressEvent?: (detail: QueueProgressEventDetail) => void;
 };
 
 const logger = createLogger('FileImport:BrowserQueuePort');
 
 const HASHER = 'sha256';
 
+type ProgressTrackerState = {
+  totalQueued: number;
+  processed: number;
+  failed: number;
+  lastError: string | null;
+};
+
+type ProgressTrackerDispatch = (detail: QueueProgressEventDetail) => void;
+
+type QueueProgressArgs = {
+  chunkId: string;
+  model: string;
+  embeddingSetId: string | null;
+  pending: number;
+  elapsedMs?: number;
+  errorMessage?: string;
+};
+
+function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
+  const state: ProgressTrackerState = {
+    totalQueued: 0,
+    processed: 0,
+    failed: 0,
+    lastError: null,
+  };
+
+  const emit = (status: QueueProgressEventDetail['status'], args: QueueProgressArgs) => {
+    const detail: QueueProgressEventDetail = {
+      queue: 'embeddings',
+      chunkId: args.chunkId,
+      status,
+      model: args.model,
+      embeddingSetId: args.embeddingSetId,
+      pending: Math.max(0, args.pending),
+      processed: state.processed,
+      failed: state.failed,
+      totalQueued: state.totalQueued,
+      lastError: state.lastError,
+      ...(typeof args.elapsedMs === 'number' ? { elapsedMs: Math.max(0, args.elapsedMs) } : {}),
+      ...(args.errorMessage ? { errorMessage: args.errorMessage } : {}),
+    };
+    dispatch(detail);
+  };
+
+  return {
+    queued(args: QueueProgressArgs) {
+      state.totalQueued += 1;
+      emit('queued', args);
+    },
+    completed(args: QueueProgressArgs) {
+      state.processed += 1;
+      emit('completed', args);
+    },
+    failed(args: QueueProgressArgs) {
+      state.failed += 1;
+      state.lastError = args.errorMessage ?? state.lastError;
+      emit('error', args);
+    },
+  };
+}
+
+export interface QueueProgressEventDetail {
+  readonly queue: 'embeddings';
+  readonly chunkId: string;
+  readonly status: 'queued' | 'completed' | 'error';
+  readonly model: string;
+  readonly embeddingSetId: string | null;
+  readonly pending: number;
+  readonly processed: number;
+  readonly failed: number;
+  readonly totalQueued: number;
+  readonly lastError: string | null;
+  readonly elapsedMs?: number;
+  readonly errorMessage?: string;
+}
+
 export function createBrowserEmbeddingQueuePort({
   queue,
   chunkRepository,
   dispatchDrainEvent = defaultDispatchDrainEvent,
+  dispatchProgressEvent = defaultDispatchProgressEvent,
 }: BrowserQueuePortOptions): EmbeddingJobQueuePort {
   const pendingChunks = new Set<string>();
+  const progressTracker = createQueueProgressTracker(dispatchProgressEvent);
 
   const scheduleChunk = createChunkScheduler({
     queue,
     chunkRepository,
     pendingChunks,
     dispatchDrainEvent,
+    progressTracker,
   });
 
   return {
@@ -76,9 +156,15 @@ type SchedulerDependencies = {
   chunkRepository: ChunkRepository | null;
   pendingChunks: Set<string>;
   dispatchDrainEvent: (embeddingSetId: string | null) => void;
+  progressTracker: ReturnType<typeof createQueueProgressTracker>;
 };
 
-function createChunkScheduler({ queue, pendingChunks, dispatchDrainEvent }: SchedulerDependencies) {
+function createChunkScheduler({
+  queue,
+  pendingChunks,
+  dispatchDrainEvent,
+  progressTracker,
+}: SchedulerDependencies) {
   const maybeDispatchDrain = (embeddingSetId: string | null) => {
     if (pendingChunks.size === 0) {
       dispatchDrainEvent(embeddingSetId);
@@ -91,6 +177,12 @@ function createChunkScheduler({ queue, pendingChunks, dispatchDrainEvent }: Sche
     }
 
     pendingChunks.add(chunk.id);
+    progressTracker.queued({
+      chunkId: chunk.id,
+      model,
+      embeddingSetId: targetEmbeddingSetId,
+      pending: pendingChunks.size,
+    });
     const startedAt = timestamp();
 
     try {
@@ -102,11 +194,33 @@ function createChunkScheduler({ queue, pendingChunks, dispatchDrainEvent }: Sche
         embedding,
         targetEmbeddingSetId,
       });
+      const elapsed = elapsedSince(startedAt);
       logSuccess({ chunk, model, startedAt });
+      pendingChunks.delete(chunk.id);
+      progressTracker.completed({
+        chunkId: chunk.id,
+        model,
+        embeddingSetId: targetEmbeddingSetId,
+        pending: pendingChunks.size,
+        elapsedMs: elapsed,
+      });
     } catch (error) {
       logFailure({ chunk, model, error });
-    } finally {
       pendingChunks.delete(chunk.id);
+      const message =
+        error instanceof Error
+          ? error.message
+          : typeof error === 'string'
+            ? error
+            : 'Unknown error';
+      progressTracker.failed({
+        chunkId: chunk.id,
+        model,
+        embeddingSetId: targetEmbeddingSetId,
+        pending: pendingChunks.size,
+        errorMessage: message,
+      });
+    } finally {
       maybeDispatchDrain(targetEmbeddingSetId);
     }
   };
@@ -219,6 +333,10 @@ function timestamp(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
+function elapsedSince(startedAt: number): number {
+  return Math.max(0, Math.round(timestamp() - startedAt));
+}
+
 async function computeEmbeddingHash(contentHash: string, model: string): Promise<string> {
   const payload = `${contentHash}:${model}`;
   if (typeof globalThis !== 'undefined' && 'crypto' in globalThis) {
@@ -241,6 +359,19 @@ async function computeEmbeddingHash(contentHash: string, model: string): Promise
 
   logger.warn('Falling back to unhashed embedding content signature', { hasher: HASHER });
   return payload;
+}
+
+function defaultDispatchProgressEvent(detail: QueueProgressEventDetail) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+  try {
+    window.dispatchEvent(new CustomEvent('brainstrike:queue-progress', { detail }));
+  } catch (error) {
+    logger.warn('Failed to dispatch queue-progress event', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 function defaultDispatchDrainEvent(embeddingSetId: string | null) {

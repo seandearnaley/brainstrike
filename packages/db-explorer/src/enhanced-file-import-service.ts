@@ -18,7 +18,11 @@ import type {
   EnhancedImportResult,
   SqlExecutorPort,
 } from '@brainstrike/file-import';
-import { createBrowserEmbeddingQueuePort, runEnhancedImport } from '@brainstrike/file-import';
+import {
+  createBrowserEmbeddingQueuePort,
+  type QueueProgressEventDetail,
+  runEnhancedImport,
+} from '@brainstrike/file-import';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
@@ -191,6 +195,51 @@ export function useEnhancedFileImportService(
       chunkRepository,
     });
   }, [chunkRepository, options.embeddingQueue]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !browserQueuePort) {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<QueueProgressEventDetail | undefined>;
+      const detail = custom.detail;
+      if (!detail) {
+        return;
+      }
+
+      setProgress((prev) => {
+        if (!prev) {
+          return prev;
+        }
+
+        const next: EnhancedImportProgress = {
+          ...prev,
+          queueProgress: {
+            pending: detail.pending,
+            processed: detail.processed,
+            failed: detail.failed,
+            totalQueued: detail.totalQueued,
+            lastError: detail.lastError,
+            lastEvent: {
+              chunkId: detail.chunkId,
+              status: detail.status,
+              model: detail.model,
+              ...(detail.elapsedMs !== undefined ? { elapsedMs: detail.elapsedMs } : {}),
+              ...(detail.errorMessage ? { errorMessage: detail.errorMessage } : {}),
+            },
+          },
+        };
+
+        return next;
+      });
+    };
+
+    window.addEventListener('brainstrike:queue-progress', handler as EventListener);
+    return () => {
+      window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
+    };
+  }, [browserQueuePort]);
 
   const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
     if (browserQueuePort) {

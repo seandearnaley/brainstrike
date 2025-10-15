@@ -10,6 +10,12 @@ import { supportsWorkers } from './util';
 export type { PQueueAdapterOptions } from './adapters/browser-pqueue';
 export type { WorkerpoolAdapterOptions } from './adapters/browser-workerpool';
 export {
+  initializeQueueTelemetrySink,
+  type QueueTelemetryRuntime,
+  type QueueTelemetrySink,
+  type QueueTelemetrySinkOptions,
+} from './remote-telemetry-sink';
+export {
   addQueueTelemetryListener,
   createQueueTelemetryAggregator,
   emitQueueTelemetry,

@@ -155,4 +155,33 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText('100%')).toBeInTheDocument();
     expect(screen.getByText('5/5')).toBeInTheDocument();
   });
+
+  it('renders queue progress details when provided', () => {
+    const mockProgress = {
+      phase: 'embedding' as const,
+      current: 3,
+      total: 10,
+      queueProgress: {
+        pending: 2,
+        processed: 5,
+        failed: 1,
+        totalQueued: 8,
+        lastError: null,
+        lastEvent: {
+          chunkId: 'chunk-42',
+          status: 'completed' as const,
+          model: 'text-embedding-3-small',
+          elapsedMs: 128,
+        },
+      },
+    };
+
+    render(<ImportProgressDisplay progress={mockProgress} />);
+
+    expect(screen.getByText('Embedding Queue')).toBeInTheDocument();
+    expect(screen.getByText('6/8')).toBeInTheDocument();
+    expect(screen.getByText(/Pending: 2 · Failed: 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Last: completed · text-embedding-3-small/)).toBeInTheDocument();
+    expect(screen.getByText(/\(128ms\)/)).toBeInTheDocument();
+  });
 });

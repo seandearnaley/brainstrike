@@ -67,6 +67,23 @@ function createDisabledQueueAdapter(): QueueAdapter {
   };
 }
 
+function formatPerMinute(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0.0';
+  }
+  if (value >= 10) {
+    return value.toFixed(0);
+  }
+  return value.toFixed(1);
+}
+
+function formatLatencyMs(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '—';
+  }
+  return `${Math.round(value)}`;
+}
+
 function WorkerControls({
   db,
   workerLocalRunning,
@@ -647,19 +664,31 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             </div>
           </div>
           <div>
-            <div className="text-[9px] text-muted-foreground">Jobs/min</div>
-            <div className="text-[11px] font-medium">{queueState.throughput}</div>
-          </div>
-          <div>
             <div className="text-[9px] text-muted-foreground">Queue</div>
             <div className="text-[11px] font-medium">
               {queueState.queueCounts.queued}/{queueState.queueCounts.running}/
               {queueState.queueCounts.failed}
             </div>
+            <div className="text-[9px] text-muted-foreground">
+              Completed: {queueState.queueCounts.succeeded}
+            </div>
           </div>
           <div>
-            <div className="text-[9px] text-muted-foreground">Latency</div>
-            <div className="text-[11px] font-medium">{queueState.latencyStats.p50Ms}ms</div>
+            <div className="text-[9px] text-muted-foreground">Jobs/min</div>
+            <div className="text-[11px] font-medium">{formatPerMinute(queueState.throughput)}</div>
+            <div className="text-[9px] text-muted-foreground">
+              Errors (1m): {queueState.recentErrorCount}
+            </div>
+          </div>
+          <div>
+            <div className="text-[9px] text-muted-foreground">Latency (ms)</div>
+            <div className="text-[11px] font-medium">
+              P50 {formatLatencyMs(queueState.latencyStats.p50Ms)}
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              Avg {formatLatencyMs(queueState.latencyStats.avgMs)} · P95{' '}
+              {formatLatencyMs(queueState.latencyStats.p95Ms)}
+            </div>
           </div>
         </div>
         {(workerControls.startWorkerError || queueState.lastError) && (

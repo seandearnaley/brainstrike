@@ -305,6 +305,9 @@ function createCompleteProgress(
     if (source.embeddingProgress) {
       completed.embeddingProgress = source.embeddingProgress;
     }
+    if (source.queueProgress) {
+      completed.queueProgress = source.queueProgress;
+    }
     return completed;
   }
 
@@ -346,8 +349,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
       fileContents,
       onProgress(progress) {
         const enhanced = toEnhancedImportProgress(progress);
-        latestProgress = enhanced;
-        update(() => enhanced);
+        update((prev) => {
+          const nextProgress: EnhancedImportProgress = {
+            ...enhanced,
+            ...(prev?.queueProgress ? { queueProgress: prev.queueProgress } : {}),
+          };
+          latestProgress = nextProgress;
+          return nextProgress;
+        });
         emit?.(enhanced);
       },
     });
@@ -361,7 +370,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
     if (!chunking.enabled) {
       logger.info('Chunking disabled, skipping chunking phase');
       const finalProgress = createCompleteProgress(latestProgress, baseResults.length);
-      update(() => finalProgress);
+      update((prev) => {
+        const nextProgress: EnhancedImportProgress = {
+          ...finalProgress,
+          ...(prev?.queueProgress ? { queueProgress: prev.queueProgress } : {}),
+        };
+        latestProgress = nextProgress;
+        return nextProgress;
+      });
       emit?.(finalProgress);
       const mapped = baseResults.map<EnhancedImportResult>((result) => ({
         ...result,

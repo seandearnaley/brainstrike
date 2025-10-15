@@ -91,7 +91,7 @@ The shell surfaces a **Vector Status** HUD, an **Embeddings** panel, and a **Que
 
 * **Devices:** we heuristically detect the best device (WebGPU when available) and let users override to WASM/CPU. WebGPU drastically improves on-device inference latency; fall back to WASM where unsupported. ([ONNX Runtime][7])
 * **Backfilling:** when an embedding set becomes active **and** coverage is partial, the shell attempts an auto-backfill (enqueue jobs) if the local worker is running.
-* **Queue semantics:** The shell emits a custom event `brainstrike:queue-drained` when the embeddings queue becomes idle so views can refresh. Keep that contract stable.
+* **Queue semantics:** The shell emits `brainstrike:queue-drained` when the embeddings queue becomes idle and `brainstrike:queue-progress` for live pending/processed/failed counts. Keep those contracts stable for dashboards listening in the renderer.
 * **Throughput/latency:** we display jobs/min and P50/P95; avoid blocking the main thread—long operations must stream progress.
 
 > If you move heavier models in-browser, keep an eye on ONNX Runtime Web’s WebGPU EP and its IO-binding/graph-capture options—they’re the current best path for fast, private, local inference. ([ONNX Runtime][7])
