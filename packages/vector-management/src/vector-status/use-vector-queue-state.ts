@@ -15,6 +15,13 @@ export interface UseVectorQueueStateParams {
   pollIntervalMs?: number;
 }
 
+export interface TelemetryTrendPoint {
+  readonly timestamp: number;
+  readonly throughput: number;
+  readonly latencyP95: number;
+  readonly errorCount: number;
+}
+
 export interface UseVectorQueueStateResult {
   coverage: { total: number; withSet: number };
   queueCounts: QueueCounts;
@@ -24,6 +31,7 @@ export interface UseVectorQueueStateResult {
   recentErrorCount: number;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
+  telemetryTrend: readonly TelemetryTrendPoint[];
   backfillActiveSet: () => Promise<void>;
   retryFailed: (limit?: number) => Promise<void>;
   clearQueue: () => Promise<void>;
@@ -51,6 +59,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
+  const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
 
   const busyRef = useRef(false);
   const autoBackfillRef = useRef<string | null>(null);
@@ -132,6 +141,28 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       p95Ms: metrics.latencyP95Ms ?? 0,
     });
     setRecentErrorCount(metrics.windowErrorCount);
+    setTelemetryTrend((prev) => {
+      const nextPoint: TelemetryTrendPoint = {
+        timestamp: Date.now(),
+        throughput: Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0,
+        latencyP95: metrics.latencyP95Ms ?? 0,
+        errorCount: metrics.windowErrorCount,
+      };
+      const lastPoint = prev.at(-1);
+      if (
+        lastPoint &&
+        lastPoint.throughput === nextPoint.throughput &&
+        lastPoint.latencyP95 === nextPoint.latencyP95 &&
+        lastPoint.errorCount === nextPoint.errorCount
+      ) {
+        return prev;
+      }
+      const nextHistory = [...prev, nextPoint];
+      if (nextHistory.length > 60) {
+        return nextHistory.slice(-60);
+      }
+      return nextHistory;
+    });
   }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
@@ -215,6 +246,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       recentErrorCount,
       backfilling,
       backfillProgress,
+      telemetryTrend,
       backfillActiveSet,
       retryFailed,
       clearQueue,
@@ -229,6 +261,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       recentErrorCount,
       backfilling,
       backfillProgress,
+      telemetryTrend,
       backfillActiveSet,
       retryFailed,
       clearQueue,

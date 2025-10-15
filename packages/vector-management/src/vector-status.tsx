@@ -84,6 +84,58 @@ function formatLatencyMs(value: number): string {
   return `${Math.round(value)}`;
 }
 
+function Sparkline({
+  values,
+  ariaLabel,
+  width = 60,
+  height = 18,
+  strokeWidth = 1.5,
+  className,
+}: {
+  readonly values: readonly number[];
+  readonly ariaLabel: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly strokeWidth?: number;
+  readonly className?: string;
+}) {
+  const sanitized =
+    values.length > 0
+      ? values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0))
+      : [0];
+  const min = Math.min(...sanitized);
+  const max = Math.max(...sanitized);
+  const range = max - min;
+  const step = sanitized.length > 1 ? width / (sanitized.length - 1) : width;
+  const points = sanitized.map((value, index) => {
+    const x = sanitized.length === 1 ? width / 2 : index * step;
+    const normalized = range === 0 ? 0.5 : (value - min) / range;
+    const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
+    const y = height - clamped * height;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+
+  return (
+    <svg
+      role="img"
+      aria-label={ariaLabel}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className={['block', className ?? ''].filter(Boolean).join(' ')}
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points.join(' ')}
+      />
+    </svg>
+  );
+}
+
 function WorkerControls({
   db,
   workerLocalRunning,
@@ -483,6 +535,19 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
 
   backfillRef.current = queueState.backfillActiveSet;
 
+  const throughputTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.throughput),
+    [queueState.telemetryTrend]
+  );
+  const errorTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.errorCount),
+    [queueState.telemetryTrend]
+  );
+  const latencyTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.latencyP95),
+    [queueState.telemetryTrend]
+  );
+
   const workerStatus = getWorkerStatus(
     queueEnabled,
     queueState.queueCounts,
@@ -673,15 +738,40 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
               Completed: {queueState.queueCounts.succeeded}
             </div>
           </div>
-          <div>
-            <div className="text-[9px] text-muted-foreground">Jobs/min</div>
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Jobs/min</span>
+              <Sparkline
+                values={throughputTrend}
+                ariaLabel="Queue throughput trend"
+                width={56}
+                height={16}
+                className="text-emerald-500 dark:text-emerald-400"
+              />
+            </div>
             <div className="text-[11px] font-medium">{formatPerMinute(queueState.throughput)}</div>
-            <div className="text-[9px] text-muted-foreground">
-              Errors (1m): {queueState.recentErrorCount}
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Errors (1m): {queueState.recentErrorCount}</span>
+              <Sparkline
+                values={errorTrend}
+                ariaLabel="Queue error trend"
+                width={56}
+                height={12}
+                className="text-destructive"
+              />
             </div>
           </div>
-          <div>
-            <div className="text-[9px] text-muted-foreground">Latency (ms)</div>
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Latency (ms)</span>
+              <Sparkline
+                values={latencyTrend}
+                ariaLabel="Queue latency trend"
+                width={56}
+                height={12}
+                className="text-sky-500 dark:text-sky-400"
+              />
+            </div>
             <div className="text-[11px] font-medium">
               P50 {formatLatencyMs(queueState.latencyStats.p50Ms)}
             </div>

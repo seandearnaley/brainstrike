@@ -53,6 +53,8 @@ export default defineConfig({
     alias: {
       '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
       '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
+      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/preferences': resolve(__dirname, '../preferences/src/index.ts'),
     },
   },
 });

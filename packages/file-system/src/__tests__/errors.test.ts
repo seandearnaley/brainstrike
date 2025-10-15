@@ -56,16 +56,20 @@ describe('File system errors', () => {
   });
 
   it('FileSystemError handles missing Error.captureStackTrace', () => {
-    const errorConstructor = Error as { captureStackTrace?: typeof Error.captureStackTrace };
-    const original = errorConstructor.captureStackTrace;
+    const errorConstructor = Error as {
+      captureStackTrace?: typeof Error.captureStackTrace;
+    };
+    const original = Object.hasOwn(errorConstructor, 'captureStackTrace')
+      ? errorConstructor.captureStackTrace
+      : undefined;
     try {
-      errorConstructor.captureStackTrace = undefined;
+      Reflect.deleteProperty(errorConstructor, 'captureStackTrace');
       expect(() => new PermissionError('no access', '/path/to/file')).not.toThrow();
     } finally {
       if (original) {
         errorConstructor.captureStackTrace = original;
       } else {
-        errorConstructor.captureStackTrace = undefined;
+        Reflect.deleteProperty(errorConstructor, 'captureStackTrace');
       }
     }
   });

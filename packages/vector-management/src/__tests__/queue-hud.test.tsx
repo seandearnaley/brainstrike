@@ -13,6 +13,16 @@ describe('QueueHud', () => {
   const mockGetQueueStats = vi.fn();
   const mockRequeueFailed = vi.fn();
 
+  const expectQueueHeading = () => {
+    const headings = screen.getAllByRole('heading', { name: 'Queue' });
+    expect(headings.length).toBeGreaterThan(0);
+  };
+
+  const expectQueueBadge = (label: string) => {
+    const badges = screen.getAllByText(label);
+    expect(badges.length).toBeGreaterThan(0);
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('EMBED_QUEUE_ENABLED', 'true');
@@ -56,8 +66,8 @@ describe('QueueHud', () => {
       expect(screen.getByText('5')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('Queue')).toBeInTheDocument();
-    expect(screen.getByText('embeddings')).toBeInTheDocument();
+    expectQueueHeading();
+    expectQueueBadge('embeddings');
     expect(screen.getByText('Queued')).toBeInTheDocument();
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
@@ -160,7 +170,7 @@ describe('QueueHud', () => {
 
     // Should not crash and should render with zeros
     await waitFor(() => {
-      expect(screen.getByText('Queue')).toBeInTheDocument();
+      expectQueueHeading();
     });
 
     const zeros = screen.getAllByText('0');

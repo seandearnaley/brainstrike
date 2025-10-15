@@ -84,6 +84,20 @@ describe('Embedding queue integration', () => {
       progress: Record<string, unknown>;
     }> = [];
 
+    function pushSnapshot(snapshot: {
+      active: number;
+      completed: number;
+      failed: number;
+      totalEnqueued: number;
+      lastError: string | null;
+      progress: Record<string, unknown>;
+    }) {
+      metricsSnapshots.push(snapshot);
+      if (metricsSnapshots.length > 32) {
+        metricsSnapshots.shift();
+      }
+    }
+
     function Harness() {
       const queueContext = useEmbeddingQueueHook!();
       if (!queueContext) {
@@ -93,7 +107,7 @@ describe('Embedding queue integration', () => {
       const startedRef = useRef(false);
 
       useEffect(() => {
-        metricsSnapshots.push({
+        pushSnapshot({
           active: metrics.active,
           completed: metrics.completed,
           failed: metrics.failed,

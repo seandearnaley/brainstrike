@@ -27,4 +27,4 @@ We are replacing the PG-backed `JobQueue` embedding flow with a browser/Electron
 - [x] Update enhanced file import flows to enqueue embeddings through the browser queue (with DB fallback in Node/electron-main).
 - [x] Emit structured telemetry (queue depth, throughput) from the adapters for observability (initial logging stub).
 - [x] Add renderer-focused integration tests validating queue-driven embedding/backfill flows (added skipped placeholder to track follow-up work).
-- [ ] Update developer docs (AGENTS, README) once UI migration lands; include guidance on queue provider usage.
+- [x] Update developer docs (AGENTS, README) once UI migration lands; include guidance on queue provider usage.
