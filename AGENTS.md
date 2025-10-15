@@ -19,6 +19,12 @@ October 2025: Note electron desktop e2e tests have trouble running in agent envi
   - Provider factory: `provider-factory.ts`
 - State management: `packages/app-shell/src/stores/assistant-preferences-store.ts`
 - Selection persists across sessions via localStorage
+- **Assistant Status Endpoint Resolution**: The endpoint for checking assistant availability uses a three-tier fallback strategy:
+  1. Attempts `window.assistant.getUrl()` (async function, allows dynamic configuration)
+  2. Falls back to `window.assistant.url` (static string)
+  3. Finally defaults to `/api/assistant/status`
+  - This allows host applications to override the endpoint via Electron bridges or other runtime contexts
+  - See `packages/app-shell/src/hooks/use-assistant-availability.ts` for implementation details
 
 ## Build, Test, Development
 - Install deps: `pnpm install`

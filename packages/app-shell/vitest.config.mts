@@ -26,6 +26,8 @@ export default defineConfig({
       electron: path.resolve(__dirname, '../storage/__mocks__/electron.ts'),
       '@brainstrike/storage': path.resolve(__dirname, '../storage/dist'),
       '@brainstrike/embeddings': path.resolve(__dirname, '__mocks__/embeddings.ts'),
+      '@brainstrike/agent/client': path.resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/preferences': path.resolve(__dirname, '../preferences/src/index.ts'),
       '/worker-storage.worker.js': path.resolve(__dirname, '__mocks__/worker-storage.worker.js'),
     },
   },

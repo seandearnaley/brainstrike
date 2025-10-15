@@ -52,16 +52,21 @@ packages/
   test-utils/, fonts/, workers/, styles/, platform-utils/, file-* ...
 ```
 
-See also: `onboarding.md` and `monorepo-docs.md` for deep dives.
+See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md`](docs/monorepo-docs.md) for deep dives into architecture, development workflow, and code extraction patterns.
 
 ---
 
 ## Queue & Worker (2025)
 
 - Enable: set `EMBED_QUEUE_ENABLED=true` to turn on the DB-backed queue and local worker.
-- CLI: `pnpm queue stats`, `pnpm queue requeue -- --queue embeddings --limit 20`, `pnpm queue prune -- --olderThan <ISO> --states succeeded failed`.
-- Desktop: starts the embedding worker on app ready when enabled; stops on quit.
-- Config: `EMBED_CONCURRENCY`, `EMBED_LEASE_MS`, `EMBED_MODEL_KEY`.
+- **Starting/Stopping**: Web UX: Right Panel → DB → Vector Status shows worker controls (Start/Stop buttons). Desktop: worker starts automatically on app ready when enabled; stops on quit.
+- CLI: `pnpm queue stats` (view queue status), `pnpm queue requeue -- --queue embeddings --limit 20` (retry failed jobs), `pnpm queue prune -- --olderThan <ISO> --states succeeded failed` (clean old records).
+- **Configuration**: 
+  - `EMBED_CONCURRENCY`: Number of parallel embedding jobs (default varies by device)
+  - `EMBED_LEASE_MS`: Job lock duration in milliseconds
+  - `EMBED_MODEL_KEY`: Which embedding model to use
+- **Queue Semantics**: Jobs persist in PGlite/local database; the queue respects concurrency limits and automatically retries failed embeddings. Progress is dispatched via `brainstrike:queue-progress` events for UI subscribers.
+- **Persistence**: Queue state and job history are stored in the local database (`@brainstrike/db`); survives app restarts.
 
 Refer to `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md` (Post-Review Deltas) and `docs/arch_logs/20250905-170000-db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`.
 
@@ -116,14 +121,28 @@ UI affordances:
 
 ## Vector Search Tuning
 
-- Index type: set `VECTOR_INDEX_TYPE=ivfflat` to reduce memory (slower but lighter) or rely on default `hnsw` for faster search (higher memory).
-- IVFFlat: `IVFFLAT_LISTS=100` controls index granularity; `IVFFLAT_PROBES=8..24` at query time trades recall for speed.
-- HNSW: `HNSW_M=16`, `HNSW_EF_CONSTRUCTION=64` tune build memory/quality; `HNSW_EF_SEARCH=32..80` boosts recall at query time.
-- Apply by exporting env vars and restarting the app (auto‑migrations will drop/recreate the vector index accordingly).
-- Code search quality: smaller code chunks and model‑aware query/doc prompts are enabled. You can adjust the search threshold in the UI; default is configurable via env: `VITE_SEARCH_DEFAULT_THRESHOLD` (web) or `SEARCH_DEFAULT_THRESHOLD`/`BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD` (desktop/Node). Value is clamped to [0,1].
+- **Embedding Sets**: Each embedding set stores documents chunked with a specific model and dimensions. Switch between sets via the UI; incompatible sets (different dimensions) cannot be queried together for safety.
+  - Active set is stored per session and persists across reloads
+  - Dimension mismatches are caught at query time to prevent silent failures
+  - Code search quality: smaller code chunks and model-aware query/doc prompts are enabled
+  
+- **Model Configuration**: Set via `EMBED_MODEL_KEY` environment variable or Settings → LLM Provider Keys (where applicable). Model selection affects:
+  - Output dimensions (typically 384, 768, or 1024)
+  - Inference speed (smaller models are faster; larger ones more expressive)
+  - On-device vs. API-based inference
+  
+- **Search Thresholds**: Adjust similarity threshold in UI; default is configurable via env:
+  - `VITE_SEARCH_DEFAULT_THRESHOLD` (web)
+  - `SEARCH_DEFAULT_THRESHOLD` / `BRAINSTRIKE_SEARCH_DEFAULT_THRESHOLD` (desktop/Node)
+  - Value is clamped to [0, 1]; higher = stricter matching
+  
+- **Index Type**: Set `VECTOR_INDEX_TYPE=ivfflat` to reduce memory (slower but lighter) or rely on default `hnsw` for faster search (higher memory).
+  - **IVFFlat**: `IVFFLAT_LISTS=100` controls index granularity; `IVFFLAT_PROBES=8..24` at query time trades recall for speed.
+  - **HNSW**: `HNSW_M=16`, `HNSW_EF_CONSTRUCTION=64` tune build memory/quality; `HNSW_EF_SEARCH=32..80` boosts recall at query time.
+  - Apply by exporting env vars and restarting the app (auto-migrations will drop/recreate the vector index accordingly).
 
 Notes:
-- PGlite + pgvector in WASM benefits from IVFFlat on low‑RAM machines; HNSW is best on desktops with more headroom.
+- PGlite + pgvector in WASM benefits from IVFFlat on low-RAM machines; HNSW is best on desktops with more headroom.
 - Vector dimensions are stored per embedding set (`embedding_sets.dimensions`) and validated at runtime. Search queries and chunk writes are scoped by the active set to prevent mixing dimensions. The physical column type may default to `VECTOR(768)`, but the service will guard against mismatches and require using a compatible set for a given model.
 
 ---
