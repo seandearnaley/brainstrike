@@ -47,8 +47,6 @@ export interface EmbedWorkerError {
   readonly cause?: unknown;
 }
 
-export type EmbedWorkerEvent = EmbedWorkerProgress | EmbedWorkerSuccess | EmbedWorkerError;
-
 export function l2Normalize(vector: Float32Array): Float32Array {
   let sum = 0;
   for (let index = 0; index < vector.length; index += 1) {

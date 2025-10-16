@@ -32,7 +32,6 @@ UI (browser / Electron renderer)
 - The Transformers.js worker prefers WebGPU with `dtype: 'fp16'`; on GPU loss it halves the batch size and retries on the WASM backend per the Transformers WebGPU recommendations [3].
 - Web builds (Vite) and the Electron renderer resolve the worker script via `new URL('./embedding.worker.js', import.meta.url)` so bundlers can create module workers without extra configuration [1].
 - Unit tests mock workerpool/pipeline primitives; run `pnpm test --filter @brainstrike/queue` and `pnpm test --filter @brainstrike/embedding-worker` to keep coverage fast.
-- For local profiling, run `pnpm --filter @brainstrike/queue tsx packages/queue/test/perf-harness.ts` (model downloads require network access).
 
 ## References
 

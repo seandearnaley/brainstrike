@@ -16,8 +16,7 @@
     }
   },
   "files": [
-    "dist/**",
-    "test/perf-harness.ts"
+    "dist/**"
   ],
   "scripts": {
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
