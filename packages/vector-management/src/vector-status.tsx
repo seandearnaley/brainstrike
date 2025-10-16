@@ -711,7 +711,10 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             backfillProgress={queueState.backfillProgress}
             workerLocalRunning={workerControls.workerLocalRunning}
             onBackfill={queueState.backfillActiveSet}
-            hasChunks={queueState.coverage.total > 0}
+            hasChunks={
+              queueState.coverage.total > 0 &&
+              queueState.coverage.withSet < queueState.coverage.total
+            }
           />
           <QueueControls
             hasDb={hasDb}

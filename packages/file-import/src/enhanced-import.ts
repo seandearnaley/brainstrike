@@ -14,7 +14,8 @@ import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 const logger = createLogger('FileImport:Enhanced');
 
 // Cache for embedding set lookups to avoid repeated database queries
-const embeddingSetCache = new Map<string, string>();
+const EMBEDDING_SET_CACHE_LIMIT = 200;
+const embeddingSetCache = new Map<string, { modelKey: string }>();
 
 export interface EmbeddingJobQueuePort {
   enqueueBatch(
@@ -110,9 +111,9 @@ async function resolveModelKeyFromTargetSet(
     return undefined;
   }
 
-  const cachedModelKey = embeddingSetCache.get(targetSetId);
-  if (cachedModelKey) {
-    return cachedModelKey;
+  const cachedEntry = embeddingSetCache.get(targetSetId);
+  if (cachedEntry) {
+    return cachedEntry.modelKey;
   }
 
   try {
@@ -125,7 +126,13 @@ async function resolveModelKeyFromTargetSet(
       return undefined;
     }
 
-    embeddingSetCache.set(targetSetId, fetchedModelKey);
+    embeddingSetCache.set(targetSetId, { modelKey: fetchedModelKey });
+    if (embeddingSetCache.size > EMBEDDING_SET_CACHE_LIMIT) {
+      const [oldestKey] = embeddingSetCache.keys();
+      if (oldestKey) {
+        embeddingSetCache.delete(oldestKey);
+      }
+    }
     return fetchedModelKey;
   } catch {
     return undefined;

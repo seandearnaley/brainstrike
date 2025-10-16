@@ -204,4 +204,57 @@ describe('TransformersBackend queue integration', () => {
     await backend.dispose();
     expect(disposeSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('falls back to cpu when pipeline creation fails on initialization', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    pipelineMock.mockRejectedValueOnce(new Error('creation failed'));
+    const fallbackExtractor = vi.fn(async () => ({
+      data: Float32Array.from([0.1, 0.2]),
+    }));
+    pipelineMock.mockResolvedValueOnce(fallbackExtractor);
+
+    const { TransformersBackend } = await import('../transformers-backend');
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      modelId: 'bge-m3',
+      device: 'webgpu',
+      quantized: false,
+    });
+
+    expect(pipelineMock).toHaveBeenCalledTimes(2);
+    const firstCall = pipelineMock.mock.calls[0]?.[2] as { device?: string } | undefined;
+    const secondCall = pipelineMock.mock.calls[1]?.[2] as { device?: string } | undefined;
+    expect(firstCall?.device).toBe('webgpu');
+    expect(secondCall?.device).toBe('cpu');
+    expect(backend.getSelectedDevice()).toBe('cpu');
+  });
+
+  it('rebuilds the pipeline after inference failure', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    const failingExtractor = vi.fn(async () => {
+      throw new Error('runtime explode');
+    });
+    const fallbackExtractor = vi.fn(async () => ({
+      data: Float32Array.from([0.4, 0.6]),
+    }));
+    pipelineMock.mockResolvedValueOnce(failingExtractor);
+    pipelineMock.mockResolvedValueOnce(fallbackExtractor);
+
+    const { TransformersBackend } = await import('../transformers-backend');
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      modelId: 'bge-m3',
+      device: 'webgpu',
+      quantized: false,
+    });
+
+    const result = await backend.generateEmbedding('hello world', 'bge-m3');
+    expect(result.embedding).toHaveLength(2);
+    expect(result.embedding[0]).toBeCloseTo(0.4, 5);
+    expect(result.embedding[1]).toBeCloseTo(0.6, 5);
+    expect(pipelineMock).toHaveBeenCalledTimes(2);
+    expect(failingExtractor).toHaveBeenCalledTimes(1);
+    expect(fallbackExtractor).toHaveBeenCalledTimes(1);
+    expect(backend.getSelectedDevice()).toBe('cpu');
+  });
 });

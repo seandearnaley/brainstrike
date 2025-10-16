@@ -112,6 +112,20 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, []);
 
   useEffect(() => {
+    if (!activeEmbeddingSetId) {
+      autoBackfillRef.current = null;
+      return;
+    }
+    if (coverage.total === 0) {
+      autoBackfillRef.current = null;
+      return;
+    }
+    if (coverage.withSet >= coverage.total) {
+      autoBackfillRef.current = null;
+    }
+  }, [activeEmbeddingSetId, coverage.total, coverage.withSet]);
+
+  useEffect(() => {
     setQueueCounts((prev) => {
       const derived: QueueCounts = {
         queued: metrics.active,

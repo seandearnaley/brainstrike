@@ -97,4 +97,62 @@ describe('useVectorQueueState', () => {
       expect(lastTelemetryPoint.errorCount).toBe(3);
     }
   });
+
+  it('restarts auto backfill when coverage becomes incomplete again', async () => {
+    vi.useFakeTimers();
+
+    let coverageState = { total: 10, withSet: 2 };
+
+    const service: VectorQueueService = {
+      refresh: vi.fn(async () => ({
+        coverage: { ...coverageState },
+        queueCounts: { queued: 0, running: 0, failed: 0, succeeded: 0 },
+        throughput: 0,
+        lastError: null,
+        latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
+      })),
+      backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
+      retryFailed: vi.fn(),
+      clearQueue: vi.fn(),
+      wipeQueue: vi.fn(),
+    };
+
+    renderHook(() =>
+      useVectorQueueState({
+        service,
+        activeEmbeddingSetId: 'set-1',
+        shouldAutoBackfill: true,
+        pollIntervalMs: 5,
+      })
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(0);
+      await Promise.resolve();
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    expect(service.backfill).toHaveBeenCalledTimes(1);
+
+    // Simulate coverage reaching completion which should reset the auto-backfill guard.
+    coverageState = { total: 10, withSet: 10 };
+    await act(async () => {
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    service.backfill.mockClear();
+
+    // Introduce new pending chunks for the same set; auto backfill should trigger again.
+    coverageState = { total: 10, withSet: 4 };
+    await act(async () => {
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+      vi.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    expect(service.backfill).toHaveBeenCalledTimes(1);
+  });
 });

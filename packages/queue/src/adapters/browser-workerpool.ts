@@ -34,6 +34,8 @@ function isWorkerEvent(value: unknown): value is WorkerEvent {
   return typeValue === 'progress' || typeValue === 'error';
 }
 
+const DEFAULT_MAX_WORKERS_CAP = 8;
+
 function attachAbort(
   signal: AbortSignal | undefined,
   promise: WorkerPoolPromise<QueueResult>,
@@ -75,7 +77,7 @@ export function createWorkerpoolAdapter(options: WorkerpoolAdapterOptions = {}):
   // Source: https://developer.mozilla.org/docs/Web/API/NavigatorConcurrentHardware/hardwareConcurrency
   const maxWorkers = Math.max(
     1,
-    Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), 8)
+    Math.min(options.maxWorkers ?? Math.max(1, hardwareConcurrency - 1), DEFAULT_MAX_WORKERS_CAP)
   );
   const workerScript = resolveEmbeddingWorkerUrl().href;
   const poolOptions: WorkerPoolOptions = {

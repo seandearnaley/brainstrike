@@ -71,7 +71,9 @@ export function createPQueueAdapter(options: PQueueAdapterOptions = {}): QueueAd
     try {
       const result = await queue.add(() => embedOnMainThread(task, emitter), queueOptions);
       if (result === undefined) {
-        throw new Error('Fallback embedding returned no result');
+        throw new Error(
+          `Embedding fallback (p-queue) returned no result for task ${task.id} (${task.model})`
+        );
       }
       emitTelemetry('complete', task, startedAt);
       logCompletion(task, startedAt, queue);

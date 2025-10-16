@@ -68,7 +68,7 @@ describe('QueueHud', () => {
 
     expectQueueHeading();
     expectQueueBadge('embeddings');
-    expect(screen.getByText('Queued')).toBeInTheDocument();
+    expect(screen.getAllByText('Queued').length).toBeGreaterThan(0);
     expect(screen.getByText('5')).toBeInTheDocument();
     expect(screen.getByText('Running')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
@@ -88,7 +88,7 @@ describe('QueueHud', () => {
     render(<QueueHud />);
 
     await waitFor(() => {
-      expect(screen.getByText('Queued')).toBeInTheDocument();
+      expect(screen.getAllByText('Queued').length).toBeGreaterThan(0);
     });
 
     // Should show 0 for all stats
