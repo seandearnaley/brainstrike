@@ -116,6 +116,48 @@ describe('embedding worker runtime', () => {
     expect(result.metadata.batchSize).toBeGreaterThanOrEqual(1);
     expect(result.vectors).toHaveLength(32);
   });
+
+  it('emits an error event when the pipeline returns no tensors', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    const emptyExtractor = vi.fn(async () => []);
+    pipelineMock.mockResolvedValue(emptyExtractor);
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'empty-output',
+        model: 'bge-m3',
+        texts: ['nope'],
+      })
+    ).rejects.toThrow('Embedding pipeline returned no tensors');
+    const errorCall = workerEmitMock.mock.calls.find(([event]) => event?.type === 'error');
+    expect(errorCall?.[0]).toMatchObject({
+      type: 'error',
+      id: 'empty-output',
+      message: 'Embedding pipeline returned no tensors',
+    });
+  });
+
+  it('normalizes batched tensors returned by transformers', async () => {
+    vi.stubGlobal('navigator', { gpu: {} });
+    pipelineMock.mockResolvedValue(async (texts: string | readonly string[]) => {
+      const inputs = Array.isArray(texts) ? texts : [texts];
+      const values = inputs.flatMap((_, index) => [index + 1, index + 2, index + 3]);
+      return new MockTensor(values, [inputs.length, 3]);
+    });
+    const runEmbedding = await loadWorker();
+    const result = await runEmbedding({
+      type: 'embed',
+      id: 'tensor',
+      model: 'bge-m3',
+      texts: Array.from({ length: 9 }, (_, index) => `item-${index}`),
+      truncateDim: 3,
+    });
+    expect(result.vectors).toHaveLength(9);
+    expect(Array.from(result.vectors[0])).toHaveLength(3);
+    const length = Math.sqrt(result.vectors[0].reduce((sum, value) => sum + value * value, 0));
+    expect(length).toBeCloseTo(1, 5);
+  });
 });
 
 function destructurePipelineDevices() {

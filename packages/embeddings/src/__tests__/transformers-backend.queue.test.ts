@@ -142,4 +142,66 @@ describe('TransformersBackend queue integration', () => {
     expect(TransformersBackend.isDeviceAvailable('webgpu')).toBe(true);
     expect(TransformersBackend.getBestDevice()).toBe('webgpu');
   });
+
+  it('applies and clears target dimension hints when enqueueing tasks', async () => {
+    vi.stubGlobal('window', {});
+    vi.stubGlobal('navigator', { gpu: {} });
+    vi.stubGlobal('Worker', class {});
+
+    const { queue, add } = createQueueStub();
+    add.mockResolvedValueOnce(createQueueResult('warmup', [0.1, 0.2]));
+    add.mockResolvedValueOnce(createQueueResult('first', [0.3, 0.7]));
+    add.mockResolvedValueOnce(createQueueResult('second', [0.6, 0.4]));
+
+    const { TransformersBackend, registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } =
+      await import('../transformers-backend');
+
+    registerEmbeddingQueueFactory(() => queue);
+
+    const backend = new TransformersBackend();
+    backend.setTargetDimensions(3.7);
+    await backend.initialize({
+      modelId: 'bge-m3',
+      device: 'webgpu',
+      quantized: false,
+    });
+
+    await backend.generateEmbedding('first-text', 'bge-m3');
+    backend.setTargetDimensions(-10);
+    await backend.generateEmbedding('second-text', 'bge-m3');
+
+    const firstCall = add.mock.calls[1]?.[0] as QueueAddCall;
+    expect(firstCall.truncateDim).toBe(3);
+
+    const secondCall = add.mock.calls[2]?.[0] as QueueAddCall;
+    expect(secondCall.truncateDim).toBeUndefined();
+
+    await backend.dispose();
+    resetEmbeddingQueueFactory();
+  });
+
+  it('disposes the local pipeline when dispose is invoked', async () => {
+    const disposeSpy = vi.fn(async () => {});
+    const extractor = Object.assign(
+      async () => ({
+        data: Float32Array.from([0.2, 0.8]),
+      }),
+      {
+        dispose: disposeSpy,
+      }
+    );
+    pipelineMock.mockResolvedValue(extractor);
+
+    const { TransformersBackend } = await import('../transformers-backend');
+
+    const backend = new TransformersBackend();
+    await backend.initialize({
+      modelId: 'bge-m3',
+      device: 'cpu',
+      quantized: false,
+    });
+
+    await backend.dispose();
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
 });

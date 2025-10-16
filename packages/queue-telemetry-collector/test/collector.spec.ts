@@ -173,4 +173,85 @@ describe('createQueueTelemetryCollector', () => {
       'Timed out waiting for telemetry batch'
     );
   });
+
+  it('resolves pending listeners when a batch arrives later', async () => {
+    collector = createQueueTelemetryCollector();
+    await collector.start();
+    const endpoint = collector.getEndpoint() as string;
+
+    const pending = collector.nextBatch({ timeoutMs: 300 });
+
+    const response = await postJson(endpoint, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [
+        {
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'enqueue',
+          taskId: 'task-late',
+        },
+      ],
+    });
+    expect(response.status).toBe(204);
+
+    const batch = await pending;
+    expect(batch.events).toHaveLength(1);
+    expect(batch.events[0]?.taskId).toBe('task-late');
+  });
+
+  it('trims stored batches to the configured maximum', async () => {
+    collector = createQueueTelemetryCollector({
+      path: '/telemetry/',
+      maxStoredBatches: 1,
+    });
+    await collector.start();
+    const endpoint = collector.getEndpoint();
+    expect(endpoint).toMatch(/\/telemetry$/);
+
+    const first = await postJson(endpoint as string, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [
+        {
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'enqueue',
+          taskId: 'first',
+        },
+      ],
+    });
+    expect(first.status).toBe(204);
+
+    const second = await postJson(endpoint as string, {
+      runtime: 'browser',
+      sentAt: new Date().toISOString(),
+      events: [
+        {
+          timestamp: Date.now(),
+          adapter: 'workerpool',
+          event: 'complete',
+          taskId: 'second',
+        },
+      ],
+    });
+    expect(second.status).toBe(204);
+
+    const stored = collector.listBatches();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.events[0]?.taskId).toBe('second');
+  });
+
+  it('stops the collector and clears endpoint metadata', async () => {
+    collector = createQueueTelemetryCollector();
+    await collector.start();
+    expect(collector.isRunning()).toBe(true);
+    expect(collector.getEndpoint()).not.toBeNull();
+
+    await collector.stop();
+    expect(collector.isRunning()).toBe(false);
+    expect(collector.getEndpoint()).toBeNull();
+
+    await collector.stop(); // second stop is a no-op
+  });
 });
