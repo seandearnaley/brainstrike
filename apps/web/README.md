@@ -14,7 +14,7 @@ This directory contains the Vite-powered React application for BrainStrike, a su
     ```bash
     pnpm dev --filter @brainstrike/web
     ```
-    The application will typically be available at `http://localhost:3000` (or the port specified by the `PORT` environment variable).
+    The application will typically be available at `http://localhost:8080` (or the port specified by the `PORT` environment variable).
 
 ## Key Features
 
@@ -92,7 +92,7 @@ A brief overview of the main directories within `apps/web/src/`:
 
 ## Environment Variables
 
--   `PORT`: Port used when starting the development server. Defaults to `3000` if not provided.
+-   `PORT`: Port used when starting the development server. Defaults to `8080` if not provided.
 -   Other environment variables (e.g., for API endpoints) can be configured via `.env` files. See `.env.example` for a template.
 
 ## Contributing

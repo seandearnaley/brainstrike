@@ -9,6 +9,7 @@ import {
 import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
 import { TransformersBackend } from '@brainstrike/embeddings';
 import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
   Button,
@@ -25,10 +26,115 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { setActiveEmbeddingSetId } from './vector-preferences';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
+
+type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
+type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
+
+const DISABLED_QUEUE_RESULT = {
+  type: 'result',
+  id: 'queue-disabled',
+  vectors: [],
+  metadata: {
+    model: 'disabled',
+    device: 'wasm',
+    dtype: 'fp16',
+    batchSize: 0,
+    elapsedMs: 0,
+    fallbackApplied: false,
+    dimensions: 0,
+  },
+} as QueueAddReturn;
+
+function createDisabledQueueAdapter(): QueueAdapter {
+  return {
+    async add(): Promise<QueueAddReturn> {
+      return DISABLED_QUEUE_RESULT;
+    },
+    async addBulk(tasks): Promise<QueueAddBulkReturn> {
+      return tasks.map(() => DISABLED_QUEUE_RESULT) as QueueAddBulkReturn;
+    },
+    onProgress() {
+      return () => {};
+    },
+    pause() {},
+    resume() {},
+    async drain() {},
+  };
+}
+
+function formatPerMinute(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0.0';
+  }
+  if (value >= 10) {
+    return value.toFixed(0);
+  }
+  return value.toFixed(1);
+}
+
+function formatLatencyMs(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '—';
+  }
+  return `${Math.round(value)}`;
+}
+
+function Sparkline({
+  values,
+  ariaLabel,
+  width = 60,
+  height = 18,
+  strokeWidth = 1.5,
+  className,
+}: {
+  readonly values: readonly number[];
+  readonly ariaLabel: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly strokeWidth?: number;
+  readonly className?: string;
+}) {
+  const sanitized =
+    values.length > 0
+      ? values.map((value) => (Number.isFinite(value) ? Math.max(0, value) : 0))
+      : [0];
+  const min = Math.min(...sanitized);
+  const max = Math.max(...sanitized);
+  const range = max - min;
+  const step = sanitized.length > 1 ? width / (sanitized.length - 1) : width;
+  const points = sanitized.map((value, index) => {
+    const x = sanitized.length === 1 ? width / 2 : index * step;
+    const normalized = range === 0 ? 0.5 : (value - min) / range;
+    const clamped = Number.isFinite(normalized) ? Math.min(Math.max(normalized, 0), 1) : 0.5;
+    const y = height - clamped * height;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  });
+
+  return (
+    <svg
+      role="img"
+      aria-label={ariaLabel}
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      className={['block', className ?? ''].filter(Boolean).join(' ')}
+    >
+      <polyline
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        points={points.join(' ')}
+      />
+    </svg>
+  );
+}
 
 function WorkerControls({
   db,
@@ -331,11 +437,35 @@ function useActiveEmbeddingSet() {
   return { sets, active, activeId, setActiveId } as const;
 }
 
-export function VectorStatusWithDb() {
+interface VectorStatusWithDbProps {
+  queueAdapter?: QueueAdapter | null;
+}
+
+export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
+  const queueEnabled = isQueueEnabled();
+  const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
+    () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
+    [queueEnabled]
+  );
+  const providerAdapter = queueAdapter ?? fallbackQueueAdapter;
+
+  const providerProps = providerAdapter ? { adapter: providerAdapter } : undefined;
+
+  return (
+    <EmbeddingQueueProvider {...providerProps}>
+      <VectorStatusWithDbContent queueEnabled={queueEnabled} />
+    </EmbeddingQueueProvider>
+  );
+}
+
+interface VectorStatusWithDbContentProps {
+  queueEnabled: boolean;
+}
+
+function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
-  const queueEnabled = isQueueEnabled();
   const { sets, activeId, setActiveId } = useActiveEmbeddingSet();
   const { toast } = useToast();
 
@@ -405,6 +535,19 @@ export function VectorStatusWithDb() {
 
   backfillRef.current = queueState.backfillActiveSet;
 
+  const throughputTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.throughput),
+    [queueState.telemetryTrend]
+  );
+  const errorTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.errorCount),
+    [queueState.telemetryTrend]
+  );
+  const latencyTrend = useMemo(
+    () => queueState.telemetryTrend.map((point) => point.latencyP95),
+    [queueState.telemetryTrend]
+  );
+
   const workerStatus = getWorkerStatus(
     queueEnabled,
     queueState.queueCounts,
@@ -416,7 +559,7 @@ export function VectorStatusWithDb() {
 
   const hasDb = Boolean(db);
 
-  return (
+  const content = (
     <Card>
       <CardHeader className="py-1.5 px-3 border-b">
         <div className="flex items-center justify-between">
@@ -568,7 +711,10 @@ export function VectorStatusWithDb() {
             backfillProgress={queueState.backfillProgress}
             workerLocalRunning={workerControls.workerLocalRunning}
             onBackfill={queueState.backfillActiveSet}
-            hasChunks={queueState.coverage.total > 0}
+            hasChunks={
+              queueState.coverage.total > 0 &&
+              queueState.coverage.withSet < queueState.coverage.total
+            }
           />
           <QueueControls
             hasDb={hasDb}
@@ -586,19 +732,56 @@ export function VectorStatusWithDb() {
             </div>
           </div>
           <div>
-            <div className="text-[9px] text-muted-foreground">Jobs/min</div>
-            <div className="text-[11px] font-medium">{queueState.throughput}</div>
-          </div>
-          <div>
             <div className="text-[9px] text-muted-foreground">Queue</div>
             <div className="text-[11px] font-medium">
               {queueState.queueCounts.queued}/{queueState.queueCounts.running}/
               {queueState.queueCounts.failed}
             </div>
+            <div className="text-[9px] text-muted-foreground">
+              Completed: {queueState.queueCounts.succeeded}
+            </div>
           </div>
-          <div>
-            <div className="text-[9px] text-muted-foreground">Latency</div>
-            <div className="text-[11px] font-medium">{queueState.latencyStats.p50Ms}ms</div>
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Jobs/min</span>
+              <Sparkline
+                values={throughputTrend}
+                ariaLabel="Queue throughput trend"
+                width={56}
+                height={16}
+                className="text-emerald-500 dark:text-emerald-400"
+              />
+            </div>
+            <div className="text-[11px] font-medium">{formatPerMinute(queueState.throughput)}</div>
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Errors (1m): {queueState.recentErrorCount}</span>
+              <Sparkline
+                values={errorTrend}
+                ariaLabel="Queue error trend"
+                width={56}
+                height={12}
+                className="text-destructive"
+              />
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+              <span>Latency (ms)</span>
+              <Sparkline
+                values={latencyTrend}
+                ariaLabel="Queue latency trend"
+                width={56}
+                height={12}
+                className="text-sky-500 dark:text-sky-400"
+              />
+            </div>
+            <div className="text-[11px] font-medium">
+              P50 {formatLatencyMs(queueState.latencyStats.p50Ms)}
+            </div>
+            <div className="text-[9px] text-muted-foreground">
+              Avg {formatLatencyMs(queueState.latencyStats.avgMs)} · P95{' '}
+              {formatLatencyMs(queueState.latencyStats.p95Ms)}
+            </div>
           </div>
         </div>
         {(workerControls.startWorkerError || queueState.lastError) && (
@@ -613,6 +796,8 @@ export function VectorStatusWithDb() {
       </CardContent>
     </Card>
   );
+
+  return content;
 }
 
 // Safe, hook-less variant for contexts without DbProvider (e.g., shallow tests)

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEmbeddingQueue } from '../embedding-queue-provider';
 import {
   handleQueueStateChange,
   type QueueCounts,
@@ -14,14 +15,23 @@ export interface UseVectorQueueStateParams {
   pollIntervalMs?: number;
 }
 
+export interface TelemetryTrendPoint {
+  readonly timestamp: number;
+  readonly throughput: number;
+  readonly latencyP95: number;
+  readonly errorCount: number;
+}
+
 export interface UseVectorQueueStateResult {
   coverage: { total: number; withSet: number };
   queueCounts: QueueCounts;
   throughput: number;
   latencyStats: { avgMs: number; p50Ms: number; p95Ms: number };
   lastError: string | null;
+  recentErrorCount: number;
   backfilling: boolean;
   backfillProgress: BackfillProgress;
+  telemetryTrend: readonly TelemetryTrendPoint[];
   backfillActiveSet: () => Promise<void>;
   retryFailed: (limit?: number) => Promise<void>;
   clearQueue: () => Promise<void>;
@@ -37,15 +47,19 @@ const DEFAULT_LATENCY: { avgMs: number; p50Ms: number; p95Ms: number } = {
 const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
-  const { service, activeEmbeddingSetId, shouldAutoBackfill, pollIntervalMs = 2500 } = params;
+  const { activeEmbeddingSetId, shouldAutoBackfill, pollIntervalMs = 2500 } = params;
+  const { metrics } = useEmbeddingQueue();
+  const service = params.service;
 
   const [coverage, setCoverage] = useState<{ total: number; withSet: number }>(DEFAULT_COVERAGE);
   const [queueCounts, setQueueCounts] = useState(DEFAULT_QUEUE_COUNTS);
   const [throughput, setThroughput] = useState(0);
   const [latencyStats, setLatencyStats] = useState(DEFAULT_LATENCY);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
+  const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
 
   const busyRef = useRef(false);
   const autoBackfillRef = useRef<string | null>(null);
@@ -59,9 +73,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       } else if (!activeEmbeddingSetId) {
         setCoverage(DEFAULT_COVERAGE);
       }
-      setQueueCounts(snapshot.queueCounts);
       setThroughput(snapshot.throughput);
-      setLastError(snapshot.lastError);
+      setLastError((prev) => snapshot.lastError ?? prev);
       setLatencyStats(snapshot.latency);
       handleQueueStateChange(snapshot.queueCounts, busyRef, activeEmbeddingSetId ?? null);
     } catch {
@@ -76,6 +89,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       setThroughput(0);
       setLastError(null);
       setLatencyStats(DEFAULT_LATENCY);
+      setRecentErrorCount(0);
       return;
     }
 
@@ -96,6 +110,74 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   useEffect(() => {
     autoBackfillRef.current = null;
   }, []);
+
+  useEffect(() => {
+    if (!activeEmbeddingSetId) {
+      autoBackfillRef.current = null;
+      return;
+    }
+    if (coverage.total === 0) {
+      autoBackfillRef.current = null;
+      return;
+    }
+    if (coverage.withSet >= coverage.total) {
+      autoBackfillRef.current = null;
+    }
+  }, [activeEmbeddingSetId, coverage.total, coverage.withSet]);
+
+  useEffect(() => {
+    setQueueCounts((prev) => {
+      const derived: QueueCounts = {
+        queued: metrics.active,
+        running: metrics.active,
+        failed: metrics.failed,
+        succeeded: metrics.completed,
+      };
+      if (
+        prev.queued === derived.queued &&
+        prev.running === derived.running &&
+        prev.failed === derived.failed &&
+        prev.succeeded === derived.succeeded
+      ) {
+        return prev;
+      }
+      return derived;
+    });
+    if (metrics.lastError) {
+      setLastError(metrics.lastError);
+    }
+    if (Number.isFinite(metrics.throughputPerMinute)) {
+      setThroughput(metrics.throughputPerMinute);
+    }
+    setLatencyStats({
+      avgMs: metrics.latencyAvgMs ?? 0,
+      p50Ms: metrics.latencyP50Ms ?? 0,
+      p95Ms: metrics.latencyP95Ms ?? 0,
+    });
+    setRecentErrorCount(metrics.windowErrorCount);
+    setTelemetryTrend((prev) => {
+      const nextPoint: TelemetryTrendPoint = {
+        timestamp: Date.now(),
+        throughput: Number.isFinite(metrics.throughputPerMinute) ? metrics.throughputPerMinute : 0,
+        latencyP95: metrics.latencyP95Ms ?? 0,
+        errorCount: metrics.windowErrorCount,
+      };
+      const lastPoint = prev.at(-1);
+      if (
+        lastPoint &&
+        lastPoint.throughput === nextPoint.throughput &&
+        lastPoint.latencyP95 === nextPoint.latencyP95 &&
+        lastPoint.errorCount === nextPoint.errorCount
+      ) {
+        return prev;
+      }
+      const nextHistory = [...prev, nextPoint];
+      if (nextHistory.length > 60) {
+        return nextHistory.slice(-60);
+      }
+      return nextHistory;
+    });
+  }, [metrics]);
 
   const backfillActiveSet = useCallback(async () => {
     if (!service || !activeEmbeddingSetId) return;
@@ -175,8 +257,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throughput,
       latencyStats,
       lastError,
+      recentErrorCount,
       backfilling,
       backfillProgress,
+      telemetryTrend,
       backfillActiveSet,
       retryFailed,
       clearQueue,
@@ -188,8 +272,10 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       throughput,
       latencyStats,
       lastError,
+      recentErrorCount,
       backfilling,
       backfillProgress,
+      telemetryTrend,
       backfillActiveSet,
       retryFailed,
       clearQueue,

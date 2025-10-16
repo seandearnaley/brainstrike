@@ -105,6 +105,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../../packages/storage
@@ -241,6 +244,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../../packages/preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../../packages/queue
       '@brainstrike/server-config':
         specifier: workspace:*
         version: link:../../packages/server-config
@@ -432,6 +438,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -587,6 +596,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -637,11 +649,45 @@ importers:
         specifier: ^5.0.8
         version: 5.0.8(@types/react@19.2.2)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
 
+  packages/embedding-worker:
+    dependencies:
+      '@huggingface/transformers':
+        specifier: ^3.7.5
+        version: 3.7.5
+      workerpool:
+        specifier: ^9.1.2
+        version: 9.3.4
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.0.1
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.0(@swc/core@1.13.5)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.7.0)(@vitest/ui@3.2.4)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.0)
+
   packages/embeddings:
     dependencies:
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
@@ -871,6 +917,9 @@ importers:
       '@brainstrike/embeddings':
         specifier: workspace:*
         version: link:../embeddings
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
@@ -1086,6 +1135,68 @@ importers:
       zustand:
         specifier: ^5.0.8
         version: 5.0.8(@types/react@19.2.2)(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
+
+  packages/queue:
+    dependencies:
+      '@brainstrike/embedding-worker':
+        specifier: workspace:*
+        version: link:../embedding-worker
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@huggingface/transformers':
+        specifier: ^3.7.5
+        version: 3.7.5
+      p-queue:
+        specifier: ^7.4.1
+        version: 7.4.1
+      workerpool:
+        specifier: ^9.1.2
+        version: 9.3.4
+    devDependencies:
+      '@brainstrike/test-utils':
+        specifier: workspace:*
+        version: link:../test-utils
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.0.1
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.0(@swc/core@1.13.5)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.7.0)(@vitest/ui@3.2.4)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.0)
+
+  packages/queue-telemetry-collector:
+    dependencies:
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+    devDependencies:
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.0.1
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.0(@swc/core@1.13.5)(jiti@2.6.1)(postcss@8.5.6)(typescript@5.9.3)
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.7.0)(@vitest/ui@3.2.4)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.0)
 
   packages/server-config:
     devDependencies:
@@ -1374,6 +1485,9 @@ importers:
       '@brainstrike/preferences':
         specifier: workspace:*
         version: link:../preferences
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
@@ -1381,9 +1495,6 @@ importers:
         specifier: ^19.1.1
         version: 19.2.0
     devDependencies:
-      '@electric-sql/pglite':
-        specifier: ^0.3.10
-        version: 0.3.10
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
@@ -5918,6 +6029,9 @@ packages:
   eventemitter3@4.0.7:
     resolution: {integrity: sha512-8guHBZCwKnFhYdHr2ysuRWErTwhoN2X8XELRlrRwpmfeY2jjuUN4taQMsULKUVo1K4DvZl+0pgfyoysHxvmvEw==}
 
+  eventemitter3@5.0.1:
+    resolution: {integrity: sha512-GWkBvjiSZK87ELrYOSESUYeVIc9mvLLf/nXalMOS5dYrgZq9o5OVkbZAVM06CVxYsCwH9BDZFPlQTlPA1j4ahA==}
+
   events-intercept@2.0.0:
     resolution: {integrity: sha512-blk1va0zol9QOrdZt0rFXo5KMkNPVSp92Eju/Qz8THwKWKRKeE0T8Br/1aW6+Edkyq9xHYgYxn2QtOnUKPUp+Q==}
 
@@ -7672,6 +7786,10 @@ packages:
     resolution: {integrity: sha512-RwFpb72c/BhQLEXIZ5K2e+AhgNVmIejGlTgiB9MzZ0e93GRvqZ7uSi0dvRF7/XIXDeNkra2fNHBxTyPDGySpjQ==}
     engines: {node: '>=8'}
 
+  p-queue@7.4.1:
+    resolution: {integrity: sha512-vRpMXmIkYF2/1hLBKisKeVYJZ8S2tZ0zEAmIJgdVKP2nq0nh4qCdf8bgw+ZgKrkh71AOCaqzwbJJk1WtdcF3VA==}
+    engines: {node: '>=12'}
+
   p-retry@4.6.2:
     resolution: {integrity: sha512-312Id396EbJdvRONlngUx0NydfrIQ5lsYu0znKVUzVvArzEIt08V1qhtyESbGVd1FGX7UKtiFp5uwKZdM8wIuQ==}
     engines: {node: '>=8'}
@@ -7679,6 +7797,10 @@ packages:
   p-timeout@3.2.0:
     resolution: {integrity: sha512-rhIwUycgwwKcP9yTOOFK/AKsAopjjCakVqLHePO3CC6Mir1Z99xT+R63jZxAT5lFZLa2inS5h+ZS2GvR99/FBg==}
     engines: {node: '>=8'}
+
+  p-timeout@5.1.0:
+    resolution: {integrity: sha512-auFDyzzzGZZZdHz3BtET9VEz0SE/uMEAx7uWfGPucfzEwwe/xH0iVeZibQmANYE/hp9T2+UUZT5m+BKyrDp3Ew==}
+    engines: {node: '>=12'}
 
   p-try@2.2.0:
     resolution: {integrity: sha512-R4nPAVTAU0B9D35/Gk3uJf/7XYbQcyohSKdvAxIRSNghFl4e71hVoGnBNQz9cWaXxO2I10KTC+3jMdvvoKw6dQ==}
@@ -9324,6 +9446,9 @@ packages:
   word-wrap@1.2.5:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
+
+  workerpool@9.3.4:
+    resolution: {integrity: sha512-TmPRQYYSAnnDiEB0P/Ytip7bFGvqnSU6I2BcuSw7Hx+JSg/DsUi5ebYfc8GYaSdpuvOcEs6dXxPurOYpe9QFwg==}
 
   wrap-ansi@6.2.0:
     resolution: {integrity: sha512-r6lPcBGxZXlIcymEu7InxDMhdW0KDxpLgoFLcguasxCaJ/SOIZwINatK9KY/tf+ZrlywOKU0UDj3ATXUBfxJXA==}
@@ -14585,6 +14710,8 @@ snapshots:
 
   eventemitter3@4.0.7: {}
 
+  eventemitter3@5.0.1: {}
+
   events-intercept@2.0.0: {}
 
   eventsource-parser@3.0.6: {}
@@ -16602,6 +16729,11 @@ snapshots:
       eventemitter3: 4.0.7
       p-timeout: 3.2.0
 
+  p-queue@7.4.1:
+    dependencies:
+      eventemitter3: 5.0.1
+      p-timeout: 5.1.0
+
   p-retry@4.6.2:
     dependencies:
       '@types/retry': 0.12.0
@@ -16610,6 +16742,8 @@ snapshots:
   p-timeout@3.2.0:
     dependencies:
       p-finally: 1.0.0
+
+  p-timeout@5.1.0: {}
 
   p-try@2.2.0: {}
 
@@ -18395,6 +18529,8 @@ snapshots:
       string-width: 5.1.2
 
   word-wrap@1.2.5: {}
+
+  workerpool@9.3.4: {}
 
   wrap-ansi@6.2.0:
     dependencies:

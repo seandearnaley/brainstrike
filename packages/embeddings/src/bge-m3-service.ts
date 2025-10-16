@@ -32,6 +32,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       device: 'webgpu',
       quantized: ModelRegistryManager.shouldQuantize(defaultModel),
     };
+    this._backend.setTargetDimensions(defaultModel.dimensions);
   }
 
   /**
@@ -54,6 +55,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
       device: deviceOverride || this._config.device || 'webgpu',
       quantized: ModelRegistryManager.shouldQuantize(modelConfig),
     };
+
+    this._backend.setTargetDimensions(modelConfig.dimensions);
 
     this._currentModelKey = key;
     this._currentModelConfig = modelConfig;
@@ -84,6 +87,13 @@ export class SimpleEmbeddingService implements EmbeddingService {
 
     if (config) {
       this._config = { ...this._config, ...config };
+    }
+
+    const maybeModelConfig = (config as { modelConfig?: ModelConfig | undefined })?.modelConfig;
+    if (maybeModelConfig?.dimensions) {
+      this._backend.setTargetDimensions(maybeModelConfig.dimensions);
+    } else if (this._currentModelConfig) {
+      this._backend.setTargetDimensions(this._currentModelConfig.dimensions);
     }
 
     try {

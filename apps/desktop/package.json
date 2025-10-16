@@ -43,6 +43,7 @@
     "@brainstrike/file-explorer-ui": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",

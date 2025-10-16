@@ -1,21 +1,34 @@
 /// <reference types="vitest" />
 /// <reference types="@testing-library/jest-dom" />
 
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const poolConfig = {
+  pool: 'forks' as const,
+  poolOptions: {
+    forks: {
+      minForks: 1,
+      maxForks: 1,
+      singleFork: true,
+      execArgv: ['--max-old-space-size=8192'],
+    },
+  },
+};
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
-    pool: 'threads',
-    poolOptions: {
-      threads: {
-        maxThreads: 2,
-      },
-    },
+    ...poolConfig,
     coverage: {
+      enabled: (process.env['COVERAGE'] ?? '').toLowerCase() === 'true',
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
@@ -34,6 +47,14 @@ export default defineConfig({
         branches: 60,
         statements: 70,
       },
+    },
+  },
+  resolve: {
+    alias: {
+      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
+      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+      '@brainstrike/preferences': resolve(__dirname, '../preferences/src/index.ts'),
     },
   },
 });

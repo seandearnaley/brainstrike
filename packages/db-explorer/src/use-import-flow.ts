@@ -4,6 +4,7 @@ import type {
   FileChunkRepository,
 } from '@brainstrike/db';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
+import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
@@ -23,6 +24,7 @@ export interface UseImportFlowOptions {
   onChunkRepositoryChange?: (
     repository: FileChunkRepository | ElectronFileChunkRepository | null
   ) => void;
+  embeddingQueue?: QueueAdapter | null;
 }
 
 export interface UseImportFlowResult {
@@ -40,6 +42,7 @@ export function useImportFlow({
   toast,
   onImportComplete,
   onChunkRepositoryChange,
+  embeddingQueue,
 }: UseImportFlowOptions): UseImportFlowResult {
   const [showImportProgress, setShowImportProgress] = useState(false);
   const { fileContents, fileTree } = useFileExplorer();
@@ -76,6 +79,7 @@ export function useImportFlow({
     ...(importSettings.selectedModel ? { embeddingModel: importSettings.selectedModel } : {}),
     chunkSize: importSettings.chunkSize,
     chunkOverlap: importSettings.chunkOverlap,
+    embeddingQueue: embeddingQueue ?? null,
   });
 
   useEffect(() => {

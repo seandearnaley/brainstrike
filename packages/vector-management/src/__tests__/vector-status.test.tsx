@@ -45,7 +45,6 @@ vi.mock('@brainstrike/db', async () => {
 
 describe('VectorStatus', () => {
   beforeEach(() => {
-    // @ts-expect-error process may not exist in some environments
     process.env = { ...(process.env || {}), EMBED_QUEUE_ENABLED: 'false' };
   });
 

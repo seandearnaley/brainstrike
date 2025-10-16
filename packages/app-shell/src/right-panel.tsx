@@ -1,3 +1,4 @@
+import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
 import { Brain, Database, MessageCircle, Search } from 'lucide-react';
 import type { ReactElement } from 'react';
@@ -11,7 +12,11 @@ import {
   useRightPanelStore,
 } from './stores/right-panel-store';
 
-export function RightPanel(): ReactElement {
+interface RightPanelProps {
+  embeddingQueue?: QueueAdapter | null;
+}
+
+export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactElement {
   const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
   const setActiveTab = useRightPanelStore((state) => state.setActiveTab);
 
@@ -59,7 +64,7 @@ export function RightPanel(): ReactElement {
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
-            <DatabaseTab />
+            <DatabaseTab embeddingQueue={embeddingQueue} />
           </TabsContent>
         </div>
       </Tabs>

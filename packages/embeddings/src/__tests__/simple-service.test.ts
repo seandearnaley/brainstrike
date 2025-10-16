@@ -22,6 +22,7 @@ vi.mock('../transformers-backend', () => {
       this._inited = false;
       this._device = null;
     }
+    setTargetDimensions() {}
   }
   return { TransformersBackend: MockBackend };
 });

@@ -50,6 +50,39 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
           </div>
         </div>
       )}
+      {progress.queueProgress && (
+        <div className="mt-2 p-2 rounded text-xs bg-muted border">
+          <div className="flex justify-between items-center">
+            <span className="text-foreground">Embedding Queue</span>
+            <span>
+              {progress.queueProgress.processed + progress.queueProgress.failed}/
+              {progress.queueProgress.totalQueued}
+            </span>
+          </div>
+          <div className="text-muted-foreground mt-1">
+            Pending: {progress.queueProgress.pending} · Failed: {progress.queueProgress.failed}
+          </div>
+          {progress.queueProgress.lastEvent && (
+            <div className="text-muted-foreground mt-1">
+              Last: {progress.queueProgress.lastEvent.status} ·{' '}
+              {progress.queueProgress.lastEvent.model}
+              {typeof progress.queueProgress.lastEvent.elapsedMs === 'number'
+                ? ` (${progress.queueProgress.lastEvent.elapsedMs}ms)`
+                : ''}
+            </div>
+          )}
+          {progress.queueProgress.lastEvent?.errorMessage && (
+            <div className="text-[11px] text-destructive mt-1">
+              {progress.queueProgress.lastEvent.errorMessage}
+            </div>
+          )}
+          {progress.queueProgress.lastError && !progress.queueProgress.lastEvent?.errorMessage && (
+            <div className="text-[11px] text-destructive mt-1">
+              {progress.queueProgress.lastError}
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 }

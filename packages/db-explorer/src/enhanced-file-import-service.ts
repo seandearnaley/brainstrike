@@ -18,7 +18,12 @@ import type {
   EnhancedImportResult,
   SqlExecutorPort,
 } from '@brainstrike/file-import';
-import { runEnhancedImport } from '@brainstrike/file-import';
+import {
+  createBrowserEmbeddingQueuePort,
+  type QueueProgressEventDetail,
+  runEnhancedImport,
+} from '@brainstrike/file-import';
+import type { QueueAdapter } from '@brainstrike/queue';
 import type { IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import {
@@ -46,6 +51,7 @@ interface EnhancedFileImportOptions {
   embeddingModel?: string;
   chunkSize?: number;
   chunkOverlap?: number;
+  embeddingQueue?: QueueAdapter | null;
 }
 
 interface EnhancedFileImportServiceReturn {
@@ -179,7 +185,66 @@ export function useEnhancedFileImportService(
     },
   });
 
-  const queuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+  const browserQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+    if (!options.embeddingQueue || !chunkRepository) {
+      return null;
+    }
+
+    return createBrowserEmbeddingQueuePort({
+      queue: options.embeddingQueue,
+      chunkRepository,
+    });
+  }, [chunkRepository, options.embeddingQueue]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !browserQueuePort) {
+      return;
+    }
+
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<QueueProgressEventDetail | undefined>;
+      const detail = custom.detail;
+      if (!detail) {
+        return;
+      }
+
+      setProgress((prev) => {
+        if (!prev) {
+          return prev;
+        }
+
+        const next: EnhancedImportProgress = {
+          ...prev,
+          queueProgress: {
+            pending: detail.pending,
+            processed: detail.processed,
+            failed: detail.failed,
+            totalQueued: detail.totalQueued,
+            lastError: detail.lastError,
+            lastEvent: {
+              chunkId: detail.chunkId,
+              status: detail.status,
+              model: detail.model,
+              ...(detail.elapsedMs !== undefined ? { elapsedMs: detail.elapsedMs } : {}),
+              ...(detail.errorMessage ? { errorMessage: detail.errorMessage } : {}),
+            },
+          },
+        };
+
+        return next;
+      });
+    };
+
+    window.addEventListener('brainstrike:queue-progress', handler as EventListener);
+    return () => {
+      window.removeEventListener('brainstrike:queue-progress', handler as EventListener);
+    };
+  }, [browserQueuePort]);
+
+  const jobQueuePort = useMemo<EmbeddingJobQueuePort | null>(() => {
+    if (browserQueuePort) {
+      return null;
+    }
     if (!embedQueueEnabled || !db) {
       return null;
     }
@@ -189,7 +254,6 @@ export function useEnhancedFileImportService(
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
 
-        // Validate chunks before enqueueing
         for (const chunk of chunks) {
           if (!chunk.id || !chunk.contentHash) {
             logger.error('Invalid chunk data: missing required fields', {
@@ -197,7 +261,7 @@ export function useEnhancedFileImportService(
               hasContentHash: !!chunk.contentHash,
               fileRecordId,
             });
-            continue; // Skip invalid chunks
+            continue;
           }
 
           const dedupeKey = `${chunk.id}:${chunk.embeddingSetId ?? 'none'}:${chunk.contentHash}`;
@@ -214,7 +278,9 @@ export function useEnhancedFileImportService(
         }
       },
     } satisfies EmbeddingJobQueuePort;
-  }, [db, embedQueueEnabled]);
+  }, [browserQueuePort, db, embedQueueEnabled]);
+
+  const queuePort = browserQueuePort ?? jobQueuePort;
 
   const sqlPort = useMemo<SqlExecutorPort | null>(() => {
     if (!db) {

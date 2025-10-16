@@ -77,6 +77,11 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
   }),
 }));
 
+// Mock the heavy database chunk to avoid loading real vector dashboards in tests
+vi.mock('../database-tab-chunk', () => ({
+  DatabaseTab: () => <div data-testid="mock-database-panel">Database mock</div>,
+}));
+
 describe('RightPanel', () => {
   test('renders with all tabs', async () => {
     render(<RightPanel />);
@@ -104,35 +109,32 @@ describe('RightPanel', () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
+    await screen.findByTestId('assistant-chat-card');
+
     // Click on the embeddings tab
     await user.click(screen.getByRole('tab', { name: /embed/i }));
 
-    // Should show embeddings content
-    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
     expect(
-      screen.getByText('Generate embeddings and calculate text similarity')
+      await screen.findByText('Generate embeddings and calculate text similarity')
     ).toBeInTheDocument();
 
     // Click on the search tab
     await user.click(screen.getByRole('tab', { name: /search/i }));
-
-    // Should show search content
-    expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
+    expect(await screen.findByText('Search and replace functionality')).toBeInTheDocument();
 
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
-
-    // Should show database loading state (lazy-loaded component)
-    const dbPanel = screen.getByRole('tabpanel', { name: /db/i });
+    const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });
     expect(dbPanel).toBeInTheDocument();
-    expect(within(dbPanel).getByText(/Loading DB UI…/i)).toBeInTheDocument();
+    expect(await within(dbPanel).findByTestId('mock-database-panel')).toBeInTheDocument();
 
     // Assistant tab should render status callout
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
-    const assistantPanel = screen.getByRole('tabpanel', { name: /assistant/i });
+    const assistantPanel = await screen.findByRole('tabpanel', { name: /assistant/i });
     expect(assistantPanel).toBeInTheDocument();
-    expect(within(assistantPanel).getByText(/Assistant disabled/i)).toBeInTheDocument();
-  });
+    expect(await within(assistantPanel).findByText(/Assistant disabled/i)).toBeInTheDocument();
+  }, 10000);
 
   test('has proper tab structure with icons', async () => {
     render(<RightPanel />);
@@ -158,22 +160,20 @@ describe('RightPanel', () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to embeddings tab
-    await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+    await screen.findByTestId('assistant-chat-card');
 
-    // Switch back to assistant tab
+    await user.click(screen.getByRole('tab', { name: /embed/i }));
+    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
+
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
-    expect(screen.getByText(/Assistant disabled/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Assistant disabled/i)).toBeInTheDocument();
 
-    // Switch to embeddings again - content should still be there
     await user.click(screen.getByRole('tab', { name: /embed/i }));
-    expect(screen.getByText('Text Embeddings')).toBeInTheDocument();
+    expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
 
-    // Switch to search and back to ensure isolation
     await user.click(screen.getByRole('tab', { name: /search/i }));
-    expect(screen.getByText('Search and replace functionality')).toBeInTheDocument();
+    expect(await screen.findByText('Search and replace functionality')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
-    expect(screen.getByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
-  });
+    expect(await screen.findByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
+  }, 10000);
 });

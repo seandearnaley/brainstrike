@@ -26,6 +26,7 @@
   "dependencies": {
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*"
   },

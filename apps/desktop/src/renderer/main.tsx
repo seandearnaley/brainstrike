@@ -1,6 +1,7 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import {
   applyLoggingPreferences,
   initializeLogging,
@@ -55,6 +56,41 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unsubscribeLoggingPreferences();
   });
+}
+
+const telemetryEndpoint = import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT;
+const rendererTelemetrySink =
+  typeof window !== 'undefined' && telemetryEndpoint
+    ? initializeQueueTelemetrySink({
+        endpoint: telemetryEndpoint,
+        ...(import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY
+          ? { apiKey: import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY }
+          : {}),
+        runtime: 'electron-renderer',
+        metadata: {
+          app: 'desktop-renderer',
+          mode: import.meta.env.MODE,
+          version: import.meta.env.VITE_APP_VERSION ?? 'desktop-renderer',
+        },
+      })
+    : null;
+
+if (rendererTelemetrySink) {
+  const flushTelemetry = () => {
+    void rendererTelemetrySink.flush();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushTelemetry);
+  }
+
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', flushTelemetry);
+      }
+      void rendererTelemetrySink.dispose();
+    });
+  }
 }
 
 declare global {

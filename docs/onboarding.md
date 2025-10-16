@@ -66,7 +66,7 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `2.5.6`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
+  - **Turborepo `2.5.8`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
   - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
@@ -78,7 +78,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **React Router**: Handles client-side routing. (Setup likely in `apps/web/src/main.tsx` or similar)
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
-  - **Vitest `3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.config.ts`](./vitest.config.ts))
+  - **Vitest `^3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.config.ts`](./vitest.config.ts))
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
@@ -138,7 +138,7 @@ Biome enforces linting rules and code formatting. The root config extends the sh
   - `suspicious/noExplicitAny`: `warn` (Discouraged, aim to eliminate)
   - `style/useConst`: `error`
   - `style/useTemplate`: `error`
-  - `style/useNamingConvention`: `error` (strictCase=false, enumMember=CONSTANT_CASE)
+  - `style/useNamingConvention`: `error` for source code (kebab-case files), but selectively disabled for test files, config files, and E2E directories to allow flexibility (e.g., PascalCase for test fixtures, uppercase for environment variables)
   - `style/useFilenamingConvention`: `error` (strictCase=true, filenames=`kebab-case`)
 - **Ignored Files**: `node_modules`, `dist`, `build`, `coverage`, `playwright-report`, `test-results`.
 
@@ -158,11 +158,15 @@ TypeScript ensures type safety. The root config sets up path aliases and referen
 
 ### 5.3 Commit Messages (`commitlint.config.ts`)
 
-Commit messages must follow the Conventional Commits specification (e.g., `feat: add user login`, `fix: resolve validation bug`, `refactor(auth): improve token handling`). This is enforced by Commitlint via a Lefthook-managed `commit-msg` hook.
-- **Types Allowed**: `feat`, `fix`, `build`, `chore`, `ci`, `docs`, `style`, `refactor`, `perf`, `test`, etc.
-- **Scope**: Optional scope can be provided (e.g., `feat(api): ...`).
-- **Subject**: Must be lowercase, concise, and not end with a period.
-- **Body/Footer**: Optional for more details or breaking changes/issue references.
+Commit messages are configured with **liberal rules** to reduce friction. Type prefixes and scopes are **optional**:
+
+- **Flexible Format**: You can write commits as simple as `"Update README"` or follow conventional format `feat(auth): add login`
+- **No Required Type**: Type prefixes (`feat`, `fix`, `build`, etc.) are not enforced
+- **No Required Scope**: Scopes like `(auth)` are optional
+- **Subject**: Should be concise and clear
+- **Body/Footer**: Optional for more details or breaking changes/issue references
+
+This flexibility encourages developers to commit more frequently without worrying about format, while still supporting conventional commits for those who prefer the structure. For more details, see [`commitlint.config.ts`](../commitlint.config.ts).
 
 ---
 

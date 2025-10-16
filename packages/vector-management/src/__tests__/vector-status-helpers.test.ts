@@ -1,4 +1,3 @@
-import type { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
 
 // Mock heavy modules before importing the module under test
@@ -6,17 +5,21 @@ vi.mock('@brainstrike/ui', () => ({}));
 vi.mock('@brainstrike/embeddings', () => ({ TransformersBackend: { getBestDevice: () => 'cpu' } }));
 vi.mock('@brainstrike/db', () => ({ usePGliteDatabase: () => null, useFactoryReset: () => null }));
 
-import { handleQueueStateChange, withTransaction } from '../vector-status/vector-queue-service';
+import {
+  handleQueueStateChange,
+  type VectorQueueDatabase,
+  withTransaction,
+} from '../vector-status/vector-queue-service';
 
 describe('vector-status helpers', () => {
   it('withTransaction commits on success and rolls back on error', async () => {
     const calls: string[] = [];
-    const db = {
+    const db: VectorQueueDatabase = {
       query: async (sql: string) => {
         calls.push(sql);
         return { rows: [] };
       },
-    } as Partial<PGlite> as PGlite;
+    };
 
     await withTransaction(db, async () => {
       calls.push('BODY');

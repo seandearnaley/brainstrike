@@ -14,13 +14,18 @@ import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 const logger = createLogger('FileImport:Enhanced');
 
 // Cache for embedding set lookups to avoid repeated database queries
-const embeddingSetCache = new Map<string, string>();
+const EMBEDDING_SET_CACHE_LIMIT = 200;
+const embeddingSetCache = new Map<string, { modelKey: string }>();
 
 export interface EmbeddingJobQueuePort {
   enqueueBatch(
     chunks: FileChunk[],
     fileRecordId: string,
-    options?: { transaction?: IDatabase | null }
+    options?: {
+      transaction?: IDatabase | null;
+      model?: string | null;
+      targetEmbeddingSetId?: string | null;
+    }
   ): Promise<void>;
 }
 
@@ -106,9 +111,9 @@ async function resolveModelKeyFromTargetSet(
     return undefined;
   }
 
-  const cachedModelKey = embeddingSetCache.get(targetSetId);
-  if (cachedModelKey) {
-    return cachedModelKey;
+  const cachedEntry = embeddingSetCache.get(targetSetId);
+  if (cachedEntry) {
+    return cachedEntry.modelKey;
   }
 
   try {
@@ -121,7 +126,13 @@ async function resolveModelKeyFromTargetSet(
       return undefined;
     }
 
-    embeddingSetCache.set(targetSetId, fetchedModelKey);
+    embeddingSetCache.set(targetSetId, { modelKey: fetchedModelKey });
+    if (embeddingSetCache.size > EMBEDDING_SET_CACHE_LIMIT) {
+      const [oldestKey] = embeddingSetCache.keys();
+      if (oldestKey) {
+        embeddingSetCache.delete(oldestKey);
+      }
+    }
     return fetchedModelKey;
   } catch {
     return undefined;
@@ -181,35 +192,26 @@ function buildChunkingOptions(
   } = config;
   const options: Parameters<typeof processChunking>[2] = {
     updateProgress: update,
-    embedQueueEnabled: Boolean(queuePort),
+    embedQueueEnabled: false,
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
     streamBatchSize: chunking.streamBatchSize ?? 250,
   };
 
-  if (chunking.strategy !== undefined) {
-    options.chunkingStrategy = chunking.strategy;
+  const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModel);
+  if (queueActive) {
+    options.embedQueueEnabled = true;
   }
-  if (chunking.chunkSize !== undefined) {
-    options.chunkSize = chunking.chunkSize;
-  }
-  if (chunking.chunkOverlap !== undefined) {
-    options.chunkOverlap = chunking.chunkOverlap;
-  }
-  if (chunking.streamBatchSize !== undefined) {
-    options.streamBatchSize = chunking.streamBatchSize;
-  }
-  if (queuePort) {
-    options.enqueueJobsForChunks = (chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId);
-  }
-  if (runInTransaction) {
-    options.runInTransaction = runInTransaction;
-  }
-  if (queuePort && runInTransaction) {
-    options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
-      queuePort.enqueueBatch(chunks, fileRecordId, { transaction: tx });
-  }
+
+  applyChunkingConfiguration(options, chunking);
+  attachQueueOptions(options, {
+    queueActive,
+    queuePort,
+    runInTransaction,
+    embedding,
+    embeddingModel,
+    targetSetId,
+  });
   if (embedding?.enabled !== undefined) {
     options.enableEmbedding = embedding.enabled;
   }
@@ -228,6 +230,66 @@ function buildChunkingOptions(
   }
 
   return options;
+}
+
+type QueueOptionParams = {
+  readonly queueActive: boolean;
+  readonly queuePort: EmbeddingJobQueuePort | null;
+  readonly runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
+  readonly embedding: EmbeddingConfiguration | undefined;
+  readonly embeddingModel: string | undefined;
+  readonly targetSetId: string | undefined;
+};
+
+function attachQueueOptions(
+  options: Parameters<typeof processChunking>[2],
+  params: QueueOptionParams
+): void {
+  const { queueActive, queuePort, runInTransaction, embedding, embeddingModel, targetSetId } =
+    params;
+  if (!queueActive || queuePort === null) {
+    if (embedding?.enabled && !embeddingModel) {
+      logger.warn('Embedding queue requested without a resolved model, skipping enqueue phase');
+    }
+    if (runInTransaction) {
+      options.runInTransaction = runInTransaction;
+    }
+    return;
+  }
+
+  options.enqueueJobsForChunks = (chunks, fileRecordId) =>
+    queuePort.enqueueBatch(chunks, fileRecordId, {
+      model: embeddingModel ?? null,
+      targetEmbeddingSetId: targetSetId ?? null,
+    });
+
+  if (runInTransaction) {
+    options.runInTransaction = runInTransaction;
+    options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
+      queuePort.enqueueBatch(chunks, fileRecordId, {
+        transaction: tx,
+        model: embeddingModel ?? null,
+        targetEmbeddingSetId: targetSetId ?? null,
+      });
+  }
+}
+
+function applyChunkingConfiguration(
+  options: Parameters<typeof processChunking>[2],
+  chunking: ChunkingConfiguration
+): void {
+  if (chunking.strategy !== undefined) {
+    options.chunkingStrategy = chunking.strategy;
+  }
+  if (chunking.chunkSize !== undefined) {
+    options.chunkSize = chunking.chunkSize;
+  }
+  if (chunking.chunkOverlap !== undefined) {
+    options.chunkOverlap = chunking.chunkOverlap;
+  }
+  if (chunking.streamBatchSize !== undefined) {
+    options.streamBatchSize = chunking.streamBatchSize;
+  }
 }
 
 function createCompleteProgress(
@@ -249,6 +311,9 @@ function createCompleteProgress(
     }
     if (source.embeddingProgress) {
       completed.embeddingProgress = source.embeddingProgress;
+    }
+    if (source.queueProgress) {
+      completed.queueProgress = source.queueProgress;
     }
     return completed;
   }
@@ -291,8 +356,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
       fileContents,
       onProgress(progress) {
         const enhanced = toEnhancedImportProgress(progress);
-        latestProgress = enhanced;
-        update(() => enhanced);
+        update((prev) => {
+          const nextProgress: EnhancedImportProgress = {
+            ...enhanced,
+            ...(prev?.queueProgress ? { queueProgress: prev.queueProgress } : {}),
+          };
+          latestProgress = nextProgress;
+          return nextProgress;
+        });
         emit?.(enhanced);
       },
     });
@@ -306,7 +377,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
     if (!chunking.enabled) {
       logger.info('Chunking disabled, skipping chunking phase');
       const finalProgress = createCompleteProgress(latestProgress, baseResults.length);
-      update(() => finalProgress);
+      update((prev) => {
+        const nextProgress: EnhancedImportProgress = {
+          ...finalProgress,
+          ...(prev?.queueProgress ? { queueProgress: prev.queueProgress } : {}),
+        };
+        latestProgress = nextProgress;
+        return nextProgress;
+      });
       emit?.(finalProgress);
       const mapped = baseResults.map<EnhancedImportResult>((result) => ({
         ...result,

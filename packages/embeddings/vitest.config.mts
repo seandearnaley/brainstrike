@@ -1,4 +1,9 @@
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 export default defineConfig({
   test: {
@@ -36,5 +41,11 @@ export default defineConfig({
     // Keep memory bounded by using a single forked process for tests
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
+  },
+  resolve: {
+    alias: {
+      '@brainstrike/queue': resolve(__dirname, '../queue/src/index.ts'),
+      '@brainstrike/utils': resolve(__dirname, '../utils/src/index.ts'),
+    },
   },
 });

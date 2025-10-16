@@ -2,6 +2,7 @@ import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFileSystemAdapter } from '@brainstrike/file-system';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
+import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createStorageAdapter } from '@brainstrike/storage';
 import {
   applyLoggingPreferences,
@@ -57,6 +58,47 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unsubscribeLoggingPreferences();
   });
+}
+
+const telemetryEndpoint = import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT;
+const telemetrySink =
+  typeof window !== 'undefined' && telemetryEndpoint
+    ? initializeQueueTelemetrySink({
+        endpoint: telemetryEndpoint,
+        ...(import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY
+          ? { apiKey: import.meta.env.VITE_QUEUE_TELEMETRY_API_KEY }
+          : {}),
+        runtime: 'browser',
+        metadata: {
+          app: 'web',
+          mode: import.meta.env.MODE,
+          version: import.meta.env.VITE_APP_VERSION ?? 'dev',
+        },
+      })
+    : null;
+
+if (telemetrySink) {
+  const flushTelemetry = () => {
+    void telemetrySink.flush();
+  };
+  if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', flushTelemetry);
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', flushTelemetry);
+  }
+
+  if (import.meta.hot) {
+    import.meta.hot.dispose(() => {
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', flushTelemetry);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('beforeunload', flushTelemetry);
+      }
+      void telemetrySink.dispose();
+    });
+  }
 }
 
 const rootElement = document.getElementById('root');

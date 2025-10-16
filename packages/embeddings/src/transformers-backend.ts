@@ -1,3 +1,5 @@
+import type { EmbeddingDType } from '@brainstrike/embedding-worker';
+import type { QueueAdapter } from '@brainstrike/queue';
 import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
 import { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
 
@@ -34,6 +36,36 @@ interface ProgressInfo {
 // Cache the imported module to avoid duplicate imports across instances
 let transformersModule: TransformersModule | null = null;
 let transformersModulePromise: Promise<TransformersModule> | null = null;
+let browserQueuePromise: Promise<QueueAdapter> | null = null;
+let customQueueFactory: null | (() => QueueAdapter | Promise<QueueAdapter>) = null;
+
+export function registerEmbeddingQueueFactory(
+  factory: () => QueueAdapter | Promise<QueueAdapter>
+): void {
+  customQueueFactory = factory;
+  browserQueuePromise = null;
+}
+
+export function resetEmbeddingQueueFactory(): void {
+  customQueueFactory = null;
+  browserQueuePromise = null;
+}
+
+function supportsWorkerQueue(): boolean {
+  return typeof window !== 'undefined' && typeof Worker !== 'undefined';
+}
+
+async function getBrowserQueue(): Promise<QueueAdapter> {
+  if (customQueueFactory) {
+    return Promise.resolve(customQueueFactory());
+  }
+  if (!browserQueuePromise) {
+    browserQueuePromise = import('@brainstrike/queue').then(({ createBrowserEmbeddingQueue }) =>
+      createBrowserEmbeddingQueue()
+    );
+  }
+  return browserQueuePromise;
+}
 
 async function getTransformersModule(): Promise<TransformersModule> {
   if (transformersModule) {
@@ -49,7 +81,7 @@ async function getTransformersModule(): Promise<TransformersModule> {
 /**
  * Determine the appropriate device for the current environment
  */
-function determineDevice(requestedDevice: string | undefined): string {
+function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm' | 'cpu' {
   if (requestedDevice === 'webgpu') {
     try {
       // Check if we're in a browser environment with WebGPU support
@@ -75,7 +107,11 @@ function determineDevice(requestedDevice: string | undefined): string {
     return typeof window === 'undefined' ? 'cpu' : 'wasm';
   }
 
-  return requestedDevice || (typeof window === 'undefined' ? 'cpu' : 'wasm');
+  const fallback = typeof window === 'undefined' ? 'cpu' : 'wasm';
+  if (requestedDevice === 'webgpu' || requestedDevice === 'wasm' || requestedDevice === 'cpu') {
+    return requestedDevice;
+  }
+  return fallback;
 }
 
 /**
@@ -100,9 +136,27 @@ export class TransformersBackend {
   }
   private _transformers: TransformersModule | null = null;
   private _pipeline: FeatureExtractionPipeline | null = null;
-  private _selectedDevice: string | null = null;
+  private _selectedDevice: 'webgpu' | 'wasm' | 'cpu' | null = null;
   private _isInitialized = false;
   private _quantized: boolean | undefined;
+  private _useWorkerQueue = false;
+  private _queue: QueueAdapter | null = null;
+  private _targetDimensions: number | null = null;
+  private _config: (EmbeddingConfig & { modelConfig?: ModelConfig }) | null = null;
+  private _selectedDType: EmbeddingDType | null = null;
+
+  private resolveDTypeForDevice(
+    device: 'webgpu' | 'wasm' | 'cpu',
+    quantized?: boolean
+  ): EmbeddingDType {
+    if (device === 'webgpu') {
+      return 'fp16';
+    }
+    if (device === 'wasm') {
+      return quantized ? 'q4' : 'fp32';
+    }
+    return 'fp32';
+  }
 
   /**
    * Initialize the backend with a model configuration
@@ -114,6 +168,44 @@ export class TransformersBackend {
     if (this._isInitialized) {
       return;
     }
+
+    this._config = { ...config };
+
+    this._selectedDevice = determineDevice(config.device);
+    this._quantized = config.quantized;
+    this._selectedDType = this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
+
+    if (supportsWorkerQueue()) {
+      try {
+        onProgress?.({
+          stage: 'processing',
+          progress: 10,
+          message: 'Preparing embedding worker queue...',
+        });
+        this._queue = await getBrowserQueue();
+        this._useWorkerQueue = true;
+        await this.warmupQueue(config);
+        this._isInitialized = true;
+        onProgress?.({
+          stage: 'ready',
+          progress: 100,
+          message: 'Model ready!',
+        });
+        return;
+      } catch (_error) {
+        this._useWorkerQueue = false;
+        this._queue = null;
+        // Fall through to local pipeline initialization
+      }
+    }
+
+    await this.createPipeline(config, onProgress);
+  }
+
+  private async createPipeline(
+    config: EmbeddingConfig & { modelConfig?: ModelConfig },
+    onProgress?: (progress: EmbeddingProgress) => void
+  ): Promise<void> {
     onProgress?.({
       stage: 'downloading',
       progress: 0,
@@ -169,11 +261,15 @@ export class TransformersBackend {
     };
 
     // Add device configuration based on environment
-    this._selectedDevice = determineDevice(config.device);
-    this._quantized = config.quantized;
-    pipelineConfig.device = this._selectedDevice;
-    // Explicit dtype to avoid default warnings and ensure deterministic precision
-    pipelineConfig.dtype = this._quantized ? 'q8' : 'fp32';
+    const resolvedDevice = (this._selectedDevice ?? determineDevice(config.device)) as
+      | 'webgpu'
+      | 'wasm'
+      | 'cpu';
+    this._selectedDevice = resolvedDevice;
+    pipelineConfig.device = resolvedDevice;
+    const dtype = this.resolveDTypeForDevice(resolvedDevice, this._quantized);
+    this._selectedDType = dtype;
+    pipelineConfig.dtype = dtype;
 
     // Try requested device, then gracefully fall back to CPU if creation fails
     try {
@@ -206,18 +302,77 @@ export class TransformersBackend {
     this._isInitialized = true;
   }
 
+  private async warmupQueue(
+    config: EmbeddingConfig & { modelConfig?: ModelConfig }
+  ): Promise<void> {
+    const queue = this._queue;
+    if (!queue) {
+      return;
+    }
+    const warmupId =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `warmup-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+    try {
+      await queue.add({
+        kind: 'embed',
+        id: warmupId,
+        model: config.modelId,
+        texts: ['.'],
+        ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
+        deviceHint:
+          this._selectedDevice === 'webgpu'
+            ? 'webgpu'
+            : this._selectedDevice === 'wasm'
+              ? 'wasm'
+              : 'auto',
+        dtype: this._selectedDType ?? 'fp16',
+        maxBatchSize: 1,
+      });
+    } catch {
+      // Warm-up is best effort; ignore failures
+    }
+  }
+
+  private async ensureLocalPipeline(modelId: string): Promise<FeatureExtractionPipeline> {
+    if (!this._pipeline) {
+      const fallbackConfig = {
+        ...(this._config ?? {}),
+        modelId,
+      } as EmbeddingConfig & { modelConfig?: ModelConfig };
+      if (!fallbackConfig.device && this._selectedDevice) {
+        fallbackConfig.device = this._selectedDevice;
+      }
+      if (fallbackConfig.quantized === undefined && typeof this._quantized === 'boolean') {
+        fallbackConfig.quantized = this._quantized;
+      }
+      await this.createPipeline(fallbackConfig, undefined);
+    }
+    if (!this._pipeline) {
+      throw new Error('Failed to initialize embedding pipeline');
+    }
+    return this._pipeline;
+  }
+
   /**
    * Generate embedding for a given text
    */
   async generateEmbedding(text: string, modelId: string): Promise<EmbeddingResult> {
-    if (!this._isInitialized || !this._pipeline) {
+    if (!this._isInitialized) {
       throw new Error('Backend not initialized. Call initialize() first.');
     }
+
+    const maybeQueueResult = await this.tryGenerateWithQueue(text, modelId);
+    if (maybeQueueResult) {
+      return maybeQueueResult;
+    }
+
+    const pipeline = await this.ensureLocalPipeline(modelId);
     // Use the feature extraction pipeline with proper options
     let output: { data: Float32Array };
     const maxLen = getMaxLengthFromModelId(modelId);
     try {
-      output = await this._pipeline(text, {
+      output = await pipeline(text, {
         pooling: 'mean',
         normalize: true,
         truncate: true,
@@ -228,7 +383,9 @@ export class TransformersBackend {
       const fallbackDevice = determineDevice('cpu');
       if (this._transformers && this._selectedDevice !== fallbackDevice) {
         this._selectedDevice = fallbackDevice;
-        const cfg: PipelineConfig = { device: fallbackDevice };
+        const dtype = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
+        this._selectedDType = dtype;
+        const cfg: PipelineConfig = { device: fallbackDevice, dtype };
         if (typeof this._quantized === 'boolean') cfg.quantized = this._quantized;
         this._pipeline = await this._transformers.pipeline('feature-extraction', modelId, cfg);
         output = await this._pipeline(text, {
@@ -253,11 +410,93 @@ export class TransformersBackend {
     };
   }
 
+  private async tryGenerateWithQueue(
+    text: string,
+    modelId: string
+  ): Promise<EmbeddingResult | null> {
+    if (!this._useWorkerQueue) {
+      return null;
+    }
+    try {
+      const queue = await this.ensureQueue();
+      const response = await queue.add({
+        kind: 'embed',
+        id: this.createTaskId(),
+        model: modelId,
+        texts: [text],
+        ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
+        deviceHint: this.resolveDeviceHint(),
+        dtype: this.resolveQueueDType(),
+        maxBatchSize: 1,
+      });
+      const vector = response.vectors[0];
+      if (!vector) {
+        throw new Error('Embedding worker returned no vectors');
+      }
+      const embedding = Array.from(vector);
+      const dimensions = response.metadata.dimensions ?? embedding.length;
+      TransformersBackend._inferenceCount += 1;
+      return {
+        embedding,
+        dimensions,
+        model: modelId,
+      };
+    } catch {
+      this._useWorkerQueue = false;
+      this._queue = null;
+      return null;
+    }
+  }
+
+  private async ensureQueue(): Promise<QueueAdapter> {
+    if (this._queue) {
+      return this._queue;
+    }
+    const queue = await getBrowserQueue();
+    this._queue = queue;
+    return queue;
+  }
+
+  private createTaskId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return `embed-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
+  }
+
+  private resolveDeviceHint(): 'webgpu' | 'wasm' | 'auto' {
+    if (this._selectedDevice === 'webgpu') {
+      return 'webgpu';
+    }
+    if (this._selectedDevice === 'wasm') {
+      return 'wasm';
+    }
+    return 'auto';
+  }
+
+  private resolveQueueDType(): EmbeddingDType {
+    return (
+      this._selectedDType ??
+      this.resolveDTypeForDevice(this._selectedDevice ?? 'wasm', this._quantized)
+    );
+  }
+
   /**
    * Get the selected device for inference
    */
   getSelectedDevice(): string | null {
     return this._selectedDevice;
+  }
+
+  /**
+   * Provide downstream consumers with the target embedding dimensionality for truncation and metadata.
+   */
+  setTargetDimensions(dimensions: number | null): void {
+    if (typeof dimensions === 'number' && Number.isFinite(dimensions) && dimensions > 0) {
+      this._targetDimensions = Math.floor(dimensions);
+    } else {
+      this._targetDimensions = null;
+    }
   }
 
   /**

@@ -8,7 +8,9 @@ import {
 describe('vector-queue-service', () => {
   it('refresh aggregates queue metrics and latency', async () => {
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
-      getQueueStats: vi.fn(async () => [{ queued: 1, running: 2, failed: 3, succeeded: 4 }]),
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 1, running: 2, failed: 3, succeeded: 4 },
+      ]),
       enqueue: vi.fn(),
       clear: vi.fn(),
       requeueFailed: vi.fn(),
@@ -18,10 +20,10 @@ describe('vector-queue-service', () => {
     const db: VectorQueueDatabase = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes('COUNT')) {
-          return { rows: [{ count: '3' }] };
+          return { rows: [{ count: '3' }] } as { rows: unknown[] };
         }
         if (sql.includes('SELECT error')) {
-          return { rows: [{ error: 'failure' }] };
+          return { rows: [{ error: 'failure' }] } as { rows: unknown[] };
         }
         if (sql.includes('run_at AS')) {
           return {
@@ -35,10 +37,10 @@ describe('vector-queue-service', () => {
                 updatedAt: new Date(now - 500).toISOString(),
               },
             ],
-          };
+          } as { rows: unknown[] };
         }
-        return { rows: [] };
-      }),
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {
@@ -66,11 +68,25 @@ describe('vector-queue-service', () => {
   });
 
   it('backfill enqueues chunks with dedupe keys', async () => {
-    const enqueueCalls: Array<{ dedupeKey: string }> = [];
+    const enqueueCalls: Array<{ dedupeKey?: string }> = [];
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
-      getQueueStats: vi.fn(async () => [{ queued: 2, running: 1, failed: 0, succeeded: 5 }]),
-      enqueue: vi.fn(async (payload: { dedupeKey: string }) => {
-        enqueueCalls.push({ dedupeKey: payload.dedupeKey });
+      getQueueStats: vi.fn(async () => [
+        { queue: 'embeddings', queued: 2, running: 1, failed: 0, succeeded: 5 },
+      ]),
+      enqueue: vi.fn(async (params) => {
+        enqueueCalls.push({ dedupeKey: params.dedupeKey });
+        return {
+          id: '1',
+          queue: params.queue,
+          jobType: params.jobType,
+          state: 'queued' as const,
+          runAt: new Date().toISOString(),
+          attempts: 0,
+          max_attempts: 5,
+          backoff_ms: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
       }),
       clear: vi.fn(),
       requeueFailed: vi.fn(),
@@ -86,10 +102,10 @@ describe('vector-queue-service', () => {
               { id: '1', fileRecordId: '10', contentHash: 'aa' },
               { id: '2', fileRecordId: '11', contentHash: 'bb' },
             ],
-          };
+          } as { rows: unknown[] };
         }
-        return { rows: [] };
-      }),
+        return { rows: [] } as { rows: unknown[] };
+      }) as VectorQueueDatabase['query'],
     };
 
     const chunkRepository: VectorQueueServiceDependencies['chunkRepository'] = {

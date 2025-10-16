@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { type MockFileEntry, MockFileSystemAdapter } from '../adapters/mock-file-system-adapter';
 import type { FileHandle } from '../types';
 
+function expectDefined<T>(value: T | undefined, message: string): T {
+  expect(value, message).toBeDefined();
+  if (value === undefined) {
+    throw new Error(message);
+  }
+  return value;
+}
+
 describe('MockFileSystemAdapter', () => {
   let adapter: MockFileSystemAdapter;
 
@@ -184,9 +192,12 @@ describe('MockFileSystemAdapter', () => {
 
       const entries = await adapter.readDirectory(handle);
 
+      expect(entries.length).toBeGreaterThan(0);
+      const firstEntry = expectDefined(entries[0], 'expected directory entry at index 0');
+
       // First entry should be the directory 'src'
-      expect(entries[0].type).toBe('directory');
-      expect(entries[0].name).toBe('src');
+      expect(firstEntry.type).toBe('directory');
+      expect(firstEntry.name).toBe('src');
 
       // Files should come after directories
       const fileEntries = entries.filter((e) => e.type === 'file');
@@ -204,14 +215,16 @@ describe('MockFileSystemAdapter', () => {
       };
 
       const entries = await adapter.readDirectory(handle);
-      const packageJson = entries.find((e) => e.name === 'package.json');
+      const packageJson = expectDefined(
+        entries.find((e) => e.name === 'package.json'),
+        'expected package.json entry'
+      );
 
-      expect(packageJson).toBeDefined();
-      expect(packageJson?.type).toBe('file');
-      expect(packageJson?.size).toBeGreaterThan(0);
-      expect(packageJson?.lastModified).toBeDefined();
-      expect(packageJson?.rootFolderId).toBe('mock-root');
-      expect(packageJson?.isVisible).toBe(true);
+      expect(packageJson.type).toBe('file');
+      expect(packageJson.size).toBeGreaterThan(0);
+      expect(packageJson.lastModified).toBeDefined();
+      expect(packageJson.rootFolderId).toBe('mock-root');
+      expect(packageJson.isVisible).toBe(true);
     });
 
     it('should set correct directory properties', async () => {
@@ -225,13 +238,15 @@ describe('MockFileSystemAdapter', () => {
       };
 
       const entries = await adapter.readDirectory(handle);
-      const srcDir = entries.find((e) => e.name === 'src');
+      const srcDir = expectDefined(
+        entries.find((e) => e.name === 'src'),
+        'expected src directory entry'
+      );
 
-      expect(srcDir).toBeDefined();
-      expect(srcDir?.type).toBe('directory');
-      expect(srcDir?.children).toEqual([]);
-      expect(srcDir?.rootFolderId).toBe('mock-root');
-      expect(srcDir?.isVisible).toBe(true);
+      expect(srcDir.type).toBe('directory');
+      expect(srcDir.children).toEqual([]);
+      expect(srcDir.rootFolderId).toBe('mock-root');
+      expect(srcDir.isVisible).toBe(true);
     });
   });
 
@@ -349,28 +364,39 @@ describe('MockFileSystemAdapter', () => {
       expect(fs).toHaveProperty('package.json');
       expect(fs).toHaveProperty('README.md');
 
-      expect(fs.src.type).toBe('directory');
-      expect(fs.src.children).toHaveProperty('index.ts');
-      expect(fs.src.children).toHaveProperty('components');
+      const srcDir = expectDefined(fs['src'], 'expected src directory');
+      expect(srcDir.type).toBe('directory');
+      const srcChildren = expectDefined(srcDir.children, 'expected src directory children');
+      expect(srcChildren).toHaveProperty('index.ts');
+      expect(srcChildren).toHaveProperty('components');
 
-      expect(fs['package.json'].type).toBe('file');
-      expect(fs['package.json'].content).toContain('test-package');
+      const packageJson = expectDefined(fs['package.json'], 'expected package.json file');
+      expect(packageJson.type).toBe('file');
+      expect(packageJson.content).toContain('test-package');
 
-      expect(fs['README.md'].type).toBe('file');
-      expect(fs['README.md'].content).toContain('# Test Project');
+      const readme = expectDefined(fs['README.md'], 'expected README.md file');
+      expect(readme.type).toBe('file');
+      expect(readme.content).toContain('# Test Project');
     });
 
     it('should create nested directory structure', () => {
       const fs = MockFileSystemAdapter.createSimpleFileSystem();
-      const components = fs.src.children?.components;
+      const srcDir = expectDefined(fs['src'], 'expected src directory');
+      const srcChildren = expectDefined(srcDir.children, 'expected src directory children');
+      const components = expectDefined(srcChildren['components'], 'expected components directory');
 
       expect(components).toBeDefined();
-      expect(components?.type).toBe('directory');
-      expect(components?.children).toHaveProperty('Button.tsx');
-      expect(components?.children).toHaveProperty('Input.tsx');
+      expect(components.type).toBe('directory');
+      const componentChildren = expectDefined(
+        components.children,
+        'expected components directory children'
+      );
+      expect(componentChildren).toHaveProperty('Button.tsx');
+      expect(componentChildren).toHaveProperty('Input.tsx');
 
-      expect(components?.children?.['Button.tsx'].type).toBe('file');
-      expect(components?.children?.['Button.tsx'].content).toContain('Button');
+      const button = expectDefined(componentChildren['Button.tsx'], 'expected Button.tsx file');
+      expect(button.type).toBe('file');
+      expect(button.content).toContain('Button');
     });
   });
 
@@ -389,13 +415,14 @@ describe('MockFileSystemAdapter', () => {
       expect(rootEntries.length).toBeGreaterThan(0);
 
       // Find and read a subdirectory
-      const srcDir = rootEntries.find((e) => e.name === 'src' && e.type === 'directory');
-      expect(srcDir).toBeDefined();
+      const srcDir = expectDefined(
+        rootEntries.find((e) => e.name === 'src' && e.type === 'directory'),
+        'expected src directory in root'
+      );
 
-      expect(srcDir).toBeDefined();
       const srcHandle = {
-        path: srcDir?.path ?? '',
-        name: srcDir?.name ?? '',
+        path: srcDir.path,
+        name: srcDir.name,
         kind: 'directory' as const,
         platform: 'web' as const,
       };
@@ -404,11 +431,12 @@ describe('MockFileSystemAdapter', () => {
       expect(srcEntries.length).toBeGreaterThan(0);
 
       // Find and read a file
-      const indexFile = srcEntries.find((e) => e.name === 'index.ts' && e.type === 'file');
-      expect(indexFile).toBeDefined();
+      const indexFile = expectDefined(
+        srcEntries.find((e) => e.name === 'index.ts' && e.type === 'file'),
+        'expected index.ts file in src'
+      );
 
-      expect(indexFile).toBeDefined();
-      const content = await adapter.readFile(indexFile?.handle as unknown as FileHandle);
+      const content = await adapter.readFile(indexFile.handle as unknown as FileHandle);
       expect(content).toContain('export');
     });
 

@@ -35,11 +35,11 @@
     "@brainstrike/db": "workspace:*",
     "@brainstrike/db-explorer": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
+    "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/ui": "workspace:*"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.3.10",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^14.6.1",

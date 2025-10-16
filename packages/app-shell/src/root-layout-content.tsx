@@ -1,21 +1,26 @@
 import { FileExplorerLeftPanel, TabbedFileEditorPanel } from '@brainstrike/file-explorer-ui';
+import type { QueueAdapter } from '@brainstrike/queue';
 import { IdeLayout, PanelLayoutProvider } from '@brainstrike/ui';
-import { useCallback, useMemo } from 'react';
+import { type ReactElement, type ReactNode, useCallback, useMemo } from 'react';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
 import { RightPanel } from './right-panel';
 import { usePanelLayoutStore } from './stores/panel-layout-store';
 import type { NavigationItem } from './types';
 
+export interface RootLayoutContentProps {
+  readonly homePageContent: ReactNode;
+  readonly settingsPageContent: ReactNode;
+  readonly navigationItems: NavigationItem[];
+  readonly embeddingQueue?: QueueAdapter | null;
+}
+
 export function RootLayoutContent({
   homePageContent,
   settingsPageContent,
   navigationItems,
-}: {
-  homePageContent: React.ReactNode;
-  settingsPageContent: React.ReactNode;
-  navigationItems: NavigationItem[];
-}) {
+  embeddingQueue = null,
+}: RootLayoutContentProps): ReactElement {
   const activeTab = usePanelLayoutStore((s) => s.activeTab);
   const setState = usePanelLayoutStore((s) => s.setState);
   const appConfig = useMemo(() => createAppConfig({ navigationItems }), [navigationItems]);
@@ -30,7 +35,10 @@ export function RootLayoutContent({
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
-  const rightPanelContent = useMemo(() => <RightPanel />, []);
+  const rightPanelContent = useMemo(
+    () => <RightPanel embeddingQueue={embeddingQueue ?? null} />,
+    [embeddingQueue]
+  );
 
   // Controlled panel layout state from store
   const panelState = usePanelLayoutStore((s) => ({

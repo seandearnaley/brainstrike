@@ -20,7 +20,9 @@
     "verbatimModuleSyntax": false,
     "types": ["node", "electron"],
     "baseUrl": ".",
-    "paths": {}
+    "paths": {
+      "@brainstrike/queue": ["../../packages/queue/src/index.ts"]
+    }
   },
   "include": [
     "src/main.ts",
