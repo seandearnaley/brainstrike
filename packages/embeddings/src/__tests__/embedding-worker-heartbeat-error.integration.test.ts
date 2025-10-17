@@ -28,6 +28,12 @@ class SlowEmbeddingService implements EmbeddingService {
     const embedding = Array.from({ length: this.dims }, (_, i) => i * 0.01);
     return { embedding, dimensions: this.dims, model: 'slow-model' };
   }
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
     return { similarity: 1, distance: 0, method: 'cosine' };
   }
@@ -46,9 +52,8 @@ describe('embedding-worker: heartbeat error logging', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    // @ts-expect-error - process.env is not available in all environments
     if (process?.env) {
-      process.env.DISABLE_VECTOR_EXTENSION = 'true';
+      process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     }
     db = await wasmLoader.createPGlite('memory://embedding-worker-hb');
     await migrate(db);

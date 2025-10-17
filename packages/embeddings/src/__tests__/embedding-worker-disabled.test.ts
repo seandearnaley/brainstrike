@@ -5,8 +5,7 @@ describe('embedding-worker disabled mode', () => {
   it('returns a no-op controller when disabled', async () => {
     const log = vi.fn();
     const controller = await startEmbeddingWorker({
-      // @ts-expect-error minimal stub with query to satisfy interface
-      db: { query: vi.fn(async () => ({ rows: [] })) },
+      db: { query: vi.fn(async () => ({ rows: [] })) } as never,
       enable: false,
       log,
     });

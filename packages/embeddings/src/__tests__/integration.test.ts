@@ -15,7 +15,7 @@ import type { EmbeddingProgress } from '../types';
 
 // Skip integration tests by default (they require model downloads)
 const SKIP_INTEGRATION =
-  !process.env.VITEST_RUN_INTEGRATION && process.env.NODE_ENV !== 'integration';
+  !process.env['VITEST_RUN_INTEGRATION'] && process.env['NODE_ENV'] !== 'integration';
 
 // Test timeout for model downloading
 const LONG_TIMEOUT = 120000; // 2 minutes
@@ -41,7 +41,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
       // Check that default model exists
       const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
       expect(models[defaultKey]).toBeDefined();
-      expect(models[defaultKey].name).toBe('Jina Code (default)');
+      expect(models[defaultKey]!.name).toBe('Jina Code (default)');
     });
 
     it('should get default model configuration', () => {
@@ -59,7 +59,8 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
 
       // Test that smaller models (≤768D) force quantization
       const jinaCode = models['jina-code'];
-      expect(ModelRegistryManager.shouldQuantize(jinaCode)).toBe(true);
+      expect(jinaCode).toBeDefined();
+      expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(true);
 
       // Test that larger models respect the quantized flag
       const bgeLarge = models['bge-large-en-v1.5'];
@@ -99,7 +100,7 @@ describe.skipIf(SKIP_INTEGRATION)('Embedding Service Integration Tests', () => {
 
         // Find a small model for faster testing
         const smallModel =
-          modelKeys.find((key) => models[key].dimensions <= 384) || 'all-MiniLM-L6-v2';
+          modelKeys.find((key) => models[key]!.dimensions <= 384) || 'all-MiniLM-L6-v2';
 
         if (models[smallModel]) {
           await service.initializeWithModel(smallModel);

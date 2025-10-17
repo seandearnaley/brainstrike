@@ -6,9 +6,9 @@ const writeFileSync = vi.fn();
 const readFileSync = vi.fn();
 const statSync = vi.fn(() => ({ size: 10 }));
 vi.mock('node:fs', () => ({
-  readFileSync: (...args: unknown[]) => readFileSync(...args),
-  writeFileSync: (...args: unknown[]) => writeFileSync(...args),
-  statSync: (...args: unknown[]) => statSync(...args),
+  readFileSync: readFileSync,
+  writeFileSync: writeFileSync,
+  statSync: statSync,
 }));
 
 // Mock glob to return a synthetic list

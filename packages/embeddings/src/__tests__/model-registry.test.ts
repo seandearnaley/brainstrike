@@ -64,11 +64,13 @@ describe('Model Registry Tests', () => {
 
       // Test jina-code (768D, should force quantization)
       const jinaCode = models['jina-code'];
-      expect(ModelRegistryManager.shouldQuantize(jinaCode)).toBe(true);
+      expect(jinaCode).toBeDefined();
+      expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(true);
 
       // Test all-MiniLM-L6-v2 (384D, should force quantization)
       const miniLM = models['all-MiniLM-L6-v2'];
-      expect(ModelRegistryManager.shouldQuantize(miniLM)).toBe(true);
+      expect(miniLM).toBeDefined();
+      expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(true);
 
       // Test BGE-Large (1024D, should respect quantized flag)
       const bgeLarge = models['bge-large-en-v1.5'];
