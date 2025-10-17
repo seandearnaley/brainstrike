@@ -403,6 +403,8 @@ describe('PreviewPanel Integration Tests', () => {
       return `${size.toFixed(1)} ${units[unitIndex]}`;
     }),
     loadingFiles: new Set<string>(),
+    expandAllFolders: vi.fn(),
+    collapseAllFolders: vi.fn(),
     flatListItems: Array.from({ length: fileCount }, (_, i) => ({
       type: 'file' as const,
       compositeKey: `file${i}`,

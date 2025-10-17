@@ -185,12 +185,14 @@ describe('useFileImportService', () => {
   describe('File tree import', () => {
     it('should import files from file tree when no cached content', async () => {
       const mockFileNode: IFileNode = {
-        id: '1',
         name: 'test.txt',
         path: '/test/path',
         type: 'file',
         size: 100,
-        handle: { platform: 'web' },
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'test-folder',
+        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
       };
 
       // Re-mock to return our file node
@@ -220,12 +222,14 @@ describe('useFileImportService', () => {
 
     it('should handle file read errors', async () => {
       const mockFileNode: IFileNode = {
-        id: '1',
         name: 'test.txt',
         path: '/test/path',
         type: 'file',
         size: 100,
-        handle: { platform: 'web' },
+        depth: 0,
+        selectionState: 'unchecked',
+        rootFolderId: 'test-folder',
+        handle: { platform: 'web' } as unknown as FileSystemFileHandle,
       };
 
       const utils = await import('@brainstrike/utils');

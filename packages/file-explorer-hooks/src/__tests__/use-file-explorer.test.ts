@@ -57,7 +57,7 @@ describe('useFileExplorer', () => {
     mockApplyFileFilters.mockReturnValue(filteredTree);
 
     // Mock useFileExplorerStore to handle individual selector calls (split selector pattern)
-    const mockStoreState: FileExplorerState = {
+    const mockStoreState: Partial<FileExplorerState> = {
       currentFolderId: null,
       folderStates: {},
       selectedFilePaths: new Set<string>(),
@@ -92,9 +92,9 @@ describe('useFileExplorer', () => {
     vi.mocked(useFileExplorerStore).mockImplementation(
       (selector?: (state: FileExplorerState) => unknown) => {
         if (typeof selector === 'function') {
-          return selector(mockStoreState);
+          return selector(mockStoreState as FileExplorerState);
         }
-        return mockStoreState;
+        return mockStoreState as FileExplorerState;
       }
     );
 

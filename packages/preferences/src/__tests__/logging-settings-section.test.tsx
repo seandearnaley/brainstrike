@@ -247,7 +247,7 @@ describe('LoggingSettingsSection', () => {
   });
 
   it('does not revert new updates when earlier commit fails later', async () => {
-    let rejectFirst: ((reason?: unknown) => void) | null = null;
+    let rejectFirst: ((reason?: unknown) => void) | undefined;
     const onCommit = vi.fn((preferences: LoggingPreferences) => {
       if (!rejectFirst) {
         return new Promise<LoggingPreferences>((_resolve, reject) => {

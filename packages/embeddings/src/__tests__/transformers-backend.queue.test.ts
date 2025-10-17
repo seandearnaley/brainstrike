@@ -79,11 +79,11 @@ describe('TransformersBackend queue integration', () => {
     expect(result.embedding[1]).toBeCloseTo(0.6, 5);
     expect(result.dimensions).toBe(2);
     expect(add).toHaveBeenCalledTimes(2);
-    const warmupCall = add.mock.calls[0]?.[0] as QueueAddCall;
-    expect(warmupCall.texts).toEqual(['.']);
-    const enqueueCall = add.mock.calls[1]?.[0] as QueueAddCall;
-    expect(enqueueCall.texts).toEqual(['queue-text']);
-    expect(enqueueCall.truncateDim).toBe(2);
+    const warmupCall = add.mock.calls[0]![0] as QueueAddCall;
+    expect((warmupCall as QueueAddCall).texts).toEqual(['.']);
+    const enqueueCall = add.mock.calls[1]![0] as QueueAddCall;
+    expect((enqueueCall as QueueAddCall).texts).toEqual(['queue-text']);
+    expect((enqueueCall as QueueAddCall).truncateDim).toBe(2);
     expect(pipelineMock).not.toHaveBeenCalled();
 
     await backend.dispose();
@@ -170,11 +170,11 @@ describe('TransformersBackend queue integration', () => {
     backend.setTargetDimensions(-10);
     await backend.generateEmbedding('second-text', 'bge-m3');
 
-    const firstCall = add.mock.calls[1]?.[0] as QueueAddCall;
-    expect(firstCall.truncateDim).toBe(3);
+    const firstCall = add.mock.calls[1]![0] as QueueAddCall;
+    expect((firstCall as QueueAddCall).truncateDim).toBe(3);
 
-    const secondCall = add.mock.calls[2]?.[0] as QueueAddCall;
-    expect(secondCall.truncateDim).toBeUndefined();
+    const secondCall = add.mock.calls[2]![0] as QueueAddCall;
+    expect((secondCall as QueueAddCall).truncateDim).toBeUndefined();
 
     await backend.dispose();
     resetEmbeddingQueueFactory();

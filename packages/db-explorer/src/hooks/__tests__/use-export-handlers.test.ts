@@ -49,8 +49,24 @@ describe('useExportHandlers', () => {
   describe('handleExportFiles', () => {
     it('exports files successfully', () => {
       const records: FileRecord[] = [
-        { id: 1, filepath: 'test1.txt', content: 'content1' } as FileRecord,
-        { id: 2, filepath: 'test2.txt', content: 'content2' } as FileRecord,
+        {
+          id: '1',
+          name: 'test1.txt',
+          path: '/test1.txt',
+          size: 8,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          content: 'content1',
+        },
+        {
+          id: '2',
+          name: 'test2.txt',
+          path: '/test2.txt',
+          size: 8,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          content: 'content2',
+        },
       ];
       const chunks: FileChunk[] = [];
 
@@ -85,7 +101,16 @@ describe('useExportHandlers', () => {
     });
 
     it('handles export errors', () => {
-      const records: FileRecord[] = [{ id: 1, filepath: 'test.txt' } as FileRecord];
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
       const chunks: FileChunk[] = [];
 
       vi.mocked(csvExportUtils.generateFilesWithChunksCSV).mockImplementation(() => {
@@ -108,8 +133,30 @@ describe('useExportHandlers', () => {
     it('exports chunks successfully', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
-        { id: 1, file_id: 1, content: 'chunk1' } as FileChunk,
-        { id: 2, file_id: 1, content: 'chunk2' } as FileChunk,
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'chunk1',
+          contentHash: 'hash1',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: '2',
+          fileRecordId: '1',
+          chunkIndex: 1,
+          content: 'chunk2',
+          contentHash: 'hash2',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
       ];
 
       const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
@@ -144,7 +191,20 @@ describe('useExportHandlers', () => {
 
     it('handles export errors', () => {
       const records: FileRecord[] = [];
-      const chunks: FileChunk[] = [{ id: 1, file_id: 1 } as FileChunk];
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: '',
+          contentHash: 'hash1',
+          tokenCount: 0,
+          chunkType: 'text',
+          chunkSize: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
 
       vi.mocked(csvExportUtils.generateChunksCSV).mockImplementation(() => {
         throw new Error('Chunk export failed');
@@ -166,8 +226,32 @@ describe('useExportHandlers', () => {
     it('exports embeddings successfully', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
-        { id: 1, file_id: 1, content: 'chunk1', embedding: [0.1, 0.2, 0.3] } as FileChunk,
-        { id: 2, file_id: 1, content: 'chunk2', embedding: [0.4, 0.5, 0.6] } as FileChunk,
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'chunk1',
+          contentHash: 'hash1',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          embedding: [0.1, 0.2, 0.3],
+        },
+        {
+          id: '2',
+          fileRecordId: '1',
+          chunkIndex: 1,
+          content: 'chunk2',
+          contentHash: 'hash2',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          embedding: [0.4, 0.5, 0.6],
+        },
       ];
 
       const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
@@ -186,7 +270,20 @@ describe('useExportHandlers', () => {
 
     it('shows error when no embeddings to export', () => {
       const records: FileRecord[] = [];
-      const chunks: FileChunk[] = [{ id: 1, file_id: 1, content: 'chunk1' } as FileChunk];
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'chunk1',
+          contentHash: 'hash1',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
 
       const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
 
@@ -203,7 +300,19 @@ describe('useExportHandlers', () => {
     it('handles export errors', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
-        { id: 1, file_id: 1, content: 'chunk1', embedding: [0.1, 0.2] } as FileChunk,
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'chunk1',
+          contentHash: 'hash1',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          embedding: [0.1, 0.2],
+        },
       ];
 
       vi.mocked(csvExportUtils.generateEmbeddingsCSV).mockImplementation(() => {
@@ -224,8 +333,31 @@ describe('useExportHandlers', () => {
     it('filters chunks without embeddings', () => {
       const records: FileRecord[] = [];
       const chunks: FileChunk[] = [
-        { id: 1, file_id: 1, content: 'chunk1' } as FileChunk,
-        { id: 2, file_id: 1, content: 'chunk2', embedding: [0.1, 0.2] } as FileChunk,
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: 'chunk1',
+          contentHash: 'hash1',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+        {
+          id: '2',
+          fileRecordId: '1',
+          chunkIndex: 1,
+          content: 'chunk2',
+          contentHash: 'hash2',
+          tokenCount: 10,
+          chunkType: 'text',
+          chunkSize: 10,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+          embedding: [0.1, 0.2],
+        },
       ];
 
       const { result } = renderHook(() => useExportHandlers(records, chunks, mockToast));
@@ -242,8 +374,30 @@ describe('useExportHandlers', () => {
 
   describe('handleExportAll', () => {
     it('exports all data as zip successfully', async () => {
-      const records: FileRecord[] = [{ id: 1, filepath: 'test.txt' } as FileRecord];
-      const chunks: FileChunk[] = [{ id: 1, file_id: 1 } as FileChunk];
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
+      const chunks: FileChunk[] = [
+        {
+          id: '1',
+          fileRecordId: '1',
+          chunkIndex: 0,
+          content: '',
+          contentHash: 'hash1',
+          tokenCount: 0,
+          chunkType: 'text',
+          chunkSize: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
 
       vi.mocked(csvExportUtils.exportAllDataAsZip).mockResolvedValue(undefined);
 
@@ -275,7 +429,16 @@ describe('useExportHandlers', () => {
     });
 
     it('handles export errors', async () => {
-      const records: FileRecord[] = [{ id: 1, filepath: 'test.txt' } as FileRecord];
+      const records: FileRecord[] = [
+        {
+          id: '1',
+          name: 'test.txt',
+          path: '/test.txt',
+          size: 0,
+          createdAt: '2025-01-01T00:00:00Z',
+          updatedAt: '2025-01-01T00:00:00Z',
+        },
+      ];
       const chunks: FileChunk[] = [];
 
       vi.mocked(csvExportUtils.exportAllDataAsZip).mockRejectedValue(

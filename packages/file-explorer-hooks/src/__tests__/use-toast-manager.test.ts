@@ -11,6 +11,8 @@ type MockLogger = {
   warn: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;
   debug: ReturnType<typeof vi.fn>;
+  trace: ReturnType<typeof vi.fn>;
+  fatal: ReturnType<typeof vi.fn>;
 };
 
 type MockToastResult = {
@@ -24,6 +26,8 @@ const mockLogger = vi.hoisted<MockLogger>(() => ({
   warn: vi.fn(),
   info: vi.fn(),
   debug: vi.fn(),
+  trace: vi.fn(),
+  fatal: vi.fn(),
 }));
 
 vi.mock('@brainstrike/ui', () => ({

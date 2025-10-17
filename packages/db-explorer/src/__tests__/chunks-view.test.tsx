@@ -12,13 +12,25 @@ function makeChunk(overrides: Partial<FileChunk> = {}): FileChunk {
     chunkIndex: 0,
     tokenCount: 10,
     createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
     content: 'hello world content',
+    contentHash: 'hash123',
+    chunkSize: 10,
     fileRecordId: 'f1',
     ...overrides,
   };
 }
 
-const records = [{ id: 'f1', name: 'file-a.txt' }];
+const records = [
+  {
+    id: 'f1',
+    name: 'file-a.txt',
+    path: '/file-a.txt',
+    size: 100,
+    createdAt: '2025-01-01T00:00:00Z',
+    updatedAt: '2025-01-01T00:00:00Z',
+  },
+];
 
 describe('ChunksView', () => {
   it('renders empty state when no chunks', () => {

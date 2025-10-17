@@ -5,7 +5,7 @@ describe('isDevEnv', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
-    process.env.NODE_ENV = undefined;
+    process.env['NODE_ENV'] = undefined;
   });
 
   it('returns a boolean value', () => {
@@ -20,7 +20,7 @@ describe('isDevEnv', () => {
   });
 
   it('falls back to NODE_ENV when import.meta.env is undefined', () => {
-    process.env.NODE_ENV = 'development';
+    process.env['NODE_ENV'] = 'development';
     expect(isDevEnv()).toBe(true);
   });
 });

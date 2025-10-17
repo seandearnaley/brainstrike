@@ -30,10 +30,10 @@ describe('Token Utilities', () => {
     });
 
     it('falls back to heuristic when worker is disabled', async () => {
-      process.env.DISABLE_TOKEN_WORKER = '1';
+      process.env['DISABLE_TOKEN_WORKER'] = '1';
       const result = await countTokensAccurate('abcd');
       expect(result).toBe(1);
-      process.env.DISABLE_TOKEN_WORKER = undefined as unknown as string;
+      process.env['DISABLE_TOKEN_WORKER'] = undefined as unknown as string;
     });
   });
 
@@ -74,14 +74,14 @@ describe('Token Utilities', () => {
 
   describe('calculateGroupTokens', () => {
     it('should sum tokens for a group of texts using the accurate method by default', async () => {
-      process.env.DISABLE_TOKEN_WORKER = '1';
+      process.env['DISABLE_TOKEN_WORKER'] = '1';
       const result = await calculateGroupTokens(['Short', 'Medium', 'Long text']);
       expect(result).toBe(7);
-      process.env.DISABLE_TOKEN_WORKER = undefined as unknown as string;
+      process.env['DISABLE_TOKEN_WORKER'] = undefined as unknown as string;
     });
 
     it('should use the heuristic method when specified', async () => {
-      const result = await calculateGroupTokens(['Short', 'Medium', 'Long text here'], true);
+      const result = await calculateGroupTokens(['Short', 'Medium', 'Long text here']);
       expect(result).toBe(8);
     });
   });

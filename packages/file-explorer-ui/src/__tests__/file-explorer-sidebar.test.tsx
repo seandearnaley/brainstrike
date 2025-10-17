@@ -31,11 +31,14 @@ describe('FileExplorerSidebar', () => {
     }),
   ];
 
-  // Create a mock directory handle with name property
+  // Create a proper DirectoryHandle with all required properties
   const mockDirectoryHandle = {
     name: 'test-directory',
-    kind: 'directory',
-  } as FileSystemDirectoryHandle;
+    kind: 'directory' as const,
+    path: '/test-directory',
+    platform: 'web' as const,
+    _internal: {} as FileSystemDirectoryHandle,
+  };
 
   const defaultProps = {
     rootDirectoryHandle: mockDirectoryHandle,

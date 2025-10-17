@@ -45,18 +45,13 @@ const TestWrapper: React.FC<{
 describe('FileExplorerMiddlePanelTabbed', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
   let useSelectionManager: typeof import('../use-selection-manager-context').useSelectionManager;
-  let _useUndoableAction: typeof import('@brainstrike/ui').useUndoableAction;
-  let _useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
     const selectionManagerModule = await import('../use-selection-manager-context');
-    const uiModule = await import('@brainstrike/ui');
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
     useSelectionManager = selectionManagerModule.useSelectionManager;
-    _useUndoableAction = uiModule.useUndoableAction;
-    _useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 
   beforeEach(async () => {
@@ -99,6 +94,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: selectedFiles,
+      selectedFilesList: Array.from(selectedFiles),
+      setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: vi.fn(),
       wouldExceedSelectionLimit: vi.fn(() => false),
     });
@@ -185,6 +182,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(),
+      selectedFilesList: [],
+      setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: mockHandleSelectionChange,
       wouldExceedSelectionLimit: vi.fn(() => false),
     });

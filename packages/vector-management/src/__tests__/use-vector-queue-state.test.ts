@@ -103,6 +103,8 @@ describe('useVectorQueueState', () => {
 
     let coverageState = { total: 10, withSet: 2 };
 
+    const backfillMock = vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 }));
+
     const service: VectorQueueService = {
       refresh: vi.fn(async () => ({
         coverage: { ...coverageState },
@@ -111,7 +113,7 @@ describe('useVectorQueueState', () => {
         lastError: null,
         latency: { avgMs: 0, p50Ms: 0, p95Ms: 0 },
       })),
-      backfill: vi.fn(async () => ({ queued: 0, running: 0, failed: 0, succeeded: 0 })),
+      backfill: backfillMock,
       retryFailed: vi.fn(),
       clearQueue: vi.fn(),
       wipeQueue: vi.fn(),
@@ -133,7 +135,7 @@ describe('useVectorQueueState', () => {
       await Promise.resolve();
     });
 
-    expect(service.backfill).toHaveBeenCalledTimes(1);
+    expect(backfillMock).toHaveBeenCalledTimes(1);
 
     // Simulate coverage reaching completion which should reset the auto-backfill guard.
     coverageState = { total: 10, withSet: 10 };
@@ -142,7 +144,7 @@ describe('useVectorQueueState', () => {
       await Promise.resolve();
     });
 
-    service.backfill.mockClear();
+    backfillMock.mockClear();
 
     // Introduce new pending chunks for the same set; auto backfill should trigger again.
     coverageState = { total: 10, withSet: 4 };
@@ -153,6 +155,6 @@ describe('useVectorQueueState', () => {
       await Promise.resolve();
     });
 
-    expect(service.backfill).toHaveBeenCalledTimes(1);
+    expect(backfillMock).toHaveBeenCalledTimes(1);
   });
 });

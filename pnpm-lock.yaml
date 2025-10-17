@@ -930,6 +930,9 @@ importers:
         specifier: workspace:*
         version: link:../utils
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.3.10
+        version: 0.3.10
       '@types/node':
         specifier: ^24.7.0
         version: 24.7.0

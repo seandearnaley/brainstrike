@@ -300,15 +300,15 @@ describe('processFileChunking', () => {
       { updateProgress: mockUpdateProgress }
     );
 
-    const progressCall = mockUpdateProgress.mock.calls[0][0];
-    const progress = progressCall({
+    const progressCall = mockUpdateProgress.mock.calls[0]?.[0];
+    const progress = progressCall?.({
       phase: 'importing',
     } as EnhancedImportProgress);
 
-    expect(progress.phase).toBe('chunking');
-    expect(progress.chunkingProgress.filesProcessed).toBe(2);
-    expect(progress.chunkingProgress.totalFiles).toBe(5);
-    expect(progress.chunkingProgress.chunksCreated).toBe(10);
+    expect(progress?.phase).toBe('chunking');
+    expect(progress?.chunkingProgress.filesProcessed).toBe(2);
+    expect(progress?.chunkingProgress.totalFiles).toBe(5);
+    expect(progress?.chunkingProgress.chunksCreated).toBe(10);
   });
 });
 
@@ -398,8 +398,8 @@ describe('processChunking', () => {
     );
 
     expect(results).toHaveLength(2);
-    expect(results[0].chunksCreated).toBe(1);
-    expect(results[1].chunksCreated).toBe(1);
+    expect(results[0]?.chunksCreated).toBe(1);
+    expect(results[1]?.chunksCreated).toBe(1);
   });
 
   it('processes embeddings when enabled', async () => {
@@ -429,8 +429,8 @@ describe('processChunking', () => {
     );
 
     expect(results).toHaveLength(1);
-    expect(results[0].error).toBe('Chunking failed: Database error');
-    expect(results[0].chunksCreated).toBe(0);
+    expect(results[0]?.error).toBe('Chunking failed: Database error');
+    expect(results[0]?.chunksCreated).toBe(0);
   });
 
   it('updates final progress correctly', async () => {
@@ -440,14 +440,14 @@ describe('processChunking', () => {
       { updateProgress: mockUpdateProgress }
     );
 
-    const lastCall = mockUpdateProgress.mock.calls[mockUpdateProgress.mock.calls.length - 1][0];
-    const progress = lastCall({
+    const lastCall = mockUpdateProgress.mock.calls[mockUpdateProgress.mock.calls.length - 1]?.[0];
+    const progress = lastCall?.({
       phase: 'chunking',
     } as EnhancedImportProgress);
 
-    expect(progress.phase).toBe('complete');
-    expect(progress.chunkingProgress.filesProcessed).toBe(1);
-    expect(progress.chunkingProgress.totalFiles).toBe(1);
+    expect(progress?.phase).toBe('complete');
+    expect(progress?.chunkingProgress.filesProcessed).toBe(1);
+    expect(progress?.chunkingProgress.totalFiles).toBe(1);
   });
 
   it('skips undefined results in array', async () => {

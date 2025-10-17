@@ -39,7 +39,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 
 const baseSettings = {
   enableChunking: true,
-  chunkingStrategy: 'sentence',
+  chunkingStrategy: 'sentence' as const,
   enableEmbedding: false,
   selectedModel: 'model-1',
   chunkSize: 512,
@@ -117,7 +117,7 @@ describe('useImportFlow', () => {
     });
 
     expect(result.current.showImportProgress).toBe(false);
-    expect(onChunkRepositoryChange).toHaveBeenCalledWith(importServiceReturn.chunkRepository);
+    expect(onChunkRepositoryChange).toHaveBeenCalledWith(importServiceReturn.chunkRepository!);
   });
 
   it('surfaces selection limit feedback via toast handler', () => {
@@ -129,6 +129,6 @@ describe('useImportFlow', () => {
     });
 
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast.mock.calls[0][0]?.title).toBe('Selection Limit Reached');
+    expect(toast.mock.calls[0]?.[0]?.title).toBe('Selection Limit Reached');
   });
 });

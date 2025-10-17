@@ -70,14 +70,14 @@ describe('createBrowserEmbeddingQueuePort', () => {
     expect(eventListener).toHaveBeenCalled();
 
     const statuses = eventListener.mock.calls.map(
-      ([detail]: [QueueProgressEventDetail]) => detail.status
+      (call) => (call[0] as QueueProgressEventDetail).status
     );
     expect(statuses).toContain('queued');
     expect(statuses).toContain('completed');
 
     const completion = eventListener.mock.calls.find(
-      ([detail]: [QueueProgressEventDetail]) => detail.status === 'completed'
-    )?.[0];
+      (call) => (call[0] as QueueProgressEventDetail).status === 'completed'
+    )?.[0] as QueueProgressEventDetail | undefined;
 
     expect(completion).toMatchObject({
       chunkId: 'chunk-1',
@@ -115,8 +115,8 @@ describe('createBrowserEmbeddingQueuePort', () => {
 
     expect(eventListener).toHaveBeenCalled();
     const errorEvent = eventListener.mock.calls.find(
-      ([detail]: [QueueProgressEventDetail]) => detail.status === 'error'
-    )?.[0];
+      (call) => (call[0] as QueueProgressEventDetail).status === 'error'
+    )?.[0] as QueueProgressEventDetail | undefined;
     expect(errorEvent).toMatchObject({
       status: 'error',
       chunkId: 'chunk-1',

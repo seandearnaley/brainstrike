@@ -36,7 +36,13 @@ describe('logging-preferences-store', () => {
     const initial = createDefaultLoggingPreferences({
       level: LogLevel.DEBUG,
       consoleLevel: LogLevel.WARN,
-      file: { enabled: true, destination: '/tmp/brain.log', level: LogLevel.ERROR },
+      file: {
+        enabled: true,
+        destination: '/tmp/brain.log',
+        level: LogLevel.ERROR,
+        append: true,
+        mkdir: true,
+      },
     });
 
     store.setPreferences(initial);
@@ -81,7 +87,7 @@ describe('logging-preferences-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage) {
+    if (!persistApi || !options?.storage || !options.name) {
       throw new Error('persist storage unavailable for test');
     }
 
@@ -103,7 +109,7 @@ describe('logging-preferences-store', () => {
       })
     );
 
-    const persistedValue = storage.getItem(options.name);
+    const persistedValue = storage.getItem(options.name)!;
     expect(persistedValue).not.toBeNull();
     if (
       !persistedValue ||
@@ -128,10 +134,10 @@ describe('logging-preferences-store', () => {
       storage.setItem(key, { state: { index }, version: 1 });
     }
 
-    const latest = storage.getItem(keys[keys.length - 1]);
+    const latest = storage.getItem(keys[keys.length - 1]!)!;
     expect(latest).not.toBeNull();
 
-    const first = storage.getItem(keys[0]);
+    const first = storage.getItem(keys[0]!);
     expect(first === null || typeof first === 'object').toBe(true);
 
     keys.forEach((key) => {
@@ -139,6 +145,6 @@ describe('logging-preferences-store', () => {
     });
 
     persistApi.clearStorage?.();
-    expect(storage.getItem(options.name)).toBeNull();
+    expect(storage.getItem(options.name)!).toBeNull();
   });
 });

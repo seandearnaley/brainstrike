@@ -23,7 +23,13 @@ export {
   type QueueTelemetryEvent,
   type QueueTelemetrySnapshot,
 } from './telemetry';
-export type { QueueAdapter, QueueErrorEvent, QueueProgressEvent, TaskPayload } from './types';
+export type {
+  QueueAdapter,
+  QueueErrorEvent,
+  QueueProgressEvent,
+  QueueResult,
+  TaskPayload,
+} from './types';
 
 const logger = createLogger('EmbeddingQueue');
 

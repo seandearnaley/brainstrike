@@ -91,6 +91,7 @@ describe('useFileExplorer (context)', () => {
       lastActiveTab: 'files',
       folderAccessOrder: [],
       fileContents: {},
+      quickFilter: '',
       setCurrentFolderId: vi.fn(),
       hydrateFolderState: vi.fn(),
       setSelectedFiles: vi.fn(),
@@ -111,8 +112,20 @@ describe('useFileExplorer (context)', () => {
       setMaxSelectionCount: vi.fn(),
       setLastActiveTab: vi.fn(),
       setFileContent: vi.fn(),
+      getFileContent: vi.fn(),
       clearFileContents: vi.fn(),
       clearAllFileContents: vi.fn(),
+      getFileContentCacheStats: vi.fn(() => ({
+        totalSize: 0,
+        entryCount: 0,
+        hitRate: 0,
+        evictionCount: 0,
+      })),
+      evictOldFileContents: vi.fn(),
+      setQuickFilter: vi.fn(),
+      clearQuickFilter: vi.fn(),
+      rootDirectoryHandle: null,
+      setRootDirectoryHandle: vi.fn(),
     };
     // Mock store function to handle individual selector calls (split selector pattern)
     const mockStore = vi.fn((selector?: (state: FileExplorerState) => unknown) => {

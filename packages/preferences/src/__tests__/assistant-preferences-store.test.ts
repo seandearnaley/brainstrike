@@ -78,7 +78,7 @@ describe('assistant-preferences-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage) {
+    if (!persistApi || !options?.storage || !options.name) {
       throw new Error('persist storage unavailable for test');
     }
 
@@ -98,7 +98,7 @@ describe('assistant-preferences-store', () => {
     store.setProvider('openrouter');
     store.setModel('openrouter', 'router-pro');
 
-    const persistedValue = storage.getItem(options.name);
+    const persistedValue = storage.getItem(options.name)!;
     expect(persistedValue).not.toBeNull();
 
     if (
@@ -120,7 +120,7 @@ describe('assistant-preferences-store', () => {
     expect(snapshot.state?.modelsByProvider.openrouter).toBe('router-pro');
 
     persistApi.clearStorage?.();
-    const afterClear = storage.getItem(options.name);
+    const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
   });
 });

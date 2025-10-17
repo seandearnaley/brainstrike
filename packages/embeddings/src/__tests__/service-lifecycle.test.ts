@@ -3,14 +3,17 @@ import { ModelRegistryManager } from '../model-registry';
 import type { EmbeddingConfig, EmbeddingProgress } from '../types';
 
 const setTargetDimensionsMock = vi.fn<(dim: number | null) => void>();
-const generateEmbeddingMock = vi.fn<
-  Promise<{ embedding: number[]; model: string; dimensions: number }>,
-  [string, string]
->();
-const initializeMock = vi.fn<
-  Promise<void>,
-  [EmbeddingConfig | undefined, ((progress: EmbeddingProgress) => void) | undefined]
->();
+const generateEmbeddingMock =
+  vi.fn<
+    (
+      text: string,
+      modelId: string
+    ) => Promise<{ embedding: number[]; model: string; dimensions: number }>
+  >();
+const initializeMock =
+  vi.fn<
+    (config?: EmbeddingConfig, onProgress?: (progress: EmbeddingProgress) => void) => Promise<void>
+  >();
 
 let backendInitialized = false;
 

@@ -433,7 +433,7 @@ export class TransformersBackend {
       if (!vector) {
         throw new Error('Embedding worker returned no vectors');
       }
-      const embedding = Array.from(vector);
+      const embedding = Array.from(vector) as number[];
       const dimensions = response.metadata.dimensions ?? embedding.length;
       TransformersBackend._inferenceCount += 1;
       return {

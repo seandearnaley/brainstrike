@@ -53,7 +53,7 @@ describe('vector-preferences-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage) {
+    if (!persistApi || !options?.storage || !options.name) {
       throw new Error('persist storage unavailable for test');
     }
 
@@ -72,7 +72,7 @@ describe('vector-preferences-store', () => {
     store.setDevicePref('cpu');
     store.setReinitEveryN(16);
 
-    const persistedValue = storage.getItem(options.name);
+    const persistedValue = storage.getItem(options.name)!;
     expect(persistedValue).not.toBeNull();
 
     if (
@@ -94,7 +94,7 @@ describe('vector-preferences-store', () => {
     expect(snapshot.state?.reinitEveryN).toBe(16);
 
     persistApi.clearStorage?.();
-    const afterClear = storage.getItem(options.name);
+    const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
   });
 });

@@ -18,6 +18,7 @@ function getProps(overrides: Partial<React.ComponentProps<typeof FileExplorerToo
     onFilterChange: vi.fn(),
     filterError: null,
     maxSelectionCount: 10,
+    selectedCount: 0,
     quickFilter: '',
     setQuickFilter: vi.fn(),
     clearQuickFilter: vi.fn(),

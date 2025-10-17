@@ -31,11 +31,12 @@ describe('ImportProgressDisplay', () => {
   it('renders basic import progress', () => {
     const mockProgress = {
       phase: 'importing' as const,
-      current: 1,
       total: 10,
+      completed: 1,
+      errors: [],
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.getByTestId('import-progress')).toBeInTheDocument();
     expect(screen.getByText('importing')).toBeInTheDocument();
@@ -44,8 +45,9 @@ describe('ImportProgressDisplay', () => {
   it('renders chunking progress details', () => {
     const mockProgress = {
       phase: 'chunking' as const,
-      current: 2,
       total: 5,
+      completed: 2,
+      errors: [],
       chunkingProgress: {
         currentFile: 'test-file.txt',
         filesProcessed: 2,
@@ -54,7 +56,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.getByText('chunking')).toBeInTheDocument();
     expect(screen.getByText('Chunking: test-file.txt')).toBeInTheDocument();
@@ -68,8 +70,9 @@ describe('ImportProgressDisplay', () => {
   it('renders embedding progress details', () => {
     const mockProgress = {
       phase: 'embedding' as const,
-      current: 10,
       total: 20,
+      completed: 10,
+      errors: [],
       embeddingProgress: {
         currentChunk: 'chunk-123',
         chunksProcessed: 10,
@@ -78,7 +81,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.getByText('embedding')).toBeInTheDocument();
     expect(screen.getByText('Embedding: chunk-123')).toBeInTheDocument();
@@ -92,11 +95,12 @@ describe('ImportProgressDisplay', () => {
   it('does not render chunking details when not in chunking phase', () => {
     const mockProgress = {
       phase: 'importing' as const,
-      current: 1,
       total: 10,
+      completed: 1,
+      errors: [],
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.queryByText(/chunking:/i)).not.toBeInTheDocument();
   });
@@ -104,8 +108,9 @@ describe('ImportProgressDisplay', () => {
   it('does not render embedding details when not in embedding phase', () => {
     const mockProgress = {
       phase: 'chunking' as const,
-      current: 1,
       total: 10,
+      completed: 1,
+      errors: [],
       chunkingProgress: {
         currentFile: 'test.txt',
         filesProcessed: 1,
@@ -114,7 +119,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.queryByText(/embedding:/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/using/i)).not.toBeInTheDocument();
@@ -124,8 +129,9 @@ describe('ImportProgressDisplay', () => {
     const mockOnClose = vi.fn();
     const mockProgress = {
       phase: 'importing' as const,
-      current: 1,
       total: 10,
+      completed: 1,
+      errors: [],
     };
 
     render(<ImportProgressDisplay progress={mockProgress} onClose={mockOnClose} />);
@@ -139,8 +145,9 @@ describe('ImportProgressDisplay', () => {
   it('handles complete progress correctly', () => {
     const mockProgress = {
       phase: 'chunking' as const,
-      current: 5,
       total: 5,
+      completed: 5,
+      errors: [],
       chunkingProgress: {
         currentFile: 'last-file.txt',
         filesProcessed: 5,
@@ -149,7 +156,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     // Check progress bar shows 100%
     expect(screen.getByText('100%')).toBeInTheDocument();
@@ -159,8 +166,9 @@ describe('ImportProgressDisplay', () => {
   it('renders queue progress details when provided', () => {
     const mockProgress = {
       phase: 'embedding' as const,
-      current: 3,
       total: 10,
+      completed: 3,
+      errors: [],
       queueProgress: {
         pending: 2,
         processed: 5,
@@ -176,7 +184,7 @@ describe('ImportProgressDisplay', () => {
       },
     };
 
-    render(<ImportProgressDisplay progress={mockProgress} />);
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
 
     expect(screen.getByText('Embedding Queue')).toBeInTheDocument();
     expect(screen.getByText('6/8')).toBeInTheDocument();

@@ -129,7 +129,11 @@
       "Bash(packages/app-shell/src/__tests__/embeddings-tab.test.tsx)",
       "Bash(packages/app-shell/src/__tests__/enhanced-file-import-service.test.ts )",
       "Bash(packages/app-shell/src/__tests__/file-import-service.test.ts)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(do echo \"=== $pkg ===\")",
+      "Bash(do echo \"=== @brainstrike/$pkg ===\" pnpm --filter @brainstrike/$pkg run type-check)",
+      "Bash(do echo \"=== @brainstrike/$pkg ===\")",
+      "Bash(1)"
     ],
     "deny": [],
     "ask": []

@@ -10,15 +10,11 @@ Object.defineProperty(globalThis, 'Worker', {
 });
 
 afterAll(() => {
-  if (originalWorker) {
-    Object.defineProperty(globalThis, 'Worker', {
-      configurable: true,
-      writable: true,
-      value: originalWorker,
-    });
-  } else {
-    (globalThis as { Worker?: typeof Worker }).Worker = undefined;
-  }
+  Object.defineProperty(globalThis, 'Worker', {
+    configurable: true,
+    writable: true,
+    value: originalWorker,
+  });
 });
 
 const noopResult: QueueResult = {

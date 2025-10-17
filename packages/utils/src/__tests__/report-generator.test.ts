@@ -419,7 +419,7 @@ describe('generateReportFromAdapter', () => {
 
   beforeEach(async () => {
     const fs = MockFileSystemAdapter.createSimpleFileSystem();
-    fs.node_modules = {
+    fs['node_modules'] = {
       name: 'node_modules',
       type: 'directory',
       children: {
@@ -430,18 +430,21 @@ describe('generateReportFromAdapter', () => {
         },
       },
     };
-    fs.dist = {
+    fs['dist'] = {
       name: 'dist',
       type: 'directory',
       children: { 'bundle.js': { name: 'bundle.js', type: 'file', content: 'bundle' } },
     };
 
     // build deep nested structure to trigger depth limiting
-    fs.deep = { name: 'deep', type: 'directory', children: {} };
-    let current: Record<string, MockFileEntry> = fs.deep.children as Record<string, MockFileEntry>;
+    fs['deep'] = { name: 'deep', type: 'directory', children: {} };
+    let current: Record<string, MockFileEntry> = fs['deep'].children as Record<
+      string,
+      MockFileEntry
+    >;
     for (let i = 0; i < 31; i++) {
       current[`dir${i}`] = { name: `dir${i}`, type: 'directory', children: {} };
-      current = current[`dir${i}`].children as Record<string, MockFileEntry>;
+      current = current[`dir${i}`]!.children as Record<string, MockFileEntry>;
     }
     current['tooDeep.txt'] = { name: 'tooDeep.txt', type: 'file', content: 'deep' };
 
@@ -499,18 +502,18 @@ describe('generateReportFromAdapter', () => {
   });
 
   it('flags symlinks, depth truncation, and ignores standard paths', async () => {
-    // Minimal helper functions to create file and directory nodes
-    const _dirNode = (path: string, name?: string): MockFileEntry => ({
-      name: name ?? (path.split('/').pop() || ''),
-      type: 'directory',
-      children: {},
-    });
+    // Minimal helper functions to create file and directory nodes (unused but kept for future use)
+    // const dirNode = (path: string, name?: string): MockFileEntry => ({
+    //   name: name ?? (path.split('/').pop() || ''),
+    //   type: 'directory',
+    //   children: {},
+    // });
 
-    const _fileNode = (path: string): MockFileEntry => ({
-      name: path.split('/').pop() || '',
-      type: 'file',
-      content: '',
-    });
+    // const fileNode = (path: string): MockFileEntry => ({
+    //   name: path.split('/').pop() || '',
+    //   type: 'file',
+    //   content: '',
+    // });
 
     // Build custom structure with a symlink-like entry and deep nesting
     const makeDirHandle = (path: string): DirectoryHandle => ({
@@ -530,7 +533,7 @@ describe('generateReportFromAdapter', () => {
       name: name ?? (path.split('/').pop() || ''),
       path,
       type: 'directory',
-      handle: makeDirHandle(path),
+      handle: makeDirHandle(path) as unknown as FileSystemDirectoryHandle,
       depth: 0,
       selectionState: 'unchecked',
       rootFolderId: 'root',
@@ -539,14 +542,14 @@ describe('generateReportFromAdapter', () => {
       name: path.split('/').pop() || '',
       path,
       type: 'file',
-      handle: makeFileHandle(path),
+      handle: makeFileHandle(path) as unknown as FileSystemFileHandle,
       depth: 0,
       selectionState: 'unchecked',
       rootFolderId: 'root',
     });
 
     const structure: Record<string, IFileNode[]> = {};
-    structure.root = [
+    structure['root'] = [
       dirNodeFull('root/dir'),
       dirNodeFull('root/deep'),
       dirNodeFull('root', 'root-link'),
