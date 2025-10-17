@@ -23,7 +23,7 @@
     "build": "pnpm run clean && tsc -b . && tsup src/index.ts --format esm,cjs --out-dir dist",
     "clean": "rm -rf dist",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"

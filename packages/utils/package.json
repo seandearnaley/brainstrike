@@ -25,7 +25,7 @@
     "dev": "tsup --watch",
     "clean": "rimraf dist",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",

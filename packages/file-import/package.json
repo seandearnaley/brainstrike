@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc -b .",
     "clean": "rimraf dist",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "lint": "pnpm run --dir=../.. lint",
     "test": "vitest run",
     "test:coverage": "pnpm -w test:coverage"

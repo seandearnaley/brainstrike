@@ -23,7 +23,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "NODE_OPTIONS='--max-old-space-size=8192' vitest run",
     "test:watch": "NODE_OPTIONS='--max-old-space-size=8192' vitest",
     "test:coverage": "pnpm -w test:coverage"
