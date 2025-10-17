@@ -139,6 +139,23 @@ expect(logs).toHaveLength(1);
 - Renderer layers dispatch `brainstrike:queue-progress` events containing `pending/processed/failed` counts so UI surfaces can react without polling. Subscribe via `window.addEventListener('brainstrike:queue-progress', handler)`.
 
 
+
+## Codanna MCP Tools
+
+Tool priority:
+- **Tier 1**: semantic_search_with_context, analyze_impact
+- **Tier 2**: find_symbol, get_calls, find_callers
+- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
+
+Workflow:
+1. semantic_search_with_context - Find relevant code with context
+2. analyze_impact - Map dependencies and change radius
+3. find_symbol, get_calls, find_callers - Get specific details
+
+Start with semantic search, then narrow with specific queries.
+
+
+
 This file should evolve alongside the repo. Treat it as **living  
 documentation**: update it whenever build commands change, new tools are  
 added or security considerations evolve. Keeping AGENTS.md accurate will  

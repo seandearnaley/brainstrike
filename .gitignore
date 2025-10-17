@@ -143,3 +143,5 @@ apps/web/performance-metrics/
 # Desktop build artifacts and generated icons
 apps/desktop/build/
 icons/.generated/
+
+.codanna/
