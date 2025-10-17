@@ -1,27 +1,37 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BaseImportRunner, EmbeddingJobQueuePort, SqlExecutorPort } from '../enhanced-import';
+import type {
+  BaseImportRunner,
+  BaseImportRunnerRequest,
+  EmbeddingJobQueuePort,
+  SqlExecutorPort,
+} from '../enhanced-import';
 import { runEnhancedImport } from '../enhanced-import';
 import type { EnhancedImportProgress, EnhancedImportResult } from '../types';
 
 function createBaseRunner(
   results: EnhancedImportResult[],
   progress?: { total: number; completed: number }
-): BaseImportRunner {
-  return async ({ onProgress }) => {
+): BaseImportRunner<unknown> {
+  return async (request: BaseImportRunnerRequest<unknown>) => {
     if (progress) {
-      onProgress({
+      request.onProgress({
         total: progress.total,
         completed: progress.completed,
         current: 'file',
         errors: [],
       });
     }
-    return results.map((result) => ({
-      id: result.id,
-      imported: result.imported,
-      existed: result.existed,
-      error: result.error,
-    }));
+    return results.map((result) => {
+      const baseResult: { id: string; imported: boolean; existed: boolean; error?: string } = {
+        id: result.id,
+        imported: result.imported,
+        existed: result.existed,
+      };
+      if (result.error !== undefined) {
+        baseResult.error = result.error;
+      }
+      return baseResult;
+    });
   };
 }
 
@@ -33,13 +43,13 @@ describe('runEnhancedImport', () => {
     const onProgress = vi.fn();
     let latest: EnhancedImportProgress | null = null;
 
-    const injectedQueueProgress = {
+    const injectedQueueProgress: NonNullable<EnhancedImportProgress['queueProgress']> = {
       pending: 2,
       processed: 3,
       failed: 1,
       totalQueued: 4,
       lastError: 'temporary failure',
-    } as EnhancedImportProgress['queueProgress'];
+    };
 
     const results = await runEnhancedImport({
       request: {
@@ -196,7 +206,6 @@ describe('runEnhancedImport', () => {
       },
       embedding: {
         enabled: true,
-        model: undefined,
         service: {} as never,
         chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'set-1',

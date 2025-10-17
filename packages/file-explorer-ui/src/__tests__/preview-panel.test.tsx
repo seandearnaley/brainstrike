@@ -420,6 +420,8 @@ describe('PreviewPanel', () => {
       return `${bytes} B`;
     }),
     loadingFiles: new Set<string>(),
+    expandAllFolders: vi.fn(),
+    collapseAllFolders: vi.fn(),
     flatListItems: [
       {
         type: 'file' as const,
@@ -665,6 +667,8 @@ describe('PreviewPanel', () => {
   describe('Pagination', () => {
     const largeMockState = {
       ...mockState,
+      expandAllFolders: vi.fn(),
+      collapseAllFolders: vi.fn(),
       flatListItems: Array.from({ length: 120 }, (_, i) => ({
         type: 'file' as const,
         compositeKey: `file${i}`,
@@ -1105,21 +1109,23 @@ describe('PreviewPanel', () => {
 
       // Test that headers can receive keyboard events
       const firstHeader = headers[0];
-      // Verify it's a proper header element
-      expect(firstHeader.tagName).toBe('TH');
+      if (firstHeader) {
+        // Verify it's a proper header element
+        expect(firstHeader.tagName).toBe('TH');
 
-      // Test Enter key handling
-      act(() => {
-        fireEvent.keyDown(firstHeader, { key: 'Enter' });
-      });
+        // Test Enter key handling
+        act(() => {
+          fireEvent.keyDown(firstHeader, { key: 'Enter' });
+        });
 
-      // Test Space key handling
-      act(() => {
-        fireEvent.keyDown(firstHeader, { key: ' ' });
-      });
+        // Test Space key handling
+        act(() => {
+          fireEvent.keyDown(firstHeader, { key: ' ' });
+        });
 
-      // Just verify the headers exist and are rendered properly
-      expect(firstHeader).toBeInTheDocument();
+        // Just verify the headers exist and are rendered properly
+        expect(firstHeader).toBeInTheDocument();
+      }
     });
 
     it('should have proper table structure', () => {

@@ -50,17 +50,11 @@ vi.mock('../tabbed-file-editor', () => ({
 
 describe('TabbedFileEditorPanel', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
-  let _useTabManager: typeof import('../hooks/use-tab-manager').useTabManager;
-  let _useIdeFileEditor: typeof import('@brainstrike/ui').useIdeFileEditor;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
-    const tabManagerModule = await import('../hooks/use-tab-manager');
-    const uiModule = await import('@brainstrike/ui');
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
-    _useTabManager = tabManagerModule.useTabManager;
-    _useIdeFileEditor = uiModule.useIdeFileEditor;
   });
 
   beforeEach(async () => {
@@ -124,7 +118,15 @@ describe('TabbedFileEditorPanel', () => {
     // The actual sync is tested through integration tests
     const mockUpdateTabContent = vi.fn();
 
-    const tabs = [{ id: 'file1', path: '/src/index.ts', content: null, isLoading: false }];
+    const tabs = [
+      {
+        id: 'file1',
+        path: '/src/index.ts',
+        compositeKey: 'file1',
+        content: null,
+        isLoading: false,
+      },
+    ];
 
     vi.mocked(useFileExplorer).mockReturnValue({
       fileTree: [],
@@ -178,8 +180,20 @@ describe('TabbedFileEditorPanel', () => {
     const mockLoadFileContent = vi.fn();
 
     const tabs = [
-      { id: 'file1', path: '/src/index.ts', content: 'content1', isLoading: false },
-      { id: 'file2', path: '/src/app.ts', content: 'content2', isLoading: false },
+      {
+        id: 'file1',
+        path: '/src/index.ts',
+        compositeKey: 'file1',
+        content: 'content1',
+        isLoading: false,
+      },
+      {
+        id: 'file2',
+        path: '/src/app.ts',
+        compositeKey: 'file2',
+        content: 'content2',
+        isLoading: false,
+      },
     ];
 
     const tabModule = await import('../hooks/use-tab-manager');
@@ -252,7 +266,13 @@ describe('TabbedFileEditorPanel', () => {
     const mockUpdateTabContent = vi.fn();
 
     const tabs = [
-      { id: 'file1', path: '/src/index.ts', content: 'const x = 42;', isLoading: false },
+      {
+        id: 'file1',
+        path: '/src/index.ts',
+        compositeKey: 'file1',
+        content: 'const x = 42;',
+        isLoading: false,
+      },
     ];
 
     const tabModule2 = await import('../hooks/use-tab-manager');

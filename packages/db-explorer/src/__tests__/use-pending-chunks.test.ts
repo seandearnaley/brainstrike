@@ -1,4 +1,4 @@
-import type { PGliteDatabase } from '@brainstrike/db';
+import type { usePGliteDatabase } from '@brainstrike/db';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { usePendingChunks } from '../use-pending-chunks';
@@ -12,7 +12,7 @@ describe('usePendingChunks', () => {
     const query = vi.fn().mockResolvedValue({
       rows: [{ dedupeKey: 'chunk-1:set-a:hash' }, { dedupeKey: 'chunk-2:set-b:hash' }],
     });
-    const database = { query } as unknown as PGliteDatabase;
+    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
     const { result } = renderHook(() =>
       usePendingChunks({
         database,
@@ -30,13 +30,13 @@ describe('usePendingChunks', () => {
 
   it('clears pending chunk ids when no active set is available', async () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    const database = { query } as unknown as PGliteDatabase;
+    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
 
     const { result, rerender } = renderHook(
       ({ resolver }: { resolver: () => string | null }) =>
         usePendingChunks({ database, resolveActiveSetId: resolver, intervalMs: 0 }),
       {
-        initialProps: { resolver: () => 'set-a' },
+        initialProps: { resolver: (): string | null => 'set-a' },
       }
     );
 
@@ -46,7 +46,7 @@ describe('usePendingChunks', () => {
 
     expect(result.current.pendingChunkIds.size).toBe(0);
 
-    rerender({ resolver: () => null });
+    rerender({ resolver: (): string | null => null });
 
     await act(async () => {
       await result.current.refreshPendingChunks();
@@ -57,7 +57,7 @@ describe('usePendingChunks', () => {
 
   it('schedules polling when interval is provided', () => {
     const query = vi.fn().mockResolvedValue({ rows: [] });
-    const database = { query } as unknown as PGliteDatabase;
+    const database = { query } as unknown as ReturnType<typeof usePGliteDatabase>;
     const intervalSpy = vi.spyOn(window, 'setInterval');
     const clearSpy = vi.spyOn(window, 'clearInterval');
 

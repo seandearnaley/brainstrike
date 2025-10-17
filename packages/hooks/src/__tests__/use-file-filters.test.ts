@@ -51,7 +51,7 @@ describe('useFileFilters', () => {
     const filtered = applyFileFilters(mockTree, ['*.txt'], []);
 
     expect(filtered).toHaveLength(1); // root directory
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     expect(rootDir.name).toBe('root');
     const rootChildren = rootDir.children ?? [];
     expect(rootChildren).toHaveLength(2); // foo.txt AND the sub directory
@@ -71,7 +71,7 @@ describe('useFileFilters', () => {
     const { applyFileFilters } = result.current;
     const filtered = applyFileFilters(mockTree, [], ['*.md']);
     // Expect foo.txt and baz.js, bar.md excluded
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     // Children: foo.txt, sub directory (children baz.js)
     const children = rootDir.children ?? [];
     expect(children).toHaveLength(2);
@@ -81,7 +81,7 @@ describe('useFileFilters', () => {
     expect(sub).toBeDefined();
     const subChildren = sub?.children ?? [];
     expect(subChildren).toHaveLength(1);
-    expect(subChildren[0].name).toBe('baz.js');
+    expect(subChildren[0]!.name).toBe('baz.js');
   });
 
   it('applies both include and exclude patterns', () => {
@@ -91,7 +91,7 @@ describe('useFileFilters', () => {
     const filtered = applyFileFilters(mockTree, ['*.js'], ['sub']);
     // root directory children: only sub? But exclude 'sub' directory itself, so no children
     expect(filtered).toHaveLength(1);
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     expect(rootDir.children ?? []).toHaveLength(0);
   });
 
@@ -100,13 +100,13 @@ describe('useFileFilters', () => {
     const { applyFileFilters, filterError } = result.current;
     const filtered = applyFileFilters(mockTree, ['^.*\\.js$'], [], true);
     expect(filtered).toHaveLength(1);
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     // Children: sub directory with baz.js
     const children = rootDir.children ?? [];
     const sub = children.find((n) => n.name === 'sub');
     expect(sub).toBeDefined();
     const subChildren = sub?.children ?? [];
-    expect(subChildren[0].name).toBe('baz.js');
+    expect(subChildren[0]!.name).toBe('baz.js');
     expect(filterError).toBeNull();
   });
 
@@ -155,7 +155,6 @@ describe('useFileFilters', () => {
 
     const OriginalRegExp = RegExp;
     const spy = vi.fn((pattern: string, flags?: string) => new OriginalRegExp(pattern, flags));
-    // @ts-expect-error override for test
     globalThis.RegExp = spy as unknown as RegExpConstructor;
 
     result.current.applyFileFilters(largeTree, ['^file\\d+\\.txt$'], [], true);
@@ -177,7 +176,7 @@ describe('useFileFilters', () => {
     const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
 
     expect(filtered).toHaveLength(1);
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     const children = rootDir.children ?? [];
     expect(children).toHaveLength(2);
   });
@@ -190,7 +189,7 @@ describe('useFileFilters', () => {
     const { result } = renderHook(() => useFileFilters());
     const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
 
-    const srcDir = filtered[0].children?.[0];
+    const srcDir = filtered[0]!.children?.[0];
     expect(srcDir?.children).toHaveLength(1);
   });
 
@@ -201,7 +200,7 @@ describe('useFileFilters', () => {
     const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
 
     expect(filtered).toHaveLength(1);
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     const children = rootDir.children ?? [];
     expect(children).toHaveLength(1); // empty directory should be preserved
   });
@@ -217,7 +216,7 @@ describe('useFileFilters', () => {
     const { result } = renderHook(() => useFileFilters());
     const filtered = result.current.applyFileFilters(tree, ['*.ts'], []);
 
-    const rootDir = filtered[0];
+    const rootDir = filtered[0]!;
     const children = rootDir.children ?? [];
     expect(children).toHaveLength(2);
 

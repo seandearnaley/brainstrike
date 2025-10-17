@@ -31,6 +31,12 @@ class FlakyEmbeddingService implements EmbeddingService {
     const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 10);
     return { embedding, dimensions: this.dims, model: 'fake-model' };
   }
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
     return { similarity: 1, distance: 0, method: 'cosine' };
   }
@@ -62,7 +68,7 @@ describe('embedding-worker retries and backoff', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    process.env.DISABLE_VECTOR_EXTENSION = 'true';
+    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     db = await wasmLoader.createPGlite('memory://embedding-worker-retry');
     await migrate(db);
   });
@@ -97,8 +103,9 @@ describe('embedding-worker retries and backoff', () => {
 
     await waitFor(async () => {
       const res = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-r1'`);
-      const state = String(res.rows[0]?.['state'] ?? '');
-      const attempts = Number(res.rows[0]?.['attempts'] ?? 0);
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      const state = String(row?.['state'] ?? '');
+      const attempts = Number(row?.['attempts'] ?? 0);
       return state === 'succeeded' && attempts >= 2;
     });
 

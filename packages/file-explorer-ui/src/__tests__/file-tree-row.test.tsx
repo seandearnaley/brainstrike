@@ -4,7 +4,7 @@ import {
   createFileNode,
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
-import { act, screen } from '@testing-library/react';
+import { act, type render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeRow from '../file-tree-row';
@@ -63,7 +63,8 @@ describe('FileTreeRow', () => {
     });
 
     it('applies correct depth styling', () => {
-      const { container } = renderWithProviders(<FileTreeRow {...defaultFileProps} depth={2} />);
+      const result = renderWithProviders(<FileTreeRow {...defaultFileProps} depth={2} />);
+      const { container } = result as ReturnType<typeof render>;
 
       const innerDiv = container.querySelector('div[role="treeitem"] > div');
       expect(innerDiv).toHaveStyle({ paddingLeft: '56px' }); // 2 * 24 + 8 = 56px
@@ -71,9 +72,8 @@ describe('FileTreeRow', () => {
 
     it('applies custom style props', () => {
       const customStyle = { top: '100px' };
-      const { container } = renderWithProviders(
-        <FileTreeRow {...defaultFileProps} style={customStyle} />
-      );
+      const result = renderWithProviders(<FileTreeRow {...defaultFileProps} style={customStyle} />);
+      const { container } = result as ReturnType<typeof render>;
 
       const treeItem = container.querySelector('div[role="treeitem"]');
       expect(treeItem).toHaveStyle({ top: '100px' });
@@ -219,7 +219,8 @@ describe('FileTreeRow', () => {
 
   describe('Memoization', () => {
     it('should not re-render when props are equal', async () => {
-      const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
+      const result = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
+      const { rerender } = result as ReturnType<typeof render>;
 
       // Re-render with the same props (ensure updates are awaited)
       await act(async () => {
@@ -232,7 +233,8 @@ describe('FileTreeRow', () => {
     });
 
     it('should re-render when node path changes', async () => {
-      const { rerender } = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
+      const result = renderWithProviders(<FileTreeRow {...defaultFileProps} />);
+      const { rerender } = result as ReturnType<typeof render>;
 
       const newNode = createFileNode({ name: 'different.tsx', path: 'src/different.tsx' });
       await act(async () => {
@@ -245,9 +247,10 @@ describe('FileTreeRow', () => {
     });
 
     it('should re-render when style props change', async () => {
-      const { rerender } = renderWithProviders(
+      const result = renderWithProviders(
         <FileTreeRow {...defaultFileProps} style={{ top: '0px' }} />
       );
+      const { rerender } = result as ReturnType<typeof render>;
 
       await act(async () => {
         rerender(<FileTreeRow {...defaultFileProps} style={{ top: '100px' }} />);

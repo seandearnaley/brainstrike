@@ -5,7 +5,7 @@ import {
   makeRenderWithProviders,
 } from '@brainstrike/test-utils';
 import { EXPAND_COLLAPSE_TEST_ID } from '@brainstrike/types';
-import { act, screen } from '@testing-library/react';
+import { act, type render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FileTreeNode from '../file-tree-node';
@@ -142,9 +142,10 @@ describe('FileTreeNode', () => {
   });
 
   it('changes icon when directory is expanded', async () => {
-    const { rerender } = renderWithProviders(
+    const result = renderWithProviders(
       <FileTreeNode {...defaultDirProps} folderId="test-folder" />
     );
+    const { rerender } = result as ReturnType<typeof render>;
 
     // Initially collapsed - the button aria-label is just "Expand"
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();

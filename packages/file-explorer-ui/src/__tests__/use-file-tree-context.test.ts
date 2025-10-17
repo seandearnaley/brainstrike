@@ -157,7 +157,6 @@ describe('useFileTree (context version)', () => {
 
       // Allow the gated read to complete so the cancellation can settle
       act(() => {
-        // @ts-expect-error release is assigned in mock above
         release();
       });
       await waitFor(() => expect(result.current.isLoading).toBe(false), { timeout: 2000 });
@@ -231,7 +230,6 @@ describe('useFileTree (context version)', () => {
 
       // Release the gate so the operation can finish and cleanup occurs
       act(() => {
-        // @ts-expect-error release is assigned in mock above
         release();
       });
     });
@@ -307,7 +305,7 @@ describe('useFileTree (context version)', () => {
 
       // Gate readDirectory on a deferred promise we can release after cancelling
       const originalReadDirectory = mockAdapter.readDirectory.bind(mockAdapter);
-      let release: (() => void) | null = null;
+      let release!: () => void;
       const gate = new Promise<void>((resolve) => {
         release = resolve;
       });
@@ -333,7 +331,7 @@ describe('useFileTree (context version)', () => {
         result.current.cancelOperation();
       });
       // Release the gate so readDirectory resolves and the abort is observed
-      release?.();
+      release();
 
       await waitFor(() => expect(result.current.isLoading).toBe(false));
 

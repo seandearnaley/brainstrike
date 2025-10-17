@@ -14,9 +14,9 @@ describe('SimpleEmbeddingService (basic)', () => {
 
   it('calculates similarity for simple vectors', () => {
     const svc = new SimpleEmbeddingService();
-    const a = new Float32Array([1, 0, 0]);
-    const b = new Float32Array([1, 0, 0]);
-    const c = new Float32Array([0, 1, 0]);
+    const a = Array.from(new Float32Array([1, 0, 0]));
+    const b = Array.from(new Float32Array([1, 0, 0]));
+    const c = Array.from(new Float32Array([0, 1, 0]));
     expect(svc.calculateSimilarity(a, b).similarity).toBeCloseTo(1, 5);
     expect(svc.calculateSimilarity(a, c).similarity).toBeCloseTo(0, 5);
   });

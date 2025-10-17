@@ -64,8 +64,8 @@ describe('readFullFileTree', () => {
       isSymbolicLink: false,
       isDepthTruncated: false,
     });
-    expect(result[1].children).toHaveLength(1);
-    expect(result[1].children?.[0]).toMatchObject({
+    expect(result[1]!.children).toHaveLength(1);
+    expect(result[1]!.children?.[0]).toMatchObject({
       name: 'file2.txt',
       path: '/dir1/file2.txt',
       type: 'file',
@@ -92,7 +92,7 @@ describe('readFullFileTree', () => {
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ name: 'dirA', path: '/dirA', depth: 0, type: 'directory' });
 
-    const childrenOfA = result[0].children;
+    const childrenOfA = result[0]!.children;
     expect(childrenOfA).toHaveLength(1);
     expect(childrenOfA?.[0]).toMatchObject({
       name: 'dirB',
@@ -101,7 +101,7 @@ describe('readFullFileTree', () => {
       type: 'directory',
     });
 
-    const childrenOfB = childrenOfA?.[0].children;
+    const childrenOfB = childrenOfA?.[0]!.children;
     expect(childrenOfB).toHaveLength(1);
     expect(childrenOfB?.[0]).toMatchObject({
       name: 'loop_to_a',
@@ -141,9 +141,9 @@ describe('readFullFileTree', () => {
     ); // maxDepth = 2
 
     expect(result).toHaveLength(1); // d1
-    expect(result[0].name).toBe('d1');
-    expect(result[0].depth).toBe(0);
-    expect(result[0].children?.[0]).toMatchObject({
+    expect(result[0]!.name).toBe('d1');
+    expect(result[0]!.depth).toBe(0);
+    expect(result[0]!.children?.[0]).toMatchObject({
       name: 'd2',
       path: '/d1/d2',
       depth: 1, // d2 is at depth 1 relative to d1, overall depth is parentPath depth + 1
@@ -163,9 +163,9 @@ describe('readFullFileTree', () => {
     //     -> d2Handle is at depth 2 for THIS call. depth >= maxDepth (2 >= 2) is true.
     //        So, d2 node itself should be marked as truncated.
 
-    const d1Node = result[0]; // This is d1
+    const d1Node = result[0]!; // This is d1
     expect(d1Node.children).toHaveLength(1);
-    const d2Node = d1Node.children?.[0]; // This is d2
+    const d2Node = d1Node.children?.[0]!; // This is d2
 
     expect(d2Node).toMatchObject({
       name: 'd2',
@@ -254,17 +254,17 @@ describe('readFullFileTree', () => {
     const src = result.find((node) => node.name === 'src');
     expect(src).toBeDefined();
     expect(src?.children?.some((child) => child.name === 'node_modules')).toBe(false);
-    expect(src?.children?.[0].name).toBe('index.ts');
+    expect(src?.children?.[0]!.name).toBe('index.ts');
   });
 
   // Test Scenario 6: Empty Directory
   it('should handle empty directories correctly', async () => {
-    const _rootHandle = mockDirectory('root', [
+    const rootHandle = mockDirectory('root', [
       ['emptyDir', mockDirectory('emptyDir')],
       ['file1.txt', mockFile('file1.txt')],
     ]);
 
-    const result = await readFullFileTree(_rootHandle as unknown as FileSystemDirectoryHandle);
+    const result = await readFullFileTree(rootHandle as unknown as FileSystemDirectoryHandle);
     expect(result).toHaveLength(2);
     const emptyDirNode = result.find((node) => node.name === 'emptyDir');
     expect(emptyDirNode).toBeDefined();
@@ -285,15 +285,8 @@ describe('readFullFileTree', () => {
       yield ['dirB_child_of_A', dirB];
     }; // Not strictly needed for this test variant
 
-    const _rootHandle = mockDirectory('root', [
-      [
-        'dir1',
-        mockDirectory('dir1', [
-          // depth 0 for dir1's children
-          ['dirA_child_of_dir1', dirA], // dirA_child_of_dir1 is at depth 1
-        ]),
-      ],
-    ]);
+    // This test validates depth truncation priority over symbolic links
+    // rootHandle would be used with readFullFileTree but test focuses on depth behavior
     // Call with maxDepth = 1.
     // Processing root (children at depth 0): dir1 (depth 0)
     //   Processing dir1 (children at depth 1): dirA_child_of_dir1 (depth 1)
@@ -312,14 +305,8 @@ describe('readFullFileTree', () => {
       yield ['actual_child_of_target', symlinkTarget];
     };
 
-    const _root = mockDirectory('root', [
-      [
-        'd1',
-        mockDirectory('d1', [
-          ['d2_is_the_symlink', d2Symlink], // d2_is_the_symlink is depth 1
-        ]),
-      ],
-    ]);
+    // This test validates symbolic link flagging behavior
+    // root would be used with readFullFileTree for symlink detection
 
     // To make 'd2_is_the_symlink' a symbolic link, it would need to point to an *already visited path*
     // The current structure doesn't make d2_is_the_symlink a symbolic link based on visitedPaths.
@@ -345,7 +332,7 @@ describe('readFullFileTree', () => {
     ); // maxDepth = 0
 
     expect(result).toHaveLength(1);
-    const level0Node = result[0];
+    const level0Node = result[0]!;
     expect(level0Node.name).toBe('level0_entry');
     expect(level0Node.depth).toBe(0);
     expect(level0Node.isDepthTruncated).toBe(true); // Because its children (depth 0) >= maxDepth (0)

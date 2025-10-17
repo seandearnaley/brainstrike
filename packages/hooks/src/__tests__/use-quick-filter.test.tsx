@@ -46,10 +46,10 @@ describe('useQuickFilter', () => {
     });
     const filtered = result.current.filteredTree;
     expect(filtered).toHaveLength(1);
-    const srcNode = filtered[0];
+    const srcNode = filtered[0]!;
     const children = srcNode.children ?? [];
     expect(children).toHaveLength(1);
-    expect(children[0].name).toBe('foo.txt');
+    expect(children[0]!.name).toBe('foo.txt');
   });
 
   it('handles multiple include terms (OR logic)', () => {
@@ -57,7 +57,7 @@ describe('useQuickFilter', () => {
     act(() => {
       result.current.setQuickFilter('foo bar');
     });
-    const children = result.current.filteredTree[0].children ?? [];
+    const children = result.current.filteredTree[0]!.children ?? [];
     expect(children).toHaveLength(2);
   });
 
@@ -66,9 +66,9 @@ describe('useQuickFilter', () => {
     act(() => {
       result.current.setQuickFilter('-bar');
     });
-    const children = result.current.filteredTree[0].children ?? [];
+    const children = result.current.filteredTree[0]!.children ?? [];
     expect(children).toHaveLength(1);
-    expect(children[0].name).toBe('foo.txt');
+    expect(children[0]!.name).toBe('foo.txt');
   });
 
   it('clears the filter', () => {
@@ -98,9 +98,9 @@ describe('useQuickFilter', () => {
     });
     const duration = performance.now() - start;
 
-    const children = result.current.filteredTree[0].children ?? [];
+    const children = result.current.filteredTree[0]!.children ?? [];
     expect(children).toHaveLength(1);
-    expect(children[0].name).toBe('file4999.txt');
+    expect(children[0]!.name).toBe('file4999.txt');
     expect(duration).toBeLessThan(200);
   });
 
@@ -118,7 +118,7 @@ describe('useQuickFilter', () => {
 
     let filtered = result.current.filteredTree;
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].name).toBe('MyFile.ts');
+    expect(filtered[0]!.name).toBe('MyFile.ts');
 
     // Also test path matching
     act(() => {
@@ -127,7 +127,7 @@ describe('useQuickFilter', () => {
 
     filtered = result.current.filteredTree;
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].name).toBe('MyFile.ts');
+    expect(filtered[0]!.name).toBe('MyFile.ts');
   });
 
   it('should handle empty or whitespace-only filters', () => {
@@ -157,7 +157,7 @@ describe('useQuickFilter', () => {
 
     const filtered = result.current.filteredTree;
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].name).toBe('include.ts');
+    expect(filtered[0]!.name).toBe('include.ts');
   });
 
   it('should handle directories with filtered children', () => {
@@ -176,10 +176,10 @@ describe('useQuickFilter', () => {
 
     const filtered = result.current.filteredTree;
     expect(filtered).toHaveLength(1);
-    const srcNode = filtered[0];
+    const srcNode = filtered[0]!;
     const children = srcNode.children ?? [];
     expect(children).toHaveLength(1);
-    expect(children[0].name).toBe('nested');
+    expect(children[0]!.name).toBe('nested');
   });
 
   it('should handle join separator in searchable text', () => {

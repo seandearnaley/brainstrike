@@ -131,6 +131,8 @@ describe('FileExplorerMiddlePanel', () => {
     handleSelectionChangeMock = vi.fn();
     vi.mocked(useSelectionManager).mockReturnValue({
       selectedFilePaths: new Set<string>(['folder|@|test-file']),
+      selectedFilesList: ['folder|@|test-file'],
+      setSelectedFilesFromList: vi.fn(),
       handleSelectionChange: handleSelectionChangeMock,
       wouldExceedSelectionLimit: vi.fn(),
     });

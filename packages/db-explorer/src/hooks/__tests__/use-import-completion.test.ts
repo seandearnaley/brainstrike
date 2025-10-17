@@ -12,14 +12,16 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: true,
+        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 8,
       },
       {
-        file: 'test2.txt',
+        id: 'test2.txt',
         imported: true,
+        existed: false,
         chunksCreated: 5,
         chunksWithEmbeddings: 5,
       },
@@ -46,19 +48,24 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: true,
+        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 10,
       },
       {
-        file: 'test2.txt',
+        id: 'test2.txt',
         imported: false,
+        existed: false,
+        chunksCreated: 0,
         error: 'Failed to import',
       },
       {
-        file: 'test3.txt',
+        id: 'test3.txt',
         imported: false,
+        existed: false,
+        chunksCreated: 0,
         error: 'Access denied',
       },
     ];
@@ -81,14 +88,16 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: true,
+        existed: false,
         chunksCreated: 0,
         chunksWithEmbeddings: 0,
       },
       {
-        file: 'test2.txt',
+        id: 'test2.txt',
         imported: true,
+        existed: false,
         error: 'Processing failed',
         chunksCreated: 5,
         chunksWithEmbeddings: 0,
@@ -113,13 +122,17 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: false,
+        existed: false,
+        chunksCreated: 0,
         error: 'Failed',
       },
       {
-        file: 'test2.txt',
+        id: 'test2.txt',
         imported: false,
+        existed: false,
+        chunksCreated: 0,
         error: 'Failed',
       },
     ];
@@ -158,8 +171,9 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: true,
+        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 0,
       },
@@ -183,21 +197,25 @@ describe('createImportCompletionHandler', () => {
 
     const results: EnhancedImportResult[] = [
       {
-        file: 'test1.txt',
+        id: 'test1.txt',
         imported: true,
+        existed: false,
         chunksCreated: 10,
         chunksWithEmbeddings: 10,
       },
       {
-        file: 'test2.txt',
+        id: 'test2.txt',
         imported: true,
+        existed: false,
         error: 'Partial failure',
         chunksCreated: 5,
         chunksWithEmbeddings: 3,
       },
       {
-        file: 'test3.txt',
+        id: 'test3.txt',
         imported: false,
+        existed: false,
+        chunksCreated: 0,
         error: 'Import failed',
       },
     ];

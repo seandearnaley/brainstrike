@@ -15,7 +15,7 @@ describe('Chunking producer enqueues jobs', () => {
   // Increase timeouts to tolerate in-memory DB startup + migrations under load
   vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
   beforeAll(() => {
-    process.env.DISABLE_VECTOR_EXTENSION = 'true';
+    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
   });
   let db: PGlite;
 
@@ -78,10 +78,10 @@ describe('Chunking producer enqueues jobs', () => {
       }
     );
 
-    expect(results[0].chunksCreated).toBeGreaterThan(0);
+    expect(results[0]?.chunksCreated).toBeGreaterThan(0);
     const countRes = await db.query<{ count: string }>('SELECT COUNT(*) AS count FROM job_queue');
-    const jobCount = Number(countRes.rows[0].count);
-    expect(jobCount).toBe(results[0].chunksCreated);
+    const jobCount = Number(countRes.rows[0]?.count);
+    expect(jobCount).toBe(results[0]?.chunksCreated);
     expect(enqueuedIds.length).toBe(jobCount);
   });
 });

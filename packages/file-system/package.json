@@ -21,7 +21,7 @@
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage",
     "mutation": "npx @stryker-mutator/core run",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "dependencies": {
     "@brainstrike/platform-utils": "workspace:*",

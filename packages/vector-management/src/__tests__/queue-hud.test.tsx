@@ -212,7 +212,7 @@ describe('QueueHud', () => {
       expect(screen.getByText('1')).toBeInTheDocument();
     });
 
-    if (process.env.NODE_ENV !== 'test') {
+    if (process.env['NODE_ENV'] !== 'test') {
       await waitFor(
         () => {
           expect(mockGetQueueStats).toHaveBeenCalledTimes(2);
@@ -270,7 +270,7 @@ describe('QueueHud', () => {
       },
     ]);
 
-    let resolveRequeue: () => void;
+    let resolveRequeue!: () => void;
     const requeuePromise = new Promise<void>((resolve) => {
       resolveRequeue = resolve;
     });

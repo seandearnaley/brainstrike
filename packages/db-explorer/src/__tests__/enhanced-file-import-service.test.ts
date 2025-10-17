@@ -83,7 +83,7 @@ describe('useEnhancedFileImportService', () => {
         fileContents: params.request.fileContents,
         onProgress: () => {},
       });
-      return baseResults.map((result) => ({
+      return baseResults.map((result: { id: string; imported: boolean; existed: boolean }) => ({
         ...result,
         chunksCreated: 0,
       }));

@@ -20,6 +20,7 @@
   "scripts": {
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run"
   },
   "devDependencies": {

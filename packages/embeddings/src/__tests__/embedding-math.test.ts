@@ -13,7 +13,7 @@ describe('embedding-math', () => {
     const n = normalize([3, 4]);
     expect(n.length).toBe(2);
     // unit length within epsilon
-    const len = Math.hypot(n[0], n[1]);
+    const len = Math.hypot(n[0]!, n[1]!);
     expect(Math.abs(len - 1)).toBeLessThan(1e-6);
   });
 

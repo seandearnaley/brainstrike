@@ -447,8 +447,8 @@ describe('useDatabaseErrorBoundary', () => {
     });
 
     it('should log errors in development', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'development';
+      const originalEnv = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'development';
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
@@ -469,13 +469,13 @@ describe('useDatabaseErrorBoundary', () => {
         })
       );
 
-      process.env.NODE_ENV = originalEnv;
+      process.env['NODE_ENV'] = originalEnv;
       consoleErrorSpy.mockRestore();
     });
 
     it('should not log errors in production', async () => {
-      const originalEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = 'production';
+      const originalEnv = process.env['NODE_ENV'];
+      process.env['NODE_ENV'] = 'production';
       const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
@@ -491,7 +491,7 @@ describe('useDatabaseErrorBoundary', () => {
         expect.any(Object)
       );
 
-      process.env.NODE_ENV = originalEnv;
+      process.env['NODE_ENV'] = originalEnv;
       consoleErrorSpy.mockRestore();
     });
   });

@@ -13,6 +13,8 @@ type MockLogger = {
   warn: ReturnType<typeof vi.fn>;
   info: ReturnType<typeof vi.fn>;
   debug: ReturnType<typeof vi.fn>;
+  trace: ReturnType<typeof vi.fn>;
+  fatal: ReturnType<typeof vi.fn>;
 };
 
 const loggerMock = vi.hoisted<MockLogger>(() => ({
@@ -20,6 +22,8 @@ const loggerMock = vi.hoisted<MockLogger>(() => ({
   warn: vi.fn(),
   info: vi.fn(),
   debug: vi.fn(),
+  trace: vi.fn(),
+  fatal: vi.fn(),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
@@ -752,7 +756,7 @@ describe('useFileTree', () => {
       const readQueue: Array<() => void> = [];
       const readSpy = vi
         .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
-        .mockImplementation(function (this, handle) {
+        .mockImplementation(function (this: MockFileSystemAdapter, handle: DirectoryHandle) {
           return new Promise<IFileNode[]>((resolve, reject) => {
             readQueue.push(() => {
               originalReadDirectory.call(this, handle).then(resolve, reject);
@@ -841,7 +845,7 @@ describe('useFileTree', () => {
       const readQueue: Array<() => void> = [];
       const readSpy = vi
         .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
-        .mockImplementation(function (this, handle) {
+        .mockImplementation(function (this: MockFileSystemAdapter, handle: DirectoryHandle) {
           return new Promise<IFileNode[]>((resolve, reject) => {
             readQueue.push(() => {
               originalReadDirectory.call(this, handle).then(resolve, reject);
@@ -899,7 +903,7 @@ describe('useFileTree', () => {
       const readQueue: Array<() => void> = [];
       const readSpy = vi
         .spyOn(MockFileSystemAdapter.prototype, 'readDirectory')
-        .mockImplementation(function (this, handle) {
+        .mockImplementation(function (this: MockFileSystemAdapter, handle: DirectoryHandle) {
           return new Promise<IFileNode[]>((resolve, reject) => {
             readQueue.push(() => {
               originalReadDirectory.call(this, handle).then(resolve, reject);

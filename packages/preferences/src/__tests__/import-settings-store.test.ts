@@ -54,7 +54,7 @@ describe('import-settings-store', () => {
   it('updates selectors in response to state changes', () => {
     const snapshot = useImportSettingsStore.getState();
     snapshot.setEnableChunking(false);
-    snapshot.setChunkingStrategy('paragraph');
+    snapshot.setChunkingStrategy('recursive' as const);
     snapshot.setChunkSize(512);
     snapshot.setChunkOverlap(24);
     snapshot.setEnableEmbedding(true);
@@ -65,7 +65,7 @@ describe('import-settings-store', () => {
     const sizes = importSettingsSelectors.sizes(next);
     const embedding = importSettingsSelectors.embedding(next);
 
-    expect(chunking).toEqual([false, 'paragraph']);
+    expect(chunking).toEqual([false, 'recursive']);
     expect(sizes).toEqual([512, 24]);
     expect(embedding).toEqual([true, 'test-model']);
   });
@@ -75,7 +75,7 @@ describe('import-settings-store', () => {
     expect(persistApi).toBeDefined();
     const options = persistApi?.getOptions?.();
     expect(options?.storage).toBeDefined();
-    if (!persistApi || !options?.storage) {
+    if (!persistApi || !options?.storage || !options.name) {
       throw new Error('persist storage unavailable for test');
     }
 
@@ -95,7 +95,7 @@ describe('import-settings-store', () => {
     store.setEnableChunking(false);
     store.setChunkSize(128);
 
-    const persistedValue = storage.getItem(options.name);
+    const persistedValue = storage.getItem(options.name)!;
     expect(persistedValue).not.toBeNull();
 
     if (
@@ -117,7 +117,7 @@ describe('import-settings-store', () => {
     expect(snapshot.state?.chunkSize).toBe(128);
 
     persistApi.clearStorage?.();
-    const afterClear = storage.getItem(options.name);
+    const afterClear = storage.getItem(options.name)!;
     expect(afterClear).toBeNull();
   });
 });

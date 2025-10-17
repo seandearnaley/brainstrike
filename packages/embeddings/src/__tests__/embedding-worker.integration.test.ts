@@ -27,6 +27,12 @@ class FakeEmbeddingService implements EmbeddingService {
     const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 10);
     return { embedding, dimensions: this.dims, model: 'fake-model' };
   }
+  async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
+  async generateQueryEmbedding(text: string): Promise<EmbeddingResult> {
+    return this.generateEmbedding(text);
+  }
   calculateSimilarity(_e1: number[], _e2: number[]): SimilarityResult {
     return { similarity: 1, distance: 0, method: 'cosine' };
   }
@@ -59,7 +65,7 @@ describe('embedding-worker', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    process.env.DISABLE_VECTOR_EXTENSION = 'true';
+    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     db = await wasmLoader.createPGlite('memory://embedding-worker');
     await migrate(db);
   });
@@ -99,24 +105,23 @@ describe('embedding-worker', () => {
     let finalState = '';
     await waitFor(async () => {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-1'`);
-      finalState = String(res.rows[0]?.['state'] ?? '');
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      finalState = String(row?.['state'] ?? '');
       return finalState === 'succeeded' || finalState === 'failed';
     }, 10000);
     expect(finalState).toBe('succeeded');
 
-    const row = await db.query<{
-      embedding: string | null;
-      embedding_set_id: string | null;
-      embedding_hash: string | null;
-    }>('SELECT embedding, embedding_set_id, embedding_hash FROM file_chunks WHERE id = $1', [
-      chunkId,
-    ]);
-    expect(row.rows[0]?.embedding_set_id).toBeTruthy();
-    expect(row.rows[0]?.embedding_hash).toBeTruthy();
-    // Embedding is stored as TEXT in test path
-    expect(typeof row.rows[0]?.embedding === 'string' || row.rows[0]?.embedding === null).toBe(
-      true
+    const row = await db.query(
+      'SELECT embedding, embedding_set_id, embedding_hash FROM file_chunks WHERE id = $1',
+      [chunkId]
     );
+    const rowData = row.rows[0] as
+      | { embedding: string | null; embedding_set_id: string | null; embedding_hash: string | null }
+      | undefined;
+    expect(rowData?.embedding_set_id).toBeTruthy();
+    expect(rowData?.embedding_hash).toBeTruthy();
+    // Embedding is stored as TEXT in test path
+    expect(typeof rowData?.embedding === 'string' || rowData?.embedding === null).toBe(true);
 
     await controller.stop();
   });
@@ -162,17 +167,20 @@ describe('embedding-worker', () => {
     let finalState2 = '';
     await waitFor(async () => {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-2'`);
-      finalState2 = String(res.rows[0]?.['state'] ?? '');
+      const row = res.rows[0] as Record<string, unknown> | undefined;
+      finalState2 = String(row?.['state'] ?? '');
       return finalState2 === 'succeeded' || finalState2 === 'failed';
     }, 10000);
     expect(finalState2).toBe('succeeded');
 
-    const row = await db.query<{ embedding: string | null; embedding_hash: string | null }>(
-      'SELECT embedding, embedding_hash FROM file_chunks WHERE id = $1',
-      [chunkId]
-    );
-    expect(row.rows[0]?.embedding).toBe(dummyEmbedding);
-    expect(row.rows[0]?.embedding_hash).toBe(expectedHash);
+    const row = await db.query('SELECT embedding, embedding_hash FROM file_chunks WHERE id = $1', [
+      chunkId,
+    ]);
+    const rowData = row.rows[0] as
+      | { embedding: string | null; embedding_hash: string | null }
+      | undefined;
+    expect(rowData?.embedding).toBe(dummyEmbedding);
+    expect(rowData?.embedding_hash).toBe(expectedHash);
 
     await controller.stop();
   });

@@ -124,8 +124,8 @@ describe('logger', () => {
         info('hello world');
       });
 
-      expect(record?.bindings.prefix).toBe('Brainstrike');
-      expect(record?.bindings.environment).toBe('test');
+      expect(record?.bindings['prefix']).toBe('Brainstrike');
+      expect(record?.bindings['environment']).toBe('test');
     });
 
     it('uses custom scope keys for scoped loggers', () => {
@@ -136,7 +136,7 @@ describe('logger', () => {
         scopedLogger.debug('component ready');
       });
 
-      expect(record?.bindings.component).toBe('Importer');
+      expect(record?.bindings['component']).toBe('Importer');
       expect(record?.level).toBe(LogLevel.DEBUG);
     });
 
@@ -147,7 +147,7 @@ describe('logger', () => {
         scopedLogger.warn('initialising');
       });
 
-      expect(record?.bindings.scope).toBe('DbProvider');
+      expect(record?.bindings['scope']).toBe('DbProvider');
       expect(record?.message).toBe('initialising');
     });
   });
@@ -238,8 +238,8 @@ describe('logger', () => {
       expect(records).toHaveLength(2);
       expect(records[0]?.level).toBe(LogLevel.TRACE);
       expect(records[1]?.level).toBe(LogLevel.FATAL);
-      expect(records[0]?.bindings.scope).toBe('TestScope');
-      expect(records[1]?.bindings.scope).toBe('TestScope');
+      expect(records[0]?.bindings['scope']).toBe('TestScope');
+      expect(records[1]?.bindings['scope']).toBe('TestScope');
     });
   });
 

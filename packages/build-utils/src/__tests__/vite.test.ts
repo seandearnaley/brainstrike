@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { HmrContext } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('../vite');
@@ -37,11 +38,24 @@ describe('fullReloadOnCompilerHotspots', () => {
     const ctx = {
       file: path.resolve('/packages/file-explorer-ui/src/foo.ts'),
       server: { ws: { send } },
-    } as unknown as Parameters<NonNullable<typeof plugin.handleHotUpdate>>[0];
+    } as unknown as HmrContext;
 
-    const result = plugin.handleHotUpdate?.(ctx);
-    expect(send).toHaveBeenCalledWith({ type: 'full-reload' });
-    expect(result).toEqual([]);
+    const mockPluginContext = {} as never;
+
+    const handleHotUpdate = plugin.handleHotUpdate;
+    if (typeof handleHotUpdate === 'function') {
+      const result = handleHotUpdate.call(mockPluginContext, ctx);
+      expect(send).toHaveBeenCalledWith({ type: 'full-reload' });
+      expect(result).toEqual([]);
+    } else if (
+      handleHotUpdate &&
+      typeof handleHotUpdate === 'object' &&
+      'handler' in handleHotUpdate
+    ) {
+      const result = handleHotUpdate.handler.call(mockPluginContext, ctx);
+      expect(send).toHaveBeenCalledWith({ type: 'full-reload' });
+      expect(result).toEqual([]);
+    }
   });
 
   it('does nothing for non-hotspot files', () => {
@@ -50,10 +64,23 @@ describe('fullReloadOnCompilerHotspots', () => {
     const ctx = {
       file: 'bar.ts',
       server: { ws: { send } },
-    } as unknown as Parameters<NonNullable<typeof plugin.handleHotUpdate>>[0];
+    } as unknown as HmrContext;
 
-    const result = plugin.handleHotUpdate?.(ctx);
-    expect(send).not.toHaveBeenCalled();
-    expect(result).toBeUndefined();
+    const mockPluginContext = {} as never;
+
+    const handleHotUpdate = plugin.handleHotUpdate;
+    if (typeof handleHotUpdate === 'function') {
+      const result = handleHotUpdate.call(mockPluginContext, ctx);
+      expect(send).not.toHaveBeenCalled();
+      expect(result).toBeUndefined();
+    } else if (
+      handleHotUpdate &&
+      typeof handleHotUpdate === 'object' &&
+      'handler' in handleHotUpdate
+    ) {
+      const result = handleHotUpdate.handler.call(mockPluginContext, ctx);
+      expect(send).not.toHaveBeenCalled();
+      expect(result).toBeUndefined();
+    }
   });
 });

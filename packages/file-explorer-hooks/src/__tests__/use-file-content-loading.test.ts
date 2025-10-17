@@ -759,8 +759,8 @@ describe('useFileContentLoading', () => {
 
       // Verify all files have content loaded
       for (let i = 0; i < total; i++) {
-        const key = compositeKeys[i];
-        const path = filePaths[i];
+        const key = compositeKeys[i]!;
+        const path = filePaths[i]!;
         expect(result.current.fileContents[key]).toBe(`content-${path}`);
       }
 

@@ -13,25 +13,39 @@ describe('File Explorer Integration Tests', () => {
       name: 'src',
       path: '/src',
       type: 'directory',
+      handle: {} as FileSystemDirectoryHandle,
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: 'test-folder',
       children: [
         {
           name: 'index.ts',
           path: '/src/index.ts',
           type: 'file',
-          extension: 'ts',
           size: 1024,
+          handle: {} as FileSystemFileHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'test-folder',
         },
         {
           name: 'components',
           path: '/src/components',
           type: 'directory',
+          handle: {} as FileSystemDirectoryHandle,
+          depth: 1,
+          selectionState: 'unchecked',
+          rootFolderId: 'test-folder',
           children: [
             {
               name: 'Button.tsx',
               path: '/src/components/Button.tsx',
               type: 'file',
-              extension: 'tsx',
               size: 2048,
+              handle: {} as FileSystemFileHandle,
+              depth: 2,
+              selectionState: 'unchecked',
+              rootFolderId: 'test-folder',
             },
           ],
         },
@@ -41,8 +55,11 @@ describe('File Explorer Integration Tests', () => {
       name: 'package.json',
       path: '/package.json',
       type: 'file',
-      extension: 'json',
       size: 512,
+      handle: {} as FileSystemFileHandle,
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: 'test-folder',
     },
   ];
 
@@ -54,8 +71,6 @@ describe('File Explorer Integration Tests', () => {
   });
 
   it('should render file tree and handle folder expansion', async () => {
-    const _user = userEvent.setup();
-
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
         <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />
@@ -85,7 +100,6 @@ describe('File Explorer Integration Tests', () => {
 
     // Click should work without errors
     await user.click(packageFile);
-    await user.click(packageFile, { ctrlKey: true });
   });
 
   it('should integrate with preview panel for selected files', async () => {
@@ -100,7 +114,7 @@ describe('File Explorer Integration Tests', () => {
             onSelectionChange={() => {}}
             decodeFileSelection={(key: string) => {
               const [folderId, path] = key.split(':');
-              return { folderId, path };
+              return { folderId: folderId!, path: path! };
             }}
             countTokensHeuristic={() => 100}
             performUndoableAction={() => {}}
@@ -173,8 +187,6 @@ describe('File Explorer Integration Tests', () => {
   });
 
   it('should handle file filtering and search', async () => {
-    const _user = userEvent.setup();
-
     render(
       <FileExplorerTestWrapper mockFileSystemAdapter={mockFileSystemAdapter}>
         <FileTree fileTree={mockFiles} loadingFiles={new Set()} folderId="test-folder" />

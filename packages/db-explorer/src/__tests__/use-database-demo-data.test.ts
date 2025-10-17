@@ -87,7 +87,7 @@ describe('useDatabaseDemoData', () => {
 
     expect(result.current.chunks).toHaveLength(0);
     expect(toast).toHaveBeenCalledTimes(1);
-    expect(toast.mock.calls[0][0]?.title).toBe('Error');
+    expect(toast.mock.calls[0]?.[0]?.title).toBe('Error');
   });
 
   it('provides safe fallbacks when repositories are unavailable', async () => {
