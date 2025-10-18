@@ -8,6 +8,7 @@ export function useImportSettings(): ImportSettings {
   const setEnableChunking = useImportSettingsStore((s) => s.setEnableChunking);
   const chunkingStrategy = useImportSettingsStore((s) => s.chunkingStrategy);
   const setChunkingStrategy = useImportSettingsStore((s) => s.setChunkingStrategy);
+  const chunkingStrategyExplicit = useImportSettingsStore((s) => s.chunkingStrategyExplicit);
   const chunkSize = useImportSettingsStore((s) => s.chunkSize);
   const setChunkSize = useImportSettingsStore((s) => s.setChunkSize);
   const chunkOverlap = useImportSettingsStore((s) => s.chunkOverlap);
@@ -22,6 +23,7 @@ export function useImportSettings(): ImportSettings {
     setEnableChunking,
     chunkingStrategy,
     setChunkingStrategy,
+    chunkingStrategyExplicit,
     chunkSize,
     setChunkSize,
     chunkOverlap,

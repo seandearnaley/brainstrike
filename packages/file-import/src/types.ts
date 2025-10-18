@@ -1,3 +1,4 @@
+import type { ChunkingStrategy } from '@brainstrike/db';
 import type { ImportProgress } from '@brainstrike/ui';
 
 export interface EnhancedImportProgress extends ImportProgress {
@@ -7,6 +8,7 @@ export interface EnhancedImportProgress extends ImportProgress {
     totalFiles: number;
     currentFile?: string | undefined;
     chunksCreated: number;
+    strategyUsed?: ChunkingStrategy;
   };
   embeddingProgress?: {
     chunksProcessed: number;
@@ -37,4 +39,5 @@ export interface EnhancedImportResult {
   error?: string;
   chunksCreated: number;
   chunksWithEmbeddings?: number;
+  chunkingStrategy?: ChunkingStrategy;
 }

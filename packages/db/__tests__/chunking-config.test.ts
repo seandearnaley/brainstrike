@@ -22,6 +22,11 @@ describe('CHUNKING_CONFIG', () => {
     expect(CHUNKING_CONFIG.veryLargeOverlap).toBe(100);
   });
 
+  it('should expose global safety caps', () => {
+    expect(CHUNKING_CONFIG.maxTokensSafetyCap).toBe(4096);
+    expect(CHUNKING_CONFIG.overlapSafetyCap).toBe(1024);
+  });
+
   it('should have correct preview lengths', () => {
     expect(CHUNKING_CONFIG.chunkPreviewLength).toBe(50);
     expect(CHUNKING_CONFIG.csvContentPreviewLength).toBe(100);
@@ -48,6 +53,8 @@ describe('CHUNKING_CONFIG', () => {
       'veryLargeContentThreshold',
       'veryLargeMaxTokens',
       'veryLargeOverlap',
+      'maxTokensSafetyCap',
+      'overlapSafetyCap',
       'chunkPreviewLength',
       'csvContentPreviewLength',
       'averageCharsPerToken',

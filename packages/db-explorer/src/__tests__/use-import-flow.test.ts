@@ -40,6 +40,7 @@ vi.mock('@brainstrike/file-explorer-ui', () => ({
 const baseSettings = {
   enableChunking: true,
   chunkingStrategy: 'sentence' as const,
+  chunkingStrategyExplicit: false,
   enableEmbedding: false,
   selectedModel: 'model-1',
   chunkSize: 512,

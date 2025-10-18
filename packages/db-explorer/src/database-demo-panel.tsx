@@ -136,6 +136,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     () => ({
       enableChunking: importSettings.enableChunking,
       chunkingStrategy: importSettings.chunkingStrategy,
+      chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
       enableEmbedding: importSettings.enableEmbedding,
       selectedModel: importSettings.selectedModel ?? null,
       chunkSize: importSettings.chunkSize,
@@ -144,6 +145,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     [
       importSettings.enableChunking,
       importSettings.chunkingStrategy,
+      importSettings.chunkingStrategyExplicit,
       importSettings.enableEmbedding,
       importSettings.selectedModel,
       importSettings.chunkSize,

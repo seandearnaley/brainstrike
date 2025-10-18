@@ -20,16 +20,21 @@ export interface ChunkingOptions {
   filePath?: string;
   // When true, allows chunking beyond maxChunkableSize using the streaming API
   allowLargeFiles?: boolean;
+  // When true, honor the provided strategy without applying file-type heuristics
+  forceStrategy?: boolean;
   // Optional token counter for token-true sizing and reporting
   tokenCounter?: (text: string) => Promise<number>;
   // If true, derive character limits from measured chars/token for this content
   tokenTrueSizing?: boolean;
+  // Notify caller which strategy was actually used after file/extension heuristics
+  onStrategyResolved?: (strategy: ChunkingStrategy) => void;
 }
 
 export interface ChunkingResult {
   chunks: FileChunkInsert[];
   totalTokens: number;
   avgTokensPerChunk: number;
+  strategyUsed: ChunkingStrategy;
   skipped?: boolean;
   skipReason?: string;
 }
@@ -77,6 +82,7 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'sentence' }
   ): Promise<ChunkingResult> {
+    let strategyUsed: ChunkingStrategy = options.strategy;
     logger.debug(`Starting chunkContent for fileRecordId: ${fileRecordId}`);
     logger.debug(`Content length: ${content?.length || 0}`);
     logger.debug('Options', options);
@@ -96,6 +102,7 @@ export class ChunkingService {
         chunks: [],
         totalTokens: 0,
         avgTokensPerChunk: 0,
+        strategyUsed,
         skipped: true,
         skipReason: skipResult.reason || 'Unknown reason',
       };
@@ -118,12 +125,15 @@ export class ChunkingService {
       ...options,
       maxTokens: adjustedOptions.maxTokens,
       overlap: adjustedOptions.overlap,
+      onStrategyResolved: (resolved) => {
+        strategyUsed = resolved;
+      },
     })) {
       chunks.push({ ...chunk, chunkIndex: idx++ });
       totalTokens += chunk.tokenCount;
     }
     const avgTokensPerChunk = chunks.length ? totalTokens / chunks.length : 0;
-    return { chunks, totalTokens, avgTokensPerChunk };
+    return { chunks, totalTokens, avgTokensPerChunk, strategyUsed };
   }
 
   private shouldSkipChunking(
@@ -176,9 +186,28 @@ export class ChunkingService {
   ): { maxTokens: number; overlap: number } {
     const fileName = options.fileName || options.filePath || '';
 
-    // Use much smaller default chunk sizes appropriate for code and text
-    let maxTokens = options.maxTokens ?? CHUNKING_CONFIG.defaultMaxTokens;
-    let overlap = options.overlap ?? CHUNKING_CONFIG.defaultOverlap;
+    const requestedMaxTokens = options.maxTokens;
+    const requestedOverlap = options.overlap;
+    const hasCustomMaxTokens = requestedMaxTokens !== undefined;
+    const hasCustomOverlap = requestedOverlap !== undefined;
+
+    const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
+      const candidate = Number.isFinite(value) ? (value as number) : fallback;
+      return Math.max(minimum, Math.floor(candidate));
+    };
+
+    // Normalize inputs to sane integer values
+    let maxTokens = normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1);
+    let overlap = normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0);
+
+    const applyRecommendation = (recommendedMax: number, recommendedOverlap: number) => {
+      if (!hasCustomMaxTokens) {
+        maxTokens = Math.min(maxTokens, recommendedMax);
+      }
+      if (!hasCustomOverlap) {
+        overlap = Math.min(overlap, recommendedOverlap);
+      }
+    };
 
     // Prefer smaller chunks for code files (improves semantic retrieval)
     const isCode =
@@ -186,24 +215,28 @@ export class ChunkingService {
         fileName.toLowerCase()
       );
     if (isCode) {
-      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.codeMaxTokens);
-      overlap = Math.min(overlap, CHUNKING_CONFIG.codeOverlap);
+      applyRecommendation(CHUNKING_CONFIG.codeMaxTokens, CHUNKING_CONFIG.codeOverlap);
     }
 
     // For large structured files, use smaller chunks
     for (const pattern of LARGE_STRUCTURED_PATTERNS) {
       if (pattern.test(fileName)) {
-        maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.largeStructuredMaxTokens);
-        overlap = Math.min(overlap, CHUNKING_CONFIG.largeStructuredOverlap);
+        applyRecommendation(
+          CHUNKING_CONFIG.largeStructuredMaxTokens,
+          CHUNKING_CONFIG.largeStructuredOverlap
+        );
         break;
       }
     }
 
     // For very large content, use even smaller chunks
     if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
-      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.veryLargeMaxTokens);
-      overlap = Math.min(overlap, CHUNKING_CONFIG.veryLargeOverlap);
+      applyRecommendation(CHUNKING_CONFIG.veryLargeMaxTokens, CHUNKING_CONFIG.veryLargeOverlap);
     }
+
+    maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);
+    overlap = Math.min(overlap, CHUNKING_CONFIG.overlapSafetyCap);
+    overlap = Math.min(overlap, Math.max(0, maxTokens - 1));
 
     return { maxTokens, overlap };
   }
@@ -292,7 +325,7 @@ export class ChunkingService {
 
     type ChunkGroup = { pieces: string[]; type: FileChunkInsert['chunkType'] };
 
-    const handleToken = async (): Promise<ChunkGroup[]> => {
+    const chunkTokens = async (): Promise<ChunkGroup[]> => {
       const tokenChunker = new TokenTextSplitter({
         chunkSize: adjusted.maxTokens,
         chunkOverlap: adjusted.overlap,
@@ -300,7 +333,7 @@ export class ChunkingService {
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
 
-    const handleMarkdown = async (): Promise<ChunkGroup[]> => {
+    const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
       const blocks = splitMarkdownIntoBlocks(content);
       const groups: ChunkGroup[] = [];
       for (const block of blocks) {
@@ -320,7 +353,9 @@ export class ChunkingService {
       return groups;
     };
 
-    const handleCode = async (): Promise<ChunkGroup[]> => {
+    const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
+
+    const chunkCode = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
       const recursiveChunker = new RecursiveCharacterTextSplitter({
         chunkSize: maxChars,
@@ -330,7 +365,7 @@ export class ChunkingService {
       return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
     };
 
-    const handleText = async (): Promise<ChunkGroup[]> => {
+    const chunkText = async (): Promise<ChunkGroup[]> => {
       const sentenceChunker = new CharacterTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
@@ -340,19 +375,52 @@ export class ChunkingService {
     };
 
     let groups: ChunkGroup[] = [];
-    if (options.strategy === 'token') {
-      groups = await handleToken();
-    } else if (isMarkdown) {
-      groups = await handleMarkdown();
-    } else if (isCode || options.strategy === 'recursive') {
-      groups = await handleCode();
+    let effectiveStrategy: ChunkingStrategy = options.strategy;
+    let strategyNotified = false;
+    const notifyStrategy = (strategy: ChunkingStrategy) => {
+      if (strategyNotified) return;
+      strategyNotified = true;
+      options.onStrategyResolved?.(strategy);
+    };
+
+    const forceStrategy = options.forceStrategy === true;
+    effectiveStrategy = resolveEffectiveStrategy({
+      requested: options.strategy,
+      forceStrategy,
+      isMarkdown,
+      isCode,
+    });
+
+    if (effectiveStrategy === 'token') {
+      groups = await chunkTokens();
+    } else if (effectiveStrategy === 'recursive') {
+      groups = await chunkCode();
     } else {
-      groups = await handleText();
+      groups = isMarkdown ? await chunkMarkdown() : await chunkText();
     }
+    notifyStrategy(effectiveStrategy);
     for (const g of groups) {
       yield* emit(g.pieces, g.type, adjusted.maxTokens);
     }
   }
+}
+
+function resolveEffectiveStrategy({
+  requested,
+  forceStrategy,
+  isMarkdown,
+  isCode,
+}: {
+  requested: ChunkingStrategy;
+  forceStrategy: boolean;
+  isMarkdown: boolean;
+  isCode: boolean;
+}): ChunkingStrategy {
+  if (requested === 'token') return 'token';
+  if (forceStrategy) return requested;
+  if (isMarkdown) return 'sentence';
+  if (requested === 'recursive' || isCode) return 'recursive';
+  return 'sentence';
 }
 
 // Utilities for streaming splitter

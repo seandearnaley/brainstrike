@@ -28,6 +28,7 @@ export interface EnhancedImportResult {
   error?: string;
   chunksCreated: number;
   chunksWithEmbeddings?: number;
+  chunkingStrategy?: ChunkingStrategy;
 }
 
 export interface EnhancedImportProgress extends ImportProgress {
@@ -37,6 +38,7 @@ export interface EnhancedImportProgress extends ImportProgress {
     totalFiles: number;
     currentFile?: string | undefined;
     chunksCreated: number;
+    strategyUsed?: ChunkingStrategy;
   };
   embeddingProgress?: {
     chunksProcessed: number;
@@ -84,6 +86,7 @@ export interface ImportSettings {
   setEnableChunking: (value: boolean) => void;
   chunkingStrategy: ChunkingStrategy;
   setChunkingStrategy: (value: ChunkingStrategy) => void;
+  chunkingStrategyExplicit: boolean;
   chunkSize: number;
   setChunkSize: (value: number) => void;
   chunkOverlap: number;

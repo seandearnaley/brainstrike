@@ -14,6 +14,7 @@ export interface UseImportFlowOptions {
   importSettings: {
     enableChunking: boolean;
     chunkingStrategy: ChunkingStrategy;
+    chunkingStrategyExplicit: boolean;
     enableEmbedding: boolean;
     selectedModel: string | null;
     chunkSize: number;
@@ -75,6 +76,7 @@ export function useImportFlow({
     },
     enableChunking: importSettings.enableChunking,
     chunkingStrategy: importSettings.chunkingStrategy,
+    chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
     enableEmbedding: importSettings.enableEmbedding,
     ...(importSettings.selectedModel ? { embeddingModel: importSettings.selectedModel } : {}),
     chunkSize: importSettings.chunkSize,

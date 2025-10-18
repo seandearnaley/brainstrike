@@ -32,6 +32,7 @@ describe('import-settings-store', () => {
     const store = useImportSettingsStore.getState();
     expect(store.enableChunking).toBe(true);
     expect(store.chunkingStrategy).toBe('sentence');
+    expect(store.chunkingStrategyExplicit).toBe(false);
     expect(store.chunkSize).toBe(256);
     expect(store.chunkOverlap).toBe(50);
     expect(store.enableEmbedding).toBe(false);
@@ -61,6 +62,7 @@ describe('import-settings-store', () => {
     snapshot.setSelectedModel('test-model');
 
     const next = useImportSettingsStore.getState();
+    expect(next.chunkingStrategyExplicit).toBe(true);
     const chunking = importSettingsSelectors.chunking(next);
     const sizes = importSettingsSelectors.sizes(next);
     const embedding = importSettingsSelectors.embedding(next);
@@ -110,11 +112,13 @@ describe('import-settings-store', () => {
       state?: {
         enableChunking: boolean;
         chunkSize: number;
+        chunkingStrategyExplicit: boolean;
       };
     };
 
     expect(snapshot.state?.enableChunking).toBe(false);
     expect(snapshot.state?.chunkSize).toBe(128);
+    expect(snapshot.state?.chunkingStrategyExplicit).toBe(false);
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

@@ -23,6 +23,10 @@ export const CHUNKING_CONFIG = {
   veryLargeMaxTokens: 1000, // Maximum tokens for very large content
   veryLargeOverlap: 100, // Overlap for very large content
 
+  // Global safety caps to guard against extreme inputs
+  maxTokensSafetyCap: 4096, // Hard ceiling for chunk size regardless of source
+  overlapSafetyCap: 1024, // Hard ceiling for overlap to avoid runaway duplication
+
   // Preview and display limits
   chunkPreviewLength: 50, // Characters to show in chunk preview
   csvContentPreviewLength: 100, // Characters to show in CSV export content preview

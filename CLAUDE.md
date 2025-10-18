@@ -9,6 +9,9 @@ BrainStrike is a suite of tools for context management to be used with LLMs. It 
 Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
 
 
+We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
+
+
 ## Development Commands
 
 ### Core Development
@@ -179,4 +182,3 @@ Workflow:
 3. find_symbol, get_calls, find_callers - Get specific details
 
 Start with semantic search, then narrow with specific queries.
-

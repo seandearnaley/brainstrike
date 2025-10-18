@@ -8,6 +8,7 @@ const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
 interface ImportSettingsData {
   enableChunking: boolean;
   chunkingStrategy: ChunkingStrategy;
+  chunkingStrategyExplicit: boolean;
   chunkSize: number;
   chunkOverlap: number;
   enableEmbedding: boolean;
@@ -54,13 +55,14 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
     (set) => ({
       enableChunking: true,
       chunkingStrategy: 'sentence',
+      chunkingStrategyExplicit: false,
       chunkSize: 256,
       chunkOverlap: 50,
       enableEmbedding: false,
       selectedModel: DEFAULT_MODEL_KEY,
 
       setEnableChunking: (v) => set({ enableChunking: !!v }),
-      setChunkingStrategy: (v) => set({ chunkingStrategy: v }),
+      setChunkingStrategy: (v) => set({ chunkingStrategy: v, chunkingStrategyExplicit: true }),
       setChunkSize: (n) => set({ chunkSize: Math.max(1, Math.floor(n)) }),
       setChunkOverlap: (n) => set({ chunkOverlap: Math.max(0, Math.floor(n)) }),
       setEnableEmbedding: (v) => set({ enableEmbedding: !!v }),
@@ -73,6 +75,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       partialize: (s) => ({
         enableChunking: s.enableChunking,
         chunkingStrategy: s.chunkingStrategy,
+        chunkingStrategyExplicit: s.chunkingStrategyExplicit,
         chunkSize: s.chunkSize,
         chunkOverlap: s.chunkOverlap,
         enableEmbedding: s.enableEmbedding,
@@ -97,6 +100,7 @@ export function __resetImportSettingsStoreForTests() {
   useImportSettingsStore.setState({
     enableChunking: true,
     chunkingStrategy: 'sentence',
+    chunkingStrategyExplicit: false,
     chunkSize: 256,
     chunkOverlap: 50,
     enableEmbedding: false,
