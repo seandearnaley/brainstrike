@@ -163,6 +163,26 @@ describe('ImportProgressDisplay', () => {
     expect(screen.getByText('5/5')).toBeInTheDocument();
   });
 
+  it('renders strategy when provided', () => {
+    const mockProgress = {
+      phase: 'chunking' as const,
+      total: 3,
+      completed: 1,
+      errors: [],
+      chunkingProgress: {
+        currentFile: 'code.ts',
+        filesProcessed: 1,
+        totalFiles: 3,
+        chunksCreated: 12,
+        strategyUsed: 'recursive' as const,
+      },
+    };
+
+    render(<ImportProgressDisplay progress={mockProgress} onClose={vi.fn()} />);
+
+    expect(screen.getByText('Strategy: recursive')).toBeInTheDocument();
+  });
+
   it('renders queue progress details when provided', () => {
     const mockProgress = {
       phase: 'embedding' as const,

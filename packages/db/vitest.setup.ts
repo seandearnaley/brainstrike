@@ -1,40 +1,56 @@
+import { Blob as NodeBlob } from 'node:buffer';
+import { readFile } from 'node:fs/promises';
 import { afterAll, beforeAll, vi } from 'vitest';
 
 // Increase global hook timeout to tolerate WASM warmup under parallel runs
 vi.setConfig({ hookTimeout: 30000 });
 
-// Vector extension testing strategy:
-// - Default: disabled for speed and CI compatibility
-// - Selective: enable for vector-specific tests via TEST_ENABLE_VECTOR=true
-const enableVector = process.env.TEST_ENABLE_VECTOR === 'true';
-
-// IMPORTANT: Set the env toggle at module load so migrations and imports
-// observe it even during test module evaluation (before hooks run).
-if (!enableVector) {
-  process.env.DISABLE_VECTOR_EXTENSION = 'true';
-  // Keep a concise log to aid debugging of env-driven behavior
-  // eslint-disable-next-line no-console
-  console.log('✅ Using PGlite without vector extension (fast mode)');
-} else {
-  // eslint-disable-next-line no-console
-  console.log('✅ Using PGlite with vector extension (integration mode)');
+if (typeof Blob === 'undefined' || typeof Blob.prototype.arrayBuffer !== 'function') {
+  // @ts-expect-error - assign Node's Blob polyfill for tests
+  globalThis.Blob = NodeBlob;
 }
 
-beforeAll(async () => {
-  // Preload PGlite WASM once to avoid per-test compilation delays.
-  // Import lazily so that per-test vi.mock('@electric-sql/pglite') still applies.
-  try {
-    const { wasmLoader } = await import('./src/wasm-loader');
-    // Soft warmup with a cap to avoid hanging CI
-    await Promise.race([
-      wasmLoader.ensureWasmLoaded(),
-      new Promise((resolve) => setTimeout(resolve, 25000)),
-    ]);
-  } catch {
-    // Ignore warmup errors; individual tests will surface real issues
+
+if (!(Buffer.prototype as unknown as { arrayBuffer?: () => ArrayBuffer }).arrayBuffer) {
+  Object.defineProperty(Buffer.prototype, 'arrayBuffer', {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value(this: Buffer) {
+      const { buffer, byteOffset, byteLength } = this;
+      return buffer.slice(byteOffset, byteOffset + byteLength);
+    },
+  });
+}
+
+const nativeFetch = globalThis.fetch?.bind(globalThis);
+if (!nativeFetch) {
+  throw new Error('Global fetch is required for PGlite tests.');
+}
+
+globalThis.fetch = async (input: unknown, init?: unknown) => {
+  const url =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : typeof input === 'object' && input && 'url' in input
+          ? String((input as { url?: string }).url)
+          : String(input);
+
+  if (url.startsWith('file:')) {
+    const data = await readFile(new URL(url));
+    return new Response(data);
   }
+
+  return nativeFetch(input as any, init as any);
+};
+
+beforeAll(async () => {
+  const { wasmLoader } = await import('./src/wasm-loader');
+  await wasmLoader.ensureWasmLoaded();
 });
 
 afterAll(async () => {
-  // Simple cleanup - no special handling needed
+  // No-op for now; placeholder for future cleanup hooks.
 });

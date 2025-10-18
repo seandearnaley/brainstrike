@@ -25,6 +25,11 @@ export function ImportProgressDisplay({ progress, onClose }: ImportProgressDispl
           <div className="text-muted-foreground mt-1">
             {progress.chunkingProgress.chunksCreated} chunks created
           </div>
+          {progress.chunkingProgress.strategyUsed && (
+            <div className="text-muted-foreground mt-1">
+              Strategy: {progress.chunkingProgress.strategyUsed}
+            </div>
+          )}
         </div>
       )}
       {progress.phase === 'embedding' && progress.embeddingProgress && (

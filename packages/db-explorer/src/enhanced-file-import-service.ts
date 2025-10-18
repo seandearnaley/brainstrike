@@ -47,6 +47,7 @@ interface EnhancedFileImportOptions {
   onError?: (error: Error) => void;
   enableChunking?: boolean;
   chunkingStrategy?: ChunkingStrategy;
+  chunkingStrategyExplicit?: boolean;
   enableEmbedding?: boolean;
   embeddingModel?: string;
   chunkSize?: number;
@@ -112,6 +113,9 @@ function createChunkingConfig(
   };
   if (options.chunkingStrategy !== undefined) {
     config.strategy = options.chunkingStrategy;
+  }
+  if (options.chunkingStrategyExplicit !== undefined) {
+    config.strategyExplicit = options.chunkingStrategyExplicit;
   }
   if (options.chunkSize !== undefined) {
     config.chunkSize = options.chunkSize;

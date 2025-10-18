@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 
 /**
  * Layout test utilities for Desktop E2E panel testing
@@ -8,34 +8,37 @@ import type { Page } from '@playwright/test';
 /**
  * Navigate to and show the database demo panel in the right panel
  */
-export async function showDatabaseDemoPanel(page: Page): Promise<void> {
+export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
+  const activePage = await resolveActivePage(page);
   console.log('🗄️ Navigating to database demo panel...');
 
   // First, check if the right panel is already visible
-  const rightPanel = page.locator('[data-panel-id="right-panel"]');
+  const rightPanel = activePage.locator('[data-panel-id="right-panel"]');
   const rightPanelVisible = await rightPanel.isVisible();
 
   if (!rightPanelVisible) {
     console.log('👉 Showing right panel...');
     // Show the right panel by clicking the show button
-    const showRightPanelButton = page.locator('button[aria-label="Show right panel"]');
+    const showRightPanelButton = activePage.locator('button[aria-label="Show right panel"]');
     await showRightPanelButton.click();
 
     // Wait for the right panel to be visible
     await rightPanel.waitFor({ state: 'visible', timeout: 8000 }); // Increased timeout
   }
 
-  // Wait a moment for panel to stabilize
-  await page.waitForTimeout(500);
+  if (!activePage.isClosed()) {
+    // Wait a moment for panel to stabilize
+    await activePage.waitForTimeout(500);
+  }
 
   // Now navigate to the database tab within the right panel
   // Try multiple selectors for the database tab
   console.log('🗂️ Clicking database tab...');
-  const databaseTab = page
+  const databaseTab = activePage
     .locator('button[value="database"]')
-    .or(page.locator('[value="database"]'))
-    .or(page.locator('text=DB'))
-    .or(page.locator('[role="tab"]:has-text("DB")'));
+    .or(activePage.locator('[value="database"]'))
+    .or(activePage.locator('text=DB'))
+    .or(activePage.locator('[role="tab"]:has-text("DB")'));
 
   await databaseTab.first().click();
 
@@ -44,52 +47,59 @@ export async function showDatabaseDemoPanel(page: Page): Promise<void> {
 
   // Wait for either the success state or error state
   await Promise.race([
-    page.locator('[data-testid="database-demo-panel"]').waitFor({
+    activePage.locator('[data-testid="database-demo-panel"]').waitFor({
       state: 'visible',
       timeout: 15000,
     }),
-    page.locator('[data-testid="db-init-error"]').waitFor({
+    activePage.locator('[data-testid="db-init-error"]').waitFor({
       state: 'visible',
       timeout: 15000,
     }),
   ]);
 
   // Check which state we're in
-  const hasSuccessPanel = await page.locator('[data-testid="database-demo-panel"]').isVisible();
-  const hasErrorPanel = await page.locator('[data-testid="db-init-error"]').isVisible();
+  const hasSuccessPanel = await activePage
+    .locator('[data-testid="database-demo-panel"]')
+    .isVisible();
+  const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
 
   if (hasSuccessPanel) {
     console.log('✅ Database demo panel is visible and ready');
   } else if (hasErrorPanel) {
-    const errorText = await page.locator('[data-testid="db-init-error"]').textContent();
+    const errorText = await activePage.locator('[data-testid="db-init-error"]').textContent();
     console.log('⚠️ Database initialization failed:', errorText);
     console.log('✅ Database error panel is visible (this is expected in E2E environment)');
   }
+
+  return activePage;
 }
 
 /**
  * Wait for the database demo panel to be fully initialized and ready
  */
-export async function waitForDatabaseReady(page: Page): Promise<void> {
+export async function waitForDatabaseReady(page: Page): Promise<Page> {
+  const activePage = await resolveActivePage(page);
   // Check if we're in error state or success state
-  const hasErrorPanel = await page.locator('[data-testid="db-init-error"]').isVisible();
-  const hasSuccessPanel = await page.locator('[data-testid="database-demo-panel"]').isVisible();
+  const hasErrorPanel = await activePage.locator('[data-testid="db-init-error"]').isVisible();
+  const hasSuccessPanel = await activePage
+    .locator('[data-testid="database-demo-panel"]')
+    .isVisible();
 
   if (hasErrorPanel) {
     console.log('⚠️ Database is in error state - skipping database readiness checks');
-    return; // Don't wait for database operations if we're in error state
+    return activePage; // Don't wait for database operations if we're in error state
   }
 
   if (!hasSuccessPanel) {
     // Wait for the database demo panel to be visible if it's not already
-    await page.locator('[data-testid="database-demo-panel"]').waitFor({
+    await activePage.locator('[data-testid="database-demo-panel"]').waitFor({
       state: 'visible',
       timeout: 15000, // Increased timeout for slower startup
     });
   }
 
   // Wait for any loading states to complete
-  const loadingIndicator = page.locator('text=Loading PGlite database...');
+  const loadingIndicator = activePage.locator('text=Loading PGlite database...');
   try {
     // If loading indicator is visible, wait for it to disappear
     if (await loadingIndicator.isVisible({ timeout: 1000 })) {
@@ -104,7 +114,7 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
   // Wait for connection status to be ready (either success or failure indicator)
   // Try multiple approaches to detect database readiness
   try {
-    await page.locator('text=✓').or(page.locator('text=✗')).first().waitFor({
+    await activePage.locator('text=✓').or(activePage.locator('text=✗')).first().waitFor({
       state: 'visible',
       timeout: 20000, // Increased timeout for database initialization
     });
@@ -112,10 +122,10 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
     console.warn('⚠️ Database status indicator not found, trying alternative detection...');
 
     // Alternative: wait for any database-related text or UI elements
-    const databaseReady = page
+    const databaseReady = activePage
       .locator('text=Database')
-      .or(page.locator('text=connected'))
-      .or(page.locator('[data-testid="database-content"]'));
+      .or(activePage.locator('text=connected'))
+      .or(activePage.locator('[data-testid="database-content"]'));
     await databaseReady.first().waitFor({
       state: 'visible',
       timeout: 10000,
@@ -123,28 +133,40 @@ export async function waitForDatabaseReady(page: Page): Promise<void> {
   }
 
   // Additional wait to ensure database operations are ready
-  await page.waitForTimeout(2000); // Increased from 1s to 2s
+  if (!activePage.isClosed()) {
+    await activePage.waitForTimeout(2000); // Increased from 1s to 2s
+  }
 
   // Final check: ensure the panel is interactive
   try {
-    await page.locator('button:has-text("Refresh")').waitFor({ state: 'visible', timeout: 5000 });
+    await activePage
+      .locator('button:has-text("Refresh")')
+      .waitFor({ state: 'visible', timeout: 5000 });
     console.log('✅ Database panel is ready and interactive');
   } catch (_error) {
     console.warn('⚠️ Refresh button not found, database panel might not be fully loaded');
   }
+
+  return activePage;
 }
 
 /**
  * Clear all records from the database for testing using bulk delete
  */
-export async function clearDatabaseRecords(page: Page): Promise<void> {
+export async function clearDatabaseRecords(page: Page): Promise<Page> {
+  let activePage = await resolveActivePage(page);
   try {
     console.log('🧹 Starting efficient database record cleanup...');
+
+    if (await isDatabaseErrorState(activePage)) {
+      console.log('ℹ️ Database in error state; skipping record cleanup.');
+      return activePage;
+    }
 
     // Try using the bulk delete API (available in Electron environment)
     console.log('🚀 Attempting bulk delete via Electron API...');
     try {
-      const result = await page.evaluate(async () => {
+      const result = await activePage.evaluate(async () => {
         // Check if we're in Electron and have the API available
         if (typeof window !== 'undefined' && (window as any).electronAPI?.db?.clearAll) {
           return await (window as any).electronAPI.db.clearAll('CONFIRM_CLEAR_DATABASE');
@@ -156,15 +178,17 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
         console.log(`✅ Bulk delete successful: ${result.message}`);
 
         // Refresh the UI to reflect the changes
-        await page.click('button:has-text("Refresh")');
-        await page.waitForTimeout(1000); // Give time for UI to update
+        await activePage.click('button:has-text("Refresh")');
+        if (!activePage.isClosed()) {
+          await activePage.waitForTimeout(1000); // Give time for UI to update
+        }
 
-        const remainingCount = await page.locator('tbody tr').count();
+        const remainingCount = await activePage.locator('tbody tr').count();
         console.log(`📊 Records remaining after bulk delete: ${remainingCount}`);
 
         if (remainingCount === 0) {
           console.log('✅ Database cleanup completed successfully');
-          return;
+          return activePage;
         }
         console.log(`⚠️ ${remainingCount} records still remain, continuing with UI cleanup...`);
       } else {
@@ -176,7 +200,8 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
 
     // Fallback to UI-based deletion (much slower but works in all environments)
     console.log('🔄 Using UI-based deletion fallback...');
-    await clearDatabaseRecordsViaUI(page);
+    activePage = await clearDatabaseRecordsViaUI(activePage);
+    return activePage;
   } catch (error) {
     console.error('❌ Database cleanup failed:', error);
     throw error;
@@ -186,19 +211,61 @@ export async function clearDatabaseRecords(page: Page): Promise<void> {
 /**
  * Clear records via UI interaction (fallback method)
  */
-async function clearDatabaseRecordsViaUI(page: Page): Promise<void> {
+async function clearDatabaseRecordsViaUI(page: Page): Promise<Page> {
+  let activePage = await resolveActivePage(page);
+  if (activePage.isClosed()) {
+    activePage = await resolveActivePage(page);
+  }
+
+  if (await isDatabaseErrorState(activePage)) {
+    console.log('ℹ️ Database in error state; UI cleanup skipped.');
+    return activePage;
+  }
+
+  const resolveRefreshButton = async (pageRef: Page): Promise<{ page: Page; button: Locator }> => {
+    const button = pageRef.locator('button:has-text("Refresh")').first();
+    try {
+      await button.waitFor({ state: 'visible', timeout: 5000 });
+      return { page: pageRef, button };
+    } catch (_error) {
+      console.warn('⚠️ Refresh button not visible, reopening database panel...');
+      const reopened = await showDatabaseDemoPanel(pageRef);
+      const ready = await waitForDatabaseReady(reopened);
+      const refreshed = ready.locator('button:has-text("Refresh")').first();
+      await refreshed.waitFor({ state: 'visible', timeout: 5000 });
+      return { page: ready, button: refreshed };
+    }
+  };
+
+  let refresh = await resolveRefreshButton(activePage);
+  activePage = refresh.page;
+  let refreshButton = refresh.button;
+
   // First refresh to ensure we see all current records
   console.log('🔄 Refreshing records...');
-  await page.click('button:has-text("Refresh")');
-  await page.waitForTimeout(800);
+  try {
+    await refreshButton.click({ timeout: 5000 });
+    if (!activePage.isClosed()) {
+      await activePage.waitForTimeout(800);
+    }
+  } catch (_clickError) {
+    console.warn('⚠️ Refresh click failed; reinitializing panel...');
+    refresh = await resolveRefreshButton(activePage);
+    activePage = refresh.page;
+    refreshButton = refresh.button;
+    await refreshButton.click({ timeout: 5000 });
+    if (!activePage.isClosed()) {
+      await activePage.waitForTimeout(800);
+    }
+  }
 
   // Check initial record count
-  const initialCount = await page.locator('tbody tr').count();
+  const initialCount = await activePage.locator('tbody tr').count();
   console.log(`📊 Found ${initialCount} records to clear via UI`);
 
   if (initialCount === 0) {
     console.log('✅ No records to clear');
-    return;
+    return activePage;
   }
 
   // Limit UI deletion to prevent crashes from too many records
@@ -218,7 +285,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<void> {
 
   while (attempts < maxAttempts) {
     try {
-      const deleteButtons = page.locator('tbody tr button[title="Remove record"]');
+      const deleteButtons = activePage.locator('tbody tr button[title="Remove record"]');
       const count = await deleteButtons.count();
 
       if (count === 0) {
@@ -238,7 +305,7 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<void> {
 
       // Check if the page/app is still responsive
       try {
-        await page.locator('[data-testid="database-demo-panel"]').waitFor({
+        await activePage.locator('[data-testid="database-demo-panel"]').waitFor({
           state: 'visible',
           timeout: 2000,
         });
@@ -254,6 +321,63 @@ async function clearDatabaseRecordsViaUI(page: Page): Promise<void> {
       }
     }
   }
+
+  return activePage;
+}
+
+async function resolveActivePage(page: Page): Promise<Page> {
+  if (!page.isClosed()) {
+    try {
+      await page.waitForLoadState('domcontentloaded', { timeout: 10000 });
+    } catch (_error) {
+      // Ignore load state errors; the page may already be ready.
+    }
+    return page;
+  }
+
+  console.warn('⚠️ Existing window closed; waiting for replacement...');
+  const context = page.context();
+  return waitForReplacementPage(context, page);
+}
+
+async function isDatabaseErrorState(page: Page): Promise<boolean> {
+  try {
+    const errorPanel = page.locator('[data-testid="db-init-error"]');
+    return await errorPanel.isVisible({ timeout: 200 }).catch(() => false);
+  } catch {
+    return false;
+  }
+}
+
+async function waitForReplacementPage(
+  context: BrowserContext,
+  closedPage: Page,
+  timeoutMs = 15000
+): Promise<Page> {
+  const browser = context.browser();
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const contexts = browser ? browser.contexts() : [context];
+    for (const ctx of contexts) {
+      for (const candidate of ctx.pages()) {
+        if (candidate === closedPage || candidate.isClosed()) continue;
+        try {
+          await candidate.waitForLoadState('domcontentloaded', { timeout: 5000 });
+        } catch (_error) {
+          // Ignore load-state errors; page may already be interactive.
+        }
+        return candidate;
+      }
+    }
+    await sleep(200);
+  }
+
+  throw new Error('Unable to locate an active window after restart');
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -274,18 +398,19 @@ export function getDatabasePanelElements(page: Page) {
 /**
  * Reset database state for testing by navigating to panel and clearing all records
  */
-export async function resetDatabaseForTest(page: Page): Promise<void> {
+export async function resetDatabaseForTest(page: Page): Promise<Page> {
   console.log('🔄 Resetting database state for test...');
 
   try {
     // Navigate to database panel
-    await showDatabaseDemoPanel(page);
-    await waitForDatabaseReady(page);
+    let activePage = await showDatabaseDemoPanel(page);
+    activePage = await waitForDatabaseReady(activePage);
 
     // Clear all existing records
-    await clearDatabaseRecords(page);
+    activePage = await clearDatabaseRecords(activePage);
 
     console.log('✅ Database reset completed');
+    return activePage;
   } catch (error) {
     console.log('❌ Error during database reset:', error);
     throw error;

@@ -1,18 +1,22 @@
-import { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it } from 'vitest';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { MigrationRunner, baseMigrations as migrations } from '../src/migrations/index.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import { createFileRecordRepository } from '../src/repositories/repository-factory.js';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('Migration System Integration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
   beforeEach(async () => {
-    // Use basic PGlite without extensions to avoid pgvector dependency in tests
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://migration-integration');
     runner = new MigrationRunner(db);
+  });
+
+  afterEach(async () => {
+    await db.close();
   });
 
   describe('full migration workflow', () => {

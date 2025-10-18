@@ -8,15 +8,12 @@ import {
 } from '@brainstrike/db';
 import { generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { processChunking } from '../chunking';
 
 describe('Chunking producer enqueues jobs', () => {
   // Increase timeouts to tolerate in-memory DB startup + migrations under load
   vi.setConfig({ hookTimeout: 30000, testTimeout: 30000 });
-  beforeAll(() => {
-    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
-  });
   let db: PGlite;
 
   beforeEach(async () => {
@@ -26,7 +23,7 @@ describe('Chunking producer enqueues jobs', () => {
 
   it('enqueues one embed_chunk job per chunk after insertMany when enabled', async () => {
     const fileRepo = new FileRecordRepository(db);
-    const chunkRepo = new FileChunkRepository(db, false);
+    const chunkRepo = new FileChunkRepository(db);
 
     const now = new Date().toISOString();
     // Create a file record with content

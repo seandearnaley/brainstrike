@@ -93,16 +93,20 @@ describe('processFileChunking', () => {
           {
             id: 'chunk-1',
             fileRecordId: 'file-1',
+            chunkIndex: 0,
             content: 'Chunk content',
-            sequence: 0,
-            startChar: 0,
-            endChar: 12,
-            metadata: {},
+            contentHash: 'hash-1',
+            tokenCount: 10,
+            chunkType: 'sentence',
+            chunkSize: 100,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
         ],
         skipped: false,
+        totalTokens: 10,
+        avgTokensPerChunk: 10,
+        strategyUsed: 'sentence',
       }),
     };
 
@@ -218,6 +222,8 @@ describe('processFileChunking', () => {
     );
 
     expect(result.enhancedResult.chunksCreated).toBe(1);
+    expect(result.strategyUsed).toBe('sentence');
+    expect(result.enhancedResult.chunkingStrategy).toBe('sentence');
     expect(result.chunks).toHaveLength(1);
     expect(mockChunkRepository.insertMany).toHaveBeenCalled();
     expect(mockRepository.update).toHaveBeenCalled();
@@ -235,6 +241,9 @@ describe('processFileChunking', () => {
       chunks: [],
       skipped: true,
       skipReason: 'Content too short',
+      totalTokens: 0,
+      avgTokensPerChunk: 0,
+      strategyUsed: 'sentence',
     });
 
     const result = await processFileChunking(
@@ -248,6 +257,8 @@ describe('processFileChunking', () => {
 
     expect(result.enhancedResult.chunksCreated).toBe(0);
     expect(result.enhancedResult.error).toBe('Chunking skipped: Content too short');
+    expect(result.strategyUsed).toBe('sentence');
+    expect(result.enhancedResult.chunkingStrategy).toBe('sentence');
   });
 
   it('uses custom chunk size and overlap when provided', async () => {
@@ -279,6 +290,7 @@ describe('processFileChunking', () => {
         strategy: 'recursive',
         maxTokens: 500,
         overlap: 50,
+        ignoreFileTypeRecommendations: true,
       })
     );
   });
@@ -300,15 +312,27 @@ describe('processFileChunking', () => {
       { updateProgress: mockUpdateProgress }
     );
 
-    const progressCall = mockUpdateProgress.mock.calls[0]?.[0];
-    const progress = progressCall?.({
+    expect(mockUpdateProgress).toHaveBeenCalledTimes(2);
+    const [initialUpdater, finalUpdater] = mockUpdateProgress.mock.calls.map(([fn]) => fn);
+    const initialProgress = initialUpdater?.({
       phase: 'importing',
+      total: 5,
+      completed: 2,
+      errors: [],
     } as EnhancedImportProgress);
 
-    expect(progress?.phase).toBe('chunking');
-    expect(progress?.chunkingProgress.filesProcessed).toBe(2);
-    expect(progress?.chunkingProgress.totalFiles).toBe(5);
-    expect(progress?.chunkingProgress.chunksCreated).toBe(10);
+    expect(initialProgress?.phase).toBe('chunking');
+    expect(initialProgress?.chunkingProgress?.filesProcessed).toBe(2);
+    expect(initialProgress?.chunkingProgress?.totalFiles).toBe(5);
+    expect(initialProgress?.chunkingProgress?.chunksCreated).toBe(10);
+    expect(initialProgress?.chunkingProgress?.strategyUsed).toBeUndefined();
+
+    const finalProgress = finalUpdater?.(initialProgress ?? null);
+
+    expect(finalProgress?.chunkingProgress?.filesProcessed).toBe(3);
+    expect(finalProgress?.chunkingProgress?.totalFiles).toBe(5);
+    expect(finalProgress?.chunkingProgress?.chunksCreated).toBe(11);
+    expect(finalProgress?.chunkingProgress?.strategyUsed).toBe('sentence');
   });
 });
 

@@ -1,9 +1,18 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert, FileChunkUpdate } from '../src/models/file-chunk.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
+import { wasmLoader } from '../src/wasm-loader.js';
+
+function makeVector(dim: number, entries: Array<[number, number]>): number[] {
+  const vector = new Array(dim).fill(0);
+  for (const [idx, value] of entries) {
+    vector[idx] = value;
+  }
+  return vector;
+}
 
 describe('FileChunkRepository', () => {
   let db: PGlite;
@@ -12,9 +21,9 @@ describe('FileChunkRepository', () => {
 
   beforeEach(async () => {
     // Create a fresh in-memory database for each test
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://file-chunk-repo');
     await migrate(db);
-    repository = new FileChunkRepository(db, false);
+    repository = new FileChunkRepository(db);
     fileRepository = new FileRecordRepository(db);
 
     // Create test file records that chunks can reference
@@ -73,7 +82,13 @@ describe('FileChunkRepository', () => {
     });
 
     it('should insert a chunk with embedding', async () => {
-      const embedding = [0.1, 0.2, 0.3, 0.4, 0.5];
+      const embedding = makeVector(768, [
+        [0, 0.1],
+        [1, 0.2],
+        [2, 0.3],
+        [3, 0.4],
+        [4, 0.5],
+      ]);
       const chunk: FileChunkInsert = {
         id: 'chunk2',
         fileRecordId: 'file1',
@@ -317,7 +332,11 @@ describe('FileChunkRepository', () => {
 
       await repository.insert(chunk);
 
-      const embedding = [0.5, 0.6, 0.7];
+      const embedding = makeVector(768, [
+        [0, 0.5],
+        [1, 0.6],
+        [2, 0.7],
+      ]);
       const updateData: FileChunkUpdate = {
         id: 'embedme',
         embedding,
@@ -412,56 +431,33 @@ describe('FileChunkRepository', () => {
       expect(result?.embedding).toBeUndefined();
     });
 
-    it('should handle empty string embedding', async () => {
-      // Insert raw data that would have empty embedding string
+    it('should persist embeddings stored as vector columns', async () => {
+      const embedding = makeVector(768, [
+        [0, 0.11],
+        [10, 0.22],
+      ]);
       await db.query(
         `INSERT INTO file_chunks (
-          id, file_record_id, chunk_index, content, content_hash, 
+          id, file_record_id, chunk_index, content, content_hash,
           token_count, chunk_type, chunk_size, embedding, created_at, updated_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
-          'empty_embedding',
+          'vector_embedding',
           'file1',
-          0,
-          'Empty embedding test',
-          'hash123',
+          1,
+          'Vector embedding test',
+          'hashV',
           3,
           'text',
           100,
-          '', // Empty string
+          `[${embedding.join(',')}]`,
           new Date().toISOString(),
           new Date().toISOString(),
         ]
       );
 
-      const result = await repository.findById('empty_embedding');
-      expect(result?.embedding).toBeUndefined();
-    });
-
-    it('should handle invalid JSON embedding gracefully', async () => {
-      // Insert raw data with invalid JSON
-      await db.query(
-        `INSERT INTO file_chunks (
-          id, file_record_id, chunk_index, content, content_hash, 
-          token_count, chunk_type, chunk_size, embedding, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          'invalid_embedding',
-          'file1',
-          0,
-          'Invalid embedding test',
-          'hash123',
-          3,
-          'text',
-          100,
-          '{invalid json}',
-          new Date().toISOString(),
-          new Date().toISOString(),
-        ]
-      );
-
-      const result = await repository.findById('invalid_embedding');
-      expect(result?.embedding).toBeUndefined();
+      const result = await repository.findById('vector_embedding');
+      expect(result?.embedding).toEqual(embedding);
     });
   });
 });

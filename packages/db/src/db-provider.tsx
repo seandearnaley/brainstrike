@@ -171,13 +171,10 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
           'pgvector extension is required for desktop. Ensure @electric-sql/pglite/vector is available.'
         );
       }
-      const chunkRepo = new ElectronFileChunkRepository(
-        {
-          query: electronDB.query,
-          exec: electronDB.exec,
-        },
-        hasVector
-      );
+      const chunkRepo = new ElectronFileChunkRepository({
+        query: electronDB.query,
+        exec: electronDB.exec,
+      });
 
       if (!cancelled.value) {
         dbRef.current = electronDB as unknown as PGlite;
@@ -211,9 +208,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       } catch (err) {
         logger.debug('Could not detect pgvector extension:', err);
       }
+      if (!hasVector) {
+        throw new Error(
+          'pgvector extension failed to initialize. Ensure @electric-sql/pglite/vector is bundled.'
+        );
+      }
 
       const repository = new FileRecordRepository(db);
-      const chunkRepo = new FileChunkRepository(db, hasVector);
+      const chunkRepo = new FileChunkRepository(db);
 
       if (!cancelled.value) {
         setFileRecordRepository(repository);
@@ -284,12 +286,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       if (db) {
         if (!isDevEnv()) {
           setTimeout(() => {
-            db.close().catch((err) => {
-              const errorMessage = err?.message || '';
-              if (!errorMessage.includes('closed') && !errorMessage.includes('PGlite is closed')) {
-                logger.error('Failed to close database:', err);
-              }
-            });
+            const closeResult = db.close();
+            if (closeResult && typeof (closeResult as Promise<unknown>).catch === 'function') {
+              (closeResult as Promise<void>).catch((err) => {
+                const errorMessage = err?.message || '';
+                if (
+                  !errorMessage.includes('closed') &&
+                  !errorMessage.includes('PGlite is closed')
+                ) {
+                  logger.error('Failed to close database:', err);
+                }
+              });
+            }
           }, 0);
           dbRef.current = null;
         }

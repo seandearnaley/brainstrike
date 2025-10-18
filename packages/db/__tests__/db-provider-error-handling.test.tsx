@@ -1,8 +1,8 @@
 import type { LogRecord } from '@brainstrike/utils';
 import * as utilsModule from '@brainstrike/utils';
-import { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
@@ -13,8 +13,35 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
+type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
+type MockDb = {
+  query: QueryMock;
+  exec: Mock<[string], Promise<unknown>>;
+  close: Mock<[], Promise<void>>;
+  transaction?: Mock<
+    [callback: (tx: { query: QueryMock }) => Promise<unknown> | unknown],
+    Promise<unknown>
+  >;
+  closed?: boolean;
+};
+
+function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
+  const baseQuery: QueryMock = vi.fn(async (sql: string) => {
+    if (sql.includes('SELECT 1 FROM pg_extension')) {
+      return { rows: [{ '?column?': 1 }] };
+    }
+    return { rows: [] };
+  });
+  return {
+    query: baseQuery,
+    exec: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
 describe('DbProvider error handling', () => {
-  const activeDatabases: PGlite[] = [];
+  const activeDatabases: MockDb[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -96,7 +123,7 @@ describe('DbProvider error handling', () => {
     const migrationError = new Error('Migration failed');
 
     // Mock successful database creation but failed migration
-    const mockDb = new PGlite('memory://');
+    const mockDb = createMockDb();
     activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockRejectedValue(migrationError);
@@ -138,11 +165,11 @@ describe('DbProvider error handling', () => {
     });
 
     // Create a mock database that fails to close
-    const mockDb = new PGlite('memory://');
+    const mockDb = createMockDb();
     activeDatabases.push(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined as unknown as undefined);
-    vi.spyOn(mockDb, 'close').mockRejectedValue(closeError);
+    mockDb.close.mockRejectedValue(closeError);
 
     const { result, unmount } = renderHook(() => useFileRecordRepository(), { wrapper });
 
@@ -170,8 +197,8 @@ describe('DbProvider error handling', () => {
   });
 
   it('prevents concurrent database initialization', async () => {
-    let resolveDbCreation: (value: PGlite) => void;
-    const dbCreationPromise = new Promise<PGlite>((resolve) => {
+    let resolveDbCreation: (value: MockDb) => void;
+    const dbCreationPromise = new Promise<MockDb>((resolve) => {
       resolveDbCreation = resolve;
     });
 
@@ -195,7 +222,7 @@ describe('DbProvider error handling', () => {
     await waitFor(() => expect(createPGliteSpy).toHaveBeenCalledTimes(1));
 
     // Complete the initialization
-    const mockDb = new PGlite('memory://');
+    const mockDb = createMockDb();
     activeDatabases.push(mockDb);
     resolveDbCreation?.(mockDb);
 
@@ -208,7 +235,7 @@ describe('DbProvider error handling', () => {
   });
 
   it('handles already initialized database gracefully', async () => {
-    const mockDb = new PGlite('memory://');
+    const mockDb = createMockDb();
     activeDatabases.push(mockDb);
     const createPGliteSpy = vi
       .spyOn(wasmLoaderModule.wasmLoader, 'createPGlite')

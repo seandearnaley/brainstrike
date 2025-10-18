@@ -54,6 +54,7 @@ interface ChunkingConfiguration {
   enabled: boolean;
   deps: ChunkingDependencies;
   strategy?: ChunkingStrategy;
+  strategyExplicit?: boolean;
   chunkSize?: number;
   chunkOverlap?: number;
   useStreamingForLargeFiles?: boolean;
@@ -280,6 +281,9 @@ function applyChunkingConfiguration(
 ): void {
   if (chunking.strategy !== undefined) {
     options.chunkingStrategy = chunking.strategy;
+  }
+  if (chunking.strategyExplicit !== undefined) {
+    options.forceStrategy = chunking.strategyExplicit;
   }
   if (chunking.chunkSize !== undefined) {
     options.chunkSize = chunking.chunkSize;

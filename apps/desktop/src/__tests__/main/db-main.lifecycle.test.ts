@@ -28,6 +28,7 @@ const PGliteMock = vi.fn().mockImplementation(function (this: {
   this.exec = execMock;
 });
 vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
+vi.mock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
 vi.mock('@brainstrike/db', () => ({ migrate: (...args: unknown[]) => migrateMock(...args) }));
 
 vi.mock('@brainstrike/utils', () => ({

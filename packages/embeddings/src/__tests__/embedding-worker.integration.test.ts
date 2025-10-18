@@ -47,6 +47,14 @@ class FakeEmbeddingService implements EmbeddingService {
   }
 }
 
+function vectorString(dim: number, entries: Array<[number, number]>): string {
+  const values = new Array(dim).fill(0);
+  for (const [idx, value] of entries) {
+    values[idx] = value;
+  }
+  return `[${values.join(',')}]`;
+}
+
 async function waitFor(
   fn: () => Promise<boolean>,
   timeoutMs = 5000,
@@ -65,7 +73,6 @@ describe('embedding-worker', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     db = await wasmLoader.createPGlite('memory://embedding-worker');
     await migrate(db);
   });
@@ -142,7 +149,11 @@ describe('embedding-worker', () => {
       [fileId, 'g.ts', '/g.ts', 120, 'hello moon', 'hash2', 12, now]
     );
     // Pre-set matching hash and a dummy embedding string to verify it remains unchanged
-    const dummyEmbedding = '[0.1,0.2,0.3]';
+    const dummyEmbedding = vectorString(768, [
+      [0, 0.1],
+      [1, 0.2],
+      [2, 0.3],
+    ]);
     await db.query(
       `INSERT INTO file_chunks (id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding, embedding_hash, created_at, updated_at)
       VALUES ($1,$2,0,$3,$4,12,'text',10,$5,$6,$7,$7)`,

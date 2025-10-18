@@ -492,10 +492,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
     const raw = db?.raw as { query?: unknown } | undefined;
     if (raw && typeof (raw as { query?: unknown }).query === 'function' && vectorEnabled) {
       try {
-        return new FileChunkRepository(
-          raw as ConstructorParameters<typeof FileChunkRepository>[0],
-          vectorEnabled
-        );
+        return new FileChunkRepository(raw as ConstructorParameters<typeof FileChunkRepository>[0]);
       } catch {
         return null;
       }

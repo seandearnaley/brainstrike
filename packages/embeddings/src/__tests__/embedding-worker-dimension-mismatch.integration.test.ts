@@ -49,7 +49,6 @@ describe('embedding-worker: dimension mismatch handling', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     db = await wasmLoader.createPGlite('memory://embedding-worker-dim-mismatch');
     await migrate(db);
   });

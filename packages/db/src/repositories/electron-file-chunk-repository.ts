@@ -5,12 +5,7 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
-import {
-  batchArray,
-  computeCosineSimilarity,
-  cosineToSearchSimilarity,
-  parseEmbeddingLoose,
-} from './_shared.js';
+import { batchArray, parseEmbeddingLoose } from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
 // Type definition for database row returned by Electron IPC
@@ -48,10 +43,7 @@ interface FileChunkStatsRow {
 }
 
 export class ElectronFileChunkRepository {
-  constructor(
-    private db: ElectronDbAPI,
-    private vectorEnabled = false
-  ) {}
+  constructor(private db: ElectronDbAPI) {}
 
   async findById(id: string): Promise<FileChunk | null> {
     const result = await this.db.query(
@@ -303,13 +295,7 @@ export class ElectronFileChunkRepository {
     queryEmbedding: number[],
     options: ChunkSearchOptions = {}
   ): Promise<ChunkSearchResult[]> {
-    if (this.vectorEnabled) {
-      // Use pgvector SQL path for optimal performance
-      return this.searchSimilarPgVector(queryEmbedding, options);
-    }
-
-    // Use client-side computation fallback
-    return this.searchSimilarClientSide(queryEmbedding, options);
+    return this.searchSimilarPgVector(queryEmbedding, options);
   }
 
   private async searchSimilarPgVector(
@@ -361,82 +347,6 @@ export class ElectronFileChunkRepository {
         rank: Number.parseInt(searchRow.rank, 10),
       };
     });
-  }
-
-  private async searchSimilarClientSide(
-    queryEmbedding: number[],
-    options: ChunkSearchOptions = {}
-  ): Promise<ChunkSearchResult[]> {
-    const { limit = 10, threshold = 0.5, fileRecordId, chunkType, embeddingSetId } = options;
-
-    // Build WHERE clause for candidate selection
-    let whereClause = 'WHERE embedding IS NOT NULL';
-    const params: unknown[] = [];
-    let paramIndex = 1;
-
-    if (fileRecordId) {
-      whereClause += ` AND file_record_id = $${paramIndex++}`;
-      params.push(fileRecordId);
-    }
-
-    if (chunkType) {
-      whereClause += ` AND chunk_type = $${paramIndex++}`;
-      params.push(chunkType);
-    }
-    if (embeddingSetId) {
-      whereClause += ` AND embedding_set_id = $${paramIndex++}`;
-      params.push(embeddingSetId);
-    }
-
-    // Retrieve candidates and parse embeddings on client-side
-    const result = await this.db.query(
-      `SELECT id, file_record_id, chunk_index, content, content_hash, token_count, chunk_type, chunk_size, embedding::text AS embedding, embedding_set_id, embedding_updated_at, embedding_hash, created_at, updated_at 
-      FROM file_chunks ${whereClause}`,
-      params
-    );
-
-    interface SimilarityResult {
-      chunk: FileChunk;
-      similarity: number;
-    }
-
-    const candidatesWithSimilarity: SimilarityResult[] = [];
-
-    // Compute similarities client-side
-    for (const row of result.rows) {
-      const chunkRow = row as FileChunkRow;
-      const parsedEmbedding = parseEmbeddingLoose(chunkRow.embedding);
-
-      if (!parsedEmbedding) {
-        continue; // Skip chunks with unparseable embeddings
-      }
-
-      // Validate dimensions match
-      if (parsedEmbedding.length !== queryEmbedding.length) {
-        continue; // Skip mismatched dimensions gracefully
-      }
-
-      const cosineSim = computeCosineSimilarity(queryEmbedding, parsedEmbedding);
-      const similarity = cosineToSearchSimilarity(cosineSim);
-
-      if (Number.isFinite(similarity) && similarity >= threshold) {
-        candidatesWithSimilarity.push({
-          chunk: this.mapRowToChunk(chunkRow),
-          similarity,
-        });
-      }
-    }
-
-    // Sort by similarity (descending) and apply limit
-    candidatesWithSimilarity.sort((a, b) => b.similarity - a.similarity);
-    const topResults = candidatesWithSimilarity.slice(0, limit);
-
-    // Return with rank information
-    return topResults.map((result, index) => ({
-      chunk: result.chunk,
-      similarity: result.similarity,
-      rank: index + 1,
-    }));
   }
 
   async findAll(): Promise<FileChunk[]> {

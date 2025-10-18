@@ -1,40 +1,12 @@
 import type { Migration } from './migration-runner';
 
-function isVectorDisabled(): boolean {
-  try {
-    return String(process.env['DISABLE_VECTOR_EXTENSION'] ?? '').toLowerCase() === 'true';
-  } catch {
-    return false;
-  }
-}
-
 // Migration 004: Add chunks table with pgvector support
 // This migration assumes pgvector extension is available and will fail if not
 export const migration004AddChunksTable: Migration = {
   version: 4,
   name: 'add_chunks_table',
   up: async (db) => {
-    // Create file_chunks table depending on vector availability
-    const withoutVector = isVectorDisabled();
-    if (withoutVector) {
-      await db.exec(`
-			CREATE TABLE IF NOT EXISTS file_chunks (
-				id TEXT PRIMARY KEY,
-				file_record_id TEXT NOT NULL,
-				chunk_index INTEGER NOT NULL,
-				content TEXT NOT NULL,
-				content_hash TEXT NOT NULL,
-				token_count INTEGER DEFAULT 0,
-				chunk_type TEXT DEFAULT 'text',
-				chunk_size INTEGER DEFAULT 0,
-				embedding TEXT,
-				created_at TEXT NOT NULL,
-				updated_at TEXT NOT NULL,
-				FOREIGN KEY (file_record_id) REFERENCES file_records(id) ON DELETE CASCADE
-			);
-		`);
-    } else {
-      await db.exec(`
+    await db.exec(`
 			CREATE TABLE IF NOT EXISTS file_chunks (
 				id TEXT PRIMARY KEY,
 				file_record_id TEXT NOT NULL,
@@ -50,7 +22,6 @@ export const migration004AddChunksTable: Migration = {
 				FOREIGN KEY (file_record_id) REFERENCES file_records(id) ON DELETE CASCADE
 			);
 		`);
-    }
 
     // Common indexes
     await db.exec(`
@@ -61,12 +32,9 @@ export const migration004AddChunksTable: Migration = {
 		CREATE INDEX IF NOT EXISTS idx_file_chunks_chunk_type ON file_chunks(chunk_type);
 	`);
 
-    // Vector index only when vector enabled
-    if (!withoutVector) {
-      await db.exec(
-        'CREATE INDEX IF NOT EXISTS idx_file_chunks_embedding ON file_chunks USING hnsw (embedding vector_cosine_ops);'
-      );
-    }
+    await db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_file_chunks_embedding ON file_chunks USING hnsw (embedding vector_cosine_ops);'
+    );
 
     // Add processing metadata to file_records
     await db.exec(`

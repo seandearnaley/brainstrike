@@ -32,6 +32,7 @@ describe('ChunkingService', () => {
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toContain('Lock file');
       expect(result.chunks).toHaveLength(0);
+      expect(result.strategyUsed).toBe('sentence');
     });
   });
 
@@ -66,6 +67,7 @@ describe('ChunkingService', () => {
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toContain('Lock file or dependency manifest');
       expect(result.chunks).toHaveLength(0);
+      expect(result.strategyUsed).toBe('sentence');
     });
 
     it('skips binary-like content containing NUL bytes', async () => {
@@ -78,6 +80,7 @@ describe('ChunkingService', () => {
 
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toBe('Binary content detected (NUL bytes present)');
+      expect(result.strategyUsed).toBe('sentence');
     });
 
     it('skips highly repetitive generated content', async () => {
@@ -90,6 +93,7 @@ describe('ChunkingService', () => {
 
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toBe('Highly repetitive content (likely generated file)');
+      expect(result.strategyUsed).toBe('sentence');
     });
   });
 
@@ -105,6 +109,7 @@ describe('ChunkingService', () => {
       expect(result.skipped).toBe(true);
       expect(result.skipReason).toContain('File too large');
       expect(result.chunks).toHaveLength(0);
+      expect(result.strategyUsed).toBe('sentence');
     });
 
     it('should successfully chunk small text content using sentence strategy', async () => {
@@ -120,6 +125,7 @@ describe('ChunkingService', () => {
       expect(result.chunks.length).toBeGreaterThan(0);
       expect(result.totalTokens).toBeGreaterThan(0);
       expect(result.avgTokensPerChunk).toBeGreaterThan(0);
+      expect(result.strategyUsed).toBe('sentence');
 
       // Check chunk structure
       const firstChunk = result.chunks[0];
@@ -168,6 +174,7 @@ class TestClass {
 
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.strategyUsed).toBe('recursive');
 
       // Check that chunks have recursive-specific properties
       const firstChunk = result.chunks[0];
@@ -187,6 +194,82 @@ class TestClass {
 
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.strategyUsed).toBe('sentence');
+    });
+
+    it('applies code defaults when no overrides are provided', async () => {
+      const content = 'export const answer = 42;\n'.repeat(20);
+
+      const result = await chunkingService.chunkContent(content, 'file-default', {
+        strategy: 'recursive',
+        fileName: 'default.ts',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeMaxTokens);
+    });
+
+    it('skips file-type recommendations when explicitly ignored', async () => {
+      const content = 'export const answer = 42;\n'.repeat(20);
+
+      const result = await chunkingService.chunkContent(content, 'file-ignore', {
+        strategy: 'recursive',
+        fileName: 'ignore.ts',
+        ignoreFileTypeRecommendations: true,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.defaultMaxTokens);
+    });
+
+    it('respects custom chunk size for code files above defaults', async () => {
+      const content = 'export const answer = 42;\n'.repeat(200);
+
+      const result = await chunkingService.chunkContent(content, 'file1', {
+        strategy: 'recursive',
+        fileName: 'custom.ts',
+        maxTokens: 800,
+        overlap: 120,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(800);
+    });
+
+    it('clamps chunk size to safety cap for extreme inputs', async () => {
+      const content = Array.from(
+        { length: 1000 },
+        (_, i) => `function x${i}() { return ${i}; }`
+      ).join('\n');
+
+      const result = await chunkingService.chunkContent(content, 'file1', {
+        strategy: 'recursive',
+        fileName: 'extreme.ts',
+        maxTokens: 99999,
+        overlap: 9999,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.maxTokensSafetyCap);
+    });
+
+    it('honors explicit sentence strategy for code files when forced', async () => {
+      const content = 'export const answer = 42;\n'.repeat(10);
+
+      const result = await chunkingService.chunkContent(content, 'file1', {
+        strategy: 'sentence',
+        fileName: 'force.ts',
+        forceStrategy: true,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.strategyUsed).toBe('sentence');
+      expect(result.chunks[0]?.chunkType).toBe('sentence');
     });
 
     it('should handle token strategy', async () => {
@@ -200,6 +283,7 @@ class TestClass {
 
       expect(result.skipped).toBeUndefined();
       expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.strategyUsed).toBe('token');
 
       const firstChunk = result.chunks[0];
       expect(firstChunk.chunkType).toBe('text'); // Token strategy produces text chunks
@@ -321,6 +405,53 @@ class TestClass {
   describe('dispose', () => {
     it('should dispose without errors', async () => {
       await expect(chunkingService.dispose()).resolves.not.toThrow();
+    });
+  });
+
+  describe('chunk parameter adjustments', () => {
+    const invokeAdjust = (service: ChunkingService, content: string, options: ChunkingOptions) =>
+      (
+        service as unknown as {
+          adjustChunkingForFileType: (
+            content: string,
+            options: ChunkingOptions
+          ) => { maxTokens: number; overlap: number };
+        }
+      ).adjustChunkingForFileType.call(service, content, options);
+
+    it('honors explicit chunk sizes for code files within safety limits', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.ts',
+        maxTokens: 1024,
+        overlap: 128,
+      });
+
+      expect(maxTokens).toBe(1024);
+      expect(overlap).toBe(128);
+    });
+
+    it('caps explicit chunk sizes at configured safety limits', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.ts',
+        maxTokens: 10000,
+        overlap: 5000,
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.maxTokensHardLimit);
+      expect(overlap).toBeLessThanOrEqual(CHUNKING_CONFIG.overlapHardLimit);
+      expect(overlap).toBe(CHUNKING_CONFIG.overlapHardLimit);
+    });
+
+    it('applies code defaults when caller does not override', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.tsx',
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeMaxTokens);
+      expect(overlap).toBe(CHUNKING_CONFIG.codeOverlap);
     });
   });
 });

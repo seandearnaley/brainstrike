@@ -1,10 +1,19 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrations } from '../src/migrations';
 import { MigrationRunner } from '../src/migrations/migration-runner';
 import type { FileChunkInsert } from '../src/models/file-chunk';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
+import { wasmLoader } from '../src/wasm-loader';
+
+function makeVector(dim: number, entries: Array<[number, number]>): number[] {
+  const vector = new Array(dim).fill(0);
+  for (const [idx, value] of entries) {
+    vector[idx] = value;
+  }
+  return vector;
+}
 
 describe('Batched insertMany', () => {
   let db: PGlite;
@@ -13,14 +22,14 @@ describe('Batched insertMany', () => {
 
   beforeEach(async () => {
     // Create a fresh in-memory database for each test
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://batch-insert');
 
     // Run all migrations to set up the schema
     const migrationRunner = new MigrationRunner(db);
     await migrationRunner.initialize();
     await migrationRunner.up(migrations);
 
-    repository = new FileChunkRepository(db, false);
+    repository = new FileChunkRepository(db);
     _fileRecordRepository = new FileRecordRepository(db);
 
     // Create file records that our chunks can reference
@@ -144,6 +153,11 @@ describe('Batched insertMany', () => {
   });
 
   it('should handle embeddings in batch insert', async () => {
+    const embedding = makeVector(768, [
+      [0, 0.1],
+      [1, 0.2],
+      [2, 0.3],
+    ]);
     const chunks: FileChunkInsert[] = [
       {
         id: 'chunk-1',
@@ -154,7 +168,7 @@ describe('Batched insertMany', () => {
         tokenCount: 100,
         chunkType: 'text',
         chunkSize: 100,
-        embedding: [0.1, 0.2, 0.3],
+        embedding,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
@@ -162,6 +176,6 @@ describe('Batched insertMany', () => {
 
     const result = await repository.insertMany(chunks);
     expect(result).toHaveLength(1);
-    expect(result[0].embedding).toEqual([0.1, 0.2, 0.3]);
+    expect(result[0].embedding).toEqual(embedding);
   });
 });

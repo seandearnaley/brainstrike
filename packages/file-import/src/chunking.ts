@@ -49,8 +49,10 @@ interface ChunkingDeps {
 
 interface ChunkingOptions {
   chunkingStrategy?: ChunkingStrategy;
+  chunkingStrategyExplicit?: boolean;
   chunkSize?: number;
   chunkOverlap?: number;
+  forceStrategy?: boolean;
   updateProgress: (
     updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
   ) => void;
@@ -123,20 +125,53 @@ async function updateFileRecordWithChunkInfo(
   });
 }
 
-export async function processFileChunking(
+type ChunkingSkipResult = {
+  enhancedResult: EnhancedImportResult;
+  chunksCreated: number;
+  strategyUsed: ChunkingStrategy;
+};
+
+type ChunkingPreparation =
+  | { kind: 'skip'; response: ChunkingSkipResult }
+  | {
+      kind: 'ready';
+      repository: NonNullable<ChunkingDeps['repository']>;
+      chunkRepository: NonNullable<ChunkingDeps['chunkRepository']>;
+      fileRecord: {
+        id: string;
+        name: string;
+        path: string;
+        content: string;
+      };
+      strategy: ChunkingStrategy;
+      forceStrategy: boolean;
+    };
+
+function createSkipResult(
   result: FileImportResult,
-  index: number,
-  totalFiles: number,
-  totalChunksCreated: number,
+  strategyUsed: ChunkingStrategy
+): ChunkingSkipResult {
+  return {
+    enhancedResult: { ...result, chunksCreated: 0 },
+    chunksCreated: 0,
+    strategyUsed,
+  };
+}
+
+async function prepareChunkingExecution(
+  result: FileImportResult,
   deps: ChunkingDeps,
   options: ChunkingOptions
-): Promise<{ enhancedResult: EnhancedImportResult; chunksCreated: number; chunks?: FileChunk[] }> {
-  const { repository, chunkRepository } = deps;
+): Promise<ChunkingPreparation> {
+  const repository = deps.repository;
+  const chunkRepository = deps.chunkRepository;
   if (!repository || !chunkRepository) {
     const error = 'Repository not available';
     logger.error(error, { fileId: result.id });
     throw new Error(error);
   }
+
+  const fallbackStrategy = options.chunkingStrategy ?? 'sentence';
 
   if ((!result.imported && !result.existed) || result.error) {
     logger.debug('Skipping file chunking (not imported or has error)', {
@@ -145,7 +180,7 @@ export async function processFileChunking(
       existed: result.existed,
       error: result.error,
     });
-    return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
+    return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
   }
 
   const fileRecord = await repository.findById(result.id);
@@ -155,8 +190,50 @@ export async function processFileChunking(
       hasRecord: !!fileRecord,
       hasContent: !!fileRecord?.content,
     });
-    return { enhancedResult: { ...result, chunksCreated: 0 }, chunksCreated: 0 };
+    return { kind: 'skip', response: createSkipResult(result, fallbackStrategy) };
   }
+
+  const autoStrategy = getChunkingStrategy(fileRecord.path);
+  const requestedStrategy = options.chunkingStrategy;
+  const forceRequested = options.forceStrategy === true;
+  const hasOverride = requestedStrategy !== undefined && requestedStrategy !== autoStrategy;
+  const strategy = requestedStrategy ?? autoStrategy ?? 'sentence';
+  const forceStrategy = forceRequested || hasOverride;
+
+  return {
+    kind: 'ready',
+    repository,
+    chunkRepository,
+    fileRecord: {
+      id: fileRecord.id,
+      name: fileRecord.name,
+      path: fileRecord.path,
+      content: fileRecord.content,
+    },
+    strategy,
+    forceStrategy,
+  };
+}
+
+export async function processFileChunking(
+  result: FileImportResult,
+  index: number,
+  totalFiles: number,
+  totalChunksCreated: number,
+  deps: ChunkingDeps,
+  options: ChunkingOptions
+): Promise<{
+  enhancedResult: EnhancedImportResult;
+  chunksCreated: number;
+  chunks?: FileChunk[];
+  strategyUsed: ChunkingStrategy;
+}> {
+  const preparation = await prepareChunkingExecution(result, deps, options);
+  if (preparation.kind === 'skip') {
+    return preparation.response;
+  }
+
+  const { repository, chunkRepository, fileRecord, strategy, forceStrategy } = preparation;
 
   logger.debug('Starting file chunking', {
     fileId: result.id,
@@ -182,15 +259,17 @@ export async function processFileChunking(
       : null
   );
 
-  const strategy = getChunkingStrategy(fileRecord.path, options.chunkingStrategy);
   const chunkingService = new ChunkingService();
+  const chunkSizeOverride = options.chunkSize;
+  const chunkOverlapOverride = options.chunkOverlap;
+  const hasUserOverrides = chunkSizeOverride !== undefined || chunkOverlapOverride !== undefined;
 
   const shouldStream =
     !!options.useStreamingForLargeFiles &&
     fileRecord.content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
 
   if (shouldStream) {
-    return await processFileChunkingStreamPath(
+    const streamed = await processFileChunkingStreamPath(
       chunkingService,
       fileRecord.content,
       result,
@@ -199,16 +278,43 @@ export async function processFileChunking(
       chunkRepository,
       fileRecord.name,
       fileRecord.path,
-      options
+      options,
+      forceStrategy,
+      hasUserOverrides
     );
+    logger.info('File chunked successfully (streaming)', {
+      fileId: result.id,
+      fileName: fileRecord.name,
+      chunksCreated: streamed.chunksCreated,
+      requestedStrategy: strategy,
+      strategyUsed: streamed.strategyUsed,
+    });
+    options.updateProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'chunking',
+            chunkingProgress: {
+              filesProcessed: index + 1,
+              totalFiles,
+              currentFile: fileRecord.name,
+              chunksCreated: totalChunksCreated + streamed.chunksCreated,
+              strategyUsed: streamed.strategyUsed,
+            },
+          }
+        : null
+    );
+    return streamed;
   }
 
   const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
     strategy,
-    maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
-    overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
+    ...(chunkSizeOverride !== undefined ? { maxTokens: chunkSizeOverride } : {}),
+    ...(chunkOverlapOverride !== undefined ? { overlap: chunkOverlapOverride } : {}),
     fileName: fileRecord.name,
     filePath: fileRecord.path,
+    forceStrategy,
+    ignoreFileTypeRecommendations: hasUserOverrides,
   });
 
   if (chunkingResult.skipped) {
@@ -217,14 +323,31 @@ export async function processFileChunking(
       fileName: fileRecord.name,
       skipReason: chunkingResult.skipReason,
     });
-    await updateFileRecordWithChunkInfo(repository, result.id, 0, strategy);
+    await updateFileRecordWithChunkInfo(repository, result.id, 0, chunkingResult.strategyUsed);
+    options.updateProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'chunking',
+            chunkingProgress: {
+              filesProcessed: index + 1,
+              totalFiles,
+              currentFile: fileRecord.name,
+              chunksCreated: totalChunksCreated,
+              strategyUsed: chunkingResult.strategyUsed,
+            },
+          }
+        : null
+    );
     return {
       enhancedResult: {
         ...result,
         chunksCreated: 0,
         error: `Chunking skipped: ${chunkingResult.skipReason}`,
+        chunkingStrategy: chunkingResult.strategyUsed,
       },
       chunksCreated: 0,
+      strategyUsed: chunkingResult.strategyUsed,
     };
   }
 
@@ -232,7 +355,8 @@ export async function processFileChunking(
     fileId: result.id,
     fileName: fileRecord.name,
     chunksCreated: chunkingResult.chunks.length,
-    strategy,
+    requestedStrategy: strategy,
+    strategyUsed: chunkingResult.strategyUsed,
   });
 
   await handleChunkInsertion(chunkRepository, chunkingResult, options, result);
@@ -240,13 +364,34 @@ export async function processFileChunking(
     repository,
     result.id,
     chunkingResult.chunks.length,
-    strategy
+    chunkingResult.strategyUsed
+  );
+
+  options.updateProgress((prev) =>
+    prev
+      ? {
+          ...prev,
+          phase: 'chunking',
+          chunkingProgress: {
+            filesProcessed: index + 1,
+            totalFiles,
+            currentFile: fileRecord.name,
+            chunksCreated: totalChunksCreated + chunkingResult.chunks.length,
+            strategyUsed: chunkingResult.strategyUsed,
+          },
+        }
+      : null
   );
 
   return {
-    enhancedResult: { ...result, chunksCreated: chunkingResult.chunks.length },
+    enhancedResult: {
+      ...result,
+      chunksCreated: chunkingResult.chunks.length,
+      chunkingStrategy: chunkingResult.strategyUsed,
+    },
     chunksCreated: chunkingResult.chunks.length,
     chunks: chunkingResult.chunks,
+    strategyUsed: chunkingResult.strategyUsed,
   };
 }
 
@@ -259,16 +404,28 @@ async function processFileChunkingStreamPath(
   chunkRepository: NonNullable<ReturnType<typeof import('@brainstrike/db').useFileChunkRepository>>,
   fileName: string,
   filePath: string,
-  options: ChunkingOptions
-): Promise<{ enhancedResult: EnhancedImportResult; chunksCreated: number }> {
+  options: ChunkingOptions,
+  forceStrategy: boolean,
+  hasUserOverrides: boolean
+): Promise<{
+  enhancedResult: EnhancedImportResult;
+  chunksCreated: number;
+  strategyUsed: ChunkingStrategy;
+}> {
   const batchSize = Math.max(1, options.streamBatchSize ?? 250);
+  let resolvedStrategy: ChunkingStrategy = strategy;
   const stream = chunkingService.chunkContentStream(content, result.id, {
     strategy,
-    maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
-    overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
+    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
+    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
     fileName,
     filePath,
     allowLargeFiles: true,
+    forceStrategy,
+    ignoreFileTypeRecommendations: hasUserOverrides,
+    onStrategyResolved: (s) => {
+      resolvedStrategy = s;
+    },
   });
 
   let totalCreated = 0;
@@ -284,10 +441,15 @@ async function processFileChunkingStreamPath(
     totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
   }
 
-  await updateFileRecordWithChunkInfo(repository, result.id, totalCreated, strategy);
+  await updateFileRecordWithChunkInfo(repository, result.id, totalCreated, resolvedStrategy);
   return {
-    enhancedResult: { ...result, chunksCreated: totalCreated },
+    enhancedResult: {
+      ...result,
+      chunksCreated: totalCreated,
+      chunkingStrategy: resolvedStrategy,
+    },
     chunksCreated: totalCreated,
+    strategyUsed: resolvedStrategy,
   };
 }
 
@@ -372,7 +534,7 @@ export async function processChunking(
     }
 
     try {
-      const { enhancedResult, chunksCreated, chunks } = await processFileChunking(
+      const { enhancedResult, chunksCreated, chunks, strategyUsed } = await processFileChunking(
         result,
         i,
         importResults.length,
@@ -399,6 +561,7 @@ export async function processChunking(
                   filesProcessed,
                   totalFiles: importResults.length,
                   chunksCreated: totalChunksCreated,
+                  strategyUsed,
                 },
               }
             : null

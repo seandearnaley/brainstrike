@@ -20,16 +20,23 @@ export interface ChunkingOptions {
   filePath?: string;
   // When true, allows chunking beyond maxChunkableSize using the streaming API
   allowLargeFiles?: boolean;
+  // When true, honor the provided strategy without applying file-type heuristics
+  forceStrategy?: boolean;
   // Optional token counter for token-true sizing and reporting
   tokenCounter?: (text: string) => Promise<number>;
   // If true, derive character limits from measured chars/token for this content
   tokenTrueSizing?: boolean;
+  // Notify caller which strategy was actually used after file/extension heuristics
+  onStrategyResolved?: (strategy: ChunkingStrategy) => void;
+  // Skip file-type recommendations and only enforce global safety caps when true
+  ignoreFileTypeRecommendations?: boolean;
 }
 
 export interface ChunkingResult {
   chunks: FileChunkInsert[];
   totalTokens: number;
   avgTokensPerChunk: number;
+  strategyUsed: ChunkingStrategy;
   skipped?: boolean;
   skipReason?: string;
 }
@@ -77,6 +84,7 @@ export class ChunkingService {
     fileRecordId: string,
     options: ChunkingOptions = { strategy: 'sentence' }
   ): Promise<ChunkingResult> {
+    let strategyUsed: ChunkingStrategy = options.strategy;
     logger.debug(`Starting chunkContent for fileRecordId: ${fileRecordId}`);
     logger.debug(`Content length: ${content?.length || 0}`);
     logger.debug('Options', options);
@@ -96,6 +104,7 @@ export class ChunkingService {
         chunks: [],
         totalTokens: 0,
         avgTokensPerChunk: 0,
+        strategyUsed,
         skipped: true,
         skipReason: skipResult.reason || 'Unknown reason',
       };
@@ -118,12 +127,15 @@ export class ChunkingService {
       ...options,
       maxTokens: adjustedOptions.maxTokens,
       overlap: adjustedOptions.overlap,
+      onStrategyResolved: (resolved) => {
+        strategyUsed = resolved;
+      },
     })) {
       chunks.push({ ...chunk, chunkIndex: idx++ });
       totalTokens += chunk.tokenCount;
     }
     const avgTokensPerChunk = chunks.length ? totalTokens / chunks.length : 0;
-    return { chunks, totalTokens, avgTokensPerChunk };
+    return { chunks, totalTokens, avgTokensPerChunk, strategyUsed };
   }
 
   private shouldSkipChunking(
@@ -175,34 +187,114 @@ export class ChunkingService {
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
     const fileName = options.fileName || options.filePath || '';
+    const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
 
-    // Use much smaller default chunk sizes appropriate for code and text
-    let maxTokens = options.maxTokens ?? CHUNKING_CONFIG.defaultMaxTokens;
-    let overlap = options.overlap ?? CHUNKING_CONFIG.defaultOverlap;
+    const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
+      const candidate = Number.isFinite(value) ? (value as number) : fallback;
+      return Math.max(minimum, Math.floor(candidate));
+    };
 
-    // Prefer smaller chunks for code files (improves semantic retrieval)
-    const isCode =
-      /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
-        fileName.toLowerCase()
-      );
-    if (isCode) {
-      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.codeMaxTokens);
-      overlap = Math.min(overlap, CHUNKING_CONFIG.codeOverlap);
-    }
+    const requestedMaxTokens = options.maxTokens;
+    const requestedOverlap = options.overlap;
+    const hasExplicitMaxTokens = requestedMaxTokens !== undefined;
+    const hasExplicitOverlap = requestedOverlap !== undefined;
 
-    // For large structured files, use smaller chunks
-    for (const pattern of LARGE_STRUCTURED_PATTERNS) {
-      if (pattern.test(fileName)) {
-        maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.largeStructuredMaxTokens);
-        overlap = Math.min(overlap, CHUNKING_CONFIG.largeStructuredOverlap);
-        break;
+    // Normalize inputs to sane integer values
+    let maxTokens = normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1);
+    let overlap = normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0);
+
+    type ChunkAdjustment = { maxTokens: number; overlap: number };
+    const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
+      const next: ChunkAdjustment = { ...state };
+      if (typeof cap.maxTokens === 'number') {
+        next.maxTokens = Math.min(state.maxTokens, cap.maxTokens);
       }
+      if (typeof cap.overlap === 'number') {
+        next.overlap = Math.min(state.overlap, cap.overlap);
+      }
+      return next;
+    };
+
+    if (!ignoreRecommendations) {
+      const adjustments: Array<(state: ChunkAdjustment) => ChunkAdjustment> = [];
+      const isCode =
+        /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
+          fileName.toLowerCase()
+        );
+      if (isCode) {
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.codeMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.codeOverlap;
+          }
+          return apply(state, cap);
+        });
+      }
+
+      const matchesStructured = LARGE_STRUCTURED_PATTERNS.some((pattern) => pattern.test(fileName));
+      if (matchesStructured) {
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.largeStructuredMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.largeStructuredOverlap;
+          }
+          return apply(state, cap);
+        });
+      }
+
+      const exceedsVeryLargeThreshold = content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
+      if (exceedsVeryLargeThreshold) {
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.veryLargeMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.veryLargeOverlap;
+          }
+          return apply(state, cap);
+        });
+      }
+
+      let state: ChunkAdjustment = { maxTokens, overlap };
+      for (const adjust of adjustments) {
+        state = adjust(state);
+      }
+      maxTokens = state.maxTokens;
+      overlap = state.overlap;
     }
 
-    // For very large content, use even smaller chunks
-    if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
-      maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.veryLargeMaxTokens);
-      overlap = Math.min(overlap, CHUNKING_CONFIG.veryLargeOverlap);
+    // Enforce hard safety limits for explicitly provided values and defaults alike
+    const clamp = (value: number, fallback: number, limit: number) => {
+      if (!Number.isFinite(value)) return fallback;
+      return Math.max(1, Math.min(value, limit));
+    };
+
+    const resolveLimit = (hardLimit: number, safetyCap: number, explicit: boolean) =>
+      explicit ? hardLimit : Math.min(hardLimit, safetyCap);
+
+    const maxTokensLimit = resolveLimit(
+      CHUNKING_CONFIG.maxTokensHardLimit,
+      CHUNKING_CONFIG.maxTokensSafetyCap,
+      hasExplicitMaxTokens
+    );
+    const overlapLimit = resolveLimit(
+      CHUNKING_CONFIG.overlapHardLimit,
+      CHUNKING_CONFIG.overlapSafetyCap,
+      hasExplicitOverlap
+    );
+
+    maxTokens = clamp(maxTokens, CHUNKING_CONFIG.defaultMaxTokens, maxTokensLimit);
+    overlap = clamp(overlap, CHUNKING_CONFIG.defaultOverlap, overlapLimit);
+
+    if (overlap >= maxTokens) {
+      overlap = Math.max(0, maxTokens - 1);
     }
 
     return { maxTokens, overlap };
@@ -242,6 +334,8 @@ export class ChunkingService {
     }
 
     const adjusted = this.adjustChunkingForFileType(content, options);
+    const effectiveMaxTokens = Math.min(adjusted.maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);
+    const effectiveOverlap = Math.min(adjusted.overlap, CHUNKING_CONFIG.overlapSafetyCap);
     const nowIso = () => new Date().toISOString();
 
     let seq = 0;
@@ -283,8 +377,8 @@ export class ChunkingService {
       charsPerToken = await computeCharsPerToken(content, options);
     }
 
-    const maxChars = Math.floor(adjusted.maxTokens * charsPerToken);
-    const overlapChars = Math.floor(adjusted.overlap * charsPerToken);
+    const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
+    const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
     const name = (options.fileName || options.filePath || '').toLowerCase();
     const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
@@ -292,15 +386,15 @@ export class ChunkingService {
 
     type ChunkGroup = { pieces: string[]; type: FileChunkInsert['chunkType'] };
 
-    const handleToken = async (): Promise<ChunkGroup[]> => {
+    const chunkTokens = async (): Promise<ChunkGroup[]> => {
       const tokenChunker = new TokenTextSplitter({
-        chunkSize: adjusted.maxTokens,
-        chunkOverlap: adjusted.overlap,
+        chunkSize: effectiveMaxTokens,
+        chunkOverlap: effectiveOverlap,
       });
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
 
-    const handleMarkdown = async (): Promise<ChunkGroup[]> => {
+    const splitMarkdownBlocks = async (): Promise<ChunkGroup[]> => {
       const blocks = splitMarkdownIntoBlocks(content);
       const groups: ChunkGroup[] = [];
       for (const block of blocks) {
@@ -320,7 +414,9 @@ export class ChunkingService {
       return groups;
     };
 
-    const handleCode = async (): Promise<ChunkGroup[]> => {
+    const chunkMarkdown = async (): Promise<ChunkGroup[]> => splitMarkdownBlocks();
+
+    const chunkCode = async (): Promise<ChunkGroup[]> => {
       const codeSeparators = getCodeSeparators(options.separators);
       const recursiveChunker = new RecursiveCharacterTextSplitter({
         chunkSize: maxChars,
@@ -330,7 +426,7 @@ export class ChunkingService {
       return [{ pieces: await recursiveChunker.splitText(content), type: 'recursive' }];
     };
 
-    const handleText = async (): Promise<ChunkGroup[]> => {
+    const chunkText = async (): Promise<ChunkGroup[]> => {
       const sentenceChunker = new CharacterTextSplitter({
         chunkSize: maxChars,
         chunkOverlap: overlapChars,
@@ -340,19 +436,52 @@ export class ChunkingService {
     };
 
     let groups: ChunkGroup[] = [];
-    if (options.strategy === 'token') {
-      groups = await handleToken();
-    } else if (isMarkdown) {
-      groups = await handleMarkdown();
-    } else if (isCode || options.strategy === 'recursive') {
-      groups = await handleCode();
+    let effectiveStrategy: ChunkingStrategy = options.strategy;
+    let strategyNotified = false;
+    const notifyStrategy = (strategy: ChunkingStrategy) => {
+      if (strategyNotified) return;
+      strategyNotified = true;
+      options.onStrategyResolved?.(strategy);
+    };
+
+    const forceStrategy = options.forceStrategy === true;
+    effectiveStrategy = resolveEffectiveStrategy({
+      requested: options.strategy,
+      forceStrategy,
+      isMarkdown,
+      isCode,
+    });
+
+    if (effectiveStrategy === 'token') {
+      groups = await chunkTokens();
+    } else if (effectiveStrategy === 'recursive') {
+      groups = await chunkCode();
     } else {
-      groups = await handleText();
+      groups = isMarkdown ? await chunkMarkdown() : await chunkText();
     }
+    notifyStrategy(effectiveStrategy);
     for (const g of groups) {
-      yield* emit(g.pieces, g.type, adjusted.maxTokens);
+      yield* emit(g.pieces, g.type, effectiveMaxTokens);
     }
   }
+}
+
+function resolveEffectiveStrategy({
+  requested,
+  forceStrategy,
+  isMarkdown,
+  isCode,
+}: {
+  requested: ChunkingStrategy;
+  forceStrategy: boolean;
+  isMarkdown: boolean;
+  isCode: boolean;
+}): ChunkingStrategy {
+  if (requested === 'token') return 'token';
+  if (forceStrategy) return requested;
+  if (isMarkdown) return 'sentence';
+  if (requested === 'recursive' || isCode) return 'recursive';
+  return 'sentence';
 }
 
 // Utilities for streaming splitter

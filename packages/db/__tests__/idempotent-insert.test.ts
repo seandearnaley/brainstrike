@@ -1,9 +1,10 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { migrations } from '../src/migrations';
 import { MigrationRunner } from '../src/migrations/migration-runner';
 import type { FileChunkInsert } from '../src/models/file-chunk';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
+import { wasmLoader } from '../src/wasm-loader';
 
 describe('Idempotent Chunk Insertion', () => {
   let db: PGlite;
@@ -11,14 +12,14 @@ describe('Idempotent Chunk Insertion', () => {
 
   beforeEach(async () => {
     // Create a fresh in-memory database for each test
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://idempotent');
 
     // Run all migrations to set up the schema
     const migrationRunner = new MigrationRunner(db);
     await migrationRunner.initialize();
     await migrationRunner.up(migrations);
 
-    repository = new FileChunkRepository(db, false);
+    repository = new FileChunkRepository(db);
 
     // Create file records that our chunks can reference
     await db.query(

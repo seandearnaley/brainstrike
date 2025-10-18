@@ -20,10 +20,17 @@ vi.mock('node:fs', async (importOriginal) => {
 describe('db-main coverage helpers', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.doMock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
   });
 
-  it('fails fast when pgvector is disabled via env', async () => {
-    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it('fails fast when pgvector extension cannot be loaded', async () => {
+    vi.doMock('@electric-sql/pglite/vector', () => {
+      throw new Error('vector module missing');
+    });
     const { initializeMainDatabase } = await import('../../db-main');
     await expect(initializeMainDatabase()).rejects.toThrow(/pgvector extension is required/i);
   });

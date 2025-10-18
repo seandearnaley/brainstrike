@@ -1,3 +1,4 @@
+import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { BaseFileRecordRepository } from '../src/repositories/base-repository';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository';
@@ -13,7 +14,7 @@ describe('Repository clearAll functionality', () => {
       query: vi.fn(),
     };
     fileRepository = new BaseFileRecordRepository(mockDb, 'file_records');
-    chunkRepository = new FileChunkRepository(mockDb, false);
+    chunkRepository = new FileChunkRepository(mockDb as unknown as PGlite);
   });
 
   describe('BaseFileRecordRepository clearAll', () => {

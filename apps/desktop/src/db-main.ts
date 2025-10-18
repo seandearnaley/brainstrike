@@ -5,35 +5,80 @@ import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
-// Dynamic imports for ESM packages
-const getPGlite = async (opts?: { disableVector?: boolean }) => {
-  const { PGlite } = await import('@electric-sql/pglite');
-  const { migrate } = await import('@brainstrike/db');
-  // Try to load pgvector extension
-  let vector = null;
-  try {
-    const disableVector = process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || opts?.disableVector;
-    if (disableVector) {
-      throw new Error('pgvector extension disabled via environment');
+type VectorModuleShape = {
+  default?: unknown;
+  vector?: unknown;
+};
+
+function extractVectorExport(module: unknown): unknown {
+  if (module && typeof module === 'object') {
+    const record = module as VectorModuleShape;
+    if (record.vector) {
+      return record.vector;
     }
-    // Use dynamic import with type assertion to bypass TypeScript module resolution issues
-    // biome-ignore lint/suspicious/noExplicitAny: Dynamic import of optional extension
-    const vectorModule = await import('@electric-sql/pglite/vector' as any);
-    vector = vectorModule.vector;
-    logger.info('pgvector extension loaded successfully');
-  } catch (err) {
-    const details = {
-      message: err instanceof Error ? err.message : String(err),
-      stack: err instanceof Error ? err.stack : undefined,
-      name: err instanceof Error ? err.name : undefined,
+    try {
+      if (record.default) {
+        return record.default;
+      }
+    } catch {
+      // Ignore missing default export for mocked modules that only expose named exports
+    }
+  }
+  return module;
+}
+
+function getErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
     };
-    logger.error('pgvector extension failed to load. Error details:', details);
-    // Deterministic behavior: do not fallback. Desktop requires pgvector.
+  }
+  if (error === null || error === undefined) {
+    return {
+      message: 'unknown error',
+      stack: undefined,
+      name: undefined,
+    };
+  }
+  return {
+    message: String(error),
+    stack: undefined,
+    name: undefined,
+  };
+}
+
+async function loadPgVectorExtension(): Promise<unknown> {
+  try {
+    const vectorModule = await import('@electric-sql/pglite/vector');
+    const vector = extractVectorExport(vectorModule);
+    if (!vector) {
+      throw new Error('vector export missing from module');
+    }
+    logger.info('pgvector extension loaded successfully (ESM)');
+    return vector;
+  } catch (error) {
+    const details = getErrorDetails(error);
+    logger.error('pgvector extension failed to load.', {
+      attempts: [
+        {
+          source: 'ESM',
+          ...details,
+        },
+      ],
+    });
     throw new Error(
-      `pgvector extension is required and failed to load. Ensure @electric-sql/pglite/vector is available. (${details.message})`
+      `pgvector extension is required and failed to load via ESM import. (${details.message})`
     );
   }
+}
 
+// Dynamic imports for ESM packages
+const getPGlite = async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const { migrate } = await import('@brainstrike/db');
+  const vector = await loadPgVectorExtension();
   return { PGlite, migrate, vector };
 };
 
@@ -75,7 +120,7 @@ function getDatabasePath(): string {
  * Creates the directory if it doesn't exist and runs migrations
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function initializeMainDatabase(options?: { disableVector?: boolean }): Promise<any> {
+export async function initializeMainDatabase(): Promise<any> {
   if (db) {
     return db;
   }
@@ -86,9 +131,7 @@ export async function initializeMainDatabase(options?: { disableVector?: boolean
     logger.info(`Created database directory: ${dataDir}`);
   }
   // Get ESM modules
-  const { PGlite, migrate, vector } = await getPGlite(
-    options?.disableVector ? { disableVector: true } : undefined
-  );
+  const { PGlite, migrate, vector } = await getPGlite();
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
@@ -107,9 +150,7 @@ export async function initializeMainDatabase(options?: { disableVector?: boolean
     }
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Failed to initialize database with pgvector:', msg);
-    throw new Error(
-      `Failed to initialize PGlite with pgvector: ${msg}. pgvector is mandatory for desktop.`
-    );
+    throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
   }
 
   // Run migrations
@@ -150,9 +191,9 @@ export async function closeDatabase(): Promise<void> {
 }
 
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function reinitializeDatabase(options?: { disableVector?: boolean }): Promise<any> {
+export async function reinitializeDatabase(): Promise<any> {
   await closeDatabase();
-  return await initializeMainDatabase(options);
+  return await initializeMainDatabase();
 }
 
 /**

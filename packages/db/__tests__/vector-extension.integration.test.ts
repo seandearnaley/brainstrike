@@ -14,12 +14,6 @@ describe('Vector Extension Integration', () => {
   let db: PGlite;
 
   beforeAll(async () => {
-    // Skip these tests if vector extension is disabled
-    if (process.env.DISABLE_VECTOR_EXTENSION === 'true') {
-      console.log('⏭️  Skipping vector extension tests (DISABLE_VECTOR_EXTENSION=true)');
-      return;
-    }
-
     // Create a fresh database with vector extension
     try {
       // Dynamic import to handle module resolution
@@ -40,20 +34,12 @@ describe('Vector Extension Integration', () => {
   });
 
   it('should have vector extension available', async () => {
-    if (process.env.DISABLE_VECTOR_EXTENSION === 'true') {
-      return; // Skip test
-    }
-
     const result = await db.query('SELECT 1 FROM pg_extension WHERE extname = $1', ['vector']);
 
     expect(result.rows).toHaveLength(1);
   });
 
   it('should create and query vector columns', async () => {
-    if (process.env.DISABLE_VECTOR_EXTENSION === 'true') {
-      return; // Skip test
-    }
-
     // Create a table with vector column
     await db.query(`
       CREATE TABLE test_embeddings (
@@ -80,10 +66,6 @@ describe('Vector Extension Integration', () => {
   });
 
   it('should perform vector similarity search', async () => {
-    if (process.env.DISABLE_VECTOR_EXTENSION === 'true') {
-      return; // Skip test
-    }
-
     // Use the table created in previous test (or create if not exists)
     const tableExists = await db.query(`
       SELECT EXISTS (
@@ -124,10 +106,6 @@ describe('Vector Extension Integration', () => {
   });
 
   it('should handle vector operations correctly', async () => {
-    if (process.env.DISABLE_VECTOR_EXTENSION === 'true') {
-      return; // Skip test
-    }
-
     // Test vector operations
     const result = await db.query(`
       SELECT 

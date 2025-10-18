@@ -14,7 +14,7 @@ import type {
 
 class SlowEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
-  private dims = 8;
+  private dims = 768;
   initialize(
     _config?: Partial<EmbeddingConfig>,
     _onProgress?: (progress: EmbeddingProgress) => void
@@ -25,7 +25,7 @@ class SlowEmbeddingService implements EmbeddingService {
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
     // Delay a bit to allow heartbeat to fire
     await new Promise((r) => setTimeout(r, 30));
-    const embedding = Array.from({ length: this.dims }, (_, i) => i * 0.01);
+    const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 50);
     return { embedding, dimensions: this.dims, model: 'slow-model' };
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
@@ -52,9 +52,6 @@ describe('embedding-worker: heartbeat error logging', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    if (process?.env) {
-      process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
-    }
     db = await wasmLoader.createPGlite('memory://embedding-worker-hb');
     await migrate(db);
   });

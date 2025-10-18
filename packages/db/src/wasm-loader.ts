@@ -1,46 +1,26 @@
+import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 
-// Determine if vector extension should be disabled. Tests control this via DISABLE_VECTOR_EXTENSION.
-function vectorDisabled(): boolean {
-  return process.env['DISABLE_VECTOR_EXTENSION'] === 'true';
-}
+type VectorExtension = Extension;
 
-function requireVectorStrict(): boolean {
-  // Local-first modes that mandate pgvector being available
-  const env =
-    (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env || {};
-  const flags = [env['LOCAL_FIRST_DB'], env['PGLITE_EXPECTED'], env['REQUIRE_PGVECTOR']];
-  const requested = flags.some((v) => String(v ?? '').toLowerCase() === 'true');
-  const isTest = String(env['NODE_ENV'] ?? '').toLowerCase() === 'test';
-  // In test environments, only enforce when explicitly requested
-  if (isTest) {
-    return String(env['REQUIRE_PGVECTOR_TEST'] ?? '').toLowerCase() === 'true';
-  }
-  return requested;
-}
+let cachedVectorPromise: Promise<VectorExtension> | null = null;
 
-// Async function to load vector extension
-async function loadVectorExtension() {
-  if (vectorDisabled()) {
-    if (requireVectorStrict()) {
-      throw new Error('pgvector extension disabled via environment but required in strict mode');
-    }
-    return null;
+async function loadVectorExtension(): Promise<VectorExtension> {
+  if (!cachedVectorPromise) {
+    cachedVectorPromise = (async () => {
+      try {
+        // Dynamic import for pgvector extension (ES module compatible)
+        /* Stryker disable next-line StringLiteral */
+        const { vector } = await import('@electric-sql/pglite/vector');
+        return vector;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`pgvector extension is required and failed to load: ${message}`);
+      }
+    })();
   }
 
-  try {
-    // Dynamic import for pgvector extension (ES module compatible)
-    /* Stryker disable next-line StringLiteral */
-    const { vector } = await import('@electric-sql/pglite/vector');
-    return vector;
-  } catch (e) {
-    if (requireVectorStrict()) {
-      const msg = e instanceof Error ? e.message : String(e);
-      throw new Error(`pgvector extension is required but failed to load: ${msg}`);
-    }
-    // pgvector extension not available and not strictly required
-    return null;
-  }
+  return cachedVectorPromise;
 }
 
 class WasmLoader {
@@ -75,14 +55,9 @@ class WasmLoader {
       // Load vector extension asynchronously
       const vector = await loadVectorExtension();
 
-      // Create a temporary PGlite instance to trigger WASM loading
-      // Always use true in-memory storage to avoid persisting between tests/runs
+      // Create a temporary PGlite instance to trigger WASM loading with pgvector
       const tempDbPath = 'memory://';
-
-      // Use basic PGlite if vector extension is not available
-      const tempDb = vector
-        ? new PGlite({ dataDir: tempDbPath, extensions: { vector } })
-        : new PGlite(tempDbPath);
+      const tempDb = new PGlite({ dataDir: tempDbPath, extensions: { vector } });
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');
@@ -106,18 +81,9 @@ class WasmLoader {
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
 
-    // Use vector extension if available, otherwise (only if not strict) use basic PGlite
-    if (vector) {
-      return normalizedDataDir
-        ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
-        : new PGlite({ extensions: { vector } });
-    }
-
-    if (requireVectorStrict()) {
-      throw new Error('pgvector is required (strict mode) but not available');
-    }
-
-    return normalizedDataDir ? new PGlite(normalizedDataDir) : new PGlite();
+    return normalizedDataDir
+      ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
+      : new PGlite({ extensions: { vector } });
   }
 }
 
