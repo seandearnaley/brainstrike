@@ -68,7 +68,6 @@ describe('embedding-worker retries and backoff', () => {
   let db: PGlite;
 
   beforeEach(async () => {
-    process.env['DISABLE_VECTOR_EXTENSION'] = 'true';
     db = await wasmLoader.createPGlite('memory://embedding-worker-retry');
     await migrate(db);
   });

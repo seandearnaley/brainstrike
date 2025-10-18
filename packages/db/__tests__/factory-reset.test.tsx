@@ -1,9 +1,7 @@
-import { PGlite } from '@electric-sql/pglite';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFactoryReset, useFileRecordRepository } from '../src/db-provider';
-import * as migrations from '../src/migrations/bootstrap';
 import * as wasmLoaderModule from '../src/wasm-loader';
 
 function wrapper({ children }: { children: React.ReactNode }) {
@@ -12,9 +10,17 @@ function wrapper({ children }: { children: React.ReactNode }) {
 
 describe('DbProvider factoryReset', () => {
   it('exposes a factoryReset function and runs without throwing', async () => {
-    const mockDb = new PGlite('memory://');
-    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
-    vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
+    const createdDbs: Array<{ close: () => Promise<void> }> = [];
+    const originalCreate = wasmLoaderModule.wasmLoader.createPGlite.bind(
+      wasmLoaderModule.wasmLoader
+    );
+    vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockImplementation(async (path) => {
+      const db = await originalCreate(
+        typeof path === 'string' ? `${path}-factory-reset` : 'memory://factory-reset'
+      );
+      createdDbs.push(db as { close: () => Promise<void> });
+      return db;
+    });
 
     const { result } = renderHook(
       () => ({
@@ -36,5 +42,7 @@ describe('DbProvider factoryReset', () => {
     await act(async () => {
       await expect(result.current.reset?.()).resolves.not.toThrow();
     });
+
+    await Promise.allSettled(createdDbs.map((db) => db.close()));
   });
 });

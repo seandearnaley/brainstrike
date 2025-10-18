@@ -22,7 +22,9 @@ describe('CHUNKING_CONFIG', () => {
     expect(CHUNKING_CONFIG.veryLargeOverlap).toBe(100);
   });
 
-  it('should expose global safety caps', () => {
+  it('should expose safety caps for explicit overrides', () => {
+    expect(CHUNKING_CONFIG.maxTokensHardLimit).toBe(6000);
+    expect(CHUNKING_CONFIG.overlapHardLimit).toBe(2000);
     expect(CHUNKING_CONFIG.maxTokensSafetyCap).toBe(4096);
     expect(CHUNKING_CONFIG.overlapSafetyCap).toBe(1024);
   });
@@ -50,6 +52,8 @@ describe('CHUNKING_CONFIG', () => {
       'largeStructuredOverlap',
       'codeMaxTokens',
       'codeOverlap',
+      'maxTokensHardLimit',
+      'overlapHardLimit',
       'veryLargeContentThreshold',
       'veryLargeMaxTokens',
       'veryLargeOverlap',

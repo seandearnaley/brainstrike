@@ -143,7 +143,7 @@
 - ✅ **Production safety**: Graceful handling of unparseable embeddings and dimension mismatches
 
 **Critical behavior changes:**
-- Constructor signature: `new FileChunkRepository(db, vectorEnabled)` now takes vectorEnabled flag
+- Constructor signature now requires pgvector: `new FileChunkRepository(db)` (no fallback flag)
 - Similarity range: Now properly normalized to [0,1] where 1 = identical, 0 = opposite
 - Error handling: Invalid embeddings are skipped rather than causing failures
 - Performance: SQL path preferred when available, client-side as robust fallback
@@ -224,7 +224,7 @@ Tasks
 
 Notes
 
-- Keep vector tests small and run in band; set `DISABLE_VECTOR_EXTENSION=false` in those files.
+- Legacy note: earlier instructions referenced `DISABLE_VECTOR_EXTENSION`; the flag has been removed now that pgvector is mandatory.
 
 ---
 
@@ -544,7 +544,7 @@ type Job = {
   * \[ ]◻ Import small folder (mix code/md)
   * \[ ]◻ See chunks count > 0; if queue enabled, see jobs drain
   * \[ ]◻ Run a search; verify top result sanity
-  * \[ ]◻ Toggle `DISABLE_VECTOR_EXTENSION=true`; repeat (fallback still works)
+  * [x] Legacy toggle `DISABLE_VECTOR_EXTENSION` removed; pgvector must remain enabled
 
 > *Note:* adjust filter names/commands if your package names differ. Keep these **as checklists in MRs**.
 
@@ -570,7 +570,7 @@ type Job = {
 
   * `EMBED_QUEUE_ENABLED` (default false until Phase 4)
   * `EMBED_MODEL_KEY` (defaults to registry default)
-  * `DISABLE_VECTOR_EXTENSION` (already present for tests)
+  * `DISABLE_VECTOR_EXTENSION` (legacy; no longer supported)
 * **Test data:** add 3 small fixtures (md, ts, json) under `packages/db/__fixtures__`.
 * **Rollbacks:** each phase is additive; migrations have `down` defined; if worker misbehaves, flip `EMBED_QUEUE_ENABLED=false` and ship fallback.
 * **Docs:** append deltas to `docs/review-response.md` and `docs/test-suite-modernization-2025.md`.
@@ -607,7 +607,7 @@ Why the web often shows pgvector: off while desktop shows on — and what that m
 - Enabling pgvector in web (optional):
   1) Ensure the pgvector extension module is bundled and not externalized by Vite.
      - Dependency: `@electric-sql/pglite/vector` must be resolvable at runtime.
-     - Avoid setting `DISABLE_VECTOR_EXTENSION=true` in web builds.
+    - Legacy: `DISABLE_VECTOR_EXTENSION` flag removed; ensure pgvector ships in web builds.
   2) Optional strict mode flags (fail fast if unavailable):
      - `REQUIRE_PGVECTOR=true` or `LOCAL_FIRST_DB=true` or `PGLITE_EXPECTED=true` to require the extension.
      - In tests only: `REQUIRE_PGVECTOR_TEST=true`.

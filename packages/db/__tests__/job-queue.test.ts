@@ -1,15 +1,11 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue } from '../src/queue/job-queue.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('JobQueue', () => {
   let db: PGlite;
-
-  beforeAll(async () => {
-    process.env.DISABLE_VECTOR_EXTENSION = 'true';
-  });
 
   beforeEach(async () => {
     db = await wasmLoader.createPGlite('memory://job-queue-tests');

@@ -1,6 +1,6 @@
-import { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
+import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useClearAllData, useFileRecordRepository } from '../src/db-provider';
 import * as migrations from '../src/migrations/bootstrap';
@@ -11,8 +11,36 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
 }
 
+type QueryMock = Mock<[string], Promise<{ rows: unknown[] } | undefined>>;
+type TransactionCallback = (tx: { query: QueryMock }) => Promise<unknown> | unknown;
+type TransactionMock = Mock<[callback: TransactionCallback], Promise<unknown>>;
+
+type MockDb = {
+  query: QueryMock;
+  exec: Mock<[string], Promise<unknown>>;
+  close: Mock<[], Promise<void>>;
+  transaction?: TransactionMock;
+  closed?: boolean;
+};
+
+function createMockDb(overrides: Partial<MockDb> = {}): MockDb {
+  const baseQuery: QueryMock = vi.fn(async (sql: string) => {
+    if (sql.includes('SELECT 1 FROM pg_extension')) {
+      return { rows: [{ '?column?': 1 }] };
+    }
+    return { rows: [] };
+  });
+
+  return {
+    query: baseQuery,
+    exec: vi.fn(async () => undefined),
+    close: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
 describe('Database clearing functionality', () => {
-  const activeDatabases: PGlite[] = [];
+  const activeDatabases: MockDb[] = [];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,7 +65,7 @@ describe('Database clearing functionality', () => {
   describe('useClearAllData hook', () => {
     it('should be available when repositories are ready', async () => {
       // Mock successful initialization
-      const mockDb = new PGlite('memory://');
+      const mockDb = createMockDb();
       activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
@@ -51,14 +79,10 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear empty database', async () => {
-      const mockDb = new PGlite('memory://');
-      activeDatabases.push(mockDb);
-
-      // Mock successful database operations
-      const mockTransaction = vi.fn().mockImplementation(async (callback) => {
+      const mockTransaction: TransactionMock = vi.fn(async (callback: TransactionCallback) => {
         const mockTx = {
           query: vi
-            .fn()
+            .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
             .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // chunks count
             .mockResolvedValueOnce(undefined) // DELETE chunks
             .mockResolvedValueOnce({ rows: [{ count: '0' }] }) // files count
@@ -66,8 +90,8 @@ describe('Database clearing functionality', () => {
         };
         return await callback(mockTx);
       });
-
-      mockDb.transaction = mockTransaction;
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
@@ -101,13 +125,10 @@ describe('Database clearing functionality', () => {
     });
 
     it('should successfully clear database with data', async () => {
-      const mockDb = new PGlite('memory://');
-      activeDatabases.push(mockDb);
-
-      const mockTransaction = vi.fn().mockImplementation(async (callback) => {
+      const mockTransaction: TransactionMock = vi.fn(async (callback: TransactionCallback) => {
         const mockTx = {
           query: vi
-            .fn()
+            .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
             .mockResolvedValueOnce({ rows: [{ count: '10' }] }) // chunks count
             .mockResolvedValueOnce(undefined) // DELETE chunks
             .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // files count
@@ -115,8 +136,8 @@ describe('Database clearing functionality', () => {
         };
         return await callback(mockTx);
       });
-
-      mockDb.transaction = mockTransaction;
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
@@ -149,11 +170,11 @@ describe('Database clearing functionality', () => {
     });
 
     it('should handle transaction errors gracefully', async () => {
-      const mockDb = new PGlite('memory://');
+      const mockTransaction: TransactionMock = vi.fn(async () => {
+        throw new Error('Transaction failed');
+      });
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
       activeDatabases.push(mockDb);
-
-      const mockTransaction = vi.fn().mockRejectedValue(new Error('Transaction failed'));
-      mockDb.transaction = mockTransaction;
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
@@ -197,20 +218,17 @@ describe('Database clearing functionality', () => {
     });
 
     it('should ensure atomic operation - all or nothing', async () => {
-      const mockDb = new PGlite('memory://');
-      activeDatabases.push(mockDb);
-
-      const mockTransaction = vi.fn().mockImplementation(async (callback) => {
+      const mockTransaction: TransactionMock = vi.fn(async (callback: TransactionCallback) => {
         const mockTx = {
           query: vi
-            .fn()
+            .fn<[string], Promise<{ rows: unknown[] } | undefined>>(async () => ({ rows: [] }))
             .mockResolvedValueOnce({ rows: [{ count: '5' }] }) // chunks count
             .mockRejectedValueOnce(new Error('Delete chunks failed')), // DELETE chunks fails
         };
         return await callback(mockTx);
       });
-
-      mockDb.transaction = mockTransaction;
+      const mockDb = createMockDb({ transaction: mockTransaction as MockDb['transaction'] });
+      activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
       vi.spyOn(migrations, 'migrate').mockResolvedValue(undefined);
@@ -242,7 +260,7 @@ describe('Database clearing functionality', () => {
 
   describe('Integration with repositories', () => {
     it('should work with file record repository', async () => {
-      const mockDb = new PGlite('memory://');
+      const mockDb = createMockDb();
       activeDatabases.push(mockDb);
 
       vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);

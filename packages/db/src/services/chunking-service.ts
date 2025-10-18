@@ -189,59 +189,113 @@ export class ChunkingService {
     const fileName = options.fileName || options.filePath || '';
     const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
 
-    const requestedMaxTokens = options.maxTokens;
-    const requestedOverlap = options.overlap;
-    const hasCustomMaxTokens = requestedMaxTokens !== undefined;
-    const hasCustomOverlap = requestedOverlap !== undefined;
-
     const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
       const candidate = Number.isFinite(value) ? (value as number) : fallback;
       return Math.max(minimum, Math.floor(candidate));
     };
 
+    const requestedMaxTokens = options.maxTokens;
+    const requestedOverlap = options.overlap;
+    const hasExplicitMaxTokens = requestedMaxTokens !== undefined;
+    const hasExplicitOverlap = requestedOverlap !== undefined;
+
     // Normalize inputs to sane integer values
     let maxTokens = normalize(requestedMaxTokens, CHUNKING_CONFIG.defaultMaxTokens, 1);
     let overlap = normalize(requestedOverlap, CHUNKING_CONFIG.defaultOverlap, 0);
 
-    const applyRecommendation = (recommendedMax: number, recommendedOverlap: number) => {
-      if (!hasCustomMaxTokens) {
-        maxTokens = Math.min(maxTokens, recommendedMax);
+    type ChunkAdjustment = { maxTokens: number; overlap: number };
+    const apply = (state: ChunkAdjustment, cap: Partial<ChunkAdjustment>) => {
+      const next: ChunkAdjustment = { ...state };
+      if (typeof cap.maxTokens === 'number') {
+        next.maxTokens = Math.min(state.maxTokens, cap.maxTokens);
       }
-      if (!hasCustomOverlap) {
-        overlap = Math.min(overlap, recommendedOverlap);
+      if (typeof cap.overlap === 'number') {
+        next.overlap = Math.min(state.overlap, cap.overlap);
       }
+      return next;
     };
 
     if (!ignoreRecommendations) {
-      // Prefer smaller chunks for code files (improves semantic retrieval)
+      const adjustments: Array<(state: ChunkAdjustment) => ChunkAdjustment> = [];
       const isCode =
         /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
           fileName.toLowerCase()
         );
       if (isCode) {
-        applyRecommendation(CHUNKING_CONFIG.codeMaxTokens, CHUNKING_CONFIG.codeOverlap);
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.codeMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.codeOverlap;
+          }
+          return apply(state, cap);
+        });
       }
 
-      // For large structured files, use smaller chunks
-      for (const pattern of LARGE_STRUCTURED_PATTERNS) {
-        if (pattern.test(fileName)) {
-          applyRecommendation(
-            CHUNKING_CONFIG.largeStructuredMaxTokens,
-            CHUNKING_CONFIG.largeStructuredOverlap
-          );
-          break;
-        }
+      const matchesStructured = LARGE_STRUCTURED_PATTERNS.some((pattern) => pattern.test(fileName));
+      if (matchesStructured) {
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.largeStructuredMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.largeStructuredOverlap;
+          }
+          return apply(state, cap);
+        });
       }
 
-      // For very large content, use even smaller chunks
-      if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
-        applyRecommendation(CHUNKING_CONFIG.veryLargeMaxTokens, CHUNKING_CONFIG.veryLargeOverlap);
+      const exceedsVeryLargeThreshold = content.length > CHUNKING_CONFIG.veryLargeContentThreshold;
+      if (exceedsVeryLargeThreshold) {
+        adjustments.push((state) => {
+          const cap: Partial<ChunkAdjustment> = {};
+          if (!hasExplicitMaxTokens) {
+            cap.maxTokens = CHUNKING_CONFIG.veryLargeMaxTokens;
+          }
+          if (!hasExplicitOverlap) {
+            cap.overlap = CHUNKING_CONFIG.veryLargeOverlap;
+          }
+          return apply(state, cap);
+        });
       }
+
+      let state: ChunkAdjustment = { maxTokens, overlap };
+      for (const adjust of adjustments) {
+        state = adjust(state);
+      }
+      maxTokens = state.maxTokens;
+      overlap = state.overlap;
     }
 
-    maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);
-    overlap = Math.min(overlap, CHUNKING_CONFIG.overlapSafetyCap);
-    overlap = Math.min(overlap, Math.max(0, maxTokens - 1));
+    // Enforce hard safety limits for explicitly provided values and defaults alike
+    const clamp = (value: number, fallback: number, limit: number) => {
+      if (!Number.isFinite(value)) return fallback;
+      return Math.max(1, Math.min(value, limit));
+    };
+
+    const resolveLimit = (hardLimit: number, safetyCap: number, explicit: boolean) =>
+      explicit ? hardLimit : Math.min(hardLimit, safetyCap);
+
+    const maxTokensLimit = resolveLimit(
+      CHUNKING_CONFIG.maxTokensHardLimit,
+      CHUNKING_CONFIG.maxTokensSafetyCap,
+      hasExplicitMaxTokens
+    );
+    const overlapLimit = resolveLimit(
+      CHUNKING_CONFIG.overlapHardLimit,
+      CHUNKING_CONFIG.overlapSafetyCap,
+      hasExplicitOverlap
+    );
+
+    maxTokens = clamp(maxTokens, CHUNKING_CONFIG.defaultMaxTokens, maxTokensLimit);
+    overlap = clamp(overlap, CHUNKING_CONFIG.defaultOverlap, overlapLimit);
+
+    if (overlap >= maxTokens) {
+      overlap = Math.max(0, maxTokens - 1);
+    }
 
     return { maxTokens, overlap };
   }
@@ -280,6 +334,8 @@ export class ChunkingService {
     }
 
     const adjusted = this.adjustChunkingForFileType(content, options);
+    const effectiveMaxTokens = Math.min(adjusted.maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);
+    const effectiveOverlap = Math.min(adjusted.overlap, CHUNKING_CONFIG.overlapSafetyCap);
     const nowIso = () => new Date().toISOString();
 
     let seq = 0;
@@ -321,8 +377,8 @@ export class ChunkingService {
       charsPerToken = await computeCharsPerToken(content, options);
     }
 
-    const maxChars = Math.floor(adjusted.maxTokens * charsPerToken);
-    const overlapChars = Math.floor(adjusted.overlap * charsPerToken);
+    const maxChars = Math.floor(effectiveMaxTokens * charsPerToken);
+    const overlapChars = Math.floor(effectiveOverlap * charsPerToken);
 
     const name = (options.fileName || options.filePath || '').toLowerCase();
     const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
@@ -332,8 +388,8 @@ export class ChunkingService {
 
     const chunkTokens = async (): Promise<ChunkGroup[]> => {
       const tokenChunker = new TokenTextSplitter({
-        chunkSize: adjusted.maxTokens,
-        chunkOverlap: adjusted.overlap,
+        chunkSize: effectiveMaxTokens,
+        chunkOverlap: effectiveOverlap,
       });
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
@@ -405,7 +461,7 @@ export class ChunkingService {
     }
     notifyStrategy(effectiveStrategy);
     for (const g of groups) {
-      yield* emit(g.pieces, g.type, adjusted.maxTokens);
+      yield* emit(g.pieces, g.type, effectiveMaxTokens);
     }
   }
 }

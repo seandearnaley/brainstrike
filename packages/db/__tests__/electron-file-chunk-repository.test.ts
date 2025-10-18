@@ -42,7 +42,7 @@ const createRepo = () => {
     query,
     exec,
   };
-  const repo = new ElectronFileChunkRepository(db, true);
+  const repo = new ElectronFileChunkRepository(db);
   return { repo, query, exec };
 };
 

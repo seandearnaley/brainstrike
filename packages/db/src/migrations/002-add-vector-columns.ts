@@ -1,20 +1,10 @@
 import type { Migration } from './migration-runner';
 
-function isVectorDisabled(): boolean {
-  try {
-    return String(process.env['DISABLE_VECTOR_EXTENSION'] ?? '').toLowerCase() === 'true';
-  } catch {
-    return false;
-  }
-}
-
 export const migration002AddVectorColumns: Migration = {
   version: 2,
   name: 'add_vector_columns',
   up: async (db) => {
-    if (!isVectorDisabled()) {
-      await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
-    }
+    await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
 
     await db.exec(`
 			-- Add embedding columns to file_records

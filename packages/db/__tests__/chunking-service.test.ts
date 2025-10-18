@@ -407,4 +407,51 @@ class TestClass {
       await expect(chunkingService.dispose()).resolves.not.toThrow();
     });
   });
+
+  describe('chunk parameter adjustments', () => {
+    const invokeAdjust = (service: ChunkingService, content: string, options: ChunkingOptions) =>
+      (
+        service as unknown as {
+          adjustChunkingForFileType: (
+            content: string,
+            options: ChunkingOptions
+          ) => { maxTokens: number; overlap: number };
+        }
+      ).adjustChunkingForFileType.call(service, content, options);
+
+    it('honors explicit chunk sizes for code files within safety limits', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.ts',
+        maxTokens: 1024,
+        overlap: 128,
+      });
+
+      expect(maxTokens).toBe(1024);
+      expect(overlap).toBe(128);
+    });
+
+    it('caps explicit chunk sizes at configured safety limits', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.ts',
+        maxTokens: 10000,
+        overlap: 5000,
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.maxTokensHardLimit);
+      expect(overlap).toBeLessThanOrEqual(CHUNKING_CONFIG.overlapHardLimit);
+      expect(overlap).toBe(CHUNKING_CONFIG.overlapHardLimit);
+    });
+
+    it('applies code defaults when caller does not override', () => {
+      const { maxTokens, overlap } = invokeAdjust(chunkingService, 'function foo() {}', {
+        strategy: 'sentence',
+        fileName: 'foo.tsx',
+      });
+
+      expect(maxTokens).toBe(CHUNKING_CONFIG.codeMaxTokens);
+      expect(overlap).toBe(CHUNKING_CONFIG.codeOverlap);
+    });
+  });
 });

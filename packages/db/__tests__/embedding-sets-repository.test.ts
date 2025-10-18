@@ -1,14 +1,15 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('EmbeddingSetsRepository', () => {
   let db: PGlite;
   let repo: EmbeddingSetsRepository;
 
   beforeEach(async () => {
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://embedding-sets');
     await migrate(db);
     repo = new EmbeddingSetsRepository(db);
   });

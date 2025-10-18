@@ -1,10 +1,19 @@
-import { PGlite } from '@electric-sql/pglite';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileChunkInsert, FileChunkUpdate } from '../src/models/file-chunk.js';
 import { EmbeddingSetsRepository } from '../src/repositories/embedding-sets-repository.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
+import { wasmLoader } from '../src/wasm-loader.js';
+
+function makeVector(dim: number, entries: Array<[number, number]>): number[] {
+  const vector = new Array(dim).fill(0);
+  for (const [idx, value] of entries) {
+    vector[idx] = value;
+  }
+  return vector;
+}
 
 describe('Chunk embedding metadata', () => {
   let db: PGlite;
@@ -13,10 +22,10 @@ describe('Chunk embedding metadata', () => {
   let setRepo: EmbeddingSetsRepository;
 
   beforeEach(async () => {
-    db = new PGlite('memory://');
+    db = await wasmLoader.createPGlite('memory://chunk-embedding-metadata');
     await migrate(db);
     fileRepo = new FileRecordRepository(db);
-    chunkRepo = new FileChunkRepository(db, false);
+    chunkRepo = new FileChunkRepository(db);
     setRepo = new EmbeddingSetsRepository(db);
 
     // seed a file record
@@ -51,10 +60,14 @@ describe('Chunk embedding metadata', () => {
     };
     await chunkRepo.insert(chunk);
 
-    const set = await setRepo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 1024, 'cosine');
+    const set = await setRepo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 768, 'cosine');
     const update: FileChunkUpdate = {
       id: 'c1',
-      embedding: [0.1, 0.2, 0.3],
+      embedding: makeVector(768, [
+        [0, 0.1],
+        [1, 0.2],
+        [2, 0.3],
+      ]),
       embeddingSetId: set.id,
       embeddingHash: 'ehash-1',
       updatedAt: new Date().toISOString(),
@@ -66,8 +79,10 @@ describe('Chunk embedding metadata', () => {
     expect(updated?.embeddingUpdatedAt).toBeDefined();
   });
 
-  it('filters search by embeddingSetId when provided (client-side path)', async () => {
+  it('filters search by embeddingSetId when provided', async () => {
     const now = new Date().toISOString();
+    const setA = await setRepo.getOrCreateSet('setA', 'model-setA', 768, 'cosine');
+    const setB = await setRepo.getOrCreateSet('setB', 'model-setB', 768, 'cosine');
     const chunks: FileChunkInsert[] = [
       {
         id: 'c1',
@@ -78,8 +93,8 @@ describe('Chunk embedding metadata', () => {
         tokenCount: 1,
         chunkType: 'text',
         chunkSize: 10,
-        embedding: [0.1, 0.0, 0.0],
-        embeddingSetId: 'setA',
+        embedding: makeVector(768, [[0, 0.1]]),
+        embeddingSetId: setA.id,
         embeddingUpdatedAt: now,
         embeddingHash: 'eh1',
         createdAt: now,
@@ -94,8 +109,8 @@ describe('Chunk embedding metadata', () => {
         tokenCount: 1,
         chunkType: 'text',
         chunkSize: 10,
-        embedding: [0.1, 0.0, 0.0],
-        embeddingSetId: 'setB',
+        embedding: makeVector(768, [[1, 0.1]]),
+        embeddingSetId: setB.id,
         embeddingUpdatedAt: now,
         embeddingHash: 'eh2',
         createdAt: now,
@@ -104,18 +119,21 @@ describe('Chunk embedding metadata', () => {
     ];
     await chunkRepo.insertMany(chunks);
 
-    const resultsAll = await chunkRepo.searchSimilar([0.1, 0.0, 0.0], {
-      limit: 10,
-      threshold: 0,
-    });
-    expect(resultsAll.length).toBe(2);
+    const query = makeVector(768, [[0, 0.1]]);
 
-    const resultsSetA = await chunkRepo.searchSimilar([0.1, 0.0, 0.0], {
+    const resultsAll = await chunkRepo.searchSimilar(query, {
       limit: 10,
-      threshold: 0,
-      embeddingSetId: 'setA',
+      threshold: 0.6,
+      embeddingSetId: setA.id,
     });
-    expect(resultsSetA.length).toBe(1);
-    expect(resultsSetA[0].chunk.id).toBe('c1');
+    expect(resultsAll.length).toBe(1);
+    expect(resultsAll[0].chunk.id).toBe('c1');
+
+    const resultsSetB = await chunkRepo.searchSimilar(query, {
+      limit: 10,
+      threshold: 0.6,
+      embeddingSetId: setB.id,
+    });
+    expect(resultsSetB.length).toBe(0);
   });
 });

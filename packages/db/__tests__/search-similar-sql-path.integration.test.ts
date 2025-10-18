@@ -12,10 +12,7 @@ function makeVector(dim: number, entries: Array<[number, number]>): number[] {
   return v;
 }
 
-// Only run when the vector extension is enabled for tests
-const vectorDisabled = String(process.env.DISABLE_VECTOR_EXTENSION || '').toLowerCase() === 'true';
-
-describe.skipIf(vectorDisabled)('searchSimilar SQL path (pgvector integration)', () => {
+describe('searchSimilar SQL path (pgvector integration)', () => {
   it('returns ranked results and does not regress parameter indexing', async () => {
     const db: PGlite = await wasmLoader.createPGlite('memory://sql-ok');
     await migrate(db);
@@ -94,7 +91,7 @@ describe.skipIf(vectorDisabled)('searchSimilar SQL path (pgvector integration)',
       },
     ];
 
-    const repo = new FileChunkRepository(db, true);
+    const repo = new FileChunkRepository(db);
     await repo.insertMany(chunks);
 
     // Using chunkType narrows WHERE and increments param indexes before set lookup.

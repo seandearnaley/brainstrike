@@ -18,6 +18,10 @@ export const CHUNKING_CONFIG = {
   codeMaxTokens: 384,
   codeOverlap: 48,
 
+  // Safety caps applied when callers provide explicit chunk sizes
+  maxTokensHardLimit: 6000,
+  overlapHardLimit: 2000,
+
   // Very large content thresholds and limits
   veryLargeContentThreshold: 100000, // 100KB+ threshold for very large content
   veryLargeMaxTokens: 1000, // Maximum tokens for very large content

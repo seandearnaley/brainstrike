@@ -1,4 +1,3 @@
-import { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -31,7 +30,7 @@ describe('DbProvider integration', () => {
 
   it('migrates, creates and retrieves records via context repository', async () => {
     // Mock the wasmLoader to return a real PGlite instance without WASM loading
-    const mockDb = new PGlite();
+    const mockDb = await wasmLoaderModule.wasmLoader.createPGlite('memory://db-provider-migration');
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
     const { result } = renderHook(
       () => {
@@ -60,5 +59,6 @@ describe('DbProvider integration', () => {
     await repo.create(record);
     const found = await repo.findById(record.id);
     expect(found).toEqual(record);
+    await mockDb.close();
   });
 });

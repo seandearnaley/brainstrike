@@ -1,4 +1,6 @@
 import '@testing-library/jest-dom';
+import { Blob as NodeBlob } from 'node:buffer';
+import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
@@ -80,4 +82,53 @@ if (typeof global.TextDecoder === 'undefined') {
 }
 if (typeof global.TextEncoder === 'undefined') {
   global.TextEncoder = MockTextEncoder as unknown as typeof global.TextEncoder;
+}
+
+if (!(Buffer.prototype as unknown as { arrayBuffer?: () => ArrayBuffer }).arrayBuffer) {
+  Object.defineProperty(Buffer.prototype, 'arrayBuffer', {
+    configurable: true,
+    enumerable: false,
+    writable: true,
+    value(this: Buffer) {
+      const { buffer, byteOffset, byteLength } = this;
+      return buffer.slice(byteOffset, byteOffset + byteLength);
+    },
+  });
+}
+
+if (typeof Blob === 'undefined' || typeof Blob.prototype.arrayBuffer !== 'function') {
+  // @ts-expect-error - assign Node Blob polyfill for tests
+  globalThis.Blob = NodeBlob;
+}
+
+const nativeFetch = globalThis.fetch?.bind(globalThis);
+if (nativeFetch) {
+  globalThis.fetch = async (input: unknown, init?: unknown) => {
+    const url =
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : typeof input === 'object' && input && 'url' in input
+            ? String((input as { url?: string }).url)
+            : String(input);
+
+    if (url.startsWith('file:')) {
+      const data = await readFile(new URL(url));
+      const arrayBuffer = Uint8Array.from(data).buffer;
+      return new Response(arrayBuffer);
+    }
+
+    let normalizedInput: RequestInfo | URL;
+    if (typeof input === 'string' || input instanceof URL) {
+      normalizedInput = input;
+    } else if (typeof input === 'object' && input !== null && 'url' in input) {
+      normalizedInput = input as RequestInfo;
+    } else {
+      normalizedInput = String(input);
+    }
+
+    const normalizedInit = init as RequestInit | undefined;
+    return nativeFetch(normalizedInput, normalizedInit);
+  };
 }
