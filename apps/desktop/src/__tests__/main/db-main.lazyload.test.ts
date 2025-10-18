@@ -11,6 +11,18 @@ vi.mock('node:fs', () => ({
 
 vi.mock('electron', () => ({ app: { getPath: vi.fn(() => '/mock/documents') } }));
 
+const vectorSetupMock = vi.fn(async () => ({
+  bundlePath: new URL('file:///mock/vector.tar.gz'),
+  emscriptenOpts: {},
+}));
+
+vi.mock('@electric-sql/pglite/vector', () => ({
+  vector: {
+    name: 'pgvector',
+    setup: vectorSetupMock,
+  },
+}));
+
 // Mock PGlite + migrate to allow initialization
 const migrateMock = vi.fn();
 const closeMock = vi.fn(async () => {});
@@ -38,6 +50,8 @@ describe('db-main lazy-load getDatabase', () => {
     vi.clearAllMocks();
     process.env['DISABLE_VECTOR_EXTENSION'] = undefined;
     process.env['NODE_ENV'] = 'test';
+    existsSyncMock.mockReturnValue(true);
+    mkdirSyncMock.mockImplementation(() => undefined);
   });
 
   it('lazy-loads database on first getDatabase call when uninitialized', async () => {
@@ -45,6 +59,17 @@ describe('db-main lazy-load getDatabase', () => {
     const handle = await getDatabase();
     expect(handle).toBeTruthy();
     // ctor invoked once on first lazy init
+    expect(PGliteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reuses existing database instance when already initialized', async () => {
+    const { initializeMainDatabase, getDatabase } = await import('../../db-main');
+
+    const first = await initializeMainDatabase();
+    expect(first).toBeTruthy();
+
+    const second = await getDatabase();
+    expect(second).toBe(first);
     expect(PGliteMock).toHaveBeenCalledTimes(1);
   });
 });

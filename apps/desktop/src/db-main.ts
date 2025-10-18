@@ -11,16 +11,20 @@ const getPGlite = async (opts?: { disableVector?: boolean }) => {
   const { migrate } = await import('@brainstrike/db');
   // Try to load pgvector extension
   let vector = null;
+
   try {
     const disableVector = process.env['DISABLE_VECTOR_EXTENSION'] === 'true' || opts?.disableVector;
     if (disableVector) {
       throw new Error('pgvector extension disabled via environment');
     }
-    // Use dynamic import with type assertion to bypass TypeScript module resolution issues
-    // biome-ignore lint/suspicious/noExplicitAny: Dynamic import of optional extension
-    const vectorModule = await import('@electric-sql/pglite/vector' as any);
-    vector = vectorModule.vector;
-    logger.info('pgvector extension loaded successfully');
+    // CJS environments (Electron main) require using require()
+    // eslint-disable-next-line @typescript-eslint/no-var-requires -- Node CJS fallback
+    const vectorModule = require('@electric-sql/pglite/dist/vector/index.cjs');
+    vector = vectorModule?.vector ?? vectorModule?.default ?? vectorModule;
+    if (!vector) {
+      throw new Error('pgvector extension module returned no exports');
+    }
+    logger.info('pgvector extension loaded successfully via CJS entry');
   } catch (err) {
     const details = {
       message: err instanceof Error ? err.message : String(err),

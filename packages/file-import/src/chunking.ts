@@ -260,6 +260,9 @@ export async function processFileChunking(
   );
 
   const chunkingService = new ChunkingService();
+  const chunkSizeOverride = options.chunkSize;
+  const chunkOverlapOverride = options.chunkOverlap;
+  const hasUserOverrides = chunkSizeOverride !== undefined || chunkOverlapOverride !== undefined;
 
   const shouldStream =
     !!options.useStreamingForLargeFiles &&
@@ -276,7 +279,8 @@ export async function processFileChunking(
       fileRecord.name,
       fileRecord.path,
       options,
-      forceStrategy
+      forceStrategy,
+      hasUserOverrides
     );
     logger.info('File chunked successfully (streaming)', {
       fileId: result.id,
@@ -305,11 +309,12 @@ export async function processFileChunking(
 
   const chunkingResult = await chunkingService.chunkContent(fileRecord.content, result.id, {
     strategy,
-    maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
-    overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
+    ...(chunkSizeOverride !== undefined ? { maxTokens: chunkSizeOverride } : {}),
+    ...(chunkOverlapOverride !== undefined ? { overlap: chunkOverlapOverride } : {}),
     fileName: fileRecord.name,
     filePath: fileRecord.path,
     forceStrategy,
+    ignoreFileTypeRecommendations: hasUserOverrides,
   });
 
   if (chunkingResult.skipped) {
@@ -400,7 +405,8 @@ async function processFileChunkingStreamPath(
   fileName: string,
   filePath: string,
   options: ChunkingOptions,
-  forceStrategy: boolean
+  forceStrategy: boolean,
+  hasUserOverrides: boolean
 ): Promise<{
   enhancedResult: EnhancedImportResult;
   chunksCreated: number;
@@ -410,12 +416,13 @@ async function processFileChunkingStreamPath(
   let resolvedStrategy: ChunkingStrategy = strategy;
   const stream = chunkingService.chunkContentStream(content, result.id, {
     strategy,
-    maxTokens: options.chunkSize || CHUNKING_CONFIG.defaultMaxTokens,
-    overlap: options.chunkOverlap || CHUNKING_CONFIG.defaultOverlap,
+    ...(options.chunkSize !== undefined ? { maxTokens: options.chunkSize } : {}),
+    ...(options.chunkOverlap !== undefined ? { overlap: options.chunkOverlap } : {}),
     fileName,
     filePath,
     allowLargeFiles: true,
     forceStrategy,
+    ignoreFileTypeRecommendations: hasUserOverrides,
     onStrategyResolved: (s) => {
       resolvedStrategy = s;
     },

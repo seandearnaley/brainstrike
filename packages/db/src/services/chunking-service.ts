@@ -28,6 +28,8 @@ export interface ChunkingOptions {
   tokenTrueSizing?: boolean;
   // Notify caller which strategy was actually used after file/extension heuristics
   onStrategyResolved?: (strategy: ChunkingStrategy) => void;
+  // Skip file-type recommendations and only enforce global safety caps when true
+  ignoreFileTypeRecommendations?: boolean;
 }
 
 export interface ChunkingResult {
@@ -185,6 +187,7 @@ export class ChunkingService {
     options: ChunkingOptions
   ): { maxTokens: number; overlap: number } {
     const fileName = options.fileName || options.filePath || '';
+    const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
 
     const requestedMaxTokens = options.maxTokens;
     const requestedOverlap = options.overlap;
@@ -209,29 +212,31 @@ export class ChunkingService {
       }
     };
 
-    // Prefer smaller chunks for code files (improves semantic retrieval)
-    const isCode =
-      /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
-        fileName.toLowerCase()
-      );
-    if (isCode) {
-      applyRecommendation(CHUNKING_CONFIG.codeMaxTokens, CHUNKING_CONFIG.codeOverlap);
-    }
-
-    // For large structured files, use smaller chunks
-    for (const pattern of LARGE_STRUCTURED_PATTERNS) {
-      if (pattern.test(fileName)) {
-        applyRecommendation(
-          CHUNKING_CONFIG.largeStructuredMaxTokens,
-          CHUNKING_CONFIG.largeStructuredOverlap
+    if (!ignoreRecommendations) {
+      // Prefer smaller chunks for code files (improves semantic retrieval)
+      const isCode =
+        /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php|cpp|c|h|m|mm|swift)$/.test(
+          fileName.toLowerCase()
         );
-        break;
+      if (isCode) {
+        applyRecommendation(CHUNKING_CONFIG.codeMaxTokens, CHUNKING_CONFIG.codeOverlap);
       }
-    }
 
-    // For very large content, use even smaller chunks
-    if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
-      applyRecommendation(CHUNKING_CONFIG.veryLargeMaxTokens, CHUNKING_CONFIG.veryLargeOverlap);
+      // For large structured files, use smaller chunks
+      for (const pattern of LARGE_STRUCTURED_PATTERNS) {
+        if (pattern.test(fileName)) {
+          applyRecommendation(
+            CHUNKING_CONFIG.largeStructuredMaxTokens,
+            CHUNKING_CONFIG.largeStructuredOverlap
+          );
+          break;
+        }
+      }
+
+      // For very large content, use even smaller chunks
+      if (content.length > CHUNKING_CONFIG.veryLargeContentThreshold) {
+        applyRecommendation(CHUNKING_CONFIG.veryLargeMaxTokens, CHUNKING_CONFIG.veryLargeOverlap);
+      }
     }
 
     maxTokens = Math.min(maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);

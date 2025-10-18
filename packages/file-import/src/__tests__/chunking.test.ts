@@ -290,6 +290,7 @@ describe('processFileChunking', () => {
         strategy: 'recursive',
         maxTokens: 500,
         overlap: 50,
+        ignoreFileTypeRecommendations: true,
       })
     );
   });

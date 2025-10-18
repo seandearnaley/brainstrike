@@ -342,8 +342,9 @@ async function resolveActivePage(page: Page): Promise<Page> {
 
 async function isDatabaseErrorState(page: Page): Promise<boolean> {
   try {
-    return (await page.locator('[data-testid="db-init-error"]').count()) > 0;
-  } catch (_error) {
+    const errorPanel = page.locator('[data-testid="db-init-error"]');
+    return await errorPanel.isVisible({ timeout: 200 }).catch(() => false);
+  } catch {
     return false;
   }
 }

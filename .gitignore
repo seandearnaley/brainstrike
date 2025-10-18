@@ -147,3 +147,5 @@ icons/.generated/
 .codanna/
 
 .beads/*.db
+
+.pnpm-store/

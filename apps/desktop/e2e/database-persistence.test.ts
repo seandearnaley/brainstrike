@@ -14,7 +14,11 @@ test.describe('Database Persistence', () => {
   const REFRESH_BUTTON_SELECTOR = 'button:has-text("Refresh")';
 
   async function isDatabaseError(page: Page): Promise<boolean> {
-    return (await page.locator(ERROR_LOCATOR).count()) > 0;
+    try {
+      return await page.locator(ERROR_LOCATOR).isVisible({ timeout: 200 });
+    } catch {
+      return false;
+    }
   }
 
   async function verifyDatabaseConnection(page: Page): Promise<void> {
@@ -301,6 +305,7 @@ test.describe('Database Persistence', () => {
   test('should clear database via UI button workflow', async ({ window }) => {
     let activeWindow = await ensureDatabasePanel(window);
     if (await isDatabaseError(activeWindow)) {
+      console.log('⚠️ Database start failed (pgvector missing) – skipping CRUD test.');
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
@@ -310,6 +315,7 @@ test.describe('Database Persistence', () => {
 
     activeWindow = await ensureDatabasePanel(activeWindow);
     if (await isDatabaseError(activeWindow)) {
+      console.log('⚠️ Database start failed (pgvector missing) – skipping persistence test.');
       await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }
@@ -494,6 +500,7 @@ test.describe('Database Persistence', () => {
     let relaunchedWindow = await ensureDatabasePanel(relaunched.window);
     relaunchedWindow = await clearDatabaseRecords(relaunchedWindow);
     if (await isDatabaseError(relaunchedWindow)) {
+      console.log('⚠️ Database start failed after restart – skipping persistence assertions.');
       await expect(relaunchedWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
       return;
     }

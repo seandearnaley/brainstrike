@@ -197,6 +197,33 @@ class TestClass {
       expect(result.strategyUsed).toBe('sentence');
     });
 
+    it('applies code defaults when no overrides are provided', async () => {
+      const content = 'export const answer = 42;\n'.repeat(20);
+
+      const result = await chunkingService.chunkContent(content, 'file-default', {
+        strategy: 'recursive',
+        fileName: 'default.ts',
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.codeMaxTokens);
+    });
+
+    it('skips file-type recommendations when explicitly ignored', async () => {
+      const content = 'export const answer = 42;\n'.repeat(20);
+
+      const result = await chunkingService.chunkContent(content, 'file-ignore', {
+        strategy: 'recursive',
+        fileName: 'ignore.ts',
+        ignoreFileTypeRecommendations: true,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.defaultMaxTokens);
+    });
+
     it('respects custom chunk size for code files above defaults', async () => {
       const content = 'export const answer = 42;\n'.repeat(200);
 
