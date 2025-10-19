@@ -134,7 +134,11 @@
       "Bash(do echo \"=== @brainstrike/$pkg ===\" pnpm --filter @brainstrike/$pkg run type-check)",
       "Bash(do echo \"=== @brainstrike/$pkg ===\")",
       "Bash(1)",
-      "mcp__plugin_beads_beads__ready"
+      "mcp__plugin_beads_beads__ready",
+      "mcp__plugin_beads_beads__update",
+      "Bash(git add packages/file-import/src/chunking.ts)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfix(file-import): remove unsafe casts in streaming chunk pipeline\n\n- Changed batch type from `FileChunk[]` to `FileChunkInsert[]` to match the actual return type of `chunkContentStream`\n- Removed unsafe type casts (`as unknown as FileChunk`) that violated TypeScript strict mode\n- Added `FileChunkInsert` import from @brainstrike/db\n- Added MAX_BATCH_SIZE cap (1000 chunks) to prevent excessive memory usage with arbitrarily large `streamBatchSize` overrides\n- Updated `flushBatch` function signature to properly type repository interface\n\nFixes: brainstrike-5\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfix(file-import): remove unsafe casts in streaming chunk pipeline\n\n- Changed batch type from `FileChunk[]` to `FileChunkInsert[]` to match the actual return type of `chunkContentStream`\n- Removed unsafe type casts (`as unknown as FileChunk`) that violated TypeScript strict mode\n- Added `FileChunkInsert` import from @brainstrike/db\n- Added MaxBatchSize cap (1000 chunks) to prevent excessive memory usage with arbitrarily large `streamBatchSize` overrides\n- Updated `flushBatch` function signature to properly type repository interface\n\nFixes: brainstrike-5\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
