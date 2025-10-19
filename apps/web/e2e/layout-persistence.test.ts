@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('IDE Layout Persistence', () => {
   test.beforeEach(async ({ page }) => {
@@ -99,35 +99,39 @@ test.describe('IDE Layout Persistence', () => {
     });
 
     test('should persist right panel toggle state across page reloads', async ({ page }) => {
-      // Right panel should be hidden by default (no content provided in current setup)
       const rightPanel = page.locator('[id="right-panel"]');
-
-      // Note: Right panel may not be visible if no content is provided
-      // This test verifies the persistence mechanism works when content is available
+      const hideRightPanelButton = page.locator('button[aria-label="Hide right panel"]');
       const showRightPanelButton = page.locator('button[aria-label="Show right panel"]');
 
-      // If right panel content is available, test its persistence
-      if (await showRightPanelButton.isVisible()) {
-        await showRightPanelButton.click();
+      await ensureRightPanelVisible(page);
+
+      if ((await hideRightPanelButton.count()) === 0) {
+        // No right-panel content available; skip further assertions.
+        return;
+      }
+
+      await expect(rightPanel).toBeVisible();
+
+      // Reload and verify persistence
+      await page.reload();
+      await expect(
+        page.getByRole('heading', { name: 'Context Explorer', exact: true })
+      ).toBeVisible();
+      await expect(rightPanel).toBeVisible();
+
+      // Hide and verify persistence
+      await hideRightPanelButton.click();
+      await expect(rightPanel).not.toBeVisible();
+
+      await page.reload();
+      await expect(
+        page.getByRole('heading', { name: 'Context Explorer', exact: true })
+      ).toBeVisible();
+      await expect(rightPanel).not.toBeVisible();
+
+      if ((await showRightPanelButton.count()) > 0) {
+        await showRightPanelButton.first().click();
         await expect(rightPanel).toBeVisible();
-
-        // Reload and verify persistence
-        await page.reload();
-        await expect(
-          page.getByRole('heading', { name: 'Context Explorer', exact: true })
-        ).toBeVisible();
-        await expect(rightPanel).toBeVisible();
-
-        // Hide and verify persistence
-        const hideRightPanelButton = page.locator('button[aria-label="Hide right panel"]');
-        await hideRightPanelButton.click();
-        await expect(rightPanel).not.toBeVisible();
-
-        await page.reload();
-        await expect(
-          page.getByRole('heading', { name: 'Context Explorer', exact: true })
-        ).toBeVisible();
-        await expect(rightPanel).not.toBeVisible();
       }
     });
   });
