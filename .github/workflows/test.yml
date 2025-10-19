@@ -311,10 +311,12 @@ jobs:
       - name: Bundle blob report
         if: always()
         run: |
+          set -e
           cd apps/web
           if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
             tar -cvf blob-report-${{ matrix.shardIndex }}.tar blob-report/
             ls -lh blob-report-${{ matrix.shardIndex }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
           else
             echo "⚠️ No blob report found for shard ${{ matrix.shardIndex }}"
           fi
@@ -388,10 +390,12 @@ jobs:
       - name: Bundle blob report (desktop shard)
         if: always()
         run: |
+          set -e
           cd apps/desktop
           if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
             tar -cvf desktop-blob-report-${{ matrix.shardIndex }}.tar blob-report/
             ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
           else
             echo "⚠️ No blob report found for desktop shard ${{ matrix.shardIndex }}"
           fi
@@ -441,6 +445,7 @@ jobs:
       - name: Extract blob report bundles
         if: steps.download-reports.outcome == 'success'
         run: |
+          set -e
           if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
             echo "Extracting blob report tar bundles..."
             for artifact_dir in all-blob-reports/*/; do
