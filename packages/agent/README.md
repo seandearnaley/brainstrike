@@ -13,6 +13,7 @@
 ### Key Features
 
 - **🤖 Multi-Provider Support**: OpenAI, Anthropic, and custom providers via Mastra
+- **📚 Provider Registry**: Central metadata (`providers/types`) for display names, runtime capabilities, and embedding dimension support
 - **🔧 MCP Integration**: Native support for Model Context Protocol servers and tools
 - **📡 Streaming First**: Efficient real-time streaming with backpressure handling
 - **🛠️ Tool Orchestration**: Extensible tool system with progress tracking

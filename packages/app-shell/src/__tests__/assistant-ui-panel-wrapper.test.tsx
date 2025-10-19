@@ -9,38 +9,95 @@ import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 // Mock the agent/client exports
 vi.mock('@brainstrike/agent/client', () => {
-  const PROVIDER_DEFAULT_MODELS = {
-    openai: 'gpt-4o-mini',
-    anthropic: 'claude-3-5-haiku-latest',
-    google: 'gemini-2.5-flash',
-    openrouter: 'gpt-4o-mini',
+  const PROVIDER_DEFINITIONS = {
+    openai: {
+      id: 'openai',
+      displayName: 'OpenAI',
+      runtime: 'hosted',
+      capabilities: { llm: true, embeddings: true, streaming: true },
+      models: [
+        { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
+        { id: 'gpt-4o-mini', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'gpt-4-turbo', type: 'llm', supportsStreaming: true },
+        { id: 'gpt-3.5-turbo', type: 'llm', supportsStreaming: true },
+      ],
+    },
+    anthropic: {
+      id: 'anthropic',
+      displayName: 'Anthropic',
+      runtime: 'hosted',
+      capabilities: { llm: true, embeddings: false, streaming: true },
+      models: [
+        { id: 'claude-3-5-sonnet-latest', type: 'llm', supportsStreaming: true },
+        { id: 'claude-3-5-haiku-latest', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'claude-3-opus-latest', type: 'llm', supportsStreaming: true },
+      ],
+    },
+    google: {
+      id: 'google',
+      displayName: 'Google',
+      runtime: 'hosted',
+      capabilities: { llm: true, embeddings: true, streaming: true },
+      models: [
+        { id: 'gemini-2.5-flash', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'gemini-2.0-pro', type: 'llm', supportsStreaming: true },
+        { id: 'gemini-1.5-pro', type: 'llm', supportsStreaming: true },
+      ],
+    },
+    openrouter: {
+      id: 'openrouter',
+      displayName: 'OpenRouter',
+      runtime: 'gateway',
+      capabilities: { llm: true, embeddings: false, streaming: true },
+      models: [
+        { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
+        { id: 'gpt-4o-mini', type: 'llm', default: true, supportsStreaming: true },
+        { id: 'claude-3-5-sonnet', type: 'llm', supportsStreaming: true },
+      ],
+    },
   } as const;
 
-  const PROVIDER_MODELS = {
-    openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
-    anthropic: ['claude-3-5-sonnet-latest', 'claude-3-5-haiku-latest', 'claude-3-opus-latest'],
-    google: ['gemini-2.5-flash', 'gemini-2.0-pro', 'gemini-1.5-pro'],
-    openrouter: ['gpt-4o', 'gpt-4o-mini', 'claude-3-5-sonnet'],
-  } as const;
+  const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFINITIONS) as Array<
+    keyof typeof PROVIDER_DEFINITIONS
+  >;
+
+  const PROVIDER_MODELS = SUPPORTED_PROVIDERS.reduce(
+    (acc, provider) => {
+      acc[provider] = PROVIDER_DEFINITIONS[provider].models.map((model) => model.id);
+      return acc;
+    },
+    {} as Record<keyof typeof PROVIDER_DEFINITIONS, string[]>
+  );
+
+  const PROVIDER_DEFAULT_MODELS = SUPPORTED_PROVIDERS.reduce(
+    (acc, provider) => {
+      const models = PROVIDER_DEFINITIONS[provider].models;
+      const defaultModel = models.find((model) => model.default) ?? models[0];
+      acc[provider] = defaultModel.id;
+      return acc;
+    },
+    {} as Record<keyof typeof PROVIDER_DEFINITIONS, string>
+  );
 
   return {
     getProviderDefaultModel: (provider: string) => {
-      type Provider = keyof typeof PROVIDER_DEFAULT_MODELS;
-      return PROVIDER_DEFAULT_MODELS[provider as Provider];
+      return PROVIDER_DEFAULT_MODELS[provider as keyof typeof PROVIDER_DEFINITIONS];
     },
     getProviderDisplayName: (provider: string) => {
-      const names: Record<string, string> = {
-        openai: 'OpenAI',
-        anthropic: 'Anthropic',
-        google: 'Google',
-        openrouter: 'OpenRouter',
-      };
-      return names[provider] ?? provider;
+      const definition = PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS];
+      return definition?.displayName ?? provider;
     },
     getProviderModels: (provider: string) => {
-      type Provider = keyof typeof PROVIDER_MODELS;
-      return PROVIDER_MODELS[provider as Provider] ?? [];
+      return PROVIDER_MODELS[provider as keyof typeof PROVIDER_MODELS] ?? [];
     },
+    getProviderDefinition: (provider: string) =>
+      PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS],
+    getProviderModelDefinitions: (provider: string) =>
+      PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS]?.models ?? [],
+    isSupportedProvider: (provider: string) =>
+      SUPPORTED_PROVIDERS.includes(provider as keyof typeof PROVIDER_DEFINITIONS),
+    supportsStandardEmbeddingDimension: (provider: string) => provider !== 'openrouter',
+    listProviders: () => SUPPORTED_PROVIDERS.map((provider) => PROVIDER_DEFINITIONS[provider]),
     PROVIDER_DEFAULT_MODELS,
     PROVIDER_MODELS,
   };
@@ -49,59 +106,89 @@ vi.mock('@brainstrike/agent/client', () => {
 // Mock the AssistantUiPanel component
 vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   AssistantUiPanel: ({
-    providers,
+    providerGroups = [],
     selectedProvider,
     selectedModel,
     onProviderChange,
     onModelChange,
+    onModelToggle,
     disabled,
     disabledReason,
   }: {
-    providers: Array<{ id: string; name: string; models: readonly string[] }>;
+    providerGroups?: Array<{
+      runtime: string;
+      label: string;
+      providers: Array<{
+        id: string;
+        name: string;
+        models: Array<{ id: string; enabled: boolean }>;
+      }>;
+    }>;
     selectedProvider?: string;
     selectedModel?: string;
     onProviderChange?: (value: string) => void;
     onModelChange?: (value: string) => void;
+    onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     disabled?: boolean;
     disabledReason?: string;
-  }) => (
-    <div data-testid="assistant-ui-panel">
-      <div data-testid="panel-disabled">{String(disabled)}</div>
-      {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
+  }) => {
+    const providers = providerGroups?.flatMap((group) => group.providers) ?? [];
+    const currentProvider = providers.find((p) => p.id === selectedProvider);
+    const enabledModels = currentProvider?.models.filter((m) => m.enabled) ?? [];
+    const allModels = currentProvider?.models ?? [];
 
-      {/* Provider selector */}
-      <select
-        data-testid="provider-select"
-        value={selectedProvider ?? ''}
-        onChange={(e) => onProviderChange?.(e.target.value)}
-        disabled={providers.length === 0}
-      >
-        <option value="">Select provider</option>
-        {providers.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+    return (
+      <div data-testid="assistant-ui-panel">
+        <div data-testid="panel-disabled">{String(disabled)}</div>
+        {disabledReason && <div data-testid="disabled-reason">{disabledReason}</div>}
 
-      {/* Model selector */}
-      <select
-        data-testid="model-select"
-        value={selectedModel ?? ''}
-        onChange={(e) => onModelChange?.(e.target.value)}
-        disabled={!selectedProvider}
-      >
-        <option value="">Select model</option>
-        {providers
-          .find((p) => p.id === selectedProvider)
-          ?.models.map((m) => (
-            <option key={m} value={m}>
-              {m}
+        <select
+          data-testid="provider-select"
+          value={selectedProvider ?? ''}
+          onChange={(e) => onProviderChange?.(e.target.value)}
+          disabled={providers.length === 0}
+        >
+          <option value="">Select provider</option>
+          {providers.map((provider) => (
+            <option key={provider.id} value={provider.id}>
+              {provider.name}
             </option>
           ))}
-      </select>
-    </div>
-  ),
+        </select>
+
+        <select
+          data-testid="model-select"
+          value={selectedModel ?? ''}
+          onChange={(e) => onModelChange?.(e.target.value)}
+          disabled={!selectedProvider || enabledModels.length === 0}
+        >
+          <option value="">Select model</option>
+          {enabledModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.id}
+            </option>
+          ))}
+        </select>
+
+        <div data-testid="model-toggles">
+          {allModels.map((model) => (
+            <label key={model.id} htmlFor={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}>
+              <input
+                id={`toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
+                type="checkbox"
+                checked={model.enabled}
+                onChange={(event) =>
+                  onModelToggle?.(currentProvider?.id ?? '', model.id, event.target.checked)
+                }
+                data-testid={`model-toggle-${currentProvider?.id ?? 'none'}-${model.id}`}
+              />
+              {model.id}
+            </label>
+          ))}
+        </div>
+      </div>
+    );
+  },
 }));
 
 // Mock window.secrets API
@@ -343,6 +430,36 @@ describe('AssistantUiPanelWrapper', () => {
     await waitFor(() => {
       const { modelsByProvider } = useAssistantPreferencesStore.getState();
       expect(modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+    });
+  });
+
+  test('disabling the active model through toggles selects a fallback', async () => {
+    const user = userEvent.setup();
+    mockSecretsList.mockResolvedValue(['openai']);
+
+    render(<AssistantUiPanelWrapper />);
+
+    await waitFor(() => {
+      expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
+    });
+
+    const initialModel = useAssistantPreferencesStore.getState().getSelectedModel();
+    if (!initialModel) {
+      throw new Error('expected initial model');
+    }
+
+    const toggle = screen.getByTestId(`model-toggle-openai-${initialModel}`) as HTMLInputElement;
+    await user.click(toggle);
+
+    await waitFor(() => {
+      const state = useAssistantPreferencesStore.getState();
+      expect(state.enabledModelsByProvider.openai).not.toContain(initialModel);
+      expect(state.getSelectedModel()).not.toBe(initialModel);
+    });
+
+    await waitFor(() => {
+      const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+      expect(modelSelect.value).not.toBe(initialModel);
     });
   });
 });

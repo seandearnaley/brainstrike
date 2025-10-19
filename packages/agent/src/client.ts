@@ -6,12 +6,22 @@
 
 export {
   getProviderDefaultModel,
+  getProviderDefinition,
   getProviderDisplayName,
+  getProviderModelDefinitions,
   getProviderModels,
   isSupportedProvider,
   isValidModelForProvider,
+  listEmbeddingModels,
+  listProviders,
   PROVIDER_DEFAULT_MODELS,
   PROVIDER_DISPLAY_NAMES,
   PROVIDER_MODELS,
+  type ProviderCapabilities,
+  type ProviderDefinition,
+  type ProviderModelDefinition,
+  type ProviderRuntime,
+  providerEnvKeys,
   type SupportedProvider,
+  supportsStandardEmbeddingDimension,
 } from './providers/types';
