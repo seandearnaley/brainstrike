@@ -194,42 +194,20 @@ jobs:
               body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via scripts/enforce-coverage.mjs_',
             });
 
-      - name: Upload raw coverage files
-        uses: actions/upload-artifact@v4
-        with:
-          name: raw-coverage
-          path: |
-            **/coverage/coverage-final.json
-          retention-days: 1
-
-  # Upload coverage artifacts (runs in parallel with E2E tests)
-  upload-coverage:
-    name: Upload Coverage Artifacts
-    needs: checks
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Download raw coverage files
-        uses: actions/download-artifact@v4
-        with:
-          name: raw-coverage
-          path: raw-coverage
-
-      - name: Bundle coverage files for upload
+      - name: Bundle coverage files
         run: |
           set -e
-          if [ ! "$(ls -A raw-coverage 2>/dev/null)" ]; then
+          mkdir -p coverage-bundle
+          find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
+          if [ ! "$(ls -A coverage-bundle 2>/dev/null)" ]; then
             echo "⚠️ No coverage files found, creating empty marker"
-            mkdir -p coverage-bundle
             touch coverage-bundle/.empty
-          else
-            mv raw-coverage coverage-bundle
           fi
           tar -cvf coverage-bundle.tar coverage-bundle/
           ls -lh coverage-bundle.tar
-          echo "Bundled $(find coverage-bundle -name '*.json' | wc -l) coverage files"
+          echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
 
-      - name: Upload unit test coverage
+      - name: Upload coverage bundle
         uses: actions/upload-artifact@v4
         with:
           name: unit-coverage
@@ -406,9 +384,9 @@ jobs:
   # Merge E2E test reports
   merge-reports:
     name: Merge Test Reports
-    needs: [checks, e2e, desktop-e2e, upload-coverage]
+    needs: [checks, e2e, desktop-e2e]
     runs-on: ubuntu-latest
-    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success' || needs.upload-coverage.result == 'success')
+    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
