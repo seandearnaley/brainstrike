@@ -1,3 +1,8 @@
+import { countTokensHeuristic } from '@brainstrike/utils';
+import type { MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { TokenCountingState } from './use-token-counting';
+
 export interface FileItem {
   compositeKey: string;
   folderId: string;
@@ -34,7 +39,7 @@ export interface UsePreviewPanelStateProps {
   onSelectionChange: (files: Set<string>) => void;
   fileSizes?: Record<string, number>;
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  countTokensHeuristic: (content: string) => number;
+  tokenCounting: TokenCountingState;
   performUndoableAction: (
     key: string,
     itemKey: string,
@@ -47,29 +52,9 @@ export interface UsePreviewPanelStateProps {
   ) => void;
 }
 
-import { useCallback, useMemo, useRef, useState } from 'react';
-
 // Helper function to check if content is accessible
 function isContentAccessible(content: string): boolean {
   return !content.startsWith('File not accessible') && !content.startsWith('Binary file');
-}
-
-// Helper function to get or calculate token count with caching
-function getTokenCount(
-  compositeKey: string,
-  content: string,
-  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
-  countTokensHeuristic: (content: string) => number
-): number | undefined {
-  if (!isContentAccessible(content)) {
-    return undefined;
-  }
-
-  if (!tokenCacheRef.current.has(compositeKey)) {
-    const count = countTokensHeuristic(content);
-    tokenCacheRef.current.set(compositeKey, count);
-  }
-  return tokenCacheRef.current.get(compositeKey);
 }
 
 // Helper function to get file size
@@ -84,6 +69,42 @@ function getFileSize(
   return new TextEncoder().encode(content).length;
 }
 
+function ensureTokenCount(
+  compositeKey: string,
+  content: string,
+  tokenCounting: TokenCountingState,
+  tokenCacheRef: MutableRefObject<Map<string, number>>,
+  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
+  onResolved: () => void
+): number | undefined {
+  if (!isContentAccessible(content)) {
+    return undefined;
+  }
+
+  const cached = tokenCacheRef.current.get(compositeKey);
+  if (typeof cached === 'number') {
+    return cached;
+  }
+
+  if (!pendingTokenRequestsRef.current.has(compositeKey)) {
+    const pending = tokenCounting
+      .countTokens(content)
+      .then((count) => {
+        tokenCacheRef.current.set(compositeKey, count);
+      })
+      .catch(() => {
+        tokenCacheRef.current.set(compositeKey, countTokensHeuristic(content));
+      })
+      .finally(() => {
+        pendingTokenRequestsRef.current.delete(compositeKey);
+        onResolved();
+      });
+    pendingTokenRequestsRef.current.set(compositeKey, pending);
+  }
+
+  return undefined;
+}
+
 // Helper function to create a file item
 function createFileItem(
   compositeKey: string,
@@ -91,15 +112,24 @@ function createFileItem(
   path: string,
   fileContents: Record<string, string>,
   fileSizes: Record<string, number> | undefined,
-  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
-  countTokensHeuristic: (content: string) => number
+  tokenCounting: TokenCountingState,
+  tokenCacheRef: MutableRefObject<Map<string, number>>,
+  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
+  onTokenResolved: () => void
 ): FileItem {
   let fileSize: number | undefined;
   let tokenCount: number | undefined;
 
   if (fileContents[compositeKey]) {
     const content = fileContents[compositeKey];
-    tokenCount = getTokenCount(compositeKey, content, tokenCacheRef, countTokensHeuristic);
+    tokenCount = ensureTokenCount(
+      compositeKey,
+      content,
+      tokenCounting,
+      tokenCacheRef,
+      pendingTokenRequestsRef,
+      onTokenResolved
+    );
     fileSize = getFileSize(compositeKey, content, fileSizes);
   }
 
@@ -137,8 +167,10 @@ function buildFolderGroups(
   fileContents: Record<string, string>,
   fileSizes: Record<string, number> | undefined,
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string },
-  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
-  countTokensHeuristic: (content: string) => number,
+  tokenCounting: TokenCountingState,
+  tokenCacheRef: MutableRefObject<Map<string, number>>,
+  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
+  onTokenResolved: () => void,
   sortConfig: SortConfig
 ): Record<string, FileItem[]> {
   const folderGroups: Record<string, FileItem[]> = {};
@@ -155,8 +187,10 @@ function buildFolderGroups(
       path,
       fileContents,
       fileSizes,
+      tokenCounting,
       tokenCacheRef,
-      countTokensHeuristic
+      pendingTokenRequestsRef,
+      onTokenResolved
     );
 
     folderGroups[folderId].push(fileItem);
@@ -193,8 +227,10 @@ function buildListItems(
 function calculateFileTokens(
   compositeKey: string,
   fileContents: Record<string, string>,
-  tokenCacheRef: React.MutableRefObject<Map<string, number>>,
-  countTokensHeuristic: (content: string) => number
+  tokenCounting: TokenCountingState,
+  tokenCacheRef: MutableRefObject<Map<string, number>>,
+  pendingTokenRequestsRef: MutableRefObject<Map<string, Promise<void>>>,
+  onTokenResolved: () => void
 ): number {
   if (!fileContents[compositeKey]) {
     return 0;
@@ -205,10 +241,19 @@ function calculateFileTokens(
     return 0;
   }
 
-  if (!tokenCacheRef.current.has(compositeKey)) {
-    const count = countTokensHeuristic(content);
-    tokenCacheRef.current.set(compositeKey, count);
+  const cached = tokenCacheRef.current.get(compositeKey);
+  if (typeof cached === 'number') {
+    return cached;
   }
+
+  ensureTokenCount(
+    compositeKey,
+    content,
+    tokenCounting,
+    tokenCacheRef,
+    pendingTokenRequestsRef,
+    onTokenResolved
+  );
 
   return tokenCacheRef.current.get(compositeKey) || 0;
 }
@@ -220,7 +265,7 @@ export function usePreviewPanelState({
   onSelectionChange,
   fileSizes,
   decodeFileSelection,
-  countTokensHeuristic,
+  tokenCounting,
   performUndoableAction,
 }: UsePreviewPanelStateProps) {
   const [batchSelectedFiles, setBatchSelectedFiles] = useState<Set<string>>(new Set());
@@ -228,7 +273,28 @@ export function usePreviewPanelState({
   const [sortConfig] = useState<SortConfig>({ key: 'path', direction: 'asc' });
 
   const tokenCacheRef = useRef<Map<string, number>>(new Map());
+  const pendingTokenRequestsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const [tokenVersion, setTokenVersion] = useState(0);
   const prevSelectedFilesRef = useRef<Set<string> | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const handleTokenResolved = useCallback(() => {
+    if (isMountedRef.current) {
+      setTokenVersion((prev) => prev + 1);
+    }
+  }, []);
+
+  useEffect(() => {
+    tokenCacheRef.current.clear();
+    pendingTokenRequestsRef.current.clear();
+    setTokenVersion((prev) => prev + 1);
+  }, [tokenCounting.mode]);
 
   if (prevSelectedFilesRef.current !== selectedFiles) {
     prevSelectedFilesRef.current = selectedFiles;
@@ -243,8 +309,10 @@ export function usePreviewPanelState({
       fileContents,
       fileSizes,
       decodeFileSelection,
+      tokenCounting,
       tokenCacheRef,
-      countTokensHeuristic,
+      pendingTokenRequestsRef,
+      handleTokenResolved,
       sortConfig
     );
 
@@ -254,9 +322,12 @@ export function usePreviewPanelState({
     sortConfig,
     fileSizes,
     fileContents,
-    countTokensHeuristic,
     decodeFileSelection,
     collapsedFolders,
+    tokenCounting,
+    handleTokenResolved,
+    pendingTokenRequestsRef,
+    tokenVersion,
   ]);
 
   const handleRemoveFile = useCallback(
@@ -368,13 +439,15 @@ export function usePreviewPanelState({
       totalTokens += calculateFileTokens(
         compositeKey,
         fileContents,
+        tokenCounting,
         tokenCacheRef,
-        countTokensHeuristic
+        pendingTokenRequestsRef,
+        handleTokenResolved
       );
     }
 
     return { totalTokens, totalFiles };
-  }, [selectedFiles, fileContents, countTokensHeuristic]);
+  }, [selectedFiles, fileContents, tokenCounting, handleTokenResolved, tokenVersion]);
 
   return {
     batchSelectedFiles,

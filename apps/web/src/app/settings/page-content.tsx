@@ -1,6 +1,7 @@
 import { QueueHud, VectorStatusWithDb } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
+  createTokenCountingSettingsCategory,
   LoggingSettingsSection,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
@@ -57,6 +58,7 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
+      createTokenCountingSettingsCategory(),
       {
         id: 'logging',
         title: 'Logging & Diagnostics',

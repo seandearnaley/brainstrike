@@ -7,7 +7,7 @@
 
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { waitForAppLoad } from './utils/layout-helpers';
+import { ensureRightPanelVisible, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Theme CSS Consistency (E2E)', () => {
   test.beforeEach(async ({ page }) => {
@@ -229,7 +229,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
 
     // Open right panel (assistant panel)
-    await page.getByRole('button', { name: 'Show right panel' }).click();
+    await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 
     // Check that theme is still consistent after loading assistant-ui
@@ -252,7 +252,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     await page.waitForTimeout(200);
 
     await page.getByRole('button', { name: 'Context Explorer', exact: true }).click();
-    await page.getByRole('button', { name: 'Show right panel' }).click();
+    await ensureRightPanelVisible(page);
     await page.waitForTimeout(200);
 
     // Check for elements with .bs-thread or .aui-* classes

@@ -133,7 +133,8 @@
       "Bash(do echo \"=== $pkg ===\")",
       "Bash(do echo \"=== @brainstrike/$pkg ===\" pnpm --filter @brainstrike/$pkg run type-check)",
       "Bash(do echo \"=== @brainstrike/$pkg ===\")",
-      "Bash(1)"
+      "Bash(1)",
+      "mcp__plugin_beads_beads__ready"
     ],
     "deny": [],
     "ask": []

@@ -12,12 +12,23 @@ import {
   TablePagination,
 } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
-import { Columns3, Download, FileText, FileX2, FolderOpen } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Columns3,
+  Download,
+  FileText,
+  FileX2,
+  FolderOpen,
+  Loader2,
+  MinusCircle,
+} from 'lucide-react';
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useGroupSelection } from './hooks/use-group-selection';
 import type { ColumnVisibility } from './hooks/use-preview-panel-persistence';
 import { PreviewTableRow } from './preview-table-row';
 import { type FileItem, formatTokenCount, usePreviewPanelState } from './use-preview-panel-state';
+import type { TokenCountingState } from './use-token-counting';
 import {
   GROUPING_CONFIGS,
   type GroupedData,
@@ -35,7 +46,7 @@ interface PreviewPanelProps {
   onSelectionChange: (files: Set<string>) => void;
   fileSizes?: { [compositeKey: string]: number };
   decodeFileSelection: (compositeKey: string) => { folderId: string; path: string };
-  countTokensHeuristic: (content: string) => number;
+  tokenCounting: TokenCountingState;
   estimateTokenCost?: (tokens: number) => number;
   performUndoableAction: (
     key: string,
@@ -385,7 +396,7 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onSelectionChange,
     fileSizes,
     decodeFileSelection,
-    countTokensHeuristic,
+    tokenCounting,
     performUndoableAction,
     onFileClick,
     pageSize = 50,
@@ -447,9 +458,48 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
     onSelectionChange,
     ...(fileSizes ? { fileSizes } : {}),
     decodeFileSelection,
-    countTokensHeuristic,
+    tokenCounting,
     performUndoableAction,
   });
+
+  const tokenStatus = useMemo(() => {
+    if (tokenCounting.loading) {
+      return {
+        label: 'Checking tokenizer…',
+        description: 'Loading WASM tokenizer to confirm accurate counting is available.',
+        variant: 'outline' as const,
+        icon: Loader2,
+        spin: true,
+      };
+    }
+    if (tokenCounting.mode === 'accurate') {
+      return {
+        label: 'Accurate tokens (WASM)',
+        description: 'Counts generated with the tiktoken WASM encoder.',
+        variant: 'secondary' as const,
+        icon: CheckCircle2,
+        spin: false,
+      };
+    }
+    if (tokenCounting.reason === 'runtime-fallback') {
+      return {
+        label: 'Heuristic fallback',
+        description: 'WASM tokenizer is unavailable; using 4 chars/token heuristic.',
+        variant: 'destructive' as const,
+        icon: AlertTriangle,
+        spin: false,
+      };
+    }
+    return {
+      label: 'Heuristic mode',
+      description: 'Accurate counting disabled in global token settings.',
+      variant: 'outline' as const,
+      icon: MinusCircle,
+      spin: false,
+    };
+  }, [tokenCounting.loading, tokenCounting.mode, tokenCounting.reason]);
+
+  const StatusIcon = tokenStatus.icon;
 
   const { totalStats, flatListItems } = state;
 
@@ -756,21 +806,36 @@ export const PreviewPanel = memo<PreviewPanelProps>(function PreviewPanelCompone
       {/* Header with stats and controls */}
       <div className="p-3 border-b bg-background">
         {/* Top row - stats and main controls */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <Badge variant="outline" className="py-1.5">
-              {formatTokenCount(totalStats.totalTokens)}
-            </Badge>
-            <div className="text-xs text-muted-foreground">
-              <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
-              <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span> tokens
+        <div className="flex items-center justify-between mb-3 gap-6">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-3">
+              <Badge variant="outline" className="py-1.5">
+                {formatTokenCount(totalStats.totalTokens)}
+              </Badge>
+              <Badge
+                variant={tokenStatus.variant}
+                title={tokenStatus.description}
+                className="py-1.5 flex items-center gap-1"
+              >
+                <StatusIcon className={`size-3.5 ${tokenStatus.spin ? 'animate-spin' : ''}`} />
+                {tokenStatus.label}
+              </Badge>
             </div>
-            <div className="w-32">
-              <Progress
-                value={Math.min((totalStats.totalTokens / 100000) * 100, 100)}
-                className="h-2"
-              />
+            <div className="flex items-center gap-3">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium">{totalStats.totalFiles}</span> files |{' '}
+                <span className="font-medium">{totalStats.totalTokens.toLocaleString()}</span>{' '}
+                tokens
+              </div>
+              <div className="w-32">
+                <Progress
+                  data-testid="progress"
+                  value={Math.min((totalStats.totalTokens / 100000) * 100, 100)}
+                  className="h-2"
+                />
+              </div>
             </div>
+            <div className="text-[10px] text-muted-foreground">{tokenStatus.description}</div>
           </div>
           <div className="flex gap-2">
             <Button

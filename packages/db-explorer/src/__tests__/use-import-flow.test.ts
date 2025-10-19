@@ -13,6 +13,8 @@ const importServiceReturn = {
 let latestOptions: {
   onComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
   onProgress?: () => void;
+  tokenTrueSizing?: boolean;
+  chunkTokenLimit?: number;
 };
 let selectionPaths = new Set<string>();
 let selectionOptions: { onSelectionLimitExceeded?: () => void } = {};
@@ -45,6 +47,8 @@ const baseSettings = {
   selectedModel: 'model-1',
   chunkSize: 512,
   chunkOverlap: 0,
+  tokenTrueSizing: true,
+  chunkTokenLimit: 4096,
 };
 
 beforeEach(() => {
@@ -131,5 +135,19 @@ describe('useImportFlow', () => {
 
     expect(toast).toHaveBeenCalledTimes(1);
     expect(toast.mock.calls[0]?.[0]?.title).toBe('Selection Limit Reached');
+  });
+
+  it('forwards tokenTrueSizing preference to the enhanced import service', () => {
+    const toast = vi.fn();
+    renderHook(() =>
+      useImportFlow({
+        importSettings: { ...baseSettings, tokenTrueSizing: false, chunkTokenLimit: 8192 },
+        toast,
+      })
+    );
+
+    expect(latestOptions).toEqual(
+      expect.objectContaining({ tokenTrueSizing: false, chunkTokenLimit: 8192 })
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   calculateGroupTokens,
   countTokensAccurate,
@@ -7,33 +7,11 @@ import {
   formatTokenCount,
 } from '../token-utils';
 
-// Mock gpt-tokenizer to speed up tests
-vi.mock('gpt-tokenizer', () => ({
-  encode: vi.fn((text: string) => {
-    // Simple mock: roughly 1 token per 4 characters
-    const tokens: number[] = [];
-    for (let i = 0; i < Math.ceil(text.length / 4); i++) {
-      tokens.push(i);
-    }
-    return tokens;
-  }),
-}));
-
 describe('Token Utilities', () => {
   describe('countTokensAccurate', () => {
-    it('falls back to heuristic count when worker is unavailable', async () => {
-      // In test environment, worker is unavailable, so it falls back to heuristic
-      const testText = 'Some test text';
-      const result = await countTokensAccurate(testText);
-      const expected = Math.ceil(testText.length / 4);
-      expect(result).toBe(expected);
-    });
-
-    it('falls back to heuristic when worker is disabled', async () => {
-      process.env['DISABLE_TOKEN_WORKER'] = '1';
-      const result = await countTokensAccurate('abcd');
-      expect(result).toBe(1);
-      process.env['DISABLE_TOKEN_WORKER'] = undefined as unknown as string;
+    it('returns deterministic counts using the wasm-backed encoder', async () => {
+      await expect(countTokensAccurate('hello world')).resolves.toBe(2);
+      await expect(countTokensAccurate('Some test text')).resolves.toBe(3);
     });
   });
 
@@ -74,15 +52,7 @@ describe('Token Utilities', () => {
 
   describe('calculateGroupTokens', () => {
     it('should sum tokens for a group of texts using the accurate method by default', async () => {
-      process.env['DISABLE_TOKEN_WORKER'] = '1';
-      const result = await calculateGroupTokens(['Short', 'Medium', 'Long text']);
-      expect(result).toBe(7);
-      process.env['DISABLE_TOKEN_WORKER'] = undefined as unknown as string;
-    });
-
-    it('should use the heuristic method when specified', async () => {
-      const result = await calculateGroupTokens(['Short', 'Medium', 'Long text here']);
-      expect(result).toBe(8);
+      await expect(calculateGroupTokens(['Short', 'Medium', 'Long text'])).resolves.toBe(4);
     });
   });
 

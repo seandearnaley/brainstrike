@@ -43,6 +43,40 @@ export function getPanelElements(page: Page): PanelElements {
 }
 
 /**
+ * Ensure the right panel is visible, clicking the show control only when needed.
+ */
+export async function ensureRightPanelVisible(page: Page, timeout = 8000): Promise<void> {
+  const elements = getPanelElements(page);
+
+  // If the panel is already visible, nothing to do.
+  if (await elements.rightPanel.isVisible().catch(() => false)) {
+    return;
+  }
+
+  const showShim = elements.showRightPanelShim;
+  if ((await showShim.count()) > 0) {
+    await showShim.first().click();
+  } else {
+    const showButton = page
+      .locator('button[aria-label="Show right panel"]')
+      .or(page.getByRole('button', { name: 'Show right panel' }));
+
+    if ((await showButton.count()) > 0) {
+      await showButton.first().click();
+    } else {
+      console.warn(
+        '⚠️ Unable to find "Show right panel" control; assuming panel is already visible.'
+      );
+      return;
+    }
+  }
+
+  await elements.rightPanel.waitFor({ state: 'visible', timeout }).catch(() => {
+    console.warn('⚠️ Right panel did not become visible after requesting to show it.');
+  });
+}
+
+/**
  * Waits for the main application content to be ready.
  * This is useful to ensure tests don't start before the UI is fully initialized.
  */

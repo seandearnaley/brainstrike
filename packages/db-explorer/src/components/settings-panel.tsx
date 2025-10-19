@@ -1,6 +1,8 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
+  Badge,
   Input,
   Label,
   Select,
@@ -16,6 +18,11 @@ const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
 export function SettingsPanel({ importSettings }: SettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const embeddingsId = 'enable-embeddings';
+  const presetCaps = ['2048', '4096', '6144', '8192'];
+  const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
+    ? String(importSettings.chunkTokenLimit)
+    : 'custom';
+  const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   return (
     <div className="mt-2 p-3 bg-muted/50 rounded space-y-3">
       <div className="grid grid-cols-2 gap-4">
@@ -103,6 +110,60 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
             max="256"
           />
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 rounded border px-3 py-2">
+        <div>
+          <Label className="text-xs">Token sizing</Label>
+          <p className="text-[10px] text-muted-foreground">
+            Controlled globally via Settings → Token Counting.
+          </p>
+        </div>
+        <Badge
+          variant={accurateCounting ? 'secondary' : 'outline'}
+          className="text-[10px] uppercase"
+        >
+          {accurateCounting ? 'WASM tokenizer' : 'Heuristic mode'}
+        </Badge>
+      </div>
+
+      <div>
+        <Label className="text-xs">Token cap</Label>
+        <div className="flex items-center gap-2 mt-1">
+          <Input
+            type="number"
+            value={importSettings.chunkTokenLimit}
+            onChange={(e) => importSettings.setChunkTokenLimit(Number(e.target.value) || 0)}
+            className="h-6 text-xs"
+            min="512"
+            max="16384"
+            step="128"
+          />
+          <Select
+            value={selectedPreset}
+            onValueChange={(value) => {
+              if (value === 'custom') return;
+              importSettings.setChunkTokenLimit(Number(value));
+            }}
+          >
+            <SelectTrigger className="h-6 text-xs w-28">
+              <SelectValue placeholder="Presets" />
+            </SelectTrigger>
+            <SelectContent>
+              {presetCaps.map((cap) => (
+                <SelectItem key={cap} value={cap} className="text-xs">
+                  {cap} tokens
+                </SelectItem>
+              ))}
+              <SelectItem value="custom" className="text-xs">
+                Custom
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-1">
+          Higher caps reduce chunk count at the cost of larger embedding payloads.
+        </p>
       </div>
     </div>
   );

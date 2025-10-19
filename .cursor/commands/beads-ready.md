@@ -1,0 +1,1 @@
+read beads://quickstart to learn how we handle issues, then use the bd ready MCP tool to get the issues ready to go

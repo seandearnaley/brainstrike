@@ -859,6 +859,9 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
+      '@brainstrike/preferences':
+        specifier: workspace:*
+        version: link:../preferences
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage
@@ -1442,6 +1445,9 @@ importers:
       pino:
         specifier: ^10.0.0
         version: 10.0.0
+      tiktoken:
+        specifier: ^1.0.22
+        version: 1.0.22
     devDependencies:
       '@brainstrike/test-utils':
         specifier: workspace:*
@@ -8834,6 +8840,9 @@ packages:
 
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
+
+  tiktoken@1.0.22:
+    resolution: {integrity: sha512-PKvy1rVF1RibfF3JlXBSP0Jrcw2uq3yXdgcEXtKTYn3QJ/cBRBHDnrJ5jHky+MENZ6DIPwNUGWpkVx+7joCpNA==}
 
   time-span@4.0.0:
     resolution: {integrity: sha512-MyqZCTGLDZ77u4k+jqg4UlrzPTPZ49NDlaekU6uuFaJLzPIN1woaRXCbGeqOfxwc3Y37ZROGAJ614Rdv7Olt+g==}
@@ -17916,6 +17925,8 @@ snapshots:
   throttleit@2.1.0: {}
 
   through@2.3.8: {}
+
+  tiktoken@1.0.22: {}
 
   time-span@4.0.0:
     dependencies:

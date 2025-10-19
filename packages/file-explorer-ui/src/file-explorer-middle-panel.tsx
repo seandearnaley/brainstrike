@@ -1,10 +1,11 @@
 import { FileExplorerErrorBoundary, FileExplorerHeader } from '@brainstrike/file-explorer-ui';
 import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
-import { countTokensHeuristic, decodeFileSelection, estimateTokenCost } from '@brainstrike/utils';
+import { decodeFileSelection, estimateTokenCost } from '@brainstrike/utils';
 import { useCallback } from 'react';
 import { PreviewPanel } from './preview-panel';
 import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
+import { useTokenCounting } from './use-token-counting';
 
 /**
  * FileExplorerMiddlePanel - Contains the preview panel and action buttons
@@ -12,6 +13,7 @@ import { useSelectionManager } from './use-selection-manager-context';
  */
 export const FileExplorerMiddlePanel: React.FC = () => {
   const { fileContents, loadingFiles } = useFileExplorer();
+  const tokenCounting = useTokenCounting();
 
   const { selectedFilePaths, handleSelectionChange } = useSelectionManager({
     onSelectionLimitExceeded: () => {}, // Handled by left panel
@@ -62,7 +64,7 @@ export const FileExplorerMiddlePanel: React.FC = () => {
               loadingFiles={loadingFiles}
               onSelectionChange={handleSelectionChange}
               decodeFileSelection={decodeFileSelection}
-              countTokensHeuristic={countTokensHeuristic}
+              tokenCounting={tokenCounting}
               estimateTokenCost={estimateTokenCost}
               performUndoableAction={performUndoableActionForPanel}
               onFileClick={handleFileClick}

@@ -354,6 +354,10 @@ vi.mock('lucide-react', () => ({
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
+  Loader2: () => <div data-testid="loader" />,
+  CheckCircle2: () => <div data-testid="check" />,
+  AlertTriangle: () => <div data-testid="alert" />,
+  MinusCircle: () => <div data-testid="minus" />,
 }));
 
 describe('PreviewPanel Integration Tests', () => {
@@ -371,7 +375,12 @@ describe('PreviewPanel Integration Tests', () => {
       folderId: `folder-${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}`,
       path: `path/to/folder${Math.floor(Number.parseInt(key.replace('file', ''), 10) / 10)}/${key}.txt`,
     })),
-    countTokensHeuristic: vi.fn((content: string) => content.length * 4),
+    tokenCounting: {
+      mode: 'accurate' as const,
+      reason: null,
+      loading: false,
+      countTokens: vi.fn(async (content: string) => content.length),
+    },
     estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
     performUndoableAction: vi.fn(),
     onFileClick: vi.fn(),
@@ -428,11 +437,10 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Verify initial state
-      expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === '25 files | 5,000 tokens';
-        })
-      ).toBeInTheDocument();
+      const runStats = screen.getAllByText(
+        (_, element) => element?.textContent?.includes('25 files | 5,000 tokens') ?? false
+      );
+      expect(runStats.length > 0).toBe(true);
 
       // Select multiple files using aria-labels - files are in folder0 for file1-file9
       const file1Checkbox = screen.getByLabelText('Select path/to/folder0/file1.txt');
@@ -584,11 +592,10 @@ describe('PreviewPanel Integration Tests', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Should still render successfully with mixed states
-      expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === '50 files | 10,000 tokens';
-        })
-      ).toBeInTheDocument();
+      const mixedStats = screen.getAllByText(
+        (_, element) => element?.textContent?.includes('50 files | 10,000 tokens') ?? false
+      );
+      expect(mixedStats.length > 0).toBe(true);
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
     });
 
@@ -599,11 +606,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       const { rerender } = render(<PreviewPanel {...mockProps} />);
 
-      expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === '10 files | 2,000 tokens';
-        })
-      ).toBeInTheDocument();
+      const pagedStats = screen.getAllByText(
+        (_, element) => element?.textContent?.includes('10 files | 2,000 tokens') ?? false
+      );
+      expect(pagedStats.length > 0).toBe(true);
 
       // Simulate adding more files
       const newMockProps = createMockProps(20);
@@ -612,11 +618,10 @@ describe('PreviewPanel Integration Tests', () => {
 
       rerender(<PreviewPanel {...newMockProps} />);
 
-      expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === '20 files | 4,000 tokens';
-        })
-      ).toBeInTheDocument();
+      const reducedStats = screen.getAllByText(
+        (_, element) => element?.textContent?.includes('20 files | 4,000 tokens') ?? false
+      );
+      expect(reducedStats.length > 0).toBe(true);
     });
 
     it('should maintain state consistency during operations', async () => {

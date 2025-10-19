@@ -1,8 +1,9 @@
 import { cn, Input, ThemeSettings } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { ChevronRight, Palette, Search, Settings } from 'lucide-react';
+import { ChevronRight, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { TokenCountingSettingsSection } from './token-counting/token-counting-settings-section';
 
 /**
  * Hash prefix for settings navigation.
@@ -350,5 +351,16 @@ export function createAppearanceSettingsCategory(): SettingsCategory {
     keywords: ['theme', 'color', 'display', 'dark mode'],
     icon: Palette,
     render: () => <ThemeSettings />,
+  };
+}
+
+export function createTokenCountingSettingsCategory(): SettingsCategory {
+  return {
+    id: 'token-counting',
+    title: 'Token Counting',
+    description: 'Control the tokenizer used for previews and chunk generation.',
+    keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
+    icon: Sigma,
+    render: () => <TokenCountingSettingsSection />,
   };
 }

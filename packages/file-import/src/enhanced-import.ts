@@ -59,6 +59,8 @@ interface ChunkingConfiguration {
   chunkOverlap?: number;
   useStreamingForLargeFiles?: boolean;
   streamBatchSize?: number;
+  tokenTrueSizing?: boolean;
+  tokenLimit?: number;
 }
 
 interface EmbeddingConfiguration {
@@ -293,6 +295,10 @@ function applyChunkingConfiguration(
   }
   if (chunking.streamBatchSize !== undefined) {
     options.streamBatchSize = chunking.streamBatchSize;
+  }
+  options.tokenTrueSizing = chunking.tokenTrueSizing ?? true;
+  if (chunking.tokenLimit !== undefined) {
+    options.tokenLimit = chunking.tokenLimit;
   }
 }
 

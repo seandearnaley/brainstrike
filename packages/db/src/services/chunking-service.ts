@@ -26,6 +26,8 @@ export interface ChunkingOptions {
   tokenCounter?: (text: string) => Promise<number>;
   // If true, derive character limits from measured chars/token for this content
   tokenTrueSizing?: boolean;
+  // Optional override for the global max token budget per chunk
+  maxTokensCap?: number;
   // Notify caller which strategy was actually used after file/extension heuristics
   onStrategyResolved?: (strategy: ChunkingStrategy) => void;
   // Skip file-type recommendations and only enforce global safety caps when true
@@ -188,6 +190,7 @@ export class ChunkingService {
   ): { maxTokens: number; overlap: number } {
     const fileName = options.fileName || options.filePath || '';
     const ignoreRecommendations = options.ignoreFileTypeRecommendations === true;
+    const maxTokensCap = resolveMaxTokensCap(options.maxTokensCap);
 
     const normalize = (value: number | undefined, fallback: number, minimum: number): number => {
       const candidate = Number.isFinite(value) ? (value as number) : fallback;
@@ -281,7 +284,7 @@ export class ChunkingService {
 
     const maxTokensLimit = resolveLimit(
       CHUNKING_CONFIG.maxTokensHardLimit,
-      CHUNKING_CONFIG.maxTokensSafetyCap,
+      maxTokensCap,
       hasExplicitMaxTokens
     );
     const overlapLimit = resolveLimit(
@@ -334,7 +337,8 @@ export class ChunkingService {
     }
 
     const adjusted = this.adjustChunkingForFileType(content, options);
-    const effectiveMaxTokens = Math.min(adjusted.maxTokens, CHUNKING_CONFIG.maxTokensSafetyCap);
+    const maxTokensCap = resolveMaxTokensCap(options.maxTokensCap);
+    const effectiveMaxTokens = Math.min(adjusted.maxTokens, maxTokensCap);
     const effectiveOverlap = Math.min(adjusted.overlap, CHUNKING_CONFIG.overlapSafetyCap);
     const nowIso = () => new Date().toISOString();
 
@@ -482,6 +486,17 @@ function resolveEffectiveStrategy({
   if (isMarkdown) return 'sentence';
   if (requested === 'recursive' || isCode) return 'recursive';
   return 'sentence';
+}
+
+function resolveMaxTokensCap(cap?: number): number {
+  if (!Number.isFinite(cap ?? Number.NaN)) {
+    return CHUNKING_CONFIG.maxTokensSafetyCap;
+  }
+  const sanitized = Math.floor(cap as number);
+  if (sanitized <= 0) {
+    return CHUNKING_CONFIG.maxTokensSafetyCap;
+  }
+  return Math.max(256, Math.min(CHUNKING_CONFIG.maxTokensHardLimit, sanitized));
 }
 
 // Utilities for streaming splitter

@@ -7,4 +7,6 @@ export * from './stores/assistant-preferences-store';
 export * from './stores/import-settings-store';
 export * from './stores/logging-preferences-store';
 export * from './stores/panel-layout-store';
+export * from './stores/token-preferences-store';
 export * from './stores/vector-preferences-store';
+export * from './token-counting/token-counting-settings-section';

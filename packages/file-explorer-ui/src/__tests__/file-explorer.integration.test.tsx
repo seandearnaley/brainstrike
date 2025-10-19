@@ -116,7 +116,12 @@ describe('File Explorer Integration Tests', () => {
               const [folderId, path] = key.split(':');
               return { folderId: folderId!, path: path! };
             }}
-            countTokensHeuristic={() => 100}
+            tokenCounting={{
+              mode: 'accurate',
+              reason: null,
+              loading: false,
+              countTokens: async () => 100,
+            }}
             performUndoableAction={() => {}}
           />
         </div>

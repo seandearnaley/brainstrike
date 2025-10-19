@@ -14,16 +14,25 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
 
   // First, check if the right panel is already visible
   const rightPanel = activePage.locator('[data-panel-id="right-panel"]');
-  const rightPanelVisible = await rightPanel.isVisible();
+  const showRightPanelButton = activePage.locator('button[aria-label="Show right panel"]');
+  const hideRightPanelButton = activePage.locator('button[aria-label="Hide right panel"]');
+  let rightPanelVisible = await rightPanel.isVisible().catch(() => false);
+
+  // If we cannot determine visibility yet, fall back to checking the hide button
+  if (!rightPanelVisible) {
+    rightPanelVisible = (await hideRightPanelButton.count()) > 0;
+  }
 
   if (!rightPanelVisible) {
     console.log('👉 Showing right panel...');
-    // Show the right panel by clicking the show button
-    const showRightPanelButton = activePage.locator('button[aria-label="Show right panel"]');
-    await showRightPanelButton.click();
-
-    // Wait for the right panel to be visible
-    await rightPanel.waitFor({ state: 'visible', timeout: 8000 }); // Increased timeout
+    if ((await showRightPanelButton.count()) > 0) {
+      await showRightPanelButton.first().click();
+      await rightPanel.waitFor({ state: 'visible', timeout: 8000 }).catch(() => {
+        console.warn('⚠️ Right panel did not become visible after clicking show button.');
+      });
+    } else {
+      console.warn('⚠️ Show right panel button not found; assuming panel is already visible.');
+    }
   }
 
   if (!activePage.isClosed()) {

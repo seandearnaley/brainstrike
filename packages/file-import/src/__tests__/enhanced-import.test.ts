@@ -138,6 +138,7 @@ describe('runEnhancedImport', () => {
       expect.objectContaining({ embedQueueEnabled: true })
     );
     const options = chunkingImpl.mock.calls[0]?.[2];
+    expect(options?.tokenTrueSizing).toBe(true);
     await options?.enqueueJobsForChunks?.(
       [
         {

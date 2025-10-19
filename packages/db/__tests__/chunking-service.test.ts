@@ -257,6 +257,20 @@ class TestClass {
       expect(result.chunks[0]?.chunkSize).toBe(CHUNKING_CONFIG.maxTokensSafetyCap);
     });
 
+    it('applies custom token caps when provided by the caller', async () => {
+      const content = Array.from({ length: 200 }, () => 'console.log("chunk");').join('\n');
+
+      const result = await chunkingService.chunkContent(content, 'file-custom-cap', {
+        strategy: 'sentence',
+        maxTokens: 6000,
+        maxTokensCap: 2048,
+      });
+
+      expect(result.skipped).toBeUndefined();
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.chunks[0]?.chunkSize).toBe(2048);
+    });
+
     it('honors explicit sentence strategy for code files when forced', async () => {
       const content = 'export const answer = 42;\n'.repeat(10);
 

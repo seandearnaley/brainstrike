@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { ensureRightPanelVisible, getPanelElements, waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Right Panel - Navigation Persistence', () => {
   test.beforeEach(async ({ page }) => {
@@ -21,8 +21,8 @@ test.describe('Right Panel - Navigation Persistence', () => {
   test('retains search filters after navigating to Settings and back', async ({ page }) => {
     const elements = getPanelElements(page);
 
-    // Show right panel
-    await elements.showRightPanelShim.click();
+    // Show right panel if hidden
+    await ensureRightPanelVisible(page);
     await expect(elements.rightPanel).toBeVisible();
 
     // Go to Search tab and set filters
