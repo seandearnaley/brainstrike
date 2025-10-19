@@ -234,9 +234,15 @@ jobs:
 
       - name: Bundle coverage files for upload
         run: |
+          set -e
           mkdir -p coverage-bundle
           find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
+          if [ ! "$(ls -A coverage-bundle 2>/dev/null)" ]; then
+            echo "⚠️ No coverage files found, creating empty marker"
+            touch coverage-bundle/.empty
+          fi
           tar -cvf coverage-bundle.tar coverage-bundle/
+          ls -lh coverage-bundle.tar
 
       - name: Upload unit test coverage
         uses: actions/upload-artifact@v4
@@ -496,6 +502,7 @@ jobs:
         run: |
           tar -xvf coverage-bundle.tar
           mv coverage-bundle unit-coverage
+          echo "Extracted $(find unit-coverage -name '*.json' | wc -l) coverage files"
 
       - name: Merge all coverage reports
         if: always()
