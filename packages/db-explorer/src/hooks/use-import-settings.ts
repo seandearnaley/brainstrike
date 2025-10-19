@@ -13,6 +13,10 @@ export function useImportSettings(): ImportSettings {
   const setChunkSize = useImportSettingsStore((s) => s.setChunkSize);
   const chunkOverlap = useImportSettingsStore((s) => s.chunkOverlap);
   const setChunkOverlap = useImportSettingsStore((s) => s.setChunkOverlap);
+  const tokenTrueSizing = useImportSettingsStore((s) => s.tokenTrueSizing);
+  const setTokenTrueSizing = useImportSettingsStore((s) => s.setTokenTrueSizing);
+  const chunkTokenLimit = useImportSettingsStore((s) => s.chunkTokenLimit);
+  const setChunkTokenLimit = useImportSettingsStore((s) => s.setChunkTokenLimit);
   const enableEmbedding = useImportSettingsStore((s) => s.enableEmbedding);
   const setEnableEmbedding = useImportSettingsStore((s) => s.setEnableEmbedding);
   const selectedModel = useImportSettingsStore((s) => s.selectedModel);
@@ -28,6 +32,10 @@ export function useImportSettings(): ImportSettings {
     setChunkSize,
     chunkOverlap,
     setChunkOverlap,
+    tokenTrueSizing,
+    setTokenTrueSizing,
+    chunkTokenLimit,
+    setChunkTokenLimit,
     enableEmbedding,
     setEnableEmbedding,
     selectedModel,

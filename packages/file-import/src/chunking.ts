@@ -6,7 +6,7 @@ import type {
   IDatabase,
 } from '@brainstrike/db';
 import { CHUNKING_CONFIG, ChunkingService } from '@brainstrike/db';
-import { createLogger, fileExplorer } from '@brainstrike/utils';
+import { countTokensAccurate, createLogger, fileExplorer } from '@brainstrike/utils';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Chunking');
@@ -56,6 +56,8 @@ interface ChunkingOptions {
   updateProgress: (
     updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null
   ) => void;
+  tokenTrueSizing?: boolean;
+  tokenLimit?: number;
   // Phase 3: optional queue producer injection
   embedQueueEnabled?: boolean;
   enqueueJobsForChunks?: (chunks: FileChunk[], fileRecordId: string) => Promise<void>;
@@ -69,6 +71,73 @@ interface ChunkingOptions {
   // Phase 5: opt-in streaming for large files
   useStreamingForLargeFiles?: boolean;
   streamBatchSize?: number;
+}
+
+type ChunkingProgressSnapshot = {
+  filesProcessed: number;
+  totalFiles: number;
+  chunksCreated: number;
+  strategyUsed?: ChunkingStrategy;
+};
+
+function createChunkingProgressScheduler(
+  updateProgress: ChunkingOptions['updateProgress'],
+  throttleMs = 100
+) {
+  let pending: ChunkingProgressSnapshot | null = null;
+  let timer: NodeJS.Timeout | null = null;
+
+  const emit = (snapshot: ChunkingProgressSnapshot) => {
+    updateProgress((prev) =>
+      prev
+        ? {
+            ...prev,
+            phase: 'chunking',
+            chunkingProgress: (() => {
+              const progress: NonNullable<EnhancedImportProgress['chunkingProgress']> = {
+                filesProcessed: snapshot.filesProcessed,
+                totalFiles: snapshot.totalFiles,
+                chunksCreated: snapshot.chunksCreated,
+              };
+              if (prev.chunkingProgress?.currentFile) {
+                progress.currentFile = prev.chunkingProgress.currentFile;
+              }
+              const strategyUsed = snapshot.strategyUsed ?? prev.chunkingProgress?.strategyUsed;
+              if (strategyUsed) {
+                progress.strategyUsed = strategyUsed;
+              }
+              return progress;
+            })(),
+          }
+        : null
+    );
+  };
+
+  const flush = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    if (pending) {
+      emit(pending);
+      pending = null;
+    }
+  };
+
+  return {
+    schedule(snapshot: ChunkingProgressSnapshot) {
+      pending = snapshot;
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        if (pending) {
+          emit(pending);
+          pending = null;
+        }
+      }, throttleMs);
+    },
+    flush,
+  };
 }
 
 async function handleChunkInsertion(
@@ -263,6 +332,7 @@ export async function processFileChunking(
   const chunkSizeOverride = options.chunkSize;
   const chunkOverlapOverride = options.chunkOverlap;
   const hasUserOverrides = chunkSizeOverride !== undefined || chunkOverlapOverride !== undefined;
+  const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
 
   const shouldStream =
     !!options.useStreamingForLargeFiles &&
@@ -315,6 +385,9 @@ export async function processFileChunking(
     filePath: fileRecord.path,
     forceStrategy,
     ignoreFileTypeRecommendations: hasUserOverrides,
+    tokenTrueSizing: tokenTrueSizingEnabled,
+    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
+    ...(tokenTrueSizingEnabled ? { tokenCounter: countTokensAccurate } : {}),
   });
 
   if (chunkingResult.skipped) {
@@ -412,6 +485,7 @@ async function processFileChunkingStreamPath(
   chunksCreated: number;
   strategyUsed: ChunkingStrategy;
 }> {
+  const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
   const batchSize = Math.max(1, options.streamBatchSize ?? 250);
   let resolvedStrategy: ChunkingStrategy = strategy;
   const stream = chunkingService.chunkContentStream(content, result.id, {
@@ -423,6 +497,9 @@ async function processFileChunkingStreamPath(
     allowLargeFiles: true,
     forceStrategy,
     ignoreFileTypeRecommendations: hasUserOverrides,
+    tokenTrueSizing: tokenTrueSizingEnabled,
+    ...(options.tokenLimit !== undefined ? { maxTokensCap: options.tokenLimit } : {}),
+    ...(tokenTrueSizingEnabled ? { tokenCounter: countTokensAccurate } : {}),
     onStrategyResolved: (s) => {
       resolvedStrategy = s;
     },
@@ -526,6 +603,7 @@ export async function processChunking(
 
   let totalChunksCreated = 0;
   let filesProcessed = 0;
+  const progressScheduler = createChunkingProgressScheduler(options.updateProgress);
 
   // Process files in parallel with concurrency limit
   const allResults = await parallelLimit(importResults, ChunkingConcurrency, async (result, i) => {
@@ -549,24 +627,12 @@ export async function processChunking(
 
       totalChunksCreated += chunksCreated;
       filesProcessed++;
-
-      // Update progress every 10 files to avoid excessive updates
-      if (filesProcessed % 10 === 0) {
-        options.updateProgress((prev) =>
-          prev
-            ? {
-                ...prev,
-                phase: 'chunking',
-                chunkingProgress: {
-                  filesProcessed,
-                  totalFiles: importResults.length,
-                  chunksCreated: totalChunksCreated,
-                  strategyUsed,
-                },
-              }
-            : null
-        );
-      }
+      progressScheduler.schedule({
+        filesProcessed,
+        totalFiles: importResults.length,
+        chunksCreated: totalChunksCreated,
+        strategyUsed,
+      });
 
       return enhancedResult;
     } catch (error) {
@@ -580,6 +646,11 @@ export async function processChunking(
         totalFiles: importResults.length,
       });
       filesProcessed++;
+      progressScheduler.schedule({
+        filesProcessed,
+        totalFiles: importResults.length,
+        chunksCreated: totalChunksCreated,
+      });
       return {
         id: result.id,
         imported: result.imported,
@@ -598,6 +669,8 @@ export async function processChunking(
     totalChunks: totalChunksCreated,
     filesWithErrors: enhancedResults.filter((r) => r.error).length,
   });
+
+  progressScheduler.flush();
 
   options.updateProgress((prev) =>
     prev

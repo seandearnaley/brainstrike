@@ -91,6 +91,10 @@ export interface ImportSettings {
   setChunkSize: (value: number) => void;
   chunkOverlap: number;
   setChunkOverlap: (value: number) => void;
+  tokenTrueSizing: boolean;
+  setTokenTrueSizing: (value: boolean) => void;
+  chunkTokenLimit: number;
+  setChunkTokenLimit: (value: number) => void;
   enableEmbedding: boolean;
   setEnableEmbedding: (value: boolean) => void;
   selectedModel: string;

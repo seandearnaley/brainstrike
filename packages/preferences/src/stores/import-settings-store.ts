@@ -11,6 +11,8 @@ interface ImportSettingsData {
   chunkingStrategyExplicit: boolean;
   chunkSize: number;
   chunkOverlap: number;
+  tokenTrueSizing: boolean;
+  chunkTokenLimit: number;
   enableEmbedding: boolean;
   selectedModel: string;
 }
@@ -20,6 +22,8 @@ interface ImportSettingsActions {
   setChunkingStrategy: (v: ChunkingStrategy) => void;
   setChunkSize: (n: number) => void;
   setChunkOverlap: (n: number) => void;
+  setTokenTrueSizing: (v: boolean) => void;
+  setChunkTokenLimit: (n: number) => void;
   setEnableEmbedding: (v: boolean) => void;
   setSelectedModel: (k: string) => void;
 }
@@ -58,6 +62,8 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       chunkingStrategyExplicit: false,
       chunkSize: 256,
       chunkOverlap: 50,
+      tokenTrueSizing: true,
+      chunkTokenLimit: 4096,
       enableEmbedding: false,
       selectedModel: DEFAULT_MODEL_KEY,
 
@@ -65,19 +71,44 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       setChunkingStrategy: (v) => set({ chunkingStrategy: v, chunkingStrategyExplicit: true }),
       setChunkSize: (n) => set({ chunkSize: Math.max(1, Math.floor(n)) }),
       setChunkOverlap: (n) => set({ chunkOverlap: Math.max(0, Math.floor(n)) }),
+      setTokenTrueSizing: (v) => set({ tokenTrueSizing: !!v }),
+      setChunkTokenLimit: (n) =>
+        set({ chunkTokenLimit: Math.max(512, Math.min(16384, Math.floor(n) || 512)) }),
       setEnableEmbedding: (v) => set({ enableEmbedding: !!v }),
       setSelectedModel: (k) => set({ selectedModel: k }),
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: 2,
       storage,
+      migrate: (state, version) => {
+        const snapshot = state as Partial<ImportSettingsStore> | undefined;
+        if (!snapshot) return snapshot;
+        if (version < 2) {
+          return {
+            ...snapshot,
+            tokenTrueSizing: true,
+            chunkTokenLimit: 4096,
+          } satisfies Partial<ImportSettingsStore>;
+        }
+        return {
+          ...snapshot,
+          tokenTrueSizing:
+            typeof snapshot.tokenTrueSizing === 'boolean' ? snapshot.tokenTrueSizing : true,
+          chunkTokenLimit:
+            typeof snapshot.chunkTokenLimit === 'number'
+              ? Math.max(512, Math.min(16384, Math.floor(snapshot.chunkTokenLimit)))
+              : 4096,
+        } satisfies Partial<ImportSettingsStore>;
+      },
       partialize: (s) => ({
         enableChunking: s.enableChunking,
         chunkingStrategy: s.chunkingStrategy,
         chunkingStrategyExplicit: s.chunkingStrategyExplicit,
         chunkSize: s.chunkSize,
         chunkOverlap: s.chunkOverlap,
+        tokenTrueSizing: s.tokenTrueSizing,
+        chunkTokenLimit: s.chunkTokenLimit,
         enableEmbedding: s.enableEmbedding,
         selectedModel: s.selectedModel,
       }),
@@ -88,6 +119,8 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
 export const importSettingsSelectors = {
   chunking: (s: ImportSettingsStore) => [s.enableChunking, s.chunkingStrategy] as const,
   sizes: (s: ImportSettingsStore) => [s.chunkSize, s.chunkOverlap] as const,
+  tokenSizing: (s: ImportSettingsStore) => s.tokenTrueSizing,
+  tokenLimit: (s: ImportSettingsStore) => s.chunkTokenLimit,
   embedding: (s: ImportSettingsStore) => [s.enableEmbedding, s.selectedModel] as const,
 };
 
@@ -103,6 +136,8 @@ export function __resetImportSettingsStoreForTests() {
     chunkingStrategyExplicit: false,
     chunkSize: 256,
     chunkOverlap: 50,
+    tokenTrueSizing: true,
+    chunkTokenLimit: 4096,
     enableEmbedding: false,
     selectedModel: DEFAULT_MODEL_KEY,
   });

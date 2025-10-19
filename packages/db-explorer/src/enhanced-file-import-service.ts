@@ -52,6 +52,8 @@ interface EnhancedFileImportOptions {
   embeddingModel?: string;
   chunkSize?: number;
   chunkOverlap?: number;
+  tokenTrueSizing?: boolean;
+  chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
 }
 
@@ -122,6 +124,10 @@ function createChunkingConfig(
   }
   if (options.chunkOverlap !== undefined) {
     config.chunkOverlap = options.chunkOverlap;
+  }
+  config.tokenTrueSizing = options.tokenTrueSizing ?? true;
+  if (options.chunkTokenLimit !== undefined) {
+    config.tokenLimit = options.chunkTokenLimit;
   }
   return config;
 }

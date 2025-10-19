@@ -91,4 +91,46 @@ describe('ChunkingService (streaming)', () => {
     }
     expect(calls).toBeGreaterThan(0);
   });
+
+  it('keeps chunk token counts within the requested budget when tokenTrueSizing is enabled', async () => {
+    const svc = new ChunkingService();
+    const phrase = 'alpha beta gamma delta epsilon zeta eta theta.';
+    const content = `${phrase} `.repeat(120);
+    const maxTokens = 48;
+
+    const result = await svc.chunkContent(content, 'budget', {
+      strategy: 'sentence',
+      maxTokens,
+      overlap: 0,
+      tokenTrueSizing: true,
+      tokenCounter: async (text) => text.split(/\s+/).filter(Boolean).length,
+      fileName: 'budget.txt',
+    });
+
+    expect(result.skipped).toBeUndefined();
+    expect(result.chunks.length).toBeGreaterThan(0);
+    const maxObserved = Math.max(...result.chunks.map((chunk) => chunk.tokenCount));
+    expect(maxObserved).toBeLessThanOrEqual(maxTokens);
+  });
+
+  it('respects maxTokensCap when streaming large files', async () => {
+    const svc = new ChunkingService();
+    const big = 'item '.repeat(2000);
+    const cap = 1024;
+
+    const stream = svc.chunkContentStream(big, 'cap-stream', {
+      strategy: 'sentence',
+      tokenTrueSizing: false,
+      maxTokens: 5000,
+      maxTokensCap: cap,
+    });
+
+    let observedCap: number | undefined;
+    for await (const chunk of stream) {
+      observedCap = chunk.chunkSize;
+      break;
+    }
+
+    expect(observedCap).toBe(cap);
+  });
 });

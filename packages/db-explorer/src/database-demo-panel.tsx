@@ -141,6 +141,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       selectedModel: importSettings.selectedModel ?? null,
       chunkSize: importSettings.chunkSize,
       chunkOverlap: importSettings.chunkOverlap,
+      tokenTrueSizing: importSettings.tokenTrueSizing,
+      chunkTokenLimit: importSettings.chunkTokenLimit,
     }),
     [
       importSettings.enableChunking,
@@ -150,6 +152,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       importSettings.selectedModel,
       importSettings.chunkSize,
       importSettings.chunkOverlap,
+      importSettings.tokenTrueSizing,
+      importSettings.chunkTokenLimit,
     ]
   );
 

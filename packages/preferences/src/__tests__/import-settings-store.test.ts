@@ -35,6 +35,8 @@ describe('import-settings-store', () => {
     expect(store.chunkingStrategyExplicit).toBe(false);
     expect(store.chunkSize).toBe(256);
     expect(store.chunkOverlap).toBe(50);
+    expect(store.tokenTrueSizing).toBe(true);
+    expect(store.chunkTokenLimit).toBe(4096);
     expect(store.enableEmbedding).toBe(false);
     expect(store.selectedModel).toBe(SimpleEmbeddingService.getDefaultModelKey());
   });
@@ -45,10 +47,14 @@ describe('import-settings-store', () => {
     snapshot.setChunkSize(-42.7);
     snapshot.setChunkOverlap(-9.4);
     snapshot.setEnableEmbedding(1 as unknown as boolean);
+    snapshot.setTokenTrueSizing(0 as unknown as boolean);
+    snapshot.setChunkTokenLimit(99999);
 
     const next = useImportSettingsStore.getState();
     expect(next.chunkSize).toBe(1);
     expect(next.chunkOverlap).toBe(0);
+    expect(next.tokenTrueSizing).toBe(false);
+    expect(next.chunkTokenLimit).toBe(16384);
     expect(next.enableEmbedding).toBe(true);
   });
 
@@ -58,6 +64,8 @@ describe('import-settings-store', () => {
     snapshot.setChunkingStrategy('recursive' as const);
     snapshot.setChunkSize(512);
     snapshot.setChunkOverlap(24);
+    snapshot.setTokenTrueSizing(false);
+    snapshot.setChunkTokenLimit(2048);
     snapshot.setEnableEmbedding(true);
     snapshot.setSelectedModel('test-model');
 
@@ -65,10 +73,14 @@ describe('import-settings-store', () => {
     expect(next.chunkingStrategyExplicit).toBe(true);
     const chunking = importSettingsSelectors.chunking(next);
     const sizes = importSettingsSelectors.sizes(next);
+    const sizing = importSettingsSelectors.tokenSizing(next);
+    const limit = importSettingsSelectors.tokenLimit(next);
     const embedding = importSettingsSelectors.embedding(next);
 
     expect(chunking).toEqual([false, 'recursive']);
     expect(sizes).toEqual([512, 24]);
+    expect(sizing).toBe(false);
+    expect(limit).toBe(2048);
     expect(embedding).toEqual([true, 'test-model']);
   });
 
@@ -113,12 +125,16 @@ describe('import-settings-store', () => {
         enableChunking: boolean;
         chunkSize: number;
         chunkingStrategyExplicit: boolean;
+        tokenTrueSizing?: boolean;
+        chunkTokenLimit?: number;
       };
     };
 
     expect(snapshot.state?.enableChunking).toBe(false);
     expect(snapshot.state?.chunkSize).toBe(128);
     expect(snapshot.state?.chunkingStrategyExplicit).toBe(false);
+    expect(snapshot.state?.tokenTrueSizing).toBe(true);
+    expect(snapshot.state?.chunkTokenLimit).toBe(4096);
 
     persistApi.clearStorage?.();
     const afterClear = storage.getItem(options.name)!;

@@ -19,6 +19,8 @@ export interface UseImportFlowOptions {
     selectedModel: string | null;
     chunkSize: number;
     chunkOverlap: number;
+    tokenTrueSizing: boolean;
+    chunkTokenLimit: number;
   };
   toast: ReturnType<typeof useToast>['toast'];
   onImportComplete?: (results: EnhancedImportResult[]) => Promise<void> | void;
@@ -81,6 +83,8 @@ export function useImportFlow({
     ...(importSettings.selectedModel ? { embeddingModel: importSettings.selectedModel } : {}),
     chunkSize: importSettings.chunkSize,
     chunkOverlap: importSettings.chunkOverlap,
+    tokenTrueSizing: importSettings.tokenTrueSizing,
+    chunkTokenLimit: importSettings.chunkTokenLimit,
     embeddingQueue: embeddingQueue ?? null,
   });
 

@@ -1,5 +1,6 @@
 import type { FileImportResult } from '@brainstrike/db';
 import { ChunkingService } from '@brainstrike/db';
+import { countTokensAccurate } from '@brainstrike/utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getChunkingStrategy, processChunking, processFileChunking } from '../chunking';
 import type { EnhancedImportProgress } from '../types';
@@ -293,6 +294,49 @@ describe('processFileChunking', () => {
         ignoreFileTypeRecommendations: true,
       })
     );
+  });
+
+  it('enables tokenTrueSizing with accurate token counter by default', async () => {
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-1',
+      name: 'test.txt',
+      path: '/test.txt',
+      content: 'File content to be chunked',
+    });
+
+    await processFileChunking(
+      { id: 'file-1', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress }
+    );
+
+    const call = mockChunkingService.chunkContent.mock.calls[0];
+    expect(call?.[2]?.tokenTrueSizing).toBe(true);
+    expect(call?.[2]?.tokenCounter).toBe(countTokensAccurate);
+  });
+
+  it('passes custom token limits to the chunking service', async () => {
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-1',
+      name: 'test.txt',
+      path: '/test.txt',
+      content: 'File content to be chunked',
+    });
+
+    await processFileChunking(
+      { id: 'file-1', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      { updateProgress: mockUpdateProgress, tokenLimit: 2048 }
+    );
+
+    const call = mockChunkingService.chunkContent.mock.calls[0];
+    expect(call?.[2]?.maxTokensCap).toBe(2048);
   });
 
   it('updates progress correctly', async () => {

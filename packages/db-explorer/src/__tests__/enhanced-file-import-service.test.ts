@@ -223,10 +223,49 @@ describe('useEnhancedFileImportService', () => {
 
       expect(runEnhancedImportMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          chunking: expect.objectContaining({ enabled: true }),
+          chunking: expect.objectContaining({ enabled: true, tokenTrueSizing: true }),
         })
       );
       expect(onComplete).toHaveBeenCalledWith([expect.objectContaining({ chunksCreated: 3 })]);
+    });
+
+    it('respects explicit tokenTrueSizing toggle', async () => {
+      const mockBaseImport = vi.fn();
+
+      const baseService = await import('../base-file-import-service');
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
+        isImporting: false,
+        progress: null,
+      });
+
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file1', imported: true, existed: false, chunksCreated: 0 },
+      ]);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({
+          enableChunking: true,
+          tokenTrueSizing: false,
+          chunkTokenLimit: 2048,
+        })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(runEnhancedImportMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chunking: expect.objectContaining({
+            enabled: true,
+            tokenTrueSizing: false,
+            tokenLimit: 2048,
+          }),
+        })
+      );
     });
   });
 });
