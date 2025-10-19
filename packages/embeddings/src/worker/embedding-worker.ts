@@ -6,6 +6,12 @@ import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
+/**
+ * Standard embedding dimension enforced across the application.
+ * See docs/20251019-embedding-dimensions-explainer.md for rationale.
+ */
+const StandardEmbeddingDimension = 768;
+
 export type EmbeddingWorkerOptions = {
   db: IDatabase;
   queue?: string; // default: 'embeddings'
@@ -32,6 +38,7 @@ type EmbedChunkPayload = {
   chunkId: string;
   fileRecordId?: string;
   embeddingSetId?: string | null;
+  expectedDimension?: number; // Expected embedding dimension (default: 768)
 };
 
 async function sha256Hex(input: string): Promise<string> {
@@ -194,6 +201,30 @@ async function initializeEmbeddingService(
   return { service, modelConfig };
 }
 
+/**
+ * Validates that a model configuration meets the 768D baseline requirement.
+ * @throws {Error} If model dimensions don't match the standard
+ */
+function validateModelDimensions(
+  modelConfig: ModelConfig,
+  modelKey: string,
+  log: (msg: string, meta?: unknown) => void
+): void {
+  if (modelConfig.dimensions !== StandardEmbeddingDimension) {
+    const errorMsg =
+      `Model '${modelKey}' produces ${modelConfig.dimensions}D embeddings, but BrainStrike enforces ${StandardEmbeddingDimension}D. ` +
+      'For hosted providers (OpenAI, Gemini, Cohere), configure dimension parameters: ' +
+      `OpenAI dimensions=${StandardEmbeddingDimension}, Gemini output_dimensionality=${StandardEmbeddingDimension}, Cohere output_dimension=${StandardEmbeddingDimension}. ` +
+      'See docs/20251019-embedding-dimensions-explainer.md for more details.';
+    log('worker_model_dimension_error', {
+      modelKey,
+      dimensions: modelConfig.dimensions,
+      expected: StandardEmbeddingDimension,
+    });
+    throw new Error(errorMsg);
+  }
+}
+
 export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
@@ -218,6 +249,9 @@ export async function startEmbeddingWorker(
 
   let { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
 
+  // Pre-validate model dimensions against 768D baseline
+  validateModelDimensions(modelConfig, modelKey, log);
+
   const embeddingSetId = await getOrCreateEmbeddingSet(
     options.db,
     modelKey,
@@ -239,8 +273,6 @@ export async function startEmbeddingWorker(
   } catch {
     vectorEnabledForWrites = false;
   }
-
-  // Note: schema uses VECTOR(768) by default; ensure selected model matches to avoid errors
 
   // Lightweight metrics for observability
   const metrics = {
@@ -281,7 +313,8 @@ export async function startEmbeddingWorker(
   type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
 
   async function validateAndGenerateEmbedding(
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
+    expectedDimension: number = StandardEmbeddingDimension
   ): Promise<EmbeddingResult> {
     const svcAny = service as unknown as {
       generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
@@ -291,10 +324,13 @@ export async function startEmbeddingWorker(
       ? await svcAny.generateDocEmbedding(chunk.content)
       : await service.generateEmbedding(chunk.content);
 
-    const expectedDimensions = modelConfig?.dimensions ?? 0;
-    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimensions) {
+    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
       throw new Error(
-        `Embedding dimension mismatch: got ${result.embedding.length}, expected ${expectedDimensions}`
+        `Embedding dimension mismatch: got ${result.embedding.length}, expected ${expectedDimension}. ` +
+          `Model '${modelKey}' may be misconfigured. ` +
+          `BrainStrike enforces ${StandardEmbeddingDimension}D embeddings. ` +
+          'For hosted providers, ensure dimension parameters are set correctly. ' +
+          'See docs/20251019-embedding-dimensions-explainer.md for details.'
       );
     }
 
@@ -312,7 +348,16 @@ export async function startEmbeddingWorker(
     if (!chunk) throw new Error(`Chunk not found: ${payload.chunkId}`);
 
     const targetSetId = payload.embeddingSetId ?? chunk.embeddingSetId ?? embeddingSetId;
+    const expectedDimension = payload.expectedDimension ?? StandardEmbeddingDimension;
     const expectedHash = await sha256Hex(`${chunk.contentHash}:${modelKey}`);
+
+    // Validate expected dimension matches worker configuration
+    if (expectedDimension !== StandardEmbeddingDimension) {
+      throw new Error(
+        `Job payload expects ${expectedDimension}D embeddings, but worker enforces ${StandardEmbeddingDimension}D. ` +
+          'See docs/20251019-embedding-dimensions-explainer.md for details.'
+      );
+    }
 
     // Idempotency: if embedding exists and hash matches, treat as complete
     if (chunk.embeddingHash && chunk.embeddingHash === expectedHash) {
@@ -320,7 +365,7 @@ export async function startEmbeddingWorker(
       return;
     }
 
-    const result = await validateAndGenerateEmbedding(chunk);
+    const result = await validateAndGenerateEmbedding(chunk, expectedDimension);
     await updateChunkEmbedding(
       options.db,
       chunk.id,

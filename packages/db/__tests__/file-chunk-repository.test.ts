@@ -460,4 +460,294 @@ describe('FileChunkRepository', () => {
       expect(result?.embedding).toEqual(embedding);
     });
   });
+
+  describe('embedding dimension validation', () => {
+    describe('insert', () => {
+      it('should reject 384D embeddings with clear error message', async () => {
+        const embedding = makeVector(384, [
+          [0, 0.1],
+          [1, 0.2],
+        ]);
+        const chunk: FileChunkInsert = {
+          id: 'chunk_384d',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash384',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          embedding,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /Embedding dimension mismatch: got 384, expected 768/
+        );
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /BrainStrike enforces 768-dimensional embeddings/
+        );
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /docs\/20251019-embedding-dimensions-explainer\.md/
+        );
+      });
+
+      it('should reject 1024D embeddings with clear error message', async () => {
+        const embedding = makeVector(1024, [
+          [0, 0.1],
+          [1, 0.2],
+        ]);
+        const chunk: FileChunkInsert = {
+          id: 'chunk_1024d',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash1024',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          embedding,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /Embedding dimension mismatch: got 1024, expected 768/
+        );
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /OpenAI dimensions=768, Gemini output_dimensionality=768, Cohere output_dimension=768/
+        );
+      });
+
+      it('should accept 768D embeddings', async () => {
+        const embedding = makeVector(768, [
+          [0, 0.1],
+          [1, 0.2],
+          [767, 0.3],
+        ]);
+        const chunk: FileChunkInsert = {
+          id: 'chunk_768d',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash768',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          embedding,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        const result = await repository.insert(chunk);
+        expect(result).toBeDefined();
+        expect(result.embedding).toEqual(embedding);
+      });
+
+      it('should accept null/undefined embeddings', async () => {
+        const chunk: FileChunkInsert = {
+          id: 'chunk_no_embedding',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash_no_emb',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        const result = await repository.insert(chunk);
+        expect(result).toBeDefined();
+        expect(result.embedding).toBeUndefined();
+      });
+    });
+
+    describe('insertMany', () => {
+      it('should reject batches containing non-768D embeddings', async () => {
+        const chunks: FileChunkInsert[] = [
+          {
+            id: 'chunk1',
+            fileRecordId: 'file1',
+            chunkIndex: 0,
+            content: 'First chunk',
+            contentHash: 'hash1',
+            tokenCount: 2,
+            chunkType: 'text',
+            chunkSize: 100,
+            embedding: makeVector(768, [[0, 0.1]]),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 'chunk2',
+            fileRecordId: 'file1',
+            chunkIndex: 1,
+            content: 'Second chunk',
+            contentHash: 'hash2',
+            tokenCount: 2,
+            chunkType: 'text',
+            chunkSize: 100,
+            embedding: makeVector(384, [[0, 0.2]]), // Invalid!
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ];
+
+        await expect(repository.insertMany(chunks)).rejects.toThrow(
+          /Embedding dimension mismatch: got 384, expected 768/
+        );
+
+        // Verify no partial writes occurred
+        const result1 = await repository.findById('chunk1');
+        const result2 = await repository.findById('chunk2');
+        expect(result1).toBeNull();
+        expect(result2).toBeNull();
+      });
+
+      it('should accept batches with all 768D embeddings', async () => {
+        const chunks: FileChunkInsert[] = [
+          {
+            id: 'chunk1',
+            fileRecordId: 'file1',
+            chunkIndex: 0,
+            content: 'First chunk',
+            contentHash: 'hash1',
+            tokenCount: 2,
+            chunkType: 'text',
+            chunkSize: 100,
+            embedding: makeVector(768, [
+              [0, 0.1],
+              [1, 0.2],
+            ]),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 'chunk2',
+            fileRecordId: 'file1',
+            chunkIndex: 1,
+            content: 'Second chunk',
+            contentHash: 'hash2',
+            tokenCount: 2,
+            chunkType: 'text',
+            chunkSize: 100,
+            embedding: makeVector(768, [
+              [0, 0.3],
+              [1, 0.4],
+            ]),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ];
+
+        const results = await repository.insertMany(chunks);
+        expect(results).toHaveLength(2);
+        expect(results[0].embedding).toHaveLength(768);
+        expect(results[1].embedding).toHaveLength(768);
+      });
+    });
+
+    describe('insertManyWithTx', () => {
+      it('should reject batches with non-768D embeddings in transaction', async () => {
+        const chunks: FileChunkInsert[] = [
+          {
+            id: 'chunk_tx_1',
+            fileRecordId: 'file1',
+            chunkIndex: 0,
+            content: 'First chunk',
+            contentHash: 'hash_tx1',
+            tokenCount: 2,
+            chunkType: 'text',
+            chunkSize: 100,
+            embedding: makeVector(1024, [[0, 0.1]]), // Invalid!
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ];
+
+        // Begin transaction manually
+        await db.query('BEGIN');
+        try {
+          await expect(repository.insertManyWithTx(db, chunks)).rejects.toThrow(
+            /Embedding dimension mismatch: got 1024, expected 768/
+          );
+          await db.query('ROLLBACK');
+        } catch (err) {
+          await db.query('ROLLBACK');
+          throw err;
+        }
+
+        // Verify no data was written
+        const result = await repository.findById('chunk_tx_1');
+        expect(result).toBeNull();
+      });
+    });
+
+    describe('update', () => {
+      it('should reject updates with non-768D embeddings', async () => {
+        // First insert a chunk without embedding
+        const chunk: FileChunkInsert = {
+          id: 'chunk_update_test',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash_update',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await repository.insert(chunk);
+
+        // Try to update with 384D embedding
+        const update: FileChunkUpdate = {
+          id: 'chunk_update_test',
+          embedding: makeVector(384, [[0, 0.1]]),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await expect(repository.update(update)).rejects.toThrow(
+          /Embedding dimension mismatch: got 384, expected 768/
+        );
+      });
+
+      it('should accept updates with 768D embeddings', async () => {
+        // First insert a chunk without embedding
+        const chunk: FileChunkInsert = {
+          id: 'chunk_update_success',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'Test chunk',
+          contentHash: 'hash_update_ok',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await repository.insert(chunk);
+
+        // Update with valid 768D embedding
+        const embedding = makeVector(768, [
+          [0, 0.5],
+          [1, 0.6],
+        ]);
+        const update: FileChunkUpdate = {
+          id: 'chunk_update_success',
+          embedding,
+          updatedAt: new Date().toISOString(),
+        };
+
+        const result = await repository.update(update);
+        expect(result).toBeDefined();
+        expect(result?.embedding).toEqual(embedding);
+      });
+    });
+  });
 });
