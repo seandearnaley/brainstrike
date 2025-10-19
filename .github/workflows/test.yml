@@ -491,9 +491,9 @@ jobs:
           
           # Copy all blob report files to the merged directory
           for dir in all-blob-reports/*/; do
-            if [ -d "$dir" ]; then
-              echo "Copying files from $dir"
-              cp -r "$dir"/* merged-blob-reports/ || true
+            if [ -d "$dir/blob-report" ]; then
+              echo "Copying files from $dir/blob-report"
+              cp -r "$dir"/blob-report/* merged-blob-reports/ || true
             fi
           done
           
