@@ -194,39 +194,24 @@ jobs:
               body: body + '\n\n_Values computed from coverage-final.json; thresholds enforced via scripts/enforce-coverage.mjs_',
             });
 
-  # Upload coverage artifacts (runs in parallel with E2E tests)
-  upload-coverage:
-    name: Upload Coverage Artifacts
-    needs: checks
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Bundle coverage files
+        run: |
+          set -e
+          mkdir -p coverage-bundle
+          find . -name "coverage-final.json" -path "*/coverage/*" -exec cp --parents {} coverage-bundle/ \;
+          if [ ! "$(ls -A coverage-bundle 2>/dev/null)" ]; then
+            echo "⚠️ No coverage files found, creating empty marker"
+            touch coverage-bundle/.empty
+          fi
+          tar -cvf coverage-bundle.tar coverage-bundle/
+          ls -lh coverage-bundle.tar
+          echo "Bundled $(find coverage-bundle -name '*.json' 2>/dev/null | wc -l) coverage files"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: '.nvmrc'
-
-      - name: Run unit tests with coverage
-        run: pnpm run test:coverage
-        env:
-          NODE_ENV: "test"
-
-      - name: Upload unit test coverage
+      - name: Upload coverage bundle
         uses: actions/upload-artifact@v4
         with:
           name: unit-coverage
-          path: |
-            **/coverage/coverage-final.json
+          path: coverage-bundle.tar
           retention-days: 1
 
   # E2E tests run in parallel with sharding
@@ -399,9 +384,9 @@ jobs:
   # Merge E2E test reports
   merge-reports:
     name: Merge Test Reports
-    needs: [checks, e2e, desktop-e2e, upload-coverage]
+    needs: [checks, e2e, desktop-e2e]
     runs-on: ubuntu-latest
-    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success' || needs.upload-coverage.result == 'success')
+    if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success')
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -474,7 +459,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: unit-coverage
-          path: unit-coverage
+          path: .
+
+      - name: Extract coverage bundle
+        run: |
+          tar -xvf coverage-bundle.tar
+          mv coverage-bundle unit-coverage
+          echo "Extracted $(find unit-coverage -name '*.json' | wc -l) coverage files"
 
       - name: Merge all coverage reports
         if: always()
