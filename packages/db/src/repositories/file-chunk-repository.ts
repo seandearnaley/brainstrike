@@ -8,6 +8,38 @@ import type {
 } from '../models/file-chunk';
 import { batchArray, parseEmbeddingLoose } from './_shared.js';
 
+/**
+ * Standard embedding dimension enforced across the application.
+ * See docs/20251019-embedding-dimensions-explainer.md for rationale.
+ */
+const StandardEmbeddingDimension = 768;
+
+/**
+ * Validates that an embedding vector matches the standard 768D baseline.
+ * @throws {Error} If embedding dimension doesn't match standard
+ */
+function validateEmbeddingDimension(embedding: number[] | undefined): void {
+  if (!embedding) return; // null/undefined embeddings are allowed
+
+  if (!Array.isArray(embedding)) {
+    throw new Error(
+      `Invalid embedding: expected array, got ${typeof embedding}. ` +
+        'Embeddings must be 768-dimensional vectors. ' +
+        'See docs/20251019-embedding-dimensions-explainer.md for details.'
+    );
+  }
+
+  if (embedding.length !== StandardEmbeddingDimension) {
+    throw new Error(
+      `Embedding dimension mismatch: got ${embedding.length}, expected ${StandardEmbeddingDimension}. ` +
+        'BrainStrike enforces 768-dimensional embeddings. ' +
+        'For hosted providers (OpenAI, Gemini, Cohere), configure dimension parameters: ' +
+        'OpenAI dimensions=768, Gemini output_dimensionality=768, Cohere output_dimension=768. ' +
+        'See docs/20251019-embedding-dimensions-explainer.md for more details.'
+    );
+  }
+}
+
 // Type definition for database row returned by PGlite
 interface FileChunkRow {
   id: string;
@@ -62,6 +94,7 @@ export class FileChunkRepository {
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
+    validateEmbeddingDimension(chunk.embedding);
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash, 
@@ -102,6 +135,11 @@ export class FileChunkRepository {
   async insertMany(chunks: FileChunkInsert[]): Promise<FileChunk[]> {
     if (chunks.length === 0) {
       return [];
+    }
+
+    // Validate all embeddings before processing
+    for (const chunk of chunks) {
+      validateEmbeddingDimension(chunk.embedding);
     }
 
     // Batch inserts to avoid parameter limit issues (250 rows per batch)
@@ -173,6 +211,12 @@ export class FileChunkRepository {
     chunks: FileChunkInsert[]
   ): Promise<FileChunk[]> {
     if (chunks.length === 0) return [];
+
+    // Validate all embeddings before processing
+    for (const chunk of chunks) {
+      validateEmbeddingDimension(chunk.embedding);
+    }
+
     const BatchSize = 250;
     const batches = batchArray(chunks, BatchSize);
     const allResults: FileChunk[] = [];
@@ -252,6 +296,7 @@ export class FileChunkRepository {
       values.push(chunk.chunkSize);
     }
     if (chunk.embedding !== undefined) {
+      validateEmbeddingDimension(chunk.embedding);
       setParts.push(`embedding = $${paramIndex++}`);
       values.push(chunk.embedding ? `[${chunk.embedding.join(',')}]` : null);
       // When embedding changes, update metadata if provided
