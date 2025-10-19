@@ -94,16 +94,18 @@ jobs:
         env:
           NODE_ENV: "test"
 
+      - name: Enforce package coverage thresholds
+        run: pnpm coverage:enforce
+
       - name: Upload unit test coverage
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: unit-coverage
           path: |
             **/coverage/coverage-final.json
           retention-days: 1
-
-      - name: Enforce package coverage thresholds
-        run: pnpm coverage:enforce
+        continue-on-error: true
 
       - name: Comment PR with Coverage Summary
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
