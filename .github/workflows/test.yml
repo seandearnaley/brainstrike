@@ -308,13 +308,27 @@ jobs:
           PORT: "8080"
           BASE_URL: "http://127.0.0.1:8080"
 
+      - name: Bundle blob report
+        if: always()
+        run: |
+          set -e
+          cd apps/web
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf blob-report-${{ matrix.shardIndex }}.tar blob-report/
+            ls -lh blob-report-${{ matrix.shardIndex }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "⚠️ No blob report found for shard ${{ matrix.shardIndex }}"
+          fi
+
       - name: Upload blob report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: blob-report-${{ matrix.shardIndex }}
-          path: apps/web/blob-report
+          path: apps/web/blob-report-${{ matrix.shardIndex }}.tar
           retention-days: 1
+          if-no-files-found: warn
 
   # Desktop E2E tests
   desktop-e2e:
@@ -373,13 +387,27 @@ jobs:
           NODE_ENV: "test"
           CI: "true"
 
+      - name: Bundle blob report (desktop shard)
+        if: always()
+        run: |
+          set -e
+          cd apps/desktop
+          if [ -d "blob-report" ] && [ "$(ls -A blob-report 2>/dev/null)" ]; then
+            tar -cvf desktop-blob-report-${{ matrix.shardIndex }}.tar blob-report/
+            ls -lh desktop-blob-report-${{ matrix.shardIndex }}.tar
+            echo "Bundled $(find blob-report -type f | wc -l) files in tar"
+          else
+            echo "⚠️ No blob report found for desktop shard ${{ matrix.shardIndex }}"
+          fi
+
       - name: Upload blob report (desktop shard)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-blob-report-${{ matrix.shardIndex }}
-          path: apps/desktop/blob-report
+          path: apps/desktop/desktop-blob-report-${{ matrix.shardIndex }}.tar
           retention-days: 1
+          if-no-files-found: warn
 
   # Merge E2E test reports
   merge-reports:
@@ -414,6 +442,30 @@ jobs:
           pattern: '*blob-report*'
         continue-on-error: true
 
+      - name: Extract blob report bundles
+        if: steps.download-reports.outcome == 'success'
+        run: |
+          set -e
+          if [ -d "all-blob-reports" ] && [ "$(ls -A all-blob-reports 2>/dev/null)" ]; then
+            echo "Extracting blob report tar bundles..."
+            for artifact_dir in all-blob-reports/*/; do
+              if [ -d "$artifact_dir" ]; then
+                echo "Processing directory: $artifact_dir"
+                for tar_file in "$artifact_dir"*.tar; do
+                  if [ -f "$tar_file" ]; then
+                    echo "Extracting: $tar_file"
+                    tar -xvf "$tar_file" -C "$artifact_dir"
+                    rm "$tar_file"
+                    echo "Extracted $(basename "$tar_file")"
+                  fi
+                done
+              fi
+            done
+            echo "Extraction complete"
+          else
+            echo "No blob reports to extract"
+          fi
+
       - name: Check if blob reports exist
         id: check-reports
         run: |
@@ -421,6 +473,8 @@ jobs:
             echo "reports-exist=true" >> $GITHUB_OUTPUT
             echo "Blob reports found:"
             ls -la all-blob-reports/
+            echo "Extracted blob report count:"
+            find all-blob-reports -type d -name "blob-report" | wc -l
           else
             echo "reports-exist=false" >> $GITHUB_OUTPUT
             echo "No blob reports found - E2E tests may have failed"
@@ -437,9 +491,9 @@ jobs:
           
           # Copy all blob report files to the merged directory
           for dir in all-blob-reports/*/; do
-            if [ -d "$dir" ]; then
-              echo "Copying files from $dir"
-              cp -r "$dir"/* merged-blob-reports/ || true
+            if [ -d "$dir/blob-report" ]; then
+              echo "Copying files from $dir/blob-report"
+              cp -r "$dir"/blob-report/* merged-blob-reports/ || true
             fi
           done
           
