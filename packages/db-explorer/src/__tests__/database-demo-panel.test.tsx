@@ -1,4 +1,7 @@
-import { __resetImportSettingsStoreForTests } from '@brainstrike/preferences';
+import {
+  __resetImportSettingsStoreForTests,
+  __resetTokenPreferencesStoreForTests,
+} from '@brainstrike/preferences';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -137,6 +140,7 @@ describe('DatabaseDemoPanel', () => {
   beforeEach(() => {
     __resetDatabaseDemoStoreForTests();
     __resetImportSettingsStoreForTests();
+    __resetTokenPreferencesStoreForTests();
     vi.clearAllMocks();
 
     // Setup default mock returns

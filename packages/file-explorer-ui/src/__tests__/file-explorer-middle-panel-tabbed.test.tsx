@@ -72,6 +72,9 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       performUndoableAction,
       clearUndoTimeout,
     });
+
+    const utilsModule = await import('@brainstrike/utils');
+    vi.spyOn(utilsModule, 'supportsAccurateTokenCounting').mockResolvedValue(true);
   });
 
   it('should render the component structure', () => {
@@ -169,8 +172,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     const calls = PreviewPanel.mock.calls;
-    expect(calls).toHaveLength(1);
-    const props = calls[0]?.[0];
+    expect(calls.length > 0).toBe(true);
+    const props = calls[calls.length - 1]?.[0];
     expect(props).toMatchObject({
       fileContents,
       loadingFiles,
@@ -198,8 +201,8 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     const calls = PreviewPanel.mock.calls;
-    expect(calls).toHaveLength(1);
-    const props = calls[0]?.[0];
+    expect(calls.length > 0).toBe(true);
+    const props = calls[calls.length - 1]?.[0];
     expect(props?.onSelectionChange).toBe(mockHandleSelectionChange);
   });
 
@@ -214,10 +217,16 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
 
     const calls = PreviewPanel.mock.calls;
-    expect(calls).toHaveLength(1);
-    const props = calls[0]?.[0];
+    expect(calls.length > 0).toBe(true);
+    const props = calls[calls.length - 1]?.[0];
     expect(typeof props?.decodeFileSelection).toBe('function');
-    expect(typeof props?.countTokensHeuristic).toBe('function');
+    expect(props?.tokenCounting).toEqual(
+      expect.objectContaining({
+        countTokens: expect.any(Function),
+        mode: expect.any(String),
+        loading: expect.any(Boolean),
+      })
+    );
   });
 
   it('should adapt undoable action for preview panel', async () => {

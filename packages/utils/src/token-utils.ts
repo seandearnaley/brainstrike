@@ -171,6 +171,11 @@ async function resolveEncoder(): Promise<EncodeFn | null> {
   return isBrowserLike() ? loadBrowserEncoder() : loadNodeEncoder();
 }
 
+export async function supportsAccurateTokenCounting(): Promise<boolean> {
+  const encoder = await resolveEncoder();
+  return encoder !== null;
+}
+
 /**
  * Accurately count tokens using the wasm-backed tiktoken bindings. Falls back to heuristic estimation when the
  * bindings are unavailable (e.g., unsupported runtime or transient load failure).

@@ -29,8 +29,3 @@ Use the Github MCP tool to create a well-structured pull request with proper des
 - [ ] Bug fix B
 - [ ] Unit tests pass
 - [ ] Manual testing completed
-
-
-<diff>
-@Branch (Diff with Main Branch) 
-</diff>

@@ -217,7 +217,7 @@ Do these before reaching for cleverness:
 
 ### PreviewPanel
 
-* Inputs: `selectedFiles (Set<string>)`, `fileContents`, `loadingFiles`, `onSelectionChange(Set)`, `decodeFileSelection`, `countTokensHeuristic`, `performUndoableAction`
+* Inputs: `selectedFiles (Set<string>)`, `fileContents`, `loadingFiles`, `onSelectionChange(Set)`, `decodeFileSelection`, `tokenCounting`, `performUndoableAction`
 * Grouping presets (folder/fileType/sizeSteps/tokenSteps) are declarative in `utils/grouping-configs`. Add new groups there—**don’t** fork logic in the component.
 
 ### TabbedFileEditor

@@ -41,6 +41,7 @@ export * from './use-preview-panel-state';
 export { default as UseRegexSetting } from './use-regex-setting';
 export { useSelectionManager } from './use-selection-manager-context';
 export * from './use-shared-file-content-loading';
+export * from './use-token-counting';
 export * from './utils/file-content-worker';
 export * from './utils/file-node-cache';
 export { processDirectoryEntry } from './utils/process-directory-entry';

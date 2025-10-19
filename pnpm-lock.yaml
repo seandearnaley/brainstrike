@@ -859,6 +859,9 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
+      '@brainstrike/preferences':
+        specifier: workspace:*
+        version: link:../preferences
       '@brainstrike/storage':
         specifier: workspace:*
         version: link:../storage

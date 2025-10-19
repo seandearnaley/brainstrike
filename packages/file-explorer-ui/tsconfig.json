@@ -19,6 +19,7 @@
     { "path": "../hooks" },
     { "path": "../platform-utils" },
     { "path": "../ui" },
+    { "path": "../preferences" },
     { "path": "../utils" },
     { "path": "../types" }
   ]

@@ -374,6 +374,10 @@ vi.mock('lucide-react', () => ({
   FileText: () => <div data-testid="file-text" />,
   FileX2: () => <div data-testid="file-x2" />,
   FolderOpen: () => <div data-testid="folder-open" />,
+  Loader2: () => <div data-testid="loader" />,
+  CheckCircle2: () => <div data-testid="check" />,
+  AlertTriangle: () => <div data-testid="alert" />,
+  MinusCircle: () => <div data-testid="minus" />,
 }));
 
 describe('PreviewPanel', () => {
@@ -395,7 +399,12 @@ describe('PreviewPanel', () => {
       folderId: `folder-${key}`,
       path: `path/to/${key}.txt`,
     })),
-    countTokensHeuristic: vi.fn((content: string) => content.length * 4),
+    tokenCounting: {
+      mode: 'accurate' as const,
+      reason: null,
+      loading: false,
+      countTokens: vi.fn(async (content: string) => content.length),
+    },
     estimateTokenCost: vi.fn((tokens: number) => tokens * 0.001),
     performUndoableAction: vi.fn(),
     onFileClick: vi.fn(),
@@ -468,11 +477,10 @@ describe('PreviewPanel', () => {
       render(<PreviewPanel {...mockProps} />);
 
       // Check stats display
-      expect(
-        screen.getByText((_content, element) => {
-          return element?.textContent === '3 files | 1,500 tokens';
-        })
-      ).toBeInTheDocument();
+      const stats = screen.getAllByText(
+        (_, element) => element?.textContent?.includes('3 files | 1,500 tokens') ?? false
+      );
+      expect(stats.length > 0).toBe(true);
 
       // Check files are displayed
       expect(screen.getByText('file1.txt')).toBeInTheDocument();
@@ -483,6 +491,33 @@ describe('PreviewPanel', () => {
       expect(screen.getByText('folder-file1')).toBeInTheDocument();
       expect(screen.getByText('folder-file2')).toBeInTheDocument();
       expect(screen.getByText('folder-file3')).toBeInTheDocument();
+    });
+
+    it('should display token counting status badge', () => {
+      render(<PreviewPanel {...mockProps} />);
+
+      expect(screen.getByText('Accurate tokens (WASM)')).toBeInTheDocument();
+      expect(
+        screen.getByText(/Counts generated with the tiktoken WASM encoder/i)
+      ).toBeInTheDocument();
+    });
+
+    it('should surface heuristic fallback messaging when configured', () => {
+      mockUsePreviewPanelState.mockReturnValue(mockState);
+      const props = {
+        ...mockProps,
+        tokenCounting: {
+          mode: 'heuristic' as const,
+          reason: 'runtime-fallback' as const,
+          loading: false,
+          countTokens: vi.fn(async () => 0),
+        },
+      };
+
+      render(<PreviewPanel {...props} />);
+
+      expect(screen.getByText('Heuristic fallback')).toBeInTheDocument();
+      expect(screen.getByText(/WASM tokenizer is unavailable/i)).toBeInTheDocument();
     });
 
     it('should handle file click events', () => {

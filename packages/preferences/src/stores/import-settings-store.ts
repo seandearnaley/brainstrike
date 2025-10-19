@@ -2,6 +2,7 @@ import type { ChunkingStrategy } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { useTokenPreferencesStore } from './token-preferences-store';
 
 const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
 
@@ -54,6 +55,8 @@ const storage = createJSONStorage(() => ({
   },
 }));
 
+const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
+
 export const useImportSettingsStore = create<ImportSettingsStore>()(
   persist(
     (set) => ({
@@ -62,7 +65,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       chunkingStrategyExplicit: false,
       chunkSize: 256,
       chunkOverlap: 50,
-      tokenTrueSizing: true,
+      tokenTrueSizing: getAccurateCountingPreference(),
       chunkTokenLimit: 4096,
       enableEmbedding: false,
       selectedModel: DEFAULT_MODEL_KEY,
@@ -71,7 +74,11 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       setChunkingStrategy: (v) => set({ chunkingStrategy: v, chunkingStrategyExplicit: true }),
       setChunkSize: (n) => set({ chunkSize: Math.max(1, Math.floor(n)) }),
       setChunkOverlap: (n) => set({ chunkOverlap: Math.max(0, Math.floor(n)) }),
-      setTokenTrueSizing: (v) => set({ tokenTrueSizing: !!v }),
+      setTokenTrueSizing: (v) => {
+        const next = !!v;
+        useTokenPreferencesStore.getState().setAccurateCounting(next);
+        set({ tokenTrueSizing: next });
+      },
       setChunkTokenLimit: (n) =>
         set({ chunkTokenLimit: Math.max(512, Math.min(16384, Math.floor(n) || 512)) }),
       setEnableEmbedding: (v) => set({ enableEmbedding: !!v }),
@@ -112,9 +119,21 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
         enableEmbedding: s.enableEmbedding,
         selectedModel: s.selectedModel,
       }),
+      onRehydrateStorage: () => (state) => {
+        if (state && typeof state.tokenTrueSizing === 'boolean') {
+          useTokenPreferencesStore.getState().setAccurateCounting(state.tokenTrueSizing);
+        }
+      },
     }
   )
 );
+
+useTokenPreferencesStore.subscribe((preferences) => {
+  const current = useImportSettingsStore.getState().tokenTrueSizing;
+  if (current !== preferences.accurateCounting) {
+    useImportSettingsStore.setState({ tokenTrueSizing: preferences.accurateCounting });
+  }
+});
 
 export const importSettingsSelectors = {
   chunking: (s: ImportSettingsStore) => [s.enableChunking, s.chunkingStrategy] as const,
@@ -130,6 +149,7 @@ export function __resetImportSettingsStoreForTests() {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
   } catch {}
   memory.delete(STORE_NAME);
+  useTokenPreferencesStore.getState().setAccurateCounting(true);
   useImportSettingsStore.setState({
     enableChunking: true,
     chunkingStrategy: 'sentence',

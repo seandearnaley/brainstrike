@@ -26,6 +26,7 @@ export default defineConfig({
       '@brainstrike/utils': resolve(__dirname, '../utils/src'),
       '@brainstrike/file-explorer': resolve(__dirname, '../file-explorer/src'),
       '@brainstrike/test-utils': resolve(__dirname, '../test-utils/src'),
+      '@brainstrike/preferences': resolve(__dirname, '../preferences/src'),
       // Ensure test-utils dynamic import of Testing Library resolves under this workspace
       '@testing-library/react': resolve(__dirname, 'node_modules/@testing-library/react'),
       '@brainstrike/file-explorer-ui': resolve(__dirname, './src'),

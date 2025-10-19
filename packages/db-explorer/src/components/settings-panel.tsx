@@ -1,6 +1,8 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
+  Badge,
   Input,
   Label,
   Select,
@@ -16,11 +18,11 @@ const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
 export function SettingsPanel({ importSettings }: SettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const embeddingsId = 'enable-embeddings';
-  const tokenSizingId = 'enable-token-true-sizing';
   const presetCaps = ['2048', '4096', '6144', '8192'];
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
     ? String(importSettings.chunkTokenLimit)
     : 'custom';
+  const accurateCounting = useTokenPreferencesStore(tokenPreferencesSelectors.accurateCounting);
   return (
     <div className="mt-2 p-3 bg-muted/50 rounded space-y-3">
       <div className="grid grid-cols-2 gap-4">
@@ -110,17 +112,19 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 pt-1">
-        <input
-          type="checkbox"
-          id={tokenSizingId}
-          checked={importSettings.tokenTrueSizing}
-          onChange={(e) => importSettings.setTokenTrueSizing(e.target.checked)}
-          className="h-3 w-3"
-        />
-        <Label className="text-xs" htmlFor={tokenSizingId}>
-          Accurate token sizing
-        </Label>
+      <div className="flex items-center justify-between gap-3 rounded border px-3 py-2">
+        <div>
+          <Label className="text-xs">Token sizing</Label>
+          <p className="text-[10px] text-muted-foreground">
+            Controlled globally via Settings → Token Counting.
+          </p>
+        </div>
+        <Badge
+          variant={accurateCounting ? 'secondary' : 'outline'}
+          className="text-[10px] uppercase"
+        >
+          {accurateCounting ? 'WASM tokenizer' : 'Heuristic mode'}
+        </Badge>
       </div>
 
       <div>

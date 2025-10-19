@@ -5,6 +5,10 @@ import {
   importSettingsSelectors,
   useImportSettingsStore,
 } from '../stores/import-settings-store';
+import {
+  __resetTokenPreferencesStoreForTests,
+  useTokenPreferencesStore,
+} from '../stores/token-preferences-store';
 
 type PersistApi<T> = T & {
   persist?: {
@@ -24,6 +28,7 @@ const storeWithPersist = useImportSettingsStore as PersistApi<typeof useImportSe
 
 describe('import-settings-store', () => {
   beforeEach(() => {
+    __resetTokenPreferencesStoreForTests();
     __resetImportSettingsStoreForTests();
     vi.restoreAllMocks();
   });
@@ -56,6 +61,7 @@ describe('import-settings-store', () => {
     expect(next.tokenTrueSizing).toBe(false);
     expect(next.chunkTokenLimit).toBe(16384);
     expect(next.enableEmbedding).toBe(true);
+    expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
   });
 
   it('updates selectors in response to state changes', () => {

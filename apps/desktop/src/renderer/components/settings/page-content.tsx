@@ -1,5 +1,6 @@
 import {
   createAppearanceSettingsCategory,
+  createTokenCountingSettingsCategory,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
@@ -44,6 +45,7 @@ export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
+      createTokenCountingSettingsCategory(),
       {
         id: 'desktop-preferences',
         title: 'Desktop Preferences',

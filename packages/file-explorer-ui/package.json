@@ -37,6 +37,7 @@
     "@brainstrike/file-explorer-hooks": "workspace:*",
     "@brainstrike/file-system": "workspace:*",
     "@brainstrike/hooks": "workspace:*",
+    "@brainstrike/preferences": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/types": "workspace:*",
