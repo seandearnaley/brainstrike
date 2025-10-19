@@ -487,8 +487,10 @@ async function processFileChunkingStreamPath(
   strategyUsed: ChunkingStrategy;
 }> {
   const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
-  // Cap batch size to prevent excessive memory usage with arbitrarily large overrides
-  // Max 1000 chunks per batch to balance memory efficiency and insertion performance
+  /**
+   * Maximum chunks per batch to prevent excessive memory usage.
+   * Caps streamBatchSize overrides to balance memory efficiency and insertion performance.
+   */
   const MaxBatchSize = 1000;
   const requestedBatchSize = options.streamBatchSize ?? 250;
   const batchSize = Math.max(1, Math.min(requestedBatchSize, MaxBatchSize));
