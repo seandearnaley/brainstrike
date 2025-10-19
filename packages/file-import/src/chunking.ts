@@ -2,6 +2,7 @@ import type {
   ChunkingResult,
   ChunkingStrategy,
   FileChunk,
+  FileChunkInsert,
   FileImportResult,
   IDatabase,
 } from '@brainstrike/db';
@@ -486,7 +487,11 @@ async function processFileChunkingStreamPath(
   strategyUsed: ChunkingStrategy;
 }> {
   const tokenTrueSizingEnabled = options.tokenTrueSizing ?? true;
-  const batchSize = Math.max(1, options.streamBatchSize ?? 250);
+  // Cap batch size to prevent excessive memory usage with arbitrarily large overrides
+  // Max 1000 chunks per batch to balance memory efficiency and insertion performance
+  const MaxBatchSize = 1000;
+  const requestedBatchSize = options.streamBatchSize ?? 250;
+  const batchSize = Math.max(1, Math.min(requestedBatchSize, MaxBatchSize));
   let resolvedStrategy: ChunkingStrategy = strategy;
   const stream = chunkingService.chunkContentStream(content, result.id, {
     strategy,
@@ -506,9 +511,9 @@ async function processFileChunkingStreamPath(
   });
 
   let totalCreated = 0;
-  const batch: FileChunk[] = [] as unknown as FileChunk[];
+  const batch: FileChunkInsert[] = [];
   for await (const ch of stream) {
-    batch.push(ch as unknown as FileChunk);
+    batch.push(ch);
     if (batch.length >= batchSize) {
       totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
     }
@@ -531,8 +536,8 @@ async function processFileChunkingStreamPath(
 }
 
 async function flushBatch(
-  batch: FileChunk[],
-  chunkRepository: { insertMany: (chunks: FileChunk[]) => Promise<FileChunk[]> },
+  batch: FileChunkInsert[],
+  chunkRepository: { insertMany: (chunks: FileChunkInsert[]) => Promise<FileChunk[]> },
   options: ChunkingOptions,
   fileRecordId: string
 ): Promise<number> {
