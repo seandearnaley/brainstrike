@@ -152,14 +152,14 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
           {/* Provider and Model Selector Header */}
-          {hasGroupedProviders ? (
+          {hasGroupedProviders && (
             <ProviderModelHeader
               groups={groupedProviders}
               selectedProvider={selectedProvider}
               selectedModel={selectedModel}
               onModelChange={onModelChange}
             />
-          ) : null}
+          )}
           {/**
            * Messages Viewport
            *
@@ -422,6 +422,13 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   selectedModel,
   onModelChange,
 }) => {
+  // Extract model name from composite key (format: "provider::model")
+  const modelName = useMemo(() => {
+    if (!selectedModel) return undefined;
+    const parts = selectedModel.split('::');
+    return parts.length === 2 ? parts[1] : selectedModel;
+  }, [selectedModel]);
+
   const normalizedGroups = useMemo<NormalizedProviderGroup[]>(() => {
     return groups
       .map((group) => {
@@ -458,9 +465,9 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
 
   const selectedOption = useMemo<ProviderModelOption | undefined>(() => {
     return options.find(
-      (option) => option.provider.id === selectedProvider && option.model.id === selectedModel
+      (option) => option.provider.id === selectedProvider && option.model.id === modelName
     );
-  }, [options, selectedModel, selectedProvider]);
+  }, [options, modelName, selectedProvider]);
 
   const [pendingValue, setPendingValue] = useState<string | null>(null);
 
@@ -472,11 +479,11 @@ const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
     if (
       optionMatch &&
       optionMatch.provider.id === selectedProvider &&
-      optionMatch.model.id === selectedModel
+      optionMatch.model.id === modelName
     ) {
       setPendingValue(null);
     }
-  }, [options, pendingValue, selectedModel, selectedProvider]);
+  }, [options, pendingValue, modelName, selectedProvider]);
 
   const selectValue = pendingValue ?? selectedOption?.value ?? '';
   const placeholder = options.length === 0 ? 'No models enabled' : 'Select a model';

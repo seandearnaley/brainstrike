@@ -27,6 +27,7 @@ class WasmLoader {
   private static instance: WasmLoader;
   private wasmLoadPromise: Promise<void> | null = null;
   private isLoaded = false;
+  private dbCache: Map<string, PGlite> = new Map();
 
   private constructor() {}
 
@@ -81,9 +82,97 @@ class WasmLoader {
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
 
-    return normalizedDataDir
+    // Use cache key for persistent databases to prevent double-open in dev mode
+    // (React Strict Mode + HMR can cause multiple mounts without proper cleanup)
+    const cacheKey = normalizedDataDir || 'default';
+
+    // For persisted databases (idb://), reuse existing instance if available
+    // This prevents TOAST corruption from concurrent IndexedDB access
+    if (normalizedDataDir?.startsWith('idb://')) {
+      const cached = this.dbCache.get(cacheKey);
+      if (cached) {
+        console.info(`[WasmLoader] Reusing cached PGlite instance for ${cacheKey}`);
+        return cached;
+      }
+    }
+
+    const db = normalizedDataDir
       ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
       : new PGlite({ extensions: { vector } });
+
+    // Cache persisted databases only (not memory://)
+    if (normalizedDataDir?.startsWith('idb://')) {
+      this.dbCache.set(cacheKey, db);
+    }
+
+    return db;
+  }
+
+  /**
+   * Closes and removes a cached PGlite instance.
+   * Use this during cleanup to properly release resources.
+   */
+  async closeCached(dataDir?: string): Promise<void> {
+    const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
+    const cacheKey = normalizedDataDir || 'default';
+
+    const db = this.dbCache.get(cacheKey);
+    if (db) {
+      this.dbCache.delete(cacheKey);
+      try {
+        await db.close();
+        console.info(`[WasmLoader] Closed and removed cached instance for ${cacheKey}`);
+      } catch (err) {
+        console.warn(`[WasmLoader] Failed to close ${cacheKey}:`, err);
+      }
+    }
+  }
+
+  /**
+   * Deletes an IndexedDB database for PGlite storage.
+   * This is necessary for factory reset to fully wipe corrupted database state.
+   *
+   * @param dataDir - The PGlite dataDir path (e.g., 'idb://app')
+   * @returns Promise that resolves when deletion completes
+   */
+  async deleteIndexedDB(dataDir: string): Promise<void> {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      throw new Error('IndexedDB is not available in this environment');
+    }
+
+    // Extract database name from idb:// path
+    // PGlite uses format: idb://dbname or idb://prefix/dbname
+    const idbPrefix = 'idb://';
+    if (!dataDir.startsWith(idbPrefix)) {
+      throw new Error(`Cannot delete non-IndexedDB path: ${dataDir}`);
+    }
+
+    const dbName = dataDir.slice(idbPrefix.length);
+    if (!dbName) {
+      throw new Error('Invalid IndexedDB path: database name is empty');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const request = window.indexedDB.deleteDatabase(dbName);
+
+      request.onsuccess = () => {
+        console.info(`[WasmLoader] Successfully deleted IndexedDB database: ${dbName}`);
+        resolve();
+      };
+
+      request.onerror = () => {
+        const error = new Error(`Failed to delete IndexedDB database: ${dbName}`);
+        console.error('[WasmLoader]', error, request.error);
+        reject(error);
+      };
+
+      request.onblocked = () => {
+        console.warn(
+          `[WasmLoader] IndexedDB deletion blocked for: ${dbName}. Close all tabs/connections.`
+        );
+        // Don't reject - the database will be deleted when connections close
+      };
+    });
   }
 }
 

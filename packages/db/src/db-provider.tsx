@@ -513,6 +513,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setVectorEnabled(false);
         setReady(false);
         setLazyInitialized(false);
+
+        // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
+        // This is critical for web - without it, PGlite reopens the corrupted database
+        if (resolvedPath.startsWith('idb://')) {
+          try {
+            await wasmLoader.deleteIndexedDB(resolvedPath);
+            logger.info('[DbProvider] IndexedDB deleted successfully');
+          } catch (err) {
+            logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
+          }
+        }
+
         await initializeDirectPGlite({ value: false });
       },
       clearQueuesAndEmbeddingSets: async () => {
@@ -547,6 +559,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       purgeQueuesAndSetsElectron,
       purgeQueuesAndSetsTx,
       exposedDb,
+      resolvedPath,
     ]
   );
 
