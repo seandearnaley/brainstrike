@@ -1,4 +1,5 @@
 import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
+import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 import {
   createBrowserEmbeddingQueuePort,
@@ -66,7 +67,7 @@ describe('createBrowserEmbeddingQueuePort', () => {
     await vi.waitUntil(() => eventListener.mock.calls.length >= 2);
 
     expect(queue.add).toHaveBeenCalledTimes(1);
-    const addRequest = (queue.add as unknown as vi.Mock).mock.calls[0]?.[0] as {
+    const addRequest = (queue.add as unknown as Mock).mock.calls[0]?.[0] as {
       targetDimension?: number;
       provider?: string;
       dimensionParameter?: string;
