@@ -1,5 +1,7 @@
 /**
  * Content Security Policy utility for consistent CSP across dev server and Electron
+ *
+ * This file is used to generate the CSP for the web application.
  */
 
 interface CSPDirectives {
