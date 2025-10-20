@@ -1,9 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git log main..feat/provider-registry --format=\"%h %s%n%b\")",
-      "Bash(git push -f origin fix/composite-key-model-picker)",
-      "Bash(bd update brainstrike-31 --notes \"$(cat <<''EOF''\n**Epic Progress Update:**\n\n**Completed:**\n- ✅ brainstrike-26: Model enablement in settings (closed)\n- ✅ brainstrike-33 (formerly 27): Consolidated model picker (merged in PR #404)\n- ✅ Post-merge bug fix: PR #406 created, reviewed, and approved\n\n**Current Status:**\nPR #406 is ready for merge:\n- Fixes composite key comparison bug in model picker\n- All UI tests passing (3/3)\n- Claude GitHub Actions review: APPROVE ✅\n- No breaking changes (codex P0 flag was false positive)\n- Rebased onto main with full provider-registry implementation\n\n**Next Steps:**\n- Merge PR #406\n- Final verification of epic completion\nEOF\n)\")"
+      "Bash(biome check packages/db/src/wasm-loader.ts packages/db/src/db-provider.tsx)",
+      "Bash(pnpm --filter @brainstrike/db test --run)",
+      "Bash(git add -A)",
+      "Bash(git commit -m \"fix(db): prevent TOAST corruption from React Strict Mode double-mounting\n\n**Root Cause:**\nPGlite TOAST corruption errors on fresh database caused by:\n1. React Strict Mode enabled (double-mounts components in dev)\n2. DbProvider doesn''t close database on unmount in dev mode (for HMR)\n3. First mount: Opens idb://web\n4. Strict Mode unmount: Does nothing (dev mode skip)\n5. Second mount: Opens idb://web AGAIN\n6. Two PGlite instances accessing same IndexedDB → TOAST corruption\n\n**Solution:**\nImplemented singleton pattern in WasmLoader:\n- Cache PGlite instances by dataDir path\n- Reuse existing instance when same path requested\n- Only create new instance if not already cached\n- Prevents concurrent IndexedDB access\n\n**Changes:**\n1. Added dbCache: Map<string, PGlite> to WasmLoader class\n2. Modified createPGlite() to check cache before creating instance\n3. Added closeCached() method for proper cleanup\n4. Caching only applies to persisted databases (idb://)\n5. Memory databases (memory://) always create new instances\n\n**Impact:**\n- ✅ No more TOAST corruption in web app dev mode\n- ✅ Safe with React Strict Mode double-mounting\n- ✅ No interference between desktop (Electron IPC) and web (IndexedDB)\n- ✅ All tests pass (278/278)\n\n**Testing:**\n- Factory reset now works correctly\n- Multiple remounts reuse same instance\n- Desktop and web use separate code paths\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
     ],
     "deny": [],
     "ask": []
