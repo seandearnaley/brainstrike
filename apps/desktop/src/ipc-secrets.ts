@@ -14,6 +14,16 @@ function isTestMode(): boolean {
 // In-memory storage for test mode
 const testModeSecrets = new Map<string, string>();
 
+/**
+ * Clears test mode secrets. Should be called in test cleanup to prevent
+ * module-level state leakage between test runs.
+ */
+export function clearTestModeSecrets(): void {
+  if (isTestMode()) {
+    testModeSecrets.clear();
+  }
+}
+
 function resolveEnvConfiguredProviders(): SupportedProvider[] {
   const configured: SupportedProvider[] = [];
   for (const provider of listAgentProviders()) {
@@ -49,6 +59,22 @@ async function appendStoredProviders(target: Set<string>, secrets: SecretsServic
   }
 }
 
+/**
+ * Registers IPC handlers for secure API key management.
+ *
+ * **Test Mode Behavior:**
+ * When running in test mode (NODE_ENV=test, ELECTRON_IS_E2E_TEST=true, or --test-mode),
+ * all secrets are stored in-memory and environment variables are IGNORED to prevent
+ * test pollution from host environment. Call `clearTestModeSecrets()` in test cleanup
+ * to prevent state leakage between test runs.
+ *
+ * **Production Behavior:**
+ * - Environment variables are checked first (via resolveProviderEnvKey)
+ * - Falls back to encrypted platform storage (SecretsService)
+ * - Merges both sources in the list operation
+ *
+ * @param secrets - The platform-specific secrets storage service
+ */
 export function registerSecretsIpcHandlers(secrets: SecretsService) {
   ipcMain.handle(
     'secrets:save',

@@ -30,10 +30,14 @@ describe('registerSecretsIpcHandlers', () => {
     process.env['ELECTRON_IS_E2E_TEST'] = ORIGINAL_ELECTRON_E2E;
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = undefined;
     process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = undefined;
     clearCachedAgentClient();
+
+    // Clear test mode secrets to prevent state leakage between tests
+    const { clearTestModeSecrets } = await import('../../ipc-secrets');
+    clearTestModeSecrets();
   });
 
   async function bootstrap(secretsService: SecretsServiceMock) {
@@ -73,7 +77,7 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
   });
 
-  it('merges environment providers with in-memory secrets in test mode', async () => {
+  it('uses only in-memory secrets in test mode (ignores env vars)', async () => {
     process.env['NODE_ENV'] = 'test';
     process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = 'sk-google';
 
@@ -94,7 +98,9 @@ describe('registerSecretsIpcHandlers', () => {
     await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
 
-    expect(result).toEqual(expect.arrayContaining(['anthropic', 'google']));
-    expect(result.filter((provider) => provider === 'google')).toHaveLength(1);
+    // Test mode should only include in-memory secrets, NOT env vars
+    expect(result).toEqual(['anthropic']);
+    expect(result).not.toContain('google');
+    expect(secretsService.listProviders).not.toHaveBeenCalled();
   });
 });
