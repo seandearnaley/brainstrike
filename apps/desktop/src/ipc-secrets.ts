@@ -91,12 +91,15 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
   });
 
   ipcMain.handle('secrets:list', async () => {
-    const providers = new Set<string>(resolveEnvConfiguredProviders());
+    // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
+      const providers = new Set<string>();
       appendTestModeProviders(providers);
       return Array.from(providers);
     }
 
+    // In production, include both env-configured and stored providers
+    const providers = new Set<string>(resolveEnvConfiguredProviders());
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);
   });
