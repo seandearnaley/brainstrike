@@ -16,6 +16,9 @@ export interface EmbedWorkerRequest {
    * Optional upper bound for batch sizing. Disclosed so the queue can tweak for stress tests.
    */
   readonly maxBatchSize?: number;
+  readonly provider?: string;
+  readonly targetDimension?: number;
+  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
 }
 
 export interface EmbedWorkerProgress {

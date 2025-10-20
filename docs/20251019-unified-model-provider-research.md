@@ -62,6 +62,11 @@ Frontend builds cannot access secure storage, so they will rely on statically in
 | google      | `VITE_PROVIDER_GOOGLE_API_KEY`      | `VITE_PROVIDER_GOOGLE_ENABLED`      |
 | openrouter  | `VITE_PROVIDER_OPENROUTER_API_KEY`  | `VITE_PROVIDER_OPENROUTER_ENABLED`  |
 
+### Embedding Queue Enforcement (current)
+
+- Browser queue tasks now propagate target-dimension metadata (defaulting to 768D) so renderer-side imports and workers share the same contract.
+- The embedding worker rejects requests that attempt to emit non-768D vectors and references provider-specific override parameters (`dimensions`, `output_dimensionality`, `output_dimension`) in the error payload to guide remediation.
+
 
 ## 5. Suggested Deliverables (for ticket breakdown)
 1. **Config foundation** – Introduce a shared provider registry describing every supported runtime, model list, and whether it can deliver 768D embeddings without post-processing.

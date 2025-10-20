@@ -66,6 +66,14 @@ describe('createBrowserEmbeddingQueuePort', () => {
     await vi.waitUntil(() => eventListener.mock.calls.length >= 2);
 
     expect(queue.add).toHaveBeenCalledTimes(1);
+    const addRequest = (queue.add as unknown as vi.Mock).mock.calls[0]?.[0] as {
+      targetDimension?: number;
+      provider?: string;
+      dimensionParameter?: string;
+    };
+    expect(addRequest.targetDimension).toBe(768);
+    expect(addRequest.provider).toBeUndefined();
+    expect(addRequest.dimensionParameter).toBeUndefined();
     expect(chunkRepository.update).toHaveBeenCalledTimes(1);
     expect(eventListener).toHaveBeenCalled();
 

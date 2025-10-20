@@ -1,5 +1,8 @@
+import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
+import { listAgentProviders } from './agent-client-loader';
+import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
 function isTestMode(): boolean {
@@ -10,6 +13,41 @@ function isTestMode(): boolean {
 
 // In-memory storage for test mode
 const testModeSecrets = new Map<string, string>();
+
+function resolveEnvConfiguredProviders(): SupportedProvider[] {
+  const configured: SupportedProvider[] = [];
+  for (const provider of listAgentProviders()) {
+    const value = resolveProviderEnvKey(provider);
+    if (value) {
+      configured.push(provider);
+    }
+  }
+  return configured;
+}
+
+function appendTestModeProviders(target: Set<string>) {
+  for (const [provider, value] of testModeSecrets.entries()) {
+    const trimmedValue = typeof value === 'string' ? value.trim() : '';
+    if (trimmedValue.length === 0) {
+      continue;
+    }
+    target.add(provider);
+  }
+}
+
+async function appendStoredProviders(target: Set<string>, secrets: SecretsService) {
+  const storedProviders = await secrets.listProviders();
+  for (const provider of storedProviders) {
+    if (typeof provider !== 'string') {
+      continue;
+    }
+    const trimmed = provider.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    target.add(trimmed);
+  }
+}
 
 export function registerSecretsIpcHandlers(secrets: SecretsService) {
   ipcMain.handle(
@@ -53,11 +91,13 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
   });
 
   ipcMain.handle('secrets:list', async () => {
-    // In test mode, return providers from in-memory storage
+    const providers = new Set<string>(resolveEnvConfiguredProviders());
     if (isTestMode()) {
-      return Array.from(testModeSecrets.keys());
+      appendTestModeProviders(providers);
+      return Array.from(providers);
     }
 
-    return await secrets.listProviders();
+    await appendStoredProviders(providers, secrets);
+    return Array.from(providers);
   });
 }

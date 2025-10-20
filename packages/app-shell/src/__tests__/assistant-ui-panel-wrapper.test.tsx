@@ -109,7 +109,6 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     providerGroups = [],
     selectedProvider,
     selectedModel,
-    onProviderChange,
     onModelChange,
     onModelToggle,
     disabled,
@@ -126,8 +125,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     }>;
     selectedProvider?: string;
     selectedModel?: string;
-    onProviderChange?: (value: string) => void;
-    onModelChange?: (value: string) => void;
+    onModelChange?: (compositeKey: string) => void;
     onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
     disabled?: boolean;
     disabledReason?: string;
@@ -137,6 +135,15 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
     const enabledModels = currentProvider?.models.filter((m) => m.enabled) ?? [];
     const allModels = currentProvider?.models ?? [];
 
+    // Extract model name from composite key (format: "provider::model")
+    const extractModelName = (compositeKey: string | undefined) => {
+      if (!compositeKey) return '';
+      const parts = compositeKey.split('::');
+      return parts.length === 2 ? parts[1] : compositeKey;
+    };
+
+    const modelName = extractModelName(selectedModel);
+
     return (
       <div data-testid="assistant-ui-panel">
         <div data-testid="panel-disabled">{String(disabled)}</div>
@@ -145,7 +152,19 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
         <select
           data-testid="provider-select"
           value={selectedProvider ?? ''}
-          onChange={(e) => onProviderChange?.(e.target.value)}
+          onChange={(e) => {
+            // When provider changes, construct composite key with default model if enabled, otherwise first enabled model
+            const newProvider = e.target.value;
+            const provider = providers.find((p) => p.id === newProvider);
+            if (provider) {
+              const enabledModels = provider.models.filter((m) => m.enabled);
+              const defaultModel = enabledModels.find((m) => m.default);
+              const modelToSelect = defaultModel ?? enabledModels[0];
+              if (modelToSelect) {
+                onModelChange?.(`${newProvider}::${modelToSelect.id}`);
+              }
+            }
+          }}
           disabled={providers.length === 0}
         >
           <option value="">Select provider</option>
@@ -158,8 +177,13 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
 
         <select
           data-testid="model-select"
-          value={selectedModel ?? ''}
-          onChange={(e) => onModelChange?.(e.target.value)}
+          value={modelName}
+          onChange={(e) => {
+            // Construct composite key when model changes
+            if (selectedProvider) {
+              onModelChange?.(`${selectedProvider}::${e.target.value}`);
+            }
+          }}
           disabled={!selectedProvider || enabledModels.length === 0}
         >
           <option value="">Select model</option>
@@ -292,9 +316,10 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Verify model changed in store
     await waitFor(() => {
-      const { selectedProvider, modelsByProvider } = useAssistantPreferencesStore.getState();
-      expect(selectedProvider).toBe('openai');
-      expect(modelsByProvider.openai).toBe('gpt-4o');
+      const state = useAssistantPreferencesStore.getState();
+      expect(state.getSelectedProvider()).toBe('openai');
+      expect(state.getSelectedModel()).toBe('openai::gpt-4o');
+      expect(state.modelsByProvider.openai).toBe('gpt-4o');
     });
   });
 
@@ -409,9 +434,9 @@ describe('AssistantUiPanelWrapper', () => {
     render(<AssistantUiPanelWrapper />);
 
     await waitFor(() => {
-      const { selectedProvider, modelsByProvider } = useAssistantPreferencesStore.getState();
-      expect(selectedProvider).toBe('openai');
-      expect(modelsByProvider.openai).toBe('gpt-4o-mini');
+      const state = useAssistantPreferencesStore.getState();
+      expect(state.getSelectedProvider()).toBe('openai');
+      expect(state.modelsByProvider.openai).toBe('gpt-4o-mini');
     });
 
     // Change provider
@@ -419,17 +444,17 @@ describe('AssistantUiPanelWrapper', () => {
     await user.selectOptions(screen.getByTestId('provider-select'), 'anthropic');
 
     await waitFor(() => {
-      const { selectedProvider, modelsByProvider } = useAssistantPreferencesStore.getState();
-      expect(selectedProvider).toBe('anthropic');
-      expect(modelsByProvider.anthropic).toBe('claude-3-5-haiku-latest');
+      const state = useAssistantPreferencesStore.getState();
+      expect(state.getSelectedProvider()).toBe('anthropic');
+      expect(state.modelsByProvider.anthropic).toBe('claude-3-5-haiku-latest');
     });
 
     // Change model
     await user.selectOptions(screen.getByTestId('model-select'), 'claude-3-5-sonnet-latest');
 
     await waitFor(() => {
-      const { modelsByProvider } = useAssistantPreferencesStore.getState();
-      expect(modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+      const state = useAssistantPreferencesStore.getState();
+      expect(state.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
     });
   });
 
@@ -443,23 +468,31 @@ describe('AssistantUiPanelWrapper', () => {
       expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
     });
 
-    const initialModel = useAssistantPreferencesStore.getState().getSelectedModel();
-    if (!initialModel) {
+    const initialCompositeModel = useAssistantPreferencesStore.getState().getSelectedModel();
+    if (!initialCompositeModel) {
       throw new Error('expected initial model');
     }
 
-    const toggle = screen.getByTestId(`model-toggle-openai-${initialModel}`) as HTMLInputElement;
+    // Extract just the model name from composite key (format: "provider::model")
+    const initialModelName = initialCompositeModel.split('::')[1];
+    if (!initialModelName) {
+      throw new Error('expected model name in composite key');
+    }
+
+    const toggle = screen.getByTestId(
+      `model-toggle-openai-${initialModelName}`
+    ) as HTMLInputElement;
     await user.click(toggle);
 
     await waitFor(() => {
       const state = useAssistantPreferencesStore.getState();
-      expect(state.enabledModelsByProvider.openai).not.toContain(initialModel);
-      expect(state.getSelectedModel()).not.toBe(initialModel);
+      expect(state.enabledModelsByProvider.openai).not.toContain(initialModelName);
+      expect(state.getSelectedModel()).not.toBe(initialCompositeModel);
     });
 
     await waitFor(() => {
       const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-      expect(modelSelect.value).not.toBe(initialModel);
+      expect(modelSelect.value).not.toBe(initialModelName);
     });
   });
 });

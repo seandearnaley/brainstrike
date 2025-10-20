@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git commit -m \"chore(beads): update brainstrike-13 and brainstrike-14 status to closed\")",
-      "Bash(gh api repos/seandearnaley/brainstrike/pulls/401/reviews --jq '.[] | \"\"Review by: \\(.user.login)\\nState: \\(.state)\\nBody:\\n\\(.body)\\n\\n---\\n\"\"')"
+      "Bash(gh api repos/seandearnaley/brainstrike/pulls/401/reviews --jq '.[] | \"\"Review by: \\(.user.login)\\nState: \\(.state)\\nBody:\\n\\(.body)\\n\\n---\\n\"\"')",
+      "WebFetch(domain:zustand.docs.pmnd.rs)"
     ],
     "deny": [],
     "ask": []

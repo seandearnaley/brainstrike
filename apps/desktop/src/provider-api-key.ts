@@ -1,5 +1,6 @@
 import { isSupportedProvider } from '@brainstrike/agent';
-import { listProviders, providerEnvKeys, type SupportedProvider } from '@brainstrike/agent/client';
+import type { SupportedProvider } from '@brainstrike/agent/client';
+import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService } from './secrets';
 
 function normalizeSecretValue(value: unknown): string | undefined {
@@ -11,7 +12,7 @@ function normalizeSecretValue(value: unknown): string | undefined {
 }
 
 export function resolveProviderEnvKey(provider: SupportedProvider): string | undefined {
-  const envKeys = providerEnvKeys(provider);
+  const envKeys = getAgentProviderEnvKeys(provider);
   for (const envKey of envKeys) {
     const value = normalizeSecretValue(process.env[envKey]);
     if (value) {
@@ -47,7 +48,7 @@ export async function readProviderApiKey(provider: SupportedProvider): Promise<s
 
 export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
   const configured = new Set<SupportedProvider>();
-  const supportedProviders = listProviders().map((provider) => provider.id);
+  const supportedProviders = listAgentProviders();
 
   for (const provider of supportedProviders) {
     if (resolveProviderEnvKey(provider)) {

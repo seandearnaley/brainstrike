@@ -39,6 +39,7 @@ import { useFileImportService } from './base-file-import-service';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
+const STANDARD_EMBEDDING_DIMENSION = 768;
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -263,6 +264,7 @@ export function useEnhancedFileImportService(
       async enqueueBatch(chunks, fileRecordId, options) {
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
+        const expectedDimension = options?.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
 
         for (const chunk of chunks) {
           if (!chunk.id || !chunk.contentHash) {
@@ -282,6 +284,7 @@ export function useEnhancedFileImportService(
               chunkId: chunk.id,
               fileRecordId,
               embeddingSetId: chunk.embeddingSetId ?? null,
+              expectedDimension,
             },
             dedupeKey,
           });

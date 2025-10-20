@@ -10,17 +10,22 @@ import { createWithEqualityFn as create } from 'zustand/traditional';
 type EnabledModelsMap = Record<SupportedProvider, string[]>;
 
 interface AssistantPreferencesData {
-  selectedProvider: SupportedProvider | null;
+  selectedModel: string | null; // Composite key: "provider::model"
   modelsByProvider: Record<SupportedProvider, string>;
   enabledModelsByProvider: EnabledModelsMap;
 }
 
 interface AssistantPreferencesActions {
-  setProvider: (provider: SupportedProvider | null) => void;
-  clearProvider: () => void;
-  setModel: (provider: SupportedProvider, model: string) => void;
+  setModel: (compositeKey: string) => void;
+  clearModel: () => void;
   setModelEnabled: (provider: SupportedProvider, model: string, enabled: boolean) => void;
+  setProviderModelsEnabled: (
+    provider: SupportedProvider,
+    models: readonly string[],
+    enabled: boolean
+  ) => void;
   getSelectedModel: () => string | null;
+  getSelectedProvider: () => SupportedProvider | null;
   getEnabledModels: (provider: SupportedProvider) => string[];
   getAvailableProviders: () => Promise<SupportedProvider[]>;
 }
@@ -46,8 +51,25 @@ function orderByProviderCanonicalList(
   models: Iterable<string>
 ): string[] {
   const canonical = PROVIDER_MODELS[provider] ?? [];
-  const allowed = new Set(models);
-  return canonical.filter((model) => allowed.has(model));
+  const input = Array.from(models);
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  for (const model of canonical) {
+    if (input.includes(model)) {
+      ordered.push(model);
+      seen.add(model);
+    }
+  }
+
+  for (const model of input) {
+    if (!seen.has(model)) {
+      ordered.push(model);
+      seen.add(model);
+    }
+  }
+
+  return ordered;
 }
 
 function resolvePreferredModel(
@@ -156,8 +178,8 @@ function disableModelForProvider(
     },
   };
 
-  const selectedModel = state.modelsByProvider[provider];
-  if (selectedModel === model) {
+  const providerModel = state.modelsByProvider[provider];
+  if (providerModel === model) {
     const fallback = resolvePreferredModel(provider, nextEnabled);
     if (fallback) {
       updates.modelsByProvider = {
@@ -168,66 +190,94 @@ function disableModelForProvider(
       const nextModels = { ...state.modelsByProvider };
       delete nextModels[provider];
       updates.modelsByProvider = nextModels;
-      if (state.selectedProvider === provider) {
-        updates.selectedProvider = null;
-      }
+    }
+  }
+
+  // Clear selectedModel if the currently selected model is being disabled
+  const currentComposite = state.selectedModel;
+  if (currentComposite) {
+    const [currentProvider, currentModel] = currentComposite.split('::');
+    if (currentProvider === provider && currentModel === model) {
+      updates.selectedModel = null;
     }
   }
 
   return updates;
 }
 
+type AccumulatedState = {
+  modelsByProvider: Record<SupportedProvider, string>;
+  enabledModelsByProvider: EnabledModelsMap;
+  selectedModel: string | null;
+  hasChanges: boolean;
+};
+
+function processModelUpdate(
+  accumulated: AccumulatedState,
+  state: Store,
+  provider: SupportedProvider,
+  model: string,
+  enabled: boolean
+): AccumulatedState {
+  const snapshot = {
+    ...state,
+    modelsByProvider: accumulated.modelsByProvider,
+    enabledModelsByProvider: accumulated.enabledModelsByProvider,
+    selectedModel: accumulated.selectedModel,
+  } as Store;
+
+  const updates = enabled
+    ? enableModelForProvider(snapshot, provider, model)
+    : disableModelForProvider(snapshot, provider, model);
+
+  if (!updates) {
+    return accumulated;
+  }
+
+  return {
+    modelsByProvider: updates.modelsByProvider
+      ? { ...accumulated.modelsByProvider, ...updates.modelsByProvider }
+      : accumulated.modelsByProvider,
+    enabledModelsByProvider: updates.enabledModelsByProvider
+      ? { ...accumulated.enabledModelsByProvider, ...updates.enabledModelsByProvider }
+      : accumulated.enabledModelsByProvider,
+    selectedModel: Object.hasOwn(updates, 'selectedModel')
+      ? (updates.selectedModel ?? null)
+      : accumulated.selectedModel,
+    hasChanges: true,
+  };
+}
+
 export const useAssistantPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
-      selectedProvider: null,
+      selectedModel: null,
       modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
 
-      setProvider: (provider) =>
+      setModel: (compositeKey) =>
         set((state) => {
-          if (!provider) {
-            return { selectedProvider: null };
-          }
-
-          const enabledModels = ensureEnabledModels(state.enabledModelsByProvider, provider);
-          if (enabledModels.length === 0) {
-            const nextModels = { ...state.modelsByProvider };
-            delete nextModels[provider];
-            return {
-              selectedProvider: provider,
-              modelsByProvider: nextModels,
-            };
-          }
-
-          const currentSelection = state.modelsByProvider[provider];
-          if (currentSelection && enabledModels.includes(currentSelection)) {
-            return { selectedProvider: provider };
-          }
-
-          const preferred = resolvePreferredModel(provider, enabledModels);
-          if (!preferred) {
-            return { selectedProvider: provider };
-          }
-
-          return {
-            selectedProvider: provider,
-            modelsByProvider: { ...state.modelsByProvider, [provider]: preferred },
-          };
-        }),
-
-      clearProvider: () => set({ selectedProvider: null }),
-
-      setModel: (provider, model) =>
-        set((state) => {
-          const enabled = ensureEnabledModels(state.enabledModelsByProvider, provider);
-          if (!enabled.includes(model)) {
+          const [provider, model] = compositeKey.split('::');
+          if (!provider || !model) {
             return state;
           }
+
+          const enabledModels = ensureEnabledModels(
+            state.enabledModelsByProvider,
+            provider as SupportedProvider
+          );
+          if (!enabledModels.includes(model)) {
+            return state;
+          }
+
+          // Single atomic update: selectedModel composite key + remember preference
           return {
+            selectedModel: compositeKey,
             modelsByProvider: { ...state.modelsByProvider, [provider]: model },
           };
         }),
+
+      clearModel: () => set({ selectedModel: null }),
 
       setModelEnabled: (provider, model, enabled) =>
         set((state) => {
@@ -238,23 +288,51 @@ export const useAssistantPreferencesStore = create<Store>()(
           return updates ?? state;
         }),
 
+      setProviderModelsEnabled: (provider, models, enabled) =>
+        set((state) => {
+          if (!models.length) {
+            return state;
+          }
+
+          const initial: AccumulatedState = {
+            modelsByProvider: state.modelsByProvider,
+            enabledModelsByProvider: state.enabledModelsByProvider,
+            selectedModel: state.selectedModel,
+            hasChanges: false,
+          };
+
+          const accumulated = models.reduce(
+            (acc, model) => processModelUpdate(acc, state, provider, model, enabled),
+            initial
+          );
+
+          if (!accumulated.hasChanges) {
+            return state;
+          }
+
+          const result: Partial<Store> = {
+            modelsByProvider: accumulated.modelsByProvider,
+            enabledModelsByProvider: accumulated.enabledModelsByProvider,
+          };
+
+          if (accumulated.selectedModel !== state.selectedModel) {
+            result.selectedModel = accumulated.selectedModel;
+          }
+
+          return result;
+        }),
+
       getSelectedModel: () => {
-        const { selectedProvider, modelsByProvider, enabledModelsByProvider } = get();
-        if (!selectedProvider) {
+        return get().selectedModel;
+      },
+
+      getSelectedProvider: () => {
+        const { selectedModel } = get();
+        if (!selectedModel) {
           return null;
         }
-
-        const enabled = ensureEnabledModels(enabledModelsByProvider, selectedProvider);
-        if (enabled.length === 0) {
-          return null;
-        }
-
-        const current = modelsByProvider[selectedProvider];
-        if (current && enabled.includes(current)) {
-          return current;
-        }
-
-        return resolvePreferredModel(selectedProvider, enabled);
+        const [provider] = selectedModel.split('::');
+        return (provider as SupportedProvider) ?? null;
       },
 
       getEnabledModels: (provider) => {
@@ -286,7 +364,7 @@ export const useAssistantPreferencesStore = create<Store>()(
       version: STORE_VERSION,
       storage,
       partialize: (s) => ({
-        selectedProvider: s.selectedProvider,
+        selectedModel: s.selectedModel,
         modelsByProvider: s.modelsByProvider,
         enabledModelsByProvider: s.enabledModelsByProvider,
       }),
@@ -299,7 +377,9 @@ export const useAssistantPreferencesStore = create<Store>()(
           return persistedState as Partial<Store>;
         }
 
-        const base = persistedState as Partial<Store>;
+        const base = persistedState as Partial<Store> & {
+          selectedProvider?: SupportedProvider | null;
+        };
         const migratedEnabled: EnabledModelsMap = {
           ...DEFAULT_ENABLED_MODELS,
           ...(base.enabledModelsByProvider ?? {}),
@@ -312,8 +392,14 @@ export const useAssistantPreferencesStore = create<Store>()(
           );
         }
 
+        // Migrate from old selectedProvider format to new selectedModel composite key
+        let selectedModel: string | null = null;
+        if (base.selectedProvider && base.modelsByProvider?.[base.selectedProvider]) {
+          selectedModel = `${base.selectedProvider}::${base.modelsByProvider[base.selectedProvider]}`;
+        }
+
         return {
-          selectedProvider: base.selectedProvider ?? null,
+          selectedModel,
           modelsByProvider: {
             ...PROVIDER_DEFAULT_MODELS,
             ...(base.modelsByProvider ?? {}),
@@ -327,7 +413,7 @@ export const useAssistantPreferencesStore = create<Store>()(
 
 function resetStoreState() {
   useAssistantPreferencesStore.setState({
-    selectedProvider: null,
+    selectedModel: null,
     modelsByProvider: { ...PROVIDER_DEFAULT_MODELS },
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
   });

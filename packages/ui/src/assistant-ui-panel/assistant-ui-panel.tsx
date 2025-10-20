@@ -15,15 +15,22 @@ import {
   PencilIcon,
   RefreshCwIcon,
 } from 'lucide-react';
-import { type FC, useEffect, useState } from 'react';
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
 import { Badge } from '../badge';
 import { Button } from '../button';
-import { Checkbox } from '../checkbox';
-import { cn } from '../lib/utils';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '../select';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -72,8 +79,7 @@ export interface AssistantUiPanelProps {
   providerGroups?: ProviderGroupConfig[];
   selectedProvider?: string;
   selectedModel?: string;
-  onProviderChange?: (provider: string) => void;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (compositeKey: string) => void;
   onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
@@ -86,13 +92,10 @@ declare global {
 }
 
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
-  providers = [],
   providerGroups,
   selectedProvider,
   selectedModel,
-  onProviderChange,
   onModelChange,
-  onModelToggle,
   disabled = false,
   disabledReason,
 }) => {
@@ -123,12 +126,19 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
 
   const isComposerDisabled = Boolean(disabled);
 
+  // Extract model name from composite key (format: "provider::model")
+  const modelName = useMemo(() => {
+    if (!selectedModel) return undefined;
+    const parts = selectedModel.split('::');
+    return parts.length === 2 ? parts[1] : selectedModel;
+  }, [selectedModel]);
+
   const runtime = useDataStreamRuntime({
     api,
     body: {
       data: {
         provider: selectedProvider,
-        model: selectedModel,
+        model: modelName,
       },
     },
   });
@@ -143,20 +153,10 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
           {/* Provider and Model Selector Header */}
           {hasGroupedProviders ? (
-            <ProviderGroupsHeader
+            <ProviderModelHeader
               groups={groupedProviders}
               selectedProvider={selectedProvider}
               selectedModel={selectedModel}
-              onProviderChange={onProviderChange}
-              onModelChange={onModelChange}
-              onModelToggle={onModelToggle}
-            />
-          ) : providers.length > 0 ? (
-            <LegacyProviderHeader
-              providers={providers}
-              selectedProvider={selectedProvider}
-              selectedModel={selectedModel}
-              onProviderChange={onProviderChange}
               onModelChange={onModelChange}
             />
           ) : null}
@@ -393,305 +393,198 @@ const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
   browser: 'Browser',
 };
 
-interface ProviderGroupsHeaderProps {
+interface ProviderModelOption {
+  value: string;
+  provider: ProviderOptionConfig;
+  model: ProviderModelOptionConfig;
+  groupLabel: string;
+}
+
+interface NormalizedProviderGroup {
+  runtime: ProviderRuntimeCategory;
+  label: string;
+  providers: Array<{
+    provider: ProviderOptionConfig;
+    models: ProviderModelOptionConfig[];
+  }>;
+}
+
+interface ProviderModelHeaderProps {
   groups: ProviderGroupConfig[];
   selectedProvider?: string | undefined;
   selectedModel?: string | undefined;
-  onProviderChange?: ((provider: string) => void) | undefined;
-  onModelChange?: ((model: string) => void) | undefined;
-  onModelToggle?: ((provider: string, model: string, enabled: boolean) => void) | undefined;
+  onModelChange?: ((compositeKey: string) => void) | undefined;
 }
 
-const ProviderGroupsHeader: FC<ProviderGroupsHeaderProps> = ({
+const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
   groups,
   selectedProvider,
   selectedModel,
-  onProviderChange,
   onModelChange,
-  onModelToggle,
 }) => {
-  const visibleGroups = groups.filter((group) => group.providers.length > 0);
-  if (visibleGroups.length === 0) {
-    return null;
+  const normalizedGroups = useMemo<NormalizedProviderGroup[]>(() => {
+    return groups
+      .map((group) => {
+        const providers = group.providers
+          .map((provider) => ({
+            provider,
+            models: provider.models.filter((model) => model.enabled),
+          }))
+          .filter((entry) => entry.models.length > 0);
+        if (providers.length === 0) {
+          return null;
+        }
+        return {
+          runtime: group.runtime,
+          label: group.label ?? RUNTIME_LABELS[group.runtime],
+          providers,
+        };
+      })
+      .filter((group): group is NormalizedProviderGroup => group !== null);
+  }, [groups]);
+
+  const options = useMemo<ProviderModelOption[]>(() => {
+    return normalizedGroups.flatMap((group) =>
+      group.providers.flatMap((entry) =>
+        entry.models.map((model) => ({
+          value: `${entry.provider.id}::${model.id}`,
+          provider: entry.provider,
+          model,
+          groupLabel: group.label,
+        }))
+      )
+    );
+  }, [normalizedGroups]);
+
+  const selectedOption = useMemo<ProviderModelOption | undefined>(() => {
+    return options.find(
+      (option) => option.provider.id === selectedProvider && option.model.id === selectedModel
+    );
+  }, [options, selectedModel, selectedProvider]);
+
+  const [pendingValue, setPendingValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingValue) {
+      return;
+    }
+    const optionMatch = options.find((option) => option.value === pendingValue);
+    if (
+      optionMatch &&
+      optionMatch.provider.id === selectedProvider &&
+      optionMatch.model.id === selectedModel
+    ) {
+      setPendingValue(null);
+    }
+  }, [options, pendingValue, selectedModel, selectedProvider]);
+
+  const selectValue = pendingValue ?? selectedOption?.value ?? '';
+  const placeholder = options.length === 0 ? 'No models enabled' : 'Select a model';
+
+  const handleSelectChange = useCallback(
+    (value: string) => {
+      setPendingValue(value);
+      // value is composite key: "provider::model"
+      onModelChange?.(value);
+    },
+    [onModelChange]
+  );
+
+  const summaryProps: ProviderSelectionSummaryProps = {
+    provider: selectedOption?.provider,
+    model: selectedOption?.model,
+    selectedProvider,
+    selectedModel,
+  };
+
+  return (
+    <div className="flex-shrink-0 space-y-3 border-b border-border bg-muted/30 px-3 py-3">
+      <ProviderSelectionSummary {...summaryProps} />
+      <Select
+        value={selectValue}
+        onValueChange={handleSelectChange}
+        disabled={options.length === 0 || !onModelChange}
+      >
+        <SelectTrigger
+          className="h-9"
+          data-testid="assistant-model-dropdown"
+          aria-label="Select AI model"
+        >
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {normalizedGroups.map((group, groupIndex) => (
+            <div key={`${group.runtime}-${groupIndex}`}>
+              <SelectGroup>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.providers.flatMap((entry) =>
+                  entry.models.map((model) => {
+                    const value = `${entry.provider.id}::${model.id}`;
+                    return (
+                      <SelectItem
+                        key={value}
+                        value={value}
+                        data-testid={`assistant-model-option-${entry.provider.id}-${model.id}`}
+                      >
+                        <div className="flex flex-col">
+                          <span>{model.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {entry.provider.name}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })
+                )}
+              </SelectGroup>
+              {groupIndex < normalizedGroups.length - 1 ? <SelectSeparator /> : null}
+            </div>
+          ))}
+          {normalizedGroups.length === 0 ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">
+              Enable models in settings to choose them here.
+            </div>
+          ) : null}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};
+
+interface ProviderSelectionSummaryProps {
+  provider: ProviderOptionConfig | undefined;
+  model: ProviderModelOptionConfig | undefined;
+  selectedProvider?: string | undefined;
+  selectedModel?: string | undefined;
+}
+
+const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
+  provider,
+  model,
+  selectedProvider,
+  selectedModel,
+}) => {
+  if (!provider || !selectedProvider) {
+    return (
+      <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground">
+        Select a provider and model to start chatting.
+      </div>
+    );
   }
 
   return (
-    <div className="flex-shrink-0 px-3 py-3 border-b border-border bg-muted/30 space-y-3">
-      {visibleGroups.map((group) => (
-        <div
-          key={group.runtime}
-          className="space-y-2"
-          data-testid={`assistant-provider-group-${group.runtime}`}
-        >
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            {group.label ?? RUNTIME_LABELS[group.runtime]}
-          </p>
-          <div className="flex flex-col gap-2">
-            {group.providers.map((provider) => (
-              <ProviderCard
-                key={provider.id}
-                provider={provider}
-                selectedProvider={selectedProvider}
-                selectedModel={selectedModel}
-                onProviderChange={onProviderChange}
-                onModelChange={onModelChange}
-                onModelToggle={onModelToggle}
-              />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-interface ProviderCardProps {
-  provider: ProviderOptionConfig;
-  selectedProvider?: string | undefined;
-  selectedModel?: string | undefined;
-  onProviderChange?: ((provider: string) => void) | undefined;
-  onModelChange?: ((model: string) => void) | undefined;
-  onModelToggle?: ((provider: string, model: string, enabled: boolean) => void) | undefined;
-}
-
-const ProviderCard: FC<ProviderCardProps> = ({
-  provider,
-  selectedProvider,
-  selectedModel,
-  onProviderChange,
-  onModelChange,
-  onModelToggle,
-}) => {
-  const isSelected = provider.id === selectedProvider;
-  const enabledCount = provider.models.filter((model) => model.enabled).length;
-  const radioId = `assistant-provider-${provider.id}`;
-
-  const handleProviderChange = () => {
-    onProviderChange?.(provider.id);
-  };
-
-  return (
-    <div
-      className={cn(
-        'rounded-md border bg-background p-3 transition-colors',
-        isSelected ? 'border-primary bg-primary/5' : 'border-border'
-      )}
-      data-testid={`assistant-provider-card-${provider.id}`}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <input
-            id={radioId}
-            type="radio"
-            name="assistant-provider"
-            className="h-4 w-4 cursor-pointer accent-primary"
-            checked={isSelected}
-            onChange={handleProviderChange}
-            disabled={!onProviderChange}
-            aria-label={`Select ${provider.name}`}
-            data-testid={`assistant-provider-radio-${provider.id}`}
-          />
-          <label
-            htmlFor={radioId}
-            className={cn(
-              'cursor-pointer select-none',
-              isSelected ? 'text-foreground' : 'text-foreground'
-            )}
-          >
-            <span className="text-sm font-medium leading-none">{provider.name}</span>
-            <p className="text-xs text-muted-foreground">
-              {enabledCount === 1 ? '1 model enabled' : `${enabledCount} models enabled`}
-            </p>
-          </label>
-        </div>
-        <ProviderCapabilityBadges provider={provider} />
-      </div>
-
-      <div className="mt-3 space-y-1" data-testid={`assistant-provider-models-${provider.id}`}>
-        {provider.models.map((model) => (
-          <ProviderModelRow
-            key={model.id}
-            providerId={provider.id}
-            model={model}
-            selectedModel={selectedModel}
-            onModelChange={onModelChange}
-            onModelToggle={onModelToggle}
-          />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const ProviderCapabilityBadges: FC<{ provider: ProviderOptionConfig }> = ({ provider }) => {
-  const { capabilities } = provider;
-  return (
-    <div className="flex flex-wrap justify-end gap-1">
-      {capabilities.llm && <Badge variant="secondary">Chat</Badge>}
-      {capabilities.embeddings && (
-        <Badge variant={capabilities.supportsStandardEmbeddingDimension ? 'secondary' : 'outline'}>
-          {capabilities.supportsStandardEmbeddingDimension ? 'Embeddings · 768D' : 'Embeddings'}
-        </Badge>
-      )}
-      {capabilities.streaming && <Badge variant="outline">Streaming</Badge>}
-    </div>
-  );
-};
-
-interface ProviderModelRowProps {
-  providerId: string;
-  model: ProviderModelOptionConfig;
-  selectedModel?: string | undefined;
-  onModelChange?: ((model: string) => void) | undefined;
-  onModelToggle?: ((provider: string, model: string, enabled: boolean) => void) | undefined;
-}
-
-const ProviderModelRow: FC<ProviderModelRowProps> = ({
-  providerId,
-  model,
-  selectedModel,
-  onModelChange,
-  onModelToggle,
-}) => {
-  const checkboxId = `assistant-model-toggle-${providerId}-${model.id}`;
-  const isSelected = selectedModel === model.id;
-
-  const handleToggle = (checked: boolean | 'indeterminate') => {
-    if (!onModelToggle) return;
-    onModelToggle(providerId, model.id, checked === true);
-  };
-
-  const handleSelect = () => {
-    if (!model.enabled || !onModelChange) return;
-    onModelChange(model.id);
-  };
-
-  const typeBadgeLabel = model.type === 'llm' ? 'LLM' : 'Embedding';
-
-  return (
-    <div
-      className={cn(
-        'flex items-center justify-between gap-2 rounded-md border px-2 py-1 transition-colors',
-        model.enabled
-          ? 'border-border/60 bg-background'
-          : 'border-dashed border-border/40 bg-muted/20',
-        isSelected && model.enabled ? 'border-primary bg-primary/10' : null
-      )}
-      data-testid={`assistant-model-row-${providerId}-${model.id}`}
-    >
-      <div className="flex items-center gap-2">
-        <Checkbox
-          id={checkboxId}
-          checked={model.enabled}
-          onCheckedChange={handleToggle}
-          disabled={!onModelToggle}
-          aria-label={`Toggle ${model.label}`}
-          data-testid={`assistant-model-toggle-${providerId}-${model.id}`}
-        />
-        <button
-          type="button"
-          onClick={handleSelect}
-          disabled={!model.enabled || !onModelChange}
-          className={cn(
-            'flex items-center gap-2 text-sm font-medium leading-snug transition-colors',
-            model.enabled && onModelChange
-              ? 'text-foreground hover:text-primary'
-              : 'text-muted-foreground',
-            isSelected && model.enabled
-              ? 'underline decoration-primary decoration-2 underline-offset-4'
-              : null
-          )}
-          data-testid={`assistant-model-select-${providerId}-${model.id}`}
-        >
-          <span>{model.label}</span>
-          {model.default && <Badge variant="outline">Default</Badge>}
-        </button>
+    <div className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          In use
+        </p>
+        <p className="text-sm font-medium leading-tight">{provider.name}</p>
       </div>
       <div className="flex flex-wrap items-center justify-end gap-1 text-xs">
-        <Badge variant="outline">{typeBadgeLabel}</Badge>
-        {model.supportsStreaming && <Badge variant="outline">Streaming</Badge>}
-        {model.type === 'embedding' && model.supportsStandardDimension && (
+        <Badge variant="secondary">{model?.label ?? selectedModel ?? 'Select a model'}</Badge>
+        {model?.supportsStreaming && <Badge variant="outline">Streaming</Badge>}
+        {model?.type === 'embedding' && model.supportsStandardDimension && (
           <Badge variant="outline">768D</Badge>
-        )}
-      </div>
-    </div>
-  );
-};
-
-interface LegacyProviderHeaderProps {
-  providers: ProviderConfig[];
-  selectedProvider?: string | undefined;
-  selectedModel?: string | undefined;
-  onProviderChange?: ((provider: string) => void) | undefined;
-  onModelChange?: ((model: string) => void) | undefined;
-}
-
-const LegacyProviderHeader: FC<LegacyProviderHeaderProps> = ({
-  providers,
-  selectedProvider,
-  selectedModel,
-  onProviderChange,
-  onModelChange,
-}) => {
-  if (providers.length === 0) {
-    return null;
-  }
-
-  const currentProvider = providers.find((provider) => provider.id === selectedProvider);
-  const availableModels = currentProvider?.models ?? [];
-
-  const providerSelectDisabled = providers.length === 0;
-  const modelSelectDisabled = !selectedProvider || availableModels.length === 0;
-
-  return (
-    <div className="flex-shrink-0 px-3 py-2 border-b border-border bg-muted/30">
-      <div className="flex gap-2 items-center">
-        {onProviderChange && (
-          <Select
-            value={selectedProvider ?? ''}
-            onValueChange={onProviderChange}
-            disabled={providerSelectDisabled}
-          >
-            <SelectTrigger
-              className="w-36 h-8 text-sm"
-              data-testid="assistant-provider-select"
-              aria-label="Select AI provider"
-              disabled={providerSelectDisabled}
-            >
-              <SelectValue placeholder="Select provider" />
-            </SelectTrigger>
-            <SelectContent>
-              {providers.map((provider) => (
-                <SelectItem key={provider.id} value={provider.id}>
-                  {provider.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-
-        {onModelChange && (
-          <Select
-            value={selectedModel ?? ''}
-            onValueChange={onModelChange}
-            disabled={modelSelectDisabled}
-          >
-            <SelectTrigger
-              className="w-52 h-8 text-sm"
-              data-testid="assistant-model-select"
-              aria-label="Select model"
-              disabled={modelSelectDisabled}
-            >
-              <SelectValue placeholder="Select model" />
-            </SelectTrigger>
-            <SelectContent>
-              {availableModels.map((model) => (
-                <SelectItem key={model} value={model}>
-                  {model}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         )}
       </div>
     </div>

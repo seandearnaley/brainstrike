@@ -36,45 +36,48 @@ describe('assistant-preferences-store', () => {
     Reflect.deleteProperty(secretTarget, 'secrets');
   });
 
-  it('returns default model when provider is selected without override', () => {
+  it('returns composite model when set', () => {
     const store = useAssistantPreferencesStore.getState();
-    expect(store.selectedProvider).toBeNull();
+    expect(store.selectedModel).toBeNull();
     expect(store.getSelectedModel()).toBeNull();
 
-    store.setProvider('openai');
-    expect(store.getSelectedModel()).toBe(PROVIDER_DEFAULT_MODELS.openai);
+    const compositeKey = `openai::${PROVIDER_DEFAULT_MODELS.openai}`;
+    store.setModel(compositeKey);
+    expect(store.getSelectedModel()).toBe(compositeKey);
+    expect(store.getSelectedProvider()).toBe('openai');
   });
 
   it('allows overriding models per provider', () => {
     const snapshot = useAssistantPreferencesStore.getState();
 
-    snapshot.setProvider('anthropic');
-    snapshot.setModel('anthropic', 'claude-3-5-sonnet-latest');
+    const compositeKey = 'anthropic::claude-3-5-sonnet-latest';
+    snapshot.setModel(compositeKey);
 
     const updated = useAssistantPreferencesStore.getState();
-    expect(updated.getSelectedModel()).toBe('claude-3-5-sonnet-latest');
+    expect(updated.getSelectedModel()).toBe(compositeKey);
+    expect(updated.getSelectedProvider()).toBe('anthropic');
     expect(updated.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
   });
 
-  it('selects fallback model when the current model is disabled', () => {
+  it('clears selection when the current model is disabled', () => {
     const store = useAssistantPreferencesStore.getState();
-    store.setProvider('openai');
+    const initialModel = PROVIDER_DEFAULT_MODELS.openai!;
+    const compositeKey = `openai::${initialModel}`;
 
-    const initialModel = store.getSelectedModel();
-    expect(initialModel).toBe(PROVIDER_DEFAULT_MODELS.openai);
+    store.setModel(compositeKey);
+    expect(store.getSelectedModel()).toBe(compositeKey);
 
-    store.setModelEnabled('openai', initialModel!, false);
+    store.setModelEnabled('openai', initialModel, false);
 
     const after = useAssistantPreferencesStore.getState();
-    const fallback = after.getSelectedModel();
-    expect(fallback).toBeDefined();
-    expect(fallback).not.toBe(initialModel);
+    expect(after.getSelectedModel()).toBeNull();
     expect(after.enabledModelsByProvider.openai).not.toContain(initialModel);
   });
 
-  it('clears provider selection when all models are disabled', () => {
+  it('clears selection when all models are disabled', () => {
     const store = useAssistantPreferencesStore.getState();
-    store.setProvider('openai');
+    const compositeKey = `openai::${PROVIDER_DEFAULT_MODELS.openai}`;
+    store.setModel(compositeKey);
 
     const enabledModels = store.getEnabledModels('openai');
     expect(enabledModels.length).toBeGreaterThan(0);
@@ -84,24 +87,31 @@ describe('assistant-preferences-store', () => {
     }
 
     const after = useAssistantPreferencesStore.getState();
-    expect(after.selectedProvider).toBeNull();
+    expect(after.selectedModel).toBeNull();
     expect(after.getSelectedModel()).toBeNull();
     expect(after.getEnabledModels('openai')).toEqual([]);
   });
 
   it('ignores setModel calls for disabled models', () => {
     const store = useAssistantPreferencesStore.getState();
-    store.setProvider('google');
 
     const [firstModel, secondModel] = store.getEnabledModels('google');
     expect(firstModel).toBeDefined();
     expect(secondModel).toBeDefined();
 
-    store.setModelEnabled('google', firstModel!, false);
-    store.setModel('google', firstModel!);
+    // Set second model first
+    const validComposite = `google::${secondModel}`;
+    store.setModel(validComposite);
+    expect(store.getSelectedModel()).toBe(validComposite);
 
+    // Disable first model and try to set it
+    store.setModelEnabled('google', firstModel!, false);
+    const invalidComposite = `google::${firstModel}`;
+    store.setModel(invalidComposite);
+
+    // Should still be the valid one
     const updated = useAssistantPreferencesStore.getState();
-    expect(updated.getSelectedModel()).toBe(secondModel);
+    expect(updated.getSelectedModel()).toBe(validComposite);
   });
 
   it('resolves available providers from secrets API', async () => {
@@ -123,6 +133,59 @@ describe('assistant-preferences-store', () => {
 
     const providers = await useAssistantPreferencesStore.getState().getAvailableProviders();
     expect(providers).toEqual([]);
+  });
+
+  it('updates model with composite key', () => {
+    const store = useAssistantPreferencesStore.getState();
+
+    // Initially no model selected
+    expect(store.selectedModel).toBeNull();
+    expect(store.getSelectedModel()).toBeNull();
+
+    // Select anthropic with a specific model using composite key
+    const compositeKey = 'anthropic::claude-3-5-sonnet-latest';
+    store.setModel(compositeKey);
+
+    const updated = useAssistantPreferencesStore.getState();
+
+    // Model should be selected with composite key
+    expect(updated.selectedModel).toBe(compositeKey);
+    expect(updated.getSelectedProvider()).toBe('anthropic');
+    expect(updated.modelsByProvider.anthropic).toBe('claude-3-5-sonnet-latest');
+    expect(updated.getSelectedModel()).toBe(compositeKey);
+  });
+
+  it('switches between providers using composite keys', () => {
+    const initialStore = useAssistantPreferencesStore.getState();
+
+    // Start with openai
+    const openaiKey = `openai::${PROVIDER_DEFAULT_MODELS.openai}`;
+    initialStore.setModel(openaiKey);
+
+    const withOpenAI = useAssistantPreferencesStore.getState();
+    expect(withOpenAI.selectedModel).toBe(openaiKey);
+    expect(withOpenAI.getSelectedProvider()).toBe('openai');
+
+    // Get an enabled model for Google
+    const [firstGoogleModel, secondGoogleModel] = initialStore.getEnabledModels('google');
+    const googleModel = secondGoogleModel ?? firstGoogleModel!;
+    expect(googleModel).toBeDefined();
+
+    // Switch to google with a specific model using composite key
+    const googleKey = `google::${googleModel}`;
+    withOpenAI.setModel(googleKey);
+
+    // Get fresh state
+    const updated = useAssistantPreferencesStore.getState();
+
+    // Both should switch
+    expect(updated.selectedModel).toBe(googleKey);
+    expect(updated.getSelectedProvider()).toBe('google');
+    expect(updated.modelsByProvider.google).toBe(googleModel);
+    expect(updated.getSelectedModel()).toBe(googleKey);
+
+    // Old provider's model should still be preserved
+    expect(updated.modelsByProvider.openai).toBe(PROVIDER_DEFAULT_MODELS.openai);
   });
 
   it('persists to in-memory storage when localStorage is unavailable', () => {
@@ -147,8 +210,8 @@ describe('assistant-preferences-store', () => {
     });
 
     const store = useAssistantPreferencesStore.getState();
-    store.setProvider('openrouter');
-    store.setModel('openrouter', 'gpt-4o-mini');
+    const compositeKey = 'openrouter::gpt-4o-mini';
+    store.setModel(compositeKey);
 
     const persistedValue = storage.getItem(options.name)!;
     expect(persistedValue).not.toBeNull();
@@ -163,13 +226,13 @@ describe('assistant-preferences-store', () => {
 
     const snapshot = persistedValue as {
       state?: {
-        selectedProvider: SupportedProvider | null;
+        selectedModel: string | null;
         modelsByProvider: Record<SupportedProvider, string>;
         enabledModelsByProvider: Record<SupportedProvider, string[]>;
       };
     };
 
-    expect(snapshot.state?.selectedProvider).toBe('openrouter');
+    expect(snapshot.state?.selectedModel).toBe(compositeKey);
     expect(snapshot.state?.modelsByProvider.openrouter).toBe('gpt-4o-mini');
     expect(snapshot.state?.enabledModelsByProvider.openrouter).toEqual(
       expect.arrayContaining(PROVIDER_MODELS.openrouter as string[])

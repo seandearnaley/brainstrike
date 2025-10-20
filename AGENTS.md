@@ -4,6 +4,24 @@ October 2025:
 
 We track work in Beads instead of Markdown. Run `bd quickstart` to see how.  You can use the bd tools.
 
+
+## Codanna MCP Tools
+
+Tool priority:
+- **Tier 1**: semantic_search_with_context, analyze_impact
+- **Tier 2**: find_symbol, get_calls, find_callers
+- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
+
+Workflow:
+1. semantic_search_with_context - Find relevant code with context
+2. analyze_impact - Map dependencies and change radius
+3. find_symbol, get_calls, find_callers - Get specific details
+
+Start with semantic search, then narrow with specific queries.
+
+
+
+
 Note electron desktop e2e tests have trouble running in agent environments complaining of remote port issues, avoid running them in tests, instead ask the user to run them in their environment and report back.
 
 ## Project Structure & Modules
@@ -144,22 +162,8 @@ expect(logs).toHaveLength(1);
 
 
 
-## Codanna MCP Tools
 
-Tool priority:
-- **Tier 1**: semantic_search_with_context, analyze_impact
-- **Tier 2**: find_symbol, get_calls, find_callers
-- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
-
-Workflow:
-1. semantic_search_with_context - Find relevant code with context
-2. analyze_impact - Map dependencies and change radius
-3. find_symbol, get_calls, find_callers - Get specific details
-
-Start with semantic search, then narrow with specific queries.
-
-
-
+---------
 This file should evolve alongside the repo. Treat it as **living  
 documentation**: update it whenever build commands change, new tools are  
 added or security considerations evolve. Keeping AGENTS.md accurate will  

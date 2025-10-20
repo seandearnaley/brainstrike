@@ -78,6 +78,8 @@ async function getTransformersModule(): Promise<TransformersModule> {
   return transformersModule;
 }
 
+const STANDARD_EMBEDDING_DIMENSION = 768;
+
 /**
  * Determine the appropriate device for the current environment
  */
@@ -314,12 +316,14 @@ export class TransformersBackend {
         ? crypto.randomUUID()
         : `warmup-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
     try {
+      const targetDimension = this._targetDimensions ?? STANDARD_EMBEDDING_DIMENSION;
       await queue.add({
         kind: 'embed',
         id: warmupId,
         model: config.modelId,
         texts: ['.'],
         ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
+        targetDimension,
         deviceHint:
           this._selectedDevice === 'webgpu'
             ? 'webgpu'
@@ -419,12 +423,14 @@ export class TransformersBackend {
     }
     try {
       const queue = await this.ensureQueue();
+      const targetDimension = this._targetDimensions ?? STANDARD_EMBEDDING_DIMENSION;
       const response = await queue.add({
         kind: 'embed',
         id: this.createTaskId(),
         model: modelId,
         texts: [text],
         ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
+        targetDimension,
         deviceHint: this.resolveDeviceHint(),
         dtype: this.resolveQueueDType(),
         maxBatchSize: 1,

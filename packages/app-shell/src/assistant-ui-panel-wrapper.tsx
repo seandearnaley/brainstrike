@@ -1,4 +1,5 @@
 import {
+  getProviderDefaultModel,
   getProviderDefinition,
   getProviderModelDefinitions,
   isSupportedProvider,
@@ -26,43 +27,59 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
   const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>([]);
 
   const {
-    selectedProvider,
     enabledModelsByProvider,
-    setProvider,
-    clearProvider,
     setModel,
+    clearModel,
     setModelEnabled,
     getAvailableProviders,
     getSelectedModel,
+    getSelectedProvider,
   } = useAssistantPreferencesStore();
+
+  const selectedProvider = getSelectedProvider();
 
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider) => (enabledModelsByProvider[provider] ?? []).length > 0,
     [enabledModelsByProvider]
   );
 
+  const selectModelForProvider = useCallback(
+    (provider: SupportedProvider) => {
+      const enabledModels = enabledModelsByProvider[provider] ?? [];
+      if (enabledModels.length === 0) return;
+
+      const defaultModel = getProviderDefaultModel(provider);
+      const modelToSelect =
+        defaultModel && enabledModels.includes(defaultModel) ? defaultModel : enabledModels[0];
+      setModel(`${provider}::${modelToSelect}`);
+    },
+    [enabledModelsByProvider, setModel]
+  );
+
   const reconcileSelection = useCallback(
     (providers: SupportedProvider[]) => {
-      if (selectedProvider && !providers.includes(selectedProvider)) {
-        clearProvider();
+      const currentProvider = getSelectedProvider();
+
+      if (currentProvider && !providers.includes(currentProvider)) {
+        clearModel();
         return;
       }
 
-      if (selectedProvider && providerHasEnabledModels(selectedProvider)) {
+      if (currentProvider && providerHasEnabledModels(currentProvider)) {
         return;
       }
 
       const next = providers.find((providerId) => providerHasEnabledModels(providerId));
       if (next) {
-        setProvider(next);
+        selectModelForProvider(next);
         return;
       }
 
-      if (selectedProvider) {
-        clearProvider();
+      if (currentProvider) {
+        clearModel();
       }
     },
-    [selectedProvider, clearProvider, setProvider, providerHasEnabledModels]
+    [getSelectedProvider, clearModel, providerHasEnabledModels, selectModelForProvider]
   );
 
   useEffect(() => {
@@ -89,22 +106,12 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
 
   const currentModel = getSelectedModel();
 
-  const handleProviderChange = useCallback(
-    (value: string) => {
-      if (!isSupportedProvider(value)) return;
-      setProvider(value);
-    },
-    [setProvider]
-  );
-
   const handleModelChange = useCallback(
-    (value: string) => {
-      if (!selectedProvider || !isSupportedProvider(selectedProvider)) {
-        return;
-      }
-      setModel(selectedProvider, value);
+    (compositeKey: string) => {
+      // Composite key format: "provider::model"
+      setModel(compositeKey);
     },
-    [selectedProvider, setModel]
+    [setModel]
   );
 
   const handleModelToggle = useCallback(
@@ -196,7 +203,6 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
       providerGroups={providerGroups}
       {...(selectedProvider ? { selectedProvider } : {})}
       {...(currentModel ? { selectedModel: currentModel } : {})}
-      onProviderChange={handleProviderChange}
       onModelChange={handleModelChange}
       onModelToggle={handleModelToggle}
       disabled={!isProviderReady}

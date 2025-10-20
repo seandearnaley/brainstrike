@@ -24,6 +24,7 @@ export {
   type QueueTelemetrySnapshot,
 } from './telemetry';
 export type {
+  ProviderDimensionParameter,
   QueueAdapter,
   QueueErrorEvent,
   QueueProgressEvent,

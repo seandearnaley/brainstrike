@@ -90,6 +90,21 @@ describe('embedding worker runtime', () => {
     expect(workerEmitMock.mock.calls.at(-1)?.[0]).toMatchObject({ phase: 'complete', progress: 1 });
   });
 
+  it('rejects tasks requesting non-standard embedding dimensions', async () => {
+    const runEmbedding = await loadWorker();
+    await expect(
+      runEmbedding({
+        type: 'embed',
+        id: 'invalid-dim',
+        model: 'bge-m3',
+        texts: ['hello'],
+        targetDimension: 1024,
+        dimensionParameter: 'dimensions',
+        provider: 'openai',
+      })
+    ).rejects.toThrow(/requested 1024D embeddings, but BrainStrike enforces 768D/);
+  });
+
   it('shrinks batch size after pipeline errors and falls back to wasm execution', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     const failingExtractor = vi.fn(async () => {

@@ -1,5 +1,5 @@
 import type { FileChunk } from '@brainstrike/db';
-import type { QueueAdapter } from '@brainstrike/queue';
+import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
 import { createLogger } from '@brainstrike/utils';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
@@ -22,6 +22,7 @@ type BrowserQueuePortOptions = {
 };
 
 const logger = createLogger('FileImport:BrowserQueuePort');
+const STANDARD_EMBEDDING_DIMENSION = 768;
 
 const HASHER = 'sha256';
 
@@ -137,9 +138,18 @@ export function createBrowserEmbeddingQueuePort({
       }
 
       const targetEmbeddingSetId = options?.targetEmbeddingSetId ?? null;
-      for (const chunk of chunks) {
-        void scheduleChunk({ chunk, model, targetEmbeddingSetId, repository });
-      }
+      const targetDimension = options?.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
+      const dimensionParameter = options?.dimensionParameter ?? null;
+      const provider = options?.provider ?? null;
+
+      scheduleChunksBatch(scheduleChunk, chunks, {
+        model,
+        repository,
+        targetEmbeddingSetId,
+        targetDimension,
+        dimensionParameter,
+        provider,
+      });
     },
   };
 }
@@ -149,6 +159,9 @@ type ScheduleChunkArgs = {
   model: string;
   targetEmbeddingSetId: string | null;
   repository: ChunkRepository;
+  targetDimension?: number;
+  dimensionParameter?: ProviderDimensionParameter;
+  provider?: string;
 };
 
 type SchedulerDependencies = {
@@ -171,59 +184,142 @@ function createChunkScheduler({
     }
   };
 
-  return async ({ chunk, model, targetEmbeddingSetId, repository }: ScheduleChunkArgs) => {
+  return async ({
+    chunk,
+    model,
+    targetEmbeddingSetId,
+    repository,
+    targetDimension,
+    dimensionParameter,
+    provider,
+  }: ScheduleChunkArgs) => {
     if (!validateChunk(chunk, repository, model)) {
       return;
     }
+    const taskContext: ChunkTaskContext = {
+      queue,
+      chunk,
+      model,
+      targetEmbeddingSetId,
+      repository,
+      targetDimension: targetDimension ?? STANDARD_EMBEDDING_DIMENSION,
+      dimensionParameter: dimensionParameter ?? null,
+      provider: provider ?? null,
+      progressTracker,
+      pendingChunks,
+      emitDrain: maybeDispatchDrain,
+    };
 
-    pendingChunks.add(chunk.id);
-    progressTracker.queued({
+    await runChunkTask(taskContext);
+  };
+}
+
+type ChunkTaskContext = {
+  queue: QueueAdapter;
+  chunk: FileChunk;
+  model: string;
+  targetEmbeddingSetId: string | null;
+  repository: ChunkRepository;
+  targetDimension: number;
+  dimensionParameter: ProviderDimensionParameter | null;
+  provider: string | null;
+  progressTracker: ReturnType<typeof createQueueProgressTracker>;
+  pendingChunks: Set<string>;
+  emitDrain: (embeddingSetId: string | null) => void;
+};
+
+async function runChunkTask(context: ChunkTaskContext): Promise<void> {
+  const {
+    queue,
+    chunk,
+    model,
+    targetEmbeddingSetId,
+    repository,
+    targetDimension,
+    dimensionParameter,
+    provider,
+    progressTracker,
+    pendingChunks,
+    emitDrain,
+  } = context;
+
+  pendingChunks.add(chunk.id);
+  progressTracker.queued({
+    chunkId: chunk.id,
+    model,
+    embeddingSetId: targetEmbeddingSetId,
+    pending: pendingChunks.size,
+  });
+
+  const startedAt = timestamp();
+  const queueOptions = {
+    targetDimension,
+    ...(dimensionParameter ? { dimensionParameter } : {}),
+    ...(provider ? { provider } : {}),
+  } as const;
+
+  try {
+    const embedding = await produceEmbedding(queue, chunk, model, queueOptions);
+    await persistEmbedding({
+      repository,
+      chunk,
+      model,
+      embedding,
+      targetEmbeddingSetId,
+    });
+    const elapsed = elapsedSince(startedAt);
+    logSuccess({ chunk, model, startedAt });
+    pendingChunks.delete(chunk.id);
+    progressTracker.completed({
       chunkId: chunk.id,
       model,
       embeddingSetId: targetEmbeddingSetId,
       pending: pendingChunks.size,
+      elapsedMs: elapsed,
     });
-    const startedAt = timestamp();
+  } catch (error) {
+    logFailure({ chunk, model, error });
+    pendingChunks.delete(chunk.id);
+    const message =
+      error instanceof Error ? error.message : typeof error === 'string' ? error : 'Unknown error';
+    progressTracker.failed({
+      chunkId: chunk.id,
+      model,
+      embeddingSetId: targetEmbeddingSetId,
+      pending: pendingChunks.size,
+      errorMessage: message,
+    });
+  } finally {
+    emitDrain(targetEmbeddingSetId);
+  }
+}
 
-    try {
-      const embedding = await produceEmbedding(queue, chunk, model);
-      await persistEmbedding({
-        repository,
-        chunk,
-        model,
-        embedding,
-        targetEmbeddingSetId,
-      });
-      const elapsed = elapsedSince(startedAt);
-      logSuccess({ chunk, model, startedAt });
-      pendingChunks.delete(chunk.id);
-      progressTracker.completed({
-        chunkId: chunk.id,
-        model,
-        embeddingSetId: targetEmbeddingSetId,
-        pending: pendingChunks.size,
-        elapsedMs: elapsed,
-      });
-    } catch (error) {
-      logFailure({ chunk, model, error });
-      pendingChunks.delete(chunk.id);
-      const message =
-        error instanceof Error
-          ? error.message
-          : typeof error === 'string'
-            ? error
-            : 'Unknown error';
-      progressTracker.failed({
-        chunkId: chunk.id,
-        model,
-        embeddingSetId: targetEmbeddingSetId,
-        pending: pendingChunks.size,
-        errorMessage: message,
-      });
-    } finally {
-      maybeDispatchDrain(targetEmbeddingSetId);
-    }
-  };
+type ScheduleBatchContext = {
+  model: string;
+  repository: ChunkRepository;
+  targetEmbeddingSetId: string | null;
+  targetDimension: number;
+  dimensionParameter: ProviderDimensionParameter | null;
+  provider: string | null;
+};
+
+function scheduleChunksBatch(
+  schedule: (args: ScheduleChunkArgs) => Promise<void>,
+  chunks: readonly FileChunk[],
+  context: ScheduleBatchContext
+): void {
+  for (const chunk of chunks) {
+    const args: ScheduleChunkArgs = {
+      chunk,
+      model: context.model,
+      targetEmbeddingSetId: context.targetEmbeddingSetId,
+      repository: context.repository,
+      targetDimension: context.targetDimension,
+      ...(context.dimensionParameter ? { dimensionParameter: context.dimensionParameter } : {}),
+      ...(context.provider ? { provider: context.provider } : {}),
+    };
+    void schedule(args);
+  }
 }
 
 function validateChunk(chunk: FileChunk, repository: ChunkRepository | null, _model: string) {
@@ -245,14 +341,28 @@ function validateChunk(chunk: FileChunk, repository: ChunkRepository | null, _mo
   return true;
 }
 
-async function produceEmbedding(queue: QueueAdapter, chunk: FileChunk, model: string) {
-  const result = await queue.add({
+async function produceEmbedding(
+  queue: QueueAdapter,
+  chunk: FileChunk,
+  model: string,
+  options: {
+    targetDimension: number;
+    dimensionParameter?: ProviderDimensionParameter;
+    provider?: string;
+  }
+) {
+  const resolvedTargetDimension = options.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
+  const request = {
     kind: 'embed',
     id: chunk.id,
     model,
     texts: [chunk.content],
     deviceHint: 'auto',
-  });
+    ...(options.provider ? { provider: options.provider } : {}),
+    ...(options.dimensionParameter ? { dimensionParameter: options.dimensionParameter } : {}),
+    targetDimension: resolvedTargetDimension,
+  } as const;
+  const result = await queue.add(request);
   const vector = result.vectors[0];
   if (!vector) {
     logger.warn('Embedding worker returned no vector for chunk', {
