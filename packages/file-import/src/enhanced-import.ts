@@ -5,13 +5,15 @@ import type {
   IDatabase,
   ImportProgress,
 } from '@brainstrike/db';
-import type { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { createLogger } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
+const STANDARD_EMBEDDING_DIMENSION = 768;
 
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
@@ -25,6 +27,9 @@ export interface EmbeddingJobQueuePort {
       transaction?: IDatabase | null;
       model?: string | null;
       targetEmbeddingSetId?: string | null;
+      provider?: string | null;
+      targetDimension?: number | null;
+      dimensionParameter?: ProviderDimensionParameter | null;
     }
   ): Promise<void>;
 }
@@ -145,12 +150,26 @@ async function resolveModelKeyFromTargetSet(
 async function resolveEmbeddingModel(
   config: EmbeddingConfiguration | undefined,
   ports: RunEnhancedImportPorts | undefined
-): Promise<{ model?: string; targetSetId?: string }> {
+): Promise<{
+  model?: string;
+  targetSetId?: string;
+  provider?: string;
+  targetDimension?: number;
+  dimensionParameter?: ProviderDimensionParameter;
+}> {
   if (!config?.enabled) {
-    return config?.model ? { model: config.model } : {};
+    return config?.model
+      ? { model: config.model, targetDimension: STANDARD_EMBEDDING_DIMENSION }
+      : {};
   }
 
-  const resolved: { model?: string; targetSetId?: string } = {};
+  const resolved: {
+    model?: string;
+    targetSetId?: string;
+    provider?: string;
+    targetDimension?: number;
+    dimensionParameter?: ProviderDimensionParameter;
+  } = {};
   const targetSetId = config.resolveTargetEmbeddingSetId?.();
   if (targetSetId) {
     resolved.targetSetId = targetSetId;
@@ -164,6 +183,14 @@ async function resolveEmbeddingModel(
 
   if (modelKey) {
     resolved.model = modelKey;
+    const modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+    if (modelConfig?.dimensions && Number.isFinite(modelConfig.dimensions)) {
+      resolved.targetDimension = modelConfig.dimensions;
+    }
+  }
+
+  if (resolved.targetDimension === undefined) {
+    resolved.targetDimension = STANDARD_EMBEDDING_DIMENSION;
   }
 
   return resolved;
@@ -176,6 +203,9 @@ interface ChunkingOptionsConfig {
   embedding: EmbeddingConfiguration | undefined;
   embeddingModel: string | undefined;
   targetSetId: string | undefined;
+  provider?: string;
+  targetDimension?: number;
+  dimensionParameter?: ProviderDimensionParameter;
   update: ProgressHandlers['update'];
   processEmbeddingsImpl: typeof processEmbeddings;
 }
@@ -190,6 +220,9 @@ function buildChunkingOptions(
     embedding,
     embeddingModel,
     targetSetId,
+    provider,
+    targetDimension,
+    dimensionParameter,
     update,
     processEmbeddingsImpl,
   } = config;
@@ -207,14 +240,18 @@ function buildChunkingOptions(
   }
 
   applyChunkingConfiguration(options, chunking);
-  attachQueueOptions(options, {
+  const queueParams: QueueOptionParams = {
     queueActive,
     queuePort,
     runInTransaction,
     embedding,
     embeddingModel,
     targetSetId,
-  });
+    ...(provider ? { provider } : {}),
+    ...(targetDimension !== undefined ? { targetDimension } : {}),
+    ...(dimensionParameter ? { dimensionParameter } : {}),
+  };
+  attachQueueOptions(options, queueParams);
   if (embedding?.enabled !== undefined) {
     options.enableEmbedding = embedding.enabled;
   }
@@ -242,14 +279,26 @@ type QueueOptionParams = {
   readonly embedding: EmbeddingConfiguration | undefined;
   readonly embeddingModel: string | undefined;
   readonly targetSetId: string | undefined;
+  readonly provider?: string;
+  readonly targetDimension?: number;
+  readonly dimensionParameter?: ProviderDimensionParameter;
 };
 
 function attachQueueOptions(
   options: Parameters<typeof processChunking>[2],
   params: QueueOptionParams
 ): void {
-  const { queueActive, queuePort, runInTransaction, embedding, embeddingModel, targetSetId } =
-    params;
+  const {
+    queueActive,
+    queuePort,
+    runInTransaction,
+    embedding,
+    embeddingModel,
+    targetSetId,
+    provider,
+    targetDimension,
+    dimensionParameter,
+  } = params;
   if (!queueActive || queuePort === null) {
     if (embedding?.enabled && !embeddingModel) {
       logger.warn('Embedding queue requested without a resolved model, skipping enqueue phase');
@@ -264,6 +313,9 @@ function attachQueueOptions(
     queuePort.enqueueBatch(chunks, fileRecordId, {
       model: embeddingModel ?? null,
       targetEmbeddingSetId: targetSetId ?? null,
+      provider: provider ?? null,
+      targetDimension: targetDimension ?? null,
+      dimensionParameter: dimensionParameter ?? null,
     });
 
   if (runInTransaction) {
@@ -273,6 +325,9 @@ function attachQueueOptions(
         transaction: tx,
         model: embeddingModel ?? null,
         targetEmbeddingSetId: targetSetId ?? null,
+        provider: provider ?? null,
+        targetDimension: targetDimension ?? null,
+        dimensionParameter: dimensionParameter ?? null,
       });
   }
 }
@@ -409,11 +464,17 @@ export async function runEnhancedImport<TFileNode = unknown>({
       chunkOverlap: chunking.chunkOverlap,
     });
 
-    const { model: embeddingModel, targetSetId } = await resolveEmbeddingModel(embedding, ports);
+    const {
+      model: embeddingModel,
+      targetSetId,
+      provider,
+      targetDimension,
+      dimensionParameter,
+    } = await resolveEmbeddingModel(embedding, ports);
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
 
-    const chunkingOptions = buildChunkingOptions({
+    const chunkingConfig: ChunkingOptionsConfig = {
       chunking,
       queuePort,
       runInTransaction,
@@ -422,7 +483,11 @@ export async function runEnhancedImport<TFileNode = unknown>({
       targetSetId,
       update,
       processEmbeddingsImpl,
-    });
+      ...(provider ? { provider } : {}),
+      ...(targetDimension !== undefined ? { targetDimension } : {}),
+      ...(dimensionParameter ? { dimensionParameter } : {}),
+    };
+    const chunkingOptions = buildChunkingOptions(chunkingConfig);
 
     const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
 

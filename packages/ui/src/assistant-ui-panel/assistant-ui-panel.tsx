@@ -15,12 +15,22 @@ import {
   PencilIcon,
   RefreshCwIcon,
 } from 'lucide-react';
-import { type FC, useEffect, useState } from 'react';
+import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 import '@assistant-ui/styles/index.css';
 import '@assistant-ui/styles/markdown.css';
 import './overrides.css';
+import { Badge } from '../badge';
 import { Button } from '../button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '../select';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -32,13 +42,45 @@ export interface ProviderConfig {
   defaultModel: string;
 }
 
+export type ProviderRuntimeCategory = 'hosted' | 'gateway' | 'local' | 'browser';
+
+export interface ProviderModelOptionConfig {
+  id: string;
+  label: string;
+  type: 'llm' | 'embedding';
+  enabled: boolean;
+  default?: boolean;
+  supportsStreaming?: boolean;
+  supportsStandardDimension?: boolean;
+}
+
+export interface ProviderOptionConfig {
+  id: string;
+  name: string;
+  runtime: ProviderRuntimeCategory;
+  capabilities: {
+    llm: boolean;
+    embeddings: boolean;
+    streaming: boolean;
+    supportsStandardEmbeddingDimension: boolean;
+  };
+  models: ProviderModelOptionConfig[];
+}
+
+export interface ProviderGroupConfig {
+  runtime: ProviderRuntimeCategory;
+  label: string;
+  providers: ProviderOptionConfig[];
+}
+
 export interface AssistantUiPanelProps {
   className?: string;
   providers?: ProviderConfig[];
+  providerGroups?: ProviderGroupConfig[];
   selectedProvider?: string;
   selectedModel?: string;
-  onProviderChange?: (provider: string) => void;
-  onModelChange?: (model: string) => void;
+  onModelChange?: (compositeKey: string) => void;
+  onModelToggle?: (provider: string, model: string, enabled: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
 }
@@ -50,10 +92,9 @@ declare global {
 }
 
 export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
-  providers = [],
+  providerGroups,
   selectedProvider,
   selectedModel,
-  onProviderChange,
   onModelChange,
   disabled = false,
   disabledReason,
@@ -79,18 +120,25 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
     void updateApi();
   }, []);
 
-  const currentProvider = providers.find((p) => p.id === selectedProvider);
-  const availableModels = currentProvider?.models ?? [];
+  const groupedProviders = providerGroups ?? [];
+  const flattenedGroupedProviders = groupedProviders.flatMap((group) => group.providers);
+  const hasGroupedProviders = flattenedGroupedProviders.length > 0;
+
   const isComposerDisabled = Boolean(disabled);
-  const providerSelectDisabled = providers.length === 0;
-  const modelSelectDisabled = !selectedProvider || availableModels.length === 0;
+
+  // Extract model name from composite key (format: "provider::model")
+  const modelName = useMemo(() => {
+    if (!selectedModel) return undefined;
+    const parts = selectedModel.split('::');
+    return parts.length === 2 ? parts[1] : selectedModel;
+  }, [selectedModel]);
 
   const runtime = useDataStreamRuntime({
     api,
     body: {
       data: {
         provider: selectedProvider,
-        model: selectedModel,
+        model: modelName,
       },
     },
   });
@@ -104,59 +152,14 @@ export const AssistantUiPanel: FC<AssistantUiPanelProps> = ({
       <AssistantRuntimeProvider runtime={runtime}>
         <ThreadPrimitive.Root className="aui-root aui-thread-root bs-thread flex flex-col h-full min-h-0">
           {/* Provider and Model Selector Header */}
-          {providers.length > 0 && (
-            <div className="flex-shrink-0 px-3 py-2 border-b border-border bg-muted/30">
-              <div className="flex gap-2 items-center">
-                {onProviderChange && (
-                  <Select
-                    value={selectedProvider ?? ''}
-                    onValueChange={onProviderChange}
-                    disabled={providerSelectDisabled}
-                  >
-                    <SelectTrigger
-                      className="w-36 h-8 text-sm"
-                      data-testid="assistant-provider-select"
-                      aria-label="Select AI provider"
-                      disabled={providerSelectDisabled}
-                    >
-                      <SelectValue placeholder="Select provider" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {providers.map((provider) => (
-                        <SelectItem key={provider.id} value={provider.id}>
-                          {provider.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-
-                {onModelChange && (
-                  <Select
-                    value={selectedModel ?? ''}
-                    onValueChange={onModelChange}
-                    disabled={modelSelectDisabled}
-                  >
-                    <SelectTrigger
-                      className="w-52 h-8 text-sm"
-                      data-testid="assistant-model-select"
-                      aria-label="Select model"
-                      disabled={modelSelectDisabled}
-                    >
-                      <SelectValue placeholder="Select model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {availableModels.map((model: string) => (
-                        <SelectItem key={model} value={model}>
-                          {model}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            </div>
-          )}
+          {hasGroupedProviders ? (
+            <ProviderModelHeader
+              groups={groupedProviders}
+              selectedProvider={selectedProvider}
+              selectedModel={selectedModel}
+              onModelChange={onModelChange}
+            />
+          ) : null}
           {/**
            * Messages Viewport
            *
@@ -380,6 +383,211 @@ const BranchPicker: FC<{ className?: string }> = ({ className }) => {
         </TooltipIconButton>
       </BranchPickerPrimitive.Next>
     </BranchPickerPrimitive.Root>
+  );
+};
+
+const RUNTIME_LABELS: Record<ProviderRuntimeCategory, string> = {
+  hosted: 'Hosted',
+  gateway: 'Gateway',
+  local: 'Local',
+  browser: 'Browser',
+};
+
+interface ProviderModelOption {
+  value: string;
+  provider: ProviderOptionConfig;
+  model: ProviderModelOptionConfig;
+  groupLabel: string;
+}
+
+interface NormalizedProviderGroup {
+  runtime: ProviderRuntimeCategory;
+  label: string;
+  providers: Array<{
+    provider: ProviderOptionConfig;
+    models: ProviderModelOptionConfig[];
+  }>;
+}
+
+interface ProviderModelHeaderProps {
+  groups: ProviderGroupConfig[];
+  selectedProvider?: string | undefined;
+  selectedModel?: string | undefined;
+  onModelChange?: ((compositeKey: string) => void) | undefined;
+}
+
+const ProviderModelHeader: FC<ProviderModelHeaderProps> = ({
+  groups,
+  selectedProvider,
+  selectedModel,
+  onModelChange,
+}) => {
+  const normalizedGroups = useMemo<NormalizedProviderGroup[]>(() => {
+    return groups
+      .map((group) => {
+        const providers = group.providers
+          .map((provider) => ({
+            provider,
+            models: provider.models.filter((model) => model.enabled),
+          }))
+          .filter((entry) => entry.models.length > 0);
+        if (providers.length === 0) {
+          return null;
+        }
+        return {
+          runtime: group.runtime,
+          label: group.label ?? RUNTIME_LABELS[group.runtime],
+          providers,
+        };
+      })
+      .filter((group): group is NormalizedProviderGroup => group !== null);
+  }, [groups]);
+
+  const options = useMemo<ProviderModelOption[]>(() => {
+    return normalizedGroups.flatMap((group) =>
+      group.providers.flatMap((entry) =>
+        entry.models.map((model) => ({
+          value: `${entry.provider.id}::${model.id}`,
+          provider: entry.provider,
+          model,
+          groupLabel: group.label,
+        }))
+      )
+    );
+  }, [normalizedGroups]);
+
+  const selectedOption = useMemo<ProviderModelOption | undefined>(() => {
+    return options.find(
+      (option) => option.provider.id === selectedProvider && option.model.id === selectedModel
+    );
+  }, [options, selectedModel, selectedProvider]);
+
+  const [pendingValue, setPendingValue] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pendingValue) {
+      return;
+    }
+    const optionMatch = options.find((option) => option.value === pendingValue);
+    if (
+      optionMatch &&
+      optionMatch.provider.id === selectedProvider &&
+      optionMatch.model.id === selectedModel
+    ) {
+      setPendingValue(null);
+    }
+  }, [options, pendingValue, selectedModel, selectedProvider]);
+
+  const selectValue = pendingValue ?? selectedOption?.value ?? '';
+  const placeholder = options.length === 0 ? 'No models enabled' : 'Select a model';
+
+  const handleSelectChange = useCallback(
+    (value: string) => {
+      setPendingValue(value);
+      // value is composite key: "provider::model"
+      onModelChange?.(value);
+    },
+    [onModelChange]
+  );
+
+  const summaryProps: ProviderSelectionSummaryProps = {
+    provider: selectedOption?.provider,
+    model: selectedOption?.model,
+    selectedProvider,
+    selectedModel,
+  };
+
+  return (
+    <div className="flex-shrink-0 space-y-3 border-b border-border bg-muted/30 px-3 py-3">
+      <ProviderSelectionSummary {...summaryProps} />
+      <Select
+        value={selectValue}
+        onValueChange={handleSelectChange}
+        disabled={options.length === 0 || !onModelChange}
+      >
+        <SelectTrigger
+          className="h-9"
+          data-testid="assistant-model-dropdown"
+          aria-label="Select AI model"
+        >
+          <SelectValue placeholder={placeholder} />
+        </SelectTrigger>
+        <SelectContent>
+          {normalizedGroups.map((group, groupIndex) => (
+            <div key={`${group.runtime}-${groupIndex}`}>
+              <SelectGroup>
+                <SelectLabel>{group.label}</SelectLabel>
+                {group.providers.flatMap((entry) =>
+                  entry.models.map((model) => {
+                    const value = `${entry.provider.id}::${model.id}`;
+                    return (
+                      <SelectItem
+                        key={value}
+                        value={value}
+                        data-testid={`assistant-model-option-${entry.provider.id}-${model.id}`}
+                      >
+                        <div className="flex flex-col">
+                          <span>{model.label}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {entry.provider.name}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    );
+                  })
+                )}
+              </SelectGroup>
+              {groupIndex < normalizedGroups.length - 1 ? <SelectSeparator /> : null}
+            </div>
+          ))}
+          {normalizedGroups.length === 0 ? (
+            <div className="px-2 py-1 text-xs text-muted-foreground">
+              Enable models in settings to choose them here.
+            </div>
+          ) : null}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+};
+
+interface ProviderSelectionSummaryProps {
+  provider: ProviderOptionConfig | undefined;
+  model: ProviderModelOptionConfig | undefined;
+  selectedProvider?: string | undefined;
+  selectedModel?: string | undefined;
+}
+
+const ProviderSelectionSummary: FC<ProviderSelectionSummaryProps> = ({
+  provider,
+  model,
+  selectedProvider,
+  selectedModel,
+}) => {
+  if (!provider || !selectedProvider) {
+    return (
+      <div className="rounded-md border border-dashed border-border/70 bg-background px-3 py-2 text-xs text-muted-foreground">
+        Select a provider and model to start chatting.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-2">
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          In use
+        </p>
+        <p className="text-sm font-medium leading-tight">{provider.name}</p>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-1 text-xs">
+        <Badge variant="secondary">{model?.label ?? selectedModel ?? 'Select a model'}</Badge>
+        {model?.supportsStreaming && <Badge variant="outline">Streaming</Badge>}
+        {model?.type === 'embedding' && model.supportsStandardDimension && (
+          <Badge variant="outline">768D</Badge>
+        )}
+      </div>
+    </div>
   );
 };
 

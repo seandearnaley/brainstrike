@@ -1,5 +1,8 @@
+import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
+import { listAgentProviders } from './agent-client-loader';
+import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
 function isTestMode(): boolean {
@@ -11,6 +14,67 @@ function isTestMode(): boolean {
 // In-memory storage for test mode
 const testModeSecrets = new Map<string, string>();
 
+/**
+ * Clears test mode secrets. Should be called in test cleanup to prevent
+ * module-level state leakage between test runs.
+ */
+export function clearTestModeSecrets(): void {
+  if (isTestMode()) {
+    testModeSecrets.clear();
+  }
+}
+
+function resolveEnvConfiguredProviders(): SupportedProvider[] {
+  const configured: SupportedProvider[] = [];
+  for (const provider of listAgentProviders()) {
+    const value = resolveProviderEnvKey(provider);
+    if (value) {
+      configured.push(provider);
+    }
+  }
+  return configured;
+}
+
+function appendTestModeProviders(target: Set<string>) {
+  for (const [provider, value] of testModeSecrets.entries()) {
+    const trimmedValue = typeof value === 'string' ? value.trim() : '';
+    if (trimmedValue.length === 0) {
+      continue;
+    }
+    target.add(provider);
+  }
+}
+
+async function appendStoredProviders(target: Set<string>, secrets: SecretsService) {
+  const storedProviders = await secrets.listProviders();
+  for (const provider of storedProviders) {
+    if (typeof provider !== 'string') {
+      continue;
+    }
+    const trimmed = provider.trim();
+    if (trimmed.length === 0) {
+      continue;
+    }
+    target.add(trimmed);
+  }
+}
+
+/**
+ * Registers IPC handlers for secure API key management.
+ *
+ * **Test Mode Behavior:**
+ * When running in test mode (NODE_ENV=test, ELECTRON_IS_E2E_TEST=true, or --test-mode),
+ * all secrets are stored in-memory and environment variables are IGNORED to prevent
+ * test pollution from host environment. Call `clearTestModeSecrets()` in test cleanup
+ * to prevent state leakage between test runs.
+ *
+ * **Production Behavior:**
+ * - Environment variables are checked first (via resolveProviderEnvKey)
+ * - Falls back to encrypted platform storage (SecretsService)
+ * - Merges both sources in the list operation
+ *
+ * @param secrets - The platform-specific secrets storage service
+ */
 export function registerSecretsIpcHandlers(secrets: SecretsService) {
   ipcMain.handle(
     'secrets:save',
@@ -53,11 +117,16 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
   });
 
   ipcMain.handle('secrets:list', async () => {
-    // In test mode, return providers from in-memory storage
+    // In test mode, only use in-memory storage (ignore env vars)
     if (isTestMode()) {
-      return Array.from(testModeSecrets.keys());
+      const providers = new Set<string>();
+      appendTestModeProviders(providers);
+      return Array.from(providers);
     }
 
-    return await secrets.listProviders();
+    // In production, include both env-configured and stored providers
+    const providers = new Set<string>(resolveEnvConfiguredProviders());
+    await appendStoredProviders(providers, secrets);
+    return Array.from(providers);
   });
 }

@@ -156,6 +156,9 @@ describe('runEnhancedImport', () => {
       expect.objectContaining({
         model: 'mock-model',
         targetEmbeddingSetId: null,
+        targetDimension: 768,
+        provider: null,
+        dimensionParameter: null,
       })
     );
     expect(results[0]?.chunksCreated).toBe(2);

@@ -1,10 +1,11 @@
 import { isSupportedProvider } from '@brainstrike/agent';
+import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
-import { getSecretsService } from './secrets';
+import { readProviderSecretKey, resolveProviderEnvKey } from './provider-api-key';
 
 // Minimal local types to avoid cross-project TS coupling during type-check
 type AgentMessage = {
@@ -102,41 +103,32 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
   if (!isSupportedProvider(provider)) {
     return undefined;
   }
-  try {
-    const secretsService = getSecretsService();
-    const key = await secretsService.getKey(provider);
-    const resolvedKey = key ?? undefined;
-    if (resolvedKey) {
-      console.log(
-        `[ipc-agent] Retrieved API key for provider "${provider}":`,
-        `${resolvedKey.slice(0, 10)}...`
-      );
-      return resolvedKey;
-    }
-    if (provider !== 'openai') {
-      return undefined;
-    }
-  } catch (error) {
-    console.error(`[ipc-agent] Error getting API key for provider "${provider}":`, error);
-    if (provider !== 'openai') {
-      return undefined;
-    }
+  const supportedProvider = provider as SupportedProvider;
+
+  const envKey = resolveProviderEnvKey(supportedProvider);
+  if (envKey) {
+    console.log(`[ipc-agent] Using environment API key for provider "${provider}"`);
+    return envKey;
   }
 
-  return await readLegacyOpenAiApiKey();
-}
-
-async function readLegacyOpenAiApiKey(): Promise<string | undefined> {
-  try {
-    const key = await readOpenAIApiKey();
-    if (key) {
-      console.log('[ipc-agent] Using legacy OpenAI key:', `${key.slice(0, 10)}...`);
-    }
-    return key ?? undefined;
-  } catch (error) {
-    console.error('[ipc-agent] Error reading legacy OpenAI key:', error);
-    return undefined;
+  const storedKey = await readProviderSecretKey(supportedProvider);
+  if (storedKey) {
+    console.log(
+      `[ipc-agent] Retrieved stored API key for provider "${provider}":`,
+      `${storedKey.slice(0, 10)}...`
+    );
+    return storedKey;
   }
+
+  if (provider === 'openai') {
+    const fallback = await readOpenAIApiKey();
+    if (fallback) {
+      console.log('[ipc-agent] Using fallback OpenAI key:', `${fallback.slice(0, 10)}...`);
+    }
+    return fallback ?? undefined;
+  }
+
+  return undefined;
 }
 
 async function ensureAsyncIterable<T>(

@@ -184,6 +184,24 @@ describe('createWorkerpoolAdapter', () => {
     expect(workerpoolMocks.execSpy).toHaveBeenCalledWith('runEmbedding', expect.any(Array), expect.any(Object));
   });
 
+  it('forwards provider embedding metadata to worker requests', async () => {
+    setWorkerSupport();
+    const adapter = createWorkerpoolAdapter();
+    await adapter.add({
+      ...minimalTask,
+      provider: 'openai',
+      targetDimension: 768,
+      dimensionParameter: 'dimensions',
+    });
+    const lastCall = workerpoolMocks.execSpy.mock.calls.at(-1);
+    const payload = lastCall?.[1]?.[0] as { provider?: string; targetDimension?: number; dimensionParameter?: string } | undefined;
+    expect(payload).toMatchObject({
+      provider: 'openai',
+      targetDimension: 768,
+      dimensionParameter: 'dimensions',
+    });
+  });
+
   it('waits while paused before dispatching jobs', async () => {
     setWorkerSupport();
     let resolveExec: ((value: unknown) => void) | undefined;

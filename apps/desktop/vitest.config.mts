@@ -39,6 +39,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/renderer'),
+      '@brainstrike/agent/client': path.resolve(__dirname, '../../packages/agent/src/client.ts'),
       '@brainstrike/test-utils': path.resolve(__dirname, '../../packages/test-utils/src'),
     },
   },

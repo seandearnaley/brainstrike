@@ -28,6 +28,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
   ) => Promise<unknown>);
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
+const StandardEmbeddingDimension = 768;
 
 // Allow remote model downloads when a cache directory is not specified. This aligns with the
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
@@ -75,6 +76,26 @@ async function loadPipeline(
   return loader;
 }
 
+function assertStandardDimension(payload: EmbedWorkerRequest, requestedDimension: number): void {
+  if (requestedDimension === StandardEmbeddingDimension) {
+    return;
+  }
+
+  const providerLabel = payload.provider ? `Provider "${payload.provider}"` : 'Embedding request';
+  const parameterHint =
+    payload.dimensionParameter === 'dimensions'
+      ? `Set dimensions=${StandardEmbeddingDimension}.`
+      : payload.dimensionParameter === 'output_dimensionality'
+        ? `Set output_dimensionality=${StandardEmbeddingDimension}.`
+        : payload.dimensionParameter === 'output_dimension'
+          ? `Set output_dimension=${StandardEmbeddingDimension}.`
+          : 'Configure the provider to emit 768-dimensional vectors.';
+
+  throw new Error(
+    `${providerLabel} requested ${requestedDimension}D embeddings, but BrainStrike enforces ${StandardEmbeddingDimension}D. ${parameterHint}`
+  );
+}
+
 function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
   const result = new Float32Array(values.length);
   for (let index = 0; index < values.length; index += 1) {
@@ -113,6 +134,9 @@ type EmbeddingContext = {
   readonly dtype: EmbeddingDType;
   readonly started: number;
   readonly total: number;
+  readonly provider?: string;
+  readonly targetDimension?: number;
+  readonly dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
 };
 
 type EmbeddingState = {
@@ -123,6 +147,7 @@ type EmbeddingState = {
 };
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
+  const requestedDimension = payload.targetDimension ?? StandardEmbeddingDimension;
   const context: EmbeddingContext = {
     id: payload.id,
     model: payload.model,
@@ -130,9 +155,22 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
     dtype: payload.dtype ?? 'fp16',
     started: typeof performance !== 'undefined' ? performance.now() : Date.now(),
     total: payload.texts.length,
+    targetDimension: requestedDimension,
   };
   if (payload.truncateDim !== undefined) {
     (context as { truncateDim?: number }).truncateDim = payload.truncateDim;
+  } else if (Number.isFinite(requestedDimension)) {
+    (context as { truncateDim?: number }).truncateDim = requestedDimension;
+  }
+  if (payload.provider) {
+    (context as { provider?: string }).provider = payload.provider;
+  }
+  if (payload.dimensionParameter) {
+    (
+      context as {
+        dimensionParameter?: 'dimensions' | 'output_dimensionality' | 'output_dimension';
+      }
+    ).dimensionParameter = payload.dimensionParameter;
   }
   return context;
 }
@@ -154,6 +192,8 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   const context = createContext(payload);
   const { id, model, texts } = context;
   const deviceHint = payload.deviceHint ?? 'auto';
+  const requestedDimension = context.targetDimension ?? StandardEmbeddingDimension;
+  assertStandardDimension(payload, requestedDimension);
 
   if (texts.length === 0) {
     return {

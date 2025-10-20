@@ -7,6 +7,11 @@ import type {
   EmbedWorkerSuccess,
 } from '@brainstrike/embedding-worker';
 
+export type ProviderDimensionParameter =
+  | 'dimensions'
+  | 'output_dimensionality'
+  | 'output_dimension';
+
 export type EmbedTaskPayload = {
   readonly kind: 'embed';
   readonly id: string;
@@ -16,6 +21,9 @@ export type EmbedTaskPayload = {
   readonly dtype?: EmbeddingDType;
   readonly deviceHint?: EmbeddingDeviceHint;
   readonly maxBatchSize?: number;
+  readonly provider?: string;
+  readonly targetDimension?: number;
+  readonly dimensionParameter?: ProviderDimensionParameter;
 };
 
 export type TaskPayload = EmbedTaskPayload;
@@ -61,6 +69,11 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
     ...(payload.dtype !== undefined ? { dtype: payload.dtype } : {}),
     ...(payload.deviceHint !== undefined ? { deviceHint: payload.deviceHint } : {}),
     ...(payload.maxBatchSize !== undefined ? { maxBatchSize: payload.maxBatchSize } : {}),
+    ...(payload.provider !== undefined ? { provider: payload.provider } : {}),
+    ...(payload.targetDimension !== undefined ? { targetDimension: payload.targetDimension } : {}),
+    ...(payload.dimensionParameter !== undefined
+      ? { dimensionParameter: payload.dimensionParameter }
+      : {}),
   };
   return withOptionalFields;
 }

@@ -7,6 +7,7 @@ import {
   toAiSdkStyleStream,
   webTools,
 } from '@brainstrike/agent';
+import type { SupportedProvider } from '@brainstrike/agent/client';
 
 type AgentModule = typeof import('@brainstrike/agent');
 type AgentMessage = AgentModule['AgentMessage'];
@@ -34,7 +35,11 @@ type AgentStreamResult = AgentStreamSuccess | AgentStreamFailure;
 import { readRequestBody, streamResponse } from './assistant-server/http';
 import { loadMcpConfig } from './mcp-loader';
 import { readOpenAIApiKey } from './openai-api-key';
-import { getSecretsService } from './secrets';
+import {
+  listConfiguredProviders,
+  readProviderSecretKey,
+  resolveProviderEnvKey,
+} from './provider-api-key';
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {
@@ -184,68 +189,37 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
     return undefined;
   }
 
-  try {
-    const secretsService = getSecretsService();
-    const key = await secretsService.getKey(provider);
-    const resolvedKey = key ?? undefined;
+  const supportedProvider = provider as SupportedProvider;
+
+  const envKey = resolveProviderEnvKey(supportedProvider);
+  if (envKey) {
+    console.info(`[assistant-server] Using environment API key for provider "${provider}"`);
+    return envKey;
+  }
+
+  const storedKey = await readProviderSecretKey(supportedProvider);
+  if (storedKey) {
     console.info(
-      `[assistant-server] Retrieved API key for provider "${provider}":`,
-      resolvedKey ? 'present' : 'undefined'
+      `[assistant-server] Retrieved stored API key for provider "${provider}":`,
+      'present'
     );
-    if (resolvedKey) {
-      return resolvedKey;
-    }
-    if (provider !== 'openai') {
-      return undefined;
-    }
-  } catch (error) {
-    console.error(`[assistant-server] Error getting API key for provider "${provider}":`, error);
-    if (provider !== 'openai') {
-      return undefined;
-    }
+    return storedKey;
   }
 
-  return await readLegacyOpenAiKey();
-}
-
-async function readLegacyOpenAiKey(log = true): Promise<string | undefined> {
-  try {
-    const legacyKey = await readOpenAIApiKey();
-    if (log) {
-      console.info(
-        '[assistant-server] Using legacy OpenAI key:',
-        legacyKey ? 'present' : 'undefined'
-      );
-    }
-    return legacyKey ?? undefined;
-  } catch (error) {
-    console.error('[assistant-server] Error reading legacy OpenAI key:', error);
-    throw error;
-  }
+  return undefined;
 }
 
 async function collectAvailableProviders(): Promise<string[]> {
-  const providers = new Set<string>();
-
+  const providers = new Set(await listConfiguredProviders());
   try {
-    const secretsService = getSecretsService();
-    const stored = await secretsService.listProviders();
-    for (const provider of stored) {
-      if (!isSupportedProvider(provider)) continue;
-      const key = await secretsService.getKey(provider);
-      if (key && key.trim().length > 0) {
-        providers.add(provider);
-      }
+    const legacy = await readOpenAIApiKey();
+    if (legacy) {
+      providers.add('openai');
     }
   } catch (error) {
-    console.error('[assistant-server] Failed to inspect stored provider keys:', error);
+    console.error('[assistant-server] Failed to read legacy OpenAI key:', error);
+    throw error;
   }
-
-  const legacyOpenAi = await readLegacyOpenAiKey(false);
-  if (legacyOpenAi) {
-    providers.add('openai');
-  }
-
   return Array.from(providers);
 }
 

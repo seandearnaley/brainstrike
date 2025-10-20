@@ -311,7 +311,7 @@ function buildEmptyResult(task: EmbedTaskPayload): QueueResult {
       batchSize: 0,
       elapsedMs: 0,
       fallbackApplied: true,
-      dimensions: task.truncateDim ?? 0,
+      dimensions: task.truncateDim ?? task.targetDimension ?? 0,
     },
   };
 }
@@ -333,7 +333,7 @@ function buildCompletedResult(
       batchSize,
       elapsedMs: calculateElapsed(startedAt),
       fallbackApplied: true,
-      dimensions: vectors[0]?.length ?? task.truncateDim ?? 0,
+      dimensions: vectors[0]?.length ?? task.truncateDim ?? task.targetDimension ?? 0,
     },
   };
 }
