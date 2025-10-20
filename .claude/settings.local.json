@@ -1,11 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git commit -m \"chore(beads): update brainstrike-13 and brainstrike-14 status to closed\")",
-      "Bash(gh api repos/seandearnaley/brainstrike/pulls/401/reviews --jq '.[] | \"\"Review by: \\(.user.login)\\nState: \\(.state)\\nBody:\\n\\(.body)\\n\\n---\\n\"\"')",
-      "WebFetch(domain:zustand.docs.pmnd.rs)",
-      "Bash(git add apps/desktop/src/ipc-secrets.ts apps/desktop/src/__tests__/main/ipc-secrets.test.ts)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nrefactor(desktop): improve test mode isolation and prevent state leakage\n\n**Code Review Improvements:**\nFollowing code-reviewer agent recommendations to address test mode issues:\n\n1. **Fixed Unit Test Expectations** (ipc-secrets.test.ts:76-101)\n   - Renamed test to clarify it tests isolation behavior\n   - Updated assertions to NOT expect environment variables in test mode\n   - Aligns with E2E test requirements for proper deletion testing\n\n2. **Added State Cleanup Function** (ipc-secrets.ts:17-25)\n   - Exported `clearTestModeSecrets()` to clear module-level Map\n   - Prevents test pollution between test runs\n   - Called in test cleanup (afterEach)\n\n3. **Added Comprehensive Documentation** (ipc-secrets.ts:62-77)\n   - JSDoc explaining test mode vs production behavior\n   - Documents environment variable isolation in test mode\n   - Clarifies cleanup requirements for tests\n\n**Impact:**\n- All tests pass (251/251 unit tests, 29/29 E2E tests)\n- Test mode properly isolated from environment configuration\n- No module-level state leakage between test runs\n- Clear documentation for future maintainers\n\n**Related:**\n- Builds on previous commit: fix(desktop): isolate test mode secrets\n- Addresses code-reviewer findings: test mismatch, state leakage, documentation\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git log main..feat/provider-registry --format=\"%h %s%n%b\")",
+      "Bash(git push -f origin fix/composite-key-model-picker)",
+      "Bash(bd update brainstrike-31 --notes \"$(cat <<''EOF''\n**Epic Progress Update:**\n\n**Completed:**\n- ✅ brainstrike-26: Model enablement in settings (closed)\n- ✅ brainstrike-33 (formerly 27): Consolidated model picker (merged in PR #404)\n- ✅ Post-merge bug fix: PR #406 created, reviewed, and approved\n\n**Current Status:**\nPR #406 is ready for merge:\n- Fixes composite key comparison bug in model picker\n- All UI tests passing (3/3)\n- Claude GitHub Actions review: APPROVE ✅\n- No breaking changes (codex P0 flag was false positive)\n- Rebased onto main with full provider-registry implementation\n\n**Next Steps:**\n- Merge PR #406\n- Final verification of epic completion\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []
