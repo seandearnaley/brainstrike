@@ -6,6 +6,8 @@ export interface Queryable {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
+export const MAX_EMBEDDING_DIMENSION = 16_000;
+
 // Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
 const embeddingDimensionCache = new Map<string, number>();
 
@@ -30,6 +32,12 @@ async function resolveEmbeddingSetDimension(
     );
   }
 
+  if (dimensions > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Embedding set ${embeddingSetId} defines ${dimensions} dimensions, exceeding the supported maximum (${MAX_EMBEDDING_DIMENSION}).`
+    );
+  }
+
   embeddingDimensionCache.set(embeddingSetId, dimensions);
   return dimensions;
 }
@@ -45,35 +53,75 @@ export async function validateEmbeddingDimension(
 ): Promise<void> {
   if (!embedding) return;
 
+  ensureArrayInput(embedding);
+  ensureNumericValues(embedding);
+  const embeddingDimension = embedding.length;
+  assertEmbeddingDimensionBounds(embeddingDimension);
+
+  const targetDimension = await resolveTargetDimension(db, options);
+  if (targetDimension === undefined) return;
+
+  assertTargetDimensionBounds(targetDimension);
+  if (embeddingDimension !== targetDimension) {
+    throw new Error(
+      `Embedding dimension mismatch: received ${embeddingDimension}, expected ${targetDimension}.`
+    );
+  }
+}
+
+function ensureArrayInput(embedding: number[]): void {
   if (!Array.isArray(embedding)) {
     throw new Error(
       `Invalid embedding: expected number array, received ${typeof embedding} instead.`
     );
   }
+}
 
+function ensureNumericValues(embedding: number[]): void {
   for (const value of embedding) {
     if (!Number.isFinite(value)) {
       throw new Error('Embeddings must contain only finite numeric values.');
     }
   }
+}
 
-  let targetDimension = options.expectedDimension;
+function assertEmbeddingDimensionBounds(dimension: number): void {
+  if (!Number.isInteger(dimension) || dimension <= 0) {
+    throw new Error(`Embedding dimension ${dimension} is invalid. Expected a positive integer.`);
+  }
+  if (dimension > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Embedding dimension ${dimension} exceeds pgvector's supported maximum of ${MAX_EMBEDDING_DIMENSION}.`
+    );
+  }
+}
+
+function assertTargetDimensionBounds(dimension: number): void {
+  if (!Number.isInteger(dimension) || dimension <= 0) {
+    throw new Error(
+      `Invalid target embedding dimension (${dimension}). Expected a positive integer.`
+    );
+  }
+  if (dimension > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Invalid target embedding dimension (${dimension}). Maximum supported is ${MAX_EMBEDDING_DIMENSION}.`
+    );
+  }
+}
+
+async function resolveTargetDimension(
+  db: Queryable,
+  options: { embeddingSetId?: string | null; expectedDimension?: number }
+): Promise<number | undefined> {
   if (options.embeddingSetId) {
-    targetDimension = await resolveEmbeddingSetDimension(db, options.embeddingSetId);
+    return resolveEmbeddingSetDimension(db, options.embeddingSetId);
   }
 
-  if (typeof targetDimension === 'number') {
-    if (!Number.isInteger(targetDimension) || targetDimension <= 0) {
-      throw new Error(
-        `Invalid target embedding dimension (${targetDimension}). Expected a positive integer.`
-      );
-    }
-    if (embedding.length !== targetDimension) {
-      throw new Error(
-        `Embedding dimension mismatch: received ${embedding.length}, expected ${targetDimension}.`
-      );
-    }
+  if (typeof options.expectedDimension === 'number') {
+    return options.expectedDimension;
   }
+
+  return undefined;
 }
 
 /**

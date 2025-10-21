@@ -348,6 +348,37 @@ describe('FileChunkRepository', () => {
       const result = await repository.findById('embedme');
       expect(result?.embedding).toEqual(embedding);
     });
+
+    it('rejects embedding updates that exceed the pgvector maximum dimension', async () => {
+      const chunk: FileChunkInsert = {
+        id: 'embedme-too-large',
+        fileRecordId: 'file1',
+        chunkIndex: 0,
+        content: 'Content to embed (max check)',
+        contentHash: 'hash-max-check',
+        tokenCount: 3,
+        chunkType: 'text',
+        chunkSize: 100,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await repository.insert(chunk);
+
+      const embedding = makeVector(16_001, [
+        [0, 0.4],
+        [16_000, 0.6],
+      ]);
+      const updateData: FileChunkUpdate = {
+        id: 'embedme-too-large',
+        embedding,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await expect(repository.update(updateData)).rejects.toThrow(
+        /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+      );
+    });
   });
 
   describe('deleteByFileRecordId', () => {
@@ -548,6 +579,30 @@ describe('FileChunkRepository', () => {
         const result = await repository.insert(chunk);
         expect(result).toBeDefined();
         expect(result.embedding).toEqual(embedding);
+      });
+
+      it('rejects embeddings exceeding the pgvector maximum dimension', async () => {
+        const embedding = makeVector(16_001, [
+          [0, 0.25],
+          [16_000, 0.75],
+        ]);
+        const chunk: FileChunkInsert = {
+          id: 'chunk_exceeds_max_dim',
+          fileRecordId: 'file1',
+          chunkIndex: 0,
+          content: 'High-dimension chunk',
+          contentHash: 'hash_max_dim',
+          tokenCount: 2,
+          chunkType: 'text',
+          chunkSize: 100,
+          embedding,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+        await expect(repository.insert(chunk)).rejects.toThrow(
+          /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+        );
       });
 
       it('should accept null/undefined embeddings', async () => {

@@ -29,6 +29,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
 const DEFAULT_EMBEDDING_DIMENSION = 768;
+const MAX_EMBEDDING_DIMENSION = 16_000;
 
 // Allow remote model downloads when a cache directory is not specified. This aligns with the
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
@@ -98,9 +99,9 @@ function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: n
     );
   }
 
-  if (requestedDimension > 16_000) {
+  if (requestedDimension > MAX_EMBEDDING_DIMENSION) {
     throw new Error(
-      `targetDimension ${requestedDimension} exceeds pgvector's supported maximum of 16,000 dimensions.`
+      `targetDimension ${requestedDimension} exceeds pgvector's supported maximum of ${MAX_EMBEDDING_DIMENSION} dimensions.`
     );
   }
 }

@@ -5,6 +5,7 @@ import type {
   IDatabase,
   ImportProgress,
 } from '@brainstrike/db';
+import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -198,6 +199,11 @@ async function ensureEmbeddingSet(
 function assertValidDimensions(dimensions: number): void {
   if (!Number.isFinite(dimensions) || dimensions <= 0) {
     throw new Error(`Invalid embedding dimension ${dimensions} when ensuring embedding set.`);
+  }
+  if (dimensions > MAX_EMBEDDING_DIMENSION) {
+    throw new Error(
+      `Invalid embedding dimension ${dimensions} when ensuring embedding set. Maximum supported is ${MAX_EMBEDDING_DIMENSION}.`
+    );
   }
 }
 

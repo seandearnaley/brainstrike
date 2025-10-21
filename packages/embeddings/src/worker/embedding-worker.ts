@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import { JobQueue } from '@brainstrike/db';
+import { JobQueue, MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import { generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
@@ -242,14 +242,14 @@ function ensureModelDimension(
     throw new Error(errorMsg);
   }
 
-  if (dimensions > 16_000) {
+  if (dimensions > MAX_EMBEDDING_DIMENSION) {
     log('worker_model_dimension_warning', {
       modelKey,
       dimensions,
-      message: 'pgvector supports up to 16k dimensions; verify provider settings.',
+      message: `pgvector supports up to ${MAX_EMBEDDING_DIMENSION} dimensions; verify provider settings.`,
     });
     throw new Error(
-      `Model '${modelKey}' exceeds the supported embedding dimension limit (16k). Received ${dimensions}.`
+      `Model '${modelKey}' exceeds the supported embedding dimension limit (${MAX_EMBEDDING_DIMENSION}). Received ${dimensions}.`
     );
   }
 
