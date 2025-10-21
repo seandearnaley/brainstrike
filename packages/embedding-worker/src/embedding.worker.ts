@@ -28,7 +28,7 @@ type FeatureExtractor = FeatureExtractionPipeline &
   ) => Promise<unknown>);
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
-const StandardEmbeddingDimension = 768;
+const DEFAULT_EMBEDDING_DIMENSION = 768;
 
 // Allow remote model downloads when a cache directory is not specified. This aligns with the
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
@@ -76,24 +76,33 @@ async function loadPipeline(
   return loader;
 }
 
-function assertStandardDimension(payload: EmbedWorkerRequest, requestedDimension: number): void {
-  if (requestedDimension === StandardEmbeddingDimension) {
-    return;
+function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: number): void {
+  if (!Number.isFinite(requestedDimension) || requestedDimension <= 0) {
+    const providerLabel = payload.provider ? `Provider "${payload.provider}"` : 'Embedding request';
+    const parameterHint =
+      payload.dimensionParameter === 'dimensions'
+        ? 'Set a positive integer via the dimensions parameter.'
+        : payload.dimensionParameter === 'output_dimensionality'
+          ? 'Set a positive integer via the output_dimensionality parameter.'
+          : payload.dimensionParameter === 'output_dimension'
+            ? 'Set a positive integer via the output_dimension parameter.'
+            : 'Provide a positive integer targetDimension.';
+    throw new Error(
+      `${providerLabel} supplied an invalid target dimension (${requestedDimension}). ${parameterHint}`
+    );
   }
 
-  const providerLabel = payload.provider ? `Provider "${payload.provider}"` : 'Embedding request';
-  const parameterHint =
-    payload.dimensionParameter === 'dimensions'
-      ? `Set dimensions=${StandardEmbeddingDimension}.`
-      : payload.dimensionParameter === 'output_dimensionality'
-        ? `Set output_dimensionality=${StandardEmbeddingDimension}.`
-        : payload.dimensionParameter === 'output_dimension'
-          ? `Set output_dimension=${StandardEmbeddingDimension}.`
-          : 'Configure the provider to emit 768-dimensional vectors.';
+  if (!Number.isInteger(requestedDimension)) {
+    throw new Error(
+      `targetDimension must be an integer, received ${requestedDimension} for model ${payload.model}.`
+    );
+  }
 
-  throw new Error(
-    `${providerLabel} requested ${requestedDimension}D embeddings, but BrainStrike enforces ${StandardEmbeddingDimension}D. ${parameterHint}`
-  );
+  if (requestedDimension > 16_000) {
+    throw new Error(
+      `targetDimension ${requestedDimension} exceeds pgvector's supported maximum of 16,000 dimensions.`
+    );
+  }
 }
 
 function cloneAsFloat32(values: ArrayLike<number>): Float32Array {
@@ -147,7 +156,7 @@ type EmbeddingState = {
 };
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
-  const requestedDimension = payload.targetDimension ?? StandardEmbeddingDimension;
+  const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   const context: EmbeddingContext = {
     id: payload.id,
     model: payload.model,
@@ -192,8 +201,8 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   const context = createContext(payload);
   const { id, model, texts } = context;
   const deviceHint = payload.deviceHint ?? 'auto';
-  const requestedDimension = context.targetDimension ?? StandardEmbeddingDimension;
-  assertStandardDimension(payload, requestedDimension);
+  const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+  assertValidDimension(payload, requestedDimension);
 
   if (texts.length === 0) {
     return {

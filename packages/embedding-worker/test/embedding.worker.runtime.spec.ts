@@ -90,19 +90,21 @@ describe('embedding worker runtime', () => {
     expect(workerEmitMock.mock.calls.at(-1)?.[0]).toMatchObject({ phase: 'complete', progress: 1 });
   });
 
-  it('rejects tasks requesting non-standard embedding dimensions', async () => {
+  it('supports tasks requesting non-default embedding dimensions', async () => {
+    const vector = new Float32Array(1024).fill(0.25);
+    pipelineMock.mockResolvedValue(async () => vector);
     const runEmbedding = await loadWorker();
-    await expect(
-      runEmbedding({
-        type: 'embed',
-        id: 'invalid-dim',
-        model: 'bge-m3',
-        texts: ['hello'],
-        targetDimension: 1024,
-        dimensionParameter: 'dimensions',
-        provider: 'openai',
-      })
-    ).rejects.toThrow(/requested 1024D embeddings, but BrainStrike enforces 768D/);
+    const result = await runEmbedding({
+      type: 'embed',
+      id: 'custom-dim',
+      model: 'bge-m3',
+      texts: ['hello'],
+      targetDimension: 1024,
+      dimensionParameter: 'dimensions',
+      provider: 'openai',
+    });
+    expect(result.metadata.dimensions).toBe(1024);
+    expect(Array.from(result.vectors[0])).toHaveLength(1024);
   });
 
   it('shrinks batch size after pipeline errors and falls back to wasm execution', async () => {

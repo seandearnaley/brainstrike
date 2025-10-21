@@ -36,7 +36,7 @@ import {
   useState,
 } from 'react';
 import { useFileImportService } from './base-file-import-service';
-import { getActiveEmbeddingSetId } from './vector-preferences';
+import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
 const STANDARD_EMBEDDING_DIMENSION = 768;
@@ -87,6 +87,9 @@ function createEmbeddingConfig(
     service: embeddingService,
     chunkRepository,
     resolveTargetEmbeddingSetId,
+    onResolvedTargetSetId: (id: string) => {
+      setActiveEmbeddingSetId(id);
+    },
     ...(embeddingModel ? { model: embeddingModel } : {}),
   };
 }
@@ -276,14 +279,16 @@ export function useEnhancedFileImportService(
             continue;
           }
 
-          const dedupeKey = `${chunk.id}:${chunk.embeddingSetId ?? 'none'}:${chunk.contentHash}`;
+          const resolvedEmbeddingSetId =
+            options?.targetEmbeddingSetId ?? chunk.embeddingSetId ?? null;
+          const dedupeKey = `${chunk.id}:${resolvedEmbeddingSetId ?? 'none'}:${chunk.contentHash}`;
           await queue.enqueue({
             queue: 'embeddings',
             jobType: 'embed_chunk',
             payload: {
               chunkId: chunk.id,
               fileRecordId,
-              embeddingSetId: chunk.embeddingSetId ?? null,
+              embeddingSetId: resolvedEmbeddingSetId,
               expectedDimension,
             },
             dedupeKey,

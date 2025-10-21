@@ -7,7 +7,7 @@ import type {
 } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
-import { createLogger } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
@@ -18,6 +18,25 @@ const STANDARD_EMBEDDING_DIMENSION = 768;
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
 const embeddingSetCache = new Map<string, { modelKey: string }>();
+
+function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
+  embeddingSetCache.set(targetSetId, { modelKey });
+  if (embeddingSetCache.size > EMBEDDING_SET_CACHE_LIMIT) {
+    const oldestKey = embeddingSetCache.keys().next().value;
+    if (oldestKey) {
+      embeddingSetCache.delete(oldestKey);
+    }
+  }
+}
+
+function dispatchEmbeddingSetUpdateEvent(id: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('brainstrike:embedding-set-updated', { detail: { id } }));
+  } catch {
+    // ignore dispatch failures
+  }
+}
 
 export interface EmbeddingJobQueuePort {
   enqueueBatch(
@@ -74,7 +93,10 @@ interface EmbeddingConfiguration {
   service: SimpleEmbeddingService | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
   resolveTargetEmbeddingSetId?: () => string | null | undefined;
+  onResolvedTargetSetId?: (id: string) => void;
 }
+
+type EmbeddingDistance = 'cosine' | 'l2' | 'ip';
 
 interface ProgressHandlers {
   update: (updater: (prev: EnhancedImportProgress | null) => EnhancedImportProgress | null) => void;
@@ -134,17 +156,142 @@ async function resolveModelKeyFromTargetSet(
       return undefined;
     }
 
-    embeddingSetCache.set(targetSetId, { modelKey: fetchedModelKey });
-    if (embeddingSetCache.size > EMBEDDING_SET_CACHE_LIMIT) {
-      const [oldestKey] = embeddingSetCache.keys();
-      if (oldestKey) {
-        embeddingSetCache.delete(oldestKey);
-      }
-    }
+    cacheEmbeddingSet(targetSetId, fetchedModelKey);
     return fetchedModelKey;
   } catch {
     return undefined;
   }
+}
+
+interface EnsureEmbeddingSetParams {
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: EmbeddingDistance;
+  preferredId?: string | undefined;
+}
+
+async function ensureEmbeddingSet(
+  sql: SqlExecutorPort | null | undefined,
+  params: EnsureEmbeddingSetParams
+): Promise<string | undefined> {
+  if (!sql) {
+    return params.preferredId;
+  }
+
+  const { modelKey, modelId, dimensions, distance, preferredId } = params;
+  assertValidDimensions(dimensions);
+
+  const preferred = await resolvePreferredSet(sql, preferredId, dimensions, distance, modelKey);
+  if (preferred) {
+    return preferred;
+  }
+
+  const existing = await findMatchingSet(sql, modelKey, dimensions, distance);
+  if (existing) {
+    return existing;
+  }
+
+  return insertEmbeddingSet(sql, { modelKey, modelId, dimensions, distance });
+}
+
+function assertValidDimensions(dimensions: number): void {
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(`Invalid embedding dimension ${dimensions} when ensuring embedding set.`);
+  }
+}
+
+async function resolvePreferredSet(
+  sql: SqlExecutorPort,
+  preferredId: string | undefined,
+  dimensions: number,
+  distance: EmbeddingDistance,
+  modelKey: string
+): Promise<string | undefined> {
+  if (!preferredId) {
+    return undefined;
+  }
+
+  try {
+    const result = await sql.query<{
+      id: string;
+      dimensions?: number | string;
+      distance?: string;
+    }>('SELECT id, dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1', [preferredId]);
+    const row = result.rows[0];
+    if (!row) {
+      return undefined;
+    }
+
+    const rowDimensions = Number(row.dimensions ?? 0);
+    const rowDistance = (row.distance ?? distance) as EmbeddingDistance;
+    if (
+      Number.isFinite(rowDimensions) &&
+      rowDimensions === dimensions &&
+      rowDistance === distance
+    ) {
+      return String(row.id);
+    }
+
+    logger.warn('Embedding set preference mismatch; creating new set for model', {
+      preferredId,
+      modelKey,
+      rowDimensions,
+      expectedDimensions: dimensions,
+      rowDistance,
+      expectedDistance: distance,
+    });
+  } catch (error) {
+    logger.warn('Failed to look up preferred embedding set; creating new set', {
+      preferredId,
+      modelKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return undefined;
+}
+
+async function findMatchingSet(
+  sql: SqlExecutorPort,
+  modelKey: string,
+  dimensions: number,
+  distance: EmbeddingDistance
+): Promise<string | undefined> {
+  try {
+    const composite = await sql.query<{ id: string }>(
+      'SELECT id FROM embedding_sets WHERE model_key = $1 AND dimensions = $2 AND distance = $3 LIMIT 1',
+      [modelKey, dimensions, distance]
+    );
+    const existingId = composite.rows[0]?.id;
+    return existingId ? String(existingId) : undefined;
+  } catch (error) {
+    logger.warn('Failed to query embedding_sets for existing entry', {
+      modelKey,
+      dimensions,
+      distance,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+async function insertEmbeddingSet(
+  sql: SqlExecutorPort,
+  params: { modelKey: string; modelId: string; dimensions: number; distance: EmbeddingDistance }
+): Promise<string> {
+  const newId = generateUUID();
+  const { modelKey, modelId, dimensions, distance } = params;
+  const insert = await sql.query<{ id: string }>(
+    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (model_key, dimensions, distance)
+       DO UPDATE SET model_id = EXCLUDED.model_id
+       RETURNING id`,
+    [newId, modelKey, modelId, dimensions, distance, new Date().toISOString()]
+  );
+  const insertedId = insert.rows[0]?.id;
+  return insertedId ? String(insertedId) : newId;
 }
 
 async function resolveEmbeddingModel(
@@ -163,6 +310,8 @@ async function resolveEmbeddingModel(
       : {};
   }
 
+  const embeddingConfig = config as EmbeddingConfiguration;
+
   const resolved: {
     model?: string;
     targetSetId?: string;
@@ -170,30 +319,84 @@ async function resolveEmbeddingModel(
     targetDimension?: number;
     dimensionParameter?: ProviderDimensionParameter;
   } = {};
-  const targetSetId = config.resolveTargetEmbeddingSetId?.();
-  if (targetSetId) {
-    resolved.targetSetId = targetSetId;
+
+  const initialSetId = embeddingConfig.resolveTargetEmbeddingSetId?.();
+  if (initialSetId) {
+    resolved.targetSetId = initialSetId;
   }
 
-  let modelKey = config.model;
-
-  if (!modelKey && targetSetId) {
-    modelKey = await resolveModelKeyFromTargetSet(targetSetId, ports?.sql ?? null);
+  const modelKey = await determineModelKey(embeddingConfig.model, resolved.targetSetId, ports?.sql);
+  if (!modelKey) {
+    return resolved;
   }
 
-  if (modelKey) {
-    resolved.model = modelKey;
-    const modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
-    if (modelConfig?.dimensions && Number.isFinite(modelConfig.dimensions)) {
-      resolved.targetDimension = modelConfig.dimensions;
-    }
-  }
+  resolved.model = modelKey;
+  const modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+  resolved.targetDimension = determineTargetDimension(modelConfig);
 
-  if (resolved.targetDimension === undefined) {
-    resolved.targetDimension = STANDARD_EMBEDDING_DIMENSION;
-  }
+  await ensureAndEmitEmbeddingSet({
+    sql: ports?.sql,
+    resolved,
+    modelConfig,
+    config: embeddingConfig,
+  });
 
   return resolved;
+}
+
+async function determineModelKey(
+  explicitModel: string | undefined,
+  targetSetId: string | undefined,
+  sql: SqlExecutorPort | null | undefined
+): Promise<string | undefined> {
+  if (explicitModel) {
+    return explicitModel;
+  }
+  if (targetSetId) {
+    return resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
+  }
+  return undefined;
+}
+
+function determineTargetDimension(
+  modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined
+): number {
+  const dim = modelConfig?.dimensions;
+  return Number.isFinite(dim) && dim !== undefined ? Number(dim) : STANDARD_EMBEDDING_DIMENSION;
+}
+
+async function ensureAndEmitEmbeddingSet(params: {
+  sql: SqlExecutorPort | null | undefined;
+  resolved: {
+    model?: string;
+    targetSetId?: string;
+    targetDimension?: number;
+  };
+  modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined;
+  config: EmbeddingConfiguration;
+}): Promise<void> {
+  const { sql, resolved, modelConfig, config } = params;
+  if (!resolved.model || !resolved.targetDimension) {
+    return;
+  }
+
+  const ensuredSetId = await ensureEmbeddingSet(sql, {
+    modelKey: resolved.model,
+    modelId: modelConfig?.id ?? resolved.model,
+    dimensions: resolved.targetDimension,
+    distance: 'cosine',
+    preferredId: resolved.targetSetId,
+  });
+
+  const finalSetId = ensuredSetId ?? resolved.targetSetId;
+  if (!finalSetId) {
+    return;
+  }
+
+  resolved.targetSetId = finalSetId;
+  cacheEmbeddingSet(finalSetId, resolved.model);
+  config.onResolvedTargetSetId?.(finalSetId);
+  dispatchEmbeddingSetUpdateEvent(finalSetId);
 }
 
 interface ChunkingOptionsConfig {

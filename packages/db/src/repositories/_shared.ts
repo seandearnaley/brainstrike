@@ -2,6 +2,80 @@
  * Shared utilities for database repositories
  */
 
+export interface Queryable {
+  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
+
+// Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
+const embeddingDimensionCache = new Map<string, number>();
+
+async function resolveEmbeddingSetDimension(
+  db: Queryable,
+  embeddingSetId: string
+): Promise<number> {
+  const cached = embeddingDimensionCache.get(embeddingSetId);
+  if (typeof cached === 'number') {
+    return cached;
+  }
+
+  const result = await db.query<{ dimensions?: number }>(
+    'SELECT dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+    [embeddingSetId]
+  );
+  const dimensionsRaw = result.rows[0]?.dimensions;
+  const dimensions = typeof dimensionsRaw === 'number' ? dimensionsRaw : Number(dimensionsRaw ?? 0);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    throw new Error(
+      `Embedding set ${embeddingSetId} is missing or has invalid dimensions (${dimensionsRaw}).`
+    );
+  }
+
+  embeddingDimensionCache.set(embeddingSetId, dimensions);
+  return dimensions;
+}
+
+/**
+ * Validate embedding payloads against optional target dimensions.
+ * Ensures embeddings are numeric arrays and match the provided embedding_set dimensions.
+ */
+export async function validateEmbeddingDimension(
+  db: Queryable,
+  embedding: number[] | undefined,
+  options: { embeddingSetId?: string | null; expectedDimension?: number } = {}
+): Promise<void> {
+  if (!embedding) return;
+
+  if (!Array.isArray(embedding)) {
+    throw new Error(
+      `Invalid embedding: expected number array, received ${typeof embedding} instead.`
+    );
+  }
+
+  for (const value of embedding) {
+    if (!Number.isFinite(value)) {
+      throw new Error('Embeddings must contain only finite numeric values.');
+    }
+  }
+
+  let targetDimension = options.expectedDimension;
+  if (options.embeddingSetId) {
+    targetDimension = await resolveEmbeddingSetDimension(db, options.embeddingSetId);
+  }
+
+  if (typeof targetDimension === 'number') {
+    if (!Number.isInteger(targetDimension) || targetDimension <= 0) {
+      throw new Error(
+        `Invalid target embedding dimension (${targetDimension}). Expected a positive integer.`
+      );
+    }
+    if (embedding.length !== targetDimension) {
+      throw new Error(
+        `Embedding dimension mismatch: received ${embedding.length}, expected ${targetDimension}.`
+      );
+    }
+  }
+}
+
 /**
  * Parse embeddings from various formats (TEXT/pgvector/JSON)
  * Handles multiple input formats:
@@ -155,4 +229,36 @@ export function cosineToSearchSimilarity(cosineSimilarity: number): number {
   }
   // Convert [-1, 1] to [0, 1] where 1 means identical and 0 means opposite
   return (cosineSimilarity + 1) / 2;
+}
+
+export interface UpdateBuilder {
+  setParts: string[];
+  values: unknown[];
+  index: number;
+}
+
+export function createUpdateBuilder(startIndex = 1): UpdateBuilder {
+  return { setParts: [], values: [], index: startIndex };
+}
+
+export function appendColumn(builder: UpdateBuilder, column: string, value: unknown): void {
+  builder.setParts.push(`${column} = $${builder.index}`);
+  builder.values.push(value);
+  builder.index += 1;
+}
+
+export function appendColumnIfDefined<T>(
+  builder: UpdateBuilder,
+  column: string,
+  value: T | undefined
+): void {
+  if (value !== undefined) {
+    appendColumn(builder, column, value);
+  }
+}
+
+export function appendRawClause(builder: UpdateBuilder, clause: string, value: unknown): void {
+  builder.setParts.push(`${clause} = $${builder.index}`);
+  builder.values.push(value);
+  builder.index += 1;
 }

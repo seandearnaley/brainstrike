@@ -258,10 +258,11 @@ function getBackfillDisabledState(params: {
   if (backfilling) return { disabled: true, title: 'Backfilling in progress' };
   if (isWeb && !workerLocalRunning)
     return { disabled: true, title: 'Start worker to enable backfill on Web' };
-  if (!hasChunks) return { disabled: true, title: 'No chunks available to backfill' };
   return {
     disabled: false,
-    title: 'Enqueue jobs for chunks missing embeddings for the active set',
+    title: hasChunks
+      ? 'Enqueue jobs for chunks missing embeddings for the active set'
+      : 'No pending chunks detected – you can still enqueue a backfill to double-check.',
   };
 }
 
@@ -356,58 +357,76 @@ function useActiveEmbeddingSet() {
   const db = usePGliteDatabase();
   const [sets, setSets] = useState<EmbeddingSet[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const fetchSetsRef = useRef<() => Promise<number>>(async () => 0);
 
-  // Load sets
-  useEffect(() => {
-    let canceled = false;
-    if (!db) return;
-    const fetchSets = async () => {
-      const res = await db.query<{
-        id: string;
-        modelKey: string;
-        modelId: string;
-        dimensions: number;
-        distance: string;
-        createdAt: string;
-      }>(
-        'SELECT id, model_key AS "modelKey", model_id AS "modelId", dimensions, distance, created_at AS "createdAt" FROM embedding_sets ORDER BY created_at DESC'
-      );
-      if (canceled) return;
-      const mapped: EmbeddingSet[] = res.rows.map((r) => ({
-        id: String(r.id),
-        modelKey: String(r.modelKey),
-        modelId: String(r.modelId),
-        dimensions: Number(r.dimensions),
-        distance: String(r.distance) as EmbeddingSet['distance'],
-        createdAt: String(r.createdAt),
-      }));
-      setSets(mapped);
-      // Restore selection from store (preferred) or pick newest
+  const fetchSets = useCallback(async () => {
+    if (!db) return 0;
+    const res = await db.query<{
+      id: string;
+      modelKey: string;
+      modelId: string;
+      dimensions: number;
+      distance: string;
+      createdAt: string;
+    }>(
+      'SELECT id, model_key AS "modelKey", model_id AS "modelId", dimensions, distance, created_at AS "createdAt" FROM embedding_sets ORDER BY created_at DESC'
+    );
+    const mapped: EmbeddingSet[] = res.rows.map((r) => ({
+      id: String(r.id),
+      modelKey: String(r.modelKey),
+      modelId: String(r.modelId),
+      dimensions: Number(r.dimensions),
+      distance: String(r.distance) as EmbeddingSet['distance'],
+      createdAt: String(r.createdAt),
+    }));
+    setSets(mapped);
+    setActiveId((prev) => {
+      if (prev && mapped.some((s) => s.id === prev)) {
+        return prev;
+      }
       let saved: string | null = null;
       try {
         saved = useVectorStatusUIStore.getState().activeEmbeddingSetId;
       } catch {}
-      const id = saved && mapped.find((s) => s.id === saved) ? saved : (mapped[0]?.id ?? null);
-      setActiveId(id);
-      return mapped.length;
+      if (saved && mapped.some((s) => s.id === saved)) {
+        return saved;
+      }
+      return mapped[0]?.id ?? null;
+    });
+    return mapped.length;
+  }, [db]);
+
+  useEffect(() => {
+    fetchSetsRef.current = fetchSets;
+  }, [fetchSets]);
+
+  // Load sets and poll briefly if none exist yet
+  useEffect(() => {
+    let canceled = false;
+    if (!db) return;
+
+    const runFetch = async () => {
+      if (canceled) return 0;
+      const count = await fetchSets();
+      return count;
     };
 
-    // initial load
-    void fetchSets().catch(() => {});
+    void runFetch().catch(() => {});
 
-    // Poll briefly if empty (user may have just started the worker)
     let pollId: ReturnType<typeof setInterval> | null = null;
 
-    const pollForSets = async () => {
+    const pollForSets = () => {
       let attempts = 0;
       pollId = setInterval(async () => {
         attempts += 1;
         if (attempts > 10) {
-          if (pollId) clearInterval(pollId);
+          if (pollId) {
+            clearInterval(pollId);
+          }
           return;
         }
-        const c = await fetchSets();
-        if (c && c > 0 && pollId) {
+        const count = await runFetch();
+        if (count && count > 0 && pollId) {
           clearInterval(pollId);
         }
       }, 2000);
@@ -415,9 +434,9 @@ function useActiveEmbeddingSet() {
 
     void (async () => {
       try {
-        const count = await fetchSets();
+        const count = await runFetch();
         if (!canceled && count === 0) {
-          await pollForSets();
+          pollForSets();
         }
       } catch {}
     })();
@@ -426,7 +445,18 @@ function useActiveEmbeddingSet() {
       canceled = true;
       if (pollId) clearInterval(pollId);
     };
-  }, [db]);
+  }, [db, fetchSets]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handler = () => {
+      void fetchSetsRef.current();
+    };
+    window.addEventListener('brainstrike:embedding-set-updated', handler);
+    return () => {
+      window.removeEventListener('brainstrike:embedding-set-updated', handler);
+    };
+  }, []);
 
   // Persist selection
   useEffect(() => {
