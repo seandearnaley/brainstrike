@@ -223,8 +223,9 @@ async function initializeEmbeddingService(
 }
 
 /**
- * Validates that a model configuration meets the 768D baseline requirement.
- * @throws {Error} If model dimensions don't match the standard
+ * Validates the dimension metadata returned by the embedding service.
+ * Ensures the size is finite, within pgvector's limits, and emits telemetry when we diverge
+ * from the historical 768D default so downstream consumers can react.
  */
 function ensureModelDimension(
   modelConfig: ModelConfig,

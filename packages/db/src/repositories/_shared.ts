@@ -6,6 +6,7 @@ export interface Queryable {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
 
+// Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
 const embeddingDimensionCache = new Map<string, number>();
 
 async function resolveEmbeddingSetDimension(
