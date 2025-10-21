@@ -463,7 +463,12 @@ describe('FileChunkRepository', () => {
 
   describe('embedding dimension validation', () => {
     describe('insert', () => {
-      it('should reject 384D embeddings with clear error message', async () => {
+      it('rejects embeddings that do not align with their embedding set dimension', async () => {
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','test-model','test-model',768,'cosine',CURRENT_TIMESTAMP)`
+        );
+
         const embedding = makeVector(384, [
           [0, 0.1],
           [1, 0.2],
@@ -478,22 +483,24 @@ describe('FileChunkRepository', () => {
           chunkType: 'text',
           chunkSize: 100,
           embedding,
+          embeddingSetId: 'set-768',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
 
         await expect(repository.insert(chunk)).rejects.toThrow(
-          /Embedding dimension mismatch: got 384, expected 768/
-        );
-        await expect(repository.insert(chunk)).rejects.toThrow(
-          /BrainStrike enforces 768-dimensional embeddings/
-        );
-        await expect(repository.insert(chunk)).rejects.toThrow(
-          /docs\/20251019-embedding-dimensions-explainer\.md/
+          /Embedding dimension mismatch: received 384, expected 768/
         );
       });
 
-      it('should reject 1024D embeddings with clear error message', async () => {
+      it('accepts embeddings that match the embedding set dimension', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-1024','test-model-1024','test-model-1024',1024,'cosine',$1)`,
+          [now]
+        );
+
         const embedding = makeVector(1024, [
           [0, 0.1],
           [1, 0.2],
@@ -508,16 +515,14 @@ describe('FileChunkRepository', () => {
           chunkType: 'text',
           chunkSize: 100,
           embedding,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          embeddingSetId: 'set-1024',
+          createdAt: now,
+          updatedAt: now,
         };
 
-        await expect(repository.insert(chunk)).rejects.toThrow(
-          /Embedding dimension mismatch: got 1024, expected 768/
-        );
-        await expect(repository.insert(chunk)).rejects.toThrow(
-          /OpenAI dimensions=768, Gemini output_dimensionality=768, Cohere output_dimension=768/
-        );
+        const inserted = await repository.insert(chunk);
+        expect(inserted.embedding?.length).toBe(1024);
+        expect(inserted.embeddingSetId).toBe('set-1024');
       });
 
       it('should accept 768D embeddings', async () => {
@@ -567,6 +572,13 @@ describe('FileChunkRepository', () => {
 
     describe('insertMany', () => {
       it('should reject batches containing non-768D embeddings', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','batch-model','batch-model',768,'cosine',$1)`,
+          [now]
+        );
+
         const chunks: FileChunkInsert[] = [
           {
             id: 'chunk1',
@@ -578,6 +590,7 @@ describe('FileChunkRepository', () => {
             chunkType: 'text',
             chunkSize: 100,
             embedding: makeVector(768, [[0, 0.1]]),
+            embeddingSetId: 'set-768',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
@@ -591,13 +604,14 @@ describe('FileChunkRepository', () => {
             chunkType: 'text',
             chunkSize: 100,
             embedding: makeVector(384, [[0, 0.2]]), // Invalid!
+            embeddingSetId: 'set-768',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
         ];
 
         await expect(repository.insertMany(chunks)).rejects.toThrow(
-          /Embedding dimension mismatch: got 384, expected 768/
+          /Embedding dimension mismatch: received 384, expected 768/
         );
 
         // Verify no partial writes occurred
@@ -608,6 +622,14 @@ describe('FileChunkRepository', () => {
       });
 
       it('should accept batches with all 768D embeddings', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','batch-model','batch-model',768,'cosine',$1)
+           ON CONFLICT (id) DO NOTHING`,
+          [now]
+        );
+
         const chunks: FileChunkInsert[] = [
           {
             id: 'chunk1',
@@ -622,6 +644,7 @@ describe('FileChunkRepository', () => {
               [0, 0.1],
               [1, 0.2],
             ]),
+            embeddingSetId: 'set-768',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
@@ -638,6 +661,7 @@ describe('FileChunkRepository', () => {
               [0, 0.3],
               [1, 0.4],
             ]),
+            embeddingSetId: 'set-768',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
@@ -652,6 +676,13 @@ describe('FileChunkRepository', () => {
 
     describe('insertManyWithTx', () => {
       it('should reject batches with non-768D embeddings in transaction', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','tx-model','tx-model',768,'cosine',$1)`,
+          [now]
+        );
+
         const chunks: FileChunkInsert[] = [
           {
             id: 'chunk_tx_1',
@@ -663,6 +694,7 @@ describe('FileChunkRepository', () => {
             chunkType: 'text',
             chunkSize: 100,
             embedding: makeVector(1024, [[0, 0.1]]), // Invalid!
+            embeddingSetId: 'set-768',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           },
@@ -672,7 +704,7 @@ describe('FileChunkRepository', () => {
         await db.query('BEGIN');
         try {
           await expect(repository.insertManyWithTx(db, chunks)).rejects.toThrow(
-            /Embedding dimension mismatch: got 1024, expected 768/
+            /Embedding dimension mismatch: received 1024, expected 768/
           );
           await db.query('ROLLBACK');
         } catch (err) {
@@ -688,6 +720,13 @@ describe('FileChunkRepository', () => {
 
     describe('update', () => {
       it('should reject updates with non-768D embeddings', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','update-model','update-model',768,'cosine',$1)`,
+          [now]
+        );
+
         // First insert a chunk without embedding
         const chunk: FileChunkInsert = {
           id: 'chunk_update_test',
@@ -708,15 +747,24 @@ describe('FileChunkRepository', () => {
         const update: FileChunkUpdate = {
           id: 'chunk_update_test',
           embedding: makeVector(384, [[0, 0.1]]),
+          embeddingSetId: 'set-768',
           updatedAt: new Date().toISOString(),
         };
 
         await expect(repository.update(update)).rejects.toThrow(
-          /Embedding dimension mismatch: got 384, expected 768/
+          /Embedding dimension mismatch: received 384, expected 768/
         );
       });
 
       it('should accept updates with 768D embeddings', async () => {
+        const now = new Date().toISOString();
+        await db.query(
+          `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+           VALUES ('set-768','update-model','update-model',768,'cosine',$1)
+           ON CONFLICT (id) DO NOTHING`,
+          [now]
+        );
+
         // First insert a chunk without embedding
         const chunk: FileChunkInsert = {
           id: 'chunk_update_success',
@@ -741,6 +789,7 @@ describe('FileChunkRepository', () => {
         const update: FileChunkUpdate = {
           id: 'chunk_update_success',
           embedding,
+          embeddingSetId: 'set-768',
           updatedAt: new Date().toISOString(),
         };
 

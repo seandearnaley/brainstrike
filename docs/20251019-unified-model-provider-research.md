@@ -36,8 +36,8 @@
 ## 4. Secrets & Configuration Strategy
 - **Desktop parity** – Follow the `readOpenAIApiKey` precedence for every provider: check provider-specific env vars first, then fall back to the keychain via `window.secrets`. We should extend `window.secrets` IPC to accept provider identifiers beyond `openai`.
 - **Web/runtime env vars** – For web builds we rely on `import.meta.env`; we should standardize naming (`VITE_PROVIDER_<ID>_API_KEY`, `VITE_PROVIDER_<ID>_ENABLED`) and sanitize them before passing into the provider registry.
-- **Model catalog metadata** – Store provider capabilities (LLM, embeddings, 768-compatibility flag, streaming support) in a shared config package so both UI and worker queues can validate selections.
-- **768D enforcement** – Surface dimension metadata per model and reject selections that cannot emit 768D, or provide automatic projection adapters when unavoidable (e.g., Voyage 1024D → 768D PCA).
+- **Model catalog metadata** – Store provider capabilities (LLM, embeddings, dimension ranges, streaming support) in a shared config package so both UI and worker queues can validate selections.
+- **Dimension compatibility** – Surface dimension metadata per model and ensure we resolve or create an `embedding_set` with the correct dimension before enqueueing work. Provide projection adapters only when a provider cannot emit a supported size.
 - **Implementation note (2025-10-19)** – Desktop now resolves provider keys through `apps/desktop/src/provider-api-key.ts`, which consults registry env mappings (including legacy `BRAINSTRIKE_*` overrides) before falling back to the encrypted secrets store.
 
 ### Desktop Environment Variables (current)
@@ -64,8 +64,8 @@ Frontend builds cannot access secure storage, so they will rely on statically in
 
 ### Embedding Queue Enforcement (current)
 
-- Browser queue tasks now propagate target-dimension metadata (defaulting to 768D) so renderer-side imports and workers share the same contract.
-- The embedding worker rejects requests that attempt to emit non-768D vectors and references provider-specific override parameters (`dimensions`, `output_dimensionality`, `output_dimension`) in the error payload to guide remediation.
+- Browser queue tasks now propagate `targetDimension` and `embeddingSetId` metadata so renderer-side imports and workers share the same contract for any supported size.
+- The embedding worker resolves the authoritative dimension from `embedding_sets`, logs mismatches, and only rejects when the generated vectors fail to match the set’s declared dimension.
 
 
 ## 5. Suggested Deliverables (for ticket breakdown)
@@ -75,12 +75,12 @@ Frontend builds cannot access secure storage, so they will rely on statically in
 4. **Embedding pipeline upgrades** – Update worker queue to request concrete dimensions (OpenAI `dimensions`, Google `output_dimensionality`, Voyage `output_dimension`) and add validation hooks.
 5. **Local/offline mode spike** – Prototype Transformers.js or Ollama-backed embeddings so browser/Electron experiences share a consistent checkbox-driven enablement flow.
 
-**Status 2025-10-19:** Item 1 is now in progress with a shared registry at `packages/agent/src/providers/registry.ts`. It provides runtime/capability metadata, default model definitions, environment key precedence, and an explicit 768D compatibility flag (`STANDARD_EMBEDDING_DIMENSION` helpers).
+**Status 2025-10-21:** Item 1 is now in progress with a shared registry at `packages/agent/src/providers/registry.ts`. It provides runtime/capability metadata, default model definitions, environment key precedence, and an explicit dimension metadata helper (`STANDARD_EMBEDDING_DIMENSION` remains the default fallback).
 
 ## 6. Open Questions
 - Should we bundle curated local models (e.g., `mxbai-embed-xsmall`) or rely on user-supplied model downloads?
-- Do we down-project non-768 embeddings in-app, or gate them to avoid schema drift?
+- When should we down-project higher-dimensional embeddings vs. storing multiple sets side-by-side?
 - How much dynamic model discovery do we want (e.g., hitting AI Gateway metadata) vs. curated lists for deterministic QA?
 - What telemetry/observability do we need when multiple providers are active (especially to trace embedding provenance)?
 
-_Prepared by Codex on 2025-10-19._
+_Prepared by Codex on 2025-10-19. Updated 2025-10-21 with flexible dimension support notes._

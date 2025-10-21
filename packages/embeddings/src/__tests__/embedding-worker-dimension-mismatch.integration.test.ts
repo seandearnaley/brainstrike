@@ -53,30 +53,25 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await migrate(db);
   });
 
-  it('rejects worker initialization with non-768D model', async () => {
-    // Try to start worker with a non-768D model (all-MiniLM-L6-v2 is 384D)
-    await expect(
-      startEmbeddingWorker({
-        db: db as unknown as IDatabase,
-        concurrency: 1,
-        modelKey: 'all-MiniLM-L6-v2', // 384D model
-      })
-    ).rejects.toThrow(
-      /Model 'all-MiniLM-L6-v2' produces 384D embeddings, but BrainStrike enforces 768D/
-    );
+  it('initializes worker with non-default embedding dimensions', async () => {
+    const controller384 = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      modelKey: 'all-MiniLM-L6-v2', // 384D model
+    });
+    expect(controller384).toBeDefined();
+    await controller384.stop();
 
-    await expect(
-      startEmbeddingWorker({
-        db: db as unknown as IDatabase,
-        concurrency: 1,
-        modelKey: 'bge-large-en-v1.5', // 1024D model
-      })
-    ).rejects.toThrow(
-      /Model 'bge-large-en-v1.5' produces 1024D embeddings, but BrainStrike enforces 768D/
-    );
+    const controller1024 = await startEmbeddingWorker({
+      db: db as unknown as IDatabase,
+      concurrency: 1,
+      modelKey: 'bge-large-en-v1.5', // 1024D model
+    });
+    expect(controller1024).toBeDefined();
+    await controller1024.stop();
   });
 
-  it('accepts worker initialization with 768D model', async () => {
+  it('initializes worker with 768D models', async () => {
     // jina-code is 768D, should work
     const controller = await startEmbeddingWorker({
       db: db as unknown as IDatabase,
@@ -141,7 +136,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await controller.stop();
   });
 
-  it('fails the job when payload expectedDimension does not match 768D baseline', async () => {
+  it('processes jobs even when payload expectedDimension is stale', async () => {
     const now = new Date().toISOString();
     const fileId = 'file-d2';
     const chunkId = 'chunk-d2';
@@ -169,18 +164,28 @@ describe('embedding-worker: dimension mismatch handling', () => {
       modelKey: 'jina-code', // 768D model
     });
 
-    // Wait for failure
+    // Wait for job completion
     for (let i = 0; i < 200; i++) {
       const res = await db.query(`SELECT state FROM job_queue WHERE id = 'job-d2'`);
       const rowData = res.rows[0] as { state: string } | undefined;
-      if (rowData?.state === 'failed') break;
+      if (rowData?.state === 'completed') break;
       await new Promise((r) => setTimeout(r, 25));
     }
 
-    const row = await db.query(`SELECT state, error FROM job_queue WHERE id = 'job-d2'`);
-    const rowData = row.rows[0] as { state: string; error: string } | undefined;
-    expect(rowData?.state).toBe('failed');
-    expect(rowData?.error).toMatch(/Job payload expects 384D embeddings, but worker enforces 768D/);
+    const row = await db.query(`SELECT state, attempts FROM job_queue WHERE id = 'job-d2'`);
+    const rowData = row.rows[0] as { state: string; attempts: number } | undefined;
+    expect(rowData?.state).toBe('completed');
+    expect(rowData?.attempts).toBeGreaterThanOrEqual(1);
+
+    const chunkRow = await db.query(
+      'SELECT embedding_set_id, embedding_updated_at FROM file_chunks WHERE id = $1',
+      [chunkId]
+    );
+    const chunkData = chunkRow.rows[0] as
+      | { embedding_set_id: string | null; embedding_updated_at: string | null }
+      | undefined;
+    expect(chunkData?.embedding_set_id).toBeTruthy();
+    expect(chunkData?.embedding_updated_at).toBeTruthy();
 
     await controller.stop();
   });

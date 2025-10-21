@@ -6,11 +6,8 @@ import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
-/**
- * Standard embedding dimension enforced across the application.
- * See docs/20251019-embedding-dimensions-explainer.md for rationale.
- */
-const StandardEmbeddingDimension = 768;
+// Default dimension used as a fallback when model metadata is unavailable.
+const DEFAULT_EMBEDDING_DIMENSION = 768;
 
 export type EmbeddingWorkerOptions = {
   db: IDatabase;
@@ -38,7 +35,7 @@ type EmbedChunkPayload = {
   chunkId: string;
   fileRecordId?: string;
   embeddingSetId?: string | null;
-  expectedDimension?: number; // Expected embedding dimension (default: 768)
+  expectedDimension?: number; // Expected embedding dimension; falls back to model metadata when omitted
 };
 
 async function sha256Hex(input: string): Promise<string> {
@@ -132,6 +129,30 @@ async function updateChunkEmbedding(
   await db.query(sql, [vectorString, embeddingSetId, now, embeddingHash, id]);
 }
 
+const embeddingSetDimensionCache = new Map<string, number>();
+
+async function resolveEmbeddingSetDimension(
+  db: IDatabase,
+  embeddingSetId: string
+): Promise<number> {
+  const cached = embeddingSetDimensionCache.get(embeddingSetId);
+  if (typeof cached === 'number') {
+    return cached;
+  }
+
+  const res = await db.query<{ dimensions?: number }>(
+    'SELECT dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
+    [embeddingSetId]
+  );
+  const raw = res.rows[0]?.dimensions;
+  const dimension = typeof raw === 'number' ? raw : Number(raw ?? 0);
+  if (!Number.isFinite(dimension) || dimension <= 0) {
+    throw new Error(`Embedding set ${embeddingSetId} is missing valid dimension metadata.`);
+  }
+  embeddingSetDimensionCache.set(embeddingSetId, dimension);
+  return dimension;
+}
+
 function resolveModelKey(fromOptions?: string): string {
   const env = (() => {
     try {
@@ -205,24 +226,41 @@ async function initializeEmbeddingService(
  * Validates that a model configuration meets the 768D baseline requirement.
  * @throws {Error} If model dimensions don't match the standard
  */
-function validateModelDimensions(
+function ensureModelDimension(
   modelConfig: ModelConfig,
   modelKey: string,
   log: (msg: string, meta?: unknown) => void
-): void {
-  if (modelConfig.dimensions !== StandardEmbeddingDimension) {
-    const errorMsg =
-      `Model '${modelKey}' produces ${modelConfig.dimensions}D embeddings, but BrainStrike enforces ${StandardEmbeddingDimension}D. ` +
-      'For hosted providers (OpenAI, Gemini, Cohere), configure dimension parameters: ' +
-      `OpenAI dimensions=${StandardEmbeddingDimension}, Gemini output_dimensionality=${StandardEmbeddingDimension}, Cohere output_dimension=${StandardEmbeddingDimension}. ` +
-      'See docs/20251019-embedding-dimensions-explainer.md for more details.';
-    log('worker_model_dimension_error', {
+): number {
+  const dimensions = Number(modelConfig.dimensions);
+  if (!Number.isFinite(dimensions) || dimensions <= 0) {
+    const errorMsg = `Model '${modelKey}' reported an invalid embedding dimension (${modelConfig.dimensions}).`;
+    log('worker_model_dimension_invalid', {
       modelKey,
       dimensions: modelConfig.dimensions,
-      expected: StandardEmbeddingDimension,
     });
     throw new Error(errorMsg);
   }
+
+  if (dimensions > 16_000) {
+    log('worker_model_dimension_warning', {
+      modelKey,
+      dimensions,
+      message: 'pgvector supports up to 16k dimensions; verify provider settings.',
+    });
+    throw new Error(
+      `Model '${modelKey}' exceeds the supported embedding dimension limit (16k). Received ${dimensions}.`
+    );
+  }
+
+  if (dimensions !== DEFAULT_EMBEDDING_DIMENSION) {
+    log('worker_model_dimension_notice', {
+      modelKey,
+      dimensions,
+      default: DEFAULT_EMBEDDING_DIMENSION,
+    });
+  }
+
+  return dimensions;
 }
 
 export async function startEmbeddingWorker(
@@ -248,17 +286,16 @@ export async function startEmbeddingWorker(
   }
 
   let { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
+  let activeModelDimension = ensureModelDimension(modelConfig, modelKey, log);
 
-  // Pre-validate model dimensions against 768D baseline
-  validateModelDimensions(modelConfig, modelKey, log);
-
-  const embeddingSetId = await getOrCreateEmbeddingSet(
+  let embeddingSetId = await getOrCreateEmbeddingSet(
     options.db,
     modelKey,
     modelConfig.id,
-    modelConfig.dimensions,
+    activeModelDimension,
     distance
   );
+  embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
 
   const jq = new JobQueue(options.db);
   let running = true;
@@ -305,7 +342,21 @@ export async function startEmbeddingWorker(
     service = s;
     // Refresh modelConfig in case anything changed
     const cfg = SimpleEmbeddingService.getModelConfig(modelKey);
-    if (cfg) modelConfig = cfg;
+    if (cfg) {
+      modelConfig = cfg;
+      const refreshedDimension = ensureModelDimension(modelConfig, modelKey, log);
+      if (refreshedDimension !== activeModelDimension) {
+        activeModelDimension = refreshedDimension;
+        embeddingSetId = await getOrCreateEmbeddingSet(
+          options.db,
+          modelKey,
+          modelConfig.id,
+          activeModelDimension,
+          distance
+        );
+        embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
+      }
+    }
     processedSinceInit = 0;
     consecutiveFailures = 0;
   }
@@ -314,8 +365,11 @@ export async function startEmbeddingWorker(
 
   async function validateAndGenerateEmbedding(
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
-    expectedDimension: number = StandardEmbeddingDimension
+    expectedDimension: number
   ): Promise<EmbeddingResult> {
+    if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
+      throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
+    }
     const svcAny = service as unknown as {
       generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
       generateEmbedding: (t: string) => Promise<EmbeddingResult>;
@@ -326,41 +380,89 @@ export async function startEmbeddingWorker(
 
     if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
       throw new Error(
-        `Embedding dimension mismatch: got ${result.embedding.length}, expected ${expectedDimension}. ` +
-          `Model '${modelKey}' may be misconfigured. ` +
-          `BrainStrike enforces ${StandardEmbeddingDimension}D embeddings. ` +
-          'For hosted providers, ensure dimension parameters are set correctly. ' +
-          'See docs/20251019-embedding-dimensions-explainer.md for details.'
+        `Embedding dimension mismatch for model '${modelKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
+          'Verify provider configuration (dimension/size parameter) and retry.'
       );
     }
 
     return result;
   }
 
-  async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
+  function assertEmbedChunkJob(claimed: ClaimedJob): EmbedChunkPayload {
     if (claimed.jobType !== 'embed_chunk') {
       throw new Error(`Unsupported job type: ${claimed.jobType}`);
     }
     const payload = (claimed.payload || {}) as EmbedChunkPayload;
-    if (!payload.chunkId) throw new Error('Missing chunkId in payload');
+    if (!payload.chunkId) {
+      throw new Error('Missing chunkId in payload');
+    }
+    return payload;
+  }
 
-    const chunk = await loadChunk(options.db, payload.chunkId);
-    if (!chunk) throw new Error(`Chunk not found: ${payload.chunkId}`);
+  async function loadChunkOrThrow(
+    chunkId: string
+  ): Promise<NonNullable<Awaited<ReturnType<typeof loadChunk>>>> {
+    const chunk = await loadChunk(options.db, chunkId);
+    if (!chunk) {
+      throw new Error(`Chunk not found: ${chunkId}`);
+    }
+    return chunk;
+  }
 
+  function resolveTargetSetId(
+    payload: EmbedChunkPayload,
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
+  ): string {
     const targetSetId = payload.embeddingSetId ?? chunk.embeddingSetId ?? embeddingSetId;
-    const expectedDimension = payload.expectedDimension ?? StandardEmbeddingDimension;
-    const expectedHash = await sha256Hex(`${chunk.contentHash}:${modelKey}`);
+    if (!targetSetId) {
+      throw new Error('Unable to determine embedding set for job payload.');
+    }
+    return targetSetId;
+  }
 
-    // Validate expected dimension matches worker configuration
-    if (expectedDimension !== StandardEmbeddingDimension) {
-      throw new Error(
-        `Job payload expects ${expectedDimension}D embeddings, but worker enforces ${StandardEmbeddingDimension}D. ` +
-          'See docs/20251019-embedding-dimensions-explainer.md for details.'
-      );
+  async function determineExpectedDimension(
+    targetSetId: string,
+    payload: EmbedChunkPayload
+  ): Promise<number> {
+    const setDimension = await resolveEmbeddingSetDimension(options.db, targetSetId);
+    if (
+      typeof payload.expectedDimension === 'number' &&
+      payload.expectedDimension !== setDimension &&
+      Number.isFinite(payload.expectedDimension)
+    ) {
+      log('worker_expected_dimension_mismatch', {
+        chunkId: payload.chunkId,
+        payload: payload.expectedDimension,
+        embeddingSetId: targetSetId,
+        embeddingSetDimension: setDimension,
+      });
     }
 
-    // Idempotency: if embedding exists and hash matches, treat as complete
-    if (chunk.embeddingHash && chunk.embeddingHash === expectedHash) {
+    if (!Number.isFinite(setDimension) || setDimension <= 0) {
+      if (!Number.isFinite(activeModelDimension) || activeModelDimension <= 0) {
+        throw new Error(`Invalid expected embedding dimension (${activeModelDimension}).`);
+      }
+      return activeModelDimension;
+    }
+
+    return setDimension;
+  }
+
+  function isEmbeddingUpToDate(
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
+    expectedHash: string
+  ): boolean {
+    return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
+  }
+
+  async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
+    const payload = assertEmbedChunkJob(claimed);
+    const chunk = await loadChunkOrThrow(payload.chunkId);
+    const targetSetId = resolveTargetSetId(payload, chunk);
+    const expectedDimension = await determineExpectedDimension(targetSetId, payload);
+    const expectedHash = await sha256Hex(`${chunk.contentHash}:${modelKey}`);
+
+    if (isEmbeddingUpToDate(chunk, expectedHash)) {
       await jq.complete({ id: claimed.id, leaseToken });
       return;
     }

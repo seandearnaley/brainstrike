@@ -70,7 +70,7 @@ describe('QueueHud', () => {
     expectQueueBadge('embeddings');
     expect(screen.getAllByText('Queued').length).toBeGreaterThan(0);
     expect(screen.getByText('5')).toBeInTheDocument();
-    expect(screen.getByText('Running')).toBeInTheDocument();
+    expect(screen.getAllByText('Running').length).toBeGreaterThan(0);
     expect(screen.getByText('2')).toBeInTheDocument();
     expect(screen.getByText('Failed')).toBeInTheDocument();
     expect(screen.getByText('1')).toBeInTheDocument();

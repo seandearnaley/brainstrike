@@ -5,7 +5,16 @@ import type {
   FileChunkInsert,
   FileChunkUpdate,
 } from '../models/file-chunk';
-import { batchArray, parseEmbeddingLoose } from './_shared.js';
+import {
+  appendColumn,
+  appendColumnIfDefined,
+  batchArray,
+  createUpdateBuilder,
+  parseEmbeddingLoose,
+  type Queryable,
+  type UpdateBuilder,
+  validateEmbeddingDimension,
+} from './_shared.js';
 import type { ElectronDbAPI } from './electron-file-record-repository';
 
 // Type definition for database row returned by Electron IPC
@@ -62,6 +71,9 @@ export class ElectronFileChunkRepository {
   }
 
   async insert(chunk: FileChunkInsert): Promise<FileChunk> {
+    await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
+      embeddingSetId: chunk.embeddingSetId ?? null,
+    });
     const result = await this.db.query(
       `INSERT INTO file_chunks (
         id, file_record_id, chunk_index, content, content_hash, 
@@ -102,6 +114,12 @@ export class ElectronFileChunkRepository {
   async insertMany(chunks: FileChunkInsert[]): Promise<FileChunk[]> {
     if (chunks.length === 0) {
       return [];
+    }
+
+    for (const chunk of chunks) {
+      await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
+        embeddingSetId: chunk.embeddingSetId ?? null,
+      });
     }
 
     // Batch inserts to avoid parameter limit issues (250 rows per batch)
@@ -173,6 +191,13 @@ export class ElectronFileChunkRepository {
     chunks: FileChunkInsert[]
   ): Promise<FileChunk[]> {
     if (chunks.length === 0) return [];
+
+    for (const chunk of chunks) {
+      await validateEmbeddingDimension(tx as unknown as Queryable, chunk.embedding, {
+        embeddingSetId: chunk.embeddingSetId ?? null,
+      });
+    }
+
     const BatchSize = 250;
     const batches = batchArray(chunks, BatchSize);
     const allResults: FileChunk[] = [];
@@ -227,53 +252,18 @@ export class ElectronFileChunkRepository {
   }
 
   async update(chunk: FileChunkUpdate): Promise<FileChunk | null> {
-    const setParts: string[] = [];
-    const values: unknown[] = [];
-    let paramIndex = 1;
+    const builder = createUpdateBuilder();
+    const existingChunk = await this.resolveExistingChunkForUpdate(chunk);
 
-    if (chunk.content !== undefined) {
-      setParts.push(`content = $${paramIndex++}`);
-      values.push(chunk.content);
-    }
-    if (chunk.contentHash !== undefined) {
-      setParts.push(`content_hash = $${paramIndex++}`);
-      values.push(chunk.contentHash);
-    }
-    if (chunk.tokenCount !== undefined) {
-      setParts.push(`token_count = $${paramIndex++}`);
-      values.push(chunk.tokenCount);
-    }
-    if (chunk.chunkType !== undefined) {
-      setParts.push(`chunk_type = $${paramIndex++}`);
-      values.push(chunk.chunkType);
-    }
-    if (chunk.chunkSize !== undefined) {
-      setParts.push(`chunk_size = $${paramIndex++}`);
-      values.push(chunk.chunkSize);
-    }
-    if (chunk.embedding !== undefined) {
-      setParts.push(`embedding = $${paramIndex++}`);
-      values.push(chunk.embedding ? `[${chunk.embedding.join(',')}]` : null);
-      setParts.push(`embedding_updated_at = $${paramIndex++}`);
-      values.push(chunk.embeddingUpdatedAt ?? chunk.updatedAt);
-      if (chunk.embeddingSetId !== undefined) {
-        setParts.push(`embedding_set_id = $${paramIndex++}`);
-        values.push(chunk.embeddingSetId);
-      }
-      if (chunk.embeddingHash !== undefined) {
-        setParts.push(`embedding_hash = $${paramIndex++}`);
-        values.push(chunk.embeddingHash);
-      }
-    }
+    this.appendSimpleUpdates(builder, chunk);
+    await this.appendEmbeddingUpdates(builder, chunk, existingChunk);
+    appendColumn(builder, 'updated_at', chunk.updatedAt);
 
-    setParts.push(`updated_at = $${paramIndex++}`);
-    values.push(chunk.updatedAt);
-
-    values.push(chunk.id);
+    builder.values.push(chunk.id);
 
     const result = await this.db.query(
-      `UPDATE file_chunks SET ${setParts.join(', ')} WHERE id = $${paramIndex} RETURNING *`,
-      values
+      `UPDATE file_chunks SET ${builder.setParts.join(', ')} WHERE id = $${builder.index} RETURNING *`,
+      builder.values
     );
 
     return result.rows[0] ? this.mapRowToChunk(result.rows[0] as FileChunkRow) : null;
@@ -310,43 +300,78 @@ export class ElectronFileChunkRepository {
       );
     }
 
-    let whereClause = 'WHERE embedding IS NOT NULL';
-    const params: unknown[] = [`[${queryEmbedding.join(',')}]`];
+    const vectorParam = `[${queryEmbedding.join(',')}]`;
+    const params: unknown[] = [vectorParam];
     let paramIndex = 2;
+    const whereParts = ['embedding IS NOT NULL'];
 
-    if (fileRecordId) {
-      whereClause += ` AND file_record_id = $${paramIndex++}`;
-      params.push(fileRecordId);
-    }
-
-    if (chunkType) {
-      whereClause += ` AND chunk_type = $${paramIndex++}`;
-      params.push(chunkType);
-    }
-
-    whereClause += ` AND embedding_set_id = $${paramIndex++}`;
+    paramIndex = this.appendFilterClause(
+      whereParts,
+      params,
+      paramIndex,
+      fileRecordId,
+      'file_record_id'
+    );
+    paramIndex = this.appendFilterClause(whereParts, params, paramIndex, chunkType, 'chunk_type');
+    whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
+    paramIndex += 1;
 
-    const result = await this.db.query(
-      `SELECT *, 
-        (1 - ((embedding <=> $1::vector) / 2.0)) as similarity,
-        ROW_NUMBER() OVER (ORDER BY embedding <=> $1::vector) as rank
-      FROM file_chunks 
-      ${whereClause}
-      AND (1 - ((embedding <=> $1::vector) / 2.0)) >= $${paramIndex++}
-      ORDER BY embedding <=> $1::vector
-      LIMIT $${paramIndex}`,
-      [...params, threshold, limit]
+    const { similarityExpr, orderExpr } = await this.resolveDistanceConfig(
+      embeddingSetId,
+      queryEmbedding
     );
 
-    return result.rows.map((row) => {
-      const searchRow = row as FileChunkSearchRow;
-      return {
-        chunk: this.mapRowToChunk(searchRow),
-        similarity: Number.parseFloat(searchRow.similarity),
-        rank: Number.parseInt(searchRow.rank, 10),
-      };
+    try {
+      const envObj = (
+        globalThis as unknown as {
+          process?: { env?: Record<string, string | undefined> };
+        }
+      ).process?.env;
+      const rawEf = Number(envObj?.['HNSW_EF_SEARCH'] ?? '0');
+      const ef = Number.isFinite(rawEf) ? Math.max(1, Math.min(Math.floor(rawEf), 2000)) : 60;
+      await this.db.query(`SET LOCAL hnsw.ef_search = ${ef}`);
+    } catch {
+      // best-effort tuning only
+    }
+
+    try {
+      const envObj = (
+        globalThis as unknown as {
+          process?: { env?: Record<string, string | undefined> };
+        }
+      ).process?.env;
+      const rawProbes = Number(envObj?.['IVFFLAT_PROBES'] ?? '0');
+      if (Number.isFinite(rawProbes) && rawProbes > 0) {
+        const probes = Math.max(1, Math.min(Math.floor(rawProbes), 10000));
+        await this.db.query(`SET LOCAL ivfflat.probes = ${probes}`);
+      }
+    } catch {
+      // best-effort tuning only
+    }
+
+    const overfetchLimit = Math.max(limit * 10, 100);
+    const result = await this.db.query(
+      `SELECT *, 
+        ${similarityExpr} as similarity,
+        ROW_NUMBER() OVER (ORDER BY ${orderExpr}) as rank
+      FROM file_chunks 
+      WHERE ${whereParts.join(' AND ')}
+      ORDER BY ${orderExpr}
+      LIMIT $${paramIndex}`,
+      [...params, overfetchLimit]
+    );
+
+    const filtered = (result.rows as FileChunkSearchRow[]).filter((row) => {
+      const similarity = Number(row.similarity);
+      return Number.isFinite(similarity) && similarity >= threshold;
     });
+
+    return filtered.slice(0, limit).map((row) => ({
+      chunk: this.mapRowToChunk(row),
+      similarity: Number(row.similarity),
+      rank: Number(row.rank),
+    }));
   }
 
   async findAll(): Promise<FileChunk[]> {
@@ -412,6 +437,110 @@ export class ElectronFileChunkRepository {
 
     await this.db.query('DELETE FROM file_chunks');
     return totalCount;
+  }
+
+  private appendFilterClause(
+    whereParts: string[],
+    params: unknown[],
+    paramIndex: number,
+    value: string | undefined,
+    column: string
+  ): number {
+    if (value === undefined) {
+      return paramIndex;
+    }
+    whereParts.push(`${column} = $${paramIndex}`);
+    params.push(value);
+    return paramIndex + 1;
+  }
+
+  private async resolveDistanceConfig(
+    embeddingSetId: string,
+    queryEmbedding: number[]
+  ): Promise<{ similarityExpr: string; orderExpr: string }> {
+    const setRes = await this.db.query(
+      'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
+      [embeddingSetId]
+    );
+    const setRow = setRes.rows[0] as { distance?: string; dimensions?: number } | undefined;
+    if (!setRow) {
+      throw new Error(`Embedding set ${embeddingSetId} not found.`);
+    }
+    const expectedDimension = Number(setRow.dimensions ?? Number.NaN);
+    if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
+      throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata.`);
+    }
+    if (queryEmbedding.length !== expectedDimension) {
+      throw new Error(
+        `Query embedding dimension mismatch: received ${queryEmbedding.length}, expected ${expectedDimension} for embedding set ${embeddingSetId}.`
+      );
+    }
+
+    const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
+    return this.buildDistanceExpressions(distance);
+  }
+
+  private buildDistanceExpressions(distance: 'cosine' | 'l2' | 'ip'): {
+    similarityExpr: string;
+    orderExpr: string;
+  } {
+    if (distance === 'l2') {
+      return {
+        similarityExpr: '(1.0 / (1.0 + (embedding <-> $1::vector)))',
+        orderExpr: 'embedding <-> $1::vector',
+      };
+    }
+    if (distance === 'ip') {
+      return {
+        similarityExpr: '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))',
+        orderExpr: 'embedding <#> $1::vector',
+      };
+    }
+    return {
+      similarityExpr: '(1 - ((embedding <=> $1::vector) / 2.0))',
+      orderExpr: 'embedding <=> $1::vector',
+    };
+  }
+
+  private async resolveExistingChunkForUpdate(chunk: FileChunkUpdate): Promise<FileChunk | null> {
+    if (chunk.embedding !== undefined && !chunk.embeddingSetId) {
+      return this.findById(chunk.id);
+    }
+    return null;
+  }
+
+  private appendSimpleUpdates(builder: UpdateBuilder, chunk: FileChunkUpdate): void {
+    const simpleFields: Array<[unknown, string]> = [
+      [chunk.content, 'content'],
+      [chunk.contentHash, 'content_hash'],
+      [chunk.tokenCount, 'token_count'],
+      [chunk.chunkType, 'chunk_type'],
+      [chunk.chunkSize, 'chunk_size'],
+    ];
+
+    for (const [value, column] of simpleFields) {
+      appendColumnIfDefined(builder, column, value);
+    }
+  }
+
+  private async appendEmbeddingUpdates(
+    builder: UpdateBuilder,
+    chunk: FileChunkUpdate,
+    existingChunk: FileChunk | null
+  ): Promise<void> {
+    if (chunk.embedding === undefined) {
+      return;
+    }
+
+    const validationSetId = chunk.embeddingSetId ?? existingChunk?.embeddingSetId ?? null;
+    await validateEmbeddingDimension(this.db as unknown as Queryable, chunk.embedding, {
+      embeddingSetId: validationSetId,
+    });
+
+    appendColumn(builder, 'embedding', chunk.embedding ? `[${chunk.embedding.join(',')}]` : null);
+    appendColumn(builder, 'embedding_updated_at', chunk.embeddingUpdatedAt ?? chunk.updatedAt);
+    appendColumnIfDefined(builder, 'embedding_set_id', chunk.embeddingSetId);
+    appendColumnIfDefined(builder, 'embedding_hash', chunk.embeddingHash);
   }
 
   private mapRowToChunk(row: FileChunkRow): FileChunk {

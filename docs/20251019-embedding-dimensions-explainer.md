@@ -5,24 +5,27 @@ provider capabilities, and the trade-offs Brainstrike faces when expanding
 search coverage beyond the local transformers bundle.
 
 ## Why This Matters
-- `file_chunks.embedding` is declared as `VECTOR(768)` and the worker stack
-  assumes 768-dimensional vectors. Selecting a 384D or 1024D model throws a
-  pgvector dimension error during insert.
-- We increasingly index code for semantic search and plan to add hosted
-  providers (OpenAI, Google Gemini, Cohere). Each provider defaults to
-  different dimensions and exposes controls to shrink vectors.
-- We need a shared baseline so new contributors (and the UI) know which models
-  are safe to use without reworking the database schema.
+- Hosted providers (OpenAI, Google Gemini, Cohere, Voyage) expose multiple
+  embedding dimensions. Local transformers models span 384 → 1536+.
+- We need pgvector to accept those embeddings without schema churn while still
+  protecting similarity search from mismatched dimensions.
+- UI and queue layers must surface accurate dimension metadata so contributors
+  can choose compatible models and diagnose problems quickly.
 
-## Current Repository Defaults
+## Repository Defaults (Updated 2025-10-21)
 - Local models include:
   - `jina-embeddings-v2-base-code` (768D) – default code-aware option.
   - `BAAI/bge-small/base` variants (384D) – lighter, fast inference.
   - `BAAI/bge-large-en-v1.5` (1024D) – highest local quality, exceeds schema.
-- Desktop and browser flows serialize embeddings into `file_chunks.embedding`
-  and rehydrate using the same assumption: `vector(768)`.
-- Runtime code (worker, browser queue, repositories) logs warnings about
-  mismatched sets but ultimately depends on the static column size.
+- `file_chunks.embedding` is now declared as the dimensionless `VECTOR` type.
+  pgvector no longer rejects inserts when the dimension differs from 768.
+- `embedding_sets` records the canonical dimension per model/set. Repository
+  writes validate embeddings against that metadata before persisting.
+- Queue payloads carry `targetDimension`. The worker resolves the dimension
+  from the associated embedding set and rejects only when the generated vector
+  doesn't match that runtime expectation.
+- Search queries require an `embeddingSetId` and verify that the query vector
+  matches the set’s recorded dimension before issuing pgvector operators.
 
 ## External Provider Landscape
 
@@ -36,42 +39,42 @@ search coverage beyond the local transformers bundle.
 | Jina | `embeddings-v2-base-code` | 768 | Fits existing schema with no changes.<br/>Source: [Jina model card](https://jina.ai/models/jina-embeddings-v2-base-code/). |
 
 Providers we care about either (a) already emit ≤768D vectors, or (b) allow us
-to request a 768D variant. No roadmap item currently forces >1536 dimensions.
+to request a 768D variant. Voyage and Gemini can exceed 1536D, which we now
+support by pairing embeddings with the correct `embedding_set` entry.
 
 ## Options We Evaluated
-1. **Make the database column dimensionless (`VECTOR`) and juggle multiple
-   indexes:** Flexible but requires updating migrations, rebuilding HNSW/IVF
-   indexes, persisting per-chunk dimensions, and refactoring repositories,
-   queue payloads, and UI validation. High coordination cost across packages.
-2. **Standardize on a single dimension (e.g., 768D) and reject mismatches:**
-   Minimal schema churn. Requires hard limits in the UI, worker, and queue so
-   we never enqueue incompatible models.
-3. **Support a small fixed set (e.g., 768D + 1024D) by partitioning data or
-   using separate embedding sets:** Still needs schema/index changes and careful
-  deduping logic. Complexity approaches option 1 without clear benefit today.
+1. **Dimensionless column + per-set metadata.** Requires schema migration,
+   repository validation, queue updates, and worker changes, but unlocks full
+   multi-provider support without downsampling.
+2. **Single enforced dimension (historical approach).** Minimal migrations,
+   but forced us to downscale hosted models and blocked new providers.
+3. **Fixed set of dimensions.** Similar complexity to option 1 with less
+   flexibility; we would still need set-level metadata and complex routing.
 
-## Recommendation (as of 2025-10-19)
-Stay on option 2:
-- Treat 768D as the project-wide baseline.
-- Configure hosted providers (OpenAI, Gemini, Cohere) to return 768D vectors
-  via their dimension controls.
-- Block users from selecting models that cannot meet the baseline, and surface
-  clear warnings before enqueueing.
+## Decision (2025-10-21)
+We adopted option 1. The migration to `VECTOR` (no length) landed in
+`010-flexible-embedding-dimensions`. The runtime now:
+- Creates or reuses `embedding_sets` keyed by `{model_key, dimensions, distance}`.
+- Validates chunk writes and updates against the set dimension.
+- Enqueues `expectedDimension` metadata so workers (Node/browser) can detect
+  genuine mismatches instead of enforcing a hard-coded 768D baseline.
+- Requires callers of SQL search helpers to pass an `embeddingSetId`; the
+  repository checks query vector length before executing pgvector operators.
 
-This keeps our RAG/search quality competitive—OpenAI’s 768D truncation still
-outperforms the legacy 1536D ada model—while avoiding a disruptive migration.
+This keeps pgvector indexes intact, enables future high-dimensional providers,
+and still protects us from accidental vector mixing.
 
 ## Next Steps for Contributors
-1. **Add guardrails** in the importer/assistant UI to prevent
-   non-compliant model selection and document the accepted dimension.
-2. **Update worker and queue payloads** to validate the `embedding_set_id`
-   against the declared dimension before persisting.
+1. **Surface dimension metadata in the UI.** Highlight the active embedding
+   set, its dimension, and warn when a selected model produces a different size.
+2. **Ensure queue payloads include `embeddingSetId`.** Desktop/web importers
+   should resolve or create embedding sets up front so workers can validate.
 3. **Document provider-specific settings** (OpenAI `dimensions`, Gemini
    `output_dimensionality`, Cohere `output_dimension`) in setup guides.
-4. **Revisit multi-dimension support** only if we adopt a provider that
-   cannot downscale economically or if benchmarks show significant gains from
-   higher dimensions.
+4. **Benchmark higher dimensions.** With schema barriers removed we can
+   experiment with 1024D+ providers and decide whether to store multiple sets
+   per project.
 
-Keeping these notes current will help every new contributor understand why the
-database is still fixed at 768D and how to integrate additional providers
-without breaking vector search.
+Keeping these notes current will help new contributors understand how the new
+embedding-set metadata keeps pgvector safe while unlocking richer model
+catalogues.

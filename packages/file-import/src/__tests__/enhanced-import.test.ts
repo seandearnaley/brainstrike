@@ -190,10 +190,29 @@ describe('runEnhancedImport', () => {
       ];
     });
     const embeddingsImpl = vi.fn().mockResolvedValue(undefined);
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key')) {
+        return Promise.resolve({ rows: [{ modelKey: 'db-model' }] });
+      }
+      if (sql.startsWith('SELECT id, dimensions, distance FROM embedding_sets')) {
+        return Promise.resolve({
+          rows: [{ id: 'set-1', dimensions: 768, distance: 'cosine' }],
+        });
+      }
+      if (sql.startsWith('SELECT id FROM embedding_sets WHERE model_key')) {
+        return Promise.resolve({ rows: [{ id: 'set-1' }] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        return Promise.resolve({ rows: [{ id: 'set-1' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
     const sqlPort: SqlExecutorPort = {
-      query: vi.fn().mockResolvedValue({ rows: [{ modelKey: 'db-model' }] }),
+      query: sqlPortQuery,
       runInTransaction: vi.fn(),
     };
+
+    const resolvedSetIdSpy = vi.fn();
 
     await runEnhancedImport({
       request: {
@@ -213,6 +232,7 @@ describe('runEnhancedImport', () => {
         service: {} as never,
         chunkRepository: {} as never,
         resolveTargetEmbeddingSetId: () => 'set-1',
+        onResolvedTargetSetId: resolvedSetIdSpy,
       },
       ports: { sql: sqlPort },
       progressHandlers: {
@@ -226,6 +246,10 @@ describe('runEnhancedImport', () => {
       'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
       ['set-1']
     );
+    expect(sqlPort.query).toHaveBeenCalledWith(
+      'SELECT id, dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+      ['set-1']
+    );
     expect(embeddingsImpl).toHaveBeenCalledWith(
       expect.any(Array),
       expect.objectContaining({ id: '1' }),
@@ -235,5 +259,6 @@ describe('runEnhancedImport', () => {
       expect.any(Function),
       'set-1'
     );
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('set-1');
   });
 });
