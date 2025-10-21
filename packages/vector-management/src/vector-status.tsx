@@ -28,6 +28,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { setActiveEmbeddingSetId } from './vector-preferences';
+import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
@@ -201,6 +202,7 @@ function BackfillButton({
   workerLocalRunning,
   onBackfill,
   hasChunks,
+  queueCounts,
 }: {
   activeId: string | null;
   hasDb: boolean;
@@ -209,6 +211,7 @@ function BackfillButton({
   workerLocalRunning: boolean;
   onBackfill: () => Promise<void>;
   hasChunks: boolean;
+  queueCounts: { running: number };
 }) {
   const isWeb =
     typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
@@ -220,6 +223,7 @@ function BackfillButton({
     isWeb,
     workerLocalRunning,
     hasChunks,
+    queueCounts,
   });
 
   return (
@@ -241,29 +245,6 @@ function BackfillButton({
         : 'Backfill'}
     </Button>
   );
-}
-
-function getBackfillDisabledState(params: {
-  activeId: string | null;
-  hasDb: boolean;
-  backfilling: boolean;
-  isWeb: boolean;
-  workerLocalRunning: boolean;
-  hasChunks: boolean;
-}): { disabled: boolean; title: string } {
-  const { activeId, hasDb, backfilling, isWeb, workerLocalRunning, hasChunks } = params;
-  // Evaluate reasons in priority order and early-return to keep complexity low
-  if (!activeId) return { disabled: true, title: 'Select an active embedding set' };
-  if (!hasDb) return { disabled: true, title: 'Database not ready yet' };
-  if (backfilling) return { disabled: true, title: 'Backfilling in progress' };
-  if (isWeb && !workerLocalRunning)
-    return { disabled: true, title: 'Start worker to enable backfill on Web' };
-  return {
-    disabled: false,
-    title: hasChunks
-      ? 'Enqueue jobs for chunks missing embeddings for the active set'
-      : 'No pending chunks detected – you can still enqueue a backfill to double-check.',
-  };
 }
 
 function QueueControls({
@@ -742,6 +723,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
               queueState.coverage.total > 0 &&
               queueState.coverage.withSet < queueState.coverage.total
             }
+            queueCounts={queueState.queueCounts}
           />
           <QueueControls
             hasDb={hasDb}

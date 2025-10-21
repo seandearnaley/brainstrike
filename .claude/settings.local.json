@@ -1,10 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(biome check packages/db/src/wasm-loader.ts packages/db/src/db-provider.tsx)",
-      "Bash(pnpm --filter @brainstrike/db test --run)",
-      "Bash(git add -A)",
-      "Bash(git commit -m \"fix(db): prevent TOAST corruption from React Strict Mode double-mounting\n\n**Root Cause:**\nPGlite TOAST corruption errors on fresh database caused by:\n1. React Strict Mode enabled (double-mounts components in dev)\n2. DbProvider doesn''t close database on unmount in dev mode (for HMR)\n3. First mount: Opens idb://web\n4. Strict Mode unmount: Does nothing (dev mode skip)\n5. Second mount: Opens idb://web AGAIN\n6. Two PGlite instances accessing same IndexedDB → TOAST corruption\n\n**Solution:**\nImplemented singleton pattern in WasmLoader:\n- Cache PGlite instances by dataDir path\n- Reuse existing instance when same path requested\n- Only create new instance if not already cached\n- Prevents concurrent IndexedDB access\n\n**Changes:**\n1. Added dbCache: Map<string, PGlite> to WasmLoader class\n2. Modified createPGlite() to check cache before creating instance\n3. Added closeCached() method for proper cleanup\n4. Caching only applies to persisted databases (idb://)\n5. Memory databases (memory://) always create new instances\n\n**Impact:**\n- ✅ No more TOAST corruption in web app dev mode\n- ✅ Safe with React Strict Mode double-mounting\n- ✅ No interference between desktop (Electron IPC) and web (IndexedDB)\n- ✅ All tests pass (278/278)\n\n**Testing:**\n- Factory reset now works correctly\n- Multiple remounts reuse same instance\n- Desktop and web use separate code paths\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
+      "mcp__plugin_beads_beads__ready",
+      "mcp__plugin_beads_beads__update",
+      "Bash(git checkout:*)",
+      "Bash(pnpm test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pnpm biome check:*)"
     ],
     "deny": [],
     "ask": []
