@@ -1,5 +1,6 @@
 import type { EmbeddingDType } from '@brainstrike/embedding-worker';
 import type { QueueAdapter } from '@brainstrike/queue';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
 import { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
 
@@ -77,8 +78,6 @@ async function getTransformersModule(): Promise<TransformersModule> {
   transformersModule = await transformersModulePromise;
   return transformersModule;
 }
-
-const STANDARD_EMBEDDING_DIMENSION = 768;
 
 /**
  * Determine the appropriate device for the current environment
@@ -316,7 +315,7 @@ export class TransformersBackend {
         ? crypto.randomUUID()
         : `warmup-${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`;
     try {
-      const targetDimension = this._targetDimensions ?? STANDARD_EMBEDDING_DIMENSION;
+      const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
       await queue.add({
         kind: 'embed',
         id: warmupId,
@@ -423,7 +422,7 @@ export class TransformersBackend {
     }
     try {
       const queue = await this.ensureQueue();
-      const targetDimension = this._targetDimensions ?? STANDARD_EMBEDDING_DIMENSION;
+      const targetDimension = this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION;
       const response = await queue.add({
         kind: 'embed',
         id: this.createTaskId(),

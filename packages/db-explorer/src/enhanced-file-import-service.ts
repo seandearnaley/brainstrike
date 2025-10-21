@@ -24,7 +24,7 @@ import {
   runEnhancedImport,
 } from '@brainstrike/file-import';
 import type { QueueAdapter } from '@brainstrike/queue';
-import type { IFileNode } from '@brainstrike/types';
+import { DEFAULT_EMBEDDING_DIMENSION, type IFileNode } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import {
   type Dispatch,
@@ -39,7 +39,6 @@ import { useFileImportService } from './base-file-import-service';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 const logger = createLogger('AppShell:EnhancedFileImport');
-const STANDARD_EMBEDDING_DIMENSION = 768;
 
 // Extended progress interface for chunking and embedding
 interface EnhancedFileImportOptions {
@@ -267,7 +266,7 @@ export function useEnhancedFileImportService(
       async enqueueBatch(chunks, fileRecordId, options) {
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
-        const expectedDimension = options?.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
+        const expectedDimension = options?.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
 
         for (const chunk of chunks) {
           if (!chunk.id || !chunk.contentHash) {

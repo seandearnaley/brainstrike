@@ -24,6 +24,7 @@
     "test:coverage": "pnpm -w test:coverage"
   },
   "dependencies": {
+    "@brainstrike/types": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",

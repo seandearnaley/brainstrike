@@ -1,4 +1,6 @@
-export const STANDARD_EMBEDDING_DIMENSION = 768;
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+
+export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
 export type ProviderRuntime = 'hosted' | 'gateway' | 'local' | 'browser';
 

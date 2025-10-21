@@ -178,4 +178,29 @@ describe('Batched insertMany', () => {
     expect(result).toHaveLength(1);
     expect(result[0].embedding).toEqual(embedding);
   });
+
+  it('rejects embeddings that exceed the pgvector maximum dimension', async () => {
+    const chunks: FileChunkInsert[] = [
+      {
+        id: 'chunk-too-large',
+        fileRecordId: 'file-1',
+        chunkIndex: 0,
+        content: 'High dimension embedding',
+        contentHash: 'hash-too-large',
+        tokenCount: 100,
+        chunkType: 'text',
+        chunkSize: 100,
+        embedding: makeVector(16_001, [
+          [0, 0.1],
+          [16_000, 0.2],
+        ]),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    await expect(repository.insertMany(chunks)).rejects.toThrow(
+      /Embedding dimension 16001 exceeds pgvector's supported maximum of 16000/
+    );
+  });
 });

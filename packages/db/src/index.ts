@@ -26,6 +26,7 @@ export type {
 export type { Job, JobState, JobType } from './queue/job-queue.js';
 // Queue
 export { JobQueue } from './queue/job-queue.js';
+export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from './repositories/_shared.js';
 export { FileChunkRepository } from './repositories/file-chunk-repository.js';
 // Repository exports
 export * from './repositories/index.js';

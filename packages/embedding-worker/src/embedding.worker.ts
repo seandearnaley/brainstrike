@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { env, type FeatureExtractionPipeline, pipeline, Tensor } from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
 import type {
@@ -28,7 +29,6 @@ type FeatureExtractor = FeatureExtractionPipeline &
   ) => Promise<unknown>);
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
-const DEFAULT_EMBEDDING_DIMENSION = 768;
 
 // Allow remote model downloads when a cache directory is not specified. This aligns with the
 // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
@@ -98,9 +98,9 @@ function assertValidDimension(payload: EmbedWorkerRequest, requestedDimension: n
     );
   }
 
-  if (requestedDimension > 16_000) {
+  if (requestedDimension > MAX_EMBEDDING_DIMENSION) {
     throw new Error(
-      `targetDimension ${requestedDimension} exceeds pgvector's supported maximum of 16,000 dimensions.`
+      `targetDimension ${requestedDimension} exceeds pgvector's supported maximum of ${MAX_EMBEDDING_DIMENSION} dimensions.`
     );
   }
 }
