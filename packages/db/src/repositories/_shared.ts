@@ -2,11 +2,13 @@
  * Shared utilities for database repositories
  */
 
+import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
+
+export { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
+
 export interface Queryable {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
 }
-
-export const MAX_EMBEDDING_DIMENSION = 16_000;
 
 // Process-local cache; follow-up hardening tracked in brainstrike-38 for invalidation strategy.
 const embeddingDimensionCache = new Map<string, number>();

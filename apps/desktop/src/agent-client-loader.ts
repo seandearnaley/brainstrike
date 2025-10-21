@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { SupportedProvider } from '@brainstrike/agent/client';
+import type { ProviderDefinition, SupportedProvider } from '@brainstrike/agent/client';
 
 type AgentClientModule = typeof import('@brainstrike/agent/client');
 
@@ -120,7 +120,9 @@ function resolveWorkspaceDist(): string | null {
 export function listAgentProviders(): readonly SupportedProvider[] {
   const module = loadAgentClient();
   if (module) {
-    return module.listProviders().map((provider) => provider.id);
+    return module
+      .listProviders()
+      .map((provider: ProviderDefinition) => provider.id as SupportedProvider);
   }
   return FALLBACK_PROVIDERS;
 }

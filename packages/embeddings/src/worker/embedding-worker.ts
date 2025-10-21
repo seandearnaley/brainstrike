@@ -1,13 +1,11 @@
 import type { IDatabase } from '@brainstrike/db';
-import { JobQueue, MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
+import { JobQueue } from '@brainstrike/db';
+import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 type Distance = 'cosine' | 'l2' | 'ip';
-
-// Default dimension used as a fallback when model metadata is unavailable.
-const DEFAULT_EMBEDDING_DIMENSION = 768;
 
 export type EmbeddingWorkerOptions = {
   db: IDatabase;

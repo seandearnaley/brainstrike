@@ -1,5 +1,6 @@
 import type { FileChunk } from '@brainstrike/db';
 import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
 import type { EmbeddingJobQueuePort } from './enhanced-import';
 
@@ -22,8 +23,6 @@ type BrowserQueuePortOptions = {
 };
 
 const logger = createLogger('FileImport:BrowserQueuePort');
-const STANDARD_EMBEDDING_DIMENSION = 768;
-
 const HASHER = 'sha256';
 
 type ProgressTrackerState = {
@@ -138,7 +137,7 @@ export function createBrowserEmbeddingQueuePort({
       }
 
       const targetEmbeddingSetId = options?.targetEmbeddingSetId ?? null;
-      const targetDimension = options?.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
+      const targetDimension = options?.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
       const dimensionParameter = options?.dimensionParameter ?? null;
       const provider = options?.provider ?? null;
 
@@ -202,7 +201,7 @@ function createChunkScheduler({
       model,
       targetEmbeddingSetId,
       repository,
-      targetDimension: targetDimension ?? STANDARD_EMBEDDING_DIMENSION,
+      targetDimension: targetDimension ?? DEFAULT_EMBEDDING_DIMENSION,
       dimensionParameter: dimensionParameter ?? null,
       provider: provider ?? null,
       progressTracker,
@@ -351,7 +350,7 @@ async function produceEmbedding(
     provider?: string;
   }
 ) {
-  const resolvedTargetDimension = options.targetDimension ?? STANDARD_EMBEDDING_DIMENSION;
+  const resolvedTargetDimension = options.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   const request = {
     kind: 'embed',
     id: chunk.id,

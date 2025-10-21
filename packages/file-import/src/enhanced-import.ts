@@ -8,14 +8,13 @@ import type {
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
+import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import { processChunking } from './chunking';
 import { processEmbeddings } from './embedding';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Enhanced');
-const STANDARD_EMBEDDING_DIMENSION = 768;
-
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
 const embeddingSetCache = new Map<string, { modelKey: string }>();
@@ -312,7 +311,7 @@ async function resolveEmbeddingModel(
 }> {
   if (!config?.enabled) {
     return config?.model
-      ? { model: config.model, targetDimension: STANDARD_EMBEDDING_DIMENSION }
+      ? { model: config.model, targetDimension: DEFAULT_EMBEDDING_DIMENSION }
       : {};
   }
 
@@ -368,7 +367,7 @@ function determineTargetDimension(
   modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined
 ): number {
   const dim = modelConfig?.dimensions;
-  return Number.isFinite(dim) && dim !== undefined ? Number(dim) : STANDARD_EMBEDDING_DIMENSION;
+  return Number.isFinite(dim) && dim !== undefined ? Number(dim) : DEFAULT_EMBEDDING_DIMENSION;
 }
 
 async function ensureAndEmitEmbeddingSet(params: {
