@@ -127,7 +127,8 @@ describe('EmbeddingProviderFactory', () => {
       const createResult = await EmbeddingProviderFactory.createProvider(config);
       expect(createResult.ok).toBe(true);
 
-      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code');
+      // Default quantization is 'default'
+      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
       expect(cached).toBeDefined();
 
       if (createResult.ok) {
@@ -136,7 +137,7 @@ describe('EmbeddingProviderFactory', () => {
     });
 
     it('getCachedProvider returns undefined for non-existent provider', () => {
-      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'nonexistent');
+      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'nonexistent', 'default');
       expect(cached).toBeUndefined();
     });
 
@@ -149,15 +150,23 @@ describe('EmbeddingProviderFactory', () => {
 
       await EmbeddingProviderFactory.createProvider(config);
 
-      const removed = await EmbeddingProviderFactory.removeProvider('local', 'jina-code');
+      const removed = await EmbeddingProviderFactory.removeProvider(
+        'local',
+        'jina-code',
+        'default'
+      );
       expect(removed).toBe(true);
 
-      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code');
+      const cached = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
       expect(cached).toBeUndefined();
     });
 
     it('removeProvider returns false for non-existent provider', async () => {
-      const removed = await EmbeddingProviderFactory.removeProvider('local', 'nonexistent');
+      const removed = await EmbeddingProviderFactory.removeProvider(
+        'local',
+        'nonexistent',
+        'default'
+      );
       expect(removed).toBe(false);
     });
 
@@ -209,8 +218,51 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.providers).toHaveLength(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jina-code' },
-          { provider: 'local', modelId: 'bge-base-en-v1.5' },
+          { provider: 'local', modelId: 'jina-code', quantization: 'default' },
+          { provider: 'local', modelId: 'bge-base-en-v1.5', quantization: 'default' },
+        ])
+      );
+    });
+
+    it('creates different instances for different quantization settings', async () => {
+      const config1: EmbeddingProviderConfig = {
+        runtime: 'browser',
+        provider: 'local',
+        modelId: 'jina-code',
+      };
+
+      const config2: EmbeddingProviderConfig = {
+        runtime: 'browser',
+        provider: 'local',
+        modelId: 'jina-code',
+        quantization: 'q8',
+      };
+
+      const result1 = await EmbeddingProviderFactory.createProvider(config1);
+      const result2 = await EmbeddingProviderFactory.createProvider(config2);
+
+      expect(result1.ok).toBe(true);
+      expect(result2.ok).toBe(true);
+
+      if (result1.ok && result2.ok) {
+        // Should be different instances due to different quantization
+        expect(result1.value).not.toBe(result2.value);
+      }
+
+      // Verify both are in cache with different keys
+      const cached1 = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'default');
+      const cached2 = EmbeddingProviderFactory.getCachedProvider('local', 'jina-code', 'q8');
+
+      expect(cached1).toBeDefined();
+      expect(cached2).toBeDefined();
+      expect(cached1).not.toBe(cached2);
+
+      const stats = EmbeddingProviderFactory.getCacheStats();
+      expect(stats.size).toBe(2);
+      expect(stats.providers).toEqual(
+        expect.arrayContaining([
+          { provider: 'local', modelId: 'jina-code', quantization: 'default' },
+          { provider: 'local', modelId: 'jina-code', quantization: 'q8' },
         ])
       );
     });

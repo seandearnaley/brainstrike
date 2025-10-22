@@ -18,7 +18,8 @@ import { TransformersEmbeddingProvider } from './providers/local/transformers-pr
 export class EmbeddingProviderFactory {
   /**
    * Cache of provider instances keyed by composite ID
-   * Format: "provider:modelId" (e.g., "local:jina-code", "openai:text-embedding-3-small")
+   * Format: "provider:modelId:quantization" (e.g., "local:jina-code:q8", "local:jina-code:default")
+   * Note: Quantization affects device selection, so it must be part of the cache key
    */
   private static instances = new Map<string, IEmbeddingProvider>();
 
@@ -45,7 +46,9 @@ export class EmbeddingProviderFactory {
   static async createProvider(
     config: EmbeddingProviderConfig
   ): Promise<Result<IEmbeddingProvider, EmbeddingProviderError>> {
-    const key = `${config.provider}:${config.modelId}`;
+    // Include quantization in cache key since it affects device selection
+    const quantization = config.runtime === 'browser' ? config.quantization || 'default' : 'n/a';
+    const key = `${config.provider}:${config.modelId}:${quantization}`;
 
     // Return cached instance if exists
     const cached = EmbeddingProviderFactory.instances.get(key);
@@ -116,10 +119,16 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
+   * @param quantization - Quantization setting (optional, defaults to 'default')
    * @returns Provider instance or undefined if not cached
    */
-  static getCachedProvider(provider: string, modelId: string): IEmbeddingProvider | undefined {
-    const key = `${provider}:${modelId}`;
+  static getCachedProvider(
+    provider: string,
+    modelId: string,
+    quantization?: string
+  ): IEmbeddingProvider | undefined {
+    const quant = quantization || 'default';
+    const key = `${provider}:${modelId}:${quant}`;
     return EmbeddingProviderFactory.instances.get(key);
   }
 
@@ -129,10 +138,16 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
+   * @param quantization - Quantization setting (optional, defaults to 'default')
    * @returns true if provider was removed, false if not found
    */
-  static async removeProvider(provider: string, modelId: string): Promise<boolean> {
-    const key = `${provider}:${modelId}`;
+  static async removeProvider(
+    provider: string,
+    modelId: string,
+    quantization?: string
+  ): Promise<boolean> {
+    const quant = quantization || 'default';
+    const key = `${provider}:${modelId}:${quant}`;
     const instance = EmbeddingProviderFactory.instances.get(key);
 
     if (!instance) {
@@ -182,13 +197,14 @@ export class EmbeddingProviderFactory {
    */
   static getCacheStats(): {
     size: number;
-    providers: Array<{ provider: string; modelId: string }>;
+    providers: Array<{ provider: string; modelId: string; quantization: string }>;
   } {
     const providers = Array.from(EmbeddingProviderFactory.instances.keys()).map((key) => {
       const parts = key.split(':');
       const provider = parts[0] ?? '';
       const modelId = parts[1] ?? '';
-      return { provider, modelId };
+      const quantization = parts[2] ?? 'default';
+      return { provider, modelId, quantization };
     });
 
     return {
