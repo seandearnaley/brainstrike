@@ -95,14 +95,15 @@ const STORE_VERSION = 1;
 /**
  * Default enabled models per provider
  * Local models are enabled by default (browser-based, no API key needed)
+ * Frozen to prevent accidental mutations
  */
-const DEFAULT_ENABLED_MODELS: EnabledModelsMap = {
-  local: ['jina-code'], // Default local model from model-registry.json
-  openai: [], // Requires API key, disabled by default
-  google: [], // Requires API key, disabled by default
-  cohere: [], // Requires API key, disabled by default
-  voyage: [], // Requires API key, disabled by default
-};
+const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
+  local: Object.freeze(['jina-code'] as string[]), // Default local model from model-registry.json
+  openai: Object.freeze([] as string[]), // Requires API key, disabled by default
+  google: Object.freeze([] as string[]), // Requires API key, disabled by default
+  cohere: Object.freeze([] as string[]), // Requires API key, disabled by default
+  voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
+}) as EnabledModelsMap;
 
 /**
  * Default selected model (local model, no API key required)
@@ -136,16 +137,18 @@ const storage = createJSONStorage(() => ({
 
 /**
  * Ensure enabled models array exists for a provider
+ * Returns existing array if valid, otherwise returns frozen default (safe to use directly)
  */
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
   provider: EmbeddingProviderType
-): string[] {
+): readonly string[] {
   const existing = enabledModelsByProvider[provider];
   if (Array.isArray(existing)) {
     return existing;
   }
-  return [...(DEFAULT_ENABLED_MODELS[provider] ?? [])];
+  // Return frozen default directly - safe because it's immutable
+  return DEFAULT_ENABLED_MODELS[provider] ?? [];
 }
 
 /**
@@ -258,8 +261,27 @@ export const useEmbeddingPreferencesStore = create<Store>()(
 
       setModel: (compositeKey) =>
         set((state) => {
-          const [provider, model] = compositeKey.split('::');
+          // Validate composite key format
+          if (!compositeKey || typeof compositeKey !== 'string') {
+            console.warn(
+              '[EmbeddingPreferences] Invalid composite key: must be a non-empty string'
+            );
+            return state;
+          }
+
+          const parts = compositeKey.split('::');
+          if (parts.length !== 2) {
+            console.warn(
+              `[EmbeddingPreferences] Invalid composite key format: "${compositeKey}". Expected "provider::model"`
+            );
+            return state;
+          }
+
+          const [provider, model] = parts;
           if (!provider || !model) {
+            console.warn(
+              `[EmbeddingPreferences] Invalid composite key components: provider="${provider}", model="${model}"`
+            );
             return state;
           }
 
@@ -269,6 +291,9 @@ export const useEmbeddingPreferencesStore = create<Store>()(
           );
 
           if (!enabledModels.includes(model)) {
+            console.warn(
+              `[EmbeddingPreferences] Model "${model}" is not enabled for provider "${provider}"`
+            );
             return state;
           }
 
@@ -342,9 +367,15 @@ export const useEmbeddingPreferencesStore = create<Store>()(
         return modelId ?? null;
       },
 
+      /**
+       * Get enabled models for a provider
+       * Returns a new array to prevent external mutations of store state
+       */
       getEnabledModels: (provider) => {
         const { enabledModelsByProvider } = get();
-        return [...(enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider] ?? [])];
+        const models = enabledModelsByProvider[provider] ?? DEFAULT_ENABLED_MODELS[provider];
+        // Return shallow copy for immutability - prevents external mutations
+        return models ? [...models] : [];
       },
 
       setPreferredRuntime: (runtime) => set({ preferredRuntime: runtime }),
