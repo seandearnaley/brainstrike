@@ -49,9 +49,7 @@ describe('getBackfillDisabledState', () => {
     activeId: 'set-1',
     hasDb: true,
     backfilling: false,
-    isWeb: false,
-    workerLocalRunning: false,
-    hasChunks: true,
+    coverage: { total: 148, withSet: 0 }, // 148 chunks, 0 embedded
     queueCounts: { queued: 0, running: 0 },
   };
 
@@ -109,14 +107,13 @@ describe('getBackfillDisabledState', () => {
     expect(result.title).toBe('Jobs are queued or running – wait for completion');
   });
 
-  it('disables on web when worker is not running', () => {
+  it('disables when all chunks already embedded', () => {
     const result = getBackfillDisabledState({
       ...baseParams,
-      isWeb: true,
-      workerLocalRunning: false,
+      coverage: { total: 148, withSet: 148 },
     });
     expect(result.disabled).toBe(true);
-    expect(result.title).toBe('Start worker to enable backfill on Web');
+    expect(result.title).toBe('All chunks already embedded for active set');
   });
 
   it('enables when all conditions are met and chunks are pending', () => {
@@ -125,22 +122,15 @@ describe('getBackfillDisabledState', () => {
     expect(result.title).toBe('Enqueue jobs for chunks missing embeddings for the active set');
   });
 
-  it('enables when all conditions are met but no chunks pending', () => {
-    const result = getBackfillDisabledState({ ...baseParams, hasChunks: false });
+  it('enables when no chunks exist (empty database)', () => {
+    const result = getBackfillDisabledState({
+      ...baseParams,
+      coverage: { total: 0, withSet: 0 },
+    });
     expect(result.disabled).toBe(false);
     expect(result.title).toBe(
       'No pending chunks detected – you can still enqueue a backfill to double-check.'
     );
-  });
-
-  it('enables on web when worker is running and no jobs running', () => {
-    const result = getBackfillDisabledState({
-      ...baseParams,
-      isWeb: true,
-      workerLocalRunning: true,
-    });
-    expect(result.disabled).toBe(false);
-    expect(result.title).toBe('Enqueue jobs for chunks missing embeddings for the active set');
   });
 
   it('prioritizes checks in correct order: activeId before running jobs', () => {
@@ -173,11 +163,10 @@ describe('getBackfillDisabledState', () => {
     expect(result.title).toBe('Backfilling in progress');
   });
 
-  it('prioritizes running jobs check before web worker check', () => {
+  it('prioritizes running jobs before coverage complete check', () => {
     const result = getBackfillDisabledState({
       ...baseParams,
-      isWeb: true,
-      workerLocalRunning: false,
+      coverage: { total: 148, withSet: 148 },
       queueCounts: { queued: 0, running: 3 },
     });
     expect(result.disabled).toBe(true);

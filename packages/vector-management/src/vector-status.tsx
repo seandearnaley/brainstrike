@@ -199,30 +199,23 @@ function BackfillButton({
   hasDb,
   backfilling,
   backfillProgress,
-  workerLocalRunning,
   onBackfill,
-  hasChunks,
+  coverage,
   queueCounts,
 }: {
   activeId: string | null;
   hasDb: boolean;
   backfilling: boolean;
   backfillProgress: { done: number; total: number } | null;
-  workerLocalRunning: boolean;
   onBackfill: () => Promise<void>;
-  hasChunks: boolean;
+  coverage: { total: number; withSet: number };
   queueCounts: { queued: number; running: number };
 }) {
-  const isWeb =
-    typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;
-
   const { disabled: isDisabled, title } = getBackfillDisabledState({
     activeId,
     hasDb,
     backfilling,
-    isWeb,
-    workerLocalRunning,
-    hasChunks,
+    coverage,
     queueCounts,
   });
 
@@ -717,12 +710,8 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             hasDb={hasDb}
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
-            workerLocalRunning={workerControls.workerLocalRunning}
             onBackfill={queueState.backfillActiveSet}
-            hasChunks={
-              queueState.coverage.total > 0 &&
-              queueState.coverage.withSet < queueState.coverage.total
-            }
+            coverage={queueState.coverage}
             queueCounts={queueState.queueCounts}
           />
           <QueueControls
