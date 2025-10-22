@@ -76,6 +76,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       setThroughput(snapshot.throughput);
       setLastError((prev) => snapshot.lastError ?? prev);
       setLatencyStats(snapshot.latency);
+      setQueueCounts(snapshot.queueCounts);
       handleQueueStateChange(snapshot.queueCounts, busyRef, activeEmbeddingSetId ?? null);
     } catch {
       // ignore transient refresh errors in the HUD
