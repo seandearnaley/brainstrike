@@ -1,10 +1,16 @@
 {
   "permissions": {
     "allow": [
-      "Bash(biome check packages/db/src/wasm-loader.ts packages/db/src/db-provider.tsx)",
-      "Bash(pnpm --filter @brainstrike/db test --run)",
-      "Bash(git add -A)",
-      "Bash(git commit -m \"fix(db): prevent TOAST corruption from React Strict Mode double-mounting\n\n**Root Cause:**\nPGlite TOAST corruption errors on fresh database caused by:\n1. React Strict Mode enabled (double-mounts components in dev)\n2. DbProvider doesn''t close database on unmount in dev mode (for HMR)\n3. First mount: Opens idb://web\n4. Strict Mode unmount: Does nothing (dev mode skip)\n5. Second mount: Opens idb://web AGAIN\n6. Two PGlite instances accessing same IndexedDB → TOAST corruption\n\n**Solution:**\nImplemented singleton pattern in WasmLoader:\n- Cache PGlite instances by dataDir path\n- Reuse existing instance when same path requested\n- Only create new instance if not already cached\n- Prevents concurrent IndexedDB access\n\n**Changes:**\n1. Added dbCache: Map<string, PGlite> to WasmLoader class\n2. Modified createPGlite() to check cache before creating instance\n3. Added closeCached() method for proper cleanup\n4. Caching only applies to persisted databases (idb://)\n5. Memory databases (memory://) always create new instances\n\n**Impact:**\n- ✅ No more TOAST corruption in web app dev mode\n- ✅ Safe with React Strict Mode double-mounting\n- ✅ No interference between desktop (Electron IPC) and web (IndexedDB)\n- ✅ All tests pass (278/278)\n\n**Testing:**\n- Factory reset now works correctly\n- Multiple remounts reuse same instance\n- Desktop and web use separate code paths\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\")"
+      "mcp__plugin_beads_beads__ready",
+      "mcp__plugin_beads_beads__update",
+      "Bash(git checkout:*)",
+      "Bash(pnpm test:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(pnpm biome check:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr create --title \"fix(vector-ui): re-disable backfill button during active jobs\" --body \"$(cat <<''EOF''\n## Summary\nFixes the Vector Status backfill button to correctly disable while jobs are running, preventing duplicate enqueues.\n\n## Changes\n- ✅ Added `queueCounts` parameter to `BackfillButton` component  \n- ✅ Implemented `queueCounts.running > 0` check in disabled state logic\n- ✅ Extracted `getBackfillDisabledState` to `backfill-utils.ts` for better testability\n- ✅ Added 13 comprehensive unit tests covering all disabled state scenarios\n- ✅ All existing tests pass (48 total in vector-management package)\n\n## Test Plan\n- [x] Unit tests: 13 new tests for `getBackfillDisabledState` covering:\n  - No active set selected\n  - Database not ready\n  - Backfilling in progress\n  - Jobs currently running (single and multiple)\n  - Web worker not running\n  - Valid enabled states\n  - Correct priority order of checks\n- [x] Integration tests: All 48 tests in @brainstrike/vector-management pass\n- [x] Full test suite: All monorepo tests pass\n- [x] Linting: Biome checks pass\n\n## Technical Details\nThe backfill button''s disabled state now correctly checks `queueCounts.running > 0` before allowing new backfill operations. This prevents race conditions and duplicate job enqueueing when the worker is actively processing embeddings.\n\nPriority order of disabled checks:\n1. No active embedding set → \"Select an active embedding set\"\n2. Database not ready → \"Database not ready yet\"\n3. Backfilling in progress → \"Backfilling in progress\"\n4. **Jobs running** → \"Jobs are currently running – wait for completion\" ⬅️ NEW\n5. Web + worker not running → \"Start worker to enable backfill on Web\"\n\nResolves brainstrike-34\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\")",
+      "Bash(gh pr view:*)"
     ],
     "deny": [],
     "ask": []

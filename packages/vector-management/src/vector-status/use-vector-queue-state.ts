@@ -76,6 +76,7 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       setThroughput(snapshot.throughput);
       setLastError((prev) => snapshot.lastError ?? prev);
       setLatencyStats(snapshot.latency);
+      setQueueCounts(snapshot.queueCounts);
       handleQueueStateChange(snapshot.queueCounts, busyRef, activeEmbeddingSetId ?? null);
     } catch {
       // ignore transient refresh errors in the HUD
@@ -126,23 +127,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [activeEmbeddingSetId, coverage.total, coverage.withSet]);
 
   useEffect(() => {
-    setQueueCounts((prev) => {
-      const derived: QueueCounts = {
-        queued: metrics.active,
-        running: metrics.active,
-        failed: metrics.failed,
-        succeeded: metrics.completed,
-      };
-      if (
-        prev.queued === derived.queued &&
-        prev.running === derived.running &&
-        prev.failed === derived.failed &&
-        prev.succeeded === derived.succeeded
-      ) {
-        return prev;
-      }
-      return derived;
-    });
+    // Note: queueCounts are updated from snapshot.queueCounts in refreshSnapshot
+    // We don't update them from metrics because metrics.active doesn't distinguish
+    // between queued vs running jobs
     if (metrics.lastError) {
       setLastError(metrics.lastError);
     }

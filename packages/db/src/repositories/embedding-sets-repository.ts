@@ -11,23 +11,45 @@ export class EmbeddingSetsRepository {
     dimensions: number,
     distance: EmbeddingDistance
   ): Promise<EmbeddingSet> {
-    // Try get by unique key first
-    const existing = await this.getByComposite(modelKey, dimensions, distance);
-    if (existing) return existing;
-
     const id = generateUUID();
     const now = new Date().toISOString();
 
-    const result = await this.db.query(
+    // Use INSERT ... ON CONFLICT atomically to prevent race conditions
+    // On conflict, DO NOTHING and then fetch the existing row
+    const insertResult = await this.db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (model_key, dimensions, distance)
-       DO UPDATE SET model_id = EXCLUDED.model_id
+       ON CONFLICT (model_key, dimensions, distance) DO NOTHING
        RETURNING *`,
       [id, modelKey, modelId, dimensions, distance, now]
     );
 
-    return this.fromRow(result.rows[0] as Record<string, unknown>);
+    // If insert succeeded, return the new row
+    if (insertResult.rows.length > 0) {
+      console.log('[EmbeddingSetsRepo] Created new embedding set:', {
+        id,
+        modelKey,
+        dimensions,
+        distance,
+      });
+      return this.fromRow(insertResult.rows[0] as Record<string, unknown>);
+    }
+
+    // If conflict occurred, fetch the existing row
+    const existing = await this.getByComposite(modelKey, dimensions, distance);
+    if (!existing) {
+      throw new Error(
+        `Failed to get or create embedding set for ${modelKey}/${dimensions}/${distance}`
+      );
+    }
+
+    console.log('[EmbeddingSetsRepo] Reusing existing embedding set:', {
+      id: existing.id,
+      modelKey,
+      dimensions,
+      distance,
+    });
+    return existing;
   }
 
   async getById(id: string): Promise<EmbeddingSet | null> {

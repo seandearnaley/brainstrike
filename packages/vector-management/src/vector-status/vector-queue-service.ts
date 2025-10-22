@@ -1,25 +1,56 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
 
-export type CoverageSnapshot = { total: number; withSet: number };
+/**
+ * Snapshot of embedding coverage statistics for a specific embedding set.
+ */
+export type CoverageSnapshot = {
+  /** Total number of file chunks in the database */
+  total: number;
+  /** Number of chunks that have embeddings for the active set */
+  withSet: number;
+};
 
+/**
+ * Current counts for embedding jobs across all queue states.
+ * Used to track job queue activity and determine UI state (e.g., button disabled states).
+ */
 export type QueueCounts = {
+  /** Number of jobs waiting to be processed */
   queued: number;
+  /** Number of jobs currently being processed by workers */
   running: number;
+  /** Number of jobs that encountered errors and failed */
   failed: number;
+  /** Number of jobs that completed successfully */
   succeeded: number;
 };
 
+/**
+ * Performance statistics tracking job processing latency.
+ */
 export type LatencyStats = {
+  /** Average latency in milliseconds across all recent jobs */
   avgMs: number;
+  /** Median (50th percentile) latency in milliseconds */
   p50Ms: number;
+  /** 95th percentile latency in milliseconds */
   p95Ms: number;
 };
 
+/**
+ * Complete snapshot of the vector queue state at a point in time.
+ * Returned by service.refresh() to update UI with current queue activity.
+ */
 export type VectorQueueSnapshot = {
+  /** Coverage statistics for the active embedding set, null if no active set */
   coverage: CoverageSnapshot | null;
+  /** Current job counts across all queue states */
   queueCounts: QueueCounts;
+  /** Jobs processed per minute (throughput rate) */
   throughput: number;
+  /** Most recent error message, null if no errors */
   lastError: string | null;
+  /** Latency performance statistics */
   latency: LatencyStats;
 };
 
