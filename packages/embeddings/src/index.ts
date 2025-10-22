@@ -11,6 +11,16 @@ export {
 } from './embedding-math';
 // Export model registry manager
 export { ModelRegistryManager } from './model-registry';
+export type {
+  EmbeddingInput,
+  EmbeddingOutput,
+  EmbeddingProviderConfig,
+  EmbeddingProviderError,
+  EmbeddingProviderType,
+  EmbeddingRuntime,
+  Result,
+} from './provider-types';
+export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
 // Export backend and utilities
 export {
   registerEmbeddingQueueFactory,
