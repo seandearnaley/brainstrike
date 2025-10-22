@@ -211,7 +211,7 @@ function BackfillButton({
   workerLocalRunning: boolean;
   onBackfill: () => Promise<void>;
   hasChunks: boolean;
-  queueCounts: { running: number };
+  queueCounts: { queued: number; running: number };
 }) {
   const isWeb =
     typeof window !== 'undefined' && !(window as { electronAPI?: unknown })?.electronAPI;

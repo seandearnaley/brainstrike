@@ -52,7 +52,7 @@ describe('getBackfillDisabledState', () => {
     isWeb: false,
     workerLocalRunning: false,
     hasChunks: true,
-    queueCounts: { running: 0 },
+    queueCounts: { queued: 0, running: 0 },
   };
 
   it('disables when no active embedding set selected', () => {
@@ -74,15 +74,39 @@ describe('getBackfillDisabledState', () => {
   });
 
   it('disables when jobs are currently running', () => {
-    const result = getBackfillDisabledState({ ...baseParams, queueCounts: { running: 1 } });
+    const result = getBackfillDisabledState({
+      ...baseParams,
+      queueCounts: { queued: 0, running: 1 },
+    });
     expect(result.disabled).toBe(true);
-    expect(result.title).toBe('Jobs are currently running – wait for completion');
+    expect(result.title).toBe('Jobs are queued or running – wait for completion');
   });
 
   it('disables when jobs are running even with multiple jobs', () => {
-    const result = getBackfillDisabledState({ ...baseParams, queueCounts: { running: 5 } });
+    const result = getBackfillDisabledState({
+      ...baseParams,
+      queueCounts: { queued: 0, running: 5 },
+    });
     expect(result.disabled).toBe(true);
-    expect(result.title).toBe('Jobs are currently running – wait for completion');
+    expect(result.title).toBe('Jobs are queued or running – wait for completion');
+  });
+
+  it('disables when jobs are queued but not yet running', () => {
+    const result = getBackfillDisabledState({
+      ...baseParams,
+      queueCounts: { queued: 3, running: 0 },
+    });
+    expect(result.disabled).toBe(true);
+    expect(result.title).toBe('Jobs are queued or running – wait for completion');
+  });
+
+  it('disables when jobs are both queued and running', () => {
+    const result = getBackfillDisabledState({
+      ...baseParams,
+      queueCounts: { queued: 5, running: 2 },
+    });
+    expect(result.disabled).toBe(true);
+    expect(result.title).toBe('Jobs are queued or running – wait for completion');
   });
 
   it('disables on web when worker is not running', () => {
@@ -123,7 +147,7 @@ describe('getBackfillDisabledState', () => {
     const result = getBackfillDisabledState({
       ...baseParams,
       activeId: null,
-      queueCounts: { running: 5 },
+      queueCounts: { queued: 0, running: 5 },
     });
     expect(result.disabled).toBe(true);
     expect(result.title).toBe('Select an active embedding set');
@@ -133,7 +157,7 @@ describe('getBackfillDisabledState', () => {
     const result = getBackfillDisabledState({
       ...baseParams,
       hasDb: false,
-      queueCounts: { running: 5 },
+      queueCounts: { queued: 0, running: 5 },
     });
     expect(result.disabled).toBe(true);
     expect(result.title).toBe('Database not ready yet');
@@ -143,7 +167,7 @@ describe('getBackfillDisabledState', () => {
     const result = getBackfillDisabledState({
       ...baseParams,
       backfilling: true,
-      queueCounts: { running: 5 },
+      queueCounts: { queued: 0, running: 5 },
     });
     expect(result.disabled).toBe(true);
     expect(result.title).toBe('Backfilling in progress');
@@ -154,9 +178,9 @@ describe('getBackfillDisabledState', () => {
       ...baseParams,
       isWeb: true,
       workerLocalRunning: false,
-      queueCounts: { running: 3 },
+      queueCounts: { queued: 0, running: 3 },
     });
     expect(result.disabled).toBe(true);
-    expect(result.title).toBe('Jobs are currently running – wait for completion');
+    expect(result.title).toBe('Jobs are queued or running – wait for completion');
   });
 });
