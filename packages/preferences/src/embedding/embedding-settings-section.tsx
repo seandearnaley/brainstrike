@@ -1,5 +1,4 @@
 import {
-  getProviderDefinition,
   listProviders,
   type ProviderDefinition,
   type ProviderModelDefinition,
@@ -53,11 +52,14 @@ type NormalizedEmbeddingProvider = {
   readonly pending?: boolean;
 };
 
-const HOSTED_PROVIDER_LABELS: Record<HostedEmbeddingProviderId, string> = {
-  openai: 'OpenAI',
-  google: 'Google',
-  cohere: 'Cohere',
-  voyage: 'Voyage',
+const HOSTED_PROVIDER_METADATA: Record<
+  HostedEmbeddingProviderId,
+  { readonly displayName: string; readonly runtime: 'hosted' }
+> = {
+  openai: { displayName: 'OpenAI', runtime: 'hosted' },
+  google: { displayName: 'Google', runtime: 'hosted' },
+  cohere: { displayName: 'Cohere', runtime: 'hosted' },
+  voyage: { displayName: 'Voyage', runtime: 'hosted' },
 };
 
 const HOSTED_EMBEDDING_PROVIDER_IDS: readonly HostedEmbeddingProviderId[] = [
@@ -97,16 +99,24 @@ function toNormalizedHostedProvider(
   models: readonly (ProviderModelDefinition & { type: 'embedding' })[]
 ): NormalizedEmbeddingProvider {
   const normalizedModels = models
-    .map<NormalizedEmbeddingModel>((model) => ({
-      id: model.id,
-      label: model.label ?? model.id,
-      description: undefined,
-      dimensions: model.defaultDimension ?? STANDARD_EMBEDDING_DIMENSION,
-      supportsStandardDimension: model.supportsStandardDimension ?? false,
-      supportsCustomDimensions: model.supportsCustomDimensions ?? false,
-      availableDimensions: model.availableDimensions,
-      isDefault: Boolean(model.default),
-    }))
+    .map<NormalizedEmbeddingModel>((model) => {
+      const baseModel: NormalizedEmbeddingModel = {
+        id: model.id,
+        label: model.label ?? model.id,
+        dimensions: model.defaultDimension ?? STANDARD_EMBEDDING_DIMENSION,
+        supportsStandardDimension: model.supportsStandardDimension ?? false,
+        supportsCustomDimensions: model.supportsCustomDimensions ?? false,
+        availableDimensions: model.availableDimensions,
+        isDefault: Boolean(model.default),
+      };
+      if ('description' in model && typeof model.description === 'string' && model.description) {
+        return {
+          ...baseModel,
+          description: model.description,
+        };
+      }
+      return baseModel;
+    })
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
@@ -120,8 +130,8 @@ function toNormalizedHostedProvider(
 function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmbeddingProvider {
   return {
     id,
-    displayName: HOSTED_PROVIDER_LABELS[id],
-    runtime: 'hosted',
+    displayName: HOSTED_PROVIDER_METADATA[id].displayName,
+    runtime: HOSTED_PROVIDER_METADATA[id].runtime,
     models: [],
     pending: true,
   };
@@ -133,10 +143,20 @@ function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
     providerDefinitions.map((definition) => [definition.id, definition])
   );
 
+  const isRegisteredProviderId = (
+    provider: HostedEmbeddingProviderId
+  ): provider is ProviderDefinition['id'] => {
+    return providerDefinitions.some((definition) => definition.id === provider);
+  };
+
   const localProvider = normalizeLocalProvider();
 
   const hostedProviders = HOSTED_EMBEDDING_PROVIDER_IDS.map((providerId) => {
-    const definition = providersById.get(providerId as unknown as string);
+    if (!isRegisteredProviderId(providerId)) {
+      return placeholderHostedProvider(providerId);
+    }
+
+    const definition = providersById.get(providerId);
     if (!definition) {
       return placeholderHostedProvider(providerId);
     }
@@ -521,6 +541,7 @@ interface PendingProviderSectionProps {
 }
 
 function PendingProviderSection({ provider }: PendingProviderSectionProps) {
+  const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
   return (
     <section
       className="rounded-lg border border-dashed border-border/60 bg-muted/20 px-3 py-3"
@@ -528,13 +549,15 @@ function PendingProviderSection({ provider }: PendingProviderSectionProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm font-medium leading-tight">{provider.displayName}</p>
+          <p className="text-sm font-medium leading-tight">{metadata.displayName}</p>
           <p className="text-xs text-muted-foreground">
             Hosted embedding integration coming soon. Configure API keys in the Provider Keys
             section to prepare for launch.
           </p>
         </div>
-        <Badge variant="outline">Hosted</Badge>
+        <Badge variant="outline">
+          {metadata.runtime === 'hosted' ? 'Hosted' : metadata.runtime}
+        </Badge>
       </div>
     </section>
   );
@@ -545,7 +568,7 @@ interface EmptyProviderSectionProps {
 }
 
 function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
-  const definition = getProviderDefinition(provider.id as unknown as HostedEmbeddingProviderId);
+  const metadata = HOSTED_PROVIDER_METADATA[provider.id as HostedEmbeddingProviderId];
   return (
     <section
       className="rounded-lg border border-border/60 bg-muted/10 px-3 py-3"
@@ -553,12 +576,14 @@ function EmptyProviderSection({ provider }: EmptyProviderSectionProps) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-sm font-medium leading-tight">{definition.displayName}</p>
+          <p className="text-sm font-medium leading-tight">{metadata.displayName}</p>
           <p className="text-xs text-muted-foreground">
             This provider does not currently expose embedding models in the shared registry.
           </p>
         </div>
-        <Badge variant="outline">{definition.runtime === 'browser' ? 'Browser' : 'Hosted'}</Badge>
+        <Badge variant="outline">
+          {metadata.runtime === 'hosted' ? 'Hosted' : metadata.runtime}
+        </Badge>
       </div>
     </section>
   );
