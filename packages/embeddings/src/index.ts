@@ -9,6 +9,13 @@ export {
   magnitude,
   normalize,
 } from './embedding-math';
+// Export provider abstraction (Phase 2)
+export { EmbeddingProviderFactory } from './factory';
+export type {
+  IEmbeddingProvider,
+  IHostedEmbeddingProvider,
+  ILocalEmbeddingProvider,
+} from './interfaces/provider';
 // Export model registry manager
 export { ModelRegistryManager } from './model-registry';
 export type {
@@ -21,6 +28,7 @@ export type {
   Result,
 } from './provider-types';
 export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
+export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 // Export backend and utilities
 export {
   registerEmbeddingQueueFactory,
