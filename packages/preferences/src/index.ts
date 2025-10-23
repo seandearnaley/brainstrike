@@ -1,5 +1,6 @@
 // Preference Stores
 
+export * from './embedding/embedding-settings-section';
 // Settings UI Components
 export * from './logging/logging-settings-section';
 export * from './settings-page-content';

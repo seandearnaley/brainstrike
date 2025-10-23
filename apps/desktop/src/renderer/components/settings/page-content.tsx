@@ -1,6 +1,8 @@
+import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/embeddings';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
+  EmbeddingSettings,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
@@ -41,6 +43,26 @@ function McpIntegrationsCategory() {
   );
 }
 
+function EmbeddingModelsCategory() {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          Embedding Models
+          <span className="text-xs font-normal text-muted-foreground">
+            {STANDARD_EMBEDDING_DIMENSION}D baseline
+          </span>
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Enable hosted providers, manage local embeddings, and pick the default model used by the
+          desktop importer.
+        </p>
+      </div>
+      <EmbeddingSettings />
+    </div>
+  );
+}
+
 export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
     () => [
@@ -53,6 +75,14 @@ export default function SettingsPageContent() {
         keywords: ['desktop', 'preferences', 'api keys', 'llm', 'encryption', 'credentials'],
         icon: Key,
         render: () => <DesktopPreferencesCategory />,
+      },
+      {
+        id: 'embedding-models',
+        title: 'Embedding Models',
+        description: 'Enable embedding providers and choose the active model.',
+        keywords: ['embeddings', 'models', 'providers', 'vector'],
+        icon: Layers,
+        render: () => <EmbeddingModelsCategory />,
       },
       {
         id: 'logging',

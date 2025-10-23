@@ -65,8 +65,8 @@ export class EmbeddingProviderFactory {
           // Local provider using transformers.js
           provider = new TransformersEmbeddingProvider(
             config.modelId,
-            // Map quantization to device preference (quantized models may prefer different backends)
-            config.quantization ? 'wasm' : 'webgpu'
+            // Quantization determines backend; only low-precision configs prefer WASM
+            config.quantization && ['q4', 'q8'].includes(config.quantization) ? 'wasm' : 'webgpu'
           );
           break;
         }
