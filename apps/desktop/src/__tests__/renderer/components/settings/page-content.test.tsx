@@ -170,6 +170,20 @@ describe('Desktop SettingsPageContent', () => {
     expect(await screen.findByLabelText('Search models')).toBeInTheDocument();
   });
 
+  it('renders embedding settings panel when category is selected', async () => {
+    render(
+      <ThemeProvider>
+        <SettingsPageContent />
+      </ThemeProvider>
+    );
+
+    const embeddingButton = await screen.findByRole('button', { name: /Embedding Models/i });
+    fireEvent.click(embeddingButton);
+
+    const pane = await screen.findByTestId('settings-category-embedding-models');
+    expect(within(pane).getByTestId('embedding-settings-mock')).toBeInTheDocument();
+  });
+
   it('allows toggling model availability for a provider', async () => {
     render(
       <ThemeProvider>
@@ -244,4 +258,11 @@ describe('Desktop SettingsPageContent', () => {
       ).toBe(true);
     });
   });
+});
+vi.mock('@brainstrike/preferences', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/preferences')>();
+  return {
+    ...actual,
+    EmbeddingSettings: vi.fn(() => <div data-testid="embedding-settings-mock" />),
+  };
 });

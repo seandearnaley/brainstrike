@@ -1,15 +1,35 @@
 import { QueueHud, VectorStatusWithDb } from '@brainstrike/app-shell';
+import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/embeddings';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
+  EmbeddingSettings,
   LoggingSettingsSection,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
 import { Badge } from '@brainstrike/ui';
-import { Cpu, FileCog, Sparkles } from 'lucide-react';
+import { Cpu, FileCog, Layers, Sparkles } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
+
+function EmbeddingModelsCategory() {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          Embedding Models
+          <Badge variant="outline">{STANDARD_EMBEDDING_DIMENSION}D</Badge>
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Manage which embedding providers are available and choose the active model used for
+          imports, vector search, and assistant memory.
+        </p>
+      </div>
+      <EmbeddingSettings />
+    </div>
+  );
+}
 
 function EmbeddingWorkerCategory() {
   return (
@@ -59,6 +79,14 @@ export default function SettingsPageContent() {
     () => [
       createAppearanceSettingsCategory(),
       createTokenCountingSettingsCategory(),
+      {
+        id: 'embedding-models',
+        title: 'Embedding Models',
+        description: 'Enable providers and pick the default embedding model.',
+        keywords: ['embeddings', 'models', 'providers', 'vector'],
+        icon: Layers,
+        render: () => <EmbeddingModelsCategory />,
+      },
       {
         id: 'logging',
         title: 'Logging & Diagnostics',
