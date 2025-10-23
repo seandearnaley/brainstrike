@@ -8,10 +8,12 @@ import {
 } from '../stores/embedding-preferences-store';
 
 beforeAll(() => {
-  // @ts-expect-error - polyfill missing APIs for headless UI components
-  Element.prototype.hasPointerCapture = () => false;
-  // @ts-expect-error - polyfill missing APIs for headless UI components
-  Element.prototype.scrollIntoView = () => {};
+  const elementPrototype = Element.prototype as unknown as {
+    hasPointerCapture?: (pointerId: number) => boolean;
+    scrollIntoView?: () => void;
+  };
+  elementPrototype.hasPointerCapture = () => false;
+  elementPrototype.scrollIntoView = () => {};
   if (typeof window.matchMedia !== 'function') {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
