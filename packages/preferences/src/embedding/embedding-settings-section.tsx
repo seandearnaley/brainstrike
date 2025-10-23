@@ -74,16 +74,25 @@ function normalizeLocalProvider(): NormalizedEmbeddingProvider {
   const defaultKey = ModelRegistryManager.getDefaultModelKey();
 
   const models = Object.entries(registry.models)
-    .map<NormalizedEmbeddingModel>(([key, model]) => ({
-      id: key,
-      label: model.name ?? key,
-      description: model.description,
-      dimensions: model.dimensions,
-      supportsStandardDimension: model.dimensions === STANDARD_EMBEDDING_DIMENSION,
-      supportsCustomDimensions: false,
-      availableDimensions: undefined,
-      isDefault: key === defaultKey,
-    }))
+    .map<NormalizedEmbeddingModel>(([key, model]) => {
+      const baseModel: NormalizedEmbeddingModel = {
+        id: key,
+        label: model.name ?? key,
+        dimensions: model.dimensions,
+        supportsStandardDimension: model.dimensions === STANDARD_EMBEDDING_DIMENSION,
+        supportsCustomDimensions: false,
+        isDefault: key === defaultKey,
+      };
+
+      if (model.description) {
+        return {
+          ...baseModel,
+          description: model.description,
+        };
+      }
+
+      return baseModel;
+    })
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
@@ -106,16 +115,25 @@ function toNormalizedHostedProvider(
         dimensions: model.defaultDimension ?? STANDARD_EMBEDDING_DIMENSION,
         supportsStandardDimension: model.supportsStandardDimension ?? false,
         supportsCustomDimensions: model.supportsCustomDimensions ?? false,
-        availableDimensions: model.availableDimensions,
         isDefault: Boolean(model.default),
       };
+      let enrichedModel: NormalizedEmbeddingModel = baseModel;
+      if ('availableDimensions' in model) {
+        const dims = (model as { availableDimensions?: readonly number[] }).availableDimensions;
+        if (Array.isArray(dims) && dims.length > 0) {
+          enrichedModel = {
+            ...enrichedModel,
+            availableDimensions: dims,
+          };
+        }
+      }
       if ('description' in model && typeof model.description === 'string' && model.description) {
-        return {
-          ...baseModel,
+        enrichedModel = {
+          ...enrichedModel,
           description: model.description,
         };
       }
-      return baseModel;
+      return enrichedModel;
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 
@@ -139,20 +157,14 @@ function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmb
 
 function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
   const providerDefinitions = listProviders();
-  const providersById = new Map(
+  const providersById = new Map<string, ProviderDefinition>(
     providerDefinitions.map((definition) => [definition.id, definition])
   );
-
-  const isRegisteredProviderId = (
-    provider: HostedEmbeddingProviderId
-  ): provider is ProviderDefinition['id'] => {
-    return providerDefinitions.some((definition) => definition.id === provider);
-  };
 
   const localProvider = normalizeLocalProvider();
 
   const hostedProviders = HOSTED_EMBEDDING_PROVIDER_IDS.map((providerId) => {
-    if (!isRegisteredProviderId(providerId)) {
+    if (!providersById.has(providerId)) {
       return placeholderHostedProvider(providerId);
     }
 
