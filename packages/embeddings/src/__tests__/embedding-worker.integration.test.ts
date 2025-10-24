@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { startEmbeddingWorker } from '../index';
+import { formatProviderModelKey, startEmbeddingWorker } from '../index';
 import type {
   EmbeddingConfig,
   EmbeddingProgress,
@@ -138,9 +138,10 @@ describe('embedding-worker', () => {
     const fileId = 'file-2';
     const chunkId = 'chunk-2';
     const modelKey = 'jina-code';
+    const compositeKey = formatProviderModelKey('local', modelKey);
     const expectedHash = await (await import('node:crypto'))
       .createHash('sha256')
-      .update(`hash2:${modelKey}`)
+      .update(`hash2:${compositeKey}`)
       .digest('hex');
 
     await db.query(

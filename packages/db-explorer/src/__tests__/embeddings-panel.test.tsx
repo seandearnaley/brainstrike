@@ -31,7 +31,9 @@ let mockServiceInstance: {
 };
 
 // Mock the SimpleEmbeddingService
-vi.mock('@brainstrike/embeddings', () => {
+vi.mock('@brainstrike/embeddings', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
   const mockListModels = vi.fn(() => ({
     'jina-code': {
       id: 'jinaai/jina-embeddings-v3',
@@ -101,6 +103,7 @@ vi.mock('@brainstrike/embeddings', () => {
   }
 
   return {
+    ...actual,
     SimpleEmbeddingService: MockSimpleEmbeddingService,
   };
 });

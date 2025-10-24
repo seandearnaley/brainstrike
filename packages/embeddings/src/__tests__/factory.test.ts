@@ -107,7 +107,7 @@ describe('EmbeddingProviderFactory', () => {
 
     afterEach(() => {
       process.env[OPENAI_ENV_KEY] = undefined;
-      process.env.GOOGLE_API_KEY = undefined;
+      process.env['GOOGLE_API_KEY'] = undefined;
       process.env[GOOGLE_ENV_KEY] = undefined;
       EmbeddingProviderFactory.clearHostedApiKeyCache();
     });
@@ -171,7 +171,9 @@ describe('EmbeddingProviderFactory', () => {
         }
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const [url, init] = fetchMock.mock.calls[0];
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
         expect(url).toBe('https://api.openai.com/v1/embeddings');
         expect(init?.method).toBe('POST');
         const body = JSON.parse(String(init?.body));
@@ -221,7 +223,9 @@ describe('EmbeddingProviderFactory', () => {
         }
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        const [url, init] = fetchMock.mock.calls[0];
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
         expect(url).toBe(
           'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent'
         );

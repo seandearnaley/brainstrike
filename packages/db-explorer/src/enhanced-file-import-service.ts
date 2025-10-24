@@ -10,7 +10,12 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import {
+  isHostedProvider,
+  parseProviderModelKey,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import type {
   BaseImportRunner,
   EmbeddingJobQueuePort,
@@ -81,6 +86,9 @@ function createEmbeddingConfig(
     return undefined;
   }
 
+  const parsed = parseProviderModelKey(embeddingModel);
+  const provider: EmbeddingProviderType | undefined = parsed?.provider;
+
   return {
     enabled: Boolean(enableEmbedding),
     service: embeddingService,
@@ -90,6 +98,7 @@ function createEmbeddingConfig(
       setActiveEmbeddingSetId(id);
     },
     ...(embeddingModel ? { model: embeddingModel } : {}),
+    ...(provider ? { provider } : {}),
   };
 }
 
@@ -180,10 +189,19 @@ export function useEnhancedFileImportService(
 
   // Initialize embedding service if enabled
   useEffect(() => {
-    if (options.enableEmbedding && options.embeddingModel) {
-      const service = new SimpleEmbeddingService();
-      setEmbeddingService(service);
+    if (!options.enableEmbedding || !options.embeddingModel) {
+      setEmbeddingService(null);
+      return;
     }
+
+    const parsed = parseProviderModelKey(options.embeddingModel);
+    if (parsed && isHostedProvider(parsed.provider)) {
+      setEmbeddingService(null);
+      return;
+    }
+
+    const service = new SimpleEmbeddingService();
+    setEmbeddingService(service);
   }, [options.enableEmbedding, options.embeddingModel]);
 
   const baseImportService = useFileImportService({
@@ -267,6 +285,9 @@ export function useEnhancedFileImportService(
         const executor = (options?.transaction ?? db) as IDatabase;
         const queue = new JobQueue(executor);
         const expectedDimension = options?.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+        const provider = options?.provider ?? null;
+        const modelKey = options?.model ?? null;
+        const dimensionParameter = options?.dimensionParameter ?? null;
 
         for (const chunk of chunks) {
           if (!chunk.id || !chunk.contentHash) {
@@ -289,6 +310,9 @@ export function useEnhancedFileImportService(
               fileRecordId,
               embeddingSetId: resolvedEmbeddingSetId,
               expectedDimension,
+              modelKey,
+              provider,
+              dimensionParameter,
             },
             dedupeKey,
           });

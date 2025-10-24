@@ -4,9 +4,14 @@ import { useEmbeddingService } from '../use-embedding-service';
 
 const disposeMock = vi.fn().mockResolvedValue(undefined);
 
-vi.mock('@brainstrike/embeddings', () => ({
-  SimpleEmbeddingService: vi.fn().mockImplementation(() => ({ dispose: disposeMock })),
-}));
+vi.mock('@brainstrike/embeddings', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
+  return {
+    ...actual,
+    SimpleEmbeddingService: vi.fn().mockImplementation(() => ({ dispose: disposeMock })),
+  };
+});
 
 describe('useEmbeddingService', () => {
   beforeEach(() => {

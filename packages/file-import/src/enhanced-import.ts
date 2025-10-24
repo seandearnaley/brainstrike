@@ -1,3 +1,4 @@
+import { getProviderDefinition, type ProviderModelDefinition } from '@brainstrike/agent/client';
 import type {
   ChunkingStrategy,
   FileChunk,
@@ -6,7 +7,13 @@ import type {
   ImportProgress,
 } from '@brainstrike/db';
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import {
+  formatProviderModelKey,
+  parseProviderModelKey,
+  resolveHostedProviderApiKey,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger, generateUUID } from '@brainstrike/utils';
@@ -18,6 +25,55 @@ const logger = createLogger('FileImport:Enhanced');
 // Cache for embedding set lookups to avoid repeated database queries
 const EMBEDDING_SET_CACHE_LIMIT = 200;
 const embeddingSetCache = new Map<string, { modelKey: string }>();
+
+type EmbeddingModelDefinition = Extract<ProviderModelDefinition, { type: 'embedding' }>;
+
+function isEmbeddingModelDefinition(model: unknown): model is EmbeddingModelDefinition {
+  return Boolean(model) && (model as EmbeddingModelDefinition).type === 'embedding';
+}
+
+function pickHostedTargetDimension(model: EmbeddingModelDefinition): number {
+  if (model.supportsStandardDimension) {
+    return DEFAULT_EMBEDDING_DIMENSION;
+  }
+
+  const available = model.availableDimensions ?? [];
+  if (available.includes(DEFAULT_EMBEDDING_DIMENSION)) {
+    return DEFAULT_EMBEDDING_DIMENSION;
+  }
+
+  if (available.length > 0) {
+    const [first] = available;
+    if (typeof first === 'number') {
+      return first;
+    }
+  }
+
+  return model.defaultDimension ?? DEFAULT_EMBEDDING_DIMENSION;
+}
+
+function getSupportedHostedProvider(
+  provider: EmbeddingProviderType
+): 'openai' | 'google' | undefined {
+  if (provider === 'openai' || provider === 'google') {
+    return provider;
+  }
+  return undefined;
+}
+
+function normalizeCompositeModelKey(
+  modelKey: string,
+  providerHint: EmbeddingProviderType | undefined
+): string {
+  const parsed = parseProviderModelKey(modelKey);
+  if (parsed) {
+    return modelKey;
+  }
+  if (providerHint && providerHint !== 'local') {
+    return formatProviderModelKey(providerHint, modelKey);
+  }
+  return modelKey;
+}
 
 function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
   embeddingSetCache.set(targetSetId, { modelKey });
@@ -46,7 +102,7 @@ export interface EmbeddingJobQueuePort {
       transaction?: IDatabase | null;
       model?: string | null;
       targetEmbeddingSetId?: string | null;
-      provider?: string | null;
+      provider?: EmbeddingProviderType | null;
       targetDimension?: number | null;
       dimensionParameter?: ProviderDimensionParameter | null;
     }
@@ -90,6 +146,7 @@ interface ChunkingConfiguration {
 interface EmbeddingConfiguration {
   enabled: boolean;
   model?: string;
+  provider?: EmbeddingProviderType;
   service: SimpleEmbeddingService | null;
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null;
   resolveTargetEmbeddingSetId?: () => string | null | undefined;
@@ -299,66 +356,170 @@ async function insertEmbeddingSet(
   return insertedId ? String(insertedId) : newId;
 }
 
-async function resolveEmbeddingModel(
-  config: EmbeddingConfiguration | undefined,
-  ports: RunEnhancedImportPorts | undefined
-): Promise<{
-  model?: string;
+type ResolvedEmbeddingModel = {
+  modelId?: string;
+  modelKey?: string;
   targetSetId?: string;
-  provider?: string;
+  provider?: EmbeddingProviderType;
   targetDimension?: number;
   dimensionParameter?: ProviderDimensionParameter;
-}> {
-  if (!config?.enabled) {
-    return config?.model
-      ? { model: config.model, targetDimension: DEFAULT_EMBEDDING_DIMENSION }
-      : {};
-  }
+};
 
-  const embeddingConfig = config as EmbeddingConfiguration;
-
-  const resolved: {
-    model?: string;
-    targetSetId?: string;
-    provider?: string;
-    targetDimension?: number;
-    dimensionParameter?: ProviderDimensionParameter;
-  } = {};
-
-  const initialSetId = embeddingConfig.resolveTargetEmbeddingSetId?.();
+function createResolvedEmbeddingModelState(
+  config: EmbeddingConfiguration | undefined
+): ResolvedEmbeddingModel {
+  const resolved: ResolvedEmbeddingModel = {};
+  const initialSetId = config?.resolveTargetEmbeddingSetId?.();
   if (initialSetId) {
     resolved.targetSetId = initialSetId;
   }
+  return resolved;
+}
 
-  const modelKey = await determineModelKey(embeddingConfig.model, resolved.targetSetId, ports?.sql);
-  if (!modelKey) {
+function resolveDisabledEmbeddingModel(config: EmbeddingConfiguration): ResolvedEmbeddingModel {
+  const resolved = createResolvedEmbeddingModelState(config);
+  const model = config.model;
+  if (!model) {
     return resolved;
   }
 
-  resolved.model = modelKey;
-  const modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+  const normalized = normalizeCompositeModelKey(model, config.provider);
+  const parsed = parseProviderModelKey(normalized);
+
+  const provider = parsed?.provider ?? config.provider ?? 'local';
+  const modelId = parsed?.modelId ?? normalized;
+
+  resolved.modelKey = normalized;
+  resolved.modelId = modelId;
+  resolved.provider = provider;
+  resolved.targetDimension =
+    provider === 'local'
+      ? determineTargetDimension(SimpleEmbeddingService.getModelConfig(modelId))
+      : DEFAULT_EMBEDDING_DIMENSION;
+
+  return resolved;
+}
+
+async function resolveEnabledEmbeddingModel(
+  config: EmbeddingConfiguration,
+  ports: RunEnhancedImportPorts | undefined
+): Promise<ResolvedEmbeddingModel> {
+  const resolved = createResolvedEmbeddingModelState(config);
+
+  const compositeKey = await determineCompositeModelKey(
+    config.model,
+    resolved.targetSetId,
+    ports?.sql,
+    config.provider
+  );
+  if (!compositeKey) {
+    return resolved;
+  }
+
+  const parsed = parseProviderModelKey(compositeKey);
+  const provider: EmbeddingProviderType = parsed?.provider ?? config.provider ?? 'local';
+  const modelId = parsed?.modelId ?? compositeKey;
+
+  resolved.modelKey = compositeKey;
+  resolved.modelId = modelId;
+  resolved.provider = provider;
+
+  if (provider === 'local') {
+    await attachLocalModelMetadata(resolved, config, ports);
+    return resolved;
+  }
+
+  await attachHostedModelMetadata(resolved, provider, modelId, config, ports);
+  return resolved;
+}
+
+async function attachLocalModelMetadata(
+  resolved: ResolvedEmbeddingModel,
+  config: EmbeddingConfiguration,
+  ports: RunEnhancedImportPorts | undefined
+): Promise<void> {
+  if (!resolved.modelId || !resolved.modelKey) {
+    return;
+  }
+
+  const modelConfig = SimpleEmbeddingService.getModelConfig(resolved.modelId);
   resolved.targetDimension = determineTargetDimension(modelConfig);
 
   await ensureAndEmitEmbeddingSet({
     sql: ports?.sql,
     resolved,
     modelConfig,
-    config: embeddingConfig,
+    config,
   });
-
-  return resolved;
 }
 
-async function determineModelKey(
+async function attachHostedModelMetadata(
+  resolved: ResolvedEmbeddingModel,
+  provider: EmbeddingProviderType,
+  modelId: string,
+  config: EmbeddingConfiguration,
+  ports: RunEnhancedImportPorts | undefined
+): Promise<void> {
+  const supported = getSupportedHostedProvider(provider);
+  if (!supported) {
+    return;
+  }
+
+  const definition = getProviderDefinition(supported);
+  const modelDefinition = definition.models.find((candidate) => candidate.id === modelId);
+
+  if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {
+    resolved.targetDimension = pickHostedTargetDimension(modelDefinition);
+    if (modelDefinition.supportsCustomDimensions && modelDefinition.dimensionParameter) {
+      resolved.dimensionParameter = modelDefinition.dimensionParameter;
+    }
+  } else {
+    resolved.targetDimension = DEFAULT_EMBEDDING_DIMENSION;
+  }
+
+  await ensureHostedApiKey(supported);
+  await ensureAndEmitEmbeddingSet({
+    sql: ports?.sql,
+    resolved,
+    modelConfig: undefined,
+    config,
+  });
+}
+
+async function ensureHostedApiKey(provider: 'openai' | 'google'): Promise<void> {
+  const apiKey = await resolveHostedProviderApiKey(provider);
+  if (!apiKey) {
+    throw new Error(`Hosted provider "${provider}" requires an API key before running embeddings.`);
+  }
+}
+
+async function resolveEmbeddingModel(
+  config: EmbeddingConfiguration | undefined,
+  ports: RunEnhancedImportPorts | undefined
+): Promise<ResolvedEmbeddingModel> {
+  if (!config) {
+    return {};
+  }
+
+  if (!config.enabled) {
+    return resolveDisabledEmbeddingModel(config);
+  }
+
+  return resolveEnabledEmbeddingModel(config, ports);
+}
+
+async function determineCompositeModelKey(
   explicitModel: string | undefined,
   targetSetId: string | undefined,
-  sql: SqlExecutorPort | null | undefined
+  sql: SqlExecutorPort | null | undefined,
+  providerHint: EmbeddingProviderType | undefined
 ): Promise<string | undefined> {
   if (explicitModel) {
-    return explicitModel;
+    return normalizeCompositeModelKey(explicitModel, providerHint);
   }
   if (targetSetId) {
-    return resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
+    const key = await resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
+    return key ? normalizeCompositeModelKey(key, providerHint) : undefined;
   }
   return undefined;
 }
@@ -373,7 +534,8 @@ function determineTargetDimension(
 async function ensureAndEmitEmbeddingSet(params: {
   sql: SqlExecutorPort | null | undefined;
   resolved: {
-    model?: string;
+    modelId?: string;
+    modelKey?: string;
     targetSetId?: string;
     targetDimension?: number;
   };
@@ -381,13 +543,13 @@ async function ensureAndEmitEmbeddingSet(params: {
   config: EmbeddingConfiguration;
 }): Promise<void> {
   const { sql, resolved, modelConfig, config } = params;
-  if (!resolved.model || !resolved.targetDimension) {
+  if (!resolved.modelKey || !resolved.targetDimension) {
     return;
   }
 
   const ensuredSetId = await ensureEmbeddingSet(sql, {
-    modelKey: resolved.model,
-    modelId: modelConfig?.id ?? resolved.model,
+    modelKey: resolved.modelKey,
+    modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
     dimensions: resolved.targetDimension,
     distance: 'cosine',
     preferredId: resolved.targetSetId,
@@ -399,7 +561,7 @@ async function ensureAndEmitEmbeddingSet(params: {
   }
 
   resolved.targetSetId = finalSetId;
-  cacheEmbeddingSet(finalSetId, resolved.model);
+  cacheEmbeddingSet(finalSetId, resolved.modelKey);
   config.onResolvedTargetSetId?.(finalSetId);
   dispatchEmbeddingSetUpdateEvent(finalSetId);
 }
@@ -409,9 +571,10 @@ interface ChunkingOptionsConfig {
   queuePort: EmbeddingJobQueuePort | null;
   runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
   embedding: EmbeddingConfiguration | undefined;
-  embeddingModel: string | undefined;
+  embeddingModelId?: string;
+  embeddingModelKey?: string;
   targetSetId: string | undefined;
-  provider?: string;
+  provider?: EmbeddingProviderType;
   targetDimension?: number;
   dimensionParameter?: ProviderDimensionParameter;
   update: ProgressHandlers['update'];
@@ -426,7 +589,8 @@ function buildChunkingOptions(
     queuePort,
     runInTransaction,
     embedding,
-    embeddingModel,
+    embeddingModelId,
+    embeddingModelKey,
     targetSetId,
     provider,
     targetDimension,
@@ -442,7 +606,7 @@ function buildChunkingOptions(
     streamBatchSize: chunking.streamBatchSize ?? 250,
   };
 
-  const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModel);
+  const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
   if (queueActive) {
     options.embedQueueEnabled = true;
   }
@@ -453,8 +617,9 @@ function buildChunkingOptions(
     queuePort,
     runInTransaction,
     embedding,
-    embeddingModel,
     targetSetId,
+    ...(embeddingModelId ? { embeddingModelId } : {}),
+    ...(embeddingModelKey ? { embeddingModelKey } : {}),
     ...(provider ? { provider } : {}),
     ...(targetDimension !== undefined ? { targetDimension } : {}),
     ...(dimensionParameter ? { dimensionParameter } : {}),
@@ -470,7 +635,7 @@ function buildChunkingOptions(
         result,
         embedding.chunkRepository,
         embedding.service,
-        embeddingModel,
+        embeddingModelId,
         update,
         targetSetId
       );
@@ -485,9 +650,9 @@ type QueueOptionParams = {
   readonly queuePort: EmbeddingJobQueuePort | null;
   readonly runInTransaction: SqlExecutorPort['runInTransaction'] | undefined;
   readonly embedding: EmbeddingConfiguration | undefined;
-  readonly embeddingModel: string | undefined;
+  readonly embeddingModelKey?: string;
   readonly targetSetId: string | undefined;
-  readonly provider?: string;
+  readonly provider?: EmbeddingProviderType;
   readonly targetDimension?: number;
   readonly dimensionParameter?: ProviderDimensionParameter;
 };
@@ -501,14 +666,14 @@ function attachQueueOptions(
     queuePort,
     runInTransaction,
     embedding,
-    embeddingModel,
+    embeddingModelKey,
     targetSetId,
     provider,
     targetDimension,
     dimensionParameter,
   } = params;
   if (!queueActive || queuePort === null) {
-    if (embedding?.enabled && !embeddingModel) {
+    if (embedding?.enabled && !embeddingModelKey) {
       logger.warn('Embedding queue requested without a resolved model, skipping enqueue phase');
     }
     if (runInTransaction) {
@@ -519,7 +684,7 @@ function attachQueueOptions(
 
   options.enqueueJobsForChunks = (chunks, fileRecordId) =>
     queuePort.enqueueBatch(chunks, fileRecordId, {
-      model: embeddingModel ?? null,
+      model: embeddingModelKey ?? null,
       targetEmbeddingSetId: targetSetId ?? null,
       provider: provider ?? null,
       targetDimension: targetDimension ?? null,
@@ -531,7 +696,7 @@ function attachQueueOptions(
     options.enqueueJobsForChunksTx = (tx, chunks, fileRecordId) =>
       queuePort.enqueueBatch(chunks, fileRecordId, {
         transaction: tx,
-        model: embeddingModel ?? null,
+        model: embeddingModelKey ?? null,
         targetEmbeddingSetId: targetSetId ?? null,
         provider: provider ?? null,
         targetDimension: targetDimension ?? null,
@@ -672,13 +837,8 @@ export async function runEnhancedImport<TFileNode = unknown>({
       chunkOverlap: chunking.chunkOverlap,
     });
 
-    const {
-      model: embeddingModel,
-      targetSetId,
-      provider,
-      targetDimension,
-      dimensionParameter,
-    } = await resolveEmbeddingModel(embedding, ports);
+    const { modelId, modelKey, targetSetId, provider, targetDimension, dimensionParameter } =
+      await resolveEmbeddingModel(embedding, ports);
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
 
@@ -687,10 +847,11 @@ export async function runEnhancedImport<TFileNode = unknown>({
       queuePort,
       runInTransaction,
       embedding,
-      embeddingModel,
       targetSetId,
       update,
       processEmbeddingsImpl,
+      ...(modelId ? { embeddingModelId: modelId } : {}),
+      ...(modelKey ? { embeddingModelKey: modelKey } : {}),
       ...(provider ? { provider } : {}),
       ...(targetDimension !== undefined ? { targetDimension } : {}),
       ...(dimensionParameter ? { dimensionParameter } : {}),

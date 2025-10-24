@@ -157,7 +157,7 @@ describe('runEnhancedImport', () => {
         model: 'mock-model',
         targetEmbeddingSetId: null,
         targetDimension: 768,
-        provider: null,
+        provider: 'local',
         dimensionParameter: null,
       })
     );

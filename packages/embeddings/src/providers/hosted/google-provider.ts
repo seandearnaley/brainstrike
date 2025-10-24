@@ -133,7 +133,7 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
           };
         }
 
-        const errPayload = await safeJson(response);
+        const errPayload = (await safeJson(response)) as GoogleEmbeddingResponse | undefined;
         const message =
           (typeof errPayload?.error?.message === 'string' && errPayload.error.message) ||
           `Google embeddings request failed with status ${response.status}`;

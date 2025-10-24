@@ -7,13 +7,15 @@
     "declaration": true,
     "outDir": "./dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": "."
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.test.tsx"],
   "references": [
     { "path": "../db" },
     { "path": "../embeddings" },
+    { "path": "../agent" },
     { "path": "../utils" },
     { "path": "../types" }
   ]

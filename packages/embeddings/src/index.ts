@@ -29,9 +29,18 @@ export type {
 } from './provider-types';
 export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
 export {
+  formatProviderModelKey,
+  isHostedProvider,
+  parseProviderModelKey,
+} from './provider-utils';
+export {
   GoogleEmbeddingProvider,
   OpenAIEmbeddingProvider,
 } from './providers/hosted';
+export {
+  clearHostedProviderApiKeyCache,
+  resolveHostedProviderApiKey,
+} from './providers/hosted/api-key-resolver';
 export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 // Export backend and utilities
 export {

@@ -74,14 +74,15 @@ describe('useImportFlow', () => {
     expect(importServiceReturn.importFiles).not.toHaveBeenCalled();
   });
 
-  it('imports selected files when available', () => {
+  it('imports selected files when available', async () => {
     const toast = vi.fn();
     selectionPaths = new Set(['/file.txt']);
 
     const { result } = renderHook(() => useImportFlow({ importSettings: baseSettings, toast }));
 
-    act(() => {
+    await act(async () => {
       result.current.handleImportClick();
+      await Promise.resolve();
     });
 
     expect(importServiceReturn.importFiles).toHaveBeenCalledWith(
