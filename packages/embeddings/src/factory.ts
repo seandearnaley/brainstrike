@@ -1,5 +1,12 @@
 import type { IEmbeddingProvider } from './interfaces/provider';
 import type { EmbeddingProviderConfig, EmbeddingProviderError, Result } from './provider-types';
+import { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
+import {
+  clearHostedProviderApiKeyCache,
+  resolveHostedProviderApiKey,
+} from './providers/hosted/api-key-resolver';
+import { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
+import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
 import { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 
 /**
@@ -18,8 +25,7 @@ import { TransformersEmbeddingProvider } from './providers/local/transformers-pr
 export class EmbeddingProviderFactory {
   /**
    * Cache of provider instances keyed by composite ID
-   * Format: "provider:modelId:quantization" (e.g., "local:jina-code:q8", "local:jina-code:default")
-   * Note: Quantization affects device selection, so it must be part of the cache key
+   * Format: "provider:modelId:variant" where variant captures runtime-specific configuration.
    */
   private static instances = new Map<string, IEmbeddingProvider>();
 
@@ -46,9 +52,7 @@ export class EmbeddingProviderFactory {
   static async createProvider(
     config: EmbeddingProviderConfig
   ): Promise<Result<IEmbeddingProvider, EmbeddingProviderError>> {
-    // Include quantization in cache key since it affects device selection
-    const quantization = config.runtime === 'browser' ? config.quantization || 'default' : 'n/a';
-    const key = `${config.provider}:${config.modelId}:${quantization}`;
+    const key = EmbeddingProviderFactory.composeCacheKey(config);
 
     // Return cached instance if exists
     const cached = EmbeddingProviderFactory.instances.get(key);
@@ -72,15 +76,49 @@ export class EmbeddingProviderFactory {
         }
 
         case 'hosted': {
-          // Hosted providers will be implemented in Phase 4
-          return {
-            ok: false,
-            error: {
-              type: 'validation_error',
-              field: 'provider',
-              message: `Hosted provider "${config.provider}" not yet implemented. Coming in Phase 4.`,
-            },
-          };
+          const apiKey = await resolveHostedProviderApiKey(config.provider);
+          if (!apiKey) {
+            return {
+              ok: false,
+              error: {
+                type: 'missing_api_key',
+                provider: config.provider,
+              },
+            };
+          }
+
+          switch (config.provider) {
+            case 'openai': {
+              provider = new OpenAIEmbeddingProvider({
+                modelId: config.modelId,
+                targetDimensions: config.dimensions,
+                apiKey,
+              });
+              break;
+            }
+
+            case 'google': {
+              provider = new GoogleEmbeddingProvider({
+                modelId: config.modelId,
+                outputDimensions: config.outputDimensionality ?? STANDARD_EMBEDDING_DIMENSION,
+                apiKey,
+              });
+              break;
+            }
+
+            default: {
+              return {
+                ok: false,
+                error: {
+                  type: 'validation_error',
+                  field: 'provider',
+                  message: `Hosted provider "${config.provider}" is not supported yet.`,
+                },
+              };
+            }
+          }
+
+          break;
         }
 
         default: {
@@ -119,16 +157,15 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
-   * @param quantization - Quantization setting (optional, defaults to 'default')
+   * @param variant - Cache variant identifier (quantization, dimension, etc.)
    * @returns Provider instance or undefined if not cached
    */
   static getCachedProvider(
     provider: string,
     modelId: string,
-    quantization?: string
+    variant?: string
   ): IEmbeddingProvider | undefined {
-    const quant = quantization || 'default';
-    const key = `${provider}:${modelId}:${quant}`;
+    const key = `${provider}:${modelId}:${variant ?? 'default'}`;
     return EmbeddingProviderFactory.instances.get(key);
   }
 
@@ -138,16 +175,15 @@ export class EmbeddingProviderFactory {
    *
    * @param provider - Provider type
    * @param modelId - Model ID
-   * @param quantization - Quantization setting (optional, defaults to 'default')
+   * @param variant - Cache variant identifier (quantization, dimension, etc.)
    * @returns true if provider was removed, false if not found
    */
   static async removeProvider(
     provider: string,
     modelId: string,
-    quantization?: string
+    variant?: string
   ): Promise<boolean> {
-    const quant = quantization || 'default';
-    const key = `${provider}:${modelId}:${quant}`;
+    const key = `${provider}:${modelId}:${variant ?? 'default'}`;
     const instance = EmbeddingProviderFactory.instances.get(key);
 
     if (!instance) {
@@ -197,19 +233,55 @@ export class EmbeddingProviderFactory {
    */
   static getCacheStats(): {
     size: number;
-    providers: Array<{ provider: string; modelId: string; quantization: string }>;
+    providers: Array<{ provider: string; modelId: string; variant: string }>;
   } {
     const providers = Array.from(EmbeddingProviderFactory.instances.keys()).map((key) => {
       const parts = key.split(':');
       const provider = parts[0] ?? '';
       const modelId = parts[1] ?? '';
-      const quantization = parts[2] ?? 'default';
-      return { provider, modelId, quantization };
+      const variant = parts[2] ?? 'default';
+      return { provider, modelId, variant };
     });
 
     return {
       size: EmbeddingProviderFactory.instances.size,
       providers,
     };
+  }
+
+  /**
+   * Clear cached API keys (useful for tests)
+   */
+  static clearHostedApiKeyCache(provider?: Exclude<EmbeddingProviderConfig['provider'], 'local'>) {
+    if (provider) {
+      clearHostedProviderApiKeyCache(provider);
+    } else {
+      clearHostedProviderApiKeyCache();
+    }
+  }
+
+  private static composeCacheKey(config: EmbeddingProviderConfig): string {
+    const variant = EmbeddingProviderFactory.resolveVariant(config);
+    return `${config.provider}:${config.modelId}:${variant}`;
+  }
+
+  private static resolveVariant(config: EmbeddingProviderConfig): string {
+    if (config.runtime === 'browser') {
+      return config.quantization ?? 'default';
+    }
+
+    switch (config.provider) {
+      case 'openai': {
+        return String(config.dimensions ?? 'default');
+      }
+      case 'google': {
+        return String(config.outputDimensionality ?? STANDARD_EMBEDDING_DIMENSION);
+      }
+      case 'cohere':
+      case 'voyage':
+        return 'default';
+      default:
+        return 'default';
+    }
   }
 }

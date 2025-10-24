@@ -28,6 +28,10 @@ export type {
   Result,
 } from './provider-types';
 export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
+export {
+  GoogleEmbeddingProvider,
+  OpenAIEmbeddingProvider,
+} from './providers/hosted';
 export { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 // Export backend and utilities
 export {
