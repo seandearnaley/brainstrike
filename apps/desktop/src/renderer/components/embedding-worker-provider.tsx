@@ -25,9 +25,9 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
         logger.info('Starting embedding worker in renderer process...');
         const controller = await startEmbeddingWorker({
           db,
-          concurrency: Number(import.meta.env.VITE_EMBED_CONCURRENCY ?? 1) || 1,
-          leaseMs: Number(import.meta.env.VITE_EMBED_LEASE_MS ?? 60000) || 60000,
-          modelKey: import.meta.env.VITE_EMBED_MODEL_KEY || undefined,
+          concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
+          leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
+          modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
           log: (msg: string, meta?: unknown) => {
             if (meta) {
               logger.info(msg, meta);
