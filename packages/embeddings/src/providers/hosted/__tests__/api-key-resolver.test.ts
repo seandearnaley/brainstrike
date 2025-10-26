@@ -41,7 +41,7 @@ describe('api-key-resolver', () => {
       expect(firstResult).toBe('test-key-123');
 
       // Change the environment variable
-      (globalThis.process as NodeJS.Process).env.OPENAI_API_KEY = 'different-key';
+      (globalThis.process as NodeJS.Process).env['OPENAI_API_KEY'] = 'different-key';
 
       // Should still return cached value
       const secondResult = await resolveHostedProviderApiKey('openai');
@@ -62,7 +62,7 @@ describe('api-key-resolver', () => {
       expect(googleKey1).toBe('google-key');
 
       // Change OpenAI key and clear its cache
-      (globalThis.process as NodeJS.Process).env.OPENAI_API_KEY = 'new-openai-key';
+      (globalThis.process as NodeJS.Process).env['OPENAI_API_KEY'] = 'new-openai-key';
       clearHostedProviderApiKeyCache('openai');
 
       const openaiKey2 = await resolveHostedProviderApiKey('openai');
@@ -84,8 +84,8 @@ describe('api-key-resolver', () => {
       await resolveHostedProviderApiKey('google');
 
       // Change keys and clear all caches
-      (globalThis.process as NodeJS.Process).env.OPENAI_API_KEY = 'new-openai';
-      (globalThis.process as NodeJS.Process).env.GOOGLE_API_KEY = 'new-google';
+      (globalThis.process as NodeJS.Process).env['OPENAI_API_KEY'] = 'new-openai';
+      (globalThis.process as NodeJS.Process).env['GOOGLE_API_KEY'] = 'new-google';
       clearHostedProviderApiKeyCache();
 
       const openaiKey = await resolveHostedProviderApiKey('openai');
