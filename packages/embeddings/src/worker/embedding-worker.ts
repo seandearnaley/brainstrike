@@ -218,10 +218,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+function isNodejsMainProcess(): boolean {
+  // Check if we're in a Node.js environment (not browser)
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      typeof process.versions?.node !== 'undefined' &&
+      typeof window === 'undefined'
+    );
+  } catch {
+    return false;
+  }
+}
+
 function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  if (modelResolution.provider !== 'local') {
+  // CRITICAL FIX: Local transformers models require Web Workers to avoid blocking execution.
+  // In Electron main process (Node.js), Web Workers don't exist, causing TransformersBackend
+  // to fall back to synchronous execution which blocks the entire app.
+  if (modelResolution.provider === 'local' && isNodejsMainProcess()) {
     throw new Error(
-      `Embedding worker requires a local default provider; received "${modelResolution.provider}".`
+      'Cannot use local embedding models in Node.js/Electron main process. ' +
+        'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
+        'Use a hosted provider (openai, google) or process embeddings in the renderer.'
     );
   }
 }
@@ -415,6 +433,12 @@ export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
   const log = options.log || (() => {});
+
+  // Check if worker is disabled BEFORE resolving model to avoid errors in tests
+  if (!shouldStartWorker(options, log)) {
+    return { stop: async () => {} };
+  }
+
   const queueName = options.queue ?? 'embeddings';
   const leaseMs = options.leaseMs ?? 60_000;
   const heartbeatMs = options.heartbeatIntervalMs ?? 10_000;
@@ -425,11 +449,6 @@ export async function startEmbeddingWorker(
   let activeCompositeKey = modelResolution.compositeKey;
   const distance: Distance = options.distance ?? 'cosine';
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
-
-  // Optional: allow disabling at runtime via env
-  if (!shouldStartWorker(options, log)) {
-    return { stop: async () => {} };
-  }
 
   let { service, modelConfig } = await initializeEmbeddingService(options, activeModelId);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
@@ -485,9 +504,31 @@ export async function startEmbeddingWorker(
     const forceReinit = opts?.forceReinit ?? false;
     const forceCpu = opts?.forceCpu ?? false;
     const shouldReinitialize = forceCpu || forceReinit || targetModelId !== activeModelId;
+
+    console.log('[EMBED-WORKER] ensureLocalModel check', {
+      targetModelId,
+      activeModelId,
+      shouldReinitialize,
+      forceReinit,
+      forceCpu,
+    });
+
     if (!shouldReinitialize) {
       return;
     }
+
+    // CRITICAL FIX: In Electron main process, TransformersBackend tries to create Web Workers
+    // which don't exist in Node.js. This causes it to fall back to synchronous execution,
+    // blocking the entire app. Reject model switching for local providers.
+    if (targetModelId !== activeModelId) {
+      throw new Error(
+        `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
+          'Web Workers are not available in Node.js/Electron main process. ' +
+          `Either process this job in the renderer, or ensure all jobs use the same local model: ${activeModelId}`
+      );
+    }
+
+    console.log('[EMBED-WORKER] REINITIALIZING SERVICE - this blocks the main thread!');
 
     try {
       await service.dispose();
@@ -539,6 +580,12 @@ export async function startEmbeddingWorker(
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
       throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
     }
+
+    console.log('[EMBED-WORKER] Calling service.generateEmbedding - THIS MAY BLOCK MAIN THREAD!', {
+      contentLength: chunk.content.length,
+      expectedDimension,
+    });
+
     const svcAny = service as unknown as {
       generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
       generateEmbedding: (t: string) => Promise<EmbeddingResult>;
@@ -546,6 +593,8 @@ export async function startEmbeddingWorker(
     const result = svcAny.generateDocEmbedding
       ? await svcAny.generateDocEmbedding(chunk.content)
       : await service.generateEmbedding(chunk.content);
+
+    console.log('[EMBED-WORKER] service.generateEmbedding completed');
 
     if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
       throw new Error(
@@ -685,11 +734,31 @@ export async function startEmbeddingWorker(
   }
 
   async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
+    console.log('[EMBED-WORKER] Job start', {
+      jobId: claimed.id,
+      activeModelId,
+      activeCompositeKey,
+    });
+
     const payload = assertEmbedChunkJob(claimed);
+    console.log('[EMBED-WORKER] Job payload', {
+      chunkId: payload.chunkId,
+      payloadModelKey: payload.modelKey,
+      payloadProvider: payload.provider,
+    });
+
     const chunk = await loadChunkOrThrow(payload.chunkId);
     const targetSetId = resolveTargetSetId(payload, chunk);
     const expectedDimension = await determineExpectedDimension(targetSetId, payload);
     const jobModel = resolveJobModel(payload);
+
+    console.log('[EMBED-WORKER] Resolved job model', {
+      jobModelId: jobModel.modelId,
+      jobCompositeKey: jobModel.compositeKey,
+      jobProvider: jobModel.provider,
+      willReinitialize: jobModel.modelId !== activeModelId,
+    });
+
     const expectedHash = await sha256Hex(`${chunk.contentHash}:${jobModel.compositeKey}`);
 
     if (isEmbeddingUpToDate(chunk, expectedHash)) {
@@ -699,8 +768,13 @@ export async function startEmbeddingWorker(
 
     let embedding: number[];
     if (jobModel.provider === 'local') {
+      console.log('[EMBED-WORKER] Processing local embedding...');
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+      console.log('[EMBED-WORKER] About to call generateLocalEmbedding...');
       const result = await generateLocalEmbedding(chunk, expectedDimension);
+      console.log('[EMBED-WORKER] generateLocalEmbedding returned', {
+        dimensions: result.dimensions,
+      });
       embedding = result.embedding;
     } else {
       embedding = await generateHostedEmbedding(

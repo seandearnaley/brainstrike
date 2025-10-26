@@ -39,6 +39,11 @@ const settingsStore: ElectronStore<DesktopSettingsStoreSchema> =
     name: 'brainstrike-settings',
   });
 
+const queueEnabled = String(process.env['EMBED_QUEUE_ENABLED'] ?? 'true').toLowerCase() === 'true';
+const embeddingWorkerConcurrency = Number(process.env['EMBED_CONCURRENCY'] ?? 1) || 1;
+const embeddingWorkerLeaseMs = Number(process.env['EMBED_LEASE_MS'] ?? 60000) || 60000;
+const embeddingWorkerModelKey = process.env['EMBED_MODEL_KEY'] || undefined;
+
 function createDesktopDefaultPreferences(): LoggingPreferences {
   return createDefaultLoggingPreferences({
     level: LogLevel.DEBUG,
@@ -265,6 +270,88 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 }
 
 const logger = createLogger('DesktopMain');
+
+let stopEmbeddingWorker: null | (() => Promise<void>) = null;
+let stopAssistantServer: null | (() => Promise<void>) = null;
+let embeddingWorkerDisabledLogged = false;
+let embeddingWorkerStarting = false;
+
+async function stopEmbeddingWorkerIfRunning(reason = 'manual'): Promise<void> {
+  if (!stopEmbeddingWorker) return;
+  try {
+    await stopEmbeddingWorker();
+    logger.info(`Embedding worker stopped (${reason})`);
+  } catch (error) {
+    logger.warn(`Failed to stop embedding worker (${reason})`, error);
+  } finally {
+    stopEmbeddingWorker = null;
+  }
+}
+
+async function startEmbeddingWorkerIfEnabled(): Promise<void> {
+  if (!queueEnabled) {
+    if (!embeddingWorkerDisabledLogged) {
+      logger.info('Embedding queue disabled; skipping worker start.');
+      embeddingWorkerDisabledLogged = true;
+    }
+    return;
+  }
+
+  if (stopEmbeddingWorker) {
+    logger.debug('Embedding worker already running; start skipped.');
+    return;
+  }
+
+  if (embeddingWorkerStarting) {
+    logger.debug('Embedding worker start already in progress; start skipped.');
+    return;
+  }
+
+  embeddingWorkerStarting = true;
+  try {
+    const db = await getDatabase();
+    const controller = await startEmbeddingWorker({
+      db: db as import('@brainstrike/db').IDatabase,
+      concurrency: embeddingWorkerConcurrency,
+      leaseMs: embeddingWorkerLeaseMs,
+      modelKey: embeddingWorkerModelKey,
+      log: (msg: string) => logger.info(`[EmbeddingWorker] ${msg}`),
+    });
+    stopEmbeddingWorker = controller.stop;
+    logger.info('Embedding worker started');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('Cannot use local embedding models in Node.js')) {
+      logger.info(
+        'Embedding worker not started: Local models require Web Workers (renderer process only). ' +
+          'Configure a hosted provider (openai, google) via EMBED_MODEL_KEY to enable main process embeddings.'
+      );
+    } else {
+      logger.error('Failed to start embedding worker:', error);
+    }
+  } finally {
+    embeddingWorkerStarting = false;
+  }
+}
+
+async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
+  await stopEmbeddingWorkerIfRunning('factory-reset');
+
+  try {
+    await resetLocalDatabase();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to reset local database:', error);
+    return { success: false, message };
+  }
+
+  void startEmbeddingWorkerIfEnabled().catch((error) => {
+    logger.error('Failed to restart embedding worker after reset:', error);
+  });
+
+  return { success: true };
+}
+
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
@@ -287,14 +374,13 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, settingsStore);
+registerIpcHandlers(fileSystem, storage, settingsStore, {
+  onResetLocal: handleResetLocal,
+});
 registerSecretsIpcHandlers(createSecretsService());
 registerAgentIpcHandlers();
 registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
-
-let stopEmbeddingWorker: null | (() => Promise<void>) = null;
-let stopAssistantServer: null | (() => Promise<void>) = null;
 
 app.whenReady().then(async () => {
   try {
@@ -306,22 +392,7 @@ app.whenReady().then(async () => {
 
     // Optionally start local embedding worker if queue is enabled
     try {
-      // Lazy-init DB for worker only when enabled
-      const queueEnabled =
-        String(process.env['EMBED_QUEUE_ENABLED'] ?? 'true').toLowerCase() === 'true';
-      if (queueEnabled) {
-        const db = await getDatabase();
-        const controller = await startEmbeddingWorker({
-          // Cast db to IDatabase (query shape)
-          db: db as import('@brainstrike/db').IDatabase,
-          concurrency: Number(process.env['EMBED_CONCURRENCY'] ?? 1) || 1,
-          leaseMs: Number(process.env['EMBED_LEASE_MS'] ?? 60000) || 60000,
-          modelKey: process.env['EMBED_MODEL_KEY'] || undefined,
-          log: (msg: string) => logger.info(`[EmbeddingWorker] ${msg}`),
-        });
-        stopEmbeddingWorker = controller.stop;
-        logger.info('Embedding worker started');
-      }
+      await startEmbeddingWorkerIfEnabled();
     } catch (err) {
       logger.error('Failed to start embedding worker:', err);
     }
@@ -432,10 +503,7 @@ app.on('window-all-closed', () => {
 // Clean shutdown
 app.on('before-quit', async () => {
   try {
-    if (stopEmbeddingWorker) {
-      await stopEmbeddingWorker();
-      stopEmbeddingWorker = null;
-    }
+    await stopEmbeddingWorkerIfRunning('app-before-quit');
     if (stopAssistantServer) {
       await stopAssistantServer();
       stopAssistantServer = null;
