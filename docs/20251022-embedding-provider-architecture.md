@@ -1,12 +1,48 @@
 # Embedding Provider Architecture
 
-**Date:** 2025-10-22
-**Status:** Design Proposal
-**Related Issues:** brainstrike-28, brainstrike-30, brainstrike-29
+**Date:** 2025-10-22 (Updated 2025-01-26)
+**Status:** Partially Implemented (Phases 1-4 complete, Phase 5 in progress)
+**Related Issues:** brainstrike-28, brainstrike-30, brainstrike-29, brainstrike-47
 
 ## Overview
 
-Implement settings-based multi-provider embedding model selection that supports both local (transformers.js) and hosted (OpenAI, Google, Cohere, Voyage) embedding models. This mirrors the successful pattern used for LLM provider selection while maintaining 768D dimension standards.
+Multi-provider embedding model selection supporting both local (transformers.js) and hosted (OpenAI, Google, Cohere, Voyage) models. Mirrors LLM provider selection pattern while maintaining 768D dimension standards.
+
+## ⚠️ CRITICAL: Renderer-Only Architecture (January 2025)
+
+**The embedding worker MUST run in the renderer process (browser context), NOT in Electron's main process.**
+
+### Why Renderer-Only?
+- **Local models** (transformers.js) require Web Workers for async WASM/WebGPU execution
+- Web Workers don't exist in Node.js/Electron main process
+- If TransformersBackend runs in main process, it falls back to **synchronous execution** → app beachballs/freezes
+- Discovered during brainstrike-47: worker was incorrectly running in main process, causing UI to freeze during backfill
+
+### Current Implementation (brainstrike-47)
+- **Renderer**: `apps/desktop/src/renderer/components/embedding-worker-provider.tsx`
+  - Auto-starts worker when DB is ready
+  - Polls job queue from PGlite database
+  - Processes jobs using Web Workers (workerpool + p-queue fallback)
+  - Supports local models (WASM/WebGPU) and hosted providers (OpenAI, Google)
+- **Main Process**: `apps/desktop/src/main.ts`
+  - Does NOT start embedding worker (removed)
+  - Only handles IPC, database initialization, app lifecycle
+
+### Future Work: Dual-Process Architecture
+To support both local and hosted models optimally:
+
+1. **Renderer Process** (local models only):
+   - Local transformers.js models (Jina, BGE, etc.)
+   - Requires Web Workers for WASM/WebGPU
+   - User-facing with progress UI
+
+2. **Main Process** (hosted providers only - NOT YET IMPLEMENTED):
+   - OpenAI, Google, Cohere, Voyage API calls
+   - No Web Worker dependency
+   - Background processing survives renderer restarts
+   - **Requires architecture changes**: IPC for job status, worker selection logic, renderer-main coordination
+
+**For now**: All embedding work (local AND hosted) runs in renderer process.
 
 ## Current State
 

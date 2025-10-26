@@ -31,6 +31,71 @@ Note electron desktop e2e tests have trouble running in agent environments compl
   - `queue`: browser/Electron embedding queue (workerpool + p-queue fallback)
   - `embedding-worker`: Transformers.js module worker that exposes `resolveEmbeddingWorkerUrl()`
 
+## Embedding Architecture (Updated January 2025)
+
+### Critical: Renderer-Only Execution
+**The embedding worker MUST run in the renderer process (browser context), NOT in Electron's main process.**
+
+**Why:**
+- Transformers.js requires Web Workers for async execution of WASM/WebGPU models
+- Web Workers don't exist in Node.js/Electron main process
+- If TransformersBackend runs in main process, it falls back to **synchronous WASM execution**
+- Synchronous execution blocks the entire UI thread → app beachballs/freezes during embeddings
+
+**Architecture Flow:**
+1. **Renderer Process** (`apps/desktop/src/renderer/components/embedding-worker-provider.tsx`):
+   - Auto-starts embedding worker when database is ready
+   - Uses `startEmbeddingWorker()` from `@brainstrike/embeddings`
+   - Worker polls job queue from PGlite database
+   - Processes jobs using Web Workers (workerpool with p-queue fallback)
+   - Supports local models (WASM/WebGPU) and hosted providers (OpenAI, Google)
+
+2. **Main Process** (`apps/desktop/src/main.ts`):
+   - Does NOT start embedding worker (removed as of brainstrike-47)
+   - Only handles IPC, database initialization, and app lifecycle
+   - Comments explain why worker must run in renderer
+
+3. **Job Queue** (`packages/db/src/queue/job-queue.ts`):
+   - Backed by PGlite database `job_queue` table
+   - Jobs enqueued during file import/backfill
+   - Worker claims jobs with lease-based locking
+   - Supports retries, deduplication, and failure tracking
+
+**Environment Variables:**
+- `VITE_EMBED_CONCURRENCY`: Number of concurrent embedding jobs (default: 1)
+- `VITE_EMBED_LEASE_MS`: Job lease timeout in milliseconds (default: 60000)
+- `VITE_EMBED_MODEL_KEY`: Model to use (format: `provider:model-id`, e.g., `local:Xenova/bge-m3`, `openai:text-embedding-3-small`)
+
+**Local vs Hosted Models:**
+- **Local models** (e.g., `Xenova/bge-m3`, `jinaai/jina-embeddings-v2-small-en`):
+  - Use transformers.js with WASM or WebGPU acceleration
+  - Models download on first use (~100-500MB)
+  - Work offline after initial download
+  - Require Web Workers → renderer process only
+
+- **Hosted providers** (e.g., `openai:text-embedding-3-small`, `google:text-embedding-004`):
+  - Make API calls to remote services
+  - Require API keys (stored in Settings → Embedding Providers)
+  - Work in both main and renderer processes
+  - Faster cold start (no model download)
+  - Usage costs apply
+
+**Worker Lifecycle:**
+- Starts automatically when `EmbeddingWorkerProvider` mounts (after DB ready)
+- Stops automatically on component unmount (app shutdown)
+- Logs to structured logger: `createLogger('EmbeddingWorkerProvider')`
+- Graceful shutdown: completes in-flight jobs before stopping
+
+**Historical Context:**
+- Pre-brainstrike-47: Worker ran in main process, causing beachball issue
+- brainstrike-47: Moved worker to renderer, removed `EMBED_QUEUE_ENABLED` flag
+- Worker is now always enabled (no confusing toggle)
+
+**Future Work:**
+- Hosted providers in main process for background processing (after fixing architecture)
+- Renderer-to-main communication for job status updates
+- Multi-model support with automatic provider selection
+
 ## AI Assistant Integration
 - Multi-provider support: OpenAI, Anthropic, Google, OpenRouter
 - Provider/model selection UI in Assistant Panel (right panel)
