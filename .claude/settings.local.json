@@ -38,7 +38,14 @@
       "Bash(cat:*)",
       "Bash(for i in {1..10})",
       "Bash(do echo \"Check $i:\")",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(for file in /Users/seandearnaley/Documents/GitHub/brainstrike/docs/architecture/*.md)",
+      "Bash(do echo \"=== Validating $file ===\")",
+      "Bash(npx puppeteer browsers install chrome-headless-shell)",
+      "Bash(node scripts/validate-mermaid.mjs:*)",
+      "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/scripts/validate-mermaid.mjs:*)",
+      "Bash(git mv:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []

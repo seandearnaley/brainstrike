@@ -4,18 +4,18 @@
 
 ```mermaid
 flowchart LR
-  A[Source Ingest\\n(file picker, folder, drag-drop, etc.)] --> B[Chunking Service\\n`packages/db/src/services/chunking-service.ts`]
-  B --> C[Queue Enqueue\\n`create-embedding-queue.ts`]
+  A["Source Ingest\\nfile picker, folder, drag-drop, etc."] --> B["Chunking Service\\npackages/db/src/services/chunking-service.ts"]
+  B --> C["Queue Enqueue\\ncreate-embedding-queue.ts"]
   C --> D{Worker Type}
-  D -->|Web| E[Web Worker\\n`apps/web/src/workers/embedding-worker-web.ts`]
-  D -->|Desktop| F[Electron Worker\\n`packages/embedding-worker/src/embedding.worker.ts`]
-  E & F --> G[Embedding Provider Factory\\n`packages/embeddings/src/factory.ts`]
-  G --> H[(LLM/Embedding Providers)]
+  D -->|Web| E["Web Worker\\napps/web/src/workers/embedding-worker-web.ts"]
+  D -->|Desktop| F["Electron Worker\\npackages/embedding-worker/src/embedding.worker.ts"]
+  E & F --> G["Embedding Provider Factory\\npackages/embeddings/src/factory.ts"]
+  G --> H[("LLM/Embedding Providers")]
   H --> I[Vectors Returned]
-  I --> J[Persist to DB\\nmodels/repos\\n`packages/db`]
-  J --> K[Vector Index Helpers\\n`vector-index-helpers.ts`]
-  K --> L[(Search-ready\\npgvector index)]
-  L --> M[Vector Status UI\\n`packages/vector-management`]
+  I --> J["Persist to DB\\nmodels/repos\\npackages/db"]
+  J --> K["Vector Index Helpers\\nvector-index-helpers.ts"]
+  K --> L[("Search-ready\\npgvector index")]
+  L --> M["Vector Status UI\\npackages/vector-management"]
 ```
 
 ## 3.2 Sequence — File Import ➜ Searchable Vectors
@@ -30,22 +30,22 @@ sequenceDiagram
   participant W as Embedding Worker
   participant PF as Provider Factory
   participant EP as Embedding Provider
-  participant DB as DB (PGlite/pgvector?)
+  participant DB as DB PGlite/pgvector
 
   User->>UI: Select files/folders
   UI->>FS: Read file streams
   FS-->>UI: Chunks or raw content
-  UI->>CH: normalize + chunk(content)
-  CH-->>Q: enqueue(batch of chunk jobs)
-  loop per job (concurrency N)
-    Q->>W: dispatch(job)
-    W->>PF: resolve provider & dims
-    PF->>EP: embed(text[])
-    EP-->>PF: vectors[]
+  UI->>CH: normalize + chunk content
+  CH-->>Q: enqueue batch of chunk jobs
+  loop per job concurrency N
+    Q->>W: dispatch job
+    W->>PF: resolve provider and dims
+    PF->>EP: embed text array
+    EP-->>PF: vectors array
     W->>DB: upsert embeddings + metadata
   end
   UI->>DB: mark embedding-set complete
-  UI-->>User: Status updated; searchable
+  UI-->>User: Status updated searchable
 ```
 
 ## 3.3 Worker State Machine

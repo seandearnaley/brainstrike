@@ -6,15 +6,15 @@ This pack contains a concise set of C4-style views, sequence diagrams, and state
 
 **Contents**
 
-1. [System Context](./10-system-context.md)
-2. [Container / Module View](./20-container-view.md)
-3. [Embedding Pipeline](./30-embedding-pipeline.md)
-4. [Agent Runtime & MCP](./40-agent-runtime.md)
-5. [Web App (Vite/React) Overview](./50-web-app.md)
-6. [Desktop App (Electron) Overview](./60-desktop-app.md)
-7. [Data Model (High-Level)](./70-data-model.md)
-8. [Deployment & Environments](./80-deployment.md)
-9. [Chat & RAG Flow](./35-chat-rag.md)
+1. [System Context](./01-system-context.md)
+2. [Container / Module View](./02-container-view.md)
+3. [Embedding Pipeline](./03-embedding-pipeline.md)
+4. [Chat & RAG Flow](./04-chat-rag.md)
+5. [Agent Runtime & MCP](./05-agent-runtime.md)
+6. [Web App (Vite/React) Overview](./06-web-app.md)
+7. [Desktop App (Electron) Overview](./07-desktop-app.md)
+8. [Data Model (High-Level)](./08-data-model.md)
+9. [Deployment & Environments](./09-deployment.md)
 
 **Grounding (discovered paths & clues)**
 

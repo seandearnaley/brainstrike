@@ -20,7 +20,34 @@ Workflow:
 Start with semantic search, then narrow with specific queries.
 
 
+### Mermaid Diagrams
+When creating or editing Mermaid diagrams in markdown files:
 
+**CRITICAL**: Manual edits to Mermaid diagrams are highly error-prone. ALWAYS validate after making changes.
+
+1. **After ANY edit to a Mermaid diagram, run the validation script**:
+   ```bash
+   node scripts/validate-mermaid.mjs
+   ```
+
+2. **Common Mermaid syntax errors to avoid**:
+   - **Parentheses in unquoted labels**: Use `["Label (with parens)"]` NOT `[Label (with parens)]`
+   - **Comments in ER diagrams**: Do NOT use `//` comments in `erDiagram` blocks
+   - **Line breaks**: Use `<br/>` for line breaks in labels, NOT `\\n` (unless quoted)
+   - **Special characters**: Quote labels that contain: `()`, `:`, `,`, `/`, etc.
+
+3. **Node shape syntax**:
+   - Rectangle: `[Label]`
+   - Rounded: `(Label)`
+   - Stadium: `([Label])`
+   - Cylinder/Database: `[(Label)]` - Note: this is valid use of parentheses
+   - Diamond: `{Label}`
+
+4. **Always test diagrams before committing**. The validation script catches syntax errors that may not be obvious.
+
+See `docs/mermaid-guide.md` for comprehensive Mermaid documentation and best practices.
+
+# desktop e2e
 
 Note electron desktop e2e tests have trouble running in agent environments complaining of remote port issues, avoid running them in tests, instead ask the user to run them in their environment and report back.
 

@@ -13,11 +13,11 @@ flowchart LR
 
   subgraph Client
     WAPI[Web Assistant API routes]
-    DIPC[Desktop IPC: ipc-agent.ts, assistant-server.ts]
+    DIPC["Desktop IPC: ipc-agent.ts, assistant-server.ts"]
   end
 
   subgraph Tools[External Tools via MCP]
-    T1[Filesystem, Web, etc.]
+    T1["Filesystem, Web, etc."]
   end
 
   Client --> AR

@@ -3,16 +3,16 @@
 ```mermaid
 flowchart TB
   subgraph Local
-    W[Web (Vite dev)]
+    W["Web - Vite dev"]
     E[Electron App]
-    PGL[PGlite (WASM) (verify)]
+    PGL["PGlite WASM - verify"]
   end
 
   subgraph Cloud[AWS via brainstrike-api]
     AGW[API Gateway]
-    L1[Lambda: Assistant/Embedding Proxy (verify)]
-    L2[Lambda: Auth/Webhooks (verify)]
-    VStore[(Managed DB / Vector Store) (verify)]
+    L1["Lambda: Assistant/Embedding Proxy - verify"]
+    L2["Lambda: Auth/Webhooks - verify"]
+    VStore[("Managed DB / Vector Store - verify")]
     CI[CI/CD via CDK Pipelines]
   end
 

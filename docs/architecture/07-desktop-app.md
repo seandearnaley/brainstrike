@@ -3,8 +3,8 @@
 ```mermaid
 flowchart LR
   subgraph Electron
-    Main[Main Process]\\n(ipc-mcp.ts, assistant-server.ts, db-main.ts)
-    Renderer[Renderer]\\n(embedding-worker-provider.tsx)
+    Main["Main Process\\n(ipc-mcp.ts, assistant-server.ts, db-main.ts)"]
+    Renderer["Renderer\\n(embedding-worker-provider.tsx)"]
   end
 
   subgraph Adapters
