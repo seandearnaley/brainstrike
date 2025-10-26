@@ -5,7 +5,8 @@
       "Bash(npx puppeteer browsers install chrome-headless-shell)",
       "Bash(node scripts/validate-mermaid.mjs:*)",
       "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/scripts/validate-mermaid.mjs:*)",
-      "Bash(git mv:*)"
+      "Bash(git mv:*)",
+      "Bash(git merge:*)"
     ],
     "deny": [],
     "ask": []
