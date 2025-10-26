@@ -12,6 +12,23 @@ Do not attempt to run dev unless instructed to do so.  The user usually runs thi
 We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
 
 
+
+
+## Codanna MCP Tools
+
+Tool priority:
+- **Tier 1**: semantic_search_with_context, analyze_impact
+- **Tier 2**: find_symbol, get_calls, find_callers
+- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
+
+Workflow:
+1. semantic_search_with_context - Find relevant code with context
+2. analyze_impact - Map dependencies and change radius
+3. find_symbol, get_calls, find_callers - Get specific details
+
+Start with semantic search, then narrow with specific queries.
+
+
 ## Development Commands
 
 ### Core Development
@@ -167,18 +184,3 @@ SEARCH FOR THIS YEARS BEST PRACTICES eg 2025 NOT 2024.
 Never downgrade to get something working.
 
 Don't use defensive fallbacks, if something is not working, we need to fail fast and fix it- Do not disable, reward hack or any false workaround, turning something off is not a solution- always do your solutions PROPERLY.
-
-
-## Codanna MCP Tools
-
-Tool priority:
-- **Tier 1**: semantic_search_with_context, analyze_impact
-- **Tier 2**: find_symbol, get_calls, find_callers
-- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
-
-Workflow:
-1. semantic_search_with_context - Find relevant code with context
-2. analyze_impact - Map dependencies and change radius
-3. find_symbol, get_calls, find_callers - Get specific details
-
-Start with semantic search, then narrow with specific queries.
