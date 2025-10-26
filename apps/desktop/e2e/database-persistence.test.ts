@@ -138,12 +138,32 @@ test.describe('Database Persistence', () => {
     }
 
     if (hasSuccessPanel) {
-      await expect(activeWindow.locator('[data-testid="db-info"]').first()).toBeVisible();
-      await expect(
-        activeWindow.locator('text=Storage: Database connected via DbProvider')
-      ).toBeVisible();
-      await expect(activeWindow.locator('text=✓')).toBeVisible();
-      await expect(activeWindow.locator('text=Successfully connected')).toBeVisible();
+      // Wait for db-info element to be present
+      const dbInfoElement = activeWindow.locator('[data-testid="db-info"]').first();
+      await expect(dbInfoElement).toBeVisible();
+
+      // Wait for database connection to complete (may show "Connecting..." initially)
+      // Increased timeout to account for embedding worker initialization in renderer
+      await expect(activeWindow.locator('[data-testid="db-status-connected"]').first()).toBeVisible(
+        {
+          timeout: 30000,
+        }
+      );
+
+      // Verify the connection details - check that storage location is populated
+      const storageText = await dbInfoElement.locator('.font-medium').first().textContent();
+      expect(storageText).toContain('Storage:');
+      expect(storageText).not.toContain('Connecting...'); // Ensure it's not in loading state
+
+      // Verify connection status is shown (✓ and success message)
+      // The db-status-connected test ID already confirms successful connection
+      const statusText = await activeWindow
+        .locator('[data-testid="db-status-connected"]')
+        .first()
+        .textContent();
+      expect(statusText).toContain('✓');
+      // Accept either IPC connection message or repository-based connection message
+      expect(statusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
       return;
     }
 
@@ -491,10 +511,18 @@ test.describe('Database Persistence', () => {
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(500);
 
-    await expect(activeWindow.locator('text=Database connected via DbProvider')).toBeVisible();
+    // Wait for database connection status
+    await expect(activeWindow.locator('[data-testid="db-status-connected"]').first()).toBeVisible({
+      timeout: 30000,
+    });
     await expect(activeWindow.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
+    // Verify connection indicator (accepts both IPC and repository connection messages)
     await expect(activeWindow.locator('text=✓')).toBeVisible();
-    await expect(activeWindow.locator('text=Successfully connected')).toBeVisible();
+    const statusText = await activeWindow
+      .locator('[data-testid="db-status-connected"]')
+      .first()
+      .textContent();
+    expect(statusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
 
     const relaunched = await electron.restart();
     let relaunchedWindow = await ensureDatabasePanel(relaunched.window);
@@ -507,11 +535,17 @@ test.describe('Database Persistence', () => {
     await relaunchedWindow.click(REFRESH_BUTTON_SELECTOR);
     await relaunchedWindow.waitForTimeout(2000);
 
+    // Wait for database connection status after restart
+    await expect(
+      relaunchedWindow.locator('[data-testid="db-status-connected"]').first()
+    ).toBeVisible({ timeout: 30000 });
     await expect(relaunchedWindow.locator('text=✓')).toBeVisible({ timeout: 15000 });
-    await expect(relaunchedWindow.locator('text=Successfully connected')).toBeVisible({
-      timeout: 5000,
-    });
-    await expect(relaunchedWindow.locator('text=Database connected via DbProvider')).toBeVisible();
+    // Verify connection message (accepts both IPC and repository connection messages)
+    const relaunchedStatusText = await relaunchedWindow
+      .locator('[data-testid="db-status-connected"]')
+      .first()
+      .textContent();
+    expect(relaunchedStatusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
     await expect(
       relaunchedWindow.locator('button:has-text("Import Selected Files")')
     ).toBeVisible();

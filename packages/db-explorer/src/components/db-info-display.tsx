@@ -1,7 +1,15 @@
 import type { DbInfoDisplayProps } from '../types';
 
 export function DbInfoDisplay({ dbInfo }: DbInfoDisplayProps) {
-  if (!dbInfo) return null;
+  // Show loading state while database info is being fetched
+  if (!dbInfo) {
+    return (
+      <div className="mt-2 p-2 bg-muted rounded text-xs" data-testid="db-info">
+        <div className="font-medium">Storage: Connecting...</div>
+        <div className="mt-1 text-muted-foreground">Testing database connection...</div>
+      </div>
+    );
+  }
 
   const statusTestId = dbInfo.connected ? 'db-status-connected' : 'db-status-disconnected';
   return (

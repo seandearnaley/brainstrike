@@ -20,7 +20,12 @@
       "Bash(pnpm --filter @brainstrike/web build:*)",
       "Bash(pnpm --filter @brainstrike/embeddings test:*)",
       "Bash(pnpm:*)",
-      "Bash(git grep:*)"
+      "Bash(git grep:*)",
+      "mcp__plugin_beads_beads__stats",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr reviews:*)",
+      "Bash(gh api:*)"
     ],
     "deny": [],
     "ask": []
