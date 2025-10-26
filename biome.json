@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.2.5/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.3.0/schema.json",
   "files": {
     "includes": [
       "apps/**/src/**/*",
@@ -120,6 +120,12 @@
       "Electron"
     ]
   },
+  "css": {
+    "parser": {
+      "cssModules": false,
+      "tailwindDirectives": true
+    }
+  },
   "overrides": [
     {
       "includes": ["**/__tests__/**", "**/*.test.*", "**/*.stories.*"],
@@ -135,6 +141,9 @@
             },
             "useNamingConvention": "off",
             "noNonNullAssertion": "off"
+          },
+          "suspicious": {
+            "noNonNullAssertedOptionalChain": "off"
           },
           "correctness": {
             "noUnusedVariables": "error",
