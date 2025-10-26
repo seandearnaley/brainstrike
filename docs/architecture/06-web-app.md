@@ -7,9 +7,9 @@ flowchart TB
   subgraph App
     R[React Router] --> Layout[AppShell]
     Layout --> Home[Home Page]
-    Layout --> Explore[DB Explorer]\\n(packages/db-explorer)
-    Layout --> Vectors[Vector Mgmt]\\n(packages/vector-management)
-    Layout --> Settings[Preferences]\\n(embedding, import, providers)
+    Layout --> Explore["DB Explorer\\n(packages/db-explorer)"]
+    Layout --> Vectors["Vector Mgmt\\n(packages/vector-management)"]
+    Layout --> Settings["Preferences\\n(embedding, import, providers)"]
   end
 
   Home --> ImportFlow[Import Flow]
