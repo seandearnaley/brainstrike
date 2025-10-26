@@ -1,10 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/client.ts'],
+  entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
   format: ['esm', 'cjs'],
   dts: {
-    entry: ['src/index.ts', 'src/client.ts'],
+    entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
     compilerOptions: {
       composite: false,
     },
