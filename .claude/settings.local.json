@@ -25,10 +25,28 @@
       "Bash(gh pr list:*)",
       "Bash(gh pr checks:*)",
       "Bash(gh pr reviews:*)",
-      "Bash(gh api:*)"
+      "Bash(gh api:*)",
+      "mcp__plugin_beads_beads__close",
+      "mcp__plugin_beads_beads__show",
+      "mcp__plugin_beads_beads__create",
+      "WebFetch(domain:biomejs.dev)"
     ],
     "deny": [],
     "ask": []
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/biome-check.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   },
   "enableAllProjectMcpServers": false
 }
