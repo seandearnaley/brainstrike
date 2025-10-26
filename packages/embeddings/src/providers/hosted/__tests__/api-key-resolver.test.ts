@@ -4,7 +4,6 @@ import { clearHostedProviderApiKeyCache, resolveHostedProviderApiKey } from '../
 // Store original values to restore after tests
 const originalProcess = globalThis.process;
 const originalWindow = globalThis.window;
-const _originalImportMeta = import.meta;
 
 describe('api-key-resolver', () => {
   beforeEach(() => {
@@ -36,7 +35,7 @@ describe('api-key-resolver', () => {
       // Setup process.env with a key
       globalThis.process = {
         env: { OPENAI_API_KEY: 'test-key-123' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const firstResult = await resolveHostedProviderApiKey('openai');
       expect(firstResult).toBe('test-key-123');
@@ -55,7 +54,7 @@ describe('api-key-resolver', () => {
           OPENAI_API_KEY: 'openai-key',
           GOOGLE_API_KEY: 'google-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const openaiKey1 = await resolveHostedProviderApiKey('openai');
       const googleKey1 = await resolveHostedProviderApiKey('google');
@@ -79,7 +78,7 @@ describe('api-key-resolver', () => {
           OPENAI_API_KEY: 'openai-key',
           GOOGLE_API_KEY: 'google-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       await resolveHostedProviderApiKey('openai');
       await resolveHostedProviderApiKey('google');
@@ -120,7 +119,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'process-env-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -137,7 +136,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'process-env-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -147,7 +146,7 @@ describe('api-key-resolver', () => {
 
     it('returns undefined when both secrets and process.env are unavailable', async () => {
       (globalThis as { window?: unknown }).window = undefined;
-      globalThis.process = { env: {} } as NodeJS.Process;
+      globalThis.process = { env: {} } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -166,7 +165,7 @@ describe('api-key-resolver', () => {
           OPENAI_API_KEY: 'standard-key',
           BRAINSTRIKE_OPENAI_API_KEY: 'brainstrike-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -181,7 +180,7 @@ describe('api-key-resolver', () => {
         env: {
           VITE_OPENAI_API_KEY: 'vite-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -195,7 +194,7 @@ describe('api-key-resolver', () => {
         env: {
           GOOGLE_GENERATIVE_AI_API_KEY: 'google-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('google');
 
@@ -209,7 +208,7 @@ describe('api-key-resolver', () => {
         env: {
           COHERE_API_KEY: 'cohere-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('cohere');
 
@@ -223,7 +222,7 @@ describe('api-key-resolver', () => {
         env: {
           VOYAGE_API_KEY: 'voyage-key',
         },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('voyage');
 
@@ -235,7 +234,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: {},
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -260,7 +259,7 @@ describe('api-key-resolver', () => {
 
     it('handles missing import.meta.env gracefully', async () => {
       (globalThis as { window?: unknown }).window = undefined;
-      globalThis.process = { env: {} } as NodeJS.Process;
+      globalThis.process = { env: {} } as unknown as NodeJS.Process;
 
       // The function should not throw even if import.meta.env is unavailable
       const result = await resolveHostedProviderApiKey('openai');
@@ -284,7 +283,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: '  key-with-spaces  ' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -296,7 +295,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: '' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -308,7 +307,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: '   ' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -320,7 +319,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 123 as unknown as string },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -332,7 +331,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: null as unknown as string },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -344,7 +343,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: undefined },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -362,7 +361,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'process-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -374,7 +373,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'process-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -384,7 +383,7 @@ describe('api-key-resolver', () => {
 
     it('returns undefined when all sources fail', async () => {
       (globalThis as { window?: unknown }).window = undefined;
-      globalThis.process = { env: {} } as NodeJS.Process;
+      globalThis.process = { env: {} } as unknown as NodeJS.Process;
       (import.meta as { env?: unknown }).env = undefined;
 
       const result = await resolveHostedProviderApiKey('openai');
@@ -401,7 +400,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'fallback-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -413,7 +412,7 @@ describe('api-key-resolver', () => {
 
       globalThis.process = {
         env: { OPENAI_API_KEY: 'fallback-key' },
-      } as NodeJS.Process;
+      } as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
@@ -422,7 +421,7 @@ describe('api-key-resolver', () => {
 
     it('handles process object without env property', async () => {
       (globalThis as { window?: unknown }).window = undefined;
-      globalThis.process = {} as NodeJS.Process;
+      globalThis.process = {} as unknown as NodeJS.Process;
 
       const result = await resolveHostedProviderApiKey('openai');
 
