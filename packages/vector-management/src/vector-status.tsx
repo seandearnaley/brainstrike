@@ -7,7 +7,7 @@ import {
   useVectorEnabled,
 } from '@brainstrike/db';
 import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
-import { TransformersBackend } from '@brainstrike/embeddings';
+import { parseProviderModelKey, TransformersBackend } from '@brainstrike/embeddings';
 import { useVectorPreferencesStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
@@ -33,6 +33,22 @@ import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
 
+type EmbeddingSetWithStats = EmbeddingSet & {
+  chunkCount: number;
+  lastEmbeddedAt: string | null;
+};
+
+type EmbeddingSetRow = {
+  id: string;
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: string;
+  createdAt: string;
+  chunkCount: string | number;
+  lastEmbeddedAt: string | null;
+};
+
 type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
 type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
 
@@ -50,6 +66,29 @@ const DISABLED_QUEUE_RESULT = {
     dimensions: 0,
   },
 } as QueueAddReturn;
+
+function formatProviderLabel(modelKey: string): string {
+  const parsed = parseProviderModelKey(modelKey);
+  if (!parsed) {
+    return 'Local';
+  }
+  const provider = parsed.provider;
+  if (provider === 'local') {
+    return 'Local';
+  }
+  return provider.charAt(0).toUpperCase() + provider.slice(1);
+}
+
+function formatEmbeddingSetName(modelKey: string): string {
+  const parsed = parseProviderModelKey(modelKey);
+  if (!parsed) {
+    return modelKey;
+  }
+  if (parsed.provider === 'local') {
+    return parsed.modelId;
+  }
+  return `${formatProviderLabel(modelKey)} · ${parsed.modelId}`;
+}
 
 function createDisabledQueueAdapter(): QueueAdapter {
   return {
@@ -327,9 +366,138 @@ function isElectronRenderer(): boolean {
   return !!w.electronAPI;
 }
 
+function normalizeTimestamp(input: string | number | null | undefined): string | null {
+  if (!input) {
+    return null;
+  }
+  const parsed = Date.parse(String(input));
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return new Date(parsed).toISOString();
+}
+
+export function mapEmbeddingSetRows(
+  rows: EmbeddingSetRow[],
+  hasAnyChunks: boolean
+): EmbeddingSetWithStats[] {
+  return rows
+    .map((row) => {
+      const chunkCount = Number(row.chunkCount ?? 0);
+      const normalizedCount = Number.isFinite(chunkCount) && chunkCount >= 0 ? chunkCount : 0;
+
+      if (!hasAnyChunks && normalizedCount === 0) {
+        return null;
+      }
+
+      return {
+        id: String(row.id),
+        modelKey: String(row.modelKey),
+        modelId: String(row.modelId),
+        dimensions: Number(row.dimensions),
+        distance: String(row.distance) as EmbeddingSet['distance'],
+        createdAt: normalizeTimestamp(row.createdAt) ?? String(row.createdAt ?? ''),
+        chunkCount: normalizedCount,
+        lastEmbeddedAt:
+          normalizeTimestamp(row.lastEmbeddedAt) ?? normalizeTimestamp(row.createdAt) ?? null,
+      };
+    })
+    .filter((entry): entry is EmbeddingSetWithStats => entry !== null);
+}
+
+function getPersistedEmbeddingSetId(): string | null {
+  try {
+    const stored = useVectorStatusUIStore.getState().activeEmbeddingSetId;
+    return stored?.trim() ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
+function pickActiveEmbeddingSetId(
+  sets: EmbeddingSetWithStats[],
+  previousId: string | null
+): string | null {
+  if (!sets.length) {
+    return null;
+  }
+  if (previousId && sets.some((set) => set.id === previousId)) {
+    return previousId;
+  }
+  const persisted = getPersistedEmbeddingSetId();
+  if (persisted && sets.some((set) => set.id === persisted)) {
+    return persisted;
+  }
+  return sets[0]?.id ?? null;
+}
+
+export function formatRelativeTimeFromNow(input: string | null): string {
+  if (!input) {
+    return 'never';
+  }
+  const parsed = Date.parse(input);
+  if (!Number.isFinite(parsed)) {
+    return 'unknown';
+  }
+
+  const diffMs = Date.now() - parsed;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const week = 7 * day;
+
+  if (diffMs < 0) {
+    return 'just now';
+  }
+  if (diffMs < minute) {
+    return 'just now';
+  }
+  if (diffMs < hour) {
+    const minutes = Math.floor(diffMs / minute);
+    return `${minutes}m ago`;
+  }
+  if (diffMs < day) {
+    const hours = Math.floor(diffMs / hour);
+    return `${hours}h ago`;
+  }
+  if (diffMs < week) {
+    const days = Math.floor(diffMs / day);
+    return `${days}d ago`;
+  }
+
+  try {
+    return new Date(parsed).toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return new Date(parsed).toISOString().split('T')[0] ?? 'unknown';
+  }
+}
+
+function formatExactTimestamp(input: string | null): string | null {
+  if (!input) {
+    return null;
+  }
+  const parsed = Date.parse(input);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  try {
+    return new Date(parsed).toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return new Date(parsed).toISOString();
+  }
+}
+
 function useActiveEmbeddingSet() {
   const db = usePGliteDatabase();
-  const [sets, setSets] = useState<EmbeddingSet[]>([]);
+  const [sets, setSets] = useState<EmbeddingSetWithStats[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const fetchSetsRef = useRef<() => Promise<number>>(async () => 0);
 
@@ -342,31 +510,31 @@ function useActiveEmbeddingSet() {
       dimensions: number;
       distance: string;
       createdAt: string;
+      chunkCount: string | number;
+      lastEmbeddedAt: string | null;
     }>(
-      'SELECT id, model_key AS "modelKey", model_id AS "modelId", dimensions, distance, created_at AS "createdAt" FROM embedding_sets ORDER BY created_at DESC'
+      `SELECT s.id,
+              s.model_key AS "modelKey",
+              s.model_id AS "modelId",
+              s.dimensions,
+              s.distance,
+              s.created_at AS "createdAt",
+              COUNT(c.id) AS "chunkCount",
+              MAX(c.updated_at) AS "lastEmbeddedAt"
+         FROM embedding_sets s
+         LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+     GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at
+     ORDER BY MAX(c.updated_at) DESC,
+              s.created_at DESC`
     );
-    const mapped: EmbeddingSet[] = res.rows.map((r) => ({
-      id: String(r.id),
-      modelKey: String(r.modelKey),
-      modelId: String(r.modelId),
-      dimensions: Number(r.dimensions),
-      distance: String(r.distance) as EmbeddingSet['distance'],
-      createdAt: String(r.createdAt),
-    }));
+    const totalChunksResult = await db.query<{ total: string | number }>(
+      'SELECT COUNT(*) AS total FROM file_chunks'
+    );
+    const totalChunksValue = Number(totalChunksResult.rows[0]?.total ?? 0);
+    const hasAnyChunks = Number.isFinite(totalChunksValue) && totalChunksValue > 0;
+    const mapped = mapEmbeddingSetRows(res.rows, hasAnyChunks);
     setSets(mapped);
-    setActiveId((prev) => {
-      if (prev && mapped.some((s) => s.id === prev)) {
-        return prev;
-      }
-      let saved: string | null = null;
-      try {
-        saved = useVectorStatusUIStore.getState().activeEmbeddingSetId;
-      } catch {}
-      if (saved && mapped.some((s) => s.id === saved)) {
-        return saved;
-      }
-      return mapped[0]?.id ?? null;
-    });
+    setActiveId((prev) => pickActiveEmbeddingSetId(mapped, prev ?? null));
     return mapped.length;
   }, [db]);
 
@@ -374,61 +542,55 @@ function useActiveEmbeddingSet() {
     fetchSetsRef.current = fetchSets;
   }, [fetchSets]);
 
-  // Load sets and poll briefly if none exist yet
   useEffect(() => {
     let canceled = false;
-    if (!db) return;
+    if (!db) {
+      setSets([]);
+      setActiveId(null);
+      return;
+    }
 
-    const runFetch = async () => {
-      if (canceled) return 0;
-      const count = await fetchSets();
-      return count;
-    };
-
-    void runFetch().catch(() => {});
-
-    let pollId: ReturnType<typeof setInterval> | null = null;
-
-    const pollForSets = () => {
-      let attempts = 0;
-      pollId = setInterval(async () => {
-        attempts += 1;
-        if (attempts > 10) {
-          if (pollId) {
-            clearInterval(pollId);
-          }
-          return;
-        }
-        const count = await runFetch();
-        if (count && count > 0 && pollId) {
-          clearInterval(pollId);
-        }
-      }, 2000);
-    };
-
-    void (async () => {
+    const load = async () => {
       try {
-        const count = await runFetch();
-        if (!canceled && count === 0) {
-          pollForSets();
+        await fetchSets();
+      } catch (error) {
+        if (!canceled) {
+          console.warn('[VectorStatus] Failed to load embedding sets', error);
         }
-      } catch {}
-    })();
+      }
+    };
+
+    void load();
 
     return () => {
       canceled = true;
-      if (pollId) clearInterval(pollId);
     };
   }, [db, fetchSets]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const handler = () => {
-      void fetchSetsRef.current();
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ id?: string }>;
+      const nextId = custom.detail?.id;
+      void fetchSetsRef.current().then(() => {
+        if (nextId) {
+          setActiveId(nextId);
+        }
+      });
     };
-    window.addEventListener('brainstrike:embedding-set-updated', handler);
+    const handleQueueDrained = (event: Event) => {
+      const custom = event as CustomEvent<{ embeddingSetId?: string }>; // detail optional for browsers
+      void fetchSetsRef.current().then(() => {
+        if (custom.detail?.embeddingSetId) {
+          setActiveId((prev) => prev ?? custom.detail?.embeddingSetId ?? prev);
+        }
+      });
+    };
+    window.addEventListener('brainstrike:embedding-set-updated', handler as EventListener);
+    window.addEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
     return () => {
-      window.removeEventListener('brainstrike:embedding-set-updated', handler);
+      window.removeEventListener('brainstrike:embedding-set-updated', handler as EventListener);
+      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
     };
   }, []);
 
@@ -439,6 +601,106 @@ function useActiveEmbeddingSet() {
 
   const active = useMemo(() => sets.find((s) => s.id === activeId) ?? null, [sets, activeId]);
   return { sets, active, activeId, setActiveId } as const;
+}
+
+function EmbeddingSetSection({
+  sets,
+  activeId,
+  onSelect,
+  device,
+}: {
+  sets: EmbeddingSetWithStats[];
+  activeId: string | null;
+  onSelect: (id: string) => void;
+  device: string;
+}) {
+  const hasSets = sets.length > 0;
+  const selectedSet =
+    sets.find((set) => set.id === activeId) ?? (hasSets ? (sets[0] ?? null) : null);
+
+  return (
+    <div className="flex gap-2 items-start">
+      <div className="flex-1 min-w-0 space-y-2">
+        <div>
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
+            Active Embedding Set
+          </Label>
+          <Select value={activeId ?? ''} onValueChange={onSelect} disabled={!hasSets}>
+            <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select embedding set">
+              <SelectValue placeholder="No embedding sets yet" />
+            </SelectTrigger>
+            {hasSets ? (
+              <SelectContent className="max-w-[320px]">
+                {sets.map((s) => (
+                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-medium truncate">
+                        {formatEmbeddingSetName(s.modelKey)}
+                      </span>
+                      <span className="text-[9px] text-muted-foreground">
+                        {formatProviderLabel(s.modelKey)} · {s.dimensions}d · {s.distance} ·{' '}
+                        {s.chunkCount.toLocaleString()} chunks
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            ) : null}
+          </Select>
+        </div>
+        <div>
+          {selectedSet ? (
+            <div className="grid grid-cols-3 gap-2 border rounded-md p-2 bg-muted/30">
+              <div>
+                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                  Model
+                </div>
+                <div className="text-[11px] font-medium truncate">
+                  {formatEmbeddingSetName(selectedSet.modelKey)}
+                </div>
+                <div className="text-[9px] text-muted-foreground">
+                  {formatProviderLabel(selectedSet.modelKey)} · {selectedSet.dimensions}d ·{' '}
+                  {selectedSet.distance}
+                </div>
+              </div>
+              <div>
+                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                  Embedded Chunks
+                </div>
+                <div className="text-[11px] font-medium">
+                  {selectedSet.chunkCount.toLocaleString()}
+                </div>
+                <div className="text-[9px] text-muted-foreground">Stored for this set</div>
+              </div>
+              <div>
+                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
+                  Last Update
+                </div>
+                <div className="text-[11px] font-medium">
+                  {formatRelativeTimeFromNow(selectedSet.lastEmbeddedAt)}
+                </div>
+                <div className="text-[9px] text-muted-foreground">
+                  {formatExactTimestamp(selectedSet.lastEmbeddedAt) ?? 'Awaiting first run'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/20 text-[11px] text-muted-foreground px-2 py-2">
+              No embedding sets yet – import files and run a backfill to generate embeddings.
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex-shrink-0 w-24">
+        <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
+          Device
+        </Label>
+        <Badge variant="outline" className="text-[10px] py-0.5 px-1.5 h-7 w-full justify-center">
+          {device}
+        </Badge>
+      </div>
+    </div>
+  );
 }
 
 interface VectorStatusWithDbProps {
@@ -615,43 +877,12 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
             })()}
           </span>
         </div>
-        <div className="flex gap-2 items-start">
-          <div className="flex-1 min-w-0">
-            <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
-              Embedding Set
-            </Label>
-            <Select
-              value={activeId ?? ''}
-              onValueChange={(v) => setActiveId(v)}
-              disabled={!sets.length}
-            >
-              <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select embedding set">
-                <SelectValue placeholder="No sets" />
-              </SelectTrigger>
-              <SelectContent className="max-w-[280px]">
-                {sets.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium">{s.modelKey}</span>
-                      <span className="text-[9px] text-muted-foreground">({s.dimensions}d)</span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex-shrink-0">
-            <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
-              Device
-            </Label>
-            <Badge
-              variant="outline"
-              className="text-[10px] py-0.5 px-1.5 h-7 w-full justify-center"
-            >
-              {device}
-            </Badge>
-          </div>
-        </div>
+        <EmbeddingSetSection
+          sets={sets}
+          activeId={activeId}
+          onSelect={(value) => setActiveId(value)}
+          device={device}
+        />
         <div className="flex items-center gap-2">
           <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
             Pref

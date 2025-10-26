@@ -60,7 +60,7 @@ export interface VectorQueueDatabase {
 
 export interface VectorQueueServiceDependencies {
   db: VectorQueueDatabase;
-  jobQueue: Pick<JobQueue, 'enqueue' | 'getQueueStats' | 'clear' | 'requeueFailed'>;
+  jobQueue: Pick<JobQueue, 'getQueueStats' | 'clear' | 'requeueFailed'>;
   chunkRepository: Pick<FileChunkRepository, 'getCoverageForSet'>;
 }
 
@@ -226,28 +226,14 @@ export function createVectorQueueService(
       onProgress(done, total);
 
       for (const batch of chunkArray(candidates.rows, 500)) {
-        await withTransaction(db, async () => {
-          for (const row of batch) {
-            const dedupeKey = `${row.id}:${activeSetId}:${row.contentHash}`;
-            await jobQueue.enqueue({
-              queue: EMBEDDINGS_QUEUE,
-              jobType: 'embed_chunk',
-              payload: {
-                chunkId: String(row.id),
-                fileRecordId: String(row.fileRecordId),
-                embeddingSetId: activeSetId,
-              },
-              dedupeKey,
-            });
-            done += 1;
-            if (done % 50 === 0) {
-              onProgress(done, total);
-            }
-          }
-        });
+        const inserted = await enqueueEmbeddingChunkJobsBatch(db, batch, activeSetId);
+        done = Math.min(total, done + inserted);
+        onProgress(done, total);
       }
 
-      onProgress(done, total);
+      if (done < total) {
+        onProgress(total, total);
+      }
 
       const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
       const s = stats[0];
@@ -273,6 +259,91 @@ export function createVectorQueueService(
       await jobQueue.clear(EMBEDDINGS_QUEUE);
     },
   };
+}
+
+type BackfillCandidate = {
+  id: string;
+  fileRecordId: string;
+  contentHash: string;
+};
+
+async function enqueueEmbeddingChunkJobsBatch(
+  db: VectorQueueDatabase,
+  batch: BackfillCandidate[],
+  embeddingSetId: string
+): Promise<number> {
+  if (!batch.length) {
+    return 0;
+  }
+
+  const tuples: string[] = [];
+  const params: unknown[] = [];
+  batch.forEach((row, index) => {
+    const jobId = createJobId();
+    const payload = JSON.stringify({
+      chunkId: String(row.id),
+      fileRecordId: String(row.fileRecordId),
+      embeddingSetId,
+    });
+    const dedupeKey = `${row.id}:${embeddingSetId}:${row.contentHash}`;
+    const base = index * 4;
+    tuples.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`);
+    params.push(String(row.id), jobId, payload, dedupeKey);
+  });
+
+  const timestampParam = params.length + 1;
+  params.push(new Date().toISOString());
+
+  const sql = `WITH pending (chunk_id, job_id, payload_json, dedupe_key) AS (
+      VALUES ${tuples.join(',')}
+    ),
+    inserted AS (
+      INSERT INTO job_queue (
+        id, queue, job_type, payload, state, run_at,
+        attempts, max_attempts, backoff_ms,
+        lease_token, leased_until, worker_id,
+        dedupe_key, error, created_at, updated_at
+      )
+      SELECT pending.job_id,
+             '${EMBEDDINGS_QUEUE}',
+             'embed_chunk',
+             pending.payload_json::jsonb,
+             'queued',
+             $${timestampParam},
+             0,
+             5,
+             0,
+             NULL,
+             NULL,
+             NULL,
+             pending.dedupe_key,
+             NULL,
+             $${timestampParam},
+             $${timestampParam}
+        FROM pending
+       WHERE NOT EXISTS (
+         SELECT 1
+           FROM job_queue j
+          WHERE j.dedupe_key = pending.dedupe_key
+            AND j.state IN ('queued','running')
+       )
+      RETURNING 1
+    )
+    SELECT COUNT(*)::int AS inserted FROM inserted`;
+
+  const result = await db.query<{ inserted: number }>(sql, params);
+  return Number(result.rows[0]?.inserted ?? 0);
+}
+
+function createJobId(): string {
+  try {
+    if (typeof globalThis.crypto?.randomUUID === 'function') {
+      return globalThis.crypto.randomUUID();
+    }
+  } catch {
+    // fall through to fallback
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
 function calculateLatency(rows: Array<{ runAt: string; updatedAt: string }>): LatencyStats | null {

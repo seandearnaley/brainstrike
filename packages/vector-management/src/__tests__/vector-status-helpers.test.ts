@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatRelativeTimeFromNow, mapEmbeddingSetRows } from '../vector-status';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
 import {
   handleQueueStateChange,
@@ -171,5 +172,80 @@ describe('getBackfillDisabledState', () => {
     });
     expect(result.disabled).toBe(true);
     expect(result.title).toBe('Jobs are queued or running – wait for completion');
+  });
+});
+
+describe('formatRelativeTimeFromNow', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2025-01-01T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('returns "never" when timestamp missing', () => {
+    expect(formatRelativeTimeFromNow(null)).toBe('never');
+  });
+
+  it('returns "unknown" for invalid timestamp', () => {
+    expect(formatRelativeTimeFromNow('not-a-date')).toBe('unknown');
+  });
+
+  it('describes minutes, hours, and days appropriately', () => {
+    expect(formatRelativeTimeFromNow('2025-01-01T11:45:00.000Z')).toBe('15m ago');
+    expect(formatRelativeTimeFromNow('2025-01-01T10:00:00.000Z')).toBe('2h ago');
+    expect(formatRelativeTimeFromNow('2024-12-28T12:00:00.000Z')).toBe('4d ago');
+  });
+});
+
+describe('mapEmbeddingSetRows', () => {
+  it('includes zero-count sets when chunks exist elsewhere', () => {
+    const rows = [
+      {
+        id: 'set-a',
+        modelKey: 'local::jina-code',
+        modelId: 'jina-code',
+        dimensions: 768,
+        distance: 'cosine',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        chunkCount: 42,
+        lastEmbeddedAt: '2025-01-01T01:00:00.000Z',
+      },
+      {
+        id: 'set-b',
+        modelKey: 'local::bge-m3',
+        modelId: 'bge-m3',
+        dimensions: 1024,
+        distance: 'cosine',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        chunkCount: 0,
+        lastEmbeddedAt: null,
+      },
+    ];
+    const mapped = mapEmbeddingSetRows(rows, true);
+    expect(mapped).toHaveLength(2);
+    expect(mapped[1]).toMatchObject({
+      id: 'set-b',
+      chunkCount: 0,
+    });
+  });
+
+  it('hides zero-count sets when database has zero chunks', () => {
+    const rows = [
+      {
+        id: 'seeded',
+        modelKey: 'local::jina-code',
+        modelId: 'jina-code',
+        dimensions: 768,
+        distance: 'cosine',
+        createdAt: '2025-01-01T00:00:00.000Z',
+        chunkCount: 0,
+        lastEmbeddedAt: null,
+      },
+    ];
+    const mapped = mapEmbeddingSetRows(rows, false);
+    expect(mapped).toHaveLength(0);
   });
 });
