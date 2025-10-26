@@ -29,7 +29,7 @@ erDiagram
   EMBEDDING {
     uuid id PK
     uuid chunk_id FK
-    vector vec  // pgvector (verify)
+    vector vec
     json meta
   }
 ```
