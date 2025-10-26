@@ -1,9 +1,15 @@
 /// <reference types="vitest" />
 /// <reference types="@testing-library/jest-dom" />
 
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

@@ -10,7 +10,17 @@
       "Bash(pnpm biome check:*)",
       "Bash(git push:*)",
       "Bash(gh pr create --title \"fix(vector-ui): re-disable backfill button during active jobs\" --body \"$(cat <<''EOF''\n## Summary\nFixes the Vector Status backfill button to correctly disable while jobs are running, preventing duplicate enqueues.\n\n## Changes\n- ✅ Added `queueCounts` parameter to `BackfillButton` component  \n- ✅ Implemented `queueCounts.running > 0` check in disabled state logic\n- ✅ Extracted `getBackfillDisabledState` to `backfill-utils.ts` for better testability\n- ✅ Added 13 comprehensive unit tests covering all disabled state scenarios\n- ✅ All existing tests pass (48 total in vector-management package)\n\n## Test Plan\n- [x] Unit tests: 13 new tests for `getBackfillDisabledState` covering:\n  - No active set selected\n  - Database not ready\n  - Backfilling in progress\n  - Jobs currently running (single and multiple)\n  - Web worker not running\n  - Valid enabled states\n  - Correct priority order of checks\n- [x] Integration tests: All 48 tests in @brainstrike/vector-management pass\n- [x] Full test suite: All monorepo tests pass\n- [x] Linting: Biome checks pass\n\n## Technical Details\nThe backfill button''s disabled state now correctly checks `queueCounts.running > 0` before allowing new backfill operations. This prevents race conditions and duplicate job enqueueing when the worker is actively processing embeddings.\n\nPriority order of disabled checks:\n1. No active embedding set → \"Select an active embedding set\"\n2. Database not ready → \"Database not ready yet\"\n3. Backfilling in progress → \"Backfilling in progress\"\n4. **Jobs running** → \"Jobs are currently running – wait for completion\" ⬅️ NEW\n5. Web + worker not running → \"Start worker to enable backfill on Web\"\n\nResolves brainstrike-34\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\nEOF\n)\")",
-      "Bash(gh pr view:*)"
+      "Bash(gh pr view:*)",
+      "mcp__plugin_beads_beads__list",
+      "Bash(git ls-tree:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(rm:*)",
+      "Bash(pnpm --filter @brainstrike/embeddings build:*)",
+      "Bash(pnpm --filter @brainstrike/web build:*)",
+      "Bash(pnpm --filter @brainstrike/embeddings test:*)",
+      "Bash(pnpm:*)",
+      "Bash(git grep:*)"
     ],
     "deny": [],
     "ask": []

@@ -160,7 +160,12 @@ expect(logs).toHaveLength(1);
 - If you need telemetry outside the renderers, call `initializeQueueTelemetrySink` directly with an endpoint derived from your runtime config.
 - Renderer layers dispatch `brainstrike:queue-progress` events containing `pending/processed/failed` counts so UI surfaces can react without polling. Subscribe via `window.addEventListener('brainstrike:queue-progress', handler)`.
 
-
+## Factory Reset Contract
+- Treat “Factory Reset Brainstrike” as a full device wipe. Wiping the SQLite/PGlite DB is not enough; the renderer must boot as if brand new.
+- When adding a new persisted UI store, update `packages/db-explorer/src/utils/factory-reset-helpers.ts` with the storage key so `clearPersistentUiState()` nukes it. That helper also clears the Electron renderer storage bridge, IndexedDB databases (enumerated or from the fallback list), and CacheStorage bundles.
+- If you introduce another persistence layer (Caches API, service worker store, filesystem handle, etc.), document it beside the helper and hook it into the reset pipeline or you’ll resurrect phantom embedding sets/providers after a wipe.
+- Desktop reset order matters: dispose embeddings, clear UI state, purge DB tables (`job_queue`, `embedding_sets`), then reload. Don’t short-circuit the reload or the renderer may hydrate against stale cache entries.
+- Add tests whenever you touch this flow (renderer unit tests can stub `window.electronAPI.storage.clear`, IndexedDB, and caches) so we know a regression won’t ship.
 
 
 ---------

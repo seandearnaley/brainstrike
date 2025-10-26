@@ -19,10 +19,15 @@ const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 /**
  * Register all IPC handlers used by the desktop application.
  */
+type RegisterIpcHandlerOptions = {
+  onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
+};
+
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
-  store: ElectronStore<DesktopSettingsStoreSchema>
+  store: ElectronStore<DesktopSettingsStoreSchema>,
+  options?: RegisterIpcHandlerOptions
 ) {
   ipcMain.handle('storage:getItem', async (_e: IpcMainInvokeEvent, key: string) =>
     storage.getItem(key)
@@ -297,6 +302,10 @@ export function registerIpcHandlers(
 
   // Hard reset database on disk (desktop only)
   ipcMain.handle('db:resetLocal', async () => {
+    if (options?.onResetLocal) {
+      return options.onResetLocal();
+    }
+
     const { resetLocalDatabase } = await import('./db-main');
     try {
       await resetLocalDatabase();

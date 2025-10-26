@@ -9,7 +9,7 @@ import type {
 import { MAX_EMBEDDING_DIMENSION } from '@brainstrike/db';
 import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import {
-  formatProviderModelKey,
+  canonicalizeProviderModelKey,
   parseProviderModelKey,
   resolveHostedProviderApiKey,
   SimpleEmbeddingService,
@@ -61,18 +61,27 @@ function getSupportedHostedProvider(
   return undefined;
 }
 
-function normalizeCompositeModelKey(
+function canonicalizeModelKey(
   modelKey: string,
   providerHint: EmbeddingProviderType | undefined
-): string {
-  const parsed = parseProviderModelKey(modelKey);
-  if (parsed) {
-    return modelKey;
+): { provider: EmbeddingProviderType; modelId: string; composite: string } {
+  const canonical = canonicalizeProviderModelKey(modelKey, providerHint);
+  if (!canonical) {
+    throw new Error(`Invalid model key "${modelKey}"`);
   }
-  if (providerHint && providerHint !== 'local') {
-    return formatProviderModelKey(providerHint, modelKey);
-  }
-  return modelKey;
+  return canonical;
+}
+
+function getModelKeyVariants(
+  canonical: string,
+  provider: EmbeddingProviderType,
+  modelId: string
+): string[] {
+  const variants = new Set<string>([canonical]);
+  variants.add(modelId);
+  variants.add(`${provider}:${modelId}`);
+  variants.add(`${provider}${canonical.includes('::') ? '' : '::'}${modelId}`);
+  return Array.from(variants).filter((value) => value.trim().length > 0);
 }
 
 function cacheEmbeddingSet(targetSetId: string, modelKey: string): void {
@@ -213,8 +222,13 @@ async function resolveModelKeyFromTargetSet(
       return undefined;
     }
 
-    cacheEmbeddingSet(targetSetId, fetchedModelKey);
-    return fetchedModelKey;
+    const canonical = canonicalizeProviderModelKey(fetchedModelKey) ?? {
+      provider: 'local' as EmbeddingProviderType,
+      modelId: fetchedModelKey,
+      composite: fetchedModelKey,
+    };
+    cacheEmbeddingSet(targetSetId, canonical.composite);
+    return canonical.composite;
   } catch {
     return undefined;
   }
@@ -226,6 +240,7 @@ interface EnsureEmbeddingSetParams {
   dimensions: number;
   distance: EmbeddingDistance;
   preferredId?: string | undefined;
+  provider: EmbeddingProviderType;
 }
 
 async function ensureEmbeddingSet(
@@ -236,20 +251,43 @@ async function ensureEmbeddingSet(
     return params.preferredId;
   }
 
-  const { modelKey, modelId, dimensions, distance, preferredId } = params;
+  const { modelKey, modelId, dimensions, distance, preferredId, provider } = params;
   assertValidDimensions(dimensions);
+  const canonical = canonicalizeModelKey(modelKey, provider);
+  const canonicalKey = canonical.composite;
+  const canonicalProvider = canonical.provider;
+  const canonicalModelId = canonical.modelId || modelId;
 
-  const preferred = await resolvePreferredSet(sql, preferredId, dimensions, distance, modelKey);
+  const preferred = await resolvePreferredSet(
+    sql,
+    preferredId,
+    dimensions,
+    distance,
+    canonicalKey,
+    canonicalProvider
+  );
   if (preferred) {
     return preferred;
   }
 
-  const existing = await findMatchingSet(sql, modelKey, dimensions, distance);
+  const existing = await findMatchingSet(
+    sql,
+    canonicalKey,
+    dimensions,
+    distance,
+    canonicalProvider,
+    canonicalModelId
+  );
   if (existing) {
     return existing;
   }
 
-  return insertEmbeddingSet(sql, { modelKey, modelId, dimensions, distance });
+  return insertEmbeddingSet(sql, {
+    modelKey: canonicalKey,
+    modelId: canonicalModelId,
+    dimensions,
+    distance,
+  });
 }
 
 function assertValidDimensions(dimensions: number): void {
@@ -268,7 +306,8 @@ async function resolvePreferredSet(
   preferredId: string | undefined,
   dimensions: number,
   distance: EmbeddingDistance,
-  modelKey: string
+  modelKey: string,
+  provider: EmbeddingProviderType
 ): Promise<string | undefined> {
   if (!preferredId) {
     return undefined;
@@ -279,7 +318,11 @@ async function resolvePreferredSet(
       id: string;
       dimensions?: number | string;
       distance?: string;
-    }>('SELECT id, dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1', [preferredId]);
+      modelKey?: string;
+    }>(
+      'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+      [preferredId]
+    );
     const row = result.rows[0];
     if (!row) {
       return undefined;
@@ -287,10 +330,13 @@ async function resolvePreferredSet(
 
     const rowDimensions = Number(row.dimensions ?? 0);
     const rowDistance = (row.distance ?? distance) as EmbeddingDistance;
+    const rowModelKey = String((row as { modelKey?: string }).modelKey ?? '');
+    const canonicalRow = canonicalizeModelKey(rowModelKey, provider);
     if (
       Number.isFinite(rowDimensions) &&
       rowDimensions === dimensions &&
-      rowDistance === distance
+      rowDistance === distance &&
+      canonicalRow?.composite === modelKey
     ) {
       return String(row.id);
     }
@@ -302,6 +348,7 @@ async function resolvePreferredSet(
       expectedDimensions: dimensions,
       rowDistance,
       expectedDistance: distance,
+      rowModelKey,
     });
   } catch (error) {
     logger.warn('Failed to look up preferred embedding set; creating new set', {
@@ -318,20 +365,46 @@ async function findMatchingSet(
   sql: SqlExecutorPort,
   modelKey: string,
   dimensions: number,
-  distance: EmbeddingDistance
+  distance: EmbeddingDistance,
+  provider: EmbeddingProviderType,
+  modelId: string
 ): Promise<string | undefined> {
+  const candidates = getModelKeyVariants(modelKey, provider, modelId);
+  const placeholders = candidates.map((_, idx) => `$${idx + 1}`).join(', ');
+  const dimensionParam = `$${candidates.length + 1}`;
+  const distanceParam = `$${candidates.length + 2}`;
+  const query = `
+    SELECT s.id,
+           s.model_key AS "modelKey",
+           s.created_at AS "createdAt",
+           COUNT(c.id) AS "chunkCount"
+      FROM embedding_sets s
+      LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+     WHERE s.model_key IN (${placeholders})
+       AND s.dimensions = ${dimensionParam}
+       AND s.distance = ${distanceParam}
+  GROUP BY s.id, s.model_key, s.created_at
+  ORDER BY COUNT(c.id) DESC, s.created_at ASC
+     LIMIT 1`;
   try {
-    const composite = await sql.query<{ id: string }>(
-      'SELECT id FROM embedding_sets WHERE model_key = $1 AND dimensions = $2 AND distance = $3 LIMIT 1',
-      [modelKey, dimensions, distance]
-    );
-    const existingId = composite.rows[0]?.id;
-    return existingId ? String(existingId) : undefined;
+    const result = await sql.query<{
+      id: string;
+      modelKey: string;
+    }>(query, [...candidates, dimensions, distance]);
+    const row = result.rows[0];
+    if (!row) {
+      return undefined;
+    }
+    if (row.modelKey !== modelKey) {
+      await sql.query('UPDATE embedding_sets SET model_key = $1 WHERE id = $2', [modelKey, row.id]);
+    }
+    return String(row.id);
   } catch (error) {
     logger.warn('Failed to query embedding_sets for existing entry', {
       modelKey,
       dimensions,
       distance,
+      provider,
       error: error instanceof Error ? error.message : String(error),
     });
     throw error instanceof Error ? error : new Error(String(error));
@@ -359,7 +432,7 @@ async function insertEmbeddingSet(
 type ResolvedEmbeddingModel = {
   modelId?: string;
   modelKey?: string;
-  targetSetId?: string;
+  targetSetId: string | null;
   provider?: EmbeddingProviderType;
   targetDimension?: number;
   dimensionParameter?: ProviderDimensionParameter;
@@ -368,12 +441,9 @@ type ResolvedEmbeddingModel = {
 function createResolvedEmbeddingModelState(
   config: EmbeddingConfiguration | undefined
 ): ResolvedEmbeddingModel {
-  const resolved: ResolvedEmbeddingModel = {};
-  const initialSetId = config?.resolveTargetEmbeddingSetId?.();
-  if (initialSetId) {
-    resolved.targetSetId = initialSetId;
-  }
-  return resolved;
+  return {
+    targetSetId: config?.resolveTargetEmbeddingSetId?.() ?? null,
+  };
 }
 
 function resolveDisabledEmbeddingModel(config: EmbeddingConfiguration): ResolvedEmbeddingModel {
@@ -383,18 +453,13 @@ function resolveDisabledEmbeddingModel(config: EmbeddingConfiguration): Resolved
     return resolved;
   }
 
-  const normalized = normalizeCompositeModelKey(model, config.provider);
-  const parsed = parseProviderModelKey(normalized);
-
-  const provider = parsed?.provider ?? config.provider ?? 'local';
-  const modelId = parsed?.modelId ?? normalized;
-
-  resolved.modelKey = normalized;
-  resolved.modelId = modelId;
-  resolved.provider = provider;
+  const canonical = canonicalizeModelKey(model, config.provider);
+  resolved.modelKey = canonical.composite;
+  resolved.modelId = canonical.modelId;
+  resolved.provider = canonical.provider;
   resolved.targetDimension =
-    provider === 'local'
-      ? determineTargetDimension(SimpleEmbeddingService.getModelConfig(modelId))
+    resolved.provider === 'local'
+      ? determineTargetDimension(SimpleEmbeddingService.getModelConfig(resolved.modelId))
       : DEFAULT_EMBEDDING_DIMENSION;
 
   return resolved;
@@ -408,7 +473,7 @@ async function resolveEnabledEmbeddingModel(
 
   const compositeKey = await determineCompositeModelKey(
     config.model,
-    resolved.targetSetId,
+    config.model ? undefined : (resolved.targetSetId ?? undefined),
     ports?.sql,
     config.provider
   );
@@ -423,6 +488,23 @@ async function resolveEnabledEmbeddingModel(
   resolved.modelKey = compositeKey;
   resolved.modelId = modelId;
   resolved.provider = provider;
+
+  if (config.model && resolved.targetSetId && ports?.sql) {
+    const preferredRow = await ports.sql.query<{ modelKey?: string }>(
+      'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+      [resolved.targetSetId]
+    );
+    const preferredKey = preferredRow.rows[0]?.modelKey;
+    if (!preferredKey) {
+      resolved.targetSetId = null;
+    } else {
+      const canonicalPreferred =
+        canonicalizeProviderModelKey(preferredKey, config.provider)?.composite ?? preferredKey;
+      if (canonicalPreferred !== compositeKey) {
+        resolved.targetSetId = null;
+      }
+    }
+  }
 
   if (provider === 'local') {
     await attachLocalModelMetadata(resolved, config, ports);
@@ -498,11 +580,23 @@ async function resolveEmbeddingModel(
   ports: RunEnhancedImportPorts | undefined
 ): Promise<ResolvedEmbeddingModel> {
   if (!config) {
-    return {};
+    return { targetSetId: null };
   }
 
   if (!config.enabled) {
-    return resolveDisabledEmbeddingModel(config);
+    const resolved = resolveDisabledEmbeddingModel(config);
+    if (ports?.sql) {
+      await ensureAndEmitEmbeddingSet({
+        sql: ports.sql,
+        resolved,
+        modelConfig:
+          resolved.provider === 'local' && resolved.modelId
+            ? SimpleEmbeddingService.getModelConfig(resolved.modelId)
+            : undefined,
+        config,
+      });
+    }
+    return resolved;
   }
 
   return resolveEnabledEmbeddingModel(config, ports);
@@ -515,11 +609,11 @@ async function determineCompositeModelKey(
   providerHint: EmbeddingProviderType | undefined
 ): Promise<string | undefined> {
   if (explicitModel) {
-    return normalizeCompositeModelKey(explicitModel, providerHint);
+    return canonicalizeProviderModelKey(explicitModel, providerHint)?.composite;
   }
   if (targetSetId) {
     const key = await resolveModelKeyFromTargetSet(targetSetId, sql ?? null);
-    return key ? normalizeCompositeModelKey(key, providerHint) : undefined;
+    return key ? canonicalizeProviderModelKey(key, providerHint)?.composite : undefined;
   }
   return undefined;
 }
@@ -533,12 +627,7 @@ function determineTargetDimension(
 
 async function ensureAndEmitEmbeddingSet(params: {
   sql: SqlExecutorPort | null | undefined;
-  resolved: {
-    modelId?: string;
-    modelKey?: string;
-    targetSetId?: string;
-    targetDimension?: number;
-  };
+  resolved: ResolvedEmbeddingModel;
   modelConfig: ReturnType<typeof SimpleEmbeddingService.getModelConfig> | undefined;
   config: EmbeddingConfiguration;
 }): Promise<void> {
@@ -552,10 +641,11 @@ async function ensureAndEmitEmbeddingSet(params: {
     modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
     dimensions: resolved.targetDimension,
     distance: 'cosine',
-    preferredId: resolved.targetSetId,
+    preferredId: resolved.targetSetId ?? undefined,
+    provider: resolved.provider ?? 'local',
   });
 
-  const finalSetId = ensuredSetId ?? resolved.targetSetId;
+  const finalSetId = ensuredSetId ?? resolved.targetSetId ?? null;
   if (!finalSetId) {
     return;
   }
@@ -847,7 +937,7 @@ export async function runEnhancedImport<TFileNode = unknown>({
       queuePort,
       runInTransaction,
       embedding,
-      targetSetId,
+      targetSetId: targetSetId ?? undefined,
       update,
       processEmbeddingsImpl,
       ...(modelId ? { embeddingModelId: modelId } : {}),

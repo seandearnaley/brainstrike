@@ -29,6 +29,7 @@ export type {
 } from './provider-types';
 export { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
 export {
+  canonicalizeProviderModelKey,
   formatProviderModelKey,
   isHostedProvider,
   parseProviderModelKey,

@@ -53,3 +53,11 @@ export const useVectorStatusUIStore = create<VectorStatusUIStore>()(
 export const vectorStatusUISelectors = {
   activeSet: (s: VectorStatusUIStore) => s.activeEmbeddingSetId,
 };
+
+export function __resetVectorStatusUIStoreForTests() {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
+  } catch {}
+  memory.clear();
+  useVectorStatusUIStore.setState({ activeEmbeddingSetId: null });
+}

@@ -202,18 +202,6 @@ function resolveWorkerModel(fromOptions?: string): {
   };
 }
 
-function resolveBooleanEnv(key: string, defaultValue = false): boolean {
-  try {
-    if (process?.env) {
-      const v = process.env[key];
-      return v ? String(v).toLowerCase() === 'true' : defaultValue;
-    }
-    return defaultValue;
-  } catch {
-    return defaultValue;
-  }
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
@@ -248,13 +236,9 @@ function shouldStartWorker(
   options: EmbeddingWorkerOptions,
   log: (msg: string, meta?: unknown) => void
 ): boolean {
-  const enabled =
-    typeof options.enable === 'boolean'
-      ? options.enable
-      : resolveBooleanEnv('EMBED_QUEUE_ENABLED', true);
-
-  if (!enabled) {
-    log('Embedding worker disabled via EMBED_QUEUE_ENABLED=false');
+  // Allow explicit disable via options (for tests)
+  if (options.enable === false) {
+    log('Embedding worker disabled via options.enable=false');
     return false;
   }
 

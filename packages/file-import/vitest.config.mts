@@ -1,6 +1,12 @@
+import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@brainstrike/agent/client': resolve(__dirname, '../agent/src/client.ts'),
+    },
+  },
   test: {
     environment: 'jsdom',
     globals: true,

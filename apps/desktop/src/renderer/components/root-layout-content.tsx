@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/app-shell';
 import type { ReactElement } from 'react';
 import { embeddingQueue } from '../create-embedding-queue';
+import { EmbeddingWorkerProvider } from './embedding-worker-provider';
 import HomePageContent from './home-page-content';
 import SettingsPageContent from './settings/page-content';
 
@@ -18,5 +19,9 @@ export default function RootLayoutContent() {
   };
   const RootLayout = SharedRootLayoutContent as (props: RootLayoutContentProps) => ReactElement;
 
-  return <RootLayout {...sharedProps} />;
+  return (
+    <EmbeddingWorkerProvider>
+      <RootLayout {...sharedProps} />
+    </EmbeddingWorkerProvider>
+  );
 }

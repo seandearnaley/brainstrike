@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import {
@@ -16,7 +15,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { closeDatabase, resetLocalDatabase } from './db-main';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
@@ -39,10 +38,8 @@ const settingsStore: ElectronStore<DesktopSettingsStoreSchema> =
     name: 'brainstrike-settings',
   });
 
-const queueEnabled = String(process.env['EMBED_QUEUE_ENABLED'] ?? 'true').toLowerCase() === 'true';
-const embeddingWorkerConcurrency = Number(process.env['EMBED_CONCURRENCY'] ?? 1) || 1;
-const embeddingWorkerLeaseMs = Number(process.env['EMBED_LEASE_MS'] ?? 60000) || 60000;
-const embeddingWorkerModelKey = process.env['EMBED_MODEL_KEY'] || undefined;
+// Note: Embedding worker configuration moved to renderer process (see renderer/components/embedding-worker-provider.tsx)
+// Main process cannot run Web Workers - WASM/WebGPU require browser context
 
 function createDesktopDefaultPreferences(): LoggingPreferences {
   return createDefaultLoggingPreferences({
@@ -271,71 +268,10 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 
 const logger = createLogger('DesktopMain');
 
-let stopEmbeddingWorker: null | (() => Promise<void>) = null;
 let stopAssistantServer: null | (() => Promise<void>) = null;
-let embeddingWorkerDisabledLogged = false;
-let embeddingWorkerStarting = false;
-
-async function stopEmbeddingWorkerIfRunning(reason = 'manual'): Promise<void> {
-  if (!stopEmbeddingWorker) return;
-  try {
-    await stopEmbeddingWorker();
-    logger.info(`Embedding worker stopped (${reason})`);
-  } catch (error) {
-    logger.warn(`Failed to stop embedding worker (${reason})`, error);
-  } finally {
-    stopEmbeddingWorker = null;
-  }
-}
-
-async function startEmbeddingWorkerIfEnabled(): Promise<void> {
-  if (!queueEnabled) {
-    if (!embeddingWorkerDisabledLogged) {
-      logger.info('Embedding queue disabled; skipping worker start.');
-      embeddingWorkerDisabledLogged = true;
-    }
-    return;
-  }
-
-  if (stopEmbeddingWorker) {
-    logger.debug('Embedding worker already running; start skipped.');
-    return;
-  }
-
-  if (embeddingWorkerStarting) {
-    logger.debug('Embedding worker start already in progress; start skipped.');
-    return;
-  }
-
-  embeddingWorkerStarting = true;
-  try {
-    const db = await getDatabase();
-    const controller = await startEmbeddingWorker({
-      db: db as import('@brainstrike/db').IDatabase,
-      concurrency: embeddingWorkerConcurrency,
-      leaseMs: embeddingWorkerLeaseMs,
-      modelKey: embeddingWorkerModelKey,
-      log: (msg: string) => logger.info(`[EmbeddingWorker] ${msg}`),
-    });
-    stopEmbeddingWorker = controller.stop;
-    logger.info('Embedding worker started');
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('Cannot use local embedding models in Node.js')) {
-      logger.info(
-        'Embedding worker not started: Local models require Web Workers (renderer process only). ' +
-          'Configure a hosted provider (openai, google) via EMBED_MODEL_KEY to enable main process embeddings.'
-      );
-    } else {
-      logger.error('Failed to start embedding worker:', error);
-    }
-  } finally {
-    embeddingWorkerStarting = false;
-  }
-}
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
-  await stopEmbeddingWorkerIfRunning('factory-reset');
+  // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
 
   try {
     await resetLocalDatabase();
@@ -344,10 +280,6 @@ async function handleResetLocal(): Promise<{ success: boolean; message?: string 
     logger.error('Failed to reset local database:', error);
     return { success: false, message };
   }
-
-  void startEmbeddingWorkerIfEnabled().catch((error) => {
-    logger.error('Failed to restart embedding worker after reset:', error);
-  });
 
   return { success: true };
 }
@@ -390,12 +322,9 @@ app.whenReady().then(async () => {
     setupSecurity();
     logger.info('Security setup complete');
 
-    // Optionally start local embedding worker if queue is enabled
-    try {
-      await startEmbeddingWorkerIfEnabled();
-    } catch (err) {
-      logger.error('Failed to start embedding worker:', err);
-    }
+    // NOTE: Embedding worker is started in renderer process, not here in main process.
+    // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
+    // See apps/desktop/src/renderer/main.tsx for renderer-side worker initialization.
 
     // Application menu with developer utilities
     const menuTemplate: Electron.MenuItemConstructorOptions[] = [
@@ -503,7 +432,6 @@ app.on('window-all-closed', () => {
 // Clean shutdown
 app.on('before-quit', async () => {
   try {
-    await stopEmbeddingWorkerIfRunning('app-before-quit');
     if (stopAssistantServer) {
       await stopAssistantServer();
       stopAssistantServer = null;

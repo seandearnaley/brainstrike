@@ -43,6 +43,7 @@ import { useEmbeddingService } from './use-embedding-service';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
+import { clearPersistentUiState } from './utils/factory-reset-helpers';
 import { getActiveEmbeddingSetId } from './vector-preferences';
 
 interface DatabaseDemoPanelProps {
@@ -233,14 +234,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     await disposeEmbeddingService();
   }, [disposeEmbeddingService]);
 
-  const clearActiveEmbeddingSetId = useCallback(() => {
-    try {
-      localStorage.removeItem('brainstrike.activeEmbeddingSetId');
-    } catch (err) {
-      console.warn('Failed to clear active embedding set id:', err);
-    }
-  }, []);
-
   const bestEffortPurgeDb = useCallback(async () => {
     if (!dbContext) return;
     try {
@@ -279,7 +272,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     if (!ok) return;
     try {
       await safeDisposeEmbeddingService();
-      clearActiveEmbeddingSetId();
+      await clearPersistentUiState();
       await bestEffortPurgeDb();
       await performFactoryResetOrReload();
     } catch (err) {
@@ -289,13 +282,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         variant: 'destructive',
       });
     }
-  }, [
-    safeDisposeEmbeddingService,
-    clearActiveEmbeddingSetId,
-    bestEffortPurgeDb,
-    performFactoryResetOrReload,
-    toast,
-  ]);
+  }, [safeDisposeEmbeddingService, bestEffortPurgeDb, performFactoryResetOrReload, toast]);
 
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
@@ -388,7 +375,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </Button>
 
           <div className={showSettings ? '' : 'hidden'}>
-            <SettingsPanel importSettings={importSettings} />
+            <SettingsPanel
+              importSettings={importSettings}
+              onFactoryReset={handleFactoryResetClick}
+            />
           </div>
         </div>
 
@@ -426,9 +416,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             setShowClearDialog={setShowClearDialog}
             onClear={handleClearDatabase}
           />
-          <Button size="sm" variant="destructive" onClick={handleFactoryResetClick}>
-            Factory Reset
-          </Button>
         </div>
 
         {importFlow.showImportProgress && importFlow.progress && (
