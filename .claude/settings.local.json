@@ -29,11 +29,21 @@
       "mcp__plugin_beads_beads__close",
       "mcp__plugin_beads_beads__show",
       "mcp__plugin_beads_beads__create",
-      "WebFetch(domain:biomejs.dev)"
+      "WebFetch(domain:biomejs.dev)",
+      "Bash(bd update:*)",
+      "Bash(bd close:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)",
+      "Bash(vitest run:*)",
+      "Bash(cat:*)",
+      "Bash(for i in {1..10})",
+      "Bash(do echo \"Check $i:\")",
+      "Bash(done)"
     ],
     "deny": [],
     "ask": []
   },
+  "enableAllProjectMcpServers": false,
   "hooks": {
     "PostToolUse": [
       {
@@ -47,6 +57,5 @@
         ]
       }
     ]
-  },
-  "enableAllProjectMcpServers": false
+  }
 }
