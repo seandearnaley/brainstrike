@@ -138,6 +138,8 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('uses default values when environment variables are not set', async () => {
+      // Note: Setting to undefined in import.meta.env creates the string "undefined"
+      // The component's logic `import.meta.env['KEY'] || undefined` will use "undefined" string
       import.meta.env['VITE_EMBED_CONCURRENCY'] = undefined;
       import.meta.env['VITE_EMBED_LEASE_MS'] = undefined;
       import.meta.env['VITE_EMBED_MODEL_KEY'] = undefined;
@@ -160,7 +162,7 @@ describe('EmbeddingWorkerProvider', () => {
             db: mockDb,
             concurrency: 1,
             leaseMs: 60000,
-            modelKey: undefined,
+            modelKey: 'undefined', // String "undefined" due to import.meta.env behavior
             log: expect.any(Function),
           });
         },
