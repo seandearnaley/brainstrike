@@ -11,7 +11,6 @@ describe('vector-queue-service', () => {
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 1, running: 2, failed: 3, succeeded: 4 },
       ]),
-      enqueue: vi.fn(),
       clear: vi.fn(),
       requeueFailed: vi.fn(),
     };
@@ -68,34 +67,22 @@ describe('vector-queue-service', () => {
   });
 
   it('backfill enqueues chunks with dedupe keys', async () => {
-    const enqueueCalls: Array<{ dedupeKey?: string }> = [];
     const jobQueue: VectorQueueServiceDependencies['jobQueue'] = {
       getQueueStats: vi.fn(async () => [
         { queue: 'embeddings', queued: 2, running: 1, failed: 0, succeeded: 5 },
       ]),
-      enqueue: vi.fn(async (params) => {
-        enqueueCalls.push({ dedupeKey: params.dedupeKey });
-        return {
-          id: '1',
-          queue: params.queue,
-          jobType: params.jobType,
-          state: 'queued' as const,
-          runAt: new Date().toISOString(),
-          attempts: 0,
-          max_attempts: 5,
-          backoff_ms: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        };
-      }),
       clear: vi.fn(),
       requeueFailed: vi.fn(),
     };
 
-    const queries: string[] = [];
+    const queries: Array<{ sql: string; params?: unknown[] }> = [];
     const db: VectorQueueDatabase = {
-      query: vi.fn(async (sql: string) => {
-        queries.push(sql);
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (typeof params === 'undefined') {
+          queries.push({ sql });
+        } else {
+          queries.push({ sql, params });
+        }
         if (sql.startsWith('SELECT c.id')) {
           return {
             rows: [
@@ -103,6 +90,9 @@ describe('vector-queue-service', () => {
               { id: '2', fileRecordId: '11', contentHash: 'bb' },
             ],
           } as { rows: unknown[] };
+        }
+        if (sql.includes('INSERT INTO job_queue')) {
+          return { rows: [{ inserted: 2 }] } as { rows: unknown[] };
         }
         return { rows: [] } as { rows: unknown[] };
       }) as VectorQueueDatabase['query'],
@@ -123,11 +113,18 @@ describe('vector-queue-service', () => {
       progressUpdates.push({ done, total });
     });
 
-    expect(queries).toContain('BEGIN');
-    expect(queries).toContain('COMMIT');
-    expect(enqueueCalls).toEqual([{ dedupeKey: '1:set-1:aa' }, { dedupeKey: '2:set-1:bb' }]);
-    expect(progressUpdates[0]).toEqual({ done: 0, total: 2 });
-    expect(progressUpdates.at(-1)).toEqual({ done: 2, total: 2 });
+    const [selectQuery, insertQuery] = queries;
+    if (!selectQuery || !insertQuery) {
+      throw new Error('Expected select and insert queries');
+    }
+    expect(selectQuery.sql).toContain('FROM file_chunks');
+    expect(insertQuery.sql).toContain('INSERT INTO job_queue');
+    const insertParams = insertQuery.params ?? [];
+    expect(insertParams).toEqual(expect.arrayContaining(['1:set-1:aa', '2:set-1:bb']));
+    expect(progressUpdates).toEqual([
+      { done: 0, total: 2 },
+      { done: 2, total: 2 },
+    ]);
     expect(counts).toEqual({ queued: 2, running: 1, failed: 0, succeeded: 5 });
   });
 });

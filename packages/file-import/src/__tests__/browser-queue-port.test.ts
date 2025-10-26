@@ -1,4 +1,5 @@
-import type { QueueAdapter, QueueResult } from '@brainstrike/queue';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import type { ProviderDimensionParameter, QueueAdapter, QueueResult } from '@brainstrike/queue';
 import type { Mock } from 'vitest';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -69,8 +70,8 @@ describe('createBrowserEmbeddingQueuePort', () => {
     expect(queue.add).toHaveBeenCalledTimes(1);
     const addRequest = (queue.add as unknown as Mock).mock.calls[0]?.[0] as {
       targetDimension?: number;
-      provider?: string;
-      dimensionParameter?: string;
+      provider?: EmbeddingProviderType;
+      dimensionParameter?: ProviderDimensionParameter;
     };
     expect(addRequest.targetDimension).toBe(768);
     expect(addRequest.provider).toBeUndefined();

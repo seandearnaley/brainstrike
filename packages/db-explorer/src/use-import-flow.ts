@@ -3,6 +3,11 @@ import type {
   ElectronFileChunkRepository,
   FileChunkRepository,
 } from '@brainstrike/db';
+import {
+  isHostedProvider,
+  parseProviderModelKey,
+  resolveHostedProviderApiKey,
+} from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
@@ -92,18 +97,74 @@ export function useImportFlow({
     onChunkRepositoryChange?.(chunkRepository ?? null);
   }, [chunkRepository, onChunkRepositoryChange]);
 
-  const handleImportClick = useCallback(() => {
-    if (selectedFilePaths.size === 0) {
+  const showDestructiveToast = useCallback(
+    (title: string, description: string) => {
       toast({
-        title: 'No Files Selected',
-        description: 'Please select files in the explorer before importing.',
+        title,
+        description,
         variant: 'destructive',
       });
+    },
+    [toast]
+  );
+
+  const ensureSelection = useCallback((): boolean => {
+    if (selectedFilePaths.size > 0) {
+      return true;
+    }
+
+    showDestructiveToast(
+      'No Files Selected',
+      'Please select files in the explorer before importing.'
+    );
+    return false;
+  }, [selectedFilePaths, showDestructiveToast]);
+
+  const ensureHostedCredentials = useCallback(async (): Promise<boolean> => {
+    if (!importSettings.enableEmbedding || !importSettings.selectedModel) {
+      return true;
+    }
+
+    const parsed = parseProviderModelKey(importSettings.selectedModel);
+    if (!parsed || !isHostedProvider(parsed.provider)) {
+      return true;
+    }
+
+    const apiKey = await resolveHostedProviderApiKey(parsed.provider);
+    if (apiKey) {
+      return true;
+    }
+
+    showDestructiveToast(
+      'API Key Required',
+      `Configure a ${parsed.provider.toUpperCase()} API key before running hosted embeddings.`
+    );
+    return false;
+  }, [importSettings.enableEmbedding, importSettings.selectedModel, showDestructiveToast]);
+
+  const runImport = useCallback(async () => {
+    if (!ensureSelection()) {
       return;
     }
 
-    void importFiles(selectedFilePaths, fileTree, fileContents);
-  }, [selectedFilePaths, fileTree, fileContents, importFiles, toast]);
+    const hasCredentials = await ensureHostedCredentials();
+    if (!hasCredentials) {
+      return;
+    }
+
+    await importFiles(selectedFilePaths, fileTree, fileContents);
+  }, [
+    ensureHostedCredentials,
+    ensureSelection,
+    fileContents,
+    fileTree,
+    importFiles,
+    selectedFilePaths,
+  ]);
+
+  const handleImportClick = useCallback(() => {
+    void runImport();
+  }, [runImport]);
 
   const memoizedProgress = useMemo(() => progress as EnhancedImportProgress | null, [progress]);
 

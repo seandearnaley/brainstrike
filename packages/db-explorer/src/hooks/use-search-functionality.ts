@@ -7,7 +7,7 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { parseProviderModelKey, SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
@@ -75,6 +75,10 @@ export function useSearchFunctionality(
       } catch {
         // keep selectedModel on lookup failure
       }
+    }
+    const parsed = parseProviderModelKey(modelKey);
+    if (parsed?.provider === 'local') {
+      return parsed.modelId;
     }
     return modelKey;
   }

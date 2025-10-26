@@ -1,6 +1,5 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { startEmbeddingWorker } from '@brainstrike/embeddings';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import {
@@ -16,7 +15,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import ElectronStore from 'electron-store';
 import { startAssistantServer } from './assistant-server';
 import { createWindow } from './create-window';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import { closeDatabase, resetLocalDatabase } from './db-main';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerIpcHandlers } from './ipc-handlers';
 import { registerMcpIpcHandlers } from './ipc-mcp';
@@ -38,6 +37,9 @@ const settingsStore: ElectronStore<DesktopSettingsStoreSchema> =
   new ElectronStore<DesktopSettingsStoreSchema>({
     name: 'brainstrike-settings',
   });
+
+// Note: Embedding worker configuration moved to renderer process (see renderer/components/embedding-worker-provider.tsx)
+// Main process cannot run Web Workers - WASM/WebGPU require browser context
 
 function createDesktopDefaultPreferences(): LoggingPreferences {
   return createDefaultLoggingPreferences({
@@ -265,6 +267,23 @@ async function openLogDestination(target: string | null): Promise<boolean> {
 }
 
 const logger = createLogger('DesktopMain');
+
+let stopAssistantServer: null | (() => Promise<void>) = null;
+
+async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
+  // Note: Embedding worker runs in renderer, not main process, so no need to stop it here
+
+  try {
+    await resetLocalDatabase();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to reset local database:', error);
+    return { success: false, message };
+  }
+
+  return { success: true };
+}
+
 const fileSystem = new ElectronFileSystemAdapter();
 const storage = new ElectronStorageAdapter();
 
@@ -287,14 +306,13 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 logger.info('Setting up IPC handlers...');
-registerIpcHandlers(fileSystem, storage, settingsStore);
+registerIpcHandlers(fileSystem, storage, settingsStore, {
+  onResetLocal: handleResetLocal,
+});
 registerSecretsIpcHandlers(createSecretsService());
 registerAgentIpcHandlers();
 registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
-
-let stopEmbeddingWorker: null | (() => Promise<void>) = null;
-let stopAssistantServer: null | (() => Promise<void>) = null;
 
 app.whenReady().then(async () => {
   try {
@@ -304,27 +322,9 @@ app.whenReady().then(async () => {
     setupSecurity();
     logger.info('Security setup complete');
 
-    // Optionally start local embedding worker if queue is enabled
-    try {
-      // Lazy-init DB for worker only when enabled
-      const queueEnabled =
-        String(process.env['EMBED_QUEUE_ENABLED'] ?? 'true').toLowerCase() === 'true';
-      if (queueEnabled) {
-        const db = await getDatabase();
-        const controller = await startEmbeddingWorker({
-          // Cast db to IDatabase (query shape)
-          db: db as import('@brainstrike/db').IDatabase,
-          concurrency: Number(process.env['EMBED_CONCURRENCY'] ?? 1) || 1,
-          leaseMs: Number(process.env['EMBED_LEASE_MS'] ?? 60000) || 60000,
-          modelKey: process.env['EMBED_MODEL_KEY'] || undefined,
-          log: (msg: string) => logger.info(`[EmbeddingWorker] ${msg}`),
-        });
-        stopEmbeddingWorker = controller.stop;
-        logger.info('Embedding worker started');
-      }
-    } catch (err) {
-      logger.error('Failed to start embedding worker:', err);
-    }
+    // NOTE: Embedding worker is started in renderer process, not here in main process.
+    // Main process cannot run transformers.js with Web Workers (they don't exist in Node.js).
+    // See apps/desktop/src/renderer/main.tsx for renderer-side worker initialization.
 
     // Application menu with developer utilities
     const menuTemplate: Electron.MenuItemConstructorOptions[] = [
@@ -432,10 +432,6 @@ app.on('window-all-closed', () => {
 // Clean shutdown
 app.on('before-quit', async () => {
   try {
-    if (stopEmbeddingWorker) {
-      await stopEmbeddingWorker();
-      stopEmbeddingWorker = null;
-    }
     if (stopAssistantServer) {
       await stopAssistantServer();
       stopAssistantServer = null;

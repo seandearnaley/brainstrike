@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   BaseImportRunner,
   BaseImportRunnerRequest,
@@ -36,6 +37,10 @@ function createBaseRunner(
 }
 
 describe('runEnhancedImport', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('returns base results when chunking is disabled', async () => {
     const baseResults: EnhancedImportResult[] = [
       { id: '1', imported: true, existed: false, chunksCreated: 0 },
@@ -87,6 +92,108 @@ describe('runEnhancedImport', () => {
         completed: 1,
         queueProgress: injectedQueueProgress,
       })
+    );
+  });
+
+  it('creates a new embedding set when preferred set model key differs', async () => {
+    const chunkingImpl = vi.fn().mockResolvedValue([
+      {
+        id: '1',
+        imported: true,
+        existed: false,
+        chunksCreated: 1,
+      } satisfies EnhancedImportResult,
+    ]);
+    const embeddingsImpl = vi.fn().mockResolvedValue(undefined);
+
+    vi.spyOn(SimpleEmbeddingService, 'getModelConfig').mockReturnValue({
+      id: 'db-model',
+      name: 'DB Model',
+      dimensions: 768,
+      quantized: false,
+      description: 'Test model',
+      tags: [],
+      origin: 'test',
+      size: 'test',
+    });
+
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.startsWith('SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1')) {
+        return Promise.resolve({ rows: [{ modelKey: 'legacy-model' }] });
+      }
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1'
+        )
+      ) {
+        return Promise.resolve({
+          rows: [
+            {
+              id: 'legacy-set',
+              modelKey: 'legacy-model',
+              dimensions: 768,
+              distance: 'cosine',
+              createdAt: new Date().toISOString(),
+            },
+          ],
+        });
+      }
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        return Promise.resolve({ rows: [{ id: 'new-set' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const sqlPort: SqlExecutorPort = {
+      query: sqlPortQuery,
+      runInTransaction: vi.fn(),
+    };
+
+    const resolvedSetIdSpy = vi.fn();
+
+    const results = await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: true,
+        model: 'db-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'legacy-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      ports: { sql: sqlPort },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+      processEmbeddingsImpl: embeddingsImpl,
+    });
+
+    expect(results).toHaveLength(1);
+    expect(resolvedSetIdSpy).toHaveBeenCalledWith('new-set');
+    const lastInsertCall = sqlPortQuery.mock.calls.find(([statement]) =>
+      typeof statement === 'string' ? statement.startsWith('INSERT INTO embedding_sets') : false
+    );
+    expect(lastInsertCall?.[1]).toEqual(
+      expect.arrayContaining([
+        expect.any(String), // id
+        'local::db-model',
+        'db-model',
+      ])
     );
   });
 
@@ -154,10 +261,10 @@ describe('runEnhancedImport', () => {
       expect.any(Array),
       '1',
       expect.objectContaining({
-        model: 'mock-model',
+        model: 'local::mock-model',
         targetEmbeddingSetId: null,
         targetDimension: 768,
-        provider: null,
+        provider: 'local',
         dimensionParameter: null,
       })
     );
@@ -194,12 +301,16 @@ describe('runEnhancedImport', () => {
       if (sql.startsWith('SELECT model_key')) {
         return Promise.resolve({ rows: [{ modelKey: 'db-model' }] });
       }
-      if (sql.startsWith('SELECT id, dimensions, distance FROM embedding_sets')) {
+      if (
+        sql.startsWith(
+          'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets'
+        )
+      ) {
         return Promise.resolve({
           rows: [{ id: 'set-1', dimensions: 768, distance: 'cosine' }],
         });
       }
-      if (sql.startsWith('SELECT id FROM embedding_sets WHERE model_key')) {
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
         return Promise.resolve({ rows: [{ id: 'set-1' }] });
       }
       if (sql.startsWith('INSERT INTO embedding_sets')) {
@@ -242,13 +353,24 @@ describe('runEnhancedImport', () => {
       processEmbeddingsImpl: embeddingsImpl,
     });
 
-    expect(sqlPort.query).toHaveBeenCalledWith(
+    expect(sqlPortQuery).toHaveBeenCalledWith(
       'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
       ['set-1']
     );
-    expect(sqlPort.query).toHaveBeenCalledWith(
-      'SELECT id, dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
+    expect(sqlPortQuery).toHaveBeenCalledWith(
+      'SELECT id, model_key AS "modelKey", dimensions, distance FROM embedding_sets WHERE id = $1 LIMIT 1',
       ['set-1']
+    );
+    const calls = sqlPortQuery.mock.calls as Array<[string, unknown[]?]>;
+    const lookupCall = calls.find(([statement]) => {
+      return (
+        typeof statement === 'string' &&
+        statement.includes('model_key IN') &&
+        statement.includes('embedding_sets')
+      );
+    });
+    expect(lookupCall?.[1]).toEqual(
+      expect.arrayContaining(['local::db-model', 'db-model', 'local:db-model', 768, 'cosine'])
     );
     expect(embeddingsImpl).toHaveBeenCalledWith(
       expect.any(Array),
@@ -260,5 +382,69 @@ describe('runEnhancedImport', () => {
       'set-1'
     );
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('set-1');
+  });
+
+  it('ensures embedding set exists even when embeddings are disabled', async () => {
+    vi.spyOn(SimpleEmbeddingService, 'getModelConfig').mockReturnValue({
+      id: 'db-model',
+      name: 'DB Model',
+      dimensions: 768,
+      quantized: false,
+      description: 'Test model',
+      tags: [],
+      origin: 'test',
+      size: 'test',
+    });
+
+    const sqlPortQuery = vi.fn().mockImplementation((sql: string) => {
+      if (sql.includes('FROM embedding_sets s') && sql.includes('model_key IN')) {
+        return Promise.resolve({ rows: [] });
+      }
+      if (sql.startsWith('INSERT INTO embedding_sets')) {
+        return Promise.resolve({ rows: [{ id: 'new-set' }] });
+      }
+      return Promise.resolve({ rows: [] });
+    });
+
+    const sqlPort: SqlExecutorPort = {
+      query: sqlPortQuery,
+      runInTransaction: vi.fn(),
+    };
+
+    await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: false,
+        model: 'local::db-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => null,
+      },
+      ports: { sql: sqlPort },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: vi
+        .fn()
+        .mockResolvedValue([{ id: '1', imported: true, existed: false, chunksCreated: 1 }]),
+    });
+
+    expect(
+      sqlPortQuery.mock.calls.some(
+        ([statement]) =>
+          typeof statement === 'string' && statement.startsWith('INSERT INTO embedding_sets')
+      )
+    ).toBe(true);
   });
 });

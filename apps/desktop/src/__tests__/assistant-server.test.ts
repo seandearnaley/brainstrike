@@ -226,15 +226,19 @@ describe('assistant-server', () => {
         }),
       });
 
-      // Give the server time to process
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await vi.waitUntil(
+        () =>
+          consoleInfoSpy.mock.calls.some(
+            ([message, payload]) =>
+              message === '[assistant-server] request received' &&
+              Boolean((payload as { hasApiKey?: boolean })?.hasApiKey)
+          ),
+        { timeout: 2000 }
+      );
 
-      // Check that the log was called (message count may vary based on mock behavior)
       expect(consoleInfoSpy).toHaveBeenCalledWith(
         '[assistant-server] request received',
-        expect.objectContaining({
-          hasApiKey: true,
-        })
+        expect.objectContaining({ hasApiKey: true })
       );
 
       consoleInfoSpy.mockRestore();

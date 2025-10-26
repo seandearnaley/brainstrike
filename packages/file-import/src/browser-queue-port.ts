@@ -1,4 +1,5 @@
 import type { FileChunk } from '@brainstrike/db';
+import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import type { ProviderDimensionParameter, QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { createLogger } from '@brainstrike/utils';
@@ -160,7 +161,7 @@ type ScheduleChunkArgs = {
   repository: ChunkRepository;
   targetDimension?: number;
   dimensionParameter?: ProviderDimensionParameter;
-  provider?: string;
+  provider?: EmbeddingProviderType;
 };
 
 type SchedulerDependencies = {
@@ -221,7 +222,7 @@ type ChunkTaskContext = {
   repository: ChunkRepository;
   targetDimension: number;
   dimensionParameter: ProviderDimensionParameter | null;
-  provider: string | null;
+  provider: EmbeddingProviderType | null;
   progressTracker: ReturnType<typeof createQueueProgressTracker>;
   pendingChunks: Set<string>;
   emitDrain: (embeddingSetId: string | null) => void;
@@ -299,7 +300,7 @@ type ScheduleBatchContext = {
   targetEmbeddingSetId: string | null;
   targetDimension: number;
   dimensionParameter: ProviderDimensionParameter | null;
-  provider: string | null;
+  provider: EmbeddingProviderType | null;
 };
 
 function scheduleChunksBatch(
@@ -347,7 +348,7 @@ async function produceEmbedding(
   options: {
     targetDimension: number;
     dimensionParameter?: ProviderDimensionParameter;
-    provider?: string;
+    provider?: EmbeddingProviderType;
   }
 ) {
   const resolvedTargetDimension = options.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;

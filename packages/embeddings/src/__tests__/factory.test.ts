@@ -1,18 +1,24 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingProviderFactory } from '../factory';
 import type { ILocalEmbeddingProvider } from '../interfaces/provider';
 import type { EmbeddingProviderConfig } from '../provider-types';
+
+const originalFetch = globalThis.fetch;
 
 describe('EmbeddingProviderFactory', () => {
   beforeEach(async () => {
     // Clear cache before each test
     await EmbeddingProviderFactory.clearCache();
+    EmbeddingProviderFactory.clearHostedApiKeyCache();
   });
 
   afterEach(async () => {
     // Clean up after each test
     await EmbeddingProviderFactory.clearCache();
+    EmbeddingProviderFactory.clearHostedApiKeyCache();
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   describe('local provider creation', () => {
@@ -96,7 +102,17 @@ describe('EmbeddingProviderFactory', () => {
   });
 
   describe('hosted provider creation', () => {
-    it('returns error for hosted providers (not yet implemented)', async () => {
+    const OPENAI_ENV_KEY = 'BRAINSTRIKE_OPENAI_API_KEY';
+    const GOOGLE_ENV_KEY = 'GOOGLE_GENERATIVE_AI_API_KEY';
+
+    afterEach(() => {
+      process.env[OPENAI_ENV_KEY] = undefined;
+      process.env['GOOGLE_API_KEY'] = undefined;
+      process.env[GOOGLE_ENV_KEY] = undefined;
+      EmbeddingProviderFactory.clearHostedApiKeyCache();
+    });
+
+    it('returns missing_api_key when no credentials are configured', async () => {
       const config: EmbeddingProviderConfig = {
         runtime: 'hosted',
         provider: 'openai',
@@ -108,10 +124,114 @@ describe('EmbeddingProviderFactory', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.error.type).toBe('validation_error');
-        if (result.error.type === 'validation_error') {
-          expect(result.error.message).toContain('not yet implemented');
+        expect(result.error).toEqual({
+          type: 'missing_api_key',
+          provider: 'openai',
+        });
+      }
+    });
+
+    it('creates an OpenAI provider and generates embeddings', async () => {
+      process.env[OPENAI_ENV_KEY] = 'test-openai-key';
+      EmbeddingProviderFactory.clearHostedApiKeyCache('openai');
+
+      const mockEmbedding = Array(DEFAULT_EMBEDDING_DIMENSION).fill(0.1);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          data: [{ embedding: mockEmbedding }],
+          usage: { prompt_tokens: 12 },
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'openai',
+        modelId: 'text-embedding-3-small',
+        dimensions: DEFAULT_EMBEDDING_DIMENSION,
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'Hello world',
+          modelId: 'text-embedding-3-small',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('openai');
+          expect(embedResult.value.embedding).toHaveLength(DEFAULT_EMBEDDING_DIMENSION);
+          expect(embedResult.value.usage?.inputTokens).toBe(12);
         }
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
+        expect(url).toBe('https://api.openai.com/v1/embeddings');
+        expect(init?.method).toBe('POST');
+        const body = JSON.parse(String(init?.body));
+        expect(body.dimensions).toBe(DEFAULT_EMBEDDING_DIMENSION);
+        expect(body.model).toBe('text-embedding-3-small');
+      }
+    });
+
+    it('creates a Google provider with output dimensionality override', async () => {
+      process.env[GOOGLE_ENV_KEY] = 'test-google-key';
+      EmbeddingProviderFactory.clearHostedApiKeyCache('google');
+
+      const targetDimensions = 768;
+      const mockEmbedding = Array(targetDimensions).fill(0.05);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          embedding: { values: mockEmbedding },
+          usageMetadata: { totalTokenCount: 8 },
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'google',
+        modelId: 'text-embedding-004',
+        outputDimensionality: targetDimensions,
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'Document passage',
+          modelId: 'text-embedding-004',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('google');
+          expect(embedResult.value.embedding).toHaveLength(targetDimensions);
+          expect(embedResult.value.usage?.inputTokens).toBe(8);
+        }
+
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+        const callArgs = fetchMock.mock.calls[0];
+        expect(callArgs).toBeDefined();
+        const [url, init] = callArgs as [RequestInfo | URL, RequestInit | undefined];
+        expect(url).toBe(
+          'https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent'
+        );
+        const body = JSON.parse(String(init?.body));
+        expect(body.output_dimensionality).toBe(targetDimensions);
+        expect(body.content.parts[0].text).toBe('Document passage');
       }
     });
   });
@@ -218,8 +338,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.providers).toHaveLength(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jina-code', quantization: 'default' },
-          { provider: 'local', modelId: 'bge-base-en-v1.5', quantization: 'default' },
+          { provider: 'local', modelId: 'jina-code', variant: 'default' },
+          { provider: 'local', modelId: 'bge-base-en-v1.5', variant: 'default' },
         ])
       );
     });
@@ -261,8 +381,8 @@ describe('EmbeddingProviderFactory', () => {
       expect(stats.size).toBe(2);
       expect(stats.providers).toEqual(
         expect.arrayContaining([
-          { provider: 'local', modelId: 'jina-code', quantization: 'default' },
-          { provider: 'local', modelId: 'jina-code', quantization: 'q8' },
+          { provider: 'local', modelId: 'jina-code', variant: 'default' },
+          { provider: 'local', modelId: 'jina-code', variant: 'q8' },
         ])
       );
     });

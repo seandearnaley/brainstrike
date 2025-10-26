@@ -11,6 +11,6 @@ describe('embedding-worker disabled mode', () => {
     });
     expect(typeof controller.stop).toBe('function');
     await controller.stop();
-    expect(log).toHaveBeenCalledWith('Embedding worker disabled via EMBED_QUEUE_ENABLED=false');
+    expect(log).toHaveBeenCalledWith('Embedding worker disabled via options.enable=false');
   });
 });

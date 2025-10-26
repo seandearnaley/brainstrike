@@ -1,10 +1,17 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import {
+  type EmbeddingProviderType,
+  formatProviderModelKey,
+  parseProviderModelKey,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
+import { useEmbeddingPreferencesStore } from './embedding-preferences-store';
 import { useTokenPreferencesStore } from './token-preferences-store';
 
 const DEFAULT_MODEL_KEY = SimpleEmbeddingService.getDefaultModelKey();
+const DEFAULT_PROVIDER: EmbeddingProviderType = 'local';
 
 interface ImportSettingsData {
   enableChunking: boolean;
@@ -32,6 +39,7 @@ interface ImportSettingsActions {
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 
 const STORE_NAME = 'import-settings.v1' as const;
+const STORE_VERSION = 3 as const;
 
 const memory = new Map<string, string>();
 const storage = createJSONStorage(() => ({
@@ -57,6 +65,58 @@ const storage = createJSONStorage(() => ({
 
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
 
+function normalizeModelSelection(value: string | null | undefined): {
+  modelId: string;
+  provider: EmbeddingProviderType;
+} {
+  const parsed = parseProviderModelKey(value ?? undefined);
+  if (parsed) {
+    return parsed;
+  }
+  const fallback =
+    typeof value === 'string' && value.trim().length > 0 ? value.trim() : DEFAULT_MODEL_KEY;
+  return { modelId: fallback, provider: DEFAULT_PROVIDER };
+}
+
+function deriveInitialSelectedModel(): string {
+  try {
+    const fromPrefs = useEmbeddingPreferencesStore.getState().selectedModel;
+    return normalizeModelSelection(fromPrefs).modelId;
+  } catch {
+    return DEFAULT_MODEL_KEY;
+  }
+}
+
+function formatCompositeKey(provider: EmbeddingProviderType, modelId: string): string {
+  return formatProviderModelKey(provider, modelId);
+}
+
+let syncingFromPreferences = false;
+let syncingToPreferences = false;
+
+function syncPreferencesSelection(provider: EmbeddingProviderType, modelId: string): void {
+  if (syncingFromPreferences) {
+    return;
+  }
+  try {
+    const composite = formatCompositeKey(provider, modelId);
+    const prefs = useEmbeddingPreferencesStore.getState();
+    const alreadyEnabled = prefs.getEnabledModels(provider)?.includes(modelId);
+    if (!alreadyEnabled) {
+      prefs.setModelEnabled(provider, modelId, true);
+    }
+    if (prefs.selectedModel === composite) {
+      return;
+    }
+    syncingToPreferences = true;
+    prefs.setModel(composite);
+  } catch {
+    // ignore preference sync failures (tests without store, etc.)
+  } finally {
+    syncingToPreferences = false;
+  }
+}
+
 export const useImportSettingsStore = create<ImportSettingsStore>()(
   persist(
     (set) => ({
@@ -68,7 +128,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       tokenTrueSizing: getAccurateCountingPreference(),
       chunkTokenLimit: 4096,
       enableEmbedding: false,
-      selectedModel: DEFAULT_MODEL_KEY,
+      selectedModel: deriveInitialSelectedModel(),
 
       setEnableChunking: (v) => set({ enableChunking: !!v }),
       setChunkingStrategy: (v) => set({ chunkingStrategy: v, chunkingStrategyExplicit: true }),
@@ -82,31 +142,44 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       setChunkTokenLimit: (n) =>
         set({ chunkTokenLimit: Math.max(512, Math.min(16384, Math.floor(n) || 512)) }),
       setEnableEmbedding: (v) => set({ enableEmbedding: !!v }),
-      setSelectedModel: (k) => set({ selectedModel: k }),
+      setSelectedModel: (k) => {
+        const { modelId, provider } = normalizeModelSelection(k);
+        set({ selectedModel: modelId });
+        syncPreferencesSelection(provider, modelId);
+      },
     }),
     {
       name: STORE_NAME,
-      version: 2,
+      version: STORE_VERSION,
       storage,
       migrate: (state, version) => {
         const snapshot = state as Partial<ImportSettingsStore> | undefined;
         if (!snapshot) return snapshot;
+        let next: Partial<ImportSettingsStore> = { ...snapshot };
         if (version < 2) {
-          return {
-            ...snapshot,
+          next = {
+            ...next,
             tokenTrueSizing: true,
             chunkTokenLimit: 4096,
-          } satisfies Partial<ImportSettingsStore>;
+          };
+        } else {
+          next = {
+            ...next,
+            tokenTrueSizing:
+              typeof next.tokenTrueSizing === 'boolean' ? next.tokenTrueSizing : true,
+            chunkTokenLimit:
+              typeof next.chunkTokenLimit === 'number'
+                ? Math.max(512, Math.min(16384, Math.floor(next.chunkTokenLimit)))
+                : 4096,
+          };
         }
-        return {
-          ...snapshot,
-          tokenTrueSizing:
-            typeof snapshot.tokenTrueSizing === 'boolean' ? snapshot.tokenTrueSizing : true,
-          chunkTokenLimit:
-            typeof snapshot.chunkTokenLimit === 'number'
-              ? Math.max(512, Math.min(16384, Math.floor(snapshot.chunkTokenLimit)))
-              : 4096,
-        } satisfies Partial<ImportSettingsStore>;
+        if (version < 3) {
+          next = {
+            ...next,
+            selectedModel: normalizeModelSelection(next.selectedModel).modelId,
+          };
+        }
+        return next satisfies Partial<ImportSettingsStore>;
       },
       partialize: (s) => ({
         enableChunking: s.enableChunking,
@@ -159,6 +232,27 @@ export function __resetImportSettingsStoreForTests() {
     tokenTrueSizing: true,
     chunkTokenLimit: 4096,
     enableEmbedding: false,
-    selectedModel: DEFAULT_MODEL_KEY,
+    selectedModel: normalizeModelSelection(DEFAULT_MODEL_KEY).modelId,
   });
+}
+
+try {
+  useEmbeddingPreferencesStore.subscribe((state, previousState) => {
+    if (syncingToPreferences) {
+      return;
+    }
+    const nextModel = normalizeModelSelection(state.selectedModel).modelId;
+    const prevModel = normalizeModelSelection(previousState?.selectedModel).modelId;
+    if (nextModel === prevModel) {
+      return;
+    }
+    if (useImportSettingsStore.getState().selectedModel === nextModel) {
+      return;
+    }
+    syncingFromPreferences = true;
+    useImportSettingsStore.setState({ selectedModel: nextModel });
+    syncingFromPreferences = false;
+  });
+} catch {
+  // Ignore subscription failures (e.g., during SSR tests without preference store)
 }

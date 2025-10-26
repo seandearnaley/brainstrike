@@ -1,11 +1,25 @@
 import type { IDatabase } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
+import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
+import { EmbeddingProviderFactory } from '../factory';
+import type {
+  EmbeddingProviderConfig,
+  EmbeddingProviderError,
+  EmbeddingProviderType,
+} from '../provider-types';
+import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 type Distance = 'cosine' | 'l2' | 'ip';
+
+type SupportedHostedProvider = Extract<EmbeddingProviderType, 'openai' | 'google'>;
+type HostedProviderConfig = Extract<
+  EmbeddingProviderConfig,
+  { runtime: 'hosted'; provider: SupportedHostedProvider }
+>;
 
 export type EmbeddingWorkerOptions = {
   db: IDatabase;
@@ -34,6 +48,9 @@ type EmbedChunkPayload = {
   fileRecordId?: string;
   embeddingSetId?: string | null;
   expectedDimension?: number; // Expected embedding dimension; falls back to model metadata when omitted
+  modelKey?: string | null;
+  provider?: EmbeddingProviderType | null;
+  dimensionParameter?: ProviderDimensionParameter | null;
 };
 
 async function sha256Hex(input: string): Promise<string> {
@@ -151,8 +168,12 @@ async function resolveEmbeddingSetDimension(
   return dimension;
 }
 
-function resolveModelKey(fromOptions?: string): string {
-  const env = (() => {
+function resolveWorkerModel(fromOptions?: string): {
+  provider: EmbeddingProviderType;
+  modelId: string;
+  compositeKey: string;
+} {
+  const envValue = (() => {
     try {
       if (process?.env?.['EMBED_MODEL_KEY']) {
         return String(process.env['EMBED_MODEL_KEY']);
@@ -162,23 +183,153 @@ function resolveModelKey(fromOptions?: string): string {
       return '';
     }
   })();
-  return fromOptions || env || SimpleEmbeddingService.getDefaultModelKey();
-}
 
-function resolveBooleanEnv(key: string, defaultValue = false): boolean {
-  try {
-    if (process?.env) {
-      const v = process.env[key];
-      return v ? String(v).toLowerCase() === 'true' : defaultValue;
-    }
-    return defaultValue;
-  } catch {
-    return defaultValue;
+  const candidate = fromOptions || envValue || SimpleEmbeddingService.getDefaultModelKey();
+  const parsed = parseProviderModelKey(candidate);
+
+  if (parsed) {
+    return {
+      provider: parsed.provider,
+      modelId: parsed.modelId,
+      compositeKey: candidate,
+    };
   }
+
+  return {
+    provider: 'local',
+    modelId: candidate,
+    compositeKey: formatProviderModelKey('local', candidate),
+  };
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
+}
+
+function isNodejsMainProcess(): boolean {
+  // Check if we're in a Node.js environment (not browser)
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      typeof process.versions?.node !== 'undefined' &&
+      typeof window === 'undefined'
+    );
+  } catch {
+    return false;
+  }
+}
+
+function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
+  // CRITICAL FIX: Local transformers models require Web Workers to avoid blocking execution.
+  // In Electron main process (Node.js), Web Workers don't exist, causing TransformersBackend
+  // to fall back to synchronous execution which blocks the entire app.
+  if (modelResolution.provider === 'local' && isNodejsMainProcess()) {
+    throw new Error(
+      'Cannot use local embedding models in Node.js/Electron main process. ' +
+        'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
+        'Use a hosted provider (openai, google) or process embeddings in the renderer.'
+    );
+  }
+}
+
+function shouldStartWorker(
+  options: EmbeddingWorkerOptions,
+  log: (msg: string, meta?: unknown) => void
+): boolean {
+  // Allow explicit disable via options (for tests)
+  if (options.enable === false) {
+    log('Embedding worker disabled via options.enable=false');
+    return false;
+  }
+
+  return true;
+}
+
+function toSupportedHostedProvider(
+  provider: Exclude<EmbeddingProviderType, 'local'>
+): SupportedHostedProvider {
+  if (provider === 'openai' || provider === 'google') {
+    return provider;
+  }
+  throw new Error(`Hosted provider "${provider}" is not supported yet.`);
+}
+
+function buildHostedProviderConfig(
+  provider: SupportedHostedProvider,
+  modelId: string,
+  expectedDimension: number
+): HostedProviderConfig {
+  switch (provider) {
+    case 'openai':
+      return {
+        runtime: 'hosted',
+        provider: 'openai',
+        modelId,
+        dimensions: expectedDimension,
+      };
+    case 'google':
+      return {
+        runtime: 'hosted',
+        provider: 'google',
+        modelId,
+        outputDimensionality: expectedDimension,
+      };
+    default:
+      throw new Error(`Hosted provider "${provider}" is not supported yet.`);
+  }
+}
+
+function formatHostedInitializationError(
+  provider: SupportedHostedProvider,
+  error: EmbeddingProviderError
+): string {
+  let reason = 'unavailable';
+  if (error.type === 'missing_api_key') {
+    reason = 'missing API key';
+  } else if (error.type === 'validation_error') {
+    reason = error.message;
+  }
+  return `Failed to initialize provider "${provider}" (${reason}).`;
+}
+
+async function createHostedProviderInstance(
+  provider: SupportedHostedProvider,
+  config: HostedProviderConfig
+) {
+  const providerResult = await EmbeddingProviderFactory.createProvider(config);
+  if (!providerResult.ok) {
+    throw new Error(formatHostedInitializationError(provider, providerResult.error));
+  }
+  return providerResult.value;
+}
+
+function formatHostedEmbedError(
+  provider: SupportedHostedProvider,
+  error: EmbeddingProviderError
+): string {
+  switch (error.type) {
+    case 'api_error':
+      return `Hosted provider "${provider}" API error (${error.statusCode}): ${error.message}`;
+    case 'rate_limit_exceeded':
+      return `Hosted provider "${provider}" rate limit exceeded.`;
+    case 'missing_api_key':
+      return `Hosted provider "${provider}" missing API key.`;
+    default:
+      return `Hosted provider "${provider}" error: ${error.type}.`;
+  }
+}
+
+function validateHostedEmbeddingDimensions(
+  provider: SupportedHostedProvider,
+  modelId: string,
+  embedding: number[],
+  expectedDimension: number
+): void {
+  if (!Array.isArray(embedding) || embedding.length !== expectedDimension) {
+    throw new Error(
+      `Embedding dimension mismatch for hosted provider '${provider}' model '${modelId}': received ${embedding.length}, expected ${expectedDimension}.`
+    );
+  }
 }
 
 async function initializeEmbeddingService(
@@ -266,30 +417,29 @@ export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
   const log = options.log || (() => {});
+
+  // Check if worker is disabled BEFORE resolving model to avoid errors in tests
+  if (!shouldStartWorker(options, log)) {
+    return { stop: async () => {} };
+  }
+
   const queueName = options.queue ?? 'embeddings';
   const leaseMs = options.leaseMs ?? 60_000;
   const heartbeatMs = options.heartbeatIntervalMs ?? 10_000;
   const concurrency = Math.max(1, options.concurrency ?? 1);
-  const modelKey = resolveModelKey(options.modelKey);
+  const modelResolution = resolveWorkerModel(options.modelKey);
+  ensureLocalRuntime(modelResolution);
+  let activeModelId = modelResolution.modelId;
+  let activeCompositeKey = modelResolution.compositeKey;
   const distance: Distance = options.distance ?? 'cosine';
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
-  // Optional: allow disabling at runtime via env
-  const enabled =
-    typeof options.enable === 'boolean'
-      ? options.enable
-      : resolveBooleanEnv('EMBED_QUEUE_ENABLED', true);
-  if (!enabled) {
-    log('Embedding worker disabled via EMBED_QUEUE_ENABLED=false');
-    return { stop: async () => {} };
-  }
-
-  let { service, modelConfig } = await initializeEmbeddingService(options, modelKey);
-  let activeModelDimension = ensureModelDimension(modelConfig, modelKey, log);
+  let { service, modelConfig } = await initializeEmbeddingService(options, activeModelId);
+  let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
 
   let embeddingSetId = await getOrCreateEmbeddingSet(
     options.db,
-    modelKey,
+    activeCompositeKey,
     modelConfig.id,
     activeModelDimension,
     distance
@@ -330,45 +480,96 @@ export async function startEmbeddingWorker(
   );
   const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
 
-  async function resetService(forceCpu = false) {
+  async function ensureLocalModel(
+    targetModelId: string,
+    targetCompositeKey: string,
+    opts?: { forceReinit?: boolean; forceCpu?: boolean }
+  ): Promise<void> {
+    const forceReinit = opts?.forceReinit ?? false;
+    const forceCpu = opts?.forceCpu ?? false;
+    const shouldReinitialize = forceCpu || forceReinit || targetModelId !== activeModelId;
+
+    console.log('[EMBED-WORKER] ensureLocalModel check', {
+      targetModelId,
+      activeModelId,
+      shouldReinitialize,
+      forceReinit,
+      forceCpu,
+    });
+
+    if (!shouldReinitialize) {
+      return;
+    }
+
+    // CRITICAL FIX: In Electron main process, TransformersBackend tries to create Web Workers
+    // which don't exist in Node.js. This causes it to fall back to synchronous execution,
+    // blocking the entire app. Reject model switching for local providers.
+    if (targetModelId !== activeModelId) {
+      throw new Error(
+        `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
+          'Web Workers are not available in Node.js/Electron main process. ' +
+          `Either process this job in the renderer, or ensure all jobs use the same local model: ${activeModelId}`
+      );
+    }
+
+    console.log('[EMBED-WORKER] REINITIALIZING SERVICE - this blocks the main thread!');
+
     try {
       await service.dispose();
     } catch {}
-    // Reinitialize service
+
     const device = forceCpu ? 'cpu' : options.device;
-    const s = new SimpleEmbeddingService();
-    await s.initializeWithModel(modelKey, undefined, device);
-    service = s;
-    // Refresh modelConfig in case anything changed
-    const cfg = SimpleEmbeddingService.getModelConfig(modelKey);
-    if (cfg) {
-      modelConfig = cfg;
-      const refreshedDimension = ensureModelDimension(modelConfig, modelKey, log);
-      if (refreshedDimension !== activeModelDimension) {
-        activeModelDimension = refreshedDimension;
-        embeddingSetId = await getOrCreateEmbeddingSet(
-          options.db,
-          modelKey,
-          modelConfig.id,
-          activeModelDimension,
-          distance
-        );
-        embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
-      }
+    const nextService = new SimpleEmbeddingService();
+    await nextService.initializeWithModel(targetModelId, undefined, device);
+    service = nextService;
+
+    const cfg = SimpleEmbeddingService.getModelConfig(targetModelId);
+    if (!cfg) {
+      throw new Error(`Model config not found for key: ${targetModelId}`);
     }
+    modelConfig = cfg;
+
+    activeModelId = targetModelId;
+    activeCompositeKey = targetCompositeKey;
+
+    const refreshedDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
+    activeModelDimension = refreshedDimension;
+
+    embeddingSetId = await getOrCreateEmbeddingSet(
+      options.db,
+      activeCompositeKey,
+      modelConfig.id,
+      activeModelDimension,
+      distance
+    );
+    embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
+
     processedSinceInit = 0;
     consecutiveFailures = 0;
   }
 
+  async function resetService(forceCpu = false) {
+    await ensureLocalModel(activeModelId, activeCompositeKey, {
+      forceReinit: true,
+      forceCpu,
+    });
+  }
+
   type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
 
-  async function validateAndGenerateEmbedding(
+  async function generateLocalEmbedding(
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
     expectedDimension: number
   ): Promise<EmbeddingResult> {
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
       throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
     }
+
+    console.log('[EMBED-WORKER] Calling service.generateEmbedding - THIS MAY BLOCK MAIN THREAD!', {
+      contentLength: chunk.content.length,
+      expectedDimension,
+    });
+
     const svcAny = service as unknown as {
       generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
       generateEmbedding: (t: string) => Promise<EmbeddingResult>;
@@ -377,14 +578,76 @@ export async function startEmbeddingWorker(
       ? await svcAny.generateDocEmbedding(chunk.content)
       : await service.generateEmbedding(chunk.content);
 
+    console.log('[EMBED-WORKER] service.generateEmbedding completed');
+
     if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
       throw new Error(
-        `Embedding dimension mismatch for model '${modelKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
+        `Embedding dimension mismatch for model '${activeCompositeKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
           'Verify provider configuration (dimension/size parameter) and retry.'
       );
     }
 
     return result;
+  }
+
+  function resolveJobModel(payload: EmbedChunkPayload): {
+    compositeKey: string;
+    provider: EmbeddingProviderType;
+    modelId: string;
+  } {
+    const rawModelKey = payload.modelKey ?? undefined;
+    const providerHint = payload.provider ?? undefined;
+
+    const candidateComposite = (() => {
+      if (!rawModelKey) {
+        return undefined;
+      }
+      const parsed = parseProviderModelKey(rawModelKey);
+      if (parsed) {
+        return rawModelKey;
+      }
+      if (providerHint && isHostedProvider(providerHint)) {
+        return formatProviderModelKey(providerHint, rawModelKey);
+      }
+      return rawModelKey;
+    })();
+
+    const compositeKey = candidateComposite ?? activeCompositeKey;
+    const parsed = parseProviderModelKey(compositeKey);
+
+    if (parsed) {
+      return {
+        compositeKey,
+        provider: parsed.provider,
+        modelId: parsed.modelId,
+      };
+    }
+
+    return {
+      compositeKey,
+      provider: 'local',
+      modelId: compositeKey,
+    };
+  }
+
+  async function generateHostedEmbedding(
+    provider: Exclude<EmbeddingProviderType, 'local'>,
+    modelId: string,
+    expectedDimension: number,
+    text: string
+  ): Promise<number[]> {
+    const supportedProvider = toSupportedHostedProvider(provider);
+    const config = buildHostedProviderConfig(supportedProvider, modelId, expectedDimension);
+    const providerInstance = await createHostedProviderInstance(supportedProvider, config);
+    const embedResult = await providerInstance.embed({ text, modelId });
+    if (!embedResult.ok) {
+      throw new Error(formatHostedEmbedError(supportedProvider, embedResult.error));
+    }
+
+    const embedding = embedResult.value.embedding;
+    validateHostedEmbeddingDimensions(supportedProvider, modelId, embedding, expectedDimension);
+
+    return embedding;
   }
 
   function assertEmbedChunkJob(claimed: ClaimedJob): EmbedChunkPayload {
@@ -455,22 +718,61 @@ export async function startEmbeddingWorker(
   }
 
   async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
+    console.log('[EMBED-WORKER] Job start', {
+      jobId: claimed.id,
+      activeModelId,
+      activeCompositeKey,
+    });
+
     const payload = assertEmbedChunkJob(claimed);
+    console.log('[EMBED-WORKER] Job payload', {
+      chunkId: payload.chunkId,
+      payloadModelKey: payload.modelKey,
+      payloadProvider: payload.provider,
+    });
+
     const chunk = await loadChunkOrThrow(payload.chunkId);
     const targetSetId = resolveTargetSetId(payload, chunk);
     const expectedDimension = await determineExpectedDimension(targetSetId, payload);
-    const expectedHash = await sha256Hex(`${chunk.contentHash}:${modelKey}`);
+    const jobModel = resolveJobModel(payload);
+
+    console.log('[EMBED-WORKER] Resolved job model', {
+      jobModelId: jobModel.modelId,
+      jobCompositeKey: jobModel.compositeKey,
+      jobProvider: jobModel.provider,
+      willReinitialize: jobModel.modelId !== activeModelId,
+    });
+
+    const expectedHash = await sha256Hex(`${chunk.contentHash}:${jobModel.compositeKey}`);
 
     if (isEmbeddingUpToDate(chunk, expectedHash)) {
       await jq.complete({ id: claimed.id, leaseToken });
       return;
     }
 
-    const result = await validateAndGenerateEmbedding(chunk, expectedDimension);
+    let embedding: number[];
+    if (jobModel.provider === 'local') {
+      console.log('[EMBED-WORKER] Processing local embedding...');
+      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+      console.log('[EMBED-WORKER] About to call generateLocalEmbedding...');
+      const result = await generateLocalEmbedding(chunk, expectedDimension);
+      console.log('[EMBED-WORKER] generateLocalEmbedding returned', {
+        dimensions: result.dimensions,
+      });
+      embedding = result.embedding;
+    } else {
+      embedding = await generateHostedEmbedding(
+        jobModel.provider,
+        jobModel.modelId,
+        expectedDimension,
+        chunk.content
+      );
+    }
+
     await updateChunkEmbedding(
       options.db,
       chunk.id,
-      result.embedding,
+      embedding,
       targetSetId,
       expectedHash,
       vectorEnabledForWrites
@@ -582,7 +884,7 @@ export async function startEmbeddingWorker(
         avgDurationMs: Math.round(avgMs),
         concurrency,
         queue: queueName,
-        modelKey,
+        modelKey: activeCompositeKey,
       });
     },
     Math.max(5000, metricsInterval)

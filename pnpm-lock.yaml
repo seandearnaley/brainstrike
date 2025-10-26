@@ -929,6 +929,9 @@ importers:
 
   packages/file-import:
     dependencies:
+      '@brainstrike/agent':
+        specifier: workspace:*
+        version: link:../agent
       '@brainstrike/db':
         specifier: workspace:*
         version: link:../db

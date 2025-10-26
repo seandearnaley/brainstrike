@@ -3,6 +3,7 @@ import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
+  Button,
   Input,
   Label,
   Select,
@@ -15,7 +16,7 @@ import type { SettingsPanelProps } from '../types';
 
 const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
 
-export function SettingsPanel({ importSettings }: SettingsPanelProps) {
+export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const embeddingsId = 'enable-embeddings';
   const presetCaps = ['2048', '4096', '6144', '8192'];
@@ -164,6 +165,23 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
         <p className="text-[10px] text-muted-foreground mt-1">
           Higher caps reduce chunk count at the cost of larger embedding payloads.
         </p>
+      </div>
+
+      <div className="border rounded-md p-3 bg-destructive/5 space-y-1">
+        <Label className="text-xs text-destructive">Factory Reset</Label>
+        <p className="text-[11px] text-muted-foreground">
+          Clears all files, embeddings, queues, and local preferences. The app will reload after the
+          reset completes.
+        </p>
+        <Button
+          size="sm"
+          variant="destructive"
+          className="h-6 mt-1"
+          onClick={onFactoryReset}
+          data-testid="factory-reset-button"
+        >
+          Factory Reset Brainstrike
+        </Button>
       </div>
     </div>
   );

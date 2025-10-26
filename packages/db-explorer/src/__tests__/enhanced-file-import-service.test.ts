@@ -41,14 +41,19 @@ vi.mock('@brainstrike/db', () => ({
   useFactoryReset: () => null,
 }));
 
-vi.mock('@brainstrike/embeddings', () => ({
-  SimpleEmbeddingService: vi.fn().mockImplementation(() => ({
-    initializeWithModel: vi.fn(),
-    generateEmbedding: vi.fn(),
-    getStatus: vi.fn().mockReturnValue('ready'),
-    dispose: vi.fn(),
-  })),
-}));
+vi.mock('@brainstrike/embeddings', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
+  return {
+    ...actual,
+    SimpleEmbeddingService: vi.fn().mockImplementation(() => ({
+      initializeWithModel: vi.fn(),
+      generateEmbedding: vi.fn(),
+      getStatus: vi.fn().mockReturnValue('ready'),
+      dispose: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('@brainstrike/utils', () => ({
   fileExplorer: {

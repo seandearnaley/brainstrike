@@ -42,7 +42,9 @@ const mockToast = vi.fn();
 
 const mockImportFiles = vi.fn();
 
-vi.mock('@brainstrike/embeddings', () => {
+vi.mock('@brainstrike/embeddings', async () => {
+  const actual =
+    await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
   const mockModels = {
     'all-MiniLM-L6-v2': {
       name: 'all-MiniLM-L6-v2',
@@ -57,6 +59,7 @@ vi.mock('@brainstrike/embeddings', () => {
   };
 
   return {
+    ...actual,
     SimpleEmbeddingService: Object.assign(
       vi.fn().mockImplementation(() => mockEmbeddingService),
       {
