@@ -8,11 +8,13 @@ BrainStrike is a suite of tools for context management to be used with LLMs. It 
 
 Do not attempt to run dev unless instructed to do so.  The user usually runs this for you.
 
-
 We track work in Beads instead of Markdown. Run `bd quickstart` to see how.
 
+## Tools, Skills, Sub-Agents 
 
-
+- Github: Please use the pr-steward subagent when working with Github related requests
+- Mermaid Diagrams: Please the mermaid-diagrams skill
+- Documentation Lookup: If you need to reference up-to-date docs use the documentation-lookup-expert, highly encouraged
 
 ## Codanna MCP Tools
 
