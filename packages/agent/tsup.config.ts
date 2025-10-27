@@ -12,6 +12,6 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: false,
-  treeshake: true,
-  splitting: false, // Disable code splitting to bundle everything together
+  splitting: false,
+  external: ['@brainstrike/types', 'mastra'],
 });

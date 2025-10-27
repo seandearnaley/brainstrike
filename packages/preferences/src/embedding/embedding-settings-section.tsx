@@ -158,7 +158,7 @@ function placeholderHostedProvider(id: HostedEmbeddingProviderId): NormalizedEmb
 function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
   const providerDefinitions = listProviders();
   const providersById = new Map<string, ProviderDefinition>(
-    providerDefinitions.map((definition) => [definition.id, definition])
+    providerDefinitions.map((definition: ProviderDefinition) => [definition.id, definition])
   );
 
   const localProvider = normalizeLocalProvider();
@@ -174,7 +174,7 @@ function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
     }
 
     const embeddingModels = definition.models.filter(
-      (model): model is ProviderModelDefinition & { type: 'embedding' } =>
+      (model: ProviderModelDefinition): model is ProviderModelDefinition & { type: 'embedding' } =>
         model.type === 'embedding'
     );
 

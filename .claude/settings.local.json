@@ -55,7 +55,8 @@
       "Bash(test:*)",
       "Bash(chmod:*)",
       "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/test-hooks.sh)",
-      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)"
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
