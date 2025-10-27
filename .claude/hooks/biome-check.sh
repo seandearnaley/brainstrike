@@ -54,12 +54,29 @@ case "$file_path" in
   *.js|*.jsx|*.ts|*.tsx|*.json|*.jsonc|*.css|*.mjs|*.cjs|*.mts|*.cts)
     # Run Biome check with --write to format and fix issues
     cd "$PROJECT_DIR"
-    pnpm biome check --write "$file_path" 2>&1 || {
-      # If Biome fails, print a warning but don't fail the hook
-      echo "⚠️  Biome check failed for $file_path" >&2
+    
+    echo "🔍 Running Biome check on $(basename "$file_path")..."
+    
+    # Capture output for better error reporting
+    output=$(pnpm biome check --write "$file_path" 2>&1)
+    exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+      echo "✓ Biome check passed for $(basename "$file_path")"
       exit 0
-    }
-    echo "✓ Biome check passed for $(basename "$file_path")"
+    else
+      # BLOCKING: Fail when Biome finds unfixable errors
+      echo "" >&2
+      echo "❌ Biome check FAILED for $file_path" >&2
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+      echo "$output" >&2
+      echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+      echo "" >&2
+      echo "Fix the errors above before continuing." >&2
+      echo "Run manually: pnpm biome check --write $file_path" >&2
+      echo "" >&2
+      exit 1  # BLOCK Claude until errors are fixed!
+    fi
     ;;
   *)
     # Unsupported file type, exit gracefully

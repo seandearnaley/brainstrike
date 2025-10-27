@@ -4,6 +4,8 @@
 #
 # Security: Uses jq for JSON parsing to prevent injection attacks.
 # Grep/sed-based parsing is vulnerable to malformed JSON with shell metacharacters.
+#
+# Version: 2.0 - BLOCKING (exits with error code 1 when type errors found)
 
 set -euo pipefail
 
@@ -73,15 +75,26 @@ case "$file_path" in
       # Run type-check for the specific package (faster than whole monorepo)
       echo "🔍 Type checking $package_path..."
       
-      # Use turbo to run type-check for just this package
-      pnpm turbo run type-check --filter="./$package_path" --log-order=grouped 2>&1 | grep -v "cache hit" || {
-        echo "⚠️  Type check found issues in $package_path" >&2
-        echo "Run: pnpm turbo run type-check --filter=./$package_path" >&2
-        # Don't fail the hook - just warn
-        exit 0
-      }
+      # Capture output for better error reporting
+      output=$(pnpm turbo run type-check --filter="./$package_path" --log-order=grouped 2>&1)
+      exit_code=$?
       
-      echo "✓ Type check passed for $(basename "$package_path")"
+      if [ $exit_code -eq 0 ]; then
+        echo "✓ Type check passed for $(basename "$package_path")"
+        exit 0
+      else
+        # BLOCKING: Fail when type errors found
+        echo "" >&2
+        echo "❌ Type check FAILED for $package_path" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "$output" | grep -v "cache hit" >&2
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+        echo "" >&2
+        echo "Fix the type errors above before continuing." >&2
+        echo "Run manually: pnpm turbo run type-check --filter=./$package_path" >&2
+        echo "" >&2
+        exit 1  # BLOCK Claude until errors are fixed!
+      fi
     else
       # Fallback: check the file individually using tsc
       # Find the nearest tsconfig.json
@@ -99,14 +112,26 @@ case "$file_path" in
       if [ -n "$tsconfig" ]; then
         echo "🔍 Type checking $(basename "$file_path")..."
         
-        # Run tsc on the specific file with the nearest tsconfig
-        pnpm tsc --noEmit --project "$tsconfig" "$file_path" 2>&1 || {
-          echo "⚠️  Type check found issues in $(basename "$file_path")" >&2
-          echo "Run: pnpm tsc --noEmit --project $tsconfig $file_path" >&2
-          exit 0
-        }
+        # Capture output for better error reporting
+        output=$(pnpm tsc --noEmit --project "$tsconfig" "$file_path" 2>&1)
+        exit_code=$?
         
-        echo "✓ Type check passed for $(basename "$file_path")"
+        if [ $exit_code -eq 0 ]; then
+          echo "✓ Type check passed for $(basename "$file_path")"
+          exit 0
+        else
+          # BLOCKING: Fail when type errors found
+          echo "" >&2
+          echo "❌ Type check FAILED for $(basename "$file_path")" >&2
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+          echo "$output" >&2
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+          echo "" >&2
+          echo "Fix the type errors above before continuing." >&2
+          echo "Run manually: pnpm tsc --noEmit --project $tsconfig $file_path" >&2
+          echo "" >&2
+          exit 1  # BLOCK Claude until errors are fixed!
+        fi
       else
         # No tsconfig found, skip
         exit 0
