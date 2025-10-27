@@ -49,7 +49,14 @@
       "Bash(pnpm turbo run type-check:*)",
       "Bash(pnpm tsc:*)",
       "mcp__plugin_codanna-cc_codanna-cc__semantic_search_with_context",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "mcp__firecrawl__firecrawl_search",
+      "mcp__firecrawl__firecrawl_scrape",
+      "Bash(test:*)",
+      "Bash(chmod:*)",
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/test-hooks.sh)",
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []

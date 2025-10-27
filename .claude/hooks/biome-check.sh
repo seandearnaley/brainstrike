@@ -1,19 +1,37 @@
 #!/usr/bin/env bash
 # Biome formatting and linting hook for Claude Code
 # Runs after Write and Edit operations to ensure code quality
+#
+# Security: Uses jq for JSON parsing to prevent injection attacks.
+# Grep/sed-based parsing is vulnerable to malformed JSON with shell metacharacters.
 
 set -euo pipefail
 
 # Set project directory (CLAUDE_PROJECT_DIR is set by Claude Code, fallback to PWD for testing)
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 
+# Check for jq dependency (required for secure JSON parsing)
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Warning: jq not installed - cannot parse JSON securely" >&2
+  echo "Install jq: brew install jq (macOS) or apt-get install jq (Ubuntu)" >&2
+  exit 0
+fi
+
 # Read JSON input from stdin
 input=$(cat)
 
-# Extract the file path from the tool input
+# Validate JSON input before parsing
+# This prevents injection attacks from malformed JSON
+if ! echo "$input" | jq empty 2>/dev/null; then
+  echo "Warning: Invalid JSON input received in biome-check hook" >&2
+  exit 0
+fi
+
+# Extract the file path from the tool input using jq (secure JSON parser)
 # For Write tool: tool_input.file_path
 # For Edit tool: tool_input.file_path
-file_path=$(echo "$input" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/"file_path"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+# Using jq with -r (raw output) and // empty (default to empty if field missing)
+file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 
 # If no file path found, exit gracefully
 if [ -z "$file_path" ]; then

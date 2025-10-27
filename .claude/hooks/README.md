@@ -229,6 +229,119 @@ Typical: ~2-5s with caching
 
 ---
 
+## Security
+
+### JSON Parsing with jq
+
+Both `biome-check.sh` and `type-check.sh` use **jq** (a proper JSON parser) instead of grep/sed for parsing JSON input. This is a critical security measure that prevents injection attacks.
+
+#### Why jq Instead of grep/sed?
+
+**The Problem:**
+```bash
+# ❌ VULNERABLE - DO NOT USE
+file_path=$(echo "$input" | grep -o '"file_path"[[:space:]]*:[[:space:]]*"[^"]*"')
+```
+
+This approach is vulnerable because:
+1. **Grep/sed work on text patterns, not data structure** - They don't understand JSON syntax
+2. **Shell metacharacters in JSON can be exploited** - Quotes, semicolons, backticks can break out
+3. **No validation of JSON structure** - Malformed JSON can cause unexpected behavior
+
+**Example Attack:**
+```json
+{
+  "tool_input": {
+    "file_path": "test.ts\"; rm -rf /tmp/important; echo \""
+  }
+}
+```
+
+If parsed with grep/sed and used without proper quoting, this could execute arbitrary commands.
+
+**The Solution:**
+```bash
+# ✅ SECURE - Uses jq
+# Step 1: Validate JSON structure
+if ! echo "$input" | jq empty 2>/dev/null; then
+  echo "Warning: Invalid JSON input" >&2
+  exit 0
+fi
+
+# Step 2: Extract field safely
+file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+```
+
+#### Security Features of Our Implementation
+
+1. **JSON Validation**: Checks if input is valid JSON before parsing
+   ```bash
+   if ! echo "$input" | jq empty 2>/dev/null; then
+     echo "Warning: Invalid JSON input" >&2
+     exit 0
+   fi
+   ```
+
+2. **Safe Field Extraction**: Uses jq's `-r` flag (raw output) and `// empty` (safe default)
+   ```bash
+   file_path=$(echo "$input" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+   ```
+
+3. **Proper Quoting**: All variable expansions are properly quoted
+   ```bash
+   if [ -z "$file_path" ]; then  # Properly quoted
+     exit 0
+   fi
+   ```
+
+4. **Error Suppression**: Redirects jq errors to `/dev/null` to avoid leaking sensitive info
+   ```bash
+   jq -r '.tool_input.file_path // empty' 2>/dev/null
+   ```
+
+#### Testing Security
+
+You can verify the security improvements by testing with malicious input:
+
+```bash
+# Test with injection attempt (should be safe)
+echo '{"tool_input": {"file_path": "test.ts\"; rm -rf /tmp/test; echo \""}}' | \
+  .claude/hooks/type-check.sh
+
+# Test with malformed JSON (should exit gracefully with warning)
+echo '{invalid json with "quotes"}' | .claude/hooks/type-check.sh
+
+# Test with missing field (should exit gracefully)
+echo '{"other_field": "value"}' | .claude/hooks/type-check.sh
+```
+
+All tests should exit cleanly without executing any unintended commands.
+
+#### Requirements
+
+**jq must be installed** for hooks to work securely:
+
+```bash
+# macOS
+brew install jq
+
+# Ubuntu/Debian
+sudo apt-get install jq
+
+# RHEL/CentOS/Fedora
+sudo dnf install jq
+
+# Verify installation
+jq --version  # Should show jq-1.6 or higher
+```
+
+#### Related Security Issues
+
+- **vc-7**: Initial security fix for JSON parsing vulnerability (this implementation)
+- See [PR #419 Code Review](../../docs/follow-up-pr-419-review.md) for detailed security analysis
+
+---
+
 ## Related Documentation
 
 - [Claude Code Hooks Documentation](https://docs.claude.com/en/docs/claude-code/hooks)
