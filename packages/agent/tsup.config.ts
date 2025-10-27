@@ -1,10 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
+  entry: ['src/index.ts', 'src/client.ts'],
   format: ['esm', 'cjs'],
   dts: {
-    entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
+    entry: ['src/index.ts', 'src/client.ts'],
     compilerOptions: {
       composite: false,
     },
@@ -13,4 +13,5 @@ export default defineConfig({
   clean: true,
   sourcemap: false,
   treeshake: true,
+  splitting: false, // Disable code splitting to bundle everything together
 });
