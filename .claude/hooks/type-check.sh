@@ -10,6 +10,13 @@ set -euo pipefail
 # Set project directory (CLAUDE_PROJECT_DIR is set by Claude Code, fallback to PWD for testing)
 PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$PWD}"
 
+# Check for jq dependency (required for secure JSON parsing)
+if ! command -v jq >/dev/null 2>&1; then
+  echo "Warning: jq not installed - cannot parse JSON securely" >&2
+  echo "Install jq: brew install jq (macOS) or apt-get install jq (Ubuntu)" >&2
+  exit 0
+fi
+
 # Read JSON input from stdin
 input=$(cat)
 
@@ -50,10 +57,14 @@ case "$file_path" in
     
     if [[ "$file_path" == *"/apps/"* ]]; then
       # Extract: apps/web or apps/desktop
-      package_path=$(echo "$file_path" | sed -n 's|.*/\(apps/[^/]*\)/.*|\1|p')
+      # Uses parameter expansion instead of sed for consistency with security improvements
+      temp="${file_path#*/apps/}"
+      package_path="apps/${temp%%/*}"
     elif [[ "$file_path" == *"/packages/"* ]]; then
       # Extract: packages/ui, packages/db, etc.
-      package_path=$(echo "$file_path" | sed -n 's|.*/\(packages/[^/]*\)/.*|\1|p')
+      # Uses parameter expansion instead of sed for consistency with security improvements
+      temp="${file_path#*/packages/}"
+      package_path="packages/${temp%%/*}"
     fi
     
     cd "$PROJECT_DIR"
