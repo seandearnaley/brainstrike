@@ -48,7 +48,8 @@
       "Bash(git rm:*)",
       "Bash(pnpm turbo run type-check:*)",
       "Bash(pnpm tsc:*)",
-      "mcp__plugin_codanna-cc_codanna-cc__semantic_search_with_context"
+      "mcp__plugin_codanna-cc_codanna-cc__semantic_search_with_context",
+      "Bash(node -e:*)"
     ],
     "deny": [],
     "ask": []
