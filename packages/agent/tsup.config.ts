@@ -1,10 +1,10 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
+  entry: ['src/index.ts', 'src/client.ts'],
   format: ['esm', 'cjs'],
   dts: {
-    entry: ['src/index.ts', 'src/client.ts', 'src/providers/types.ts'],
+    entry: ['src/index.ts', 'src/client.ts'],
     compilerOptions: {
       composite: false,
     },
@@ -12,5 +12,6 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: false,
-  treeshake: true,
+  splitting: false,
+  external: ['@brainstrike/types', 'mastra'],
 });

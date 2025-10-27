@@ -45,7 +45,18 @@
       "Bash(node scripts/validate-mermaid.mjs:*)",
       "Bash(node /Users/seandearnaley/Documents/GitHub/brainstrike/scripts/validate-mermaid.mjs:*)",
       "Bash(git mv:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(pnpm turbo run type-check:*)",
+      "Bash(pnpm tsc:*)",
+      "mcp__plugin_codanna-cc_codanna-cc__semantic_search_with_context",
+      "Bash(node -e:*)",
+      "mcp__firecrawl__firecrawl_search",
+      "mcp__firecrawl__firecrawl_scrape",
+      "Bash(test:*)",
+      "Bash(chmod:*)",
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/test-hooks.sh)",
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)",
+      "Bash(ls:*)"
     ],
     "deny": [],
     "ask": []
@@ -60,6 +71,11 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/biome-check.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/type-check.sh",
+            "timeout": 60
           }
         ]
       }

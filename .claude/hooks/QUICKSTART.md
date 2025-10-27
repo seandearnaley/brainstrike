@@ -1,8 +1,9 @@
-# Quick Start: Biome Hooks for Claude Code
+# Quick Start: Code Quality Hooks for Claude Code
 
 ## What was added
 
-✅ **Automatic code formatting and linting** using Biome after every file write or edit by Claude Code
+✅ **Automatic code formatting and linting** using Biome after every file write or edit  
+✅ **Automatic TypeScript type checking** to catch type errors immediately
 
 ## How to activate
 
@@ -21,7 +22,9 @@ In Claude Code, run:
 /hooks
 ```
 
-You should see the Biome hook listed under `PostToolUse` events.
+You should see both hooks listed under `PostToolUse` events:
+- `biome-check.sh` (timeout: 30s)
+- `type-check.sh` (timeout: 60s)
 
 ## How to use
 
@@ -39,13 +42,19 @@ Supported file types:
 
 ### See it in action
 
-Press `Ctrl+R` in Claude Code to toggle transcript mode and watch the hook execute:
+Press `Ctrl+R` in Claude Code to toggle transcript mode and watch the hooks execute:
 
 ```
 ✓ Biome check passed for my-component.tsx
+🔍 Type checking packages/ui...
+✓ Type check passed for ui
 ```
 
-## What it does
+Both hooks run **in parallel** for faster execution!
+
+## What the hooks do
+
+### Biome Hook (biome-check.sh)
 
 1. **Formats code** according to your `biome.json` configuration:
    - 2-space indentation
@@ -62,6 +71,22 @@ Press `Ctrl+R` in Claude Code to toggle transcript mode and watch the hook execu
    - If Biome can't fix an issue, it warns but doesn't stop
    - Check transcript mode (Ctrl+R) for details
 
+### TypeScript Hook (type-check.sh)
+
+1. **Detects package** automatically:
+   - Identifies which app/package the file belongs to
+   - Runs type check for that specific package
+
+2. **Checks types comprehensively**:
+   - Uses `pnpm turbo run type-check --filter=./package`
+   - Catches type errors across all files in package
+   - Leverages Turborepo caching for speed
+
+3. **Reports type errors** without blocking:
+   - Shows which package has type errors
+   - Provides command to see full details
+   - Doesn't interrupt Claude's workflow
+
 ## Example workflow
 
 ```
@@ -69,17 +94,22 @@ You: "Create a new React component called UserProfile"
 
 Claude Code:
 1. Writes file: apps/web/src/components/user-profile.tsx
-2. Hook automatically runs: pnpm biome check --write user-profile.tsx
-3. Code is formatted and linted
+2. Hooks automatically run in parallel:
+   - Biome: pnpm biome check --write user-profile.tsx
+   - TypeScript: pnpm turbo run type-check --filter=./apps/web
+3. Code is formatted, linted, and type-checked
 4. ✓ Biome check passed for user-profile.tsx
+5. ✓ Type check passed for web
 
 You: "Add a prop for the user's email"
 
 Claude Code:
 1. Edits file: user-profile.tsx
-2. Hook runs again automatically
-3. Changes are formatted
+2. Hooks run again automatically
+3. Changes are formatted, linted, and type-checked
 4. ✓ Biome check passed for user-profile.tsx
+5. 🔍 Type checking apps/web...
+6. ✓ Type check passed for web (0.1s - cached!)
 ```
 
 ## Troubleshooting
@@ -140,10 +170,19 @@ cat /tmp/test.ts
 
 ## Summary
 
-✅ Hook script created: `.claude/hooks/biome-check.sh`  
+✅ **Biome Hook** created: `.claude/hooks/biome-check.sh`  
+✅ **TypeScript Hook** created: `.claude/hooks/type-check.sh`  
 ✅ Configuration added: `.claude/settings.local.json`  
-✅ Documentation created: README, IMPLEMENTATION, QUICKSTART  
+✅ Documentation created: README, IMPLEMENTATION, QUICKSTART, TYPE-CHECK  
 ✅ Validation passed: Shell syntax ✓, JSON syntax ✓  
+✅ Both hooks run in parallel for optimal performance
+
+### What happens now
+
+Every time Claude Code writes or edits a file:
+1. ⚡ **Biome** formats and lints (0.5-2s)
+2. ⚡ **TypeScript** checks types (0.1-5s, with caching)
+3. 🎯 Both run **in parallel** → total ~2-5s typically
 
 **Next: Restart Claude Code and start coding!** 🚀
 

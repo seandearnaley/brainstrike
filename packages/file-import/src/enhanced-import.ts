@@ -548,7 +548,9 @@ async function attachHostedModelMetadata(
   }
 
   const definition = getProviderDefinition(supported);
-  const modelDefinition = definition.models.find((candidate) => candidate.id === modelId);
+  const modelDefinition = definition.models.find(
+    (candidate: ProviderModelDefinition) => candidate.id === modelId
+  );
 
   if (modelDefinition && isEmbeddingModelDefinition(modelDefinition)) {
     resolved.targetDimension = pickHostedTargetDimension(modelDefinition);

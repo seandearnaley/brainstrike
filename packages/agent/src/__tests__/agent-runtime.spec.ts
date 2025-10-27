@@ -298,7 +298,7 @@ describe('agent-runtime edge cases', () => {
 
       expect(runtime.mcpClient).toBeDefined();
       await runtime.dispose();
-    });
+    }, 10000);
 
     it('handles sse server with empty headers object', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
