@@ -71,7 +71,8 @@
       "Bash(for file in TEST-PERFORMANCE-INDEX.md ANALYSIS-SUMMARY.md test-performance-quick-reference.md test-performance-deep-analysis.md)",
       "Bash(do echo \"File: $file\")",
       "Bash(head:*)",
-      "WebFetch(domain:pglite.dev)"
+      "WebFetch(domain:pglite.dev)",
+      "Bash(gh pr create:*)"
     ],
     "deny": [],
     "ask": []
