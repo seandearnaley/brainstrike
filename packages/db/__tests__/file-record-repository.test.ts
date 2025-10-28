@@ -1,9 +1,9 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap';
+import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileRecord } from '../src/models/file-record';
 import { FileRecordRepository } from '../src/repositories/file-record-repository';
-import { wasmLoader } from '../src/wasm-loader';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
   const now = new Date().toISOString();
@@ -23,10 +23,11 @@ describe('FileRecordRepository', () => {
   let db: PGlite;
   let repo: FileRecordRepository;
 
+  // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://');
+    const dataDir = `/tmp/pglite-test-file-record-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
-    // Don't delete records - use unique IDs instead to avoid MultiXactId wraparound
     repo = new FileRecordRepository(db);
   });
 

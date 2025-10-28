@@ -41,7 +41,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(variables.colorBackground).toBeTruthy();
 
     // Light mode should have high lightness
-    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2], 10);
+    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2] ?? '0', 10);
     expect(lightness).toBeGreaterThan(90);
   });
 
@@ -70,7 +70,7 @@ test.describe('Theme CSS Consistency (E2E)', () => {
     expect(variables.colorBackground).toBeTruthy();
 
     // Dark mode should have low lightness
-    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2], 10);
+    const lightness = Number.parseInt(variables.bsBackground.split(' ')[2] ?? '0', 10);
     expect(lightness).toBeLessThan(20);
   });
 
@@ -86,9 +86,9 @@ test.describe('Theme CSS Consistency (E2E)', () => {
 
       const [hue, saturation, lightness] = background.split(' ');
       return {
-        hue: Number.parseInt(hue, 10),
-        saturation: Number.parseInt(saturation, 10),
-        lightness: Number.parseInt(lightness, 10),
+        hue: Number.parseInt(hue ?? '0', 10),
+        saturation: Number.parseInt(saturation ?? '0', 10),
+        lightness: Number.parseInt(lightness ?? '0', 10),
       };
     });
 
@@ -183,8 +183,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       // Our correct value: "222.2 84% 4.9%"
 
       const [hue, saturation] = background.split(' ');
-      const hueValue = Number.parseInt(hue, 10);
-      const satValue = Number.parseInt(saturation, 10);
+      const hueValue = Number.parseInt(hue ?? '0', 10);
+      const satValue = Number.parseInt(saturation ?? '0', 10);
 
       // Check if it has the old wrong values
       return hueValue === 240 && satValue === 10;
@@ -207,8 +207,8 @@ test.describe('Theme CSS Consistency (E2E)', () => {
       const background = styles.getPropertyValue('--bs-background').trim();
       const muted = styles.getPropertyValue('--bs-muted').trim();
 
-      const bgLightness = Number.parseInt(background.split(' ')[2], 10);
-      const mutedLightness = Number.parseInt(muted.split(' ')[2], 10);
+      const bgLightness = Number.parseInt(background.split(' ')[2] ?? '0', 10);
+      const mutedLightness = Number.parseInt(muted.split(' ')[2] ?? '0', 10);
 
       return Math.abs(bgLightness - mutedLightness);
     });

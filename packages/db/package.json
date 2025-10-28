@@ -30,7 +30,7 @@
   "dependencies": {
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
-    "@electric-sql/pglite": "^0.3.10",
+    "@electric-sql/pglite": "^0.3.11",
     "@langchain/textsplitters": "^0.1.0"
   },
   "peerDependencies": {

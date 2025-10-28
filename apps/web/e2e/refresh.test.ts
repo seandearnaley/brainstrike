@@ -38,9 +38,8 @@ test.describe('Refresh Workflow', () => {
       root.entries = async function* () {
         await new Promise((r) => setTimeout(r, 200)); // Increased delay for CI reliability
         for await (const item of origEntries()) {
-          // Yield original items without casting
-          // TypeScript lib.dom provides FileSystemHandle type in browser context
-          yield item as FileSystemHandle;
+          // Yield original items - they're already the correct tuple type [string, FileSystemHandle]
+          yield item;
         }
       };
 

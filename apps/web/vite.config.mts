@@ -12,7 +12,7 @@ import { defineConfig } from 'vitest/config';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = process.env['NODE_ENV'] === 'development';
 
 function copyFontsPlugin() {
   return {
@@ -91,9 +91,11 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
-    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(process.env.EMBED_QUEUE_ENABLED ?? 'false'),
+    'process.env.EMBED_QUEUE_ENABLED': JSON.stringify(
+      process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
+    ),
     'process.env.LOCAL_FIRST_DB': JSON.stringify(
-      process.env.LOCAL_FIRST_DB ?? process.env.EMBED_QUEUE_ENABLED ?? 'false'
+      process.env['LOCAL_FIRST_DB'] ?? process.env['EMBED_QUEUE_ENABLED'] ?? 'false'
     ),
     'process.browser': true,
     'process.version': '"v22.0.0"',
@@ -282,7 +284,7 @@ export default defineConfig({
 function devChatApiPlugin() {
   return {
     name: 'dev-chat-api',
-    async configureServer(server) {
+    async configureServer(server: import('vite').ViteDevServer) {
       server.middlewares.use(await createApiMiddleware('dev'));
     },
     async configurePreviewServer(server: import('vite').ViteDevServer) {

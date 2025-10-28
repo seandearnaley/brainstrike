@@ -24,7 +24,8 @@ export const recordMetric = (
 ): PerformanceMetric => {
   const metric = { name, value, threshold, unit, timestamp: Date.now() };
   // Only log in debug mode or when explicitly requested
-  const isDebug = globalThis.process?.env?.DEBUG || globalThis.process?.env?.PERFORMANCE_LOGGING;
+  const isDebug =
+    globalThis.process?.env?.['DEBUG'] || globalThis.process?.env?.['PERFORMANCE_LOGGING'];
   if (isDebug) {
     console.log(`📊 ${name}: ${value}${unit} (threshold: ${threshold}${unit})`);
   }
@@ -43,7 +44,8 @@ export const saveMetricsToFile = async (metrics: PerformanceMetric[]): Promise<v
     const filename = resolve(metricsDir, `metrics-${timestamp}.json`);
 
     await fs.writeFile(filename, JSON.stringify(metrics, null, 2));
-    const isDebug = globalThis.process?.env?.DEBUG || globalThis.process?.env?.PERFORMANCE_LOGGING;
+    const isDebug =
+      globalThis.process?.env?.['DEBUG'] || globalThis.process?.env?.['PERFORMANCE_LOGGING'];
     if (isDebug) {
       console.log(`📁 Metrics saved to: ${filename}`);
     }

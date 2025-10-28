@@ -53,6 +53,8 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
           const first = snapshots[0];
           const last = snapshots[snapshots.length - 1];
 
+          if (!first || !last) return { error: 'Missing snapshot data' };
+
           return {
             memoryGrowthMB: last.usedMB - first.usedMB,
             domNodeGrowth: last.domNodes - first.domNodes,
@@ -158,6 +160,7 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     for (let i = 1; i < analysis.snapshots.length; i++) {
       const prev = analysis.snapshots[i - 1];
       const curr = analysis.snapshots[i];
+      if (!prev || !curr) continue;
       const growthMB = curr.usedMB - prev.usedMB;
 
       if (Math.abs(growthMB) > 5) {
@@ -188,6 +191,7 @@ test.describe('Memory Profiling - Find Real Memory Growth Source', () => {
     for (let i = 1; i < analysis.snapshots.length; i++) {
       const prev = analysis.snapshots[i - 1];
       const curr = analysis.snapshots[i];
+      if (!prev || !curr) continue;
       const growth = curr.usedMB - prev.usedMB;
 
       if (growth > biggestJump.growth) {

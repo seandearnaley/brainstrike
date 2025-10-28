@@ -10,13 +10,18 @@ describe('Migration System Integration', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
+  // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
+  // Note: Don't run app migrations - tests will run them as part of the test
   beforeEach(async () => {
-    db = await wasmLoader.createPGlite('memory://migration-integration');
+    const dataDir = `/tmp/pglite-test-migration-integration-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
   });
 
   afterEach(async () => {
-    await db.close();
+    if (db) {
+      await db.close();
+    }
   });
 
   describe('full migration workflow', () => {

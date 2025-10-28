@@ -53,9 +53,9 @@ export interface PerformanceMemory {
 // Extend global interfaces
 declare global {
   interface Window {
-    __memoryProfiler?: MemoryProfiler;
-    __renderTracker?: RenderTracker;
-    gc?: () => void;
+    __memoryProfiler?: MemoryProfiler | undefined;
+    __renderTracker?: RenderTracker | undefined;
+    gc?: (() => void) | undefined;
   }
 
   interface Performance {

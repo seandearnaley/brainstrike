@@ -7,7 +7,7 @@ test.describe('Assistant panel (assistant-ui default)', () => {
     const response = await request.get('/api/assistant/status');
     const payload = (await response.json()) as { enabled?: boolean };
     if (!payload.enabled) {
-      testInfo.skip('Assistant disabled (missing API key)');
+      testInfo.skip(true, 'Assistant disabled (missing API key)');
     }
   });
 

@@ -54,9 +54,26 @@
       "mcp__firecrawl__firecrawl_scrape",
       "Bash(test:*)",
       "Bash(chmod:*)",
-      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/test-hooks.sh)",
-      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)",
-      "Bash(ls:*)"
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/scripts/test-hooks.sh)",
+      "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/scripts/type-check.sh)",
+      "Bash(ls:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(bd quickstart:*)",
+      "Bash(bd ready:*)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(bd create:*)",
+      "Bash(bd dep:*)",
+      "Bash(bd show:*)",
+      "Bash(bd list:*)",
+      "Bash(xargs -I {} bash -c \"echo ''''=== Mocks in {} ==='''' && grep -c ''''vi\\.mock'''' {}\")",
+      "Bash(xargs -I {} bash -c \"echo ''''=== {} ==='''' && head -20 {}\")",
+      "Bash(for file in TEST-PERFORMANCE-INDEX.md ANALYSIS-SUMMARY.md test-performance-quick-reference.md test-performance-deep-analysis.md)",
+      "Bash(do echo \"File: $file\")",
+      "Bash(head:*)",
+      "WebFetch(domain:pglite.dev)",
+      "Bash(gh pr create:*)",
+      "Bash(cut:*)"
     ],
     "deny": [],
     "ask": []
@@ -69,12 +86,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/biome-check.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/biome-check.sh",
             "timeout": 30
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/type-check.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/type-check.sh",
             "timeout": 60
           }
         ]

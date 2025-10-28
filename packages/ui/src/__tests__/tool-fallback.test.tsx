@@ -5,11 +5,15 @@ import { ToolFallback } from '../assistant-ui-panel/tool-fallback';
 
 describe('ToolFallback', () => {
   const mockBaseProps = {
+    type: 'tool-call' as const,
+    toolCallId: 'test-call-id',
+    toolName: 'testTool',
+    args: { input: 'test' },
+    argsText: '{"input":"test"}',
     part: {},
     status: { type: 'complete' as const },
-    toolName: 'testTool',
-    argsText: '{"input":"test"}',
     addResult: () => {},
+    resume: () => {},
   };
 
   describe('Running State', () => {
@@ -94,6 +98,7 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
+            reason: 'error',
             error: 'Connection failed',
           }}
         />
@@ -109,6 +114,7 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
+            reason: 'error',
             error: 'Not connected',
           }}
         />
@@ -123,6 +129,7 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
+            reason: 'error',
             error: { code: 500 },
           }}
           result="Database connection failed"
@@ -140,12 +147,12 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
-            reason: 'unknown',
+            reason: 'other',
           }}
         />
       );
 
-      expect(screen.getByText(/Tool incomplete: unknown/)).toBeInTheDocument();
+      expect(screen.getByText(/Tool incomplete: other/)).toBeInTheDocument();
     });
 
     it('applies error styling', () => {
@@ -154,6 +161,7 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
+            reason: 'error',
             error: 'Test error',
           }}
         />
@@ -171,6 +179,7 @@ describe('ToolFallback', () => {
           {...mockBaseProps}
           status={{
             type: 'incomplete',
+            reason: 'error',
             error: 'Failed to execute',
           }}
           argsText='{"param":"value"}'

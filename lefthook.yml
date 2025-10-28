@@ -8,6 +8,12 @@ pre-commit:
       # if you want to automatically apply safe fixes, uncomment the next two lines and comment the line above:
       # run: pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true --colors=off {staged_files}
       # stage_fixed: true
+    
+    type-check:
+      # Only check packages with staged TypeScript files (canonical pattern)
+      # Uses git diff to find changed packages, then runs type-check only on those
+      glob: "*.{ts,tsx,mts,cts}"
+      run: pnpm turbo run type-check --filter="[HEAD]"
 
 commit-msg:
   commands:
