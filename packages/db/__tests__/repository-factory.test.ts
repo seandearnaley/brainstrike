@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { migrate } from '../src/migrations/bootstrap.js';
 import { ElectronFileRecordRepository } from '../src/repositories/electron-file-record-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
 import {
@@ -7,11 +8,23 @@ import {
   type ElectronDbAPI,
   isPGlite,
 } from '../src/repositories/repository-factory.js';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('Repository Factory', () => {
+  let db: PGlite | undefined;
+
+  afterEach(async () => {
+    if (db) {
+      await db.close();
+      db = undefined;
+    }
+  });
+
   describe('isPGlite type guard', () => {
-    it('should correctly identify PGlite instances', () => {
-      const db = new PGlite('memory://');
+    it('should correctly identify PGlite instances', async () => {
+      const dataDir = `/tmp/pglite-test-repository-factory-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      db = await wasmLoader.createPGlite(dataDir);
+      await migrate(db);
       expect(isPGlite(db)).toBe(true);
     });
 

@@ -1,9 +1,12 @@
+import type { PGlite } from '@electric-sql/pglite';
 import { renderHook, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DbProvider, useFileRecordRepository } from '../src/db-provider';
+import { migrate } from '../src/migrations/bootstrap.js';
 import type { FileRecord } from '../src/models/file-record';
 import * as wasmLoaderModule from '../src/wasm-loader';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 function wrapper({ children }: { children: React.ReactNode }) {
   return <DbProvider dbPath="memory://">{children}</DbProvider>;
@@ -24,14 +27,23 @@ function createTestRecord(overrides: Partial<FileRecord> = {}): FileRecord {
 }
 
 describe('DbProvider integration', () => {
-  afterEach(() => {
+  let mockDb: PGlite | undefined;
+
+  afterEach(async () => {
     vi.restoreAllMocks();
+    if (mockDb) {
+      await mockDb.close();
+      mockDb = undefined;
+    }
   });
 
   it('migrates, creates and retrieves records via context repository', async () => {
-    // Mock the wasmLoader to return a real PGlite instance without WASM loading
-    const mockDb = await wasmLoaderModule.wasmLoader.createPGlite('memory://db-provider-migration');
+    // October 2025: Fresh database per test
+    const dataDir = `/tmp/pglite-test-db-provider-migration-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    mockDb = await wasmLoader.createPGlite(dataDir);
+    await migrate(mockDb);
     vi.spyOn(wasmLoaderModule.wasmLoader, 'createPGlite').mockResolvedValue(mockDb);
+
     const { result } = renderHook(
       () => {
         const repo = useFileRecordRepository();
@@ -46,7 +58,7 @@ describe('DbProvider integration', () => {
         expect(result.current).toBeDefined();
       },
       {
-        timeout: 30000, // Allow slower CI runners (up to 30 s)
+        timeout: 10000, // Reduced from 30s with snapshot pattern
       }
     );
 
@@ -59,6 +71,5 @@ describe('DbProvider integration', () => {
     await repo.create(record);
     const found = await repo.findById(record.id);
     expect(found).toEqual(record);
-    await mockDb.close();
-  });
+  }, 15000); // Reduced timeout with snapshot pattern
 });

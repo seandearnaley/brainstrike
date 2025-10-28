@@ -19,9 +19,10 @@ describe('FileChunkRepository', () => {
   let repository: FileChunkRepository;
   let fileRepository: FileRecordRepository;
 
+  // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   beforeEach(async () => {
-    // Create a fresh in-memory database for each test
-    db = await wasmLoader.createPGlite('memory://file-chunk-repo');
+    const dataDir = `/tmp/pglite-test-file-chunk-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    db = await wasmLoader.createPGlite(dataDir);
     await migrate(db);
     repository = new FileChunkRepository(db);
     fileRepository = new FileRecordRepository(db);
@@ -51,7 +52,9 @@ describe('FileChunkRepository', () => {
   });
 
   afterEach(async () => {
-    await db.close();
+    if (db) {
+      await db.close();
+    }
   });
 
   describe('insert', () => {

@@ -1,6 +1,7 @@
-import { PGlite } from '@electric-sql/pglite';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PGlite } from '@electric-sql/pglite';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Migration, MigrationRunner } from '../src/migrations/migration-runner.js';
+import { wasmLoader } from '../src/wasm-loader.js';
 
 describe('MigrationRunner', () => {
   let db: PGlite;
@@ -27,11 +28,19 @@ describe('MigrationRunner', () => {
     // No down migration - testing that rollback is optional
   };
 
+  // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
+  // Note: Don't run app migrations, just initialize the migration tracking table
   beforeEach(async () => {
-    // Use basic PGlite without extensions to avoid pgvector dependency in tests
-    db = new PGlite('memory://');
+    const dataDir = `/tmp/pglite-test-migration-runner-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
     await runner.initialize();
+  });
+
+  afterEach(async () => {
+    if (db) {
+      await db.close();
+    }
   });
 
   describe('initialization', () => {
