@@ -29,7 +29,7 @@
     "start": "pnpm run build && node --enable-source-maps dist/cli.js",
     "test": "vitest run",
     "test:watch": "vitest --watch",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "dependencies": {
     "@brainstrike/queue": "workspace:*",

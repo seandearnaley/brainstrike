@@ -11,7 +11,7 @@
     "start": "vite preview --port 8080 --host",
     "lint": "pnpm run --filter brainstrike lint",
     "format": "biome format --write .",
-    "type-check": "tsc --build --force && tsc --noEmit",
+    "type-check": "tsc --build --force && tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
