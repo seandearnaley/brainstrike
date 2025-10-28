@@ -243,13 +243,7 @@ describe('AssistantUiPanel model picker', () => {
       })),
     }));
 
-    render(
-      <AssistantUiPanel
-        providerGroups={noModelsGroups}
-        selectedProvider={null}
-        selectedModel={undefined}
-      />
-    );
+    render(<AssistantUiPanel providerGroups={noModelsGroups} />);
 
     expect(screen.getByText('Select a provider and model to start chatting.')).toBeInTheDocument();
     const trigger = screen.getByTestId('assistant-model-dropdown');

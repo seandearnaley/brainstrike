@@ -75,7 +75,7 @@ describe('chat route schema', () => {
 
     // ensure parser passes
     const parsed = __parseChatBodyForTests(body);
-    expect(parsed.messages[0].role).toBe('user');
+    expect(parsed.messages[0]?.role).toBe('user');
 
     streamMock.mockResolvedValue(
       createStream({ type: 'text-delta', value: 'Hello from mock stream' })
@@ -91,14 +91,15 @@ describe('chat route schema', () => {
     const text = await res.text();
     // should contain newline-delimited JSON with at least one chunk
     const firstLine = text.split('\n').filter(Boolean)[0];
-    const chunk = JSON.parse(firstLine);
+    expect(firstLine).toBeDefined();
+    const chunk = JSON.parse(firstLine ?? '{}');
     expect(['tool-event', 'text-delta']).toContain(chunk.type);
   });
 
   it('returns 503 when assistant provider key is missing', async () => {
-    process.env.OPENAI_API_KEY = '';
-    process.env.BRAINSTRIKE_OPENAI_API_KEY = '';
-    process.env.BS_OPENAI_API_KEY = '';
+    process.env['OPENAI_API_KEY'] = '';
+    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = '';
+    process.env['BS_OPENAI_API_KEY'] = '';
 
     const body = {
       messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'hello' }] }],

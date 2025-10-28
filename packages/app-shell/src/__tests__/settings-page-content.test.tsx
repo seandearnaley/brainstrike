@@ -19,13 +19,18 @@ describe('SettingsPageContent', () => {
     window.location.hash = '';
   });
 
-  const makeCategory = (id: string, title: string, description?: string): SettingsCategory => ({
-    id,
-    title,
-    description,
-    keywords: [title.toLowerCase()],
-    render: () => <div data-testid={`category-${id}`}>{title}</div>,
-  });
+  const makeCategory = (id: string, title: string, description?: string): SettingsCategory => {
+    const category: SettingsCategory = {
+      id,
+      title,
+      keywords: [title.toLowerCase()],
+      render: () => <div data-testid={`category-${id}`}>{title}</div>,
+    };
+    if (description !== undefined) {
+      category.description = description;
+    }
+    return category;
+  };
 
   it('renders category navigation with appearance selected by default', () => {
     render(

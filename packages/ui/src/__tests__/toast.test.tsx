@@ -13,8 +13,9 @@ import {
 
 // Mock hasPointerCapture
 beforeAll(() => {
-  // @ts-expect-error - we need to mock this for userEvent
-  Element.prototype.hasPointerCapture = () => false;
+  // We need to mock this for userEvent
+  // biome-ignore lint/suspicious/noExplicitAny: mocking DOM API for tests
+  (Element.prototype as any).hasPointerCapture = () => false;
 });
 
 const TestProvider = ({ children }: { children: React.ReactNode }) => (

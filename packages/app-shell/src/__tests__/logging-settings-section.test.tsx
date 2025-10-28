@@ -227,7 +227,8 @@ describe('LoggingSettingsSection', () => {
 
     await waitFor(() => expect(onCommit).toHaveBeenCalledTimes(2));
 
-    rejectFirst?.(new Error('simulated failure'));
+    // rejectFirst is guaranteed to be set after the first call to onCommit
+    rejectFirst!(new Error('simulated failure'));
 
     await waitFor(() => expect(toastSpy).toHaveBeenCalledTimes(1));
     const state = useLoggingPreferencesStore.getState().preferences;

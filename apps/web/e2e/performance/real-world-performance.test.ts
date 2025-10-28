@@ -261,9 +261,13 @@ test.describe('Real-World Performance Validation', () => {
     // assertion on sustained growth across interactions, not module initialization.
     let largestJump = { size: 0, indexAfter: 0 };
     for (let i = 1; i < memoryReadings.length; i++) {
-      const delta = memoryReadings[i].used - memoryReadings[i - 1].used;
-      if (delta > largestJump.size) {
-        largestJump = { size: delta, indexAfter: i };
+      const curr = memoryReadings[i];
+      const prev = memoryReadings[i - 1];
+      if (curr && prev) {
+        const delta = curr.used - prev.used;
+        if (delta > largestJump.size) {
+          largestJump = { size: delta, indexAfter: i };
+        }
       }
     }
 

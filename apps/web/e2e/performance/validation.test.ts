@@ -78,8 +78,8 @@ test.describe('Performance Validation - Simple Tests', () => {
 
     // With our cache fixes, memory should be reasonable.
     // Use stricter threshold in CI and a slightly relaxed bound locally to reduce noise.
-    const isCI = !!process.env.CI || !!process.env.GITHUB_ACTIONS;
-    const localFirst = String(process.env.LOCAL_FIRST_DB ?? '').toLowerCase() === 'true';
+    const isCI = !!process.env['CI'] || !!process.env['GITHUB_ACTIONS'];
+    const localFirst = String(process.env['LOCAL_FIRST_DB'] ?? '').toLowerCase() === 'true';
     // Allow higher cap when local-first DB is enabled (WASM baseline memory)
     const memoryCapMB = localFirst ? (isCI ? 600 : 600) : isCI ? 300 : 320;
     expect(memoryUsage).toBeLessThan(memoryCapMB);

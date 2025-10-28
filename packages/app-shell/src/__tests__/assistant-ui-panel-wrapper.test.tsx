@@ -72,7 +72,7 @@ vi.mock('@brainstrike/agent/client', () => {
   const PROVIDER_DEFAULT_MODELS = SUPPORTED_PROVIDERS.reduce(
     (acc, provider) => {
       const models = PROVIDER_DEFINITIONS[provider].models;
-      const defaultModel = models.find((model) => model.default) ?? models[0];
+      const defaultModel = models.find((model) => 'default' in model && model.default) ?? models[0];
       acc[provider] = defaultModel.id;
       return acc;
     },
@@ -158,7 +158,7 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
             const provider = providers.find((p) => p.id === newProvider);
             if (provider) {
               const enabledModels = provider.models.filter((m) => m.enabled);
-              const defaultModel = enabledModels.find((m) => m.default);
+              const defaultModel = enabledModels.find((m) => 'default' in m && m.default);
               const modelToSelect = defaultModel ?? enabledModels[0];
               if (modelToSelect) {
                 onModelChange?.(`${newProvider}::${modelToSelect.id}`);
