@@ -56,7 +56,21 @@
       "Bash(chmod:*)",
       "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/test-hooks.sh)",
       "Bash(/Users/seandearnaley/Documents/GitHub/brainstrike/.claude/hooks/type-check.sh)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(gh pr edit:*)",
+      "Bash(bd quickstart:*)",
+      "Bash(bd ready:*)",
+      "Bash(find:*)",
+      "Bash(sort:*)",
+      "Bash(bd create:*)",
+      "Bash(bd dep:*)",
+      "Bash(bd show:*)",
+      "Bash(bd list:*)",
+      "Bash(xargs -I {} bash -c \"echo ''''=== Mocks in {} ==='''' && grep -c ''''vi\\.mock'''' {}\")",
+      "Bash(xargs -I {} bash -c \"echo ''''=== {} ==='''' && head -20 {}\")",
+      "Bash(for file in TEST-PERFORMANCE-INDEX.md ANALYSIS-SUMMARY.md test-performance-quick-reference.md test-performance-deep-analysis.md)",
+      "Bash(do echo \"File: $file\")",
+      "Bash(head:*)"
     ],
     "deny": [],
     "ask": []
