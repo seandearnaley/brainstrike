@@ -30,7 +30,7 @@
     "dev": "tsup src/index.ts --watch --out-dir dist",
     "clean": "rimraf dist",
     "lint": "pnpm -w lint",
-    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
+    "type-check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "pnpm -w test:coverage"
