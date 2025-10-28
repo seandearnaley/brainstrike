@@ -1350,7 +1350,7 @@ importers:
         version: 0.11.3(@assistant-ui/react@0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0)))(@types/react@19.2.2)(react@19.2.0)
       '@assistant-ui/react-markdown':
         specifier: ^0.11.1
-        version: 0.11.1(@assistant-ui/react@0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0)))(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        version: 0.11.3(@assistant-ui/react@0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0)))(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       '@assistant-ui/styles':
         specifier: ^0.2.3
         version: 0.2.3
@@ -1753,10 +1753,10 @@ packages:
       '@types/react':
         optional: true
 
-  '@assistant-ui/react-markdown@0.11.1':
-    resolution: {integrity: sha512-9VVtq8H8dbxY9vOfYxK4CcSF69cQS6chnvxFi4SThl/NpIQiS4UeEmSw066BJvfOsXiAeZGkQLt5RT86V6oThQ==}
+  '@assistant-ui/react-markdown@0.11.3':
+    resolution: {integrity: sha512-K/3i3EDurF/H1ASC7thGVIfq/4a8RXTwMruo6OLnUjdd/g3z55zze6Ice7nEAOYeUMEQF8x4Mqy1wQ+z7zXVpA==}
     peerDependencies:
-      '@assistant-ui/react': ^0.11.27
+      '@assistant-ui/react': ^0.11.34
       '@types/react': '*'
       react: ^18 || ^19 || ^19.0.0-rc
     peerDependenciesMeta:
@@ -11041,7 +11041,7 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.2.2
 
-  '@assistant-ui/react-markdown@0.11.1(@assistant-ui/react@0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0)))(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
+  '@assistant-ui/react-markdown@0.11.3(@assistant-ui/react@0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0)))(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)':
     dependencies:
       '@assistant-ui/react': 0.11.28(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(immer@10.2.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(use-sync-external-store@1.6.0(react@19.2.0))
       '@radix-ui/react-primitive': 2.1.3(@types/react-dom@19.2.1(@types/react@19.2.2))(@types/react@19.2.2)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -15131,7 +15131,7 @@ snapshots:
       sirv: 3.0.2
       tinyglobby: 0.2.15
       tinyrainbow: 2.0.0
-      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.7.0)(@vitest/ui@3.2.4)(happy-dom@19.0.2)(jiti@2.6.1)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.0)
+      vitest: 3.2.4(@edge-runtime/vm@3.2.0)(@types/debug@4.1.12)(@types/node@24.7.0)(@vitest/ui@3.2.4)(happy-dom@19.0.2)(jiti@1.21.7)(jsdom@27.0.0(postcss@8.5.6))(lightningcss@1.30.1)(terser@5.44.0)
 
   '@vitest/utils@3.2.4':
     dependencies:
