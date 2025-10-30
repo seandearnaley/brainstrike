@@ -1,11 +1,19 @@
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from '@playwright/test';
-import { FileExplorerPage } from './page-objects/file-explorer-page';
-import { HomePage } from './page-objects/home-page';
-import { type FileTree, mockBrowserApis } from './utils/mock-fs';
+import type { FileExplorerPage } from './page-objects/file-explorer-page';
+import {
+  bootstrapFileExplorer,
+  type ExplorerBootstrapOptions,
+  openExplorerSettings,
+  reloadExplorer,
+} from './utils/file-explorer-setup';
+import type { FileTree } from './utils/mock-fs';
 
 test.describe('File Explorer', () => {
-  test.beforeEach(async ({ page }) => {
-    const tree: FileTree = {
+  test.describe('core experience', () => {
+    let explorer: FileExplorerPage;
+
+    const defaultTree: FileTree = {
       'test.ts': null,
       'test2.ts': null,
       folder1: {
@@ -13,123 +21,316 @@ test.describe('File Explorer', () => {
       },
     };
 
-    await mockBrowserApis(page, 'test-root', tree);
+    test.beforeEach(async ({ page }) => {
+      explorer = await bootstrapFileExplorer(page, { tree: defaultTree });
+    });
 
-    const home = new HomePage(page);
-    const explorer = new FileExplorerPage(page);
+    test('should show initial empty state', async ({ page }) => {
+      await expect(explorer.noDirectoryText).toBeVisible();
+      await expect(explorer.selectRootButton).toBeVisible();
+      await expect(explorer.noFilesText).toBeVisible();
+      await expect(explorer.filterInput).not.toBeVisible();
+      await expect(page.getByText('No directory selected')).toBeVisible();
+      await expect(page.getByText('No files selected')).toBeVisible();
+    });
 
-    await home.goto();
+    test('should show file explorer configuration options', async ({ page }) => {
+      const dialog = await openExplorerSettings(page, explorer);
 
-    await expect(explorer.selectRootButton).toBeVisible({ timeout: 10000 });
-    await expect(explorer.noDirectoryText).toBeVisible({ timeout: 15000 });
-    await expect(explorer.noFilesText).toBeVisible({ timeout: 15000 });
+      await expect(
+        dialog.getByRole('heading', { name: 'File Explorer Configuration' })
+      ).toBeVisible();
+      await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
+      await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
+      await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
+      await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
+      await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
+      await expect(dialog.getByRole('switch', { name: 'Include Project Tree' })).toBeVisible();
+    });
+
+    test('should show action buttons in disabled state initially', async () => {
+      await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10000 });
+      await expect(explorer.downloadReportButton).toBeDisabled();
+      await expect(explorer.copyReportButton).toBeVisible();
+      await expect(explorer.copyReportButton).toBeDisabled();
+    });
+
+    test('should show selection counter with initial state', async ({ page }) => {
+      await expect(page.getByText('0/10')).toBeVisible();
+    });
+
+    test('should allow downloading a report with multiple file selections', async ({ page }) => {
+      await explorer.selectRoot();
+
+      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+      await expect(explorer.noDirectoryText).not.toBeVisible();
+
+      const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
+      const file2Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+
+      await expect(file1Checkbox).toBeVisible();
+      await file1Checkbox.click({ force: true });
+      await expect(file1Checkbox).toBeChecked();
+
+      await expect(file2Checkbox).toBeVisible();
+      await file2Checkbox.click({ force: true });
+      await expect(file2Checkbox).toBeChecked();
+
+      await expect(page.getByText('2/10')).toBeVisible();
+
+      await expect(explorer.downloadReportButton).toBeEnabled();
+
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        explorer.downloadReportButton.click(),
+      ]);
+
+      expect(download.suggestedFilename()).toMatch(/report/i);
+    });
   });
 
-  test('should show initial empty state', async ({ page }) => {
-    const explorer = new FileExplorerPage(page);
+  test.describe('filtering', () => {
+    interface FilterScenario {
+      title: string;
+      query: string;
+      expectedVisible: string[];
+      expectedHidden: string[];
+      before?: (ctx: { page: Page; explorer: FileExplorerPage }) => Promise<void>;
+    }
 
-    await expect(explorer.noDirectoryText).toBeVisible();
-    await expect(explorer.selectRootButton).toBeVisible();
-    await expect(explorer.noFilesText).toBeVisible();
+    const tree: FileTree = {
+      'Button.tsx': null,
+      'Button.test.tsx': null,
+      'utils.ts': null,
+      'utils.test.ts': null,
+      'config.json': null,
+      'package.json': null,
+      'legacy.js': null,
+      'OldComponent.jsx': null,
+      my_custom_modules: {
+        'some-package': {
+          'index.js': null,
+        },
+      },
+      my_custom_coverage: {
+        'lcov.info': null,
+      },
+    };
 
-    await expect(explorer.filterInput).not.toBeVisible();
+    const bootstrapOptions: ExplorerBootstrapOptions = {
+      tree,
+      projectName: 'test-project',
+      resetSettings: true,
+      clearStorageKeys: ['panelLayout.v1'],
+    };
+
+    let explorer: FileExplorerPage;
+
+    test.beforeEach(async ({ page }) => {
+      explorer = await bootstrapFileExplorer(page, bootstrapOptions);
+
+      await expect(page.getByText('No directory selected')).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText('No files selected')).toBeVisible({ timeout: 15000 });
+
+      await explorer.selectRoot();
+
+      await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
+      await expect(explorer.noDirectoryText).not.toBeVisible();
+      await expect(explorer.fileTree).toBeVisible();
+    });
+
+    const scenarios: FilterScenario[] = [
+      {
+        title: 'matches files by substring',
+        query: 'Button',
+        expectedVisible: ['Button.tsx', 'Button.test.tsx'],
+        expectedHidden: ['utils.ts', 'package.json'],
+      },
+      {
+        title: 'filters down to test files',
+        query: '.test',
+        expectedVisible: ['Button.test.tsx', 'utils.test.ts'],
+        expectedHidden: ['Button.tsx', 'utils.ts'],
+      },
+      {
+        title: 'supports negation syntax',
+        query: 'utils -test',
+        expectedVisible: ['utils.ts'],
+        expectedHidden: ['utils.test.ts', 'Button.tsx'],
+      },
+      {
+        title: 'clearing the filter restores the tree',
+        query: '',
+        expectedVisible: ['Button.tsx', 'utils.ts'],
+        expectedHidden: [],
+        before: async ({ explorer }) => {
+          await explorer.filterInput.fill('Button');
+          await expect(explorer.fileTree.getByText('Button.tsx')).toBeVisible();
+          await expect(explorer.fileTree.getByText('utils.ts')).not.toBeVisible();
+        },
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      test(scenario.title, async ({ page }) => {
+        if (scenario.before) {
+          await scenario.before({ page, explorer });
+        }
+
+        await explorer.filterInput.fill(scenario.query);
+
+        for (const fileName of scenario.expectedVisible) {
+          await expect(explorer.fileTree.getByText(fileName)).toBeVisible();
+        }
+
+        for (const fileName of scenario.expectedHidden) {
+          await expect(explorer.fileTree.getByText(fileName)).not.toBeVisible();
+        }
+      });
+    }
   });
 
-  test('should show file explorer configuration options', async ({ page }) => {
-    const explorer = new FileExplorerPage(page);
+  test.describe('settings persistence', () => {
+    interface SettingsScenario {
+      name: string;
+      tree: FileTree;
+      options?: Partial<ExplorerBootstrapOptions>;
+      execute: (ctx: {
+        page: Page;
+        explorer: FileExplorerPage;
+        openDialog: () => Promise<Locator>;
+      }) => Promise<void>;
+    }
 
-    await expect(explorer.openSettingsButton).toBeVisible();
-    await expect(explorer.openSettingsButton).toBeEnabled();
-    await explorer.openSettingsButton.click();
+    const settingsScenarios: SettingsScenario[] = [
+      {
+        name: 'persists updates to max selection count',
+        tree: { 'example.ts': null },
+        execute: async ({ page, openDialog }) => {
+          const dialog = await openDialog();
+          await dialog.getByLabel('Max Selection Count').fill('5');
+          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(dialog).not.toBeVisible();
 
-    // Wait for the configuration dialog to appear and check its title
-    // The dialog is a PopoverContent which renders a <dialog> element
-    const dialog = page.locator('dialog[aria-labelledby="config-title"]');
-    await expect(dialog).toBeVisible();
-    await expect(
-      dialog.getByRole('heading', { name: 'File Explorer Configuration' })
-    ).toBeVisible();
+          await reloadExplorer(page);
 
-    // Check for specific configuration options within the dialog
-    // MaxSelectionCountSetting renders a label "Max Selection Count"
-    await expect(dialog.getByLabel('Max Selection Count')).toBeVisible();
+          const reopened = await openDialog();
+          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('5');
+        },
+      },
+      {
+        name: 'clamps Folder Summary Threshold and Max Selection Count values',
+        tree: { 'a.ts': null, 'b.ts': null },
+        execute: async ({ page, openDialog }) => {
+          const dialog = await openDialog();
+          await dialog.getByLabel('Folder Summary Threshold').fill('-10');
+          await dialog.getByLabel('Max Selection Count').fill('0');
+          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(dialog).not.toBeVisible();
 
-    // FolderSummaryThresholdSetting renders a label "Folder Summary Threshold"
-    await expect(dialog.getByLabel('Folder Summary Threshold')).toBeVisible();
+          await reloadExplorer(page);
 
-    // FileExtensionFilter will contain input fields for filters.
-    // Corrected placeholders based on FileExtensionFilter.tsx (assuming useRegex is false by default)
-    await expect(dialog.getByPlaceholder('e.g. *.ts, src/**/*.js')).toBeVisible();
-    await expect(dialog.getByPlaceholder('e.g. *.test.js, node_modules/**')).toBeVisible();
+          const reopened = await openDialog();
+          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('0');
+          await expect(reopened.getByLabel('Max Selection Count')).toHaveValue('1');
 
-    // Check for UseRegexSetting (renders a switch with label "Use Regex")
-    await expect(dialog.getByRole('switch', { name: 'Use Regex' })).toBeVisible();
+          await reopened.getByLabel('Folder Summary Threshold').fill('999999');
+          await reopened.getByLabel('Max Selection Count').fill('5000');
+          await reopened.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(reopened).not.toBeVisible();
 
-    // Check for IncludeProjectTreeSetting (renders a switch with label "Include Project Tree")
-    await expect(dialog.getByRole('switch', { name: 'Include Project Tree' })).toBeVisible();
+          await reloadExplorer(page);
 
-    // Optional: Close the dialog to leave a clean state for other tests, though usually not necessary as Playwright isolates tests.
-    // await page.keyboard.press('Escape');
-    // await expect(dialog).not.toBeVisible();
-  });
+          const finalDialog = await openDialog();
+          await expect(finalDialog.getByLabel('Folder Summary Threshold')).toHaveValue('1000');
+          await expect(finalDialog.getByLabel('Max Selection Count')).toHaveValue('1000');
+        },
+      },
+      {
+        name: 'persists include/exclude filters and Folder Summary Threshold',
+        tree: {
+          src: {
+            'a.ts': null,
+          },
+        },
+        execute: async ({ page, openDialog }) => {
+          const dialog = await openDialog();
+          await dialog.getByLabel('Files to Include:').fill('*.foo, lib/**');
+          await dialog.getByLabel('Files to Exclude:').fill('node_modules/**, *.test.ts');
+          await dialog.getByLabel('Folder Summary Threshold').fill('7');
+          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(dialog).not.toBeVisible();
 
-  test('should show action buttons in disabled state initially', async ({ page }) => {
-    // beforeEach ensures key components are loaded.
-    // ActionButtons are lazy-loaded but should be present in the footer.
-    // We should wait for one of its known buttons to ensure the component itself is loaded.
-    const explorer = new FileExplorerPage(page);
+          await reloadExplorer(page);
 
-    await expect(explorer.downloadReportButton).toBeVisible({ timeout: 10000 });
-    await expect(explorer.downloadReportButton).toBeDisabled();
-    await expect(explorer.copyReportButton).toBeVisible();
-    await expect(explorer.copyReportButton).toBeDisabled();
-    // "Undo Last Action" button does not exist in ActionButtons.tsx
-    // await expect(page.getByRole('button', { name: 'Undo Last Action' })).toBeVisible();
-    // await expect(page.getByRole('button', { name: 'Undo Last Action' })).toBeDisabled();
-  });
+          const reopened = await openDialog();
+          await expect(reopened.getByLabel('Files to Include:')).toHaveValue('*.foo, lib/**');
+          await expect(reopened.getByLabel('Files to Exclude:')).toHaveValue(
+            'node_modules/**, *.test.ts'
+          );
+          await expect(reopened.getByLabel('Folder Summary Threshold')).toHaveValue('7');
+        },
+      },
+      {
+        name: 'persists Use Regex and Include Project Tree toggles',
+        tree: {
+          src: {
+            'component.tsx': null,
+          },
+        },
+        execute: async ({ page, openDialog }) => {
+          const dialog = await openDialog();
+          await dialog.getByLabel(/Use Regex/i).click();
+          await dialog.getByLabel('Include Project Tree').click();
+          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(dialog).not.toBeVisible();
 
-  test('should show selection counter with initial state', async ({ page }) => {
-    // beforeEach ensures FileExplorerToolbar (which contains SelectionCounter) is ready.
-    // SelectionCounter is part of FileExplorerToolbar, visible irrespective of root dir selection.
-    // It displays {selectedCount}/{maxSelectionCount}. The default max is 10 from DEFAULT_STATE.
-    await expect(page.getByText('0/10')).toBeVisible();
-  });
+          await reloadExplorer(page);
 
-  // This test might need significant adaptation if real file interactions are hard to mock/test in E2E.
-  test('should allow downloading a report with multiple file selections', async ({ page }) => {
-    // beforeEach ensures the main layout, Context Explorer heading, and Download button are visible.
+          const reopened = await openDialog();
+          await expect(reopened.getByLabel(/Use Regex/i)).toHaveAttribute('aria-checked', 'true');
+          await expect(reopened.getByLabel('Include Project Tree')).toHaveAttribute(
+            'aria-checked',
+            'false'
+          );
+        },
+      },
+      {
+        name: 'caps selections when Max Selection Count is reduced',
+        tree: { 'a.ts': null, 'b.ts': null },
+        execute: async ({ explorer, openDialog, page }) => {
+          const dialog = await openDialog();
+          await dialog.getByLabel('Max Selection Count').fill('1');
+          await dialog.getByRole('button', { name: 'Apply Settings' }).click();
+          await expect(dialog).not.toBeVisible();
 
-    const explorer = new FileExplorerPage(page);
+          await explorer.selectRoot();
 
-    await explorer.selectRoot();
+          const fileTree = explorer.fileTree;
+          const first = fileTree.getByRole('checkbox', { name: 'Select a.ts' });
+          const second = fileTree.getByRole('checkbox', { name: 'Select b.ts' });
 
-    await expect(explorer.filterInput).toBeVisible({ timeout: 10000 });
-    await expect(explorer.noDirectoryText).not.toBeVisible();
+          await first.click({ force: true });
+          await second.click({ force: true });
 
-    const file1Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test.ts' });
-    const file2Checkbox = explorer.fileTree.getByRole('checkbox', { name: 'Select test2.ts' });
+          await expect(page.getByText('1/1')).toBeVisible();
+        },
+      },
+    ];
 
-    await expect(file1Checkbox).toBeVisible();
-    await file1Checkbox.click({ force: true });
-    await expect(file1Checkbox).toBeChecked();
+    for (const scenario of settingsScenarios) {
+      test(scenario.name, async ({ page }) => {
+        const options: ExplorerBootstrapOptions = {
+          tree: scenario.tree,
+          resetSettings: true,
+          ...(scenario.options ?? {}),
+        };
 
-    await expect(file2Checkbox).toBeVisible();
-    await file2Checkbox.click({ force: true });
-    await expect(file2Checkbox).toBeChecked();
+        const explorer = await bootstrapFileExplorer(page, options);
+        const openDialog = () => openExplorerSettings(page, explorer);
 
-    // Verify the selection counter updates. The mock file system has 2 files + 1 nested, but we select 2 top-level.
-    // Max selection is 10 by default.
-    await expect(page.getByText('2/10')).toBeVisible();
-
-    await expect(explorer.downloadReportButton).toBeEnabled();
-
-    const [download] = await Promise.all([
-      page.waitForEvent('download'),
-      explorer.downloadReportButton.click(),
-    ]);
-
-    // Check if the downloaded file name contains "report" (case-insensitive)
-    // The actual name might be report.txt, report.zip, etc. depending on implementation.
-    expect(download.suggestedFilename()).toMatch(/report/i);
+        await scenario.execute({ page, explorer, openDialog });
+      });
+    }
   });
 });
