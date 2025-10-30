@@ -9,6 +9,10 @@ export default defineConfig({
   // Cast mitigates TS2769 type identity noise in some editors
   test: {
     ...testBase,
+    setupFiles: [
+      ...(testBase.setupFiles ?? []),
+      resolve(__dirname, './src/__tests__/setup/suppress-token-utils-warnings.ts'),
+    ],
     // Default to happy-dom for speed; jsdom-only suites should annotate at file top
     environment: 'happy-dom',
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
