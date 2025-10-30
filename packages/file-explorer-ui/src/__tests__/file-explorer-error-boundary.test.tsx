@@ -1,7 +1,7 @@
 import { ConcurrentLoadingError, FileContentError, PartialRefreshError } from '@brainstrike/types';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentPropsWithoutRef } from 'react';
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 
 const mockToast = vi.fn();
@@ -48,18 +48,17 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
 });
 
 describe('FileExplorerErrorBoundary', () => {
-  beforeAll(() => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-  });
+  const suppressConsoleNoise = () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    return () => {
+      errorSpy.mockRestore();
+      warnSpy.mockRestore();
+    };
+  };
 
   beforeEach(() => {
     mockToast.mockClear();
-    vi.clearAllMocks();
-  });
-
-  afterAll(() => {
-    vi.restoreAllMocks();
   });
 
   const ErrorThrowingComponent = ({ error }: { error: Error }) => {
@@ -69,11 +68,18 @@ describe('FileExplorerErrorBoundary', () => {
   test('renders specialized UI for FileContentError', () => {
     const errorMessage = 'File is too large';
     const filePath = '/path/to/large/file.txt';
-    render(
-      <FileExplorerErrorBoundary>
-        <ErrorThrowingComponent error={new FileContentError(errorMessage, filePath, 'TOO_LARGE')} />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary>
+          <ErrorThrowingComponent
+            error={new FileContentError(errorMessage, filePath, 'TOO_LARGE')}
+          />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
     expect(screen.getByText('File Content Error')).toBeInTheDocument();
     expect(screen.getByText('Retry Loading')).toBeInTheDocument();
     expect(screen.getByText('Skip File')).toBeInTheDocument();
@@ -83,11 +89,16 @@ describe('FileExplorerErrorBoundary', () => {
   test('renders specialized UI for ConcurrentLoadingError', () => {
     const errorMessage = 'Too many concurrent operations';
     const failedPaths = ['/path/to/file1.txt', '/path/to/file2.txt'];
-    render(
-      <FileExplorerErrorBoundary>
-        <ErrorThrowingComponent error={new ConcurrentLoadingError(errorMessage, failedPaths)} />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary>
+          <ErrorThrowingComponent error={new ConcurrentLoadingError(errorMessage, failedPaths)} />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
     expect(screen.getByText('Loading Error')).toBeInTheDocument();
     expect(screen.getByText('Retry with Fewer Concurrent Operations')).toBeInTheDocument();
     expect(screen.getByText(/Failed to load 2 files/)).toBeInTheDocument();
@@ -97,24 +108,34 @@ describe('FileExplorerErrorBoundary', () => {
     const errorMessage = 'Some operations failed';
     const successCount = 5;
     const failCount = 3;
-    render(
-      <FileExplorerErrorBoundary>
-        <ErrorThrowingComponent
-          error={new PartialRefreshError(errorMessage, successCount, failCount)}
-        />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary>
+          <ErrorThrowingComponent
+            error={new PartialRefreshError(errorMessage, successCount, failCount)}
+          />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
     expect(screen.getByText('Partial Refresh Error')).toBeInTheDocument();
     expect(screen.getByText('Retry Failed Operations')).toBeInTheDocument();
     expect(screen.getByText(/Refresh partially failed: 5 succeeded, 3 failed/)).toBeInTheDocument();
   });
 
   test('toggles error details visibility', () => {
-    render(
-      <FileExplorerErrorBoundary showDetails={true}>
-        <ErrorThrowingComponent error={new Error('Toggle error')} />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary showDetails={true}>
+          <ErrorThrowingComponent error={new Error('Toggle error')} />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
 
     const toggleButton = screen.getByRole('button', { name: /show details/i });
     expect(screen.queryByText('Error Details')).not.toBeInTheDocument();
@@ -137,11 +158,16 @@ describe('FileExplorerErrorBoundary', () => {
     // @ts-expect-error - allow assigning clipboard for test
     navigator.clipboard = { writeText };
 
-    render(
-      <FileExplorerErrorBoundary showDetails={true}>
-        <ErrorThrowingComponent error={new Error('Copy error')} />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary showDetails={true}>
+          <ErrorThrowingComponent error={new Error('Copy error')} />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
 
     await act(async () => {
       fireEvent.click(screen.getByText('Copy Details'));
@@ -157,11 +183,16 @@ describe('FileExplorerErrorBoundary', () => {
   });
 
   test('renders generic error message for unknown error', () => {
-    render(
-      <FileExplorerErrorBoundary>
-        <ErrorThrowingComponent error={new Error('Unknown')} />
-      </FileExplorerErrorBoundary>
-    );
+    const restoreConsole = suppressConsoleNoise();
+    try {
+      render(
+        <FileExplorerErrorBoundary>
+          <ErrorThrowingComponent error={new Error('Unknown')} />
+        </FileExplorerErrorBoundary>
+      );
+    } finally {
+      restoreConsole();
+    }
     expect(screen.getByText('Error')).toBeInTheDocument();
     expect(screen.getByText('Unknown')).toBeInTheDocument();
   });

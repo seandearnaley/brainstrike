@@ -1,5 +1,5 @@
 import type { UndoableActionOptions } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileExplorerMiddlePanelTabbed } from '../file-explorer-middle-panel-tabbed';
@@ -45,6 +45,8 @@ const TestWrapper: React.FC<{
 describe('FileExplorerMiddlePanelTabbed', () => {
   let useFileExplorer: typeof import('../use-file-explorer-context').useFileExplorer;
   let useSelectionManager: typeof import('../use-selection-manager-context').useSelectionManager;
+  const originalConsoleWarn = console.warn;
+  let consoleWarnSpy: ReturnType<typeof vi.spyOn> | undefined;
 
   beforeAll(async () => {
     const fileExplorerModule = await import('../use-file-explorer-context');
@@ -52,6 +54,13 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     useFileExplorer = fileExplorerModule.useFileExplorer;
     useSelectionManager = selectionManagerModule.useSelectionManager;
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      const [message] = args;
+      if (typeof message === 'string' && message.includes('[token-utils]')) {
+        return;
+      }
+      originalConsoleWarn(...args);
+    });
   });
 
   beforeEach(async () => {
@@ -75,20 +84,29 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     const utilsModule = await import('@brainstrike/utils');
     vi.spyOn(utilsModule, 'supportsAccurateTokenCounting').mockResolvedValue(true);
+    vi.spyOn(utilsModule, 'countTokensAccurate').mockResolvedValue(0);
+    vi.spyOn(utilsModule, 'countTokensHeuristic').mockImplementation((text: string) =>
+      Math.ceil(text.length / 4)
+    );
   });
 
-  it('should render the component structure', () => {
+  afterAll(() => {
+    consoleWarnSpy?.mockRestore();
+  });
+
+  it('should render the component structure', async () => {
     render(
       <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
       </TestWrapper>
     );
 
+    await screen.findByTestId('preview-panel');
     expect(screen.getByTestId('file-explorer-header')).toBeInTheDocument();
     expect(screen.getByTestId('preview-panel')).toBeInTheDocument();
   });
 
-  it('should pass selected files to preview panel', () => {
+  it('should pass selected files to preview panel', async () => {
     const selectedFiles = new Set([
       'folder1|@|file1.ts',
       'folder2|@|file2.js',
@@ -109,7 +127,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
-    expect(screen.getByText('Selected files: 3')).toBeInTheDocument();
+    expect(await screen.findByText('Selected files: 3')).toBeInTheDocument();
   });
 
   it('should handle file clicks with context provider', async () => {
@@ -128,7 +146,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
-    const openButton = screen.getByText('Open file1');
+    const openButton = await screen.findByText('Open file1');
     await user.click(openButton);
 
     expect(mockOpenFileInTab).toHaveBeenCalledWith('folder1|@|file1.ts');
@@ -171,6 +189,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
+    await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
     const props = calls[calls.length - 1]?.[0];
@@ -200,6 +219,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
+    await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
     const props = calls[calls.length - 1]?.[0];
@@ -216,6 +236,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
+    await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     const calls = PreviewPanel.mock.calls;
     expect(calls.length > 0).toBe(true);
     const props = calls[calls.length - 1]?.[0];
@@ -254,6 +275,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       </TestWrapper>
     );
 
+    await waitFor(() => expect(PreviewPanel).toHaveBeenCalled());
     // Get the performUndoableAction passed to preview panel
     const passedProps = PreviewPanel.mock.calls[0]?.[0];
     const performUndoableActionForPanel = passedProps?.performUndoableAction;
@@ -281,13 +303,14 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     );
   });
 
-  it('should have proper container structure', () => {
+  it('should have proper container structure', async () => {
     const { container } = render(
       <TestWrapper>
         <FileExplorerMiddlePanelTabbed />
       </TestWrapper>
     );
 
+    await screen.findByTestId('preview-panel');
     // Check for the main container
     const mainContainer = container.querySelector('.flex.flex-col.h-full.overflow-hidden');
     expect(mainContainer).toBeInTheDocument();
@@ -298,7 +321,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
     expect(contentArea).toHaveClass('bg-card/50');
   });
 
-  it('should render inside error boundary', () => {
+  it('should render inside error boundary', async () => {
     // This test ensures the component is wrapped in FileExplorerErrorBoundary
     // We can verify this by checking that errors are caught properly
 
@@ -312,11 +335,14 @@ describe('FileExplorerMiddlePanelTabbed', () => {
 
     // The error boundary should catch this and render an error UI instead of crashing
     try {
-      render(
-        <TestWrapper>
-          <FileExplorerMiddlePanelTabbed />
-        </TestWrapper>
-      );
+      await act(async () => {
+        render(
+          <TestWrapper>
+            <FileExplorerMiddlePanelTabbed />
+          </TestWrapper>
+        );
+        await Promise.resolve();
+      });
       // If we get here, the error boundary caught the error successfully
     } catch (error) {
       // If we get here, the error boundary failed to catch the error

@@ -1,384 +1,42 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PreviewPanel } from '../preview-panel';
 
-// Mock the use-preview-panel-state module
-vi.mock('../use-preview-panel-state', () => ({
-  usePreviewPanelState: vi.fn(),
-  formatTokenCount: (tokens: number) => {
-    if (tokens < 1000) return tokens.toString();
-    if (tokens < 1000000) return `${(tokens / 1000).toFixed(1)}K`;
-    return `${(tokens / 1000000).toFixed(1)}M`;
-  },
-}));
+type PreviewPanelMocksModule = typeof import('./__mocks__/preview-panel-mocks');
+
+const previewPanelMocksPromise = vi.hoisted(
+  async () => (await import('./__mocks__/preview-panel-mocks')) as PreviewPanelMocksModule
+);
+
+vi.mock('../use-preview-panel-state', async () => {
+  const { createUsePreviewPanelStateMock } = await previewPanelMocksPromise;
+  return createUsePreviewPanelStateMock();
+});
+
+vi.mock('@brainstrike/ui', async () => {
+  const { createUiModuleMock } = await previewPanelMocksPromise;
+  return createUiModuleMock();
+});
+
+vi.mock('@brainstrike/hooks', async () => {
+  const { createHooksModuleMock } = await previewPanelMocksPromise;
+  return createHooksModuleMock();
+});
+
+vi.mock('lucide-react', async () => {
+  const { createLucideModuleMock } = await previewPanelMocksPromise;
+  return createLucideModuleMock();
+});
 
 const mockUsePreviewPanelState = vi.mocked(
   await import('../use-preview-panel-state')
 ).usePreviewPanelState;
 
-// Mock UI component types
-interface MockBadgeProps {
-  children: React.ReactNode;
-  [key: string]: unknown;
-}
+const { resetPreviewPanelPaginationMockState } = await previewPanelMocksPromise;
 
-interface MockButtonProps {
-  children: React.ReactNode;
-  onClick?: () => void;
-  disabled?: boolean;
-  [key: string]: unknown;
-}
-
-interface MockCheckboxProps {
-  checked?: boolean;
-  onCheckedChange?: (checked: boolean) => void;
-  [key: string]: unknown;
-}
-
-interface MockProgressProps {
-  value?: number;
-  [key: string]: unknown;
-}
-
-// Mock UI components
-vi.mock('@brainstrike/ui', () => ({
-  Badge: ({ children, ...props }: MockBadgeProps) => (
-    <div data-testid="badge" {...props}>
-      {children}
-    </div>
-  ),
-  Button: ({ children, onClick, disabled, ...props }: MockButtonProps) => (
-    <button onClick={onClick} disabled={disabled} data-testid="button" {...props}>
-      {children}
-    </button>
-  ),
-  Checkbox: ({ checked, onCheckedChange, ...props }: MockCheckboxProps) => (
-    <input
-      type="checkbox"
-      checked={!!checked}
-      onChange={(e) => onCheckedChange?.(e.target.checked)}
-      data-testid="checkbox"
-      {...props}
-    />
-  ),
-  Progress: ({ value, ...props }: MockProgressProps) => (
-    <div data-testid="progress" data-value={value} {...props} />
-  ),
-  Popover: ({
-    children,
-    open,
-    onOpenChange,
-    ...props
-  }: {
-    children: React.ReactNode;
-    open?: boolean;
-    onOpenChange?: (open: boolean) => void;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="popover" data-open={open} {...props}>
-      {children}
-    </div>
-  ),
-  PopoverTrigger: ({
-    children,
-    asChild,
-    ...props
-  }: {
-    children: React.ReactNode;
-    asChild?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="popover-trigger" {...props}>
-      {children}
-    </div>
-  ),
-  PopoverContent: ({
-    children,
-    align,
-    className,
-    ...props
-  }: {
-    children: React.ReactNode;
-    align?: string;
-    className?: string;
-    [key: string]: unknown;
-  }) => (
-    <div data-testid="popover-content" data-align={align} className={className} {...props}>
-      {children}
-    </div>
-  ),
-  SortableTableHeader: ({
-    title,
-    onSort,
-    field,
-    sortField,
-    sortDirection,
-    className,
-    ...domProps
-  }: {
-    title: string;
-    onSort: (field: string) => void;
-    field: string;
-    sortField?: string;
-    sortDirection?: 'asc' | 'desc';
-    className?: string;
-    [key: string]: unknown;
-  }) => {
-    const [localSortField, setLocalSortField] = React.useState<string | undefined>(sortField);
-    const [localSortDirection, setLocalSortDirection] = React.useState<'asc' | 'desc'>(
-      sortDirection || 'asc'
-    );
-
-    const handleClick = () => {
-      if (localSortField === field) {
-        setLocalSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setLocalSortField(field);
-        setLocalSortDirection('asc');
-      }
-      onSort?.(field);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleClick();
-      }
-    };
-
-    return (
-      <th
-        aria-label={title}
-        data-testid="sortable-header"
-        onClick={handleClick}
-        onKeyDown={handleKeyDown}
-        className={className}
-        scope="col"
-        tabIndex={0}
-        {...domProps}
-      >
-        <div className="flex items-center gap-1">
-          {title}
-          {localSortField === field &&
-            (localSortDirection === 'asc' ? (
-              <div data-testid="arrow-up" />
-            ) : (
-              <div data-testid="arrow-down" />
-            ))}
-        </div>
-      </th>
-    );
-  },
-  TablePagination: ({
-    currentPage,
-    totalPages,
-    onPageChange,
-    totalItems,
-    pageInfo,
-    maxPageButtons,
-    ...domProps
-  }: {
-    currentPage: number;
-    totalPages: number;
-    onPageChange: (page: number) => void;
-    totalItems?: number;
-    pageInfo?: string;
-    maxPageButtons?: number;
-    [key: string]: unknown;
-  }) => {
-    const getPageNumbers = () => {
-      const maxButtons = maxPageButtons || 5;
-      const halfMax = Math.floor(maxButtons / 2);
-
-      if (totalPages <= maxButtons) {
-        return Array.from({ length: totalPages }, (_, i) => i);
-      }
-
-      if (currentPage < halfMax) {
-        return Array.from({ length: maxButtons }, (_, i) => i);
-      }
-
-      if (currentPage > totalPages - Math.ceil(maxButtons / 2) - 1) {
-        return Array.from({ length: maxButtons }, (_, i) => totalPages - maxButtons + i);
-      }
-
-      const startPage = currentPage - halfMax;
-      return Array.from({ length: maxButtons }, (_, i) => startPage + i);
-    };
-
-    return (
-      <div data-testid="table-pagination" {...domProps}>
-        <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage - 1)}
-          disabled={currentPage === 0}
-        >
-          Previous
-        </button>
-        <span>
-          Page {currentPage + 1} of {totalPages}
-          {pageInfo ? ` ${pageInfo}` : totalItems ? ` (${totalItems} total items)` : ''}
-        </span>
-        <div>
-          {getPageNumbers().map((pageNum) => (
-            <button
-              key={pageNum}
-              type="button"
-              onClick={() => onPageChange?.(pageNum)}
-              style={{ margin: '0 2px' }}
-            >
-              {pageNum + 1}
-            </button>
-          ))}
-        </div>
-        <button
-          type="button"
-          onClick={() => onPageChange?.(currentPage + 1)}
-          disabled={currentPage >= totalPages - 1}
-        >
-          Next
-        </button>
-      </div>
-    );
-  },
-  TableGroupHeader: ({
-    groupLabel,
-    onToggleCollapse,
-    onSelectionChange,
-    isCollapsed,
-    isGroupSelected,
-    isIndeterminate,
-    filesInGroup,
-    groupKey,
-    isFullySelected,
-    isPartiallySelected,
-    ...domProps
-  }: {
-    groupLabel: string;
-    onToggleCollapse: () => void;
-    onSelectionChange: (selected: boolean) => void;
-    isCollapsed?: boolean;
-    isGroupSelected?: boolean;
-    isIndeterminate?: boolean;
-    filesInGroup?: number;
-    groupKey?: string | number;
-    isFullySelected?: boolean;
-    isPartiallySelected?: boolean;
-    [key: string]: unknown;
-  }) => (
-    <tr data-testid="table-group-header" {...domProps}>
-      <td>
-        <input
-          type="checkbox"
-          onChange={(e) => onSelectionChange?.(e.target.checked)}
-          aria-label={`Select all files in group ${groupLabel}`}
-        />
-      </td>
-      <td>
-        <button
-          type="button"
-          onClick={onToggleCollapse}
-          aria-label={isCollapsed ? `Expand group ${groupLabel}` : `Collapse group ${groupLabel}`}
-          aria-expanded={!isCollapsed}
-        >
-          {groupLabel}
-        </button>
-      </td>
-    </tr>
-  ),
-}));
-
-// Mock hooks with React state - use shared state across renders
-let sharedPaginationState = { currentPage: 0, prevTotalPages: 0 };
-
-vi.mock('@brainstrike/hooks', () => {
-  const { useState } = require('react');
-
-  return {
-    usePagination: vi.fn((options: { totalItems: number; pageSize?: number }) => {
-      const pageSize = options.pageSize || 50;
-      const totalPages = Math.ceil(options.totalItems / pageSize);
-
-      // Use shared state that persists across mock calls
-      const [currentPage, setCurrentPage] = useState(sharedPaginationState.currentPage);
-
-      // Reset logic: if total pages changed and current page is now out of bounds, reset to page 0
-      if (totalPages !== sharedPaginationState.prevTotalPages) {
-        if (sharedPaginationState.currentPage >= totalPages && totalPages > 0) {
-          sharedPaginationState.currentPage = 0;
-        }
-        sharedPaginationState.prevTotalPages = totalPages;
-      }
-
-      // Update local state to match shared state
-      if (currentPage !== sharedPaginationState.currentPage) {
-        setCurrentPage(sharedPaginationState.currentPage);
-      }
-
-      const startIndex = currentPage * pageSize;
-      const endIndex = Math.min(startIndex + pageSize, options.totalItems);
-
-      const goToPage = vi.fn((page: number) => {
-        const newPage = Math.max(0, Math.min(page, totalPages - 1));
-        setCurrentPage(newPage);
-        sharedPaginationState.currentPage = newPage;
-      });
-
-      const goToNextPage = vi.fn(() => {
-        if (currentPage < totalPages - 1) {
-          const newPage = currentPage + 1;
-          setCurrentPage(newPage);
-          sharedPaginationState.currentPage = newPage;
-        }
-      });
-
-      const goToPreviousPage = vi.fn(() => {
-        if (currentPage > 0) {
-          const newPage = currentPage - 1;
-          setCurrentPage(newPage);
-          sharedPaginationState.currentPage = newPage;
-        }
-      });
-
-      const resetToFirstPage = vi.fn(() => {
-        setCurrentPage(0);
-        sharedPaginationState.currentPage = 0;
-      });
-
-      return {
-        currentPage,
-        totalPages,
-        startIndex,
-        endIndex,
-        goToPage,
-        goToNextPage,
-        goToPreviousPage,
-        resetToFirstPage,
-        isFirstPage: currentPage === 0,
-        isLastPage: currentPage >= totalPages - 1 || totalPages <= 1,
-      };
-    }),
-  };
-});
-
-// Reset shared state before each test
 beforeEach(() => {
-  sharedPaginationState = { currentPage: 0, prevTotalPages: 0 };
+  resetPreviewPanelPaginationMockState();
 });
-
-// Mock Lucide icons
-vi.mock('lucide-react', () => ({
-  Columns3: () => <div data-testid="columns3" />,
-  Download: () => <div data-testid="download" />,
-  FileText: () => <div data-testid="file-text" />,
-  FileX2: () => <div data-testid="file-x2" />,
-  FolderOpen: () => <div data-testid="folder-open" />,
-  Loader2: () => <div data-testid="loader" />,
-  CheckCircle2: () => <div data-testid="check" />,
-  AlertTriangle: () => <div data-testid="alert" />,
-  MinusCircle: () => <div data-testid="minus" />,
-}));
 
 describe('PreviewPanel', () => {
   const mockProps = {
