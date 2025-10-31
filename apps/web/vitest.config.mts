@@ -11,8 +11,16 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
+    testTimeout: 15000, // uiComponent timeout (getAdjustedTimeout not available in build context)
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'e2e/utils/**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
+    // Use threads pool with increased parallelization for better CPU utilization
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 8,
+      },
+    },
     // Ensure coverage only counts actual source files to avoid skew from configs/e2e utils.
     coverage: {
       enabled: coverageEnabled,

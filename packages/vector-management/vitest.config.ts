@@ -15,8 +15,7 @@ const poolConfig = {
   poolOptions: {
     forks: {
       minForks: 1,
-      maxForks: 1,
-      singleFork: true,
+      maxForks: 4,
       execArgv: ['--max-old-space-size=8192'],
     },
   },

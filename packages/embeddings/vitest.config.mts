@@ -41,9 +41,14 @@ export default defineConfig({
         'bin/**',
       ],
     },
-    // Keep memory bounded by using a single forked process for tests
+    // Use forks pool with parallelization for better performance
     pool: 'forks',
-    poolOptions: { forks: { singleFork: true } },
+    poolOptions: {
+      forks: {
+        minForks: 1,
+        maxForks: 4,
+      },
+    },
   },
   resolve: {
     alias: {
