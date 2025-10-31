@@ -1,6 +1,8 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 export default defineConfig({
   optimizeDeps: {
     include: ['@brainstrike/hooks', '@brainstrike/ui'],
@@ -13,6 +15,7 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     // Ensure coverage only counts actual source files to avoid skew from configs/e2e utils.
     coverage: {
+      enabled: coverageEnabled,
       provider: 'v8',
       reportsDirectory: './coverage',
       reporter: ['text', 'lcov', 'json'],

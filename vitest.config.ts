@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 // Root Vitest config for the monorepo.
 // Uses the modern `test.projects` API to aggregate package/app projects.
 // This replaces separate vitest.workspace.* files and avoids editor warnings.
@@ -14,6 +16,7 @@ export default defineConfig({
   test: {
     projects: ['packages/*', 'apps/*'],
     coverage: {
+      enabled: coverageEnabled,
       // Local aggregate coverage only. CI ignores this and relies on per‑package reporters.
       provider: 'v8',
       reportsDirectory: './coverage',

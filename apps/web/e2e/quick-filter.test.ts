@@ -40,19 +40,13 @@ test.describe('Quick Filter and Tree Expansion', () => {
       "Type to filter files... (e.g. 'test component -spec')"
     );
 
-    // Apply filter first
+    // Apply filter, expand all, and wait for filtered results to render
     await filterInput.fill('Button');
-    await page.waitForTimeout(1000); // Allow filter to take effect
-
-    // Then expand all to show filtered results
     await page.getByTestId('expand-all-button-small').click();
-    await page.waitForTimeout(1000); // Wait for expansion
-
-    // Wait for Button.tsx to be visible
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 5000 });
-
-    // Wait a bit more for the filter to fully process all files
-    await page.waitForTimeout(1500);
+    await expect
+      .poll(async () => fileTree.getByText('Button.tsx').count(), { timeout: 10_000 })
+      .toBeGreaterThan(0);
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
 
     // Debug: Let's see what files are actually visible
     const visibleFiles = await fileTree.locator('text=/\\.(tsx?|jsx?|css|md)$/').allTextContents();
@@ -73,20 +67,18 @@ test.describe('Quick Filter and Tree Expansion', () => {
 
     // Clear filter and test expand/collapse functionality
     await filterInput.fill('');
-    await page.waitForTimeout(500); // Wait for filter to clear
+    await expect.poll(async () => filterInput.inputValue()).toBe('');
 
     const expandAll = page.getByTestId('expand-all-button-small');
     await expandAll.click();
-    await page.waitForTimeout(500); // Wait for expansion
-    await expect(fileTree.getByText('Button.tsx')).toBeVisible();
-    await expect(fileTree.getByText('Input.tsx')).toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).toBeVisible();
+    await expect(fileTree.getByText('Button.tsx')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('Input.tsx')).toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('helpers.ts')).toBeVisible({ timeout: 10_000 });
 
     const collapseAll = page.getByTestId('collapse-all-button-small');
     await collapseAll.click();
-    await page.waitForTimeout(500); // Wait for collapse
-    await expect(fileTree.getByText('Button.tsx')).not.toBeVisible();
-    await expect(fileTree.getByText('Input.tsx')).not.toBeVisible();
-    await expect(fileTree.getByText('helpers.ts')).not.toBeVisible();
+    await expect(fileTree.getByText('Button.tsx').first()).not.toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('Input.tsx').first()).not.toBeVisible({ timeout: 10_000 });
+    await expect(fileTree.getByText('helpers.ts').first()).not.toBeVisible({ timeout: 10_000 });
   });
 });

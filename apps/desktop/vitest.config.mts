@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import { getAdjustedTimeout } from '../../packages/test-utils/src/test-timeouts';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 export default defineConfig({
   plugins: [react()],
   test: {
@@ -24,6 +26,7 @@ export default defineConfig({
     ],
     // Package-local coverage for reliability (root still consolidates)
     coverage: {
+      enabled: coverageEnabled,
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         '**/*.test.*',
