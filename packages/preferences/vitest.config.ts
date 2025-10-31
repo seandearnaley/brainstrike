@@ -13,8 +13,6 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: [],
-    // Disable isolation for fast unit tests to eliminate 50-200ms overhead per test
-    isolate: false,
     coverage: {
       enabled: coverageEnabled,
       provider: 'v8',

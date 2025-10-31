@@ -27,8 +27,6 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
-    // Disable isolation for fast unit tests to eliminate 50-200ms overhead per test
-    isolate: false,
     ...poolConfig,
     coverage: {
       enabled: coverageEnabled,
