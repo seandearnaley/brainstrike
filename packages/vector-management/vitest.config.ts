@@ -15,8 +15,7 @@ const poolConfig = {
   poolOptions: {
     forks: {
       minForks: 1,
-      maxForks: 1,
-      singleFork: true,
+      maxForks: 4,
       execArgv: ['--max-old-space-size=8192'],
     },
   },
@@ -28,6 +27,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['../test-utils/src/vitest.setup.ts', './src/__tests__/setup-mock-queue.tsx'],
     unstubGlobals: true,
+    // Disable isolation for fast unit tests to eliminate 50-200ms overhead per test
+    isolate: false,
     ...poolConfig,
     coverage: {
       enabled: coverageEnabled,

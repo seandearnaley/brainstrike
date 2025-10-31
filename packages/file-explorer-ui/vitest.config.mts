@@ -19,8 +19,8 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     // Switch to threads to reduce memory/startup overhead
     pool: 'threads',
-    // Keep isolation to avoid cross-file state until a deeper audit completes
-    isolate: true,
+    // Disable isolation for fast unit tests to eliminate 50-200ms overhead per test
+    isolate: false,
     testTimeout: 30000,
   } as InlineConfig,
   resolve: {
