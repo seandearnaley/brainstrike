@@ -20,7 +20,7 @@
     "src/inter"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -b .",
+    "build": "rm -rf dist && tsc -b . && cp -R src/inter dist/inter",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "clean": "rm -rf dist .tsbuildinfo",
     "lint": "pnpm run --dir=../.. lint",

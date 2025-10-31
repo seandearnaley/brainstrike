@@ -73,7 +73,8 @@
       "Bash(head:*)",
       "WebFetch(domain:pglite.dev)",
       "Bash(gh pr create:*)",
-      "Bash(cut:*)"
+      "Bash(cut:*)",
+      "Bash(bd rename-prefix:*)"
     ],
     "deny": [],
     "ask": []
