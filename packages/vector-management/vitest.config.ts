@@ -8,6 +8,8 @@ import { defineConfig } from 'vitest/config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 const poolConfig = {
   pool: 'forks' as const,
   poolOptions: {
@@ -28,7 +30,7 @@ export default defineConfig({
     unstubGlobals: true,
     ...poolConfig,
     coverage: {
-      enabled: (process.env['COVERAGE'] ?? '').toLowerCase() === 'true',
+      enabled: coverageEnabled,
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [

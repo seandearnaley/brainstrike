@@ -1,5 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 export default defineConfig({
   test: {
     environment: 'node',
@@ -8,6 +10,7 @@ export default defineConfig({
     include: ['*.test.ts', '*.test.tsx', '**/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
     coverage: {
+      enabled: coverageEnabled,
       exclude: [
         '**/*.test.ts',
         '**/*.test.tsx',

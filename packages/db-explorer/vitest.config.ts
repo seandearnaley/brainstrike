@@ -4,6 +4,8 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 export default defineConfig({
   resolve: {
     alias: {
@@ -24,6 +26,7 @@ export default defineConfig({
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     coverage: {
+      enabled: coverageEnabled,
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [

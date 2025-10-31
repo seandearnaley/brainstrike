@@ -2,6 +2,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
+const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -25,6 +27,7 @@ export default defineConfig({
       ? ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}']
       : ['**/*.test.{js,mjs,cjs,ts,mts,cts,jsx,tsx}', '!**/*.integration.test.*'],
     coverage: {
+      enabled: coverageEnabled,
       provider: 'v8',
       reportsDirectory: './coverage',
       reporter: ['text', 'lcov', 'json'],
