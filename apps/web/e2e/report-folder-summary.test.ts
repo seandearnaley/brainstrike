@@ -53,8 +53,9 @@ test.describe('Report Folder Summary Threshold', () => {
     // Download report with default threshold (5)
     const downloadButton = page.getByRole('button', { name: 'Download Report' });
     await expect(downloadButton).toBeEnabled();
-
-    const [download1] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
+    const download1Promise = page.waitForEvent('download');
+    await downloadButton.click();
+    const download1 = await download1Promise;
 
     // Read the downloaded file content
     const content1 = await download1
@@ -83,7 +84,10 @@ test.describe('Report Folder Summary Threshold', () => {
     await expect(dialog).not.toBeVisible();
 
     // Download another report
-    const [download2] = await Promise.all([page.waitForEvent('download'), downloadButton.click()]);
+    await expect(downloadButton).toBeEnabled({ timeout: 10_000 });
+    const download2Promise = page.waitForEvent('download');
+    await downloadButton.click();
+    const download2 = await download2Promise;
 
     // Read the new downloaded file content
     const content2 = await download2
