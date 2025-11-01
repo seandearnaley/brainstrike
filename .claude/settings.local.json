@@ -74,7 +74,22 @@
       "WebFetch(domain:pglite.dev)",
       "Bash(gh pr create:*)",
       "Bash(cut:*)",
-      "Bash(bd rename-prefix:*)"
+      "Bash(bd rename-prefix:*)",
+      "WebFetch(domain:www.pinecone.io)",
+      "WebFetch(domain:www.marqo.ai)",
+      "WebFetch(domain:qdrant.tech)",
+      "Bash(for issue in brainstrike-a15c brainstrike-6b45 brainstrike-eaaa brainstrike-46ab brainstrike-c609 brainstrike-f056 brainstrike-6a61 brainstrike-8e62)",
+      "Bash(do echo \"=== $issue ===\")",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:docs.voyageai.com)",
+      "WebFetch(domain:docs.cohere.com)",
+      "WebFetch(domain:jina.ai)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:cohere.com)",
+      "mcp__plugin_codanna-cc_codanna-cc__semantic_search_docs",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:developers.googleblog.com)",
+      "Skill(mermaid-diagrams)"
     ],
     "deny": [],
     "ask": []
