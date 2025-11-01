@@ -361,6 +361,7 @@ export function EmbeddingSettings() {
             {MODEL_PRESETS.map((preset) => (
               <button
                 key={preset.id}
+                type="button"
                 onClick={() => applyPreset(preset)}
                 className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background p-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                 data-testid={`preset-${preset.id}`}
