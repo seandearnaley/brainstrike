@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
@@ -72,32 +72,38 @@ describe('RightPanel controls', () => {
     global.fetch = originalFetch;
   });
 
-  it('updates search filters and DB logs controls', async () => {
+  it('updates search filters', async () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to Search tab and wait for it to be selected
+    // Switch to Search tab
     await user.click(screen.getByRole('tab', { name: /search/i }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /search/i })).toHaveAttribute('aria-selected', 'true');
     });
 
-    // Update search controls
+    // Update search controls using fireEvent for speed
     const query = screen.getByLabelText('Query');
-    await user.clear(query);
-    await user.type(query, 'hello world');
+    fireEvent.change(query, { target: { value: 'hello world' } });
     await user.click(screen.getByLabelText('Regex'));
     await user.click(screen.getByLabelText('Case'));
     await user.click(screen.getByLabelText('Whole word'));
 
     // Verify search state
-    const searchState = useSearchPanelStore.getState();
-    expect(searchState.query).toBe('hello world');
-    expect(searchState.regex).toBe(true);
-    expect(searchState.caseSensitive).toBe(true);
-    expect(searchState.wholeWord).toBe(true);
+    await waitFor(() => {
+      const searchState = useSearchPanelStore.getState();
+      expect(searchState.query).toBe('hello world');
+      expect(searchState.regex).toBe(true);
+      expect(searchState.caseSensitive).toBe(true);
+      expect(searchState.wholeWord).toBe(true);
+    });
+  });
 
-    // Switch to Database tab and wait for it to be selected
+  it('updates database logs controls', async () => {
+    const user = userEvent.setup();
+    render(<RightPanel />);
+
+    // Switch to Database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /db/i })).toHaveAttribute('aria-selected', 'true');
@@ -106,28 +112,28 @@ describe('RightPanel controls', () => {
     // Select logs subtab
     const viewRow = screen.getByText('View').closest('div');
     const select = within(viewRow as HTMLElement).getByRole('combobox', { name: 'DB subtab' });
-    await user.selectOptions(select, 'logs');
+    fireEvent.change(select, { target: { value: 'logs' } });
 
-    // Update DB controls
-    await user.type(screen.getByLabelText('Filter'), 'embeddings');
-    const sortBy = screen.getByLabelText('Sort By');
-    await user.clear(sortBy);
-    await user.type(sortBy, 'timestamp');
-    await user.selectOptions(screen.getByLabelText('Direction'), 'desc');
-    const page = screen.getByLabelText('Page');
-    await user.clear(page);
-    await user.type(page, '2');
-    const pageSize = screen.getByLabelText('Page Size');
-    await user.clear(pageSize);
-    await user.type(pageSize, '25');
+    // Update DB controls using fireEvent for speed
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter')).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText('Filter'), { target: { value: 'embeddings' } });
+    fireEvent.change(screen.getByLabelText('Sort By'), { target: { value: 'timestamp' } });
+    fireEvent.change(screen.getByLabelText('Direction'), { target: { value: 'desc' } });
+    fireEvent.change(screen.getByLabelText('Page'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Page Size'), { target: { value: '25' } });
 
     // Verify DB state
-    const dbState = useDbPanelStore.getState();
-    expect(dbState.activeSubtab).toBe('logs');
-    expect(dbState.filterText).toBe('embeddings');
-    expect(dbState.sortBy).toBe('timestamp');
-    expect(dbState.sortDir).toBe('desc');
-    expect(dbState.page).toBeGreaterThan(1);
-    expect(dbState.pageSize).toBeGreaterThan(10);
+    await waitFor(() => {
+      const dbState = useDbPanelStore.getState();
+      expect(dbState.activeSubtab).toBe('logs');
+      expect(dbState.filterText).toBe('embeddings');
+      expect(dbState.sortBy).toBe('timestamp');
+      expect(dbState.sortDir).toBe('desc');
+      expect(dbState.page).toBeGreaterThan(1);
+      expect(dbState.pageSize).toBeGreaterThan(10);
+    });
   });
 });
