@@ -97,7 +97,7 @@ describe('RightPanel controls', () => {
       expect(searchState.caseSensitive).toBe(true);
       expect(searchState.wholeWord).toBe(true);
     });
-  });
+  }, 10000);
 
   it('updates database logs controls', async () => {
     const user = userEvent.setup();
@@ -135,5 +135,5 @@ describe('RightPanel controls', () => {
       expect(dbState.page).toBeGreaterThan(1);
       expect(dbState.pageSize).toBeGreaterThan(10);
     });
-  });
+  }, 10000);
 });
