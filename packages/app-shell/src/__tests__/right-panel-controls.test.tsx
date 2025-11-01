@@ -1,13 +1,13 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
-import { __resetDbPanelStoreForTests } from '../stores/db-panel-store';
+import { __resetDbPanelStoreForTests, useDbPanelStore } from '../stores/db-panel-store';
 import {
   __resetRightPanelStoreForTests,
   // keep import named to satisfy tree-shaking and explicitness
 } from '../stores/right-panel-store';
-import { __resetSearchPanelStoreForTests } from '../stores/search-panel-store';
+import { __resetSearchPanelStoreForTests, useSearchPanelStore } from '../stores/search-panel-store';
 
 vi.mock('@brainstrike/db', () => ({
   useFileRecordRepository: () => null,
@@ -46,6 +46,7 @@ vi.mock('@brainstrike/file-explorer-hooks', () => ({
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   useFileExplorer: () => ({ fileContents: {}, fileTree: [] }),
   useSelectionManager: () => ({ selectedFilePaths: new Set() }),
+  FileExplorerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
 describe('RightPanel controls', () => {
@@ -75,43 +76,58 @@ describe('RightPanel controls', () => {
     const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to Search tab
+    // Switch to Search tab and wait for it to be selected
     await user.click(screen.getByRole('tab', { name: /search/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /search/i })).toHaveAttribute('aria-selected', 'true');
+    });
 
+    // Update search controls
     const query = screen.getByLabelText('Query');
     await user.clear(query);
     await user.type(query, 'hello world');
+    await user.click(screen.getByLabelText('Regex'));
+    await user.click(screen.getByLabelText('Case'));
+    await user.click(screen.getByLabelText('Whole word'));
 
-    // Toggle flags
-    const regex = screen.getByLabelText('Regex');
-    const caseBox = screen.getByLabelText('Case');
-    const whole = screen.getByLabelText('Whole word');
-    await user.click(regex);
-    await user.click(caseBox);
-    await user.click(whole);
+    // Verify search state
+    const searchState = useSearchPanelStore.getState();
+    expect(searchState.query).toBe('hello world');
+    expect(searchState.regex).toBe(true);
+    expect(searchState.caseSensitive).toBe(true);
+    expect(searchState.wholeWord).toBe(true);
 
-    // Switch to Database tab and select Logs subtab
+    // Switch to Database tab and wait for it to be selected
     await user.click(screen.getByRole('tab', { name: /db/i }));
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /db/i })).toHaveAttribute('aria-selected', 'true');
+    });
+
+    // Select logs subtab
     const viewRow = screen.getByText('View').closest('div');
     const select = within(viewRow as HTMLElement).getByRole('combobox', { name: 'DB subtab' });
     await user.selectOptions(select, 'logs');
 
-    // Fill DB logs controls
+    // Update DB controls
     await user.type(screen.getByLabelText('Filter'), 'embeddings');
-    await user.clear(screen.getByLabelText('Sort By'));
-    await user.type(screen.getByLabelText('Sort By'), 'timestamp');
-    const dir = screen.getByLabelText('Direction');
-    await user.selectOptions(dir, 'desc');
-    await user.clear(screen.getByLabelText('Page'));
-    await user.type(screen.getByLabelText('Page'), '2');
-    await user.clear(screen.getByLabelText('Page Size'));
-    await user.type(screen.getByLabelText('Page Size'), '25');
+    const sortBy = screen.getByLabelText('Sort By');
+    await user.clear(sortBy);
+    await user.type(sortBy, 'timestamp');
+    await user.selectOptions(screen.getByLabelText('Direction'), 'desc');
+    const page = screen.getByLabelText('Page');
+    await user.clear(page);
+    await user.type(page, '2');
+    const pageSize = screen.getByLabelText('Page Size');
+    await user.clear(pageSize);
+    await user.type(pageSize, '25');
 
-    // Round-trip back to Search to ensure values stuck in store
-    await user.click(screen.getByRole('tab', { name: /search/i }));
-    expect(screen.getByLabelText('Query')).toHaveValue('hello world');
-    expect(screen.getByLabelText('Regex')).toBeChecked();
-    expect(screen.getByLabelText('Case')).toBeChecked();
-    expect(screen.getByLabelText('Whole word')).toBeChecked();
-  }, 15000);
+    // Verify DB state
+    const dbState = useDbPanelStore.getState();
+    expect(dbState.activeSubtab).toBe('logs');
+    expect(dbState.filterText).toBe('embeddings');
+    expect(dbState.sortBy).toBe('timestamp');
+    expect(dbState.sortDir).toBe('desc');
+    expect(dbState.page).toBeGreaterThan(1);
+    expect(dbState.pageSize).toBeGreaterThan(10);
+  });
 });

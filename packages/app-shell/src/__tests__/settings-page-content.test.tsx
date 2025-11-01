@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import type { InputHTMLAttributes } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAppearanceSettingsCategory,
   type SettingsCategory,
@@ -12,6 +12,30 @@ vi.mock('@brainstrike/ui', () => {
   const ThemeSettings = () => <div data-testid="theme-settings" />;
   const cn = (...values: string[]) => values.filter(Boolean).join(' ');
   return { Input, ThemeSettings, cn };
+});
+
+beforeAll(() => {
+  const elementPrototype = Element.prototype as unknown as {
+    hasPointerCapture?: (pointerId: number) => boolean;
+    scrollIntoView?: () => void;
+  };
+  elementPrototype.hasPointerCapture = () => false;
+  elementPrototype.scrollIntoView = () => {};
+  if (typeof window.matchMedia !== 'function') {
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: () => ({
+        matches: false,
+        media: '',
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  }
 });
 
 describe('SettingsPageContent', () => {
