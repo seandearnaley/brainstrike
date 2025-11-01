@@ -234,6 +234,94 @@ describe('EmbeddingProviderFactory', () => {
         expect(body.content.parts[0].text).toBe('Document passage');
       }
     });
+
+    it('creates a Cohere provider with inputType and generates embeddings', async () => {
+      process.env['COHERE_API_KEY'] = 'test-cohere-key';
+      EmbeddingProviderFactory.clearHostedApiKeyCache('cohere');
+
+      const mockEmbedding = Array(1024).fill(0.1);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          embeddings: { float: [mockEmbedding] },
+          texts: ['test'],
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'cohere',
+        modelId: 'embed-english-v3.0',
+        dimensions: 1024,
+        inputType: 'search_document',
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'test text',
+          modelId: 'embed-english-v3.0',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('cohere');
+          expect(embedResult.value.embedding).toHaveLength(1024);
+        }
+      }
+
+      process.env['COHERE_API_KEY'] = undefined;
+    });
+
+    it('creates a Voyage provider with inputType and generates embeddings', async () => {
+      process.env['VOYAGE_API_KEY'] = 'test-voyage-key';
+      EmbeddingProviderFactory.clearHostedApiKeyCache('voyage');
+
+      const mockEmbedding = Array(1024).fill(0.1);
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        json: async () => ({
+          data: [{ embedding: mockEmbedding, index: 0 }],
+          model: 'voyage-3',
+          usage: { total_tokens: 5 },
+        }),
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const config: EmbeddingProviderConfig = {
+        runtime: 'hosted',
+        provider: 'voyage',
+        modelId: 'voyage-3',
+        dimensions: 1024,
+        inputType: 'document',
+      };
+
+      const result = await EmbeddingProviderFactory.createProvider(config);
+      expect(result.ok).toBe(true);
+
+      if (result.ok) {
+        const embedResult = await result.value.embed({
+          text: 'test text',
+          modelId: 'voyage-3',
+        });
+
+        expect(embedResult.ok).toBe(true);
+        if (embedResult.ok) {
+          expect(embedResult.value.provider).toBe('voyage');
+          expect(embedResult.value.embedding).toHaveLength(1024);
+          expect(embedResult.value.usage?.inputTokens).toBe(5);
+        }
+      }
+
+      process.env['VOYAGE_API_KEY'] = undefined;
+    });
   });
 
   describe('cache management', () => {
