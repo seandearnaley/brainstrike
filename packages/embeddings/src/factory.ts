@@ -1,5 +1,10 @@
 import type { IEmbeddingProvider } from './interfaces/provider';
-import type { EmbeddingProviderConfig, EmbeddingProviderError, Result } from './provider-types';
+import type {
+  EmbeddingProviderConfig,
+  EmbeddingProviderError,
+  EmbeddingProviderType,
+  Result,
+} from './provider-types';
 import {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
@@ -9,6 +14,20 @@ import { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
 import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
 import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider';
 import { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
+
+/**
+ * Custom error for missing API keys that preserves provider information
+ */
+class MissingApiKeyError extends Error {
+  readonly provider: Exclude<EmbeddingProviderType, 'local'>;
+  readonly errorType = 'missing_api_key' as const;
+
+  constructor(provider: Exclude<EmbeddingProviderType, 'local'>) {
+    super(`Missing API key for ${provider} provider`);
+    this.provider = provider;
+    this.name = 'MissingApiKeyError';
+  }
+}
 
 /**
  * Factory for creating embedding provider instances
@@ -62,130 +81,119 @@ export class EmbeddingProviderFactory {
     }
 
     try {
-      let provider: IEmbeddingProvider;
-
-      // Use discriminated union to create appropriate provider
-      switch (config.runtime) {
-        case 'browser': {
-          // Local provider using transformers.js
-          provider = new TransformersEmbeddingProvider(
-            config.modelId,
-            // Quantization determines backend; only low-precision configs prefer WASM
-            config.quantization && ['q4', 'q8'].includes(config.quantization) ? 'wasm' : 'webgpu'
-          );
-          break;
-        }
-
-        case 'hosted': {
-          const apiKey = await resolveHostedProviderApiKey(config.provider);
-          if (!apiKey) {
-            return {
-              ok: false,
-              error: {
-                type: 'missing_api_key',
-                provider: config.provider,
-              },
-            };
-          }
-
-          switch (config.provider) {
-            case 'openai': {
-              provider = new OpenAIEmbeddingProvider({
-                modelId: config.modelId,
-                targetDimensions: config.dimensions,
-                apiKey,
-              });
-              break;
-            }
-
-            case 'google': {
-              const googleOptions: {
-                modelId: string;
-                apiKey: string;
-                outputDimensions?: number;
-              } = {
-                modelId: config.modelId,
-                apiKey,
-              };
-              if (config.outputDimensionality !== undefined) {
-                googleOptions.outputDimensions = config.outputDimensionality;
-              }
-              provider = new GoogleEmbeddingProvider(googleOptions);
-              break;
-            }
-
-            case 'cohere': {
-              const cohereOptions: {
-                modelId: string;
-                apiKey: string;
-                inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
-              } = {
-                modelId: config.modelId,
-                apiKey,
-              };
-              if (config.inputType !== undefined) {
-                cohereOptions.inputType = config.inputType;
-              }
-              provider = new CohereEmbeddingProvider(cohereOptions);
-              break;
-            }
-
-            case 'voyage': {
-              const voyageOptions: {
-                modelId: string;
-                apiKey: string;
-                inputType?: 'document' | 'query';
-              } = {
-                modelId: config.modelId,
-                apiKey,
-              };
-              if (config.inputType !== undefined) {
-                voyageOptions.inputType = config.inputType;
-              }
-              provider = new VoyageEmbeddingProvider(voyageOptions);
-              break;
-            }
-
-            default: {
-              // TypeScript exhaustiveness check for hosted providers
-              const _exhaustiveProvider: never = config;
-              throw new Error(
-                `Unreachable: hosted provider not handled: ${JSON.stringify(_exhaustiveProvider)}`
-              );
-            }
-          }
-
-          break;
-        }
-
-        default: {
-          // TypeScript exhaustiveness check
-          const _exhaustive: never = config;
-          return {
-            ok: false,
-            error: {
-              type: 'validation_error',
-              field: 'runtime',
-              message: `Unknown runtime: ${(_exhaustive as EmbeddingProviderConfig).runtime}`,
-            },
-          };
-        }
-      }
+      const provider = await EmbeddingProviderFactory.instantiateProvider(config);
 
       // Cache the instance
       EmbeddingProviderFactory.instances.set(key, provider);
 
       return { ok: true, value: provider };
     } catch (error) {
+      // Check if this is a missing API key error
+      if (error instanceof MissingApiKeyError) {
+        return {
+          ok: false,
+          error: {
+            type: 'missing_api_key',
+            provider: error.provider,
+          },
+        };
+      }
+
       return {
         ok: false,
         error: {
           type: 'model_load_failed',
-          provider: config.provider as 'local', // Only local provider is supported in Phase 2
+          provider: config.provider as 'local',
           modelId: config.modelId,
           reason: error instanceof Error ? error.message : String(error),
         },
       };
+    }
+  }
+
+  /**
+   * Instantiate a provider based on configuration (extracted for complexity reduction)
+   */
+  private static async instantiateProvider(
+    config: EmbeddingProviderConfig
+  ): Promise<IEmbeddingProvider> {
+    switch (config.runtime) {
+      case 'browser':
+        return new TransformersEmbeddingProvider(
+          config.modelId,
+          config.quantization && ['q4', 'q8'].includes(config.quantization) ? 'wasm' : 'webgpu'
+        );
+
+      case 'hosted':
+        return EmbeddingProviderFactory.createHostedProvider(config);
+
+      default: {
+        const _exhaustive: never = config;
+        throw new Error(`Unknown runtime: ${(_exhaustive as EmbeddingProviderConfig).runtime}`);
+      }
+    }
+  }
+
+  /**
+   * Create a hosted provider instance (extracted for complexity reduction)
+   */
+  private static async createHostedProvider(
+    config: Extract<EmbeddingProviderConfig, { runtime: 'hosted' }>
+  ): Promise<IEmbeddingProvider> {
+    const apiKey = await resolveHostedProviderApiKey(config.provider);
+    if (!apiKey) {
+      throw new MissingApiKeyError(config.provider);
+    }
+
+    switch (config.provider) {
+      case 'openai':
+        return new OpenAIEmbeddingProvider({
+          modelId: config.modelId,
+          targetDimensions: config.dimensions,
+          apiKey,
+        });
+
+      case 'google': {
+        const options: { modelId: string; apiKey: string; outputDimensions?: number } = {
+          modelId: config.modelId,
+          apiKey,
+        };
+        if (config.outputDimensionality !== undefined) {
+          options.outputDimensions = config.outputDimensionality;
+        }
+        return new GoogleEmbeddingProvider(options);
+      }
+
+      case 'cohere': {
+        const options: {
+          modelId: string;
+          apiKey: string;
+          inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
+        } = {
+          modelId: config.modelId,
+          apiKey,
+        };
+        if (config.inputType !== undefined) {
+          options.inputType = config.inputType;
+        }
+        return new CohereEmbeddingProvider(options);
+      }
+
+      case 'voyage': {
+        const options: { modelId: string; apiKey: string; inputType?: 'document' | 'query' } = {
+          modelId: config.modelId,
+          apiKey,
+        };
+        if (config.inputType !== undefined) {
+          options.inputType = config.inputType;
+        }
+        return new VoyageEmbeddingProvider(options);
+      }
+
+      default: {
+        const _exhaustive: never = config;
+        throw new Error(`Unreachable: hosted provider not handled: ${JSON.stringify(_exhaustive)}`);
+      }
     }
   }
 

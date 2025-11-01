@@ -59,7 +59,13 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     this.modelId = options.modelId;
     // Use model's native dimensions if outputDimensions not specified
     const modelInfo = GOOGLE_MODELS[options.modelId];
-    this.targetDimensions = options.outputDimensions ?? modelInfo?.dimensions ?? 768;
+    if (options.outputDimensions !== undefined) {
+      this.targetDimensions = options.outputDimensions;
+    } else if (modelInfo?.dimensions) {
+      this.targetDimensions = modelInfo.dimensions;
+    } else {
+      throw new Error(`Unknown Google model '${options.modelId}' - cannot determine dimensions`);
+    }
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.endpoint =

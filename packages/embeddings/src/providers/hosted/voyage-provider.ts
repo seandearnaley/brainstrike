@@ -85,117 +85,16 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
-    const apiKey = this.apiKey;
-
-    if (!apiKey) {
-      return {
-        ok: false,
-        error: {
-          type: 'missing_api_key',
-          provider: 'voyage',
-        },
-      };
-    }
-
-    if (!this.fetchImpl) {
-      return {
-        ok: false,
-        error: {
-          type: 'network_error',
-          provider: 'voyage',
-          originalError: new Error('Fetch implementation not available'),
-        },
-      };
-    }
+    const validationError = this.validateBeforeEmbed();
+    if (validationError) return validationError;
 
     try {
-      const requestBody: Record<string, unknown> = {
-        input: [input.text],
-        model: this.modelId,
-      };
-
-      // Only include input_type if specified
-      if (this.inputType) {
-        // biome-ignore lint/style/useNamingConvention: Voyage API expects snake_case key
-        requestBody['input_type'] = this.inputType;
-      }
-
-      const response = await this.fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(requestBody),
-      });
-
+      const response = await this.makeEmbeddingRequest(input.text);
       if (!response.ok) {
-        if (response.status === 429) {
-          const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-          const rateLimitError: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
-            type: 'rate_limit_exceeded',
-            provider: 'voyage',
-          };
-          if (retryAfter !== undefined) {
-            rateLimitError.retryAfter = retryAfter;
-          }
-          return {
-            ok: false,
-            error: rateLimitError,
-          };
-        }
-
-        const errorPayload = (await safeJson(response)) as VoyageEmbeddingResponse | undefined;
-        const message =
-          errorPayload?.error?.message ??
-          `Voyage embeddings request failed with status ${response.status}`;
-
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'voyage',
-            statusCode: response.status,
-            message,
-          },
-        };
+        return this.handleErrorResponse(response);
       }
 
-      const payload = (await response.json()) as VoyageEmbeddingResponse;
-      const embedding = payload.data?.[0]?.embedding;
-
-      if (!Array.isArray(embedding)) {
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'voyage',
-            statusCode: response.status,
-            message: 'Voyage response did not include an embedding array.',
-          },
-        };
-      }
-
-      const modelInfo = this.getModelInfo(this.modelId);
-      const expectedDimensions = modelInfo?.dimensions ?? embedding.length;
-      const validation = this.validateDimensions(embedding, expectedDimensions);
-      if (!validation.ok) {
-        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
-      }
-
-      const usageTokens = payload.usage?.['total_tokens'];
-      const output: EmbeddingOutput = {
-        embedding,
-        dimensions: embedding.length,
-        modelId: input.modelId,
-        provider: 'voyage',
-      };
-      if (typeof usageTokens === 'number') {
-        output.usage = { inputTokens: usageTokens };
-      }
-
-      return { ok: true, value: output };
+      return this.processSuccessResponse(response, input.modelId);
     } catch (error) {
       return {
         ok: false,
@@ -206,6 +105,113 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
         },
       };
     }
+  }
+
+  private validateBeforeEmbed(): Result<EmbeddingOutput, EmbeddingProviderError> | null {
+    if (!this.apiKey) {
+      return {
+        ok: false,
+        error: { type: 'missing_api_key', provider: 'voyage' },
+      };
+    }
+    if (!this.fetchImpl) {
+      return {
+        ok: false,
+        error: {
+          type: 'network_error',
+          provider: 'voyage',
+          originalError: new Error('Fetch implementation not available'),
+        },
+      };
+    }
+    return null;
+  }
+
+  private async makeEmbeddingRequest(text: string): Promise<Response> {
+    const requestBody: Record<string, unknown> = {
+      input: [text],
+      model: this.modelId,
+    };
+    if (this.inputType) {
+      requestBody['input_type'] = this.inputType;
+    }
+
+    return this.fetchImpl(this.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+  }
+
+  private async handleErrorResponse(
+    response: Response
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    if (response.status === 429) {
+      const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+      const error: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
+        type: 'rate_limit_exceeded',
+        provider: 'voyage',
+      };
+      if (retryAfter !== undefined) {
+        error.retryAfter = retryAfter;
+      }
+      return { ok: false, error };
+    }
+
+    const errorPayload = (await safeJson(response)) as VoyageEmbeddingResponse | undefined;
+    const message =
+      errorPayload?.error?.message ??
+      `Voyage embeddings request failed with status ${response.status}`;
+
+    return {
+      ok: false,
+      error: { type: 'api_error', provider: 'voyage', statusCode: response.status, message },
+    };
+  }
+
+  private async processSuccessResponse(
+    response: Response,
+    modelId: string
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    const payload = (await response.json()) as VoyageEmbeddingResponse;
+    const embedding = payload.data?.[0]?.embedding;
+
+    if (!Array.isArray(embedding)) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'voyage',
+          statusCode: response.status,
+          message: 'Voyage response did not include an embedding array.',
+        },
+      };
+    }
+
+    const modelInfo = this.getModelInfo(this.modelId);
+    const expectedDimensions = modelInfo?.dimensions ?? embedding.length;
+    const validation = this.validateDimensions(embedding, expectedDimensions);
+    if (!validation.ok) {
+      return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+    }
+
+    const output: EmbeddingOutput = {
+      embedding,
+      dimensions: embedding.length,
+      modelId,
+      provider: 'voyage',
+    };
+
+    const usageTokens = payload.usage?.['total_tokens'];
+    if (typeof usageTokens === 'number') {
+      output.usage = { inputTokens: usageTokens };
+    }
+
+    return { ok: true, value: output };
   }
 
   validateDimensions(

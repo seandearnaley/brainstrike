@@ -43,7 +43,7 @@ export type EmbeddingProviderConfig =
       runtime: 'hosted';
       provider: 'cohere';
       modelId: string; // e.g., 'embed-english-v3.0'
-      inputType?: 'search_document' | 'search_query';
+      inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
     }
   | {
       runtime: 'hosted';
