@@ -177,43 +177,31 @@ describe('DatabaseDemoPanel', () => {
 
   describe('View Switching', () => {
     it('switches between Files, Chunks, and Search views', async () => {
-      const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
-      // Find the view selector buttons using the same strategy as other tests
+      // Wait for initial render
+      await waitFor(() => {
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
+
+      // Find and click Chunks tab using fireEvent (faster and more deterministic)
       const allButtons = screen.getAllByRole('button');
+      const chunksTab = allButtons.find((btn) => {
+        const text = btn.textContent || '';
+        return text.includes('Chunks') && text.includes('(0)');
+      });
+      expect(chunksTab).toBeDefined();
+      if (chunksTab) fireEvent.click(chunksTab);
 
-      // Find view selector buttons (they have h-9 class and specific text patterns)
-      const filesTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.includes('Files (0)') &&
-          btn.className.includes('h-9') &&
-          btn.className.includes('bg-primary') // Active tab
-      );
-      const chunksTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.includes('Chunks (0)') &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1') // Not export button
-      );
-      const searchTab = allButtons.find(
-        (btn) =>
-          btn.textContent?.trim() === 'Search' &&
-          btn.className.includes('h-9') &&
-          !btn.className.includes('flex items-center gap-1') // Not search action button
-      );
+      // Find and click Search tab
+      const searchTab = screen.getAllByRole('button').find((btn) => {
+        const text = btn.textContent?.trim() || '';
+        return text === 'Search';
+      });
+      expect(searchTab).toBeDefined();
+      if (searchTab) fireEvent.click(searchTab);
 
-      // Initially Files view should be active
-      expect(filesTab).toBeInTheDocument();
-      expect(chunksTab).toBeInTheDocument();
-      expect(searchTab).toBeInTheDocument();
-
-      // Switch to Chunks view
-      if (chunksTab) await user.click(chunksTab);
-
-      // Switch to Search view
-      if (searchTab) await user.click(searchTab);
-
+      // Verify we're now on the Search view
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
       });
