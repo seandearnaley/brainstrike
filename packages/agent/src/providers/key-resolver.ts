@@ -12,6 +12,8 @@ const PROVIDER_ENV_VARS: Record<SupportedProvider, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
   google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
+  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
 };
 
 /**
