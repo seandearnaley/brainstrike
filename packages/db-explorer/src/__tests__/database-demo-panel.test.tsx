@@ -2,7 +2,7 @@ import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
 } from '@brainstrike/preferences';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
@@ -773,9 +773,9 @@ describe('DatabaseDemoPanel', () => {
       expect(searchTab).toBeDefined();
       if (searchTab) await user.click(searchTab);
 
-      // Find search input and perform search
+      // Find search input and perform search using fireEvent for speed
       const searchInput = screen.getByPlaceholderText('Search in file chunks...');
-      await user.type(searchInput, 'test content');
+      fireEvent.change(searchInput, { target: { value: 'test content' } });
 
       // Find search button and click it (the one with the icon, not the tab)
       const searchButtons = screen.getAllByRole('button', { name: /search/i });
