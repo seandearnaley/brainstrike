@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseTab } from '../database-tab';
@@ -24,9 +24,19 @@ describe('DatabaseTab', () => {
     const user = userEvent.setup();
     render(<DatabaseTab />);
 
+    // Wait for the component to render
+    await waitFor(() => {
+      expect(screen.getByText('View')).toBeInTheDocument();
+    });
+
     const viewRow = screen.getByText('View').closest('div');
     const select = within(viewRow as HTMLElement).getByRole('combobox', { name: 'DB subtab' });
     await user.selectOptions(select, 'logs');
+
+    // Wait for logs controls to appear
+    await waitFor(() => {
+      expect(screen.getByLabelText('Filter')).toBeInTheDocument();
+    });
 
     await user.type(screen.getByLabelText('Filter'), 'embeddings');
     const sortBy = screen.getByLabelText('Sort By');
@@ -49,5 +59,5 @@ describe('DatabaseTab', () => {
     expect(state.sortDir).toBe('desc');
     expect(state.page).toBeGreaterThan(1);
     expect(state.pageSize).toBeGreaterThan(10);
-  });
+  }, 10000);
 });

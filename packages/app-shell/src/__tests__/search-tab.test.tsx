@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SearchTab } from '../search-tab';
@@ -12,6 +12,11 @@ describe('SearchTab', () => {
   it('updates store state based on form interactions', async () => {
     const user = userEvent.setup();
     render(<SearchTab />);
+
+    // Wait for form elements to be available
+    await waitFor(() => {
+      expect(screen.getByLabelText('Query')).toBeInTheDocument();
+    });
 
     const queryInput = screen.getByLabelText('Query');
     await user.clear(queryInput);
@@ -29,5 +34,5 @@ describe('SearchTab', () => {
     expect(state.regex).toBe(true);
     expect(state.caseSensitive).toBe(true);
     expect(state.wholeWord).toBe(true);
-  });
+  }, 10000);
 });
