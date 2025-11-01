@@ -1,4 +1,3 @@
-import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/embeddings';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
@@ -49,9 +48,7 @@ function EmbeddingModelsCategory() {
       <div className="space-y-2">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           Embedding Models
-          <span className="text-xs font-normal text-muted-foreground">
-            {STANDARD_EMBEDDING_DIMENSION}D baseline
-          </span>
+          <span className="text-xs font-normal text-muted-foreground">256-1536D supported</span>
         </h3>
         <p className="text-sm text-muted-foreground">
           Enable hosted providers, manage local embeddings, and pick the default model used by the

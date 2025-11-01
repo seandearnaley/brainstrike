@@ -1,5 +1,4 @@
 import { QueueHud, VectorStatusWithDb } from '@brainstrike/app-shell';
-import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/embeddings';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
@@ -19,7 +18,7 @@ function EmbeddingModelsCategory() {
       <div className="space-y-2">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           Embedding Models
-          <Badge variant="outline">{STANDARD_EMBEDDING_DIMENSION}D</Badge>
+          <Badge variant="outline">256-1536D</Badge>
         </h3>
         <p className="text-sm text-muted-foreground">
           Manage which embedding providers are available and choose the active model used for

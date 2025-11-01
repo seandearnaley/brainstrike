@@ -1,4 +1,3 @@
-import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { SimpleEmbeddingService } from '../../bge-m3-service';
 import type { EmbeddingInput, ILocalEmbeddingProvider } from '../../interfaces/provider';
 import type { EmbeddingOutput, EmbeddingProviderError, Result } from '../../provider-types';
@@ -16,6 +15,7 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
 
   private service: SimpleEmbeddingService;
   private modelKey: string;
+  private expectedDimensions: number | null = null;
 
   /**
    * Create a new local embedding provider
@@ -51,6 +51,12 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
         : undefined;
 
       await this.service.initializeWithModel(this.modelKey, progressAdapter, this.deviceOverride);
+
+      // Store expected dimensions from model config for validation
+      const modelInfo = this.getModelInfo(this.modelKey);
+      if (modelInfo) {
+        this.expectedDimensions = modelInfo.dimensions;
+      }
     } catch (error) {
       // Re-throw initialization errors - this is a setup phase
       throw new Error(
@@ -73,10 +79,12 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       // Generate embedding using the service
       const result = await this.service.generateDocEmbedding(input.text);
 
-      // Validate dimensions
-      const validation = this.validateDimensions(result.embedding, DEFAULT_EMBEDDING_DIMENSION);
-      if (!validation.ok) {
-        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+      // Validate dimensions against model's expected dimensions
+      if (this.expectedDimensions !== null) {
+        const validation = this.validateDimensions(result.embedding, this.expectedDimensions);
+        if (!validation.ok) {
+          return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+        }
       }
 
       // Map to new output format

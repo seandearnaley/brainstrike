@@ -75,10 +75,15 @@ export function updateRegistry(newRegistry: ModelRegistry): void {
 
 /**
  * Auto-determine quantization based on model dimensions
- * Force quantized: true when model.dimensions <= 768
+ * Prefer quantization for smaller models (≤768D) for better performance
  */
 export function shouldQuantize(model: ModelConfig): boolean {
-  return model.quantized || model.dimensions <= 768;
+  // Explicitly quantized models always use quantization
+  if (model.quantized) return true;
+
+  // For models ≤768D, quantization is recommended for better performance
+  // Larger models may benefit from full precision
+  return model.dimensions <= 768;
 }
 
 // Export all functions as a namespace for backward compatibility

@@ -299,9 +299,9 @@ export function EmbeddingSettings() {
         <CardHeader>
           <CardTitle className="text-base">Active Embedding Model</CardTitle>
           <CardDescription>
-            Select the embedding model used for indexing, semantic search, and import jobs. Models
-            must emit {STANDARD_EMBEDDING_DIMENSION} dimensional vectors to stay compatible with the
-            current database schema.
+            Select the embedding model used for indexing, semantic search, and import jobs.
+            Different models support various dimensions (256-1536D). Each embedding set is isolated
+            by dimensions to maintain compatibility.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -329,15 +329,12 @@ export function EmbeddingSettings() {
                         return (
                           <SelectItem key={composite} value={composite}>
                             {model.label}
-                            {model.supportsStandardDimension ? (
-                              <Badge variant="secondary" className="ml-2">
-                                {STANDARD_EMBEDDING_DIMENSION}D
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="ml-2">
-                                Non-{STANDARD_EMBEDDING_DIMENSION}D
-                              </Badge>
-                            )}
+                            <Badge
+                              variant={model.dimensions === 768 ? 'secondary' : 'outline'}
+                              className="ml-2"
+                            >
+                              {model.dimensions}D
+                            </Badge>
                           </SelectItem>
                         );
                       })}
@@ -378,7 +375,7 @@ export function EmbeddingSettings() {
           <CardTitle className="text-base">Model Availability</CardTitle>
           <CardDescription>
             Enable models before exposing them to import workflows. Toggle availability per provider
-            and track which models satisfy the {STANDARD_EMBEDDING_DIMENSION}D requirement.
+            and view dimension information for each model.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -532,11 +529,9 @@ function EmbeddingModelRow({ providerId, model, enabled, onToggle }: EmbeddingMo
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {model.supportsStandardDimension ? (
-          <Badge variant="secondary">{STANDARD_EMBEDDING_DIMENSION}D ready</Badge>
-        ) : (
-          <Badge variant="destructive">Dimension mismatch</Badge>
-        )}
+        <Badge variant={model.dimensions === 768 ? 'secondary' : 'outline'}>
+          {model.dimensions}D
+        </Badge>
         <Switch
           checked={enabled}
           onCheckedChange={handleChange}
