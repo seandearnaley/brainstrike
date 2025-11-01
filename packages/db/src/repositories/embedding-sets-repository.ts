@@ -83,6 +83,12 @@ export class EmbeddingSetsRepository {
     return result.rows.map((row) => this.fromRow(row as Record<string, unknown>));
   }
 
+  /**
+   * Updates metadata for an existing embedding set
+   * @param id - The embedding set ID
+   * @param metadata - Partial metadata to update (only provided fields are updated)
+   * @returns Updated embedding set or null if not found
+   */
   async updateMetadata(
     id: string,
     metadata: { name?: string; description?: string; tags?: string; category?: string }
