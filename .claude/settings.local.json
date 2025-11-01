@@ -89,7 +89,10 @@
       "mcp__plugin_codanna-cc_codanna-cc__semantic_search_docs",
       "WebFetch(domain:ai.google.dev)",
       "WebFetch(domain:developers.googleblog.com)",
-      "Skill(mermaid-diagrams)"
+      "Skill(mermaid-diagrams)",
+      "Bash(CI=true pnpm test:*)",
+      "Bash(GITHUB_ACTIONS=true pnpm test:*)",
+      "Bash(GITHUB_ACTIONS=true pnpm --filter @brainstrike/embeddings test:*)"
     ],
     "deny": [],
     "ask": []

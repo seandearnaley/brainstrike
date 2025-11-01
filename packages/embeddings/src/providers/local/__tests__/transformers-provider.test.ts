@@ -5,7 +5,7 @@ import { TransformersEmbeddingProvider } from '../transformers-provider';
 
 // Skip these tests in CI - they require downloading large ML models which times out
 // These tests were previously skipped in CI (see successful run #426)
-const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
 
 describe.skipIf(isCI)('TransformersEmbeddingProvider', () => {
   let provider: TransformersEmbeddingProvider;
