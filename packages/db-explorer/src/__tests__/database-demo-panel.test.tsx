@@ -180,6 +180,11 @@ describe('DatabaseDemoPanel', () => {
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
+      // Wait for component to be fully mounted before finding buttons
+      await waitFor(() => {
+        expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
+      });
+
       // Find the view selector buttons using the same strategy as other tests
       const allButtons = screen.getAllByRole('button');
 
