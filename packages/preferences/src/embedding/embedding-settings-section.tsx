@@ -33,6 +33,46 @@ import { useEmbeddingPreferencesStore } from '../stores/embedding-preferences-st
 
 type HostedEmbeddingProviderId = Exclude<EmbeddingProviderType, 'local'>;
 
+type ModelPreset = {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly provider: EmbeddingProviderType;
+  readonly modelId: string;
+  readonly badge: string;
+  readonly icon: '🎯' | '💰' | '🌍';
+};
+
+const MODEL_PRESETS: readonly ModelPreset[] = [
+  {
+    id: 'high-accuracy',
+    name: 'High Accuracy',
+    description: 'Best performance for semantic search and retrieval (Voyage AI)',
+    provider: 'voyage',
+    modelId: 'voyage-3',
+    badge: '1024D',
+    icon: '🎯',
+  },
+  {
+    id: 'cost-optimized',
+    name: 'Cost Optimized',
+    description: 'Balanced performance and cost-effectiveness (OpenAI)',
+    provider: 'openai',
+    modelId: 'text-embedding-3-small',
+    badge: '1536D',
+    icon: '💰',
+  },
+  {
+    id: 'multilingual',
+    name: 'Multilingual',
+    description: 'Optimized for 100+ languages and cross-lingual search (Cohere)',
+    provider: 'cohere',
+    modelId: 'embed-multilingual-v3.0',
+    badge: '1024D',
+    icon: '🌍',
+  },
+] as const;
+
 type NormalizedEmbeddingModel = {
   readonly id: string;
   readonly label: string;
@@ -291,10 +331,58 @@ export function EmbeddingSettings() {
     setModel(composite);
   };
 
+  const applyPreset = (preset: ModelPreset) => {
+    const composite = `${preset.provider}::${preset.modelId}`;
+    const enabledSet = new Set(enabledModelsByProvider[preset.provider] ?? []);
+
+    // Enable the model if it's not already enabled
+    if (!enabledSet.has(preset.modelId)) {
+      setModelEnabled(preset.provider, preset.modelId, true);
+    }
+
+    // Set it as the active model
+    setModel(composite);
+  };
+
   const hasEnabledSelection = enabledOptions.length > 0;
 
   return (
     <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Quick Start Presets</CardTitle>
+          <CardDescription>
+            Choose a preset configuration optimized for common use cases. Each preset automatically
+            enables and selects the recommended model.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {MODEL_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                onClick={() => applyPreset(preset)}
+                className="flex flex-col gap-2 rounded-lg border border-border/60 bg-background p-3 text-left transition-colors hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                data-testid={`preset-${preset.id}`}
+              >
+                <div className="flex items-start justify-between">
+                  <span className="text-2xl" aria-hidden="true">
+                    {preset.icon}
+                  </span>
+                  <Badge variant="outline" className="text-[10px]">
+                    {preset.badge}
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium leading-tight">{preset.name}</p>
+                  <p className="text-xs text-muted-foreground">{preset.description}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Active Embedding Model</CardTitle>

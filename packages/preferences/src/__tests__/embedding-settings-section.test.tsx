@@ -90,4 +90,81 @@ describe('EmbeddingSettings', () => {
     const summary = screen.getByTestId('embedding-model-summary');
     expect(summary.textContent ?? '').toMatch(/OpenAI/i);
   });
+
+  describe('Quick Start Presets', () => {
+    it('renders all three preset buttons', () => {
+      renderComponent();
+
+      expect(screen.getByTestId('preset-high-accuracy')).toBeTruthy();
+      expect(screen.getByTestId('preset-cost-optimized')).toBeTruthy();
+      expect(screen.getByTestId('preset-multilingual')).toBeTruthy();
+    });
+
+    it('applies high-accuracy preset (Voyage)', async () => {
+      renderComponent();
+
+      const presetButton = screen.getByTestId('preset-high-accuracy');
+      await userEvent.click(presetButton);
+
+      const state = useEmbeddingPreferencesStore.getState();
+      expect(state.getSelectedModel()).toBe('voyage::voyage-3');
+      expect(state.enabledModelsByProvider.voyage).toContain('voyage-3');
+    });
+
+    it('applies cost-optimized preset (OpenAI)', async () => {
+      renderComponent();
+
+      const presetButton = screen.getByTestId('preset-cost-optimized');
+      await userEvent.click(presetButton);
+
+      const state = useEmbeddingPreferencesStore.getState();
+      expect(state.getSelectedModel()).toBe('openai::text-embedding-3-small');
+      expect(state.enabledModelsByProvider.openai).toContain('text-embedding-3-small');
+    });
+
+    it('applies multilingual preset (Cohere)', async () => {
+      renderComponent();
+
+      const presetButton = screen.getByTestId('preset-multilingual');
+      await userEvent.click(presetButton);
+
+      const state = useEmbeddingPreferencesStore.getState();
+      expect(state.getSelectedModel()).toBe('cohere::embed-multilingual-v3.0');
+      expect(state.enabledModelsByProvider.cohere).toContain('embed-multilingual-v3.0');
+    });
+
+    it('enables model if not already enabled when applying preset', async () => {
+      renderComponent();
+
+      const stateBefore = useEmbeddingPreferencesStore.getState();
+      expect(stateBefore.enabledModelsByProvider.voyage ?? []).not.toContain('voyage-3');
+
+      const presetButton = screen.getByTestId('preset-high-accuracy');
+      await userEvent.click(presetButton);
+
+      const stateAfter = useEmbeddingPreferencesStore.getState();
+      expect(stateAfter.enabledModelsByProvider.voyage).toContain('voyage-3');
+      expect(stateAfter.getSelectedModel()).toBe('voyage::voyage-3');
+    });
+
+    it('switches between presets correctly', async () => {
+      renderComponent();
+
+      // First apply cost-optimized
+      await userEvent.click(screen.getByTestId('preset-cost-optimized'));
+      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe(
+        'openai::text-embedding-3-small'
+      );
+
+      // Then switch to multilingual
+      await userEvent.click(screen.getByTestId('preset-multilingual'));
+      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe(
+        'cohere::embed-multilingual-v3.0'
+      );
+
+      // Then switch to high-accuracy
+      await userEvent.click(screen.getByTestId('preset-high-accuracy'));
+      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe('voyage::voyage-3');
+    });
+  });
 });
