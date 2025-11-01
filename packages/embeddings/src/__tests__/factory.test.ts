@@ -255,7 +255,6 @@ describe('EmbeddingProviderFactory', () => {
         runtime: 'hosted',
         provider: 'cohere',
         modelId: 'embed-english-v3.0',
-        dimensions: 1024,
         inputType: 'search_document',
       };
 
@@ -299,7 +298,6 @@ describe('EmbeddingProviderFactory', () => {
         runtime: 'hosted',
         provider: 'voyage',
         modelId: 'voyage-3',
-        dimensions: 1024,
         inputType: 'document',
       };
 
