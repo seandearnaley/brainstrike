@@ -125,6 +125,25 @@
         "contextWindow": 512,
         "pricePer1MTokens": 0.50
       }
+    },
+    "google": {
+      "gemini-embedding-001": {
+        "name": "Gemini Embedding 001",
+        "dimensions": 3072,
+        "description": "State-of-the-art multilingual embeddings with MRL flexible dimensions (128-3072)",
+        "tags": ["google", "hosted", "multilingual", "flexible-dimensions", "high-performance"],
+        "contextWindow": 2048,
+        "pricePer1MTokens": 0.15,
+        "supportedDimensions": "128-3072"
+      },
+      "text-embedding-004": {
+        "name": "Google Text Embedding 004",
+        "dimensions": 768,
+        "description": "Legacy Google embedding model (deprecated Jan 2026)",
+        "tags": ["google", "hosted", "deprecated"],
+        "contextWindow": 2048,
+        "pricePer1MTokens": 0.15
+      }
     }
   }
 }

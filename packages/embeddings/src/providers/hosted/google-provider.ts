@@ -1,6 +1,5 @@
 import type { EmbeddingInput, IHostedEmbeddingProvider } from '../../interfaces/provider';
 import type { EmbeddingOutput, EmbeddingProviderError, Result } from '../../provider-types';
-import { STANDARD_EMBEDDING_DIMENSION } from '../../provider-types';
 import type { ModelConfig } from '../../types';
 
 type FetchLike = typeof fetch;
@@ -58,7 +57,9 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
 
   constructor(options: GoogleEmbeddingProviderOptions) {
     this.modelId = options.modelId;
-    this.targetDimensions = options.outputDimensions || STANDARD_EMBEDDING_DIMENSION;
+    // Use model's native dimensions if outputDimensions not specified
+    const modelInfo = GOOGLE_MODELS[options.modelId];
+    this.targetDimensions = options.outputDimensions ?? modelInfo?.dimensions ?? 768;
     this.apiKey = normalizeApiKey(options.apiKey);
     this.fetchImpl = options.fetch ?? globalThis.fetch;
     this.endpoint =

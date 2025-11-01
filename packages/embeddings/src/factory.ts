@@ -1,12 +1,13 @@
 import type { IEmbeddingProvider } from './interfaces/provider';
 import type { EmbeddingProviderConfig, EmbeddingProviderError, Result } from './provider-types';
-import { STANDARD_EMBEDDING_DIMENSION } from './provider-types';
 import {
   clearHostedProviderApiKeyCache,
   resolveHostedProviderApiKey,
 } from './providers/hosted/api-key-resolver';
+import { CohereEmbeddingProvider } from './providers/hosted/cohere-provider';
 import { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
 import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
+import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider';
 import { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
 
 /**
@@ -98,23 +99,59 @@ export class EmbeddingProviderFactory {
             }
 
             case 'google': {
-              provider = new GoogleEmbeddingProvider({
+              const googleOptions: {
+                modelId: string;
+                apiKey: string;
+                outputDimensions?: number;
+              } = {
                 modelId: config.modelId,
-                outputDimensions: config.outputDimensionality ?? STANDARD_EMBEDDING_DIMENSION,
                 apiKey,
-              });
+              };
+              if (config.outputDimensionality !== undefined) {
+                googleOptions.outputDimensions = config.outputDimensionality;
+              }
+              provider = new GoogleEmbeddingProvider(googleOptions);
+              break;
+            }
+
+            case 'cohere': {
+              const cohereOptions: {
+                modelId: string;
+                apiKey: string;
+                inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
+              } = {
+                modelId: config.modelId,
+                apiKey,
+              };
+              if (config.inputType !== undefined) {
+                cohereOptions.inputType = config.inputType;
+              }
+              provider = new CohereEmbeddingProvider(cohereOptions);
+              break;
+            }
+
+            case 'voyage': {
+              const voyageOptions: {
+                modelId: string;
+                apiKey: string;
+                inputType?: 'document' | 'query';
+              } = {
+                modelId: config.modelId,
+                apiKey,
+              };
+              if (config.inputType !== undefined) {
+                voyageOptions.inputType = config.inputType;
+              }
+              provider = new VoyageEmbeddingProvider(voyageOptions);
               break;
             }
 
             default: {
-              return {
-                ok: false,
-                error: {
-                  type: 'validation_error',
-                  field: 'provider',
-                  message: `Hosted provider "${config.provider}" is not supported yet.`,
-                },
-              };
+              // TypeScript exhaustiveness check for hosted providers
+              const _exhaustiveProvider: never = config;
+              throw new Error(
+                `Unreachable: hosted provider not handled: ${JSON.stringify(_exhaustiveProvider)}`
+              );
             }
           }
 
@@ -275,11 +312,14 @@ export class EmbeddingProviderFactory {
         return String(config.dimensions ?? 'default');
       }
       case 'google': {
-        return String(config.outputDimensionality ?? STANDARD_EMBEDDING_DIMENSION);
+        return String(config.outputDimensionality ?? 'default');
       }
-      case 'cohere':
-      case 'voyage':
-        return 'default';
+      case 'cohere': {
+        return config.inputType ?? 'default';
+      }
+      case 'voyage': {
+        return config.inputType ?? 'default';
+      }
       default:
         return 'default';
     }

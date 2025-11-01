@@ -72,10 +72,10 @@ describe('Model Registry Tests', () => {
       expect(miniLM).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(true);
 
-      // Test BGE-Large (1024D, should respect quantized flag)
+      // Test BGE-Large (1024D, should recommend quantization)
       const bgeLarge = models['bge-large-en-v1.5'];
       if (bgeLarge) {
-        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(bgeLarge.quantized);
+        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(true);
       }
     });
 
