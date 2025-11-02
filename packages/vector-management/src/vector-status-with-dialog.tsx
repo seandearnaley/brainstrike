@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { EmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db';
+import { useMemo, useState } from 'react';
 import { ManageEmbeddingSetsDialog } from './embedding-set-management';
 import { VectorStatusWithDb } from './vector-status';
 
@@ -8,6 +9,8 @@ import { VectorStatusWithDb } from './vector-status';
  */
 export function VectorStatusWithDialog() {
   const [manageDialogOpen, setManageDialogOpen] = useState(false);
+  const db = usePGliteDatabase();
+  const repository = useMemo(() => (db ? new EmbeddingSetsRepository(db as never) : null), [db]);
 
   return (
     <>
@@ -17,8 +20,8 @@ export function VectorStatusWithDialog() {
         <ManageEmbeddingSetsDialog
           open={manageDialogOpen}
           onOpenChange={setManageDialogOpen}
-          db={null} // Will be accessed from context inside dialog
-          repository={null} // Will be created inside dialog
+          db={db as never}
+          repository={repository}
           onSetSelected={() => {
             setManageDialogOpen(false);
           }}

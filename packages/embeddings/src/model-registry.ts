@@ -14,17 +14,57 @@ export function getRegistry(): ModelRegistry {
 }
 
 /**
- * Get all available models
+ * Get all available models (both local and hosted)
  */
 export function listModels(): Record<string, ModelConfig> {
-  return registry.models;
+  const result: Record<string, ModelConfig> = { ...registry.models };
+
+  // Add hosted providers with proper model keys
+  if (registry.hosted) {
+    for (const [provider, models] of Object.entries(registry.hosted)) {
+      if (models) {
+        for (const [modelId, config] of Object.entries(models)) {
+          const modelKey = `${provider}::${modelId}`;
+          // Convert HostedModelConfig to ModelConfig by adding required fields
+          result[modelKey] = {
+            ...config,
+            id: modelId,
+            quantized: false, // Hosted models don't use quantization
+          } as ModelConfig;
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
  * Get a specific model configuration
+ * Supports both local models (e.g., "xenova/bge-small") and hosted providers (e.g., "openai::text-embedding-3-small")
  */
 export function getModel(key: string): ModelConfig | null {
-  return registry.models[key] || null;
+  // Check local models first
+  if (registry.models[key]) {
+    return registry.models[key];
+  }
+
+  // Check hosted providers (format: "provider::modelId")
+  if (key.includes('::')) {
+    const [provider, modelId] = key.split('::');
+    const hostedProvider = registry.hosted?.[provider as keyof typeof registry.hosted];
+    if (hostedProvider && modelId && hostedProvider[modelId]) {
+      const config = hostedProvider[modelId];
+      // Convert HostedModelConfig to ModelConfig
+      return {
+        ...config,
+        id: modelId,
+        quantized: false, // Hosted models don't use quantization
+      } as ModelConfig;
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -48,9 +88,22 @@ export function getDefaultModel(): ModelConfig {
 
 /**
  * Check if a model exists in the registry
+ * Supports both local models and hosted providers (format: "provider::modelId")
  */
 export function hasModel(key: string): boolean {
-  return key in registry.models;
+  // Check local models first
+  if (key in registry.models) {
+    return true;
+  }
+
+  // Check hosted providers (format: "provider::modelId")
+  if (key.includes('::')) {
+    const [provider, modelId] = key.split('::');
+    const hostedProvider = registry.hosted?.[provider as keyof typeof registry.hosted];
+    return !!(hostedProvider && modelId && hostedProvider[modelId]);
+  }
+
+  return false;
 }
 
 /**
