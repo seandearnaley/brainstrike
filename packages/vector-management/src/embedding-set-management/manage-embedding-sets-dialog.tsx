@@ -81,6 +81,62 @@ function formatProviderLabel(modelKey: string): string {
   return parsed.provider.charAt(0).toUpperCase() + parsed.provider.slice(1);
 }
 
+// Helper function to create a model object from registry config
+function createModelFromConfig(
+  provider: EmbeddingProviderType,
+  modelId: string,
+  modelRegistry: Record<string, unknown>
+): {
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: 'cosine' | 'l2' | 'ip';
+  provider: string;
+  description?: string;
+  tags?: string[];
+  pricePer1MTokens?: number;
+  origin?: string;
+} {
+  const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
+  const modelConfig = modelRegistry[modelKey] as
+    | {
+        dimensions?: number;
+        description?: string;
+        tags?: string[];
+        pricePer1MTokens?: number;
+        origin?: string;
+      }
+    | undefined;
+
+  const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
+
+  const model: {
+    modelKey: string;
+    modelId: string;
+    dimensions: number;
+    distance: 'cosine' | 'l2' | 'ip';
+    provider: string;
+    description?: string;
+    tags?: string[];
+    pricePer1MTokens?: number;
+    origin?: string;
+  } = {
+    modelKey,
+    modelId,
+    dimensions,
+    distance: 'cosine',
+    provider: formatProviderLabel(modelKey),
+  };
+
+  if (modelConfig?.description) model.description = modelConfig.description;
+  if (modelConfig?.tags) model.tags = modelConfig.tags;
+  if (modelConfig?.pricePer1MTokens !== undefined)
+    model.pricePer1MTokens = modelConfig.pricePer1MTokens;
+  if (modelConfig?.origin) model.origin = modelConfig.origin;
+
+  return model;
+}
+
 export function ManageEmbeddingSetsDialog({
   open,
   onOpenChange,
@@ -178,6 +234,10 @@ export function ManageEmbeddingSetsDialog({
       dimensions: number;
       distance: 'cosine' | 'l2' | 'ip';
       provider: string;
+      description?: string;
+      tags?: string[];
+      pricePer1MTokens?: number;
+      origin?: string;
     }> = [];
 
     const modelRegistry = ModelRegistryManager.listModels();
@@ -187,22 +247,8 @@ export function ManageEmbeddingSetsDialog({
       const enabledModels = enabledModelsByProvider[provider] ?? [];
 
       enabledModels.forEach((modelId) => {
-        // Build model key
-        const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
-
-        // Get model config from registry (for local models)
-        const modelConfig = modelRegistry[modelKey];
-
-        // Use model config dimensions if available, otherwise use standard dimension
-        const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
-
-        models.push({
-          modelKey,
-          modelId,
-          dimensions,
-          distance: 'cosine', // Default distance metric
-          provider: formatProviderLabel(modelKey),
-        });
+        const model = createModelFromConfig(provider, modelId, modelRegistry);
+        models.push(model);
       });
     });
 
@@ -216,15 +262,15 @@ export function ManageEmbeddingSetsDialog({
           <DialogHeader>
             <div className="flex items-center justify-between">
               <div>
-                <DialogTitle>Manage Embedding Sets</DialogTitle>
+                <DialogTitle>Manage Search Collections</DialogTitle>
                 <DialogDescription>
-                  Create, edit, and manage your embedding sets. Each set represents a unique vector
-                  repository.
+                  Create, edit, and manage your search collections. Each collection represents a
+                  unique vector repository.
                 </DialogDescription>
               </div>
               <Button onClick={handleCreateSet} size="sm" className="gap-2">
                 <Plus className="h-4 w-4" />
-                New Set
+                New Collection
               </Button>
             </div>
           </DialogHeader>
@@ -235,11 +281,11 @@ export function ManageEmbeddingSetsDialog({
             ) : sets.length === 0 ? (
               <div className="text-center py-8 border rounded-lg border-dashed">
                 <div className="text-sm text-muted-foreground mb-4">
-                  No embedding sets yet. Create your first set to get started.
+                  No collections yet. Create your first collection to get started.
                 </div>
                 <Button onClick={handleCreateSet} variant="outline" size="sm" className="gap-2">
                   <Plus className="h-4 w-4" />
-                  Create First Set
+                  Create First Collection
                 </Button>
               </div>
             ) : (

@@ -20,7 +20,6 @@
   ],
   "references": [
     { "path": "../db" },
-    { "path": "../db-explorer" },
     { "path": "../embeddings" },
     { "path": "../preferences" },
     { "path": "../ui" }

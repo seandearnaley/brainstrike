@@ -42,10 +42,10 @@ export function DeleteEmbeddingSetDialog({
 
     setDeleting(true);
     try {
-      // Delete all chunks associated with this embedding set
+      // Delete all chunks associated with this collection
       await db.query('DELETE FROM file_chunks WHERE embedding_set_id = $1', [embeddingSet.id]);
 
-      // Delete the embedding set itself
+      // Delete the collection itself
       await db.query('DELETE FROM embedding_sets WHERE id = $1', [embeddingSet.id]);
 
       // Emit event to notify other components
@@ -59,7 +59,7 @@ export function DeleteEmbeddingSetDialog({
 
       toast({
         title: 'Success',
-        description: `Deleted embedding set: ${embeddingSet.name ?? embeddingSet.modelKey}`,
+        description: `Deleted collection: ${embeddingSet.name ?? embeddingSet.modelKey}`,
       });
 
       onOpenChange(false);
@@ -68,7 +68,7 @@ export function DeleteEmbeddingSetDialog({
       console.error('[DeleteEmbeddingSetDialog] Failed to delete set:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to delete embedding set',
+        description: error instanceof Error ? error.message : 'Failed to delete collection',
         variant: 'destructive',
       });
     } finally {
@@ -87,9 +87,9 @@ export function DeleteEmbeddingSetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Delete Embedding Set</DialogTitle>
+          <DialogTitle>Delete Search Collection</DialogTitle>
           <DialogDescription>
-            This action cannot be undone. This will permanently delete the embedding set and all
+            This action cannot be undone. This will permanently delete the collection and all
             associated embeddings.
           </DialogDescription>
         </DialogHeader>
@@ -97,7 +97,7 @@ export function DeleteEmbeddingSetDialog({
         <div className="space-y-4 py-4">
           <div className="rounded-md border border-destructive/50 bg-destructive/10 p-4 space-y-3">
             <div>
-              <div className="font-medium text-sm">Embedding Set</div>
+              <div className="font-medium text-sm">Search Collection</div>
               <div className="text-sm mt-1">{setName}</div>
               <div className="text-xs text-muted-foreground mt-1">
                 {embeddingSet.modelId} · {embeddingSet.dimensions}D · {embeddingSet.distance}
@@ -108,10 +108,10 @@ export function DeleteEmbeddingSetDialog({
               <div className="pt-3 border-t border-destructive/20">
                 <div className="font-medium text-sm text-destructive">Warning</div>
                 <div className="text-sm mt-1">
-                  This embedding set contains{' '}
+                  This collection contains{' '}
                   <span className="font-semibold">{embeddingSet.chunkCount.toLocaleString()}</span>{' '}
-                  embedded chunks. Deleting this set will remove all these embeddings from the
-                  database.
+                  embedded chunks. Deleting this collection will remove all these embeddings from
+                  the database.
                 </div>
               </div>
             )}
@@ -124,7 +124,7 @@ export function DeleteEmbeddingSetDialog({
                 you want to search them with this model configuration again.
               </p>
             ) : (
-              <p>This embedding set has no associated chunks and can be safely deleted.</p>
+              <p>This collection has no associated chunks and can be safely deleted.</p>
             )}
           </div>
         </div>
@@ -139,7 +139,7 @@ export function DeleteEmbeddingSetDialog({
             Cancel
           </Button>
           <Button variant="destructive" onClick={handleDelete} disabled={deleting} type="button">
-            {deleting ? 'Deleting...' : 'Delete Embedding Set'}
+            {deleting ? 'Deleting...' : 'Delete Collection'}
           </Button>
         </DialogFooter>
       </DialogContent>

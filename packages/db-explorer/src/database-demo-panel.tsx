@@ -1,10 +1,18 @@
 import {
+  EmbeddingSetsRepository,
   useClearAllData,
   useDbProviderError,
   useFactoryReset,
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
+import {
+  type EmbeddingProviderType,
+  ModelRegistryManager,
+  parseProviderModelKey,
+  STANDARD_EMBEDDING_DIMENSION,
+} from '@brainstrike/embeddings';
+import { useEmbeddingPreferencesStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -15,6 +23,10 @@ import {
   CardTitle,
   useToast,
 } from '@brainstrike/ui';
+import {
+  CreateEmbeddingSetDialog,
+  ManageEmbeddingSetsDialog,
+} from '@brainstrike/vector-management';
 import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -24,6 +36,7 @@ import {
   ExportDropdown,
   FilesViewTable,
   ImportProgressDisplay,
+  SearchCollectionSelector,
   SearchInterface,
   SearchViewTable,
   SettingsPanel,
@@ -44,12 +57,160 @@ import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
 import { clearPersistentUiState } from './utils/factory-reset-helpers';
-import { getActiveEmbeddingSetId } from './vector-preferences';
+import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
 }
 
+type AvailableModel = {
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: 'cosine' | 'l2' | 'ip';
+  provider: string;
+  description?: string;
+  tags?: string[];
+  pricePer1MTokens?: number;
+  origin?: string;
+};
+
+/**
+ * Creates a single model object from provider and modelId
+ * Extracted to reduce cognitive complexity
+ */
+function createModelFromProviderAndId(
+  provider: EmbeddingProviderType,
+  modelId: string,
+  modelRegistry: Record<string, unknown>
+): AvailableModel {
+  const modelKey = provider === 'local' ? modelId : `${provider}::${modelId}`;
+  const modelConfig = modelRegistry[modelKey] as
+    | {
+        dimensions?: number;
+        description?: string;
+        tags?: string[];
+        pricePer1MTokens?: number;
+        origin?: string;
+      }
+    | undefined;
+
+  const dimensions = modelConfig?.dimensions ?? STANDARD_EMBEDDING_DIMENSION;
+
+  const parsed = parseProviderModelKey(modelKey);
+  let providerLabel = 'Local';
+  if (parsed?.provider === 'local') {
+    providerLabel = 'Local';
+  } else if (parsed?.provider) {
+    providerLabel = parsed.provider.charAt(0).toUpperCase() + parsed.provider.slice(1);
+  }
+
+  const model: AvailableModel = {
+    modelKey,
+    modelId,
+    dimensions,
+    distance: 'cosine',
+    provider: providerLabel,
+  };
+
+  if (modelConfig?.description) model.description = modelConfig.description;
+  if (modelConfig?.tags) model.tags = modelConfig.tags;
+  if (modelConfig?.pricePer1MTokens !== undefined)
+    model.pricePer1MTokens = modelConfig.pricePer1MTokens;
+  if (modelConfig?.origin) model.origin = modelConfig.origin;
+
+  return model;
+}
+
+/**
+ * Builds available models list from enabled models in preferences
+ * Extracted to reduce cognitive complexity of DatabaseDemoPanel
+ */
+function buildAvailableModelsFromPreferences(
+  enabledModelsByProvider: Record<EmbeddingProviderType, string[]>
+): AvailableModel[] {
+  const models: AvailableModel[] = [];
+  const modelRegistry = ModelRegistryManager.listModels();
+
+  (Object.keys(enabledModelsByProvider) as EmbeddingProviderType[]).forEach((provider) => {
+    const enabledModels = enabledModelsByProvider[provider] ?? [];
+    enabledModels.forEach((modelId) => {
+      models.push(createModelFromProviderAndId(provider, modelId, modelRegistry));
+    });
+  });
+
+  return models;
+}
+
+/**
+ * Performs factory reset or window reload with fallback handling
+ * Extracted to reduce cognitive complexity of DatabaseDemoPanel
+ */
+async function executeFactoryResetOrReload(
+  doFactoryReset: (() => Promise<void>) | undefined
+): Promise<void> {
+  try {
+    if (typeof doFactoryReset === 'function') {
+      await doFactoryReset();
+    } else {
+      window.location.reload();
+    }
+  } catch (err) {
+    console.warn('Provider-level factory reset failed, reloading window:', err);
+    try {
+      window.location.reload();
+    } catch (e) {
+      console.warn('Window reload after provider-level reset failed:', e);
+    }
+  }
+}
+
+/**
+ * Purges database tables during factory reset with error handling
+ * Extracted to reduce cognitive complexity of DatabaseDemoPanel
+ */
+async function purgeDatabaseTables(dbContext: unknown): Promise<void> {
+  if (!dbContext) return;
+  const db = dbContext as { query: (sql: string) => Promise<unknown> };
+
+  try {
+    await db.query('DELETE FROM job_queue');
+  } catch (err) {
+    console.warn('Failed to purge job_queue during factory reset:', err);
+  }
+  try {
+    await db.query('DELETE FROM embedding_sets');
+  } catch (err) {
+    console.warn('Failed to purge embedding_sets during factory reset:', err);
+  }
+}
+
+/**
+ * Seeds search state from persisted values on first mount
+ * Extracted to reduce cognitive complexity of DatabaseDemoPanel
+ */
+function seedSearchStateFromPersistence(
+  persistedSearchQuery: string,
+  persistedThreshold: number,
+  searchFunctionality: {
+    searchQuery: string;
+    searchThreshold: number;
+    setSearchQuery: (q: string) => void;
+    setSearchThreshold: (t: number) => void;
+  }
+): void {
+  if (persistedSearchQuery && persistedSearchQuery !== searchFunctionality.searchQuery) {
+    searchFunctionality.setSearchQuery(persistedSearchQuery);
+  }
+  if (
+    Number.isFinite(persistedThreshold) &&
+    persistedThreshold !== searchFunctionality.searchThreshold
+  ) {
+    searchFunctionality.setSearchThreshold(persistedThreshold);
+  }
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is a large React component that coordinates multiple sub-systems (import flow, search, vector management, factory reset). Complexity has been reduced by extracting helper functions for model building, factory reset logic, and search state initialization. Further reduction would require splitting into smaller components which would harm readability given the tight coupling of state.
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
   const dbInitError = useDbProviderError();
@@ -66,6 +227,25 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   const [clearing, setClearing] = useState(false);
   const [showClearDialog, setShowClearDialog] = useState(false);
+  const [manageCollectionsOpen, setManageCollectionsOpen] = useState(false);
+  const [createCollectionOpen, setCreateCollectionOpen] = useState(false);
+  const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
+    getActiveEmbeddingSetId()
+  );
+
+  // Create embedding sets repository
+  const embeddingSetsRepository = useMemo(
+    () => (dbContext ? new EmbeddingSetsRepository(dbContext as never) : null),
+    [dbContext]
+  );
+
+  // Get enabled models from preferences for Create dialog
+  const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
+  const availableModels = useMemo(
+    () => buildAvailableModelsFromPreferences(enabledModelsByProvider),
+    [enabledModelsByProvider]
+  );
+
   const expandedFileIds = useDatabaseDemoStore((s) => s.expandedFileIds);
   const setSelectedView = useDatabaseDemoStore((s) => s.setSelectedView);
   const selectedView = useDatabaseDemoStore((s) => s.selectedView);
@@ -113,15 +293,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Seed search state from persistence on first mount
   useEffect(() => {
-    if (persistedSearchQuery && persistedSearchQuery !== searchFunctionality.searchQuery) {
-      searchFunctionality.setSearchQuery(persistedSearchQuery);
-    }
-    if (
-      Number.isFinite(persistedThreshold) &&
-      persistedThreshold !== searchFunctionality.searchThreshold
-    ) {
-      searchFunctionality.setSearchThreshold(persistedThreshold);
-    }
+    seedSearchStateFromPersistence(persistedSearchQuery, persistedThreshold, searchFunctionality);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -234,37 +406,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     await disposeEmbeddingService();
   }, [disposeEmbeddingService]);
 
-  const bestEffortPurgeDb = useCallback(async () => {
-    if (!dbContext) return;
-    try {
-      await dbContext.query('DELETE FROM job_queue');
-    } catch (err) {
-      console.warn('Failed to purge job_queue during factory reset:', err);
-    }
-    try {
-      await dbContext.query('DELETE FROM embedding_sets');
-    } catch (err) {
-      console.warn('Failed to purge embedding_sets during factory reset:', err);
-    }
-  }, [dbContext]);
-
-  const performFactoryResetOrReload = useCallback(async () => {
-    try {
-      if (typeof doFactoryReset === 'function') {
-        await doFactoryReset();
-      } else {
-        window.location.reload();
-      }
-    } catch (err) {
-      console.warn('Provider-level factory reset failed, reloading window:', err);
-      try {
-        window.location.reload();
-      } catch (e) {
-        console.warn('Window reload after provider-level reset failed:', e);
-      }
-    }
-  }, [doFactoryReset]);
-
   const handleFactoryResetClick = useCallback(async () => {
     const ok = window.confirm(
       'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
@@ -273,8 +414,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     try {
       await safeDisposeEmbeddingService();
       await clearPersistentUiState();
-      await bestEffortPurgeDb();
-      await performFactoryResetOrReload();
+      await purgeDatabaseTables(dbContext);
+      await executeFactoryResetOrReload(doFactoryReset ?? undefined);
     } catch (err) {
       toast({
         title: 'Factory Reset Failed',
@@ -282,7 +423,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         variant: 'destructive',
       });
     }
-  }, [safeDisposeEmbeddingService, bestEffortPurgeDb, performFactoryResetOrReload, toast]);
+  }, [safeDisposeEmbeddingService, dbContext, doFactoryReset, toast]);
 
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
@@ -296,6 +437,20 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     (fileId: string) => data.chunks.filter((chunk) => chunk.fileRecordId === fileId),
     [data.chunks]
   );
+
+  // Collection management handlers
+  const handleCollectionChange = useCallback((collectionId: string | null) => {
+    setActiveCollectionId(collectionId);
+    setActiveEmbeddingSetId(collectionId);
+  }, []);
+
+  const handleManageCollections = useCallback(() => {
+    setManageCollectionsOpen(true);
+  }, []);
+
+  const handleCreateCollection = useCallback(() => {
+    setCreateCollectionOpen(true);
+  }, []);
 
   if (dbInitError) {
     return (
@@ -348,6 +503,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <div className="text-xs text-muted-foreground mb-3">
           PGlite WASM with pgvector, chunking, and embeddings
         </div>
+
+        <SearchCollectionSelector
+          db={dbContext}
+          activeCollectionId={activeCollectionId}
+          onCollectionChange={handleCollectionChange}
+          onManageCollections={handleManageCollections}
+          onCreateCollection={handleCreateCollection}
+        />
 
         <DbInfoDisplay dbInfo={dbInfo} />
 
@@ -450,6 +613,34 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
             <SearchViewTable searchFunctionality={searchFunctionality} />
           )}
         </div>
+      )}
+
+      {/* Create Collection Dialog */}
+      {createCollectionOpen && (
+        <CreateEmbeddingSetDialog
+          open={createCollectionOpen}
+          onOpenChange={setCreateCollectionOpen}
+          repository={embeddingSetsRepository}
+          availableModels={availableModels}
+          onSetCreated={() => {
+            setCreateCollectionOpen(false);
+            // Reload collections (SearchCollectionSelector listens to event)
+          }}
+        />
+      )}
+
+      {/* Collection Management Dialog */}
+      {manageCollectionsOpen && (
+        <ManageEmbeddingSetsDialog
+          open={manageCollectionsOpen}
+          onOpenChange={setManageCollectionsOpen}
+          db={dbContext as never}
+          repository={embeddingSetsRepository}
+          onSetSelected={(setId: string) => {
+            handleCollectionChange(setId);
+            setManageCollectionsOpen(false);
+          }}
+        />
       )}
     </div>
   );

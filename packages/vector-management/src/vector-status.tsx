@@ -6,9 +6,8 @@ import {
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
-import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
 import { parseProviderModelKey, TransformersBackend } from '@brainstrike/embeddings';
-import { useVectorPreferencesStore } from '@brainstrike/preferences';
+import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
@@ -269,7 +268,7 @@ function BackfillButton({
       }}
       title={title}
       className="text-[10px] h-6 px-1.5 w-full"
-      aria-label={backfilling ? 'Backfilling in progress' : 'Backfill active embedding set'}
+      aria-label={backfilling ? 'Backfilling in progress' : 'Backfill current collection'}
     >
       {backfilling
         ? backfillProgress
@@ -556,7 +555,7 @@ function useActiveEmbeddingSet() {
         await fetchSets();
       } catch (error) {
         if (!canceled) {
-          console.warn('[VectorStatus] Failed to load embedding sets', error);
+          console.warn('[VectorStatus] Failed to load collections', error);
         }
       }
     };
@@ -626,14 +625,14 @@ function EmbeddingSetSection({
       <div className="flex-1 min-w-0 space-y-2">
         <div className="flex items-center justify-between mb-1">
           <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
-            Active Embedding Set
+            Current Collection
           </Label>
           <Button
             variant="ghost"
             size="sm"
             className="h-5 px-1.5 text-[10px] gap-1"
             onClick={onManage}
-            title="Manage embedding sets"
+            title="Manage collections"
           >
             <Settings2 className="h-3 w-3" />
             Manage
@@ -641,8 +640,8 @@ function EmbeddingSetSection({
         </div>
         <div>
           <Select value={activeId ?? ''} onValueChange={onSelect} disabled={!hasSets}>
-            <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select embedding set">
-              <SelectValue placeholder="No embedding sets yet" />
+            <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select collection">
+              <SelectValue placeholder="No collections yet" />
             </SelectTrigger>
             {hasSets ? (
               <SelectContent className="max-w-[320px]">
@@ -701,7 +700,7 @@ function EmbeddingSetSection({
             </div>
           ) : (
             <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/20 text-[11px] text-muted-foreground px-2 py-2">
-              No embedding sets yet – import files and run a backfill to generate embeddings.
+              No collections yet – import files and run a backfill to generate embeddings.
             </div>
           )}
         </div>
