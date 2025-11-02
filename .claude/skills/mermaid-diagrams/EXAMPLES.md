@@ -399,7 +399,7 @@ flowchart TB
 ### Successful Validation
 
 ```bash
-$ node scripts/validate-mermaid.mjs
+$ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 
 Checking docs/architecture/01-system-context.md...
   ✓ Diagram 1: Syntax looks valid
@@ -414,7 +414,7 @@ Checking docs/architecture/02-container-view.md...
 ### Failed Validation
 
 ```bash
-$ node scripts/validate-mermaid.mjs
+$ node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
 
 Checking docs/architecture/new-diagram.md...
   ✗ Diagram 1: SYNTAX ERRORS

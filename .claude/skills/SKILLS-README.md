@@ -39,7 +39,7 @@ Agent Skills are **model-invoked** capabilities that Claude automatically uses w
 Claude will automatically:
 1. Create a syntactically valid diagram
 2. Quote labels with special characters
-3. Run `node scripts/validate-mermaid.mjs`
+3. Run `node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs`
 4. Report validation results
 
 ## How Skills Work
