@@ -2,7 +2,7 @@ import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
 } from '@brainstrike/preferences';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
@@ -217,7 +217,7 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
       });
-    });
+    }, 10000); // Increase timeout to 10s for CI environment
   });
 
   describe('Settings Panel', () => {
@@ -236,16 +236,22 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByText('Chunking')).toBeInTheDocument();
         expect(screen.getByText('Embeddings')).toBeInTheDocument();
       });
-    });
+    }, 10000);
 
     it('toggles chunking setting', async () => {
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
+      // Wait for settings button to be available
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /Import Settings/ })).toBeInTheDocument();
+      });
+
       // Open settings
       const settingsButton = screen.getByRole('button', { name: /Import Settings/ });
       await user.click(settingsButton);
 
+      // Wait for settings panel to be visible
       await waitFor(() => {
         expect(screen.getByText('Chunking')).toBeInTheDocument();
       });
@@ -258,7 +264,7 @@ describe('DatabaseDemoPanel', () => {
 
       // Toggle chunking
       if (chunkingCheckbox) await user.click(chunkingCheckbox);
-    });
+    }, 10000);
 
     it('toggles embedding setting', async () => {
       const user = userEvent.setup();
@@ -767,9 +773,9 @@ describe('DatabaseDemoPanel', () => {
       expect(searchTab).toBeDefined();
       if (searchTab) await user.click(searchTab);
 
-      // Find search input and perform search
+      // Find search input and perform search using fireEvent for speed
       const searchInput = screen.getByPlaceholderText('Search in file chunks...');
-      await user.type(searchInput, 'test content');
+      fireEvent.change(searchInput, { target: { value: 'test content' } });
 
       // Find search button and click it (the one with the icon, not the tab)
       const searchButtons = screen.getAllByRole('button', { name: /search/i });

@@ -12,6 +12,22 @@ export interface RootLayoutContentProps {
   readonly homePageContent: ReactNode;
   readonly settingsPageContent: ReactNode;
   readonly navigationItems: NavigationItem[];
+
+  /**
+   * CRITICAL: The app-specific embedding queue adapter.
+   *
+   * This queue is created at the app entry point:
+   * - Desktop: apps/desktop/src/renderer/create-embedding-queue.ts
+   * - Web: apps/web/src/create-embedding-queue.ts
+   *
+   * The queue is passed down from here to RightPanel → DatabaseTab → VectorStatusWithDialog
+   * to ensure all embedding operations use the same queue instance.
+   *
+   * DO NOT make this prop optional or remove it! It's critical for:
+   * - Embedding set management UI
+   * - File import embedding generation
+   * - Vector search operations
+   */
   readonly embeddingQueue?: QueueAdapter | null;
 }
 
@@ -35,6 +51,9 @@ export function RootLayoutContent({
 
   const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
   const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
+
+  // CRITICAL: Pass embeddingQueue to RightPanel
+  // The queue flows: RootLayoutContent → RightPanel → DatabaseTab → VectorStatusWithDialog
   const rightPanelContent = useMemo(
     () => <RightPanel embeddingQueue={embeddingQueue ?? null} />,
     [embeddingQueue]

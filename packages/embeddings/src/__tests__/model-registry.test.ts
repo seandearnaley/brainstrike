@@ -17,6 +17,21 @@ describe('Model Registry Tests', () => {
       expect(Object.keys(models).length).toBeGreaterThan(0);
     });
 
+    it('should include hosted providers in listModels()', () => {
+      const models = ModelRegistryManager.listModels();
+
+      // Check that hosted providers are included with proper keys
+      expect(models['openai::text-embedding-3-small']).toBeDefined();
+      expect(models['openai::text-embedding-3-large']).toBeDefined();
+      expect(models['voyage::voyage-3']).toBeDefined();
+      expect(models['cohere::embed-english-v3.0']).toBeDefined();
+
+      // Verify hosted models have correct dimensions
+      expect(models['openai::text-embedding-3-small']?.dimensions).toBe(1536);
+      expect(models['openai::text-embedding-3-large']?.dimensions).toBe(3072);
+      expect(models['voyage::voyage-3']?.dimensions).toBe(1024);
+    });
+
     it('should have jina-code as default model', () => {
       const defaultKey = ModelRegistryManager.getDefaultModelKey();
       expect(defaultKey).toBe('jina-code');
@@ -41,10 +56,47 @@ describe('Model Registry Tests', () => {
       expect(nonExistent).toBeNull();
     });
 
+    it('should get hosted provider model configurations', () => {
+      // Test OpenAI models
+      const openaiSmall = ModelRegistryManager.getModel('openai::text-embedding-3-small');
+      expect(openaiSmall).toBeDefined();
+      expect(openaiSmall?.dimensions).toBe(1536);
+
+      const openaiLarge = ModelRegistryManager.getModel('openai::text-embedding-3-large');
+      expect(openaiLarge).toBeDefined();
+      expect(openaiLarge?.dimensions).toBe(3072);
+
+      // Test Voyage models
+      const voyage = ModelRegistryManager.getModel('voyage::voyage-3');
+      expect(voyage).toBeDefined();
+      expect(voyage?.dimensions).toBe(1024);
+
+      // Test Cohere models
+      const cohere = ModelRegistryManager.getModel('cohere::embed-english-v3.0');
+      expect(cohere).toBeDefined();
+      expect(cohere?.dimensions).toBe(1024);
+
+      // Test non-existent hosted model
+      const nonExistent = ModelRegistryManager.getModel('openai::non-existent-model');
+      expect(nonExistent).toBeNull();
+    });
+
     it('should check model existence', () => {
       expect(ModelRegistryManager.hasModel('jina-code')).toBe(true);
       expect(ModelRegistryManager.hasModel('all-MiniLM-L6-v2')).toBe(true);
       expect(ModelRegistryManager.hasModel('non-existent')).toBe(false);
+    });
+
+    it('should check hosted provider model existence', () => {
+      // Test hosted models exist
+      expect(ModelRegistryManager.hasModel('openai::text-embedding-3-small')).toBe(true);
+      expect(ModelRegistryManager.hasModel('openai::text-embedding-3-large')).toBe(true);
+      expect(ModelRegistryManager.hasModel('voyage::voyage-3')).toBe(true);
+      expect(ModelRegistryManager.hasModel('cohere::embed-english-v3.0')).toBe(true);
+
+      // Test non-existent hosted models
+      expect(ModelRegistryManager.hasModel('openai::non-existent')).toBe(false);
+      expect(ModelRegistryManager.hasModel('unknown-provider::model')).toBe(false);
     });
 
     it('should filter models by tag', () => {
@@ -72,10 +124,10 @@ describe('Model Registry Tests', () => {
       expect(miniLM).toBeDefined();
       expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(true);
 
-      // Test BGE-Large (1024D, should respect quantized flag)
+      // Test BGE-Large (1024D, should recommend quantization)
       const bgeLarge = models['bge-large-en-v1.5'];
       if (bgeLarge) {
-        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(bgeLarge.quantized);
+        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(true);
       }
     });
 
@@ -131,24 +183,37 @@ describe('Model Registry Tests', () => {
     it('should have required properties for all models', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [_key, model] of Object.entries(models)) {
-        expect(model.id).toBeDefined();
+      for (const [key, model] of Object.entries(models)) {
+        // All models should have these common properties
         expect(model.name).toBeDefined();
         expect(model.dimensions).toBeGreaterThan(0);
-        expect(typeof model.quantized).toBe('boolean');
         expect(model.description).toBeDefined();
         expect(Array.isArray(model.tags)).toBe(true);
-        expect(model.origin).toBeDefined();
-        expect(model.size).toBeDefined();
+
+        // Check if it's a hosted model (has :: in key)
+        if (key.includes('::')) {
+          // Hosted models have different required fields
+          expect(model.contextWindow).toBeGreaterThan(0);
+          expect(model.pricePer1MTokens).toBeGreaterThan(0);
+        } else {
+          // Local models have these additional fields
+          expect(model.id).toBeDefined();
+          expect(typeof model.quantized).toBe('boolean');
+          expect(model.origin).toBeDefined();
+          expect(model.size).toBeDefined();
+        }
       }
     });
 
-    it('should have consistent model IDs with proper prefixes', () => {
+    it('should have consistent model IDs with proper prefixes for local models', () => {
       const models = ModelRegistryManager.listModels();
 
-      for (const [_key, model] of Object.entries(models)) {
-        // Most models use Xenova/ prefix, but Jina uses jinaai/ prefix
-        expect(model.id).toMatch(/^(Xenova|jinaai)\//);
+      for (const [key, model] of Object.entries(models)) {
+        // Only check local models (not hosted providers)
+        if (!key.includes('::')) {
+          // Most models use Xenova/ prefix, but Jina uses jinaai/ prefix
+          expect(model.id).toMatch(/^(Xenova|jinaai)\//);
+        }
       }
     });
 

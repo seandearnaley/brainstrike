@@ -24,6 +24,7 @@
   "typescript.preferences.useAliasesForRenames": false,
   "typescript.workspaceSymbols.scope": "allOpenProjects",
   "[jsonc]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  }
+    "editor.defaultFormatter": "biomejs.biome"
+  },
+  "vitest.maximumConfigs": 50
 }

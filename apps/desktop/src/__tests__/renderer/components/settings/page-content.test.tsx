@@ -103,8 +103,8 @@ describe('Desktop SettingsPageContent', () => {
     fireEvent.click(desktopButton);
     const desktopPane = await screen.findByTestId('settings-category-desktop-preferences');
     expect(within(desktopPane).getByText(/Secure Provider Credentials/i)).toBeInTheDocument();
-    expect(within(desktopPane).getByText(/LLM Provider Keys/i)).toBeInTheDocument();
-  });
+    expect(within(desktopPane).getByText(/Provider API Keys/i)).toBeInTheDocument();
+  }, 60000);
 
   it('navigates to MCP integrations and displays tool management panels', async () => {
     render(

@@ -18,7 +18,7 @@ export interface EmbeddingConfig {
  * Model registry entry
  */
 export interface ModelConfig {
-  /** Hugging Face model ID */
+  /** Hugging Face model ID or API model identifier */
   id: string;
   /** Display name for UI */
   name: string;
@@ -31,9 +31,35 @@ export interface ModelConfig {
   /** Model tags for categorization */
   tags: string[];
   /** Model origin/type */
-  origin: string;
-  /** Approximate download size */
-  size: string;
+  origin?: string;
+  /** Approximate download size (for local models) */
+  size?: string;
+  /** Context window size in tokens */
+  contextWindow?: number;
+  /** Supported dimension ranges for flexible models */
+  supportedDimensions?: number[] | string;
+  /** Price per 1M tokens (for hosted models) */
+  pricePer1MTokens?: number;
+}
+
+/**
+ * Hosted model configuration (subset of ModelConfig for API-based models)
+ */
+export interface HostedModelConfig {
+  /** Display name for UI */
+  name: string;
+  /** Embedding dimensions */
+  dimensions: number;
+  /** Description for UI */
+  description: string;
+  /** Model tags for categorization */
+  tags: string[];
+  /** Context window size in tokens */
+  contextWindow: number;
+  /** Price per 1M tokens */
+  pricePer1MTokens: number;
+  /** Supported dimension ranges for flexible models */
+  supportedDimensions?: string;
 }
 
 /**
@@ -42,8 +68,15 @@ export interface ModelConfig {
 export interface ModelRegistry {
   /** Default model key */
   default: string;
-  /** Available models */
+  /** Available local models */
   models: Record<string, ModelConfig>;
+  /** Hosted/API models by provider */
+  hosted?: {
+    openai?: Record<string, HostedModelConfig>;
+    voyage?: Record<string, HostedModelConfig>;
+    cohere?: Record<string, HostedModelConfig>;
+    google?: Record<string, HostedModelConfig>;
+  };
 }
 
 /**

@@ -47,16 +47,26 @@ describe('WasmLoader coverage tests', () => {
     await db.close();
   }, 10000);
 
-  it('creates instances with /tmp paths for parallel testing', async () => {
-    // October 2025: Verify disk persistence works (needed for parallel tests)
-    const db = await wasmLoader.createPGlite('/tmp/pglite-test-wasm-loader');
+  it('creates multiple independent memory instances', async () => {
+    // October 2025: Verify multiple memory databases can be created independently
+    // This is the primary use case for tests (parallel test isolation)
+    const db1 = await wasmLoader.createPGlite('memory://test-db-1');
+    const db2 = await wasmLoader.createPGlite('memory://test-db-2');
 
-    expect(db).toBeDefined();
+    expect(db1).toBeDefined();
+    expect(db2).toBeDefined();
 
-    // Verify basic functionality
-    const result = await db.query('SELECT 2 + 2 as sum');
-    expect(result.rows[0]).toEqual({ sum: 4 });
+    // Verify both databases work independently
+    await db1.query('CREATE TABLE test1 (id INT)');
+    await db2.query('CREATE TABLE test2 (id INT)');
 
-    await db.close();
+    const result1 = await db1.query('SELECT 2 + 2 as sum');
+    const result2 = await db2.query('SELECT 3 + 3 as sum');
+
+    expect(result1.rows[0]).toEqual({ sum: 4 });
+    expect(result2.rows[0]).toEqual({ sum: 6 });
+
+    await db1.close();
+    await db2.close();
   }, 10000);
 });

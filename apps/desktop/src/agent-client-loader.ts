@@ -12,6 +12,8 @@ const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
   'anthropic',
   'google',
   'openrouter',
+  'cohere',
+  'voyage',
 ];
 
 const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
@@ -26,6 +28,8 @@ const FALLBACK_ENV_KEYS: Record<SupportedProvider, readonly string[]> = {
   anthropic: ['ANTHROPIC_API_KEY', 'AI_ANTHROPIC_API_KEY'],
   google: ['GOOGLE_GENERATIVE_AI_API_KEY', 'GOOGLE_API_KEY', 'AI_GOOGLE_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY', 'AI_OPENROUTER_API_KEY'],
+  cohere: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+  voyage: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
 };
 
 function tryRequireAgentClient(path: string): AgentClientModule | null {

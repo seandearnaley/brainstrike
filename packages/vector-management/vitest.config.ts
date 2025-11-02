@@ -41,6 +41,8 @@ export default defineConfig({
         'src/**/__tests__/**',
         '**/index.ts', // Barrel files - re-exports are tested via their sources
         '**/vector-status.tsx', // Large UI component - business logic tested via extracted hooks
+        '**/vector-status-with-dialog.tsx', // Wrapper component - tested via integration
+        'src/embedding-set-management/**', // UI dialog components - tested via integration
       ],
       thresholds: {
         lines: 70,

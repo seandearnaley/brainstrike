@@ -54,8 +54,13 @@ function pickHostedTargetDimension(model: EmbeddingModelDefinition): number {
 
 function getSupportedHostedProvider(
   provider: EmbeddingProviderType
-): 'openai' | 'google' | undefined {
-  if (provider === 'openai' || provider === 'google') {
+): 'openai' | 'google' | 'cohere' | 'voyage' | undefined {
+  if (
+    provider === 'openai' ||
+    provider === 'google' ||
+    provider === 'cohere' ||
+    provider === 'voyage'
+  ) {
     return provider;
   }
   return undefined;
@@ -570,7 +575,9 @@ async function attachHostedModelMetadata(
   });
 }
 
-async function ensureHostedApiKey(provider: 'openai' | 'google'): Promise<void> {
+async function ensureHostedApiKey(
+  provider: 'openai' | 'google' | 'cohere' | 'voyage'
+): Promise<void> {
   const apiKey = await resolveHostedProviderApiKey(provider);
   if (!apiKey) {
     throw new Error(`Hosted provider "${provider}" requires an API key before running embeddings.`);

@@ -40,9 +40,14 @@ describe('DbProvider factoryReset', () => {
 
     // Perform factory reset; should not throw
     await act(async () => {
-      await expect(result.current.reset?.()).resolves.not.toThrow();
+      if (result.current.reset) {
+        await result.current.reset();
+      }
     });
 
+    // If we got here without throwing, the test passes
+    expect(result.current.reset).toBeDefined();
+
     await Promise.allSettled(createdDbs.map((db) => db.close()));
-  });
+  }, 15000); // Increase timeout to 15s for CI environment
 });

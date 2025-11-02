@@ -77,7 +77,7 @@ export interface ProviderDefinition {
   envKeys?: readonly string[];
 }
 
-export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter';
+export type ProviderId = 'openai' | 'anthropic' | 'google' | 'openrouter' | 'cohere' | 'voyage';
 
 const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
   {
@@ -204,6 +204,62 @@ const PROVIDER_DEFINITIONS: readonly ProviderDefinition[] = [
       },
       { id: 'gpt-4o', type: 'llm', supportsStreaming: true },
       { id: 'claude-3-5-sonnet', type: 'llm', supportsStreaming: true },
+    ],
+  },
+  {
+    id: 'cohere',
+    displayName: 'Cohere',
+    runtime: 'hosted',
+    capabilities: {
+      llm: false,
+      embeddings: true,
+      streaming: false,
+    },
+    envKeys: ['COHERE_API_KEY', 'AI_COHERE_API_KEY'],
+    models: [
+      {
+        id: 'embed-english-v3.0',
+        type: 'embedding',
+        default: true,
+        defaultDimension: 1024,
+        availableDimensions: [1024],
+        supportsStandardDimension: true,
+      },
+      {
+        id: 'embed-multilingual-v3.0',
+        type: 'embedding',
+        defaultDimension: 1024,
+        availableDimensions: [1024],
+        supportsStandardDimension: true,
+      },
+    ],
+  },
+  {
+    id: 'voyage',
+    displayName: 'Voyage AI',
+    runtime: 'hosted',
+    capabilities: {
+      llm: false,
+      embeddings: true,
+      streaming: false,
+    },
+    envKeys: ['VOYAGE_API_KEY', 'AI_VOYAGE_API_KEY'],
+    models: [
+      {
+        id: 'voyage-3',
+        type: 'embedding',
+        default: true,
+        defaultDimension: 1024,
+        availableDimensions: [1024],
+        supportsStandardDimension: true,
+      },
+      {
+        id: 'voyage-3-lite',
+        type: 'embedding',
+        defaultDimension: 512,
+        availableDimensions: [512],
+        supportsStandardDimension: false,
+      },
     ],
   },
 ];

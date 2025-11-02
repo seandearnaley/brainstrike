@@ -111,7 +111,7 @@ export function LlmKeysSettings() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">LLM Provider Keys</CardTitle>
+          <CardTitle className="text-base">Provider API Keys</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-1 gap-3 items-end sm:grid-cols-3">
@@ -172,6 +172,10 @@ export function LlmKeysSettings() {
       </Card>
 
       <ModelAvailabilityCard providerDefinitions={providerDefinitions} />
+      <ProviderCapabilitiesCard
+        providerDefinitions={providerDefinitions}
+        providersWithSecrets={providersWithSecrets}
+      />
     </div>
   );
 }
@@ -269,8 +273,9 @@ function ModelAvailabilityCard({ providerDefinitions }: ModelAvailabilityCardPro
       <CardHeader>
         <CardTitle className="text-base">Model Availability</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Enable or disable individual models per provider. Changes here control which options
-          appear in the assistant model picker.
+          Enable or disable individual LLM models per provider. Changes here control which options
+          appear in the assistant model picker. Embedding models are configured separately in
+          Embedding Settings.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -442,4 +447,58 @@ function ModelToggleRow({ providerId, model, enabled, onToggle }: ModelToggleRow
 
 function useEnabledModels(providerId: SupportedProvider) {
   return useAssistantPreferencesStore((state) => state.enabledModelsByProvider[providerId] ?? []);
+}
+
+interface ProviderCapabilitiesCardProps {
+  providerDefinitions: readonly ProviderDefinition[];
+  providersWithSecrets: string[];
+}
+
+function ProviderCapabilitiesCard({
+  providerDefinitions,
+  providersWithSecrets,
+}: ProviderCapabilitiesCardProps) {
+  const secretsSet = new Set(providersWithSecrets);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Provider Capabilities</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          Overview of what each provider supports. Providers with embeddings capability can be used
+          for vector search and semantic indexing.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2">
+          {providerDefinitions.map((provider) => {
+            const hasApiKey = secretsSet.has(provider.id);
+            const capabilities = [];
+            if (provider.capabilities.llm) capabilities.push('LLM');
+            if (provider.capabilities.embeddings) capabilities.push('Embeddings');
+            if (provider.capabilities.streaming) capabilities.push('Streaming');
+
+            return (
+              <div
+                key={provider.id}
+                className="flex items-center justify-between rounded-md border border-border/60 bg-muted/10 px-3 py-2"
+              >
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium">{provider.displayName}</p>
+                  {hasApiKey && <Badge variant="secondary">API Key Saved</Badge>}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-1">
+                  {capabilities.map((cap) => (
+                    <Badge key={cap} variant="outline" className="text-[11px]">
+                      {cap}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

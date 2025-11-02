@@ -1,7 +1,8 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 
 /**
- * Standard embedding dimension for the project (768D)
+ * Default embedding dimension (768D)
+ * Note: This is no longer a hard constraint. Dimensions from 256-1536 are supported.
  */
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -30,19 +31,19 @@ export type EmbeddingProviderConfig =
       runtime: 'hosted';
       provider: 'openai';
       modelId: string; // e.g., 'text-embedding-3-small'
-      dimensions: number; // Always 768 for our use case
+      dimensions: number; // Configurable dimensions (256-1536 supported)
     }
   | {
       runtime: 'hosted';
       provider: 'google';
       modelId: string; // e.g., 'text-embedding-004'
-      outputDimensionality?: number; // Optional, defaults to 768
+      outputDimensionality?: number; // Optional, defaults to model's native dimensions
     }
   | {
       runtime: 'hosted';
       provider: 'cohere';
       modelId: string; // e.g., 'embed-english-v3.0'
-      inputType?: 'search_document' | 'search_query';
+      inputType?: 'search_document' | 'search_query' | 'classification' | 'clustering';
     }
   | {
       runtime: 'hosted';

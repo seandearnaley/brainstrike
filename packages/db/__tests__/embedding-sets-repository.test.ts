@@ -41,4 +41,86 @@ describe('EmbeddingSetsRepository', () => {
     const fetched = await repo.getById(created.id);
     expect(fetched?.id).toBe(created.id);
   });
+
+  describe('metadata', () => {
+    it('creates set with default name when metadata not provided', async () => {
+      const set = await repo.getOrCreateSet(
+        'jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine'
+      );
+      expect(set.name).toBe('jina-code (768D)');
+      expect(set.description).toBeUndefined();
+      expect(set.tags).toBeUndefined();
+      expect(set.category).toBeUndefined();
+    });
+
+    it('creates set with custom metadata', async () => {
+      const metadata = {
+        name: 'Code Embeddings',
+        description: 'For code search and analysis',
+        tags: 'code,programming',
+        category: 'development',
+      };
+      const set = await repo.getOrCreateSet(
+        'jina-code',
+        'jinaai/jina-embeddings-v2-base-code',
+        768,
+        'cosine',
+        metadata
+      );
+      expect(set.name).toBe('Code Embeddings');
+      expect(set.description).toBe('For code search and analysis');
+      expect(set.tags).toBe('code,programming');
+      expect(set.category).toBe('development');
+    });
+
+    it('updates set metadata', async () => {
+      const set = await repo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 1024, 'cosine');
+      expect(set.name).toBe('bge-m3 (1024D)');
+
+      const updated = await repo.updateMetadata(set.id, {
+        name: 'General Purpose Embeddings',
+        description: 'Multi-lingual general purpose model',
+        tags: 'multilingual,general',
+        category: 'general-text',
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.name).toBe('General Purpose Embeddings');
+      expect(updated?.description).toBe('Multi-lingual general purpose model');
+      expect(updated?.tags).toBe('multilingual,general');
+      expect(updated?.category).toBe('general-text');
+    });
+
+    it('updates partial metadata', async () => {
+      const set = await repo.getOrCreateSet('miniLM', 'Xenova/all-MiniLM-L6-v2', 384, 'cosine', {
+        name: 'Original Name',
+        description: 'Original Description',
+      });
+
+      const updated = await repo.updateMetadata(set.id, {
+        description: 'Updated Description',
+      });
+
+      expect(updated?.name).toBe('Original Name');
+      expect(updated?.description).toBe('Updated Description');
+    });
+
+    it('getById returns metadata fields', async () => {
+      const created = await repo.getOrCreateSet('test', 'test-model', 512, 'l2', {
+        name: 'Test Embeddings',
+        description: 'Test description',
+        tags: 'test,example',
+        category: 'testing',
+      });
+
+      const fetched = await repo.getById(created.id);
+      expect(fetched?.name).toBe('Test Embeddings');
+      expect(fetched?.description).toBe('Test description');
+      expect(fetched?.tags).toBe('test,example');
+      expect(fetched?.category).toBe('testing');
+    });
+  });
 });

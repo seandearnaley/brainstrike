@@ -1,4 +1,4 @@
-import { STANDARD_EMBEDDING_DIMENSION } from '@brainstrike/embeddings';
+import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
@@ -6,7 +6,8 @@ import {
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
-import { FileCog, Key, Layers } from 'lucide-react';
+import { Badge } from '@brainstrike/ui';
+import { Cpu, FileCog, Key, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { LlmKeysSettings } from './llm-keys';
 import { DesktopLoggingSettings } from './logging-settings';
@@ -49,16 +50,35 @@ function EmbeddingModelsCategory() {
       <div className="space-y-2">
         <h3 className="text-lg font-semibold flex items-center gap-2">
           Embedding Models
-          <span className="text-xs font-normal text-muted-foreground">
-            {STANDARD_EMBEDDING_DIMENSION}D baseline
-          </span>
+          <Badge variant="outline">256-1536D</Badge>
         </h3>
         <p className="text-sm text-muted-foreground">
-          Enable hosted providers, manage local embeddings, and pick the default model used by the
-          desktop importer.
+          Manage which embedding providers are available and choose the active model used for
+          imports, vector search, and assistant memory.
         </p>
       </div>
       <EmbeddingSettings />
+    </div>
+  );
+}
+
+function EmbeddingWorkerCategory() {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <h3 className="text-lg font-semibold flex items-center gap-2">
+          Embedding Worker
+          <Badge variant="secondary">experimental</Badge>
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Monitor the embedding job queue and inspect vector store connectivity without leaving the
+          settings screen.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <QueueHud />
+        <VectorStatusWithDialog />
+      </div>
     </div>
   );
 }
@@ -83,6 +103,14 @@ export default function SettingsPageContent() {
         keywords: ['embeddings', 'models', 'providers', 'vector'],
         icon: Layers,
         render: () => <EmbeddingModelsCategory />,
+      },
+      {
+        id: 'embedding-worker',
+        title: 'Embedding Worker',
+        description: 'Check queue throughput and vector status for desktop embeddings.',
+        keywords: ['embeddings', 'worker', 'queue', 'vector', 'database'],
+        icon: Cpu,
+        render: () => <EmbeddingWorkerCategory />,
       },
       {
         id: 'logging',
