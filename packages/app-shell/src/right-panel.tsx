@@ -13,9 +13,22 @@ import {
 } from './stores/right-panel-store';
 
 interface RightPanelProps {
+  /**
+   * CRITICAL: The app-specific embedding queue from RootLayoutContent.
+   *
+   * This queue flows through: RootLayoutContent → RightPanel (HERE) → DatabaseTab → VectorStatusWithDialog
+   *
+   * MUST be passed through to DatabaseTab! Without it, embedding operations will fail.
+   */
   embeddingQueue?: QueueAdapter | null;
 }
 
+/**
+ * Right panel containing Assistant, Embeddings, Search, and Database tabs.
+ *
+ * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
+ * the manage embedding sets button and embedding operations work correctly.
+ */
 export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactElement {
   const activeTab = useRightPanelStore(rightPanelSelectors.activeTab);
   const setActiveTab = useRightPanelStore((state) => state.setActiveTab);
@@ -64,6 +77,8 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
+            {/* CRITICAL: Pass embeddingQueue to DatabaseTab
+                This ensures VectorStatusWithDialog gets the app's embedding queue */}
             <DatabaseTab embeddingQueue={embeddingQueue} />
           </TabsContent>
         </div>
