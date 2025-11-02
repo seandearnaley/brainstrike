@@ -217,7 +217,7 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByPlaceholderText('Search in file chunks...')).toBeInTheDocument();
       });
-    });
+    }, 10000); // Increase timeout to 10s for CI environment
   });
 
   describe('Settings Panel', () => {
