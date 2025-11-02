@@ -27,7 +27,7 @@ When creating or editing Mermaid diagrams in markdown files:
 
 1. **After ANY edit to a Mermaid diagram, run the validation script**:
    ```bash
-   node scripts/validate-mermaid.mjs
+   node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
    ```
 
 2. **Common Mermaid syntax errors to avoid**:
