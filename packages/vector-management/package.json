@@ -37,7 +37,9 @@
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
-    "@brainstrike/ui": "workspace:*"
+    "@brainstrike/ui": "workspace:*",
+    "@electric-sql/pglite": "^0.3.11",
+    "lucide-react": "^0.545.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

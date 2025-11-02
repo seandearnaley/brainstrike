@@ -1,4 +1,4 @@
-import { QueueHud, VectorStatusWithDb } from '@brainstrike/app-shell';
+import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
   createTokenCountingSettingsCategory,
@@ -45,7 +45,7 @@ function EmbeddingWorkerCategory() {
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <QueueHud />
-        <VectorStatusWithDb />
+        <VectorStatusWithDialog />
       </div>
     </div>
   );

@@ -25,6 +25,7 @@ import {
   SelectValue,
   useToast,
 } from '@brainstrike/ui';
+import { Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
 import { setActiveEmbeddingSetId } from './vector-preferences';
@@ -608,11 +609,13 @@ function EmbeddingSetSection({
   activeId,
   onSelect,
   device,
+  onManage,
 }: {
   sets: EmbeddingSetWithStats[];
   activeId: string | null;
   onSelect: (id: string) => void;
   device: string;
+  onManage: () => void;
 }) {
   const hasSets = sets.length > 0;
   const selectedSet =
@@ -621,10 +624,22 @@ function EmbeddingSetSection({
   return (
     <div className="flex gap-2 items-start">
       <div className="flex-1 min-w-0 space-y-2">
-        <div>
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
+        <div className="flex items-center justify-between mb-1">
+          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
             Active Embedding Set
           </Label>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-1.5 text-[10px] gap-1"
+            onClick={onManage}
+            title="Manage embedding sets"
+          >
+            <Settings2 className="h-3 w-3" />
+            Manage
+          </Button>
+        </div>
+        <div>
           <Select value={activeId ?? ''} onValueChange={onSelect} disabled={!hasSets}>
             <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select embedding set">
               <SelectValue placeholder="No embedding sets yet" />
@@ -705,9 +720,13 @@ function EmbeddingSetSection({
 
 interface VectorStatusWithDbProps {
   queueAdapter?: QueueAdapter | null;
+  onManageEmbeddingSets?: () => void;
 }
 
-export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
+export function VectorStatusWithDb({
+  queueAdapter = null,
+  onManageEmbeddingSets,
+}: VectorStatusWithDbProps = {}) {
   const queueEnabled = isQueueEnabled();
   const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
     () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
@@ -717,18 +736,27 @@ export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbPr
 
   const providerProps = providerAdapter ? { adapter: providerAdapter } : undefined;
 
+  const contentProps: VectorStatusWithDbContentProps = {
+    queueEnabled,
+    ...(onManageEmbeddingSets ? { onManageEmbeddingSets } : {}),
+  };
+
   return (
     <EmbeddingQueueProvider {...providerProps}>
-      <VectorStatusWithDbContent queueEnabled={queueEnabled} />
+      <VectorStatusWithDbContent {...contentProps} />
     </EmbeddingQueueProvider>
   );
 }
 
 interface VectorStatusWithDbContentProps {
   queueEnabled: boolean;
+  onManageEmbeddingSets?: () => void;
 }
 
-function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
+function VectorStatusWithDbContent({
+  queueEnabled,
+  onManageEmbeddingSets,
+}: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
@@ -882,6 +910,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
           activeId={activeId}
           onSelect={(value) => setActiveId(value)}
           device={device}
+          onManage={onManageEmbeddingSets ?? (() => {})}
         />
         <div className="flex items-center gap-2">
           <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
