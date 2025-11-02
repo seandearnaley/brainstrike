@@ -35,8 +35,10 @@ export {
   parseProviderModelKey,
 } from './provider-utils';
 export {
+  CohereEmbeddingProvider,
   GoogleEmbeddingProvider,
   OpenAIEmbeddingProvider,
+  VoyageEmbeddingProvider,
 } from './providers/hosted';
 export {
   clearHostedProviderApiKeyCache,
