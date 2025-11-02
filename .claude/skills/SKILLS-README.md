@@ -33,13 +33,14 @@ Agent Skills are **model-invoked** capabilities that Claude automatically uses w
 - `EXAMPLES.md` - 8 real-world before/after examples
 - `QUICK-REFERENCE.md` - Fast lookup for common patterns
 - `README.md` - Skill documentation and usage guide
+- `validate-mermaid.mjs` - Validation script for Mermaid diagram syntax
 
 **Try it**: "Create a flowchart showing the authentication flow"
 
 Claude will automatically:
 1. Create a syntactically valid diagram
 2. Quote labels with special characters
-3. Run `node scripts/validate-mermaid.mjs`
+3. Run `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 4. Report validation results
 
 ## How Skills Work

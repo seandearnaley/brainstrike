@@ -280,8 +280,8 @@
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
-    "@mermaid-js/mermaid-cli", // Used in scripts/validate-mermaid.mjs
-    "mermaid" // Used in scripts/validate-mermaid.mjs and scripts/test-one-diagram.mjs
+    "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/validate-mermaid.mjs
+    "mermaid" // Used in .claude/skills/mermaid-diagrams/validate-mermaid.mjs and scripts/test-one-diagram.mjs
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {

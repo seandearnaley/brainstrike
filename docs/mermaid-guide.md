@@ -20,9 +20,9 @@ pnpm add -D mermaid glob
 ```
 
 ### Validation Script Location
-- **Script**: `scripts/validate-mermaid.mjs`
+- **Script**: `.claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 - **Purpose**: Validates Mermaid syntax in all markdown files
-- **Usage**: `node scripts/validate-mermaid.mjs`
+- **Usage**: `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 
 ## Validation Script
 
@@ -38,7 +38,7 @@ The validation script:
 ### Running Validation
 ```bash
 # From project root
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 
 # Expected output on success:
 ✅ All Mermaid diagrams pass syntax validation

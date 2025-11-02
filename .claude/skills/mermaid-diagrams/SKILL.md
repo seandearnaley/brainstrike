@@ -13,7 +13,7 @@ Expert guidance for creating and maintaining error-free Mermaid diagrams in the 
 **⚠️ ALWAYS run validation after ANY diagram edit:**
 
 ```bash
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 **Never commit diagram changes without validation.** The validation script catches syntax errors that GitHub's renderer will reject.
@@ -131,7 +131,7 @@ This is the ONLY valid use of parentheses without outer quotes.
 
 ### Primary Validation Script
 
-**Location**: `scripts/validate-mermaid.mjs`
+**Location**: `.claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 
 **What it checks**:
 - Unquoted parentheses in labels
@@ -141,7 +141,7 @@ This is the ONLY valid use of parentheses without outer quotes.
 **Usage**:
 ```bash
 # From project root
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 **Output on success**:
@@ -174,7 +174,7 @@ node scripts/test-one-diagram.mjs
 
 2. **Run validation immediately**:
    ```bash
-   node scripts/validate-mermaid.mjs
+   node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
    ```
 
 3. **Fix any errors** reported by the script
@@ -314,7 +314,7 @@ stateDiagram-v2
 
 ### 3. Maintainability
 
-- **Always validate** after edits: `node scripts/validate-mermaid.mjs`
+- **Always validate** after edits: `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 - Add comments in markdown text, NOT in diagrams (except flowchart `%%` comments)
 - Document diagram purpose in surrounding text
 - Use consistent naming across related diagrams
@@ -333,14 +333,14 @@ stateDiagram-v2
 **Check**:
 1. Running from project root: `pwd` should show `brainstrike` directory
 2. Dependencies installed: `pnpm install`
-3. Script exists: `ls scripts/validate-mermaid.mjs`
+3. Script exists: `ls .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 
 ### Problem: Diagram Looks Wrong on GitHub
 
 **Cause**: GitHub's Mermaid renderer is strict about syntax
 
 **Solution**:
-1. Run `node scripts/validate-mermaid.mjs`
+1. Run `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 2. Fix all reported errors
 3. Test in Mermaid Live Editor: https://mermaid.live/
 4. Push again after fixes
@@ -365,7 +365,7 @@ stateDiagram-v2
 - **Mermaid Documentation**: https://mermaid.js.org/
 - **Live Editor**: https://mermaid.live/ (test diagrams interactively)
 - **Syntax Reference**: https://mermaid.js.org/syntax/
-- **Validation Script**: `scripts/validate-mermaid.mjs`
+- **Validation Script**: `.claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 - **Test Script**: `scripts/test-one-diagram.mjs`
 - **Architecture Docs**: `docs/architecture/` (examples of well-formed diagrams)
 
@@ -386,7 +386,7 @@ When creating or editing Mermaid diagrams:
 
 3. **Validate IMMEDIATELY**:
    ```bash
-   node scripts/validate-mermaid.mjs
+   node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
    ```
 
 4. **Fix any errors**:
@@ -440,7 +440,7 @@ flowchart TB
 
 2. **Validation**:
 ```bash
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 3. **Confirmation**:
@@ -458,7 +458,7 @@ node scripts/validate-mermaid.mjs
 
 ## Summary
 
-- ✅ **ALWAYS validate**: `node scripts/validate-mermaid.mjs`
+- ✅ **ALWAYS validate**: `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 - ✅ **Quote labels** with special characters: `["Label (text)"]`
 - ✅ **Use `<br/>`** for line breaks
 - ✅ **NO comments** in ER diagrams

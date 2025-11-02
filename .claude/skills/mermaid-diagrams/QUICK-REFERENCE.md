@@ -6,7 +6,7 @@ Fast lookup for common patterns and fixes.
 
 ```bash
 # Validate all diagrams
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 
 # Test a single diagram
 node scripts/test-one-diagram.mjs
@@ -183,7 +183,7 @@ When a diagram is broken:
 - [ ] Replace `\\n` with `<br/>` in multi-line labels
 - [ ] Remove `//` comments from ER diagrams
 - [ ] Use `[("...")]` for database nodes with special chars
-- [ ] Run `node scripts/validate-mermaid.mjs`
+- [ ] Run `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
 - [ ] All checks pass? ✅ Safe to commit
 
 ## Most Common Error (90% of cases)

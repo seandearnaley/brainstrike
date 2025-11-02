@@ -54,7 +54,7 @@ Claude will automatically use this skill when you:
 
 The skill uses these existing project scripts:
 
-- **`scripts/validate-mermaid.mjs`** - Primary validation
+- **`.claude/skills/mermaid-diagrams/validate-mermaid.mjs`** - Primary validation
 - **`scripts/test-one-diagram.mjs`** - Single diagram testing
 
 ## Skill Configuration
@@ -84,7 +84,7 @@ allowed-tools: Read, Write, Edit, Grep, Glob, Bash
    - Checks existing diagrams for patterns
    - Creates diagram with proper syntax
    - Quotes all labels with special characters
-   - Runs validation: `node scripts/validate-mermaid.mjs`
+   - Runs validation: `node .claude/skills/mermaid-diagrams/validate-mermaid.mjs`
    - Reports validation results
    - Explains any fixes applied
 
@@ -113,7 +113,7 @@ Applies learned lessons from past errors:
 
 Automatically runs validation scripts:
 ```bash
-node scripts/validate-mermaid.mjs
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 Shows results and explains any fixes needed.
@@ -198,7 +198,7 @@ The skill should run validation automatically and show output like:
 
 **Check**: Is the validation script accessible?
 ```bash
-ls scripts/validate-mermaid.mjs
+ls .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 **Fix**: Ensure you're in the project root directory.
@@ -206,8 +206,8 @@ ls scripts/validate-mermaid.mjs
 ### Syntax Errors Despite Skill
 
 **Check**: Did validation run? Look for output:
-```
-node scripts/validate-mermaid.mjs
+```bash
+node .claude/skills/mermaid-diagrams/validate-mermaid.mjs
 ```
 
 **Fix**: Share the error message with Claude and ask for help fixing it.
@@ -249,7 +249,7 @@ node scripts/validate-mermaid.mjs
 
 - `docs/mermaid-guide.md` - Complete Mermaid guide
 - `docs/architecture/*.md` - Example diagrams
-- `scripts/validate-mermaid.mjs` - Validation script
+- `.claude/skills/mermaid-diagrams/validate-mermaid.mjs` - Validation script
 - `AGENTS.md` - Repository guidelines (includes Mermaid section)
 
 ### External Resources
@@ -278,7 +278,7 @@ A: Not recommended, but you can tell Claude: "Create diagram without validation"
 
 **Q: Can I customize the validation rules?**
 
-A: Yes! Edit `scripts/validate-mermaid.mjs` to add/modify rules.
+A: Yes! Edit `.claude/skills/mermaid-diagrams/validate-mermaid.mjs` to add/modify rules.
 
 ## Contributing
 
