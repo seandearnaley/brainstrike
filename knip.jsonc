@@ -260,7 +260,9 @@
     // Ignore Playwright merge config - used by CI workflows via shell commands
     "playwright-merge.config.js",
     // Ignore all scripts - utility scripts run directly, not imported
-    "scripts/**/*"
+    "scripts/**/*",
+    // Ignore CLI scripts in Agent Skills - executed via command line, not imported
+    ".claude/skills/**/*"
   ],
   // Keep existing global settings
   "ignoreBinaries": [
@@ -280,8 +282,8 @@
     "@commitlint/cli", // Used with commitlint.config.ts but no hooks yet
     "@vitejs/plugin-react", // Only used in Vite config
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
-    "@mermaid-js/mermaid-cli", // Used in scripts/validate-mermaid.mjs
-    "mermaid" // Used in scripts/validate-mermaid.mjs and scripts/test-one-diagram.mjs
+    "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
+    "mermaid" // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
