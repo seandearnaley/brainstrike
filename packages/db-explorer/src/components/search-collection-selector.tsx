@@ -11,6 +11,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
+  useToast,
 } from '@brainstrike/ui';
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -18,6 +19,36 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 type EmbeddingSetWithChunkCount = EmbeddingSet & {
   chunkCount: number;
 };
+
+/**
+ * SQL query to fetch all embedding sets with their chunk counts
+ *
+ * This query:
+ * - Joins embedding_sets with file_chunks to count documents per collection
+ * - Uses LEFT JOIN to include collections with zero chunks
+ * - Lists all non-aggregated columns explicitly in GROUP BY (required for strict SQL mode)
+ * - Orders by creation date (newest first)
+ *
+ * @returns SQL query string for fetching collections with metadata
+ */
+const COLLECTIONS_WITH_COUNTS_QUERY = `
+  SELECT
+    s.id,
+    s.model_key AS "modelKey",
+    s.model_id AS "modelId",
+    s.dimensions,
+    s.distance,
+    s.created_at AS "createdAt",
+    s.name,
+    s.description,
+    s.tags,
+    s.category,
+    COUNT(c.id) AS "chunkCount"
+  FROM embedding_sets s
+  LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+  GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
+  ORDER BY s.created_at DESC
+`.trim();
 
 interface SearchCollectionSelectorProps {
   /**
@@ -62,6 +93,7 @@ export function SearchCollectionSelector({
   onManageCollections,
   onCreateCollection,
 }: SearchCollectionSelectorProps) {
+  const { toast } = useToast();
   const [collections, setCollections] = useState<EmbeddingSetWithChunkCount[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -87,24 +119,7 @@ export function SearchCollectionSelector({
         tags: string | null;
         category: string | null;
         chunkCount: string | number;
-      }>(`
-        SELECT
-          s.id,
-          s.model_key AS "modelKey",
-          s.model_id AS "modelId",
-          s.dimensions,
-          s.distance,
-          s.created_at AS "createdAt",
-          s.name,
-          s.description,
-          s.tags,
-          s.category,
-          COUNT(c.id) AS "chunkCount"
-        FROM embedding_sets s
-        LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
-        GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
-        ORDER BY s.created_at DESC
-      `);
+      }>(COLLECTIONS_WITH_COUNTS_QUERY);
 
       const sets: EmbeddingSetWithChunkCount[] = result.rows.map(
         (row: {
@@ -143,10 +158,16 @@ export function SearchCollectionSelector({
     } catch (error) {
       console.error('[SearchCollectionSelector] Failed to load collections:', error);
       setCollections([]);
+      toast({
+        title: 'Failed to Load Collections',
+        description:
+          error instanceof Error ? error.message : 'Unable to retrieve collections from database',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
-  }, [db]);
+  }, [db, toast]);
 
   // Load collections on mount and when repository changes
   useEffect(() => {
@@ -154,20 +175,22 @@ export function SearchCollectionSelector({
   }, [loadCollections]);
 
   // Listen for collection changes (from manage dialog, etc.)
+  // Uses brainstrike: prefix for consistency with rest of app
   useEffect(() => {
+    let mounted = true;
+
     const handleCollectionChange = () => {
-      void loadCollections();
+      if (mounted) {
+        void loadCollections();
+      }
     };
 
     if (typeof window !== 'undefined') {
-      window.addEventListener('embedding-set-created', handleCollectionChange);
-      window.addEventListener('embedding-set-updated', handleCollectionChange);
-      window.addEventListener('embedding-set-deleted', handleCollectionChange);
+      window.addEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
 
       return () => {
-        window.removeEventListener('embedding-set-created', handleCollectionChange);
-        window.removeEventListener('embedding-set-updated', handleCollectionChange);
-        window.removeEventListener('embedding-set-deleted', handleCollectionChange);
+        mounted = false;
+        window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
       };
     }
     return undefined;
