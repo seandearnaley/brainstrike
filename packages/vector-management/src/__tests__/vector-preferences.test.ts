@@ -1,4 +1,4 @@
-import { useVectorStatusUIStore } from '@brainstrike/db-explorer';
+import { useVectorStatusUIStore } from '@brainstrike/preferences';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ACTIVE_EMBEDDING_SET_KEY,

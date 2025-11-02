@@ -1,5 +1,7 @@
 // Main Panel
 
+// Re-export from preferences for backward compatibility
+export { useVectorStatusUIStore } from '@brainstrike/preferences';
 // Components
 export * from './components';
 // Utils
@@ -11,7 +13,6 @@ export * from './hooks';
 // Stores
 export { useDatabaseDemoStore } from './stores/database-demo-store';
 export { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
-export { useVectorStatusUIStore } from './stores/vector-status-ui-store';
 // Types
 export * from './types';
 // Core Hooks

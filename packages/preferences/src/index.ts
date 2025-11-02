@@ -11,4 +11,5 @@ export * from './stores/logging-preferences-store';
 export * from './stores/panel-layout-store';
 export * from './stores/token-preferences-store';
 export * from './stores/vector-preferences-store';
+export * from './stores/vector-status-ui-store';
 export * from './token-counting/token-counting-settings-section';

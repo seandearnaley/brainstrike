@@ -44,6 +44,7 @@
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/vector-management": "workspace:*",
     "file-saver": "2.0.5",
     "jszip": "^3.10.1",
     "lucide-react": "^0.545.0"

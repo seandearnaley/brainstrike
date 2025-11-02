@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@brainstrike/db": "workspace:*",
-    "@brainstrike/db-explorer": "workspace:*",
     "@brainstrike/embeddings": "workspace:*",
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",

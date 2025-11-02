@@ -7,6 +7,7 @@ export { ExportDropdown } from './export-dropdown';
 export { FilesView } from './files-view';
 export { FilesViewTable } from './files-view-table';
 export { ImportProgressDisplay } from './import-progress-display';
+export { SearchCollectionSelector } from './search-collection-selector';
 export { SearchInterface } from './search-interface';
 export { SearchView } from './search-view';
 export { SearchViewTable } from './search-view-table';

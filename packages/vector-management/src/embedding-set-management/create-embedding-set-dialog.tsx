@@ -29,6 +29,10 @@ interface CreateEmbeddingSetDialogProps {
     dimensions: number;
     distance: 'cosine' | 'l2' | 'ip';
     provider: string;
+    description?: string;
+    tags?: string[];
+    pricePer1MTokens?: number;
+    origin?: string;
   }>;
   onSetCreated?: (setId: string) => void;
 }
@@ -159,7 +163,7 @@ export function CreateEmbeddingSetDialog({
       console.error('[CreateEmbeddingSetDialog] Failed to create set:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to create embedding set',
+        description: error instanceof Error ? error.message : 'Failed to create collection',
         variant: 'destructive',
       });
     } finally {
@@ -169,7 +173,7 @@ export function CreateEmbeddingSetDialog({
 
   const formatModelLabel = (model: (typeof availableModels)[number]) => {
     const parsed = parseProviderModelKey(model.modelKey);
-    let providerLabel = 'Unknown';
+    let providerLabel = 'Local'; // Default to Local for models without provider prefix
 
     if (parsed?.provider === 'local') {
       providerLabel = 'Local';
@@ -180,14 +184,38 @@ export function CreateEmbeddingSetDialog({
     return `${providerLabel} · ${model.modelId} (${model.dimensions}D ${model.distance})`;
   };
 
+  const formatModelDescription = (model: (typeof availableModels)[number]) => {
+    const parts: string[] = [];
+
+    // Add cost indicator
+    if (model.pricePer1MTokens !== undefined) {
+      parts.push(`💰 $${model.pricePer1MTokens.toFixed(2)}/1M tokens`);
+    } else {
+      parts.push('🔒 Free (local)');
+    }
+
+    // Add model description if available
+    if (model.description) {
+      parts.push(model.description);
+    }
+
+    // Add origin/use case if available
+    if (model.origin) {
+      parts.push(`Best for: ${model.origin.toLowerCase()}`);
+    }
+
+    return parts.join(' · ');
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Create Embedding Set</DialogTitle>
+          <DialogTitle>Create Search Collection</DialogTitle>
           <DialogDescription>
-            Create a new embedding set to organize your vector embeddings. Each set represents a
-            unique combination of model, dimensions, and distance metric.
+            Collections let you search the same files with different AI models. For example, use a
+            code-optimized model for technical docs and a general model for business content. Each
+            collection is optimized for specific search needs.
           </DialogDescription>
         </DialogHeader>
 
@@ -221,6 +249,11 @@ export function CreateEmbeddingSetDialog({
                 ))}
               </SelectContent>
             </Select>
+            {selectedModelInfo && (
+              <p className="text-xs text-muted-foreground mt-2">
+                {formatModelDescription(selectedModelInfo)}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -242,7 +275,7 @@ export function CreateEmbeddingSetDialog({
             </Label>
             <Input
               id="description"
-              placeholder="Describe the purpose of this embedding set"
+              placeholder="Describe the purpose of this collection"
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               disabled={creating}
@@ -291,7 +324,7 @@ export function CreateEmbeddingSetDialog({
             disabled={creating || !formData.selectedModel || !formData.name.trim()}
             type="button"
           >
-            {creating ? 'Creating...' : 'Create Set'}
+            {creating ? 'Creating...' : 'Create Collection'}
           </Button>
         </DialogFooter>
       </DialogContent>

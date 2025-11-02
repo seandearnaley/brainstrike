@@ -110,7 +110,11 @@
       "Bash(localStorage.clear)",
       "Bash(curl:*)",
       "mcp__chrome-devtools__close_page",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "SlashCommand(/beads:show:*)",
+      "mcp__plugin_codanna_codanna__semantic_search_with_context",
+      "WebFetch(domain:api.github.com)",
+      "Bash(gh pr comment:*)"
     ],
     "deny": [],
     "ask": []

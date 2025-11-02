@@ -46,26 +46,35 @@ vi.mock('@brainstrike/embeddings', async () => {
     await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
   return {
     ...actual,
-    SimpleEmbeddingService: vi.fn().mockImplementation(() => ({
-      initializeWithModel: vi.fn(),
-      generateEmbedding: vi.fn(),
-      getStatus: vi.fn().mockReturnValue('ready'),
-      dispose: vi.fn(),
-    })),
+    SimpleEmbeddingService: Object.assign(
+      vi.fn().mockImplementation(() => ({
+        initializeWithModel: vi.fn(),
+        generateEmbedding: vi.fn(),
+        getStatus: vi.fn().mockReturnValue('ready'),
+        dispose: vi.fn(),
+      })),
+      {
+        getDefaultModelKey: vi.fn().mockReturnValue('Xenova/all-MiniLM-L6-v2'),
+      }
+    ),
   };
 });
 
-vi.mock('@brainstrike/utils', () => ({
-  fileExplorer: {
-    getFileExtension: vi.fn(() => '.ts'),
-  },
-  createLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  })),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    fileExplorer: {
+      getFileExtension: vi.fn(() => '.ts'),
+    },
+    createLogger: vi.fn(() => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    })),
+  };
+});
 
 vi.mock('@brainstrike/file-import', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/file-import')>(

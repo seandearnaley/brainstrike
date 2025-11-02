@@ -76,7 +76,7 @@ export function RenameEmbeddingSetDialog({
     category: '',
   });
 
-  // Initialize form when embedding set changes
+  // Initialize form when collection changes
   useEffect(() => {
     if (embeddingSet) {
       setFormData({
@@ -101,7 +101,7 @@ export function RenameEmbeddingSetDialog({
     if (!formData.name.trim()) {
       toast({
         title: 'Validation Error',
-        description: 'Please provide a name for the embedding set',
+        description: 'Please provide a name for the collection',
         variant: 'destructive',
       });
       return false;
@@ -132,7 +132,7 @@ export function RenameEmbeddingSetDialog({
 
       toast({
         title: 'Success',
-        description: `Updated embedding set: ${formData.name}`,
+        description: `Updated collection: ${formData.name}`,
       });
 
       onOpenChange(false);
@@ -141,7 +141,7 @@ export function RenameEmbeddingSetDialog({
       console.error('[RenameEmbeddingSetDialog] Failed to update set:', error);
       toast({
         title: 'Error',
-        description: error instanceof Error ? error.message : 'Failed to update embedding set',
+        description: error instanceof Error ? error.message : 'Failed to update collection',
         variant: 'destructive',
       });
     } finally {
@@ -157,9 +157,9 @@ export function RenameEmbeddingSetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Edit Embedding Set</DialogTitle>
+          <DialogTitle>Edit Search Collection</DialogTitle>
           <DialogDescription>
-            Update the metadata for this embedding set. The model configuration cannot be changed.
+            Update the metadata for this collection. The model configuration cannot be changed.
           </DialogDescription>
         </DialogHeader>
 
@@ -193,7 +193,7 @@ export function RenameEmbeddingSetDialog({
             </Label>
             <Input
               id="edit-description"
-              placeholder="Describe the purpose of this embedding set"
+              placeholder="Describe the purpose of this collection"
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               disabled={updating}
