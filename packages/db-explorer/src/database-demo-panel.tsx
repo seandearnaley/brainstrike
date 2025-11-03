@@ -708,7 +708,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           onOpenChange={setCreateCollectionOpen}
           repository={embeddingSetsRepository}
           availableModels={availableModels}
-          onSetCreated={() => {
+          onSetCreated={(newSetId?: string) => {
+            if (newSetId) {
+              handleCollectionChange(newSetId);
+            }
             setCreateCollectionOpen(false);
             // Reload collections (SearchCollectionSelector listens to event)
           }}
