@@ -616,6 +616,15 @@ async function ensureAndEmitEmbeddingSet(params: {
     return;
   }
 
+  // CRITICAL: Only create/ensure embedding set if user explicitly selected one
+  // If resolveTargetEmbeddingSetId returned null, that means NO collection was selected
+  // We should NOT auto-create a collection - user must explicitly create one first
+  if (!resolved.targetSetId) {
+    throw new Error(
+      'No search collection selected. Please create and select a collection before importing files with embeddings enabled.'
+    );
+  }
+
   const ensuredSetId = await ensureEmbeddingSet(sql, {
     modelKey: resolved.modelKey,
     modelId: modelConfig?.id ?? resolved.modelId ?? resolved.modelKey,
