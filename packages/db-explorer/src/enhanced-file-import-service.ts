@@ -384,6 +384,11 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
+        console.log('[EnhancedFileImportService] About to create embedding config');
+        console.log(
+          '[EnhancedFileImportService] getActiveEmbeddingSetId() at import time:',
+          getActiveEmbeddingSetId()
+        );
         const embeddingConfig = createEmbeddingConfig(
           options.enableEmbedding,
           options.embeddingModel,
@@ -391,6 +396,7 @@ export function useEnhancedFileImportService(
           chunkRepository,
           getActiveEmbeddingSetId
         );
+        console.log('[EnhancedFileImportService] Embedding config created:', embeddingConfig);
         const ports = createPorts(queuePort, sqlPort);
         const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
 
