@@ -451,25 +451,6 @@ function createResolvedEmbeddingModelState(
   };
 }
 
-function resolveDisabledEmbeddingModel(config: EmbeddingConfiguration): ResolvedEmbeddingModel {
-  const resolved = createResolvedEmbeddingModelState(config);
-  const model = config.model;
-  if (!model) {
-    return resolved;
-  }
-
-  const canonical = canonicalizeModelKey(model, config.provider);
-  resolved.modelKey = canonical.composite;
-  resolved.modelId = canonical.modelId;
-  resolved.provider = canonical.provider;
-  resolved.targetDimension =
-    resolved.provider === 'local'
-      ? determineTargetDimension(SimpleEmbeddingService.getModelConfig(resolved.modelId))
-      : DEFAULT_EMBEDDING_DIMENSION;
-
-  return resolved;
-}
-
 async function resolveEnabledEmbeddingModel(
   config: EmbeddingConfiguration,
   ports: RunEnhancedImportPorts | undefined
@@ -593,19 +574,9 @@ async function resolveEmbeddingModel(
   }
 
   if (!config.enabled) {
-    const resolved = resolveDisabledEmbeddingModel(config);
-    if (ports?.sql) {
-      await ensureAndEmitEmbeddingSet({
-        sql: ports.sql,
-        resolved,
-        modelConfig:
-          resolved.provider === 'local' && resolved.modelId
-            ? SimpleEmbeddingService.getModelConfig(resolved.modelId)
-            : undefined,
-        config,
-      });
-    }
-    return resolved;
+    // When embeddings are disabled, do NOT create an embedding set
+    // Collections should only be created when user explicitly creates them or when embeddings are enabled
+    return { targetSetId: null };
   }
 
   return resolveEnabledEmbeddingModel(config, ports);

@@ -384,7 +384,7 @@ describe('runEnhancedImport', () => {
     expect(resolvedSetIdSpy).toHaveBeenCalledWith('set-1');
   });
 
-  it('ensures embedding set exists even when embeddings are disabled', async () => {
+  it('does NOT create embedding set when embeddings are disabled', async () => {
     vi.spyOn(SimpleEmbeddingService, 'getModelConfig').mockReturnValue({
       id: 'db-model',
       name: 'DB Model',
@@ -440,11 +440,12 @@ describe('runEnhancedImport', () => {
         .mockResolvedValue([{ id: '1', imported: true, existed: false, chunksCreated: 1 }]),
     });
 
+    // When embeddings are disabled, should NOT create embedding set
     expect(
       sqlPortQuery.mock.calls.some(
         ([statement]) =>
           typeof statement === 'string' && statement.startsWith('INSERT INTO embedding_sets')
       )
-    ).toBe(true);
+    ).toBe(false);
   });
 });
