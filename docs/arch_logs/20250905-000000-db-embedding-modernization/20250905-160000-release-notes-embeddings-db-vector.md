@@ -1,5 +1,7 @@
 # Release Notes: Embeddings, Database & Vector System Enhancements
 
+> **2025-10 update:** The renderer now auto-starts the embedding worker when the database is ready, replacing the old `EMBED_QUEUE_ENABLED` toggle. References to that flag in the original notes remain for historical context.
+
 ## 🚀 Overview
 
 This release represents a major milestone in the evolution of our embeddings, database, and vector system architecture. The changes include a complete modernization of the DB and embeddings pipeline with enhanced performance, reliability, and developer experience.
@@ -61,7 +63,7 @@ This release represents a major milestone in the evolution of our embeddings, da
 ## 🏗️ Technical Improvements
 
 ### Configuration & Build
-- **Environment Variable Support**: Added `EMBED_QUEUE_ENABLED` and `LOCAL_FIRST_DB` configuration
+- **Environment Variable Support**: Added `LOCAL_FIRST_DB` configuration. (Legacy rollout detail: `EMBED_QUEUE_ENABLED` gated the worker before the renderer auto-start flow.)
 - **Vite Configuration**: Updated with proper dependency optimization and port management
 - **TypeScript Configuration**: Enhanced path mappings for new packages
 - **Biome Linting**: Updated rules for new file patterns and naming conventions
