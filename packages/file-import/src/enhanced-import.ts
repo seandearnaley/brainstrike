@@ -580,6 +580,9 @@ async function resolveEmbeddingModel(
     // 2. Users to backfill embeddings later via the Backfill button
     // 3. Proper collection management and visibility
     const activeSetId = config.resolveTargetEmbeddingSetId?.() ?? null;
+    logger.info('[DEBUG] Embeddings disabled - resolveTargetEmbeddingSetId returned:', {
+      activeSetId,
+    });
     return { targetSetId: activeSetId };
   }
 
