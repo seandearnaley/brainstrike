@@ -24,6 +24,7 @@ const STORAGE_KEYS = [
   'search-panel.v1',
   'right-panel.v1',
   'file-explorer-storage-v4',
+  'previewPanelPreferences.v1',
 ] as const;
 
 /**

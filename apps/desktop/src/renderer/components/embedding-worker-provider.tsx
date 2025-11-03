@@ -22,6 +22,20 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
     // Start the worker once database is ready
     const startWorker = async () => {
       try {
+        // Check if any embedding sets exist before starting worker
+        // This prevents auto-creation of default embedding set after factory reset
+        const result = await db.query<{ count: number }>(
+          'SELECT COUNT(*) as count FROM embedding_sets'
+        );
+        const count = result.rows[0]?.count ?? 0;
+
+        if (count === 0) {
+          logger.info(
+            'No embedding sets found - worker will not start until user creates a collection'
+          );
+          return;
+        }
+
         logger.info('Starting embedding worker in renderer process...');
         const controller = await startEmbeddingWorker({
           db,
