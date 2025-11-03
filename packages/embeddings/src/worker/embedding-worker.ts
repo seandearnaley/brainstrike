@@ -72,35 +72,6 @@ async function sha256Hex(input: string): Promise<string> {
   return createHash('sha256').update(input).digest('hex');
 }
 
-async function getOrCreateEmbeddingSet(
-  db: IDatabase,
-  modelKey: string,
-  modelId: string,
-  dimensions: number,
-  distance: Distance
-): Promise<string> {
-  // Try fetch by unique composite
-  const existing = await db.query<{ id: string }>(
-    'SELECT id FROM embedding_sets WHERE model_key = $1 AND dimensions = $2 AND distance = $3 LIMIT 1',
-    [modelKey, dimensions, distance]
-  );
-  if (existing.rows[0]?.id) return existing.rows[0].id;
-
-  const id = generateUUID();
-  const now = new Date().toISOString();
-  const res = await db.query<{ id: string }>(
-    `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     ON CONFLICT (model_key, dimensions, distance)
-     DO UPDATE SET model_id = EXCLUDED.model_id
-     RETURNING id`,
-    [id, modelKey, modelId, dimensions, distance, now]
-  );
-  const row = res.rows[0];
-  if (!row) throw new Error('Failed to create embedding set');
-  return row.id;
-}
-
 async function loadChunk(db: IDatabase, id: string) {
   const res = await db.query<{
     id: string;
@@ -431,20 +402,14 @@ export async function startEmbeddingWorker(
   ensureLocalRuntime(modelResolution);
   let activeModelId = modelResolution.modelId;
   let activeCompositeKey = modelResolution.compositeKey;
-  const distance: Distance = options.distance ?? 'cosine';
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
   let { service, modelConfig } = await initializeEmbeddingService(options, activeModelId);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
 
-  let embeddingSetId = await getOrCreateEmbeddingSet(
-    options.db,
-    activeCompositeKey,
-    modelConfig.id,
-    activeModelDimension,
-    distance
-  );
-  embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
+  // REMOVED: Worker no longer auto-creates embedding sets on startup
+  // Collections should ONLY be created by the user via the Create Collection dialog
+  // The worker will use embeddingSetId from job payloads (see resolveTargetSetId function)
 
   const jq = new JobQueue(options.db);
   let running = true;
@@ -535,14 +500,9 @@ export async function startEmbeddingWorker(
     const refreshedDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
     activeModelDimension = refreshedDimension;
 
-    embeddingSetId = await getOrCreateEmbeddingSet(
-      options.db,
-      activeCompositeKey,
-      modelConfig.id,
-      activeModelDimension,
-      distance
-    );
-    embeddingSetDimensionCache.set(embeddingSetId, activeModelDimension);
+    // REMOVED: Worker no longer auto-creates embedding sets when switching models
+    // Collections should ONLY be created by the user via the Create Collection dialog
+    // The worker will use embeddingSetId from job payloads (see resolveTargetSetId function)
 
     processedSinceInit = 0;
     consecutiveFailures = 0;
@@ -675,9 +635,12 @@ export async function startEmbeddingWorker(
     payload: EmbedChunkPayload,
     chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>
   ): string {
-    const targetSetId = payload.embeddingSetId ?? chunk.embeddingSetId ?? embeddingSetId;
+    const targetSetId = payload.embeddingSetId ?? chunk.embeddingSetId;
     if (!targetSetId) {
-      throw new Error('Unable to determine embedding set for job payload.');
+      throw new Error(
+        'Job payload missing embeddingSetId. Jobs must specify which collection to use. ' +
+          'Collections should be created via the Create Collection dialog before enqueueing jobs.'
+      );
     }
     return targetSetId;
   }
