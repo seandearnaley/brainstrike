@@ -574,9 +574,13 @@ async function resolveEmbeddingModel(
   }
 
   if (!config.enabled) {
-    // When embeddings are disabled, do NOT create an embedding set
-    // Collections should only be created when user explicitly creates them or when embeddings are enabled
-    return { targetSetId: null };
+    // Even when embeddings are disabled, chunks should be associated with the active collection
+    // This allows:
+    // 1. Document counts to update correctly in the UI
+    // 2. Users to backfill embeddings later via the Backfill button
+    // 3. Proper collection management and visibility
+    const activeSetId = config.resolveTargetEmbeddingSetId?.() ?? null;
+    return { targetSetId: activeSetId };
   }
 
   return resolveEnabledEmbeddingModel(config, ports);
@@ -616,13 +620,10 @@ async function ensureAndEmitEmbeddingSet(params: {
     return;
   }
 
-  // CRITICAL: Only create/ensure embedding set if user explicitly selected one
-  // If resolveTargetEmbeddingSetId returned null, that means NO collection was selected
-  // We should NOT auto-create a collection - user must explicitly create one first
+  // Only ensure/create embedding set if we have a model and dimensions (embeddings enabled)
+  // Chunks can still be created with embedding_set_id even without this
   if (!resolved.targetSetId) {
-    throw new Error(
-      'No search collection selected. Please create and select a collection before importing files with embeddings enabled.'
-    );
+    return;
   }
 
   const ensuredSetId = await ensureEmbeddingSet(sql, {

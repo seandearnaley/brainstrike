@@ -95,7 +95,7 @@ describe('runEnhancedImport', () => {
     );
   });
 
-  it('throws error when preferred set model key differs (no auto-creation)', async () => {
+  it('does not throw error when embeddings disabled (chunks still get embedding_set_id)', async () => {
     const chunkingImpl = vi.fn().mockResolvedValue([
       {
         id: '1',
@@ -154,36 +154,38 @@ describe('runEnhancedImport', () => {
 
     const resolvedSetIdSpy = vi.fn();
 
-    await expect(
-      runEnhancedImport({
-        request: {
-          selectedFilePaths: new Set(['1']),
-          fileTree: [],
-          fileContents: {},
-        },
-        baseImportRunner: createBaseRunner([
-          { id: '1', imported: true, existed: false, chunksCreated: 1 },
-        ]),
-        chunking: {
-          enabled: true,
-          deps: { repository: {} as never, chunkRepository: {} as never },
-        },
-        embedding: {
-          enabled: true,
-          model: 'db-model',
-          service: {} as never,
-          chunkRepository: {} as never,
-          resolveTargetEmbeddingSetId: () => 'legacy-set',
-          onResolvedTargetSetId: resolvedSetIdSpy,
-        },
-        ports: { sql: sqlPort },
-        progressHandlers: {
-          update: (updater) => updater(null),
-        },
-        processChunkingImpl: chunkingImpl,
-        processEmbeddingsImpl: embeddingsImpl,
-      })
-    ).rejects.toThrow('No search collection selected');
+    const results = await runEnhancedImport({
+      request: {
+        selectedFilePaths: new Set(['1']),
+        fileTree: [],
+        fileContents: {},
+      },
+      baseImportRunner: createBaseRunner([
+        { id: '1', imported: true, existed: false, chunksCreated: 1 },
+      ]),
+      chunking: {
+        enabled: true,
+        deps: { repository: {} as never, chunkRepository: {} as never },
+      },
+      embedding: {
+        enabled: false,
+        model: 'db-model',
+        service: {} as never,
+        chunkRepository: {} as never,
+        resolveTargetEmbeddingSetId: () => 'legacy-set',
+        onResolvedTargetSetId: resolvedSetIdSpy,
+      },
+      ports: { sql: sqlPort },
+      progressHandlers: {
+        update: (updater) => updater(null),
+      },
+      processChunkingImpl: chunkingImpl,
+      processEmbeddingsImpl: embeddingsImpl,
+    });
+
+    // Should succeed and chunks should be created with embedding_set_id
+    expect(results).toHaveLength(1);
+    expect(results[0]?.chunksCreated).toBe(1);
   });
 
   it('passes queue ports through to chunking implementation', async () => {
