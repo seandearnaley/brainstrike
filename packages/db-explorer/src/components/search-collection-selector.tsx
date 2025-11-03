@@ -14,7 +14,7 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 type EmbeddingSetWithChunkCount = EmbeddingSet & {
   chunkCount: number;
@@ -97,6 +97,9 @@ export function SearchCollectionSelector({
   const [collections, setCollections] = useState<EmbeddingSetWithChunkCount[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Ref to store the latest loadCollections function
+  const loadCollectionsRef = useRef<(() => Promise<void>) | null>(null);
+
   // Load collections from database
   const loadCollections = useCallback(async () => {
     if (!db) {
@@ -169,6 +172,11 @@ export function SearchCollectionSelector({
     }
   }, [db, toast]);
 
+  // Update ref whenever loadCollections changes
+  useEffect(() => {
+    loadCollectionsRef.current = loadCollections;
+  }, [loadCollections]);
+
   // Load collections on mount and when repository changes
   useEffect(() => {
     void loadCollections();
@@ -180,21 +188,25 @@ export function SearchCollectionSelector({
     let mounted = true;
 
     const handleCollectionChange = () => {
-      if (mounted) {
-        void loadCollections();
+      if (mounted && loadCollectionsRef.current) {
+        void loadCollectionsRef.current();
       }
     };
 
     if (typeof window !== 'undefined') {
+      // Listen for collection selection changes
       window.addEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
+      // Listen for file import completion to update document counts
+      window.addEventListener('brainstrike:files-imported', handleCollectionChange);
 
       return () => {
         mounted = false;
         window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
+        window.removeEventListener('brainstrike:files-imported', handleCollectionChange);
       };
     }
     return undefined;
-  }, [loadCollections]);
+  }, []); // Empty dependency array - event listeners are stable
 
   // Find active collection
   const activeCollection = useMemo(

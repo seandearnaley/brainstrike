@@ -7,30 +7,47 @@ export function createImportCompletionHandler(
   loadChunks: () => Promise<void>
 ) {
   return (results: EnhancedImportResult[]) => {
-    const imported = results.filter((r) => r.imported).length;
+    const newFiles = results.filter((r) => r.imported && !r.existed).length;
+    const existingFiles = results.filter((r) => r.imported && r.existed).length;
     const importFailed = results.filter((r) => !r.imported).length;
     const processingErrors = results.filter((r) => r.imported && r.error).length;
     const totalChunks = results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0);
     const totalEmbeddings = results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0);
 
-    let description = `${imported} files imported`;
+    // Build user-friendly description
+    let description = '';
+
+    // File status
+    if (newFiles > 0 && existingFiles > 0) {
+      description = `${newFiles} new files, ${existingFiles} existing files added to collection`;
+    } else if (newFiles > 0) {
+      description = `${newFiles} new files imported`;
+    } else if (existingFiles > 0) {
+      description = `${existingFiles} existing files added to collection`;
+    } else {
+      description = 'No files imported';
+    }
+
+    // Errors
     if (importFailed > 0) {
-      description += `, ${importFailed} import failed`;
+      description += `, ${importFailed} failed`;
     }
     if (processingErrors > 0) {
       description += `, ${processingErrors} processing errors`;
     }
+
+    // Chunks and embeddings
     if (totalChunks > 0) {
-      description += `, ${totalChunks} chunks created`;
+      description += ` • ${totalChunks} chunks created`;
     }
     if (totalEmbeddings > 0) {
-      description += `, ${totalEmbeddings} embeddings generated`;
+      description += `, ${totalEmbeddings} embedded`;
     }
 
     toast({
-      title: 'Import Complete',
+      title: importFailed > 0 ? 'Import Completed with Errors' : 'Import Complete',
       description,
-      variant: importFailed > 0 ? 'destructive' : processingErrors > 0 ? 'default' : 'default',
+      variant: importFailed > 0 ? 'destructive' : 'default',
     });
 
     // Refresh the records to show new imports

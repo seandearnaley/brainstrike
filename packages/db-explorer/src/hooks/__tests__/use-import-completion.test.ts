@@ -31,7 +31,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '2 files imported, 15 chunks created, 13 embeddings generated',
+      description: '2 new files imported • 15 chunks created, 13 embedded',
       variant: 'default',
     });
 
@@ -73,8 +73,8 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
-      description: '1 files imported, 2 import failed, 10 chunks created, 10 embeddings generated',
+      title: 'Import Completed with Errors',
+      description: '1 new files imported, 2 failed • 10 chunks created, 10 embedded',
       variant: 'destructive',
     });
   });
@@ -108,7 +108,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '2 files imported, 1 processing errors, 5 chunks created',
+      description: '2 new files imported, 1 processing errors • 5 chunks created',
       variant: 'default',
     });
   });
@@ -140,8 +140,8 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
-      description: '0 files imported, 2 import failed',
+      title: 'Import Completed with Errors',
+      description: 'No files imported, 2 failed',
       variant: 'destructive',
     });
   });
@@ -157,7 +157,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '0 files imported',
+      description: 'No files imported',
       variant: 'default',
     });
   });
@@ -183,7 +183,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '1 files imported, 10 chunks created',
+      description: '1 new files imported • 10 chunks created',
       variant: 'default',
     });
   });
@@ -223,9 +223,9 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
+      title: 'Import Completed with Errors',
       description:
-        '2 files imported, 1 import failed, 1 processing errors, 15 chunks created, 13 embeddings generated',
+        '2 new files imported, 1 failed, 1 processing errors • 15 chunks created, 13 embedded',
       variant: 'destructive',
     });
   });

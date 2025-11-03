@@ -410,6 +410,21 @@ export function useEnhancedFileImportService(
         const results = await runEnhancedImport<IFileNode>(params);
 
         options.onComplete?.(results);
+
+        // Dispatch event to notify UI components (e.g., SearchCollectionSelector) to refresh
+        // This ensures document counts and other collection-related UI updates immediately
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(
+            new CustomEvent('brainstrike:files-imported', {
+              detail: {
+                results,
+                activeCollectionId: getActiveEmbeddingSetId(),
+                fileCount: results.length,
+                chunkCount: results.reduce((sum, r) => sum + (r.chunksCreated ?? 0), 0),
+              },
+            })
+          );
+        }
       } catch (error) {
         options.onError?.(error instanceof Error ? error : new Error('Import failed'));
       } finally {
