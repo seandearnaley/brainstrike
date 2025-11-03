@@ -114,7 +114,8 @@
       "SlashCommand(/beads:show:*)",
       "mcp__plugin_codanna_codanna__semantic_search_with_context",
       "WebFetch(domain:api.github.com)",
-      "Bash(gh pr comment:*)"
+      "Bash(gh pr comment:*)",
+      "mcp__plugin_codanna-cc_codanna-cc__find_symbol"
     ],
     "deny": [],
     "ask": []

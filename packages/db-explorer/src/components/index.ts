@@ -4,6 +4,8 @@ export { ClearDatabaseDialog } from './clear-database-dialog';
 export { DbInfoDisplay } from './db-info-display';
 export { ExportButtons } from './export-buttons';
 export { ExportDropdown } from './export-dropdown';
+export { FileActionButtons } from './file-action-buttons';
+export { FileStatusBadge } from './file-status-badge';
 export { FilesView } from './files-view';
 export { FilesViewTable } from './files-view-table';
 export { ImportProgressDisplay } from './import-progress-display';
