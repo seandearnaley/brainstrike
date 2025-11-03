@@ -375,15 +375,16 @@ function useActiveEmbeddingSet() {
     const handler = (event: Event) => {
       const custom = event as CustomEvent<{ id?: string }>;
       const nextId = custom.detail?.id;
-      if (nextId) {
+      if (typeof nextId === 'string' && nextId.trim()) {
         setActiveId(nextId);
       }
     };
 
     const handleQueueDrained = (event: Event) => {
       const custom = event as CustomEvent<{ embeddingSetId?: string }>;
-      if (custom.detail?.embeddingSetId) {
-        setActiveId(custom.detail.embeddingSetId);
+      const embeddingSetId = custom.detail?.embeddingSetId;
+      if (typeof embeddingSetId === 'string' && embeddingSetId.trim()) {
+        setActiveId(embeddingSetId);
       }
     };
 

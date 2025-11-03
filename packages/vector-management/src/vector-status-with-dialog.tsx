@@ -30,8 +30,10 @@ export interface VectorStatusWithDialogProps {
  * IMPORTANT: This component must forward the queueAdapter prop to VectorStatusWithDb.
  * See VectorStatusWithDialogProps.queueAdapter documentation for critical context.
  *
- * Note: The embedding set selector has been moved to Database Explorer.
- * Vector Status now reads the active set from global context only.
+ * ARCHITECTURAL NOTE: Embedding set selection has been moved to Database Explorer's
+ * SearchCollectionSelector. Vector Status now purely consumes the active collection
+ * context via getActiveEmbeddingSetId() rather than controlling it. This establishes
+ * a single source of truth for collection selection and eliminates redundant UI.
  */
 export function VectorStatusWithDialog({ queueAdapter = null }: VectorStatusWithDialogProps = {}) {
   return <VectorStatusWithDb queueAdapter={queueAdapter} />;
