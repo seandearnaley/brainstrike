@@ -108,6 +108,7 @@ export function SearchCollectionSelector({
       return;
     }
 
+    console.log('[SearchCollectionSelector] Loading collections with counts...');
     try {
       setLoading(true);
       const result = await db.query<{
@@ -123,6 +124,12 @@ export function SearchCollectionSelector({
         category: string | null;
         chunkCount: string | number;
       }>(COLLECTIONS_WITH_COUNTS_QUERY);
+      console.log(
+        '[SearchCollectionSelector] Loaded',
+        result.rows.length,
+        'collections:',
+        result.rows
+      );
 
       const sets: EmbeddingSetWithChunkCount[] = result.rows.map(
         (row: {
@@ -188,6 +195,7 @@ export function SearchCollectionSelector({
     let mounted = true;
 
     const handleCollectionChange = () => {
+      console.log('[SearchCollectionSelector] Received collection change event, reloading...');
       if (mounted && loadCollectionsRef.current) {
         void loadCollectionsRef.current();
       }
