@@ -90,7 +90,10 @@ function createEmbeddingConfig(
   const provider: EmbeddingProviderType | undefined = parsed?.provider;
 
   return {
-    enabled: Boolean(enableEmbedding),
+    // CRITICAL: ALWAYS disable immediate embedding during import
+    // Chunks will be created with embedding_set_id but NOT immediately embedded
+    // Users must use Vector Status "Backfill" button to manually trigger embedding
+    enabled: false,
     service: embeddingService,
     chunkRepository,
     resolveTargetEmbeddingSetId,
