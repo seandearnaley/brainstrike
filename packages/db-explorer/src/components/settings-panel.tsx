@@ -59,16 +59,9 @@ export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelP
 
         <div>
           <Label className="text-xs" htmlFor={embeddingsId}>
-            Embeddings
+            Embedding Model
           </Label>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="checkbox"
-              id={embeddingsId}
-              checked={importSettings.enableEmbedding}
-              onChange={(e) => importSettings.setEnableEmbedding(e.target.checked)}
-              className="h-3 w-3"
-            />
+          <div className="mt-1">
             <Select
               value={importSettings.selectedModel}
               onValueChange={importSettings.setSelectedModel}

@@ -118,7 +118,8 @@
       "mcp__plugin_codanna-cc_codanna-cc__find_symbol",
       "Bash(gh run cancel:*)",
       "SlashCommand(/beads:ready)",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(VITEST_RUN_INTEGRATION=true vitest run:*)"
     ],
     "deny": [],
     "ask": []

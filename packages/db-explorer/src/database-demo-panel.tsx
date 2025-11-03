@@ -489,8 +489,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Collection management handlers
   const handleCollectionChange = useCallback((collectionId: string | null) => {
+    console.log('[DatabaseDemoPanel] Collection changed to:', collectionId);
     setActiveCollectionId(collectionId);
     setActiveEmbeddingSetId(collectionId);
+    console.log(
+      '[DatabaseDemoPanel] After setActiveEmbeddingSetId, checking getActive:',
+      getActiveEmbeddingSetId()
+    );
   }, []);
 
   const handleManageCollections = useCallback(() => {

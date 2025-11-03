@@ -127,7 +127,7 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
       chunkOverlap: 50,
       tokenTrueSizing: getAccurateCountingPreference(),
       chunkTokenLimit: 4096,
-      enableEmbedding: false,
+      enableEmbedding: true,
       selectedModel: deriveInitialSelectedModel(),
 
       setEnableChunking: (v) => set({ enableChunking: !!v }),
@@ -231,7 +231,7 @@ export function __resetImportSettingsStoreForTests() {
     chunkOverlap: 50,
     tokenTrueSizing: true,
     chunkTokenLimit: 4096,
-    enableEmbedding: false,
+    enableEmbedding: true,
     selectedModel: normalizeModelSelection(DEFAULT_MODEL_KEY).modelId,
   });
 }
