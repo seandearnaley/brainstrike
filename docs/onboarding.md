@@ -35,7 +35,6 @@ brainstrike/
 │       └── package.json     # App dependencies and scripts
 ├── packages/
 │   ├── config/              # Shared configuration files (reusable across packages)
-│   │   ├── biome.json       # Shared Biome (lint/format) configuration
 │   │   └── tsconfig/        # Shared TypeScript base configurations (base.json, react-library.json)
 │   ├── hooks/               # Reusable React hooks
 │   ├── types/               # Shared TypeScript interfaces and types
@@ -43,7 +42,7 @@ brainstrike/
 │   └── utils/               # Common utility functions (e.g., date formatting, validation)
 ├── lefthook.yml             # Git hook automation (pre-commit, commit-msg) managed by Lefthook
 ├── node_modules/            # Project dependencies (managed by pnpm, ignored by Git)
-├── biome.json               # Root Biome configuration (extends packages/config/biome.json)
+├── biome.json               # Root Biome configuration for linting and formatting rules
 ├── commitlint.config.ts     # Configuration for commit message linting
 ├── knip.jsonc               # Configuration for Knip (detecting unused files/exports)
 ├── package.json             # Root project configuration: scripts, devDeps, workspace definition
@@ -57,7 +56,7 @@ brainstrike/
 **Key Directories:**
 - **`apps/`**: Contains runnable applications (`web` for Vite/React, `desktop` for Electron). Each app is a standalone project within the monorepo.
 - **`packages/`**: Houses shared code libraries (UI components, hooks, utilities, types, configurations) consumed by apps or other packages.
-- **`packages/config/`**: Centralizes reusable configurations (TypeScript, Biome) to ensure consistency.
+- **`packages/config/`**: Centralizes reusable configurations (TypeScript and shared tooling presets). The Biome configuration now lives at the repository root.
 
 ---
 
@@ -66,28 +65,28 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `2.5.8`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
+  - **Turborepo `2.5.8`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](../turbo.jsonc))
 - **Package Management**:
-  - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
+  - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](../pnpm-workspace.yaml), root [`package.json`](../package.json))
 - **Runtime & Language**:
-  - **Node.js `v22`**: Specified in [`.nvmrc`](./.nvmrc). Use `nvm use` to switch.
-  - **TypeScript `5.9.2`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
+  - **Node.js `v22`**: Specified in [`.nvmrc`](../.nvmrc). Use `nvm use` to switch.
+  - **TypeScript `5.9.2`**: Provides static typing across the entire codebase. ([`tsconfig.json`](../tsconfig.json), [`packages/config/tsconfig/base.json`](../packages/config/tsconfig/base.json))
 - **Frontend Framework (`apps/web`)**:
   - **React `19.x`**: UI library using functional components and hooks.
   - **Vite**: Next-generation frontend tooling for extremely fast HMR and optimized builds. (See `apps/web/vite.config.ts`)
   - **React Router**: Handles client-side routing. (Setup likely in `apps/web/src/main.tsx` or similar)
   - **`react-helmet-async`**: Manages document head elements (`<title>`, `<meta>`).
 - **Testing**:
-  - **Vitest `^3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.config.ts`](./vitest.config.ts))
-  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
+  - **Vitest `^3.2.4`**: Fast unit and integration testing framework, configured for the workspace. ([`vitest.config.ts`](../vitest.config.ts))
+  - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-  - **Biome `2.2.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
+  - **Biome `2.2.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](../biome.json))
 - **Commit Linting & Hooks**:
-  - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
+  - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](../commitlint.config.ts))
   - **Lefthook**: Automates pre-commit Biome checks and commit message linting via [`lefthook.yml`](../lefthook.yml).
 - **Code Health**:
-  - **Knip `5.63.1`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
+  - **Knip `5.63.1`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](../knip.jsonc))
 
 ---
 
@@ -111,7 +110,7 @@ Turborepo orchestrates tasks across the monorepo, optimizing builds through cach
 
 ### 4.2 pnpm Workspaces (`pnpm-workspace.yaml`, `package.json`)
 
-pnpm manages dependencies efficiently within the monorepo structure defined in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
+pnpm manages dependencies efficiently within the monorepo structure defined in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml).
 - **Workspaces**: `apps/*` and `packages/*` are recognized package locations.
 - **Root `package.json`**:
   - Defines scripts that use `turbo run ...` to execute tasks across workspaces (e.g., `pnpm build` runs `turbo run build`).
@@ -126,9 +125,9 @@ pnpm manages dependencies efficiently within the monorepo structure defined in [
 
 Consistency is maintained through automated tooling.
 
-### 5.1 Biome (`biome.json`, `packages/config/biome.json`)
+### 5.1 Biome (`biome.json`)
 
-Biome enforces linting rules and code formatting. The root config extends the shared config in `packages/config/biome.json`.
+Biome enforces linting rules and code formatting through the repository-wide configuration defined in the root `biome.json` file.
 
 **Key Rules & Settings:**
 - **Formatting**: Enabled, 2-space indent, 100 line width, single quotes, trailing commas (`es5`), semicolons required. Formats `.ts, .tsx, .js, .jsx, .json`.
