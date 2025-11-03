@@ -82,6 +82,26 @@ export function ChunksViewTable({ chunks, records, pendingChunkIds }: ChunksView
         className: 'w-20',
       },
       {
+        id: 'embeddingSetId',
+        header: 'Collection ID',
+        cell: ({ row }) =>
+          row.embeddingSetId ? (
+            <Badge
+              variant={row.embeddingSetId === activeSetId ? 'default' : 'outline'}
+              className="text-xs font-mono"
+            >
+              {row.embeddingSetId.substring(0, 8)}...
+            </Badge>
+          ) : (
+            <Badge variant="destructive" className="text-xs">
+              NO COLLECTION
+            </Badge>
+          ),
+        sortable: true,
+        accessorFn: (row) => row.embeddingSetId || '',
+        className: 'w-36',
+      },
+      {
         id: 'embedding',
         header: 'Embedding',
         cell: ({ row }) =>

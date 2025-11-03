@@ -99,6 +99,11 @@ export function SearchCollectionSelector({
 
   // Ref to store the latest loadCollections function
   const loadCollectionsRef = useRef<(() => Promise<void>) | null>(null);
+  // Ref to store toast function to avoid dependency issues
+  const toastRef = useRef(toast);
+  useEffect(() => {
+    toastRef.current = toast;
+  }, [toast]);
 
   // Load collections from database
   const loadCollections = useCallback(async () => {
@@ -168,7 +173,7 @@ export function SearchCollectionSelector({
     } catch (error) {
       console.error('[SearchCollectionSelector] Failed to load collections:', error);
       setCollections([]);
-      toast({
+      toastRef.current({
         title: 'Failed to Load Collections',
         description:
           error instanceof Error ? error.message : 'Unable to retrieve collections from database',
@@ -177,7 +182,7 @@ export function SearchCollectionSelector({
     } finally {
       setLoading(false);
     }
-  }, [db, toast]);
+  }, [db]);
 
   // Update ref whenever loadCollections changes
   useEffect(() => {

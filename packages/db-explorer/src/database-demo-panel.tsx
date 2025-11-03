@@ -599,8 +599,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <Button
             size="sm"
             onClick={importFlow.handleImportClick}
-            disabled={importFlow.isImporting}
+            disabled={importFlow.isImporting || !activeCollectionId}
             className="flex items-center gap-1"
+            title={!activeCollectionId ? 'Select a collection first' : undefined}
           >
             <FileText className="h-3 w-3" />
             Import Selected Files ({importFlow.selectedFileCount})
