@@ -1,5 +1,5 @@
 import { usePGliteDatabase } from '@brainstrike/db';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 
 /**
@@ -21,6 +21,24 @@ interface FileStatusRow {
   other_collections: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   last_indexed: string | null;
+}
+
+/**
+ * Type guard to validate database row has required fields
+ */
+function isValidFileStatusRow(row: unknown): row is FileStatusRow {
+  if (typeof row !== 'object' || row === null) return false;
+
+  const r = row as Record<string, unknown>;
+  return (
+    typeof r['file_id'] === 'string' &&
+    typeof r['file_name'] === 'string' &&
+    typeof r['file_path'] === 'string' &&
+    typeof r['searchable_chunks'] === 'string' &&
+    typeof r['total_chunks'] === 'string' &&
+    typeof r['other_collections'] === 'string' &&
+    (r['last_indexed'] === null || typeof r['last_indexed'] === 'string')
+  );
 }
 
 /**
@@ -52,20 +70,35 @@ function mapRowToStatus(row: FileStatusRow): FileCollectionStatus {
  * Hook to get file collection status for the active embedding set
  *
  * @param activeCollectionId - The active embedding set ID to check against
- * @returns Object with getFileStatus function to query file statuses
+ * @returns Object with getFileStatus function to query file statuses and error state
  *
  * @example
  * ```tsx
- * const { getFileStatus } = useFileCollectionStatus(activeCollectionId);
+ * const { getFileStatus, error } = useFileCollectionStatus(activeCollectionId);
  * const statuses = await getFileStatus(fileIds);
+ * if (error) {
+ *   // Handle error state
+ * }
  * ```
  */
 export function useFileCollectionStatus(activeCollectionId: string | null) {
   const db = usePGliteDatabase();
+  const [error, setError] = useState<Error | null>(null);
 
   const getFileStatus = useCallback(
     async (fileIds: string[]): Promise<FileCollectionStatus[]> => {
+      // Clear previous errors
+      setError(null);
+
       if (!db || !activeCollectionId || fileIds.length === 0) {
+        return [];
+      }
+
+      // Validate input
+      if (fileIds.length > 1000) {
+        const err = new Error('Cannot query more than 1000 files at once');
+        setError(err);
+        console.error('[useFileCollectionStatus]', err);
         return [];
       }
 
@@ -95,20 +128,31 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
           FROM file_records fr
           LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
           WHERE fr.id IN (${placeholders})
-          GROUP BY fr.id, fr.name, fr.path
+          GROUP BY fr.id, fr.name, fr.path, fr.created_at
           ORDER BY fr.created_at DESC
         `.trim();
 
         const result = await db.query(query, [activeCollectionId, ...fileIds]);
 
-        return result.rows.map((row) => mapRowToStatus(row as FileStatusRow));
+        // Validate and map rows with runtime type checking
+        const validatedRows = result.rows.filter((row): row is FileStatusRow => {
+          const isValid = isValidFileStatusRow(row);
+          if (!isValid) {
+            console.warn('[useFileCollectionStatus] Invalid row data:', row);
+          }
+          return isValid;
+        });
+
+        return validatedRows.map(mapRowToStatus);
       } catch (error) {
-        console.error('[useFileCollectionStatus] Failed to get file status:', error);
+        const err = error instanceof Error ? error : new Error(String(error));
+        setError(err);
+        console.error('[useFileCollectionStatus] Failed to get file status:', err);
         return [];
       }
     },
     [db, activeCollectionId]
   );
 
-  return { getFileStatus };
+  return { getFileStatus, error };
 }

@@ -230,7 +230,7 @@ describe('useFileCollectionStatus', () => {
       expect(sql).toContain('COUNT(fc.id) FILTER');
       expect(sql).toContain('WHERE fc.embedding_set_id = $1');
       expect(sql).toContain('LEFT JOIN file_chunks fc');
-      expect(sql).toContain('GROUP BY fr.id');
+      expect(sql).toContain('GROUP BY fr.id, fr.name, fr.path, fr.created_at');
       expect(sql).toContain('ORDER BY fr.created_at DESC');
     });
   });

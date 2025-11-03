@@ -30,60 +30,61 @@ function formatRelativeTime(isoString: string): string {
 }
 
 /**
- * Badge component showing file's searchability status in the active collection
- *
- * Displays:
- * - ✅ Searchable: File has embeddings in active collection
- * - ⚠️ Not searchable: File has chunks but no embeddings in active collection
- * - Additional info: chunk counts, other collections, last indexed time
- *
- * @param status - File collection status data
- * @param activeCollectionName - Name of the active collection for display
+ * Sub-component displaying searchable file status
  */
-export function FileStatusBadge({ status, activeCollectionName }: FileStatusBadgeProps) {
-  if (status.searchableInActive) {
-    return (
-      <div className="flex items-center gap-2 flex-wrap">
-        <Badge variant="default" className="text-xs">
-          <CheckCircle className="h-3 w-3 mr-1" />
-          Searchable in this collection
-        </Badge>
+function SearchableStatusDisplay({ status }: { status: FileCollectionStatus }) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Badge variant="default" className="text-xs">
+        <CheckCircle className="h-3 w-3 mr-1" />
+        Searchable in this collection
+      </Badge>
 
-        {status.searchableChunksCount > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {status.searchableChunksCount} chunk{status.searchableChunksCount === 1 ? '' : 's'}
-          </span>
-        )}
+      {status.searchableChunksCount > 0 && (
+        <span className="text-xs text-muted-foreground">
+          {status.searchableChunksCount} chunk{status.searchableChunksCount === 1 ? '' : 's'}
+        </span>
+      )}
 
-        {status.lastIndexedAt && (
-          <span className="text-xs text-muted-foreground">
-            • Last indexed {formatRelativeTime(status.lastIndexedAt)}
-          </span>
-        )}
+      {status.lastIndexedAt && (
+        <span className="text-xs text-muted-foreground">
+          • Last indexed {formatRelativeTime(status.lastIndexedAt)}
+        </span>
+      )}
 
-        {status.otherCollectionsCount > 0 && (
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Badge variant="outline" className="text-xs cursor-help">
-                  <Info className="h-3 w-3 mr-1" />
-                  Also in {status.otherCollectionsCount} other collection
-                  {status.otherCollectionsCount === 1 ? '' : 's'}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="max-w-xs">
-                  This file has been indexed in {status.otherCollectionsCount} other collection
-                  {status.otherCollectionsCount === 1 ? '' : 's'}. You can search for it there too.
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
-      </div>
-    );
-  }
+      {status.otherCollectionsCount > 0 && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge variant="outline" className="text-xs cursor-help">
+                <Info className="h-3 w-3 mr-1" />
+                Also in {status.otherCollectionsCount} other collection
+                {status.otherCollectionsCount === 1 ? '' : 's'}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="max-w-xs">
+                This file has been indexed in {status.otherCollectionsCount} other collection
+                {status.otherCollectionsCount === 1 ? '' : 's'}. You can search for it there too.
+              </p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
+    </div>
+  );
+}
 
+/**
+ * Sub-component displaying not searchable file status
+ */
+function NotSearchableStatusDisplay({
+  status,
+  activeCollectionName,
+}: {
+  status: FileCollectionStatus;
+  activeCollectionName: string;
+}) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       <Badge variant="secondary" className="text-xs">
@@ -113,4 +114,23 @@ export function FileStatusBadge({ status, activeCollectionName }: FileStatusBadg
       )}
     </div>
   );
+}
+
+/**
+ * Badge component showing file's searchability status in the active collection
+ *
+ * Displays:
+ * - ✅ Searchable: File has embeddings in active collection
+ * - ⚠️ Not searchable: File has chunks but no embeddings in active collection
+ * - Additional info: chunk counts, other collections, last indexed time
+ *
+ * @param status - File collection status data
+ * @param activeCollectionName - Name of the active collection for display
+ */
+export function FileStatusBadge({ status, activeCollectionName }: FileStatusBadgeProps) {
+  if (status.searchableInActive) {
+    return <SearchableStatusDisplay status={status} />;
+  }
+
+  return <NotSearchableStatusDisplay status={status} activeCollectionName={activeCollectionName} />;
 }
