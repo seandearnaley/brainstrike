@@ -536,7 +536,7 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Enter a search query to find similar content.')
+          screen.getByText('Enter a search query to find similar content')
         ).toBeInTheDocument();
       });
     });

@@ -80,6 +80,8 @@ export interface ExportButtonsProps {
 
 export interface SearchInterfaceProps {
   searchFunctionality: SearchFunctionality;
+  activeCollection?: { id: string; name: string } | null | undefined;
+  documentCount?: number | undefined;
 }
 
 export interface ImportSettings {

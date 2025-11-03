@@ -116,7 +116,8 @@
       "WebFetch(domain:api.github.com)",
       "Bash(gh pr comment:*)",
       "mcp__plugin_codanna-cc_codanna-cc__find_symbol",
-      "Bash(gh run cancel:*)"
+      "Bash(gh run cancel:*)",
+      "SlashCommand(/beads:ready)"
     ],
     "deny": [],
     "ask": []

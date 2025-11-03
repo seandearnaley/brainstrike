@@ -50,6 +50,7 @@ import {
 import {
   createImportCompletionHandler,
   useDatabaseErrorBoundary,
+  useDocumentCount,
   useExportHandlers,
   useImportSettings,
   useSearchFunctionality,
@@ -305,6 +306,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Get file collection status hook
   const { getFileStatus } = useFileCollectionStatus(activeCollectionId);
+
+  // Get document count for search tab
+  const documentCount = useDocumentCount(activeCollectionId);
 
   // Load active collection details when activeCollectionId changes
   useEffect(() => {
@@ -635,7 +639,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </div>
         )}
 
-        {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
+        {selectedView === 'search' && (
+          <SearchInterface
+            searchFunctionality={searchFunctionality}
+            activeCollection={activeCollection}
+            documentCount={documentCount}
+          />
+        )}
       </div>
 
       {/* Content Area - virtualized tables */}
@@ -683,7 +693,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           )}
 
           {selectedView === 'search' && (
-            <SearchViewTable searchFunctionality={searchFunctionality} />
+            <SearchViewTable
+              searchFunctionality={searchFunctionality}
+              activeCollectionName={activeCollection?.name}
+            />
           )}
         </div>
       )}
