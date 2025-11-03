@@ -254,4 +254,36 @@ describe('createImportCompletionHandler', () => {
       variant: 'default',
     });
   });
+
+  it('dispatches brainstrike:files-imported event after import', () => {
+    const mockToast = vi.fn();
+    const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
+    const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
+
+    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+
+    // Mock window.dispatchEvent
+    const dispatchEventSpy = vi.spyOn(window, 'dispatchEvent');
+
+    const results: EnhancedImportResult[] = [
+      {
+        id: 'test1.txt',
+        imported: true,
+        existed: false,
+        chunksCreated: 5,
+        chunksWithEmbeddings: 5,
+      },
+    ];
+
+    handler(results);
+
+    // Verify event was dispatched
+    expect(dispatchEventSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'brainstrike:files-imported',
+      })
+    );
+
+    dispatchEventSpy.mockRestore();
+  });
 });
