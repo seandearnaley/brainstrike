@@ -1,4 +1,5 @@
 import {
+  type EmbeddingSet,
   EmbeddingSetsRepository,
   useClearAllData,
   useDbProviderError,
@@ -21,13 +22,17 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
 import {
   CreateEmbeddingSetDialog,
   ManageEmbeddingSetsDialog,
 } from '@brainstrike/vector-management';
-import { ChevronDown, ChevronRight, Database, FileText, RefreshCw } from 'lucide-react';
+import { ChevronDown, ChevronRight, Database, FileText, Info, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChunksViewTable,
@@ -49,8 +54,10 @@ import {
   useImportSettings,
   useSearchFunctionality,
 } from './hooks';
+import { useFileCollectionStatus } from './hooks/use-file-collection-status';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
+import type { FileCollectionStatus } from './types/file-collection-status';
 import { useDatabaseDemoData } from './use-database-demo-data';
 import { useEmbeddingService } from './use-embedding-service';
 import type { UseImportFlowResult } from './use-import-flow';
@@ -232,6 +239,11 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const [activeCollectionId, setActiveCollectionId] = useState<string | null>(
     getActiveEmbeddingSetId()
   );
+  const [activeCollection, setActiveCollection] = useState<{
+    id: string;
+    name: string;
+  } | null>(null);
+  const [fileStatuses, setFileStatuses] = useState<Map<string, FileCollectionStatus>>(new Map());
 
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(
@@ -290,6 +302,39 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     importSettings.selectedModel,
     toast
   );
+
+  // Get file collection status hook
+  const { getFileStatus } = useFileCollectionStatus(activeCollectionId);
+
+  // Load active collection details when activeCollectionId changes
+  useEffect(() => {
+    if (!dbContext || !activeCollectionId || !embeddingSetsRepository) {
+      setActiveCollection(null);
+      return;
+    }
+
+    void embeddingSetsRepository.getById(activeCollectionId).then((set: EmbeddingSet | null) => {
+      if (set?.name) {
+        setActiveCollection({ id: set.id, name: set.name });
+      } else {
+        setActiveCollection(null);
+      }
+    });
+  }, [dbContext, activeCollectionId, embeddingSetsRepository]);
+
+  // Load file statuses when records or activeCollectionId changes
+  useEffect(() => {
+    if (!records.length || !activeCollectionId) {
+      setFileStatuses(new Map());
+      return;
+    }
+
+    const fileIds = records.map((r) => r.id);
+    void getFileStatus(fileIds).then((statuses) => {
+      const statusMap = new Map(statuses.map((s) => [s.fileId, s]));
+      setFileStatuses(statusMap);
+    });
+  }, [records, activeCollectionId, getFileStatus]);
 
   // Seed search state from persistence on first mount
   useEffect(() => {
@@ -597,12 +642,40 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {(selectedView === 'files' || selectedView === 'chunks' || selectedView === 'search') && (
         <div className="px-4 pb-4">
           {selectedView === 'files' && (
-            <FilesViewTable
-              records={records}
-              expandedFiles={expandedFiles}
-              onToggleFileExpansion={toggleFileExpansion}
-              getFileChunks={getFileChunks}
-            />
+            <div className="space-y-4">
+              {/* Collection Context Header */}
+              {activeCollection && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <FileText className="h-4 w-4" />
+                  <span>
+                    Searching in: <strong>{activeCollection.name}</strong>
+                  </span>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-4 w-4 cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p className="max-w-xs">
+                          Files need to be indexed with embeddings before you can search them. The
+                          status below shows which files are searchable in your current collection.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              )}
+
+              <FilesViewTable
+                records={records}
+                expandedFiles={expandedFiles}
+                onToggleFileExpansion={toggleFileExpansion}
+                getFileChunks={getFileChunks}
+                activeCollectionId={activeCollectionId}
+                activeCollectionName={activeCollection?.name ?? null}
+                fileStatuses={fileStatuses}
+              />
+            </div>
           )}
 
           {selectedView === 'chunks' && (

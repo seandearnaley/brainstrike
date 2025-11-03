@@ -2,13 +2,26 @@ import type { FileChunk, FileRecord } from '@brainstrike/db';
 import { Badge, Button, DataTable, type DataTableColumn, ScrollArea } from '@brainstrike/ui';
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react';
 import { useMemo } from 'react';
+import type { FileCollectionStatus } from '../types/file-collection-status';
 import { formatDate, formatFileSize } from '../utils/format';
+import { FileActionButtons } from './file-action-buttons';
+import { FileStatusBadge } from './file-status-badge';
 
 interface FilesViewTableProps {
   records: FileRecord[];
   expandedFiles: Set<string>;
   onToggleFileExpansion: (fileId: string) => void;
   getFileChunks: (fileId: string) => FileChunk[];
+  /** Active collection ID for filtering file status */
+  activeCollectionId: string | null;
+  /** Active collection name for display */
+  activeCollectionName: string | null;
+  /** Map of file IDs to their collection status */
+  fileStatuses: Map<string, FileCollectionStatus>;
+  /** Optional handler for making file searchable - if undefined, button is disabled */
+  onMakeSearchable?: (fileId: string) => void;
+  /** Optional handler for re-indexing file - if undefined, button is disabled */
+  onReindex?: (fileId: string) => void;
 }
 
 export function FilesViewTable({
@@ -16,6 +29,10 @@ export function FilesViewTable({
   expandedFiles,
   onToggleFileExpansion,
   getFileChunks,
+  activeCollectionName,
+  fileStatuses,
+  onMakeSearchable,
+  onReindex,
 }: FilesViewTableProps) {
   const columns = useMemo<DataTableColumn<FileRecord>[]>(
     () => [
@@ -82,8 +99,41 @@ export function FilesViewTable({
         accessorFn: (row) => row.processedAt ?? row.createdAt,
         className: 'w-40',
       },
+      {
+        id: 'status',
+        header: 'Collection Status',
+        cell: ({ row }) => {
+          const status = fileStatuses.get(row.id);
+          if (!status || !activeCollectionName) return null;
+          return <FileStatusBadge status={status} activeCollectionName={activeCollectionName} />;
+        },
+        className: 'min-w-96',
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }) => {
+          const status = fileStatuses.get(row.id);
+          if (!status) return null;
+          return (
+            <FileActionButtons
+              status={status}
+              onMakeSearchable={onMakeSearchable}
+              onReindex={onReindex}
+            />
+          );
+        },
+        className: 'w-48',
+      },
     ],
-    [expandedFiles, onToggleFileExpansion]
+    [
+      expandedFiles,
+      onToggleFileExpansion,
+      fileStatuses,
+      activeCollectionName,
+      onMakeSearchable,
+      onReindex,
+    ]
   );
 
   const renderExpandedContent = (row: FileRecord) => {
