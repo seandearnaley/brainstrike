@@ -1,56 +1,81 @@
 import type { useToast } from '@brainstrike/ui';
 import type { EnhancedImportResult } from '../types';
 
+interface ImportCounts {
+  newFiles: number;
+  existedButProcessed: number;
+  failed: number;
+  processingErrors: number;
+  totalChunks: number;
+  totalEmbeddings: number;
+}
+
+function countImportOutcomes(results: EnhancedImportResult[]): ImportCounts {
+  return {
+    newFiles: results.filter((r) => r.imported && !r.existed).length,
+    existedButProcessed: results.filter((r) => !r.imported && r.existed).length,
+    failed: results.filter((r) => !r.imported && !r.existed).length,
+    processingErrors: results.filter((r) => r.error && (r.imported || r.existed)).length,
+    totalChunks: results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0),
+    totalEmbeddings: results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0),
+  };
+}
+
+function buildFileStatusMessage(counts: ImportCounts): string {
+  const { newFiles, existedButProcessed, failed } = counts;
+
+  if (newFiles > 0 && existedButProcessed > 0) {
+    return `${newFiles} new, ${existedButProcessed} existing`;
+  }
+  if (newFiles > 0) {
+    return `${newFiles} new`;
+  }
+  if (existedButProcessed > 0) {
+    return `${existedButProcessed} existing`;
+  }
+  if (failed > 0) {
+    return `${failed} failed`;
+  }
+  return 'No files processed';
+}
+
+function buildDescription(counts: ImportCounts): string {
+  let description = buildFileStatusMessage(counts);
+
+  // Add chunk/embedding info
+  if (counts.totalChunks > 0) {
+    description += ` • ${counts.totalChunks} chunks created`;
+    if (counts.totalEmbeddings > 0) {
+      description += `, ${counts.totalEmbeddings} embedded`;
+    }
+  }
+
+  // Add error counts
+  if (counts.failed > 0 && (counts.newFiles > 0 || counts.existedButProcessed > 0)) {
+    description += `, ${counts.failed} failed`;
+  }
+  if (counts.processingErrors > 0) {
+    description += `, ${counts.processingErrors} errors`;
+  }
+
+  return description;
+}
+
 export function createImportCompletionHandler(
   toast: ReturnType<typeof useToast>['toast'],
   loadRecords: () => Promise<void>,
   loadChunks: () => Promise<void>
 ) {
   return (results: EnhancedImportResult[]) => {
-    const newFiles = results.filter((r) => r.imported && !r.existed).length;
-    const existingFiles = results.filter((r) => r.imported && r.existed).length;
-    const importFailed = results.filter((r) => !r.imported).length;
-    const processingErrors = results.filter((r) => r.imported && r.error).length;
-    const totalChunks = results.reduce((acc, r) => acc + (r.chunksCreated || 0), 0);
-    const totalEmbeddings = results.reduce((acc, r) => acc + (r.chunksWithEmbeddings || 0), 0);
-
-    // Build user-friendly description
-    let description = '';
-
-    // File status
-    if (newFiles > 0 && existingFiles > 0) {
-      description = `${newFiles} new files, ${existingFiles} existing files added to collection`;
-    } else if (newFiles > 0) {
-      description = `${newFiles} new files imported`;
-    } else if (existingFiles > 0) {
-      description = `${existingFiles} existing files added to collection`;
-    } else {
-      description = 'No files imported';
-    }
-
-    // Errors
-    if (importFailed > 0) {
-      description += `, ${importFailed} failed`;
-    }
-    if (processingErrors > 0) {
-      description += `, ${processingErrors} processing errors`;
-    }
-
-    // Chunks and embeddings
-    if (totalChunks > 0) {
-      description += ` • ${totalChunks} chunks created`;
-    }
-    if (totalEmbeddings > 0) {
-      description += `, ${totalEmbeddings} embedded`;
-    }
+    const counts = countImportOutcomes(results);
+    const description = buildDescription(counts);
 
     toast({
-      title: importFailed > 0 ? 'Import Completed with Errors' : 'Import Complete',
+      title: counts.failed > 0 ? 'Import Completed with Errors' : 'Import Complete',
       description,
-      variant: importFailed > 0 ? 'destructive' : 'default',
+      variant: counts.failed > 0 ? 'destructive' : 'default',
     });
 
-    // Refresh the records to show new imports
     void loadRecords();
     void loadChunks();
   };
