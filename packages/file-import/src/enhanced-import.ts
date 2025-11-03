@@ -703,6 +703,7 @@ function buildChunkingOptions(
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
     streamBatchSize: chunking.streamBatchSize ?? 250,
+    ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
   };
 
   const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
