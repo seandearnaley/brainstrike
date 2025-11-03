@@ -690,6 +690,12 @@ function buildChunkingOptions(
     ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
   };
 
+  logger.info('[DEBUG] buildChunkingOptions - targetSetId:', targetSetId);
+  logger.info(
+    '[DEBUG] buildChunkingOptions - options.targetEmbeddingSetId:',
+    options.targetEmbeddingSetId
+  );
+
   const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
   if (queueActive) {
     options.embedQueueEnabled = true;
