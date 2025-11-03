@@ -939,6 +939,15 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     const { modelId, modelKey, targetSetId, provider, targetDimension, dimensionParameter } =
       await resolveEmbeddingModel(embedding, ports);
+
+    logger.info('[DEBUG] Resolved embedding model', {
+      modelId,
+      modelKey,
+      targetSetId,
+      provider,
+      targetDimension,
+    });
+
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
 
@@ -956,7 +965,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
       ...(targetDimension !== undefined ? { targetDimension } : {}),
       ...(dimensionParameter ? { dimensionParameter } : {}),
     };
+
+    logger.info('[DEBUG] Chunking config targetSetId', { targetSetId: chunkingConfig.targetSetId });
+
     const chunkingOptions = buildChunkingOptions(chunkingConfig);
+
+    logger.info('[DEBUG] Chunking options targetEmbeddingSetId', {
+      targetEmbeddingSetId: chunkingOptions.targetEmbeddingSetId,
+    });
 
     const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
 

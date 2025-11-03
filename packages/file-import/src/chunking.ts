@@ -516,11 +516,23 @@ async function processFileChunkingStreamPath(
 
   let totalCreated = 0;
   const batch: FileChunkInsert[] = [];
+  let chunkCount = 0;
   for await (const ch of stream) {
     // Set embedding_set_id on chunk if targetEmbeddingSetId is provided
     const chunkWithSetId: FileChunkInsert = options.targetEmbeddingSetId
       ? { ...ch, embeddingSetId: options.targetEmbeddingSetId }
       : ch;
+
+    // Debug log first chunk to verify embeddingSetId is set
+    if (chunkCount === 0) {
+      logger.info('[DEBUG] First chunk embeddingSetId', {
+        targetEmbeddingSetId: options.targetEmbeddingSetId,
+        chunkEmbeddingSetId: chunkWithSetId.embeddingSetId,
+        fileRecordId: result.id,
+      });
+    }
+    chunkCount++;
+
     batch.push(chunkWithSetId);
     if (batch.length >= batchSize) {
       totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
