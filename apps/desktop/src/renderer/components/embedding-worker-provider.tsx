@@ -10,26 +10,48 @@ const logger = createLogger('EmbeddingWorkerProvider');
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
  */
+// Helper to check if collections exist
+async function hasCollections(db: ReturnType<typeof usePGliteDatabase>): Promise<boolean> {
+  if (!db) return false;
+  const result = await db.query<{ count: number }>('SELECT COUNT(*) as count FROM embedding_sets');
+  return (result.rows[0]?.count ?? 0) > 0;
+}
+
+// Helper to create worker config
+function createWorkerConfig(
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>
+): Parameters<typeof startEmbeddingWorker>[0] {
+  return {
+    db,
+    concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
+    leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
+    modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
+    log: (msg: string, meta?: unknown) => {
+      if (meta) {
+        logger.info(msg, meta);
+      } else {
+        logger.info(msg);
+      }
+    },
+  };
+}
+
 export function EmbeddingWorkerProvider({ children }: { children: React.ReactNode }) {
   const db = usePGliteDatabase();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const startingRef = useRef(false);
 
   useEffect(() => {
-    if (!db) {
-      return;
-    }
+    if (!db) return;
 
-    // Start the worker once database is ready
     const startWorker = async () => {
-      try {
-        // Check if any embedding sets exist before starting worker
-        // This prevents auto-creation of default embedding set after factory reset
-        const result = await db.query<{ count: number }>(
-          'SELECT COUNT(*) as count FROM embedding_sets'
-        );
-        const count = result.rows[0]?.count ?? 0;
+      if (startingRef.current || controllerRef.current) return;
 
-        if (count === 0) {
+      startingRef.current = true;
+
+      try {
+        const collectionsExist = await hasCollections(db);
+        if (!collectionsExist) {
           logger.info(
             'No embedding sets found - worker will not start until user creates a collection'
           );
@@ -37,30 +59,33 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
         }
 
         logger.info('Starting embedding worker in renderer process...');
-        const controller = await startEmbeddingWorker({
-          db,
-          concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
-          leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
-          modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
-          log: (msg: string, meta?: unknown) => {
-            if (meta) {
-              logger.info(msg, meta);
-            } else {
-              logger.info(msg);
-            }
-          },
-        });
+        const config = createWorkerConfig(db);
+        const controller = await startEmbeddingWorker(config);
         controllerRef.current = controller;
         logger.info('Embedding worker started successfully');
       } catch (error) {
         logger.error('Failed to start embedding worker:', error);
+      } finally {
+        startingRef.current = false;
       }
     };
 
     void startWorker();
 
-    // Cleanup: stop worker when component unmounts
+    const handleCollectionCreated = () => {
+      logger.info('Collection created event received - checking if worker needs to start');
+      void startWorker();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('brainstrike:embedding-set-updated', handleCollectionCreated);
+    }
+
     return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionCreated);
+      }
+
       if (controllerRef.current) {
         logger.info('Stopping embedding worker...');
         void controllerRef.current.stop().then(() => {
