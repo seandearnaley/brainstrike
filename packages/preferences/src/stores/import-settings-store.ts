@@ -39,7 +39,7 @@ interface ImportSettingsActions {
 export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 
 const STORE_NAME = 'import-settings.v1' as const;
-const STORE_VERSION = 3 as const;
+const STORE_VERSION = 4 as const;
 
 const memory = new Map<string, string>();
 const storage = createJSONStorage(() => ({
@@ -177,6 +177,14 @@ export const useImportSettingsStore = create<ImportSettingsStore>()(
           next = {
             ...next,
             selectedModel: normalizeModelSelection(next.selectedModel).modelId,
+          };
+        }
+        if (version < 4) {
+          // CRITICAL: Force embeddings to always be enabled
+          // Chunks MUST have embedding_set_id to be properly associated with collections
+          next = {
+            ...next,
+            enableEmbedding: true,
           };
         }
         return next satisfies Partial<ImportSettingsStore>;
