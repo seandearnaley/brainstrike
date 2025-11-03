@@ -1,7 +1,4 @@
-import { EmbeddingSetsRepository, usePGliteDatabase } from '@brainstrike/db';
 import type { QueueAdapter } from '@brainstrike/queue';
-import { useMemo, useState } from 'react';
-import { ManageEmbeddingSetsDialog } from './embedding-set-management';
 import { VectorStatusWithDb } from './vector-status';
 
 export interface VectorStatusWithDialogProps {
@@ -27,36 +24,15 @@ export interface VectorStatusWithDialogProps {
 }
 
 /**
- * Wrapper component that adds the ManageEmbeddingSetsDialog to VectorStatusWithDb.
+ * Wrapper component for VectorStatusWithDb.
  * This is separated to avoid circular dependency issues with @brainstrike/db imports.
  *
  * IMPORTANT: This component must forward the queueAdapter prop to VectorStatusWithDb.
  * See VectorStatusWithDialogProps.queueAdapter documentation for critical context.
+ *
+ * Note: The embedding set selector has been moved to Database Explorer.
+ * Vector Status now reads the active set from global context only.
  */
 export function VectorStatusWithDialog({ queueAdapter = null }: VectorStatusWithDialogProps = {}) {
-  const [manageDialogOpen, setManageDialogOpen] = useState(false);
-  const db = usePGliteDatabase();
-  const repository = useMemo(() => (db ? new EmbeddingSetsRepository(db as never) : null), [db]);
-
-  const handleManageClick = () => {
-    setManageDialogOpen(true);
-  };
-
-  return (
-    <>
-      <VectorStatusWithDb queueAdapter={queueAdapter} onManageEmbeddingSets={handleManageClick} />
-      {/* Dialog will only mount when opened */}
-      {manageDialogOpen && (
-        <ManageEmbeddingSetsDialog
-          open={manageDialogOpen}
-          onOpenChange={setManageDialogOpen}
-          db={db as never}
-          repository={repository}
-          onSetSelected={() => {
-            setManageDialogOpen(false);
-          }}
-        />
-      )}
-    </>
-  );
+  return <VectorStatusWithDb queueAdapter={queueAdapter} />;
 }
