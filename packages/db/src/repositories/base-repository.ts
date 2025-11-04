@@ -330,6 +330,18 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       // Add embedding_set_id if present on request
       if ('embeddingSetId' in request && request.embeddingSetId) {
         record.embeddingSetId = String(request.embeddingSetId);
+        logger.info('[CRITICAL] Setting embeddingSetId on file record', {
+          fileId: id,
+          fileName: request.name,
+          embeddingSetId: record.embeddingSetId,
+        });
+      } else {
+        logger.warn('[CRITICAL] NO embeddingSetId on request!', {
+          fileId: id,
+          fileName: request.name,
+          hasEmbeddingSetIdField: 'embeddingSetId' in request,
+          embeddingSetIdValue: 'embeddingSetId' in request ? request.embeddingSetId : undefined,
+        });
       }
 
       recordsToInsert.push(record);
