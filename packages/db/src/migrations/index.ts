@@ -10,6 +10,7 @@ import { migration008JobQueueClaimIndex } from './008-job-queue-claim-index.js';
 import { migration009VectorIndexTuning } from './009-vector-index-tuning.js';
 import { migration010FlexibleEmbeddingDimensions } from './010-flexible-embedding-dimensions.js';
 import { migration011EmbeddingSetMetadata } from './011-embedding-set-metadata.js';
+import { migration012FileRecordsEmbeddingSet } from './012-file-records-embedding-set.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -26,6 +27,7 @@ export const migrations: Migration[] = [
   migration009VectorIndexTuning,
   migration010FlexibleEmbeddingDimensions,
   migration011EmbeddingSetMetadata,
+  migration012FileRecordsEmbeddingSet,
 ];
 
 // Export base migrations (without chunks table) for test environments

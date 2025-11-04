@@ -18,6 +18,7 @@ const ALLOWED_UPDATE_FIELDS: readonly (keyof FileRecord)[] = [
   'tokenCount',
   'processedAt',
   'embedding',
+  'embeddingSetId',
 ] as const;
 
 /**
@@ -30,17 +31,25 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
   async create(record: FileRecord): Promise<void> {
     const fields = ['id', 'name', 'path', 'size', 'created_at', 'updated_at'];
-    const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
-    const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-
-    await this.db.query(sql, [
+    const values: unknown[] = [
       record.id,
       record.name,
       record.path,
       record.size,
       record.createdAt,
       record.updatedAt,
-    ]);
+    ];
+
+    // Add embedding_set_id if present
+    if (record.embeddingSetId) {
+      fields.push('embedding_set_id');
+      values.push(record.embeddingSetId);
+    }
+
+    const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
+    const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
+
+    await this.db.query(sql, values);
   }
 
   async createWithContent(record: FileRecord): Promise<void> {
@@ -56,10 +65,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'token_count',
       'processed_at',
     ];
-    const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
-    const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
-
-    await this.db.query(sql, [
+    const values: unknown[] = [
       record.id,
       record.name,
       record.path,
@@ -70,7 +76,18 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.contentHash || null,
       record.tokenCount || 0,
       record.processedAt || null,
-    ]);
+    ];
+
+    // Add embedding_set_id if present
+    if (record.embeddingSetId) {
+      fields.push('embedding_set_id');
+      values.push(record.embeddingSetId);
+    }
+
+    const placeholders = fields.map((_, i) => `$${i + 1}`).join(', ');
+    const sql = `INSERT INTO ${this.tableName} (${fields.join(', ')}) VALUES (${placeholders})`;
+
+    await this.db.query(sql, values);
   }
 
   async findById(id: string): Promise<FileRecord | null> {
@@ -297,7 +314,7 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       const tokenCount = this.countTokensHeuristic(request.content);
       const id = generateUUID();
 
-      recordsToInsert.push({
+      const record: FileRecord = {
         id,
         name: request.name,
         path: request.path,
@@ -308,7 +325,14 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         contentHash: hash,
         tokenCount,
         processedAt: now,
-      });
+      };
+
+      // Add embedding_set_id if present on request
+      if ('embeddingSetId' in request && request.embeddingSetId) {
+        record.embeddingSetId = String(request.embeddingSetId);
+      }
+
+      recordsToInsert.push(record);
 
       results[index] = {
         id,
@@ -354,6 +378,9 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   private async batchInsert(records: FileRecord[], tx: IDatabase): Promise<void> {
     if (records.length === 0) return;
 
+    // Check if any records have embedding_set_id
+    const hasEmbeddingSetId = records.some((r) => r.embeddingSetId);
+
     const fields = [
       'id',
       'name',
@@ -366,6 +393,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       'token_count',
       'processed_at',
     ];
+
+    if (hasEmbeddingSetId) {
+      fields.push('embedding_set_id');
+    }
 
     // Build multi-row INSERT with VALUES (row1), (row2), ...
     const valuesPerRow = fields.length;
@@ -388,6 +419,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         record.tokenCount,
         record.processedAt,
       ];
+
+      if (hasEmbeddingSetId) {
+        rowValues.push(record.embeddingSetId);
+      }
 
       const startParam = i * valuesPerRow + 1;
       const placeholders = rowValues.map((_, j) => `$${startParam + j}`).join(', ');
@@ -455,6 +490,10 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       record.embedding = row['embedding'] as number[];
     }
 
+    if (row['embedding_set_id'] != null) {
+      record.embeddingSetId = String(row['embedding_set_id']);
+    }
+
     return record;
   }
 
@@ -473,6 +512,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
         return 'token_count';
       case 'processedAt':
         return 'processed_at';
+      case 'embeddingSetId':
+        return 'embedding_set_id';
       default:
         return field;
     }

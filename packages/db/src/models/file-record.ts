@@ -13,6 +13,7 @@ export interface FileRecord {
   chunksProcessedAt?: string; // ISO date when file was chunked
   chunksCount?: number; // Number of chunks created for this file
   chunkingStrategy?: 'sentence' | 'token' | 'recursive'; // Strategy used for chunking
+  embeddingSetId?: string; // Collection this file belongs to (set at import time)
 }
 
 export interface FileImportRequest {
@@ -20,6 +21,7 @@ export interface FileImportRequest {
   name: string;
   content: string;
   size: number;
+  embeddingSetId?: string; // Collection this file belongs to (set at import time)
 }
 
 export interface FileImportResult {

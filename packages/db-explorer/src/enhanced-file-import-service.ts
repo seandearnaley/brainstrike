@@ -359,10 +359,15 @@ export function useEnhancedFileImportService(
           },
         };
 
-        baseImportService.importFiles(selectedFilePaths, fileTree, fileContents).catch((error) => {
-          baseCallbacksRef.current = null;
-          reject(error instanceof Error ? error : new Error('Import failed'));
-        });
+        const activeSetId = getActiveEmbeddingSetId();
+        console.log('[baseImportRunner] Passing embeddingSetId to baseImportService:', activeSetId);
+
+        baseImportService
+          .importFiles(selectedFilePaths, fileTree, fileContents, activeSetId ?? undefined)
+          .catch((error) => {
+            baseCallbacksRef.current = null;
+            reject(error instanceof Error ? error : new Error('Import failed'));
+          });
       }),
     [baseImportService]
   );

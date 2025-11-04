@@ -23,6 +23,7 @@ export interface FileImportContext {
   readonly selectedFilePaths: Set<string>;
   readonly fileTree: IFileNode[];
   readonly fileContents: Record<string, string>;
+  readonly embeddingSetId?: string; // Collection to associate files with
 }
 
 export interface FileImportCallbacks {
