@@ -10,13 +10,6 @@ const logger = createLogger('EmbeddingWorkerProvider');
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
  */
-// Helper to check if collections exist
-async function hasCollections(db: ReturnType<typeof usePGliteDatabase>): Promise<boolean> {
-  if (!db) return false;
-  const result = await db.query<{ count: number }>('SELECT COUNT(*) as count FROM embedding_sets');
-  return (result.rows[0]?.count ?? 0) > 0;
-}
-
 // Helper to create worker config
 function createWorkerConfig(
   db: NonNullable<ReturnType<typeof usePGliteDatabase>>
@@ -50,14 +43,6 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
       startingRef.current = true;
 
       try {
-        const collectionsExist = await hasCollections(db);
-        if (!collectionsExist) {
-          logger.info(
-            'No embedding sets found - worker will not start until user creates a collection'
-          );
-          return;
-        }
-
         logger.info('Starting embedding worker in renderer process...');
         const config = createWorkerConfig(db);
         const controller = await startEmbeddingWorker(config);
@@ -72,20 +57,7 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
 
     void startWorker();
 
-    const handleCollectionCreated = () => {
-      logger.info('Collection created event received - checking if worker needs to start');
-      void startWorker();
-    };
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('brainstrike:embedding-set-updated', handleCollectionCreated);
-    }
-
     return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionCreated);
-      }
-
       if (controllerRef.current) {
         logger.info('Stopping embedding worker...');
         const currentController = controllerRef.current;

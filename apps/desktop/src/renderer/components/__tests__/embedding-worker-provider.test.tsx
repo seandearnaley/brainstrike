@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import type { IDatabase } from '@brainstrike/db';
@@ -75,43 +75,6 @@ describe('EmbeddingWorkerProvider', () => {
 
       expect(screen.getByTestId('child')).toBeInTheDocument();
       expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
-    });
-
-    it('waits for at least one collection before starting worker', async () => {
-      const mockDb = createMockDb(0);
-      mockDb.query.mockResolvedValueOnce({ rows: [{ count: 0 }] });
-      mockDb.query.mockResolvedValue({ rows: [{ count: 1 }] });
-      const mockController: EmbeddingWorkerController = { stop: mockStop };
-
-      mockUsePGliteDatabase.mockReturnValue(mockDb);
-      mockStartEmbeddingWorker.mockResolvedValue(mockController);
-
-      render(
-        <EmbeddingWorkerProvider>
-          <div data-testid="child">Child Content</div>
-        </EmbeddingWorkerProvider>
-      );
-
-      await waitFor(() => {
-        expect(mockDb.query).toHaveBeenCalled();
-      });
-
-      expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        'No embedding sets found - worker will not start until user creates a collection'
-      );
-
-      await act(async () => {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: 'new-set' },
-          })
-        );
-      });
-
-      await waitFor(() => {
-        expect(mockStartEmbeddingWorker).toHaveBeenCalled();
-      });
     });
 
     it('starts worker when database becomes available', async () => {

@@ -695,8 +695,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
               )}
 
               {!activeCollectionId ? (
-                <div className="rounded-md border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-                  Select a collection above to see its files.
+                <div className="rounded-md border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground space-y-2">
+                  <p>Select a collection above to see its files.</p>
+                  {records.length === 0 && (
+                    <p>
+                      No files imported yet. Select files and click &quot;Import Selected
+                      Files&quot; to get started.
+                    </p>
+                  )}
                 </div>
               ) : (
                 <FilesViewTable
