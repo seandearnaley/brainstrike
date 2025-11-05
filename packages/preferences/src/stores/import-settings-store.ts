@@ -139,6 +139,12 @@ export function __resetImportSettingsStoreForTests() {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
   } catch {}
   memory.delete(STORE_NAME);
+  const persistApi = (
+    useImportSettingsStore as unknown as {
+      persist?: { clearStorage?: () => void };
+    }
+  ).persist;
+  persistApi?.clearStorage?.();
   useTokenPreferencesStore.getState().setAccurateCounting(true);
   useImportSettingsStore.setState({
     enableChunking: true,
