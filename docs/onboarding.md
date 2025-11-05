@@ -35,7 +35,6 @@ brainstrike/
 │       └── package.json     # App dependencies and scripts
 ├── packages/
 │   ├── config/              # Shared configuration files (reusable across packages)
-│   │   ├── biome.json       # Shared Biome (lint/format) configuration
 │   │   └── tsconfig/        # Shared TypeScript base configurations (base.json, react-library.json)
 │   ├── hooks/               # Reusable React hooks
 │   ├── types/               # Shared TypeScript interfaces and types
@@ -43,7 +42,7 @@ brainstrike/
 │   └── utils/               # Common utility functions (e.g., date formatting, validation)
 ├── lefthook.yml             # Git hook automation (pre-commit, commit-msg) managed by Lefthook
 ├── node_modules/            # Project dependencies (managed by pnpm, ignored by Git)
-├── biome.json               # Root Biome configuration (extends packages/config/biome.json)
+├── biome.json               # Root Biome configuration for linting and formatting
 ├── commitlint.config.ts     # Configuration for commit message linting
 ├── knip.jsonc               # Configuration for Knip (detecting unused files/exports)
 ├── package.json             # Root project configuration: scripts, devDeps, workspace definition
@@ -82,7 +81,7 @@ This project utilizes a modern stack focused on performance, type safety, and de
   - **Playwright**: Used for End-to-End (E2E) testing within the `apps/web` directory. (See `apps/web/e2e/`). See [docs/playwright-ci-optimization.md](./docs/playwright-ci-optimization.md) for our current Playwright guidance.
   - **NYC `17.1.0`**: Generates code coverage reports.
 - **Code Quality & Formatting**:
-  - **Biome `2.2.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json), [`packages/config/biome.json`](./packages/config/biome.json))
+  - **Biome `2.2.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json))
 - **Commit Linting & Hooks**:
   - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
   - **Lefthook**: Automates pre-commit Biome checks and commit message linting via [`lefthook.yml`](../lefthook.yml).
@@ -126,9 +125,9 @@ pnpm manages dependencies efficiently within the monorepo structure defined in [
 
 Consistency is maintained through automated tooling.
 
-### 5.1 Biome (`biome.json`, `packages/config/biome.json`)
+### 5.1 Biome (`biome.json`)
 
-Biome enforces linting rules and code formatting. The root config extends the shared config in `packages/config/biome.json`.
+Biome enforces linting rules and code formatting across the entire monorepo.
 
 **Key Rules & Settings:**
 - **Formatting**: Enabled, 2-space indent, 100 line width, single quotes, trailing commas (`es5`), semicolons required. Formats `.ts, .tsx, .js, .jsx, .json`.

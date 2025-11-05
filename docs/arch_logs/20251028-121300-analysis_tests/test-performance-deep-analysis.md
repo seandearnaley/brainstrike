@@ -498,21 +498,21 @@ await migrate(db); // Database migration for every test
 ## Files Referenced (Absolute Paths)
 
 ### Test Files Analyzed
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db-explorer/src/__tests__/database-demo-panel.test.tsx`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/__tests__/file-chunk-repository.test.ts`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/apps/web/e2e/file-explorer*.test.ts` (5 files)
+- `packages/file-explorer-ui/src/__tests__/preview-panel.test.tsx`
+- `packages/db-explorer/src/__tests__/database-demo-panel.test.tsx`
+- `packages/db/__tests__/file-chunk-repository.test.ts`
+- `apps/web/e2e/file-explorer*.test.ts` (5 files)
 
 ### Configuration Files
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/vitest.config.ts` (root)
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/vitest.config.mts`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/ui/vitest.config.mts`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/file-explorer-ui/vitest.config.mts`
+- `vitest.config.ts` (root)
+- `packages/db/vitest.config.mts`
+- `packages/ui/vitest.config.mts`
+- `packages/file-explorer-ui/vitest.config.mts`
 - 10+ other package vitest configs
 
 ### Setup Files
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/test-utils/src/vitest.setup.ts`
-- `/Users/seandearnaley/Documents/GitHub/brainstrike/packages/db/vitest.setup.ts`
+- `packages/test-utils/src/vitest.setup.ts`
+- `packages/db/vitest.setup.ts`
 
 ---
 
