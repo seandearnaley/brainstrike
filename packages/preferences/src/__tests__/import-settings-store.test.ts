@@ -1,9 +1,4 @@
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetEmbeddingPreferencesStoreForTests,
-  useEmbeddingPreferencesStore,
-} from '../stores/embedding-preferences-store';
 import {
   __resetImportSettingsStoreForTests,
   importSettingsSelectors,
@@ -34,7 +29,6 @@ describe('import-settings-store', () => {
   beforeEach(() => {
     __resetTokenPreferencesStoreForTests();
     __resetImportSettingsStoreForTests();
-    __resetEmbeddingPreferencesStoreForTests();
     vi.restoreAllMocks();
   });
 
@@ -47,16 +41,13 @@ describe('import-settings-store', () => {
     expect(store.chunkOverlap).toBe(50);
     expect(store.tokenTrueSizing).toBe(true);
     expect(store.chunkTokenLimit).toBe(4096);
-    expect(store.enableEmbedding).toBe(false);
-    expect(store.selectedModel).toBe(SimpleEmbeddingService.getDefaultModelKey());
   });
 
-  it('normalizes chunk settings and embedding toggle', () => {
+  it('normalizes chunk settings', () => {
     const snapshot = useImportSettingsStore.getState();
 
     snapshot.setChunkSize(-42.7);
     snapshot.setChunkOverlap(-9.4);
-    snapshot.setEnableEmbedding(1 as unknown as boolean);
     snapshot.setTokenTrueSizing(0 as unknown as boolean);
     snapshot.setChunkTokenLimit(99999);
 
@@ -65,21 +56,17 @@ describe('import-settings-store', () => {
     expect(next.chunkOverlap).toBe(0);
     expect(next.tokenTrueSizing).toBe(false);
     expect(next.chunkTokenLimit).toBe(16384);
-    expect(next.enableEmbedding).toBe(true);
     expect(useTokenPreferencesStore.getState().accurateCounting).toBe(false);
   });
 
   it('updates selectors in response to state changes', () => {
     const snapshot = useImportSettingsStore.getState();
     snapshot.setEnableChunking(false);
-    snapshot.setChunkingStrategy('recursive' as const);
+    snapshot.setChunkingStrategy('recursive');
     snapshot.setChunkSize(512);
     snapshot.setChunkOverlap(24);
     snapshot.setTokenTrueSizing(false);
     snapshot.setChunkTokenLimit(2048);
-    useEmbeddingPreferencesStore.getState().setModelEnabled('local', 'bge-base-en-v1.5', true);
-    snapshot.setEnableEmbedding(true);
-    snapshot.setSelectedModel('local::bge-base-en-v1.5');
 
     const next = useImportSettingsStore.getState();
     expect(next.chunkingStrategyExplicit).toBe(true);
@@ -87,39 +74,11 @@ describe('import-settings-store', () => {
     const sizes = importSettingsSelectors.sizes(next);
     const sizing = importSettingsSelectors.tokenSizing(next);
     const limit = importSettingsSelectors.tokenLimit(next);
-    const embedding = importSettingsSelectors.embedding(next);
 
     expect(chunking).toEqual([false, 'recursive']);
     expect(sizes).toEqual([512, 24]);
     expect(sizing).toBe(false);
     expect(limit).toBe(2048);
-    expect(embedding).toEqual([true, 'bge-base-en-v1.5']);
-    expect(useEmbeddingPreferencesStore.getState().selectedModel).toBe('local::bge-base-en-v1.5');
-  });
-
-  it('keeps selected model in sync with embedding preferences store', () => {
-    const prefs = useEmbeddingPreferencesStore.getState();
-    prefs.setModelEnabled('local', 'bge-base-en-v1.5', true);
-    prefs.setModelEnabled('openai', 'text-embedding-3-small', true);
-    useEmbeddingPreferencesStore.getState().setModel('local::bge-base-en-v1.5');
-    expect(useImportSettingsStore.getState().selectedModel).toBe('bge-base-en-v1.5');
-
-    useEmbeddingPreferencesStore.getState().setModel('openai::text-embedding-3-small');
-    expect(useImportSettingsStore.getState().selectedModel).toBe('text-embedding-3-small');
-  });
-
-  it('normalizes composite inputs and updates embedding preferences when setting model', () => {
-    const snapshot = useImportSettingsStore.getState();
-    const prefs = useEmbeddingPreferencesStore.getState();
-    prefs.setModelEnabled('local', 'bge-small-en-v1.5', true);
-    snapshot.setSelectedModel('local::bge-small-en-v1.5');
-
-    expect(useImportSettingsStore.getState().selectedModel).toBe('bge-small-en-v1.5');
-    expect(useEmbeddingPreferencesStore.getState().selectedModel).toBe('local::bge-small-en-v1.5');
-
-    snapshot.setSelectedModel('bge-base-en-v1.5');
-    expect(useImportSettingsStore.getState().selectedModel).toBe('bge-base-en-v1.5');
-    expect(useEmbeddingPreferencesStore.getState().selectedModel).toBe('local::bge-base-en-v1.5');
   });
 
   it('persists via in-memory storage if localStorage throws', () => {

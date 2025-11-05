@@ -16,8 +16,8 @@ import {
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-type EmbeddingSetWithChunkCount = EmbeddingSet & {
-  chunkCount: number;
+type EmbeddingSetWithDocumentCount = EmbeddingSet & {
+  documentCount: number;
 };
 
 /**
@@ -43,9 +43,9 @@ const COLLECTIONS_WITH_COUNTS_QUERY = `
     s.description,
     s.tags,
     s.category,
-    COUNT(c.id) AS "chunkCount"
+    COUNT(DISTINCT fr.id) AS "documentCount"
   FROM embedding_sets s
-  LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+  LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
   GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
   ORDER BY s.created_at DESC
 `.trim();
@@ -94,7 +94,7 @@ export function SearchCollectionSelector({
   onCreateCollection,
 }: SearchCollectionSelectorProps) {
   const { toast } = useToast();
-  const [collections, setCollections] = useState<EmbeddingSetWithChunkCount[]>([]);
+  const [collections, setCollections] = useState<EmbeddingSetWithDocumentCount[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Ref to store the latest loadCollections function
@@ -127,7 +127,7 @@ export function SearchCollectionSelector({
         description: string | null;
         tags: string | null;
         category: string | null;
-        chunkCount: string | number;
+        documentCount: string | number;
       }>(COLLECTIONS_WITH_COUNTS_QUERY);
       console.log(
         '[SearchCollectionSelector] Loaded',
@@ -136,7 +136,7 @@ export function SearchCollectionSelector({
         result.rows
       );
 
-      const sets: EmbeddingSetWithChunkCount[] = result.rows.map(
+      const sets: EmbeddingSetWithDocumentCount[] = result.rows.map(
         (row: {
           id: string;
           modelKey: string;
@@ -148,16 +148,16 @@ export function SearchCollectionSelector({
           description: string | null;
           tags: string | null;
           category: string | null;
-          chunkCount: string | number;
+          documentCount: string | number;
         }) => {
-          const set: EmbeddingSetWithChunkCount = {
+          const set: EmbeddingSetWithDocumentCount = {
             id: row.id,
             modelKey: row.modelKey,
             modelId: row.modelId,
             dimensions: row.dimensions,
             distance: row.distance as 'cosine' | 'l2' | 'ip',
             createdAt: row.createdAt,
-            chunkCount: Number(row.chunkCount ?? 0),
+            documentCount: Number(row.documentCount ?? 0),
           };
 
           if (row.name) set.name = row.name;
@@ -228,9 +228,9 @@ export function SearchCollectionSelector({
   );
 
   // Format collection label with stats
-  const formatCollectionLabel = useCallback((collection: EmbeddingSetWithChunkCount) => {
+  const formatCollectionLabel = useCallback((collection: EmbeddingSetWithDocumentCount) => {
     const name = collection.name || collection.modelId;
-    const count = collection.chunkCount ?? 0;
+    const count = collection.documentCount ?? 0;
     return `${name} (${count.toLocaleString()} docs)`;
   }, []);
 
@@ -313,7 +313,7 @@ export function SearchCollectionSelector({
                 {activeCollection.dimensions}D {activeCollection.distance}
               </span>
             </div>
-            <div>{activeCollection.chunkCount.toLocaleString()} documents</div>
+            <div>{activeCollection.documentCount.toLocaleString()} documents</div>
           </div>
         )}
 

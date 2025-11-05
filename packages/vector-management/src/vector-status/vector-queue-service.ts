@@ -210,7 +210,8 @@ export function createVectorQueueService(
                 c.file_record_id AS "fileRecordId",
                 c.content_hash   AS "contentHash"
            FROM file_chunks c
-          WHERE c.embedding_set_id IS DISTINCT FROM $1
+          WHERE c.embedding_set_id = $1
+            AND c.embedding IS NULL
             AND NOT EXISTS (
                   SELECT 1
                     FROM job_queue j

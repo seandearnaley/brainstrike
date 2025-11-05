@@ -16,22 +16,28 @@ export const migration012FileRecordsEmbeddingSet: Migration = {
     CREATE INDEX IF NOT EXISTS idx_file_records_embedding_set ON file_records(embedding_set_id);
 
     -- Migrate existing data: if a file's chunks all have the same embedding_set_id, set it on the file
-    UPDATE file_records
-    SET embedding_set_id = (
-      SELECT c.embedding_set_id
-      FROM file_chunks c
-      WHERE c.file_record_id = file_records.id
-        AND c.embedding_set_id IS NOT NULL
-      GROUP BY c.embedding_set_id
-      HAVING COUNT(DISTINCT c.embedding_set_id) = 1
-      LIMIT 1
-    )
-    WHERE embedding_set_id IS NULL
-      AND EXISTS (
-        SELECT 1 FROM file_chunks c
-        WHERE c.file_record_id = file_records.id
-          AND c.embedding_set_id IS NOT NULL
-      );
+    -- Only attempt this if file_chunks table exists
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'file_chunks') THEN
+        UPDATE file_records
+        SET embedding_set_id = (
+          SELECT c.embedding_set_id
+          FROM file_chunks c
+          WHERE c.file_record_id = file_records.id
+            AND c.embedding_set_id IS NOT NULL
+          GROUP BY c.embedding_set_id
+          HAVING COUNT(DISTINCT c.embedding_set_id) = 1
+          LIMIT 1
+        )
+        WHERE embedding_set_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM file_chunks c
+            WHERE c.file_record_id = file_records.id
+              AND c.embedding_set_id IS NOT NULL
+          );
+      END IF;
+    END $$;
   `,
   down: `
     -- Drop index

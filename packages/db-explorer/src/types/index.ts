@@ -98,10 +98,6 @@ export interface ImportSettings {
   setTokenTrueSizing: (value: boolean) => void;
   chunkTokenLimit: number;
   setChunkTokenLimit: (value: number) => void;
-  enableEmbedding: boolean;
-  setEnableEmbedding: (value: boolean) => void;
-  selectedModel: string;
-  setSelectedModel: (value: string) => void;
 }
 
 export interface ExportHandlers {

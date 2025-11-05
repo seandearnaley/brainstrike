@@ -2,8 +2,9 @@ import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useEnhancedFileImportService } from '../enhanced-file-import-service';
 
-const { runEnhancedImportMock } = vi.hoisted(() => ({
+const { runEnhancedImportMock, mockUsePGliteDatabase } = vi.hoisted(() => ({
   runEnhancedImportMock: vi.fn(),
+  mockUsePGliteDatabase: vi.fn(() => null),
 }));
 
 // Mock the base service to prevent provider issues
@@ -25,7 +26,7 @@ vi.mock('@brainstrike/db', () => ({
     insertMany: vi.fn(),
     update: vi.fn(),
   }),
-  usePGliteDatabase: () => null,
+  usePGliteDatabase: mockUsePGliteDatabase,
   useClearAllData: () => null,
   CHUNKING_CONFIG: {
     defaultMaxTokens: 1000,
@@ -40,25 +41,6 @@ vi.mock('@brainstrike/db', () => ({
   useDbProviderError: () => null,
   useFactoryReset: () => null,
 }));
-
-vi.mock('@brainstrike/embeddings', async () => {
-  const actual =
-    await vi.importActual<typeof import('@brainstrike/embeddings')>('@brainstrike/embeddings');
-  return {
-    ...actual,
-    SimpleEmbeddingService: Object.assign(
-      vi.fn().mockImplementation(() => ({
-        initializeWithModel: vi.fn(),
-        generateEmbedding: vi.fn(),
-        getStatus: vi.fn().mockReturnValue('ready'),
-        dispose: vi.fn(),
-      })),
-      {
-        getDefaultModelKey: vi.fn().mockReturnValue('Xenova/all-MiniLM-L6-v2'),
-      }
-    ),
-  };
-});
 
 vi.mock('@brainstrike/utils', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
@@ -90,6 +72,8 @@ describe('useEnhancedFileImportService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     runEnhancedImportMock.mockReset();
+    mockUsePGliteDatabase.mockReset();
+    mockUsePGliteDatabase.mockReturnValue(null);
     runEnhancedImportMock.mockImplementation(async (params) => {
       const baseResults = await params.baseImportRunner({
         selectedFilePaths: params.request.selectedFilePaths,
@@ -120,8 +104,6 @@ describe('useEnhancedFileImportService', () => {
         onComplete: vi.fn(),
         onError: vi.fn(),
         enableChunking: true,
-        enableEmbedding: true,
-        embeddingModel: 'test-model',
       };
 
       const { result } = renderHook(() => useEnhancedFileImportService(options));
@@ -148,9 +130,41 @@ describe('useEnhancedFileImportService', () => {
         });
       });
 
-      expect(mockBaseImport).toHaveBeenCalledWith(new Set(['test-folder:/test/path']), [], {
-        'test-folder:/test/path': 'test content',
+      expect(mockBaseImport).toHaveBeenCalledWith(
+        new Set(['test-folder:/test/path']),
+        [],
+        {
+          'test-folder:/test/path': 'test content',
+        },
+        undefined
+      );
+    });
+
+    it('passes resolved embedding set id through to the base import service', async () => {
+      const mockBaseImport = vi.fn();
+      const baseService = await import('../base-file-import-service');
+      vi.mocked(baseService.useFileImportService).mockReturnValue({
+        importFiles: mockBaseImport,
+        isImporting: false,
+        progress: null,
       });
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({ resolveTargetEmbeddingSetId: () => 'set-from-test' })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(mockBaseImport).toHaveBeenCalledWith(
+        expect.any(Set),
+        expect.any(Array),
+        expect.any(Object),
+        'set-from-test'
+      );
     });
 
     it('should handle import errors', async () => {
@@ -279,6 +293,33 @@ describe('useEnhancedFileImportService', () => {
             tokenLimit: 2048,
           }),
         })
+      );
+    });
+
+    it('backfills records missing embedding_set_id after import', async () => {
+      const dbQuery = vi.fn().mockResolvedValue({ rows: [] });
+      mockUsePGliteDatabase.mockReturnValue({ query: dbQuery } as never);
+      runEnhancedImportMock.mockResolvedValueOnce([
+        { id: 'file-assign', imported: true, existed: false, chunksCreated: 2 },
+      ]);
+
+      const { result } = renderHook(() =>
+        useEnhancedFileImportService({ resolveTargetEmbeddingSetId: () => 'set-fallback' })
+      );
+
+      await act(async () => {
+        await result.current.importFiles(new Set(['test-folder:/test/path']), [], {
+          'test-folder:/test/path': 'test content',
+        });
+      });
+
+      expect(dbQuery).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE file_records'),
+        expect.arrayContaining(['set-fallback'])
+      );
+      expect(dbQuery).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE file_chunks'),
+        expect.arrayContaining(['set-fallback'])
       );
     });
   });

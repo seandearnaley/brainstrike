@@ -17,7 +17,8 @@ import {
   SelectValue,
   useToast,
 } from '@brainstrike/ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 interface CreateEmbeddingSetDialogProps {
   open: boolean;
@@ -94,6 +95,14 @@ export function CreateEmbeddingSetDialog({
   });
 
   const selectedModelInfo = availableModels.find((m) => m.modelKey === formData.selectedModel);
+  const hasModelOptions = availableModels.length > 0;
+
+  useEffect(() => {
+    if (!open) return;
+    if (formData.selectedModel) return;
+    if (!hasModelOptions) return;
+    setFormData((prev) => ({ ...prev, selectedModel: availableModels[0]?.modelKey ?? '' }));
+  }, [open, hasModelOptions, availableModels, formData.selectedModel]);
 
   const validateCreateInputs = (): boolean => {
     if (!repository || !selectedModelInfo) {
@@ -134,14 +143,7 @@ export function CreateEmbeddingSetDialog({
         metadata
       );
 
-      // Emit event to notify other components
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('brainstrike:embedding-set-updated', {
-            detail: { id: newSet.id },
-          })
-        );
-      }
+      setActiveEmbeddingSetId(newSet.id);
 
       toast({
         title: 'Success',
@@ -219,96 +221,102 @@ export function CreateEmbeddingSetDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="model" className="text-sm font-medium">
-              Model Configuration
-            </Label>
-            <Select
-              value={formData.selectedModel}
-              onValueChange={(value) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  selectedModel: value,
-                  // Auto-populate name if empty
-                  name:
-                    prev.name === ''
-                      ? (availableModels.find((m) => m.modelKey === value)?.modelId ?? '')
-                      : prev.name,
-                }))
-              }
-            >
-              <SelectTrigger id="model" className="w-full">
-                <SelectValue placeholder="Select a model configuration" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableModels.map((model) => (
-                  <SelectItem key={model.modelKey} value={model.modelKey}>
-                    {formatModelLabel(model)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {selectedModelInfo && (
-              <p className="text-xs text-muted-foreground mt-2">
-                {formatModelDescription(selectedModelInfo)}
-              </p>
-            )}
-          </div>
+        {hasModelOptions ? (
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="model" className="text-sm font-medium">
+                Model Configuration
+              </Label>
+              <Select
+                value={formData.selectedModel}
+                disabled={!hasModelOptions || creating}
+                onValueChange={(value) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    selectedModel: value,
+                    name:
+                      prev.name === ''
+                        ? (availableModels.find((m) => m.modelKey === value)?.modelId ?? '')
+                        : prev.name,
+                  }))
+                }
+              >
+                <SelectTrigger id="model" className="w-full">
+                  <SelectValue placeholder="Select a model configuration" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableModels.map((model) => (
+                    <SelectItem key={model.modelKey} value={model.modelKey}>
+                      {formatModelLabel(model)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedModelInfo && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  {formatModelDescription(selectedModelInfo)}
+                </p>
+              )}
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="name" className="text-sm font-medium">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="name"
-              placeholder="e.g., Code Embeddings, General Purpose, etc."
-              value={formData.name}
-              onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-              disabled={creating}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-sm font-medium">
+                Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="name"
+                placeholder="e.g., Code Embeddings, General Purpose, etc."
+                value={formData.name}
+                onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                disabled={creating}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="description" className="text-sm font-medium">
-              Description
-            </Label>
-            <Input
-              id="description"
-              placeholder="Describe the purpose of this collection"
-              value={formData.description}
-              onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-              disabled={creating}
-            />
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="description" className="text-sm font-medium">
+                Description
+              </Label>
+              <Input
+                id="description"
+                placeholder="Describe the purpose of this collection"
+                value={formData.description}
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                disabled={creating}
+              />
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="tags" className="text-sm font-medium">
-              Tags
-            </Label>
-            <Input
-              id="tags"
-              placeholder="Comma-separated tags (e.g., code, programming, analysis)"
-              value={formData.tags}
-              onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
-              disabled={creating}
-            />
-            <p className="text-xs text-muted-foreground">Use commas to separate multiple tags</p>
-          </div>
+            <div className="space-y-2">
+              <Label htmlFor="tags" className="text-sm font-medium">
+                Tags
+              </Label>
+              <Input
+                id="tags"
+                placeholder="Comma-separated tags (e.g., code, programming, analysis)"
+                value={formData.tags}
+                onChange={(e) => setFormData((prev) => ({ ...prev, tags: e.target.value }))}
+                disabled={creating}
+              />
+              <p className="text-xs text-muted-foreground">Use commas to separate multiple tags</p>
+            </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="category" className="text-sm font-medium">
-              Category
-            </Label>
-            <Input
-              id="category"
-              placeholder="e.g., development, documentation, general-text"
-              value={formData.category}
-              onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
-              disabled={creating}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="category" className="text-sm font-medium">
+                Category
+              </Label>
+              <Input
+                id="category"
+                placeholder="e.g., development, documentation, general-text"
+                value={formData.category}
+                onChange={(e) => setFormData((prev) => ({ ...prev, category: e.target.value }))}
+                disabled={creating}
+              />
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-md border border-dashed bg-muted/30 text-sm text-muted-foreground py-6 px-4">
+            Enable at least one embedding model in Settings to create a collection.
+          </div>
+        )}
 
         <DialogFooter>
           <Button
@@ -321,7 +329,9 @@ export function CreateEmbeddingSetDialog({
           </Button>
           <Button
             onClick={handleCreate}
-            disabled={creating || !formData.selectedModel || !formData.name.trim()}
+            disabled={
+              creating || !hasModelOptions || !formData.selectedModel || !formData.name.trim()
+            }
             type="button"
           >
             {creating ? 'Creating...' : 'Create Collection'}

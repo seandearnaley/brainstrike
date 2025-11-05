@@ -120,5 +120,35 @@ describe('vector-preferences', () => {
       expect(() => setActiveEmbeddingSetId(null)).not.toThrow();
       expect(useVectorStatusUIStore.getState().activeEmbeddingSetId).toBeNull();
     });
+
+    it('dispatches brainstrike:embedding-set-updated event when setting id', () => {
+      const events: Event[] = [];
+      const listener = (event: Event) => {
+        events.push(event);
+      };
+      window.addEventListener('brainstrike:embedding-set-updated', listener);
+
+      setActiveEmbeddingSetId('set-123');
+
+      window.removeEventListener('brainstrike:embedding-set-updated', listener);
+      expect(events).toHaveLength(1);
+      const dispatched = events[0] as CustomEvent<{ id?: string }>;
+      expect(dispatched.detail?.id).toBe('set-123');
+    });
+
+    it('dispatches brainstrike:embedding-set-updated event when clearing id', () => {
+      const events: Event[] = [];
+      const listener = (event: Event) => {
+        events.push(event);
+      };
+      window.addEventListener('brainstrike:embedding-set-updated', listener);
+
+      setActiveEmbeddingSetId(null);
+
+      window.removeEventListener('brainstrike:embedding-set-updated', listener);
+      expect(events).toHaveLength(1);
+      const dispatched = events[0] as CustomEvent<{ id?: string }>;
+      expect(dispatched.detail?.id).toBeNull();
+    });
   });
 });

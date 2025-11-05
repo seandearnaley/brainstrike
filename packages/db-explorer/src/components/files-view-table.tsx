@@ -12,8 +12,6 @@ interface FilesViewTableProps {
   expandedFiles: Set<string>;
   onToggleFileExpansion: (fileId: string) => void;
   getFileChunks: (fileId: string) => FileChunk[];
-  /** Active collection ID for filtering file status */
-  activeCollectionId: string | null;
   /** Active collection name for display */
   activeCollectionName: string | null;
   /** Map of file IDs to their collection status */
@@ -63,6 +61,16 @@ export function FilesViewTable({
         accessorFn: (row) => row.name,
       },
       {
+        id: 'collection',
+        header: 'Collection',
+        cell: ({ row }) => (
+          <Badge variant="outline" className="text-xs">
+            {activeCollectionName ?? row.embeddingSetId ?? 'Unassigned'}
+          </Badge>
+        ),
+        className: 'w-32',
+      },
+      {
         id: 'size',
         header: 'Size',
         cell: ({ row }) => (
@@ -78,13 +86,13 @@ export function FilesViewTable({
         id: 'chunks',
         header: 'Chunks',
         cell: ({ row }) =>
-          row.chunksCount ? (
+          getFileChunks(row.id).length > 0 ? (
             <Badge variant="outline" className="text-xs">
-              {row.chunksCount}
+              {getFileChunks(row.id).length}
             </Badge>
           ) : null,
         sortable: true,
-        accessorFn: (row) => row.chunksCount ?? 0,
+        accessorFn: (row) => getFileChunks(row.id).length,
         className: 'w-20',
       },
       {
@@ -104,7 +112,13 @@ export function FilesViewTable({
         header: 'Collection Status',
         cell: ({ row }) => {
           const status = fileStatuses.get(row.id);
-          if (!status || !activeCollectionName) return null;
+          if (!status || !activeCollectionName) {
+            return (
+              <span className="text-xs text-muted-foreground">
+                {activeCollectionName ? 'Status pending…' : 'Select a collection to view status'}
+              </span>
+            );
+          }
           return <FileStatusBadge status={status} activeCollectionName={activeCollectionName} />;
         },
         className: 'min-w-96',
@@ -114,7 +128,9 @@ export function FilesViewTable({
         header: 'Actions',
         cell: ({ row }) => {
           const status = fileStatuses.get(row.id);
-          if (!status) return null;
+          if (!status) {
+            return <span className="text-xs text-muted-foreground">—</span>;
+          }
           return (
             <FileActionButtons
               status={status}
@@ -133,6 +149,7 @@ export function FilesViewTable({
       activeCollectionName,
       onMakeSearchable,
       onReindex,
+      getFileChunks,
     ]
   );
 

@@ -189,6 +189,7 @@ function WorkerControls({
 
 function BackfillButton({
   activeId,
+  activeLabel,
   hasDb,
   backfilling,
   backfillProgress,
@@ -197,6 +198,7 @@ function BackfillButton({
   queueCounts,
 }: {
   activeId: string | null;
+  activeLabel?: string | null;
   hasDb: boolean;
   backfilling: boolean;
   backfillProgress: { done: number; total: number } | null;
@@ -211,6 +213,13 @@ function BackfillButton({
     coverage,
     queueCounts,
   });
+  const descriptiveLabel = activeLabel ? `Backfill ${activeLabel}` : 'Backfill current collection';
+  const ariaLabel = backfilling
+    ? activeLabel
+      ? `Backfilling ${activeLabel}`
+      : 'Backfilling current collection'
+    : descriptiveLabel;
+  const resolvedTitle = title ?? descriptiveLabel;
 
   return (
     <Button
@@ -220,9 +229,9 @@ function BackfillButton({
       onClick={() => {
         void onBackfill();
       }}
-      title={title}
+      title={resolvedTitle}
       className="text-[10px] h-6 px-1.5 w-full"
-      aria-label={backfilling ? 'Backfilling in progress' : 'Backfill current collection'}
+      aria-label={ariaLabel}
     >
       {backfilling
         ? backfillProgress
@@ -400,6 +409,83 @@ function useActiveEmbeddingSet() {
   return { activeId } as const;
 }
 
+function useActiveCollectionMeta(
+  db: ReturnType<typeof usePGliteDatabase>,
+  activeId: string | null
+) {
+  const [meta, setMeta] = useState<{
+    id: string;
+    name: string;
+    documents: number;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!db || !activeId) {
+      setMeta(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const client = db as {
+      query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+    };
+
+    if (typeof client.query !== 'function') {
+      setMeta(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const fetchMeta = async () => {
+      try {
+        const result = await client.query<{
+          id: string;
+          name: string | null;
+          modelId: string;
+          documentCount: string | number;
+        }>(
+          `SELECT s.id,
+                  s.name,
+                  s.model_id AS "modelId",
+                  COUNT(DISTINCT fr.id) AS "documentCount"
+             FROM embedding_sets s
+             LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
+            WHERE s.id = $1
+            GROUP BY s.id, s.name, s.model_id`,
+          [activeId]
+        );
+        if (cancelled) return;
+        const row = result.rows[0];
+        if (!row) {
+          setMeta(null);
+          return;
+        }
+        setMeta({
+          id: row.id,
+          name: row.name ?? row.modelId,
+          documents: Number(row.documentCount ?? 0),
+        });
+      } catch {
+        if (!cancelled) {
+          setMeta(null);
+        }
+      }
+    };
+
+    void fetchMeta();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [db, activeId]);
+
+  return meta;
+}
+
 interface VectorStatusWithDbProps {
   queueAdapter?: QueueAdapter | null;
 }
@@ -429,12 +515,14 @@ interface VectorStatusWithDbContentProps {
   queueEnabled: boolean;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component coordinates queue telemetry, worker controls, and renderer-only state in one place so the vector HUD stays consistent. Splitting further would scatter tightly-coupled hooks and make bugs harder to trace.
 function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
   const { activeId } = useActiveEmbeddingSet();
   const { toast } = useToast();
+  const activeCollectionMeta = useActiveCollectionMeta(db, activeId);
 
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
   const setDevicePref = useVectorPreferencesStore((s) => s.setDevicePref);
@@ -550,6 +638,29 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         </div>
       </CardHeader>
       <CardContent className="py-2 px-3 text-xs space-y-2">
+        <div className="flex items-center justify-between rounded-md border border-dashed bg-muted/40 px-2 py-1">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            Active Collection
+          </div>
+          {activeId ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[10px] py-0 px-2">
+                {activeCollectionMeta?.name ?? 'Resolving…'}
+              </Badge>
+              <span className="text-[10px] text-muted-foreground">
+                {activeCollectionMeta
+                  ? `${activeCollectionMeta.documents.toLocaleString()} file${
+                      activeCollectionMeta.documents === 1 ? '' : 's'
+                    }`
+                  : 'Loading stats…'}
+              </span>
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              Select a collection in Database Explorer
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1">
             <input
@@ -632,6 +743,7 @@ function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentPr
         <div className="grid grid-cols-2 gap-1">
           <BackfillButton
             activeId={activeId}
+            activeLabel={activeCollectionMeta?.name ?? null}
             hasDb={hasDb}
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
