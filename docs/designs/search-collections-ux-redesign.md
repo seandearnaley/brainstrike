@@ -434,6 +434,6 @@ From user feedback and observation:
 
 ## Related Documents
 
-- [Database Schema Documentation](../architecture/database-schema.md)
+- [Database Schema Documentation](../architecture/08-data-model.md)
 - [Embedding Models Guide](../guides/embedding-models.md)
-- [Original UX Issues Discussion](https://github.com/brainstrike/issues/XXX)
+- [GitHub Issues](https://github.com/seandearnaley/brainstrike/issues)
