@@ -4,7 +4,17 @@ export const migration002AddVectorColumns: Migration = {
   version: 2,
   name: 'add_vector_columns',
   up: async (db) => {
-    await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
+    try {
+      await db.exec('CREATE EXTENSION IF NOT EXISTS vector');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/extension "vector" is not available/i.test(message)) {
+        throw error;
+      }
+      try {
+        await db.exec('ROLLBACK');
+      } catch {}
+    }
 
     await db.exec(`
 			-- Add embedding columns to file_records

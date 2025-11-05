@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { migration001InitialSchema } from '../src/migrations/001-initial-schema.js';
+import { migration002AddVectorColumns } from '../src/migrations/002-add-vector-columns.js';
 import { migration012FileRecordsEmbeddingSet } from '../src/migrations/012-file-records-embedding-set.js';
 import { MigrationRunner } from '../src/migrations/migration-runner.js';
 import type { FileImportRequest } from '../src/models/file-record.js';
@@ -16,6 +17,7 @@ describe('File Import with embedding_set_id', () => {
     await runner.initialize();
     // Only run migrations needed for file_records with embedding_set_id
     await runner.runMigration(migration001InitialSchema);
+    await runner.runMigration(migration002AddVectorColumns);
     await runner.runMigration(migration012FileRecordsEmbeddingSet);
     repository = new FileRecordRepository(db);
   });
