@@ -88,9 +88,10 @@ export function EmbeddingWorkerProvider({ children }: { children: React.ReactNod
 
       if (controllerRef.current) {
         logger.info('Stopping embedding worker...');
-        void controllerRef.current.stop().then(() => {
+        const currentController = controllerRef.current;
+        controllerRef.current = null;
+        void currentController.stop().then(() => {
           logger.info('Embedding worker stopped');
-          controllerRef.current = null;
         });
       }
     };

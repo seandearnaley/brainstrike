@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom';
 import type { IDatabase } from '@brainstrike/db';
@@ -13,6 +13,16 @@ const { mockUsePGliteDatabase, mockStartEmbeddingWorker, mockLogger } = vi.hoist
     error: vi.fn(),
   },
 }));
+
+type MockDb = IDatabase & {
+  query: ReturnType<typeof vi.fn>;
+};
+
+function createMockDb(collectionCount = 1): MockDb {
+  return {
+    query: vi.fn().mockResolvedValue({ rows: [{ count: collectionCount }] }),
+  } as unknown as MockDb;
+}
 
 vi.mock('@brainstrike/db', () => ({
   usePGliteDatabase: (...args: unknown[]) => mockUsePGliteDatabase(...args),
@@ -67,8 +77,45 @@ describe('EmbeddingWorkerProvider', () => {
       expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
     });
 
+    it('waits for at least one collection before starting worker', async () => {
+      const mockDb = createMockDb(0);
+      mockDb.query.mockResolvedValueOnce({ rows: [{ count: 0 }] });
+      mockDb.query.mockResolvedValue({ rows: [{ count: 1 }] });
+      const mockController: EmbeddingWorkerController = { stop: mockStop };
+
+      mockUsePGliteDatabase.mockReturnValue(mockDb);
+      mockStartEmbeddingWorker.mockResolvedValue(mockController);
+
+      render(
+        <EmbeddingWorkerProvider>
+          <div data-testid="child">Child Content</div>
+        </EmbeddingWorkerProvider>
+      );
+
+      await waitFor(() => {
+        expect(mockDb.query).toHaveBeenCalled();
+      });
+
+      expect(mockStartEmbeddingWorker).not.toHaveBeenCalled();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'No embedding sets found - worker will not start until user creates a collection'
+      );
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('brainstrike:embedding-set-updated', {
+            detail: { id: 'new-set' },
+          })
+        );
+      });
+
+      await waitFor(() => {
+        expect(mockStartEmbeddingWorker).toHaveBeenCalled();
+      });
+    });
+
     it('starts worker when database becomes available', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -111,7 +158,7 @@ describe('EmbeddingWorkerProvider', () => {
       import.meta.env['VITE_EMBED_LEASE_MS'] = '90000';
       import.meta.env['VITE_EMBED_MODEL_KEY'] = 'custom-model';
 
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -144,7 +191,7 @@ describe('EmbeddingWorkerProvider', () => {
       import.meta.env['VITE_EMBED_LEASE_MS'] = undefined;
       import.meta.env['VITE_EMBED_MODEL_KEY'] = undefined;
 
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -162,7 +209,7 @@ describe('EmbeddingWorkerProvider', () => {
             db: mockDb,
             concurrency: 1,
             leaseMs: 60000,
-            modelKey: 'undefined', // String "undefined" due to import.meta.env behavior
+            modelKey: 'undefined',
             log: expect.any(Function),
           });
         },
@@ -174,7 +221,7 @@ describe('EmbeddingWorkerProvider', () => {
       import.meta.env['VITE_EMBED_CONCURRENCY'] = '0';
       import.meta.env['VITE_EMBED_LEASE_MS'] = '';
 
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -203,7 +250,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('worker cleanup', () => {
     it('stops worker on component unmount', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -249,7 +296,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('does not crash if worker controller is null during unmount', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
       // Worker start never resolves
@@ -270,7 +317,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('error handling', () => {
     it('logs error when worker start fails', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockError = new Error('Failed to initialize worker');
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -299,7 +346,7 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('logging behavior', () => {
     it('passes log function to worker that logs with metadata', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -332,7 +379,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('passes log function to worker that logs without metadata', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -380,7 +427,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('renders children even when worker is starting', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       mockUsePGliteDatabase.mockReturnValue(mockDb);
       mockStartEmbeddingWorker.mockImplementation(() => new Promise(() => {}));
 
@@ -394,7 +441,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('continues rendering children after worker starts', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb);
@@ -419,8 +466,8 @@ describe('EmbeddingWorkerProvider', () => {
 
   describe('database dependency', () => {
     it('restarts worker when database reference changes', async () => {
-      const mockDb1 = { query: vi.fn(), id: 1 } as unknown as IDatabase;
-      const mockDb2 = { query: vi.fn(), id: 2 } as unknown as IDatabase;
+      const mockDb1 = Object.assign(createMockDb(), { id: 1 } as const);
+      const mockDb2 = Object.assign(createMockDb(), { id: 2 } as const);
       const mockController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(mockDb1);
@@ -462,7 +509,7 @@ describe('EmbeddingWorkerProvider', () => {
     });
 
     it('starts worker when database becomes available after initial null', async () => {
-      const mockDb = { query: vi.fn() } as unknown as IDatabase;
+      const mockDb = createMockDb();
       const mockController: EmbeddingWorkerController = { stop: mockStop };
 
       mockUsePGliteDatabase.mockReturnValue(null);
