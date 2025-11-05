@@ -15,19 +15,22 @@ describe('useDocumentCount', () => {
     vi.clearAllMocks();
   });
 
-  it('returns undefined when no database', () => {
+  it('returns undefined when no database', async () => {
     vi.mocked(mockDb.query).mockResolvedValue({ rows: [] });
 
     const { result } = renderHook(() => useDocumentCount('collection-1'));
 
-    // Should attempt query but handle gracefully
-    expect(result.current).toBeUndefined();
+    await waitFor(() => {
+      expect(result.current).toBeUndefined();
+    });
   });
 
-  it('returns undefined when no active collection', () => {
+  it('returns undefined when no active collection', async () => {
     const { result } = renderHook(() => useDocumentCount(null));
 
-    expect(result.current).toBeUndefined();
+    await waitFor(() => {
+      expect(result.current).toBeUndefined();
+    });
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
