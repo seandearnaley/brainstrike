@@ -65,6 +65,12 @@ vi.mock('@brainstrike/db-explorer', async () => {
   return {
     ...actual,
     DatabaseDemoPanel: () => <div data-testid="mock-database-panel">DatabasePanel</div>,
+    EmbeddingsPanel: () => (
+      <div data-testid="mock-embeddings-panel">
+        <div>Text Embeddings</div>
+        <div>Generate embeddings and calculate text similarity</div>
+      </div>
+    ),
   };
 });
 
