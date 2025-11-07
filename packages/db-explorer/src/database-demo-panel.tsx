@@ -294,6 +294,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     chunkRepository,
     toast,
     database: dbContext,
+    activeCollectionId,
   });
   const { records, chunks, refreshing, dbInfo, loadRecords, loadChunks } = data;
 
@@ -408,16 +409,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     resolveActiveCollectionId,
   });
 
-  useEffect(() => {
-    const handler = () => {
-      void loadChunks();
-    };
-    window.addEventListener('brainstrike:queue-drained', handler as EventListener);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handler as EventListener);
-    };
-  }, [loadChunks]);
-
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
       toast({
@@ -513,6 +504,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const handleCreateCollection = useCallback(() => {
     setCreateCollectionOpen(true);
   }, []);
+
+  const handleManualRefresh = useCallback(() => {
+    void (async () => {
+      await Promise.allSettled([loadRecords(), loadChunks()]);
+    })();
+  }, [loadRecords, loadChunks]);
 
   if (dbInitError) {
     return (
@@ -622,10 +619,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
-              void loadRecords();
-              void loadChunks();
-            }}
+            onClick={handleManualRefresh}
             disabled={refreshing}
             className="flex items-center gap-1"
           >

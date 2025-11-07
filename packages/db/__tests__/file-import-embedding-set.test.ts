@@ -111,4 +111,61 @@ describe('File Import with embedding_set_id', () => {
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]!.embedding_set_id).toBe(embeddingSetId);
   });
+
+  it('allows identical files to be imported into different embedding sets', async () => {
+    const sharedContent = 'Shared content for multiple collections';
+    const firstSet = 'collection-a';
+    const secondSet = 'collection-b';
+
+    const firstResult = await repository.bulkImport([
+      {
+        path: '/shared/file.txt',
+        name: 'file.txt',
+        content: sharedContent,
+        size: sharedContent.length,
+        embeddingSetId: firstSet,
+      },
+    ]);
+
+    expect(firstResult[0]?.imported).toBe(true);
+
+    const secondResult = await repository.bulkImport([
+      {
+        path: '/shared/file.txt',
+        name: 'file.txt',
+        content: sharedContent,
+        size: sharedContent.length,
+        embeddingSetId: secondSet,
+      },
+    ]);
+
+    expect(secondResult[0]?.imported).toBe(true);
+
+    const firstRecord = await repository.findById(firstResult[0]!.id);
+    const secondRecord = await repository.findById(secondResult[0]!.id);
+
+    expect(firstRecord?.embeddingSetId).toBe(firstSet);
+    expect(secondRecord?.embeddingSetId).toBe(secondSet);
+    expect(firstRecord?.contentHash).toBe(secondRecord?.contentHash);
+  });
+
+  it('treats identical files within the same embedding set as existing', async () => {
+    const duplicateContent = 'Duplicate content for same collection';
+    const setId = 'collection-c';
+
+    const request = {
+      path: '/shared/duplicate.txt',
+      name: 'duplicate.txt',
+      content: duplicateContent,
+      size: duplicateContent.length,
+      embeddingSetId: setId,
+    } satisfies FileImportRequest;
+
+    const first = await repository.bulkImport([request]);
+    expect(first[0]?.imported).toBe(true);
+
+    const second = await repository.bulkImport([{ ...request }]);
+    expect(second[0]?.imported).toBe(false);
+    expect(second[0]?.existed).toBe(true);
+  });
 });

@@ -1,4 +1,5 @@
 import type { EmbeddingSet, usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteLiveQuery } from '@brainstrike/db';
 import {
   Button,
   Label,
@@ -14,10 +15,24 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 type EmbeddingSetWithDocumentCount = EmbeddingSet & {
   documentCount: number;
+};
+
+type CollectionRow = {
+  id: string;
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: string;
+  createdAt: string;
+  name: string | null;
+  description: string | null;
+  tags: string | null;
+  category: string | null;
+  documentCount: string | number;
 };
 
 /**
@@ -94,132 +109,59 @@ export function SearchCollectionSelector({
   onCreateCollection,
 }: SearchCollectionSelectorProps) {
   const { toast } = useToast();
-  const [collections, setCollections] = useState<EmbeddingSetWithDocumentCount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const lastToastErrorRef = useRef<string | null>(null);
 
-  // Ref to store the latest loadCollections function
-  const loadCollectionsRef = useRef<(() => Promise<void>) | null>(null);
-  // Ref to store toast function to avoid dependency issues
-  const toastRef = useRef(toast);
+  const {
+    rows: rawCollections,
+    loading: liveLoading,
+    error: liveError,
+  } = usePGliteLiveQuery<CollectionRow>({
+    query: COLLECTIONS_WITH_COUNTS_QUERY,
+    enabled: Boolean(db),
+  });
+
+  const collections = useMemo<EmbeddingSetWithDocumentCount[]>(() => {
+    return rawCollections.map((row) => {
+      const set: EmbeddingSetWithDocumentCount = {
+        id: row.id,
+        modelKey: row.modelKey,
+        modelId: row.modelId,
+        dimensions: row.dimensions,
+        distance: row.distance as 'cosine' | 'l2' | 'ip',
+        createdAt: row.createdAt,
+        documentCount: Number(row.documentCount ?? 0),
+      };
+
+      if (row.name) set.name = row.name;
+      if (row.description) set.description = row.description;
+      if (row.tags) set.tags = row.tags;
+      if (row.category) set.category = row.category;
+
+      return set;
+    });
+  }, [rawCollections]);
+
   useEffect(() => {
-    toastRef.current = toast;
-  }, [toast]);
-
-  // Load collections from database
-  const loadCollections = useCallback(async () => {
-    if (!db) {
-      setCollections([]);
-      setLoading(false);
+    if (!liveError) {
+      lastToastErrorRef.current = null;
       return;
     }
-
-    console.log('[SearchCollectionSelector] Loading collections with counts...');
-    try {
-      setLoading(true);
-      const result = await db.query<{
-        id: string;
-        modelKey: string;
-        modelId: string;
-        dimensions: number;
-        distance: string;
-        createdAt: string;
-        name: string | null;
-        description: string | null;
-        tags: string | null;
-        category: string | null;
-        documentCount: string | number;
-      }>(COLLECTIONS_WITH_COUNTS_QUERY);
-      console.log(
-        '[SearchCollectionSelector] Loaded',
-        result.rows.length,
-        'collections:',
-        result.rows
-      );
-
-      const sets: EmbeddingSetWithDocumentCount[] = result.rows.map(
-        (row: {
-          id: string;
-          modelKey: string;
-          modelId: string;
-          dimensions: number;
-          distance: string;
-          createdAt: string;
-          name: string | null;
-          description: string | null;
-          tags: string | null;
-          category: string | null;
-          documentCount: string | number;
-        }) => {
-          const set: EmbeddingSetWithDocumentCount = {
-            id: row.id,
-            modelKey: row.modelKey,
-            modelId: row.modelId,
-            dimensions: row.dimensions,
-            distance: row.distance as 'cosine' | 'l2' | 'ip',
-            createdAt: row.createdAt,
-            documentCount: Number(row.documentCount ?? 0),
-          };
-
-          if (row.name) set.name = row.name;
-          if (row.description) set.description = row.description;
-          if (row.tags) set.tags = row.tags;
-          if (row.category) set.category = row.category;
-
-          return set;
-        }
-      );
-
-      setCollections(sets);
-    } catch (error) {
-      console.error('[SearchCollectionSelector] Failed to load collections:', error);
-      setCollections([]);
-      toastRef.current({
-        title: 'Failed to Load Collections',
-        description:
-          error instanceof Error ? error.message : 'Unable to retrieve collections from database',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
+    const message =
+      liveError instanceof Error
+        ? liveError.message
+        : 'Unable to retrieve collections from database';
+    if (lastToastErrorRef.current === message) {
+      return;
     }
-  }, [db]);
+    lastToastErrorRef.current = message;
+    toast({
+      title: 'Failed to Load Collections',
+      description: message,
+      variant: 'destructive',
+    });
+  }, [liveError, toast]);
 
-  // Update ref whenever loadCollections changes
-  useEffect(() => {
-    loadCollectionsRef.current = loadCollections;
-  }, [loadCollections]);
-
-  // Load collections on mount and when repository changes
-  useEffect(() => {
-    void loadCollections();
-  }, [loadCollections]);
-
-  // Listen for collection changes (from manage dialog, etc.)
-  // Uses brainstrike: prefix for consistency with rest of app
-  useEffect(() => {
-    let mounted = true;
-
-    const handleCollectionChange = () => {
-      console.log('[SearchCollectionSelector] Received collection change event, reloading...');
-      if (mounted && loadCollectionsRef.current) {
-        void loadCollectionsRef.current();
-      }
-    };
-
-    if (typeof window !== 'undefined') {
-      // Listen for collection selection changes
-      window.addEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
-      // Listen for file import completion to update document counts
-      window.addEventListener('brainstrike:files-imported', handleCollectionChange);
-
-      return () => {
-        mounted = false;
-        window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
-        window.removeEventListener('brainstrike:files-imported', handleCollectionChange);
-      };
-    }
-    return undefined;
-  }, []); // Empty dependency array - event listeners are stable
+  const loading = liveLoading || !db;
 
   // Find active collection
   const activeCollection = useMemo(

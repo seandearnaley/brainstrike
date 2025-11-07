@@ -272,25 +272,54 @@ export class TransformersBackend {
     this._selectedDType = dtype;
     pipelineConfig.dtype = dtype;
 
-    // Try requested device, then gracefully fall back to CPU if creation fails
-    try {
+    const instantiatePipeline = async () => {
+      if (!this._transformers) {
+        throw new Error('Transformers module not initialized');
+      }
       this._pipeline = await this._transformers.pipeline(
         'feature-extraction',
         config.modelId,
         pipelineConfig
       );
-    } catch (err) {
-      // Fallback only if not already on CPU/WASM in browsers
+    };
+
+    const fallbackToCpu = async (lastError: unknown) => {
       const fallbackDevice = determineDevice('cpu');
-      if (this._selectedDevice !== fallbackDevice) {
-        this._selectedDevice = fallbackDevice;
-        onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU/WASM…' });
-        this._pipeline = await this._transformers.pipeline('feature-extraction', config.modelId, {
-          ...pipelineConfig,
-          device: fallbackDevice,
-        });
+      if (this._selectedDevice === fallbackDevice) {
+        throw lastError;
+      }
+      this._selectedDevice = fallbackDevice;
+      onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU/WASM…' });
+      pipelineConfig.device = fallbackDevice;
+      const fallbackDType = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
+      pipelineConfig.dtype = fallbackDType;
+      this._selectedDType = fallbackDType;
+      await instantiatePipeline();
+    };
+
+    try {
+      await instantiatePipeline();
+    } catch (initialError) {
+      if (pipelineConfig.quantized) {
+        console.warn(
+          '[TransformersBackend] Quantized pipeline failed, retrying without quantization',
+          initialError
+        );
+        pipelineConfig.quantized = false;
+        this._quantized = false;
+        const retryDType = this.resolveDTypeForDevice(
+          (pipelineConfig.device as 'webgpu' | 'wasm' | 'cpu' | undefined) ?? resolvedDevice,
+          false
+        );
+        pipelineConfig.dtype = retryDType;
+        this._selectedDType = retryDType;
+        try {
+          await instantiatePipeline();
+        } catch (retryError) {
+          await fallbackToCpu(retryError);
+        }
       } else {
-        throw err;
+        await fallbackToCpu(initialError);
       }
     }
 

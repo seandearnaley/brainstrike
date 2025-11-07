@@ -118,27 +118,6 @@ function createEmbeddingConfig(
   };
 }
 
-function dispatchFilesImportedEvent(
-  results: EnhancedImportResult[],
-  activeCollectionId: string | null
-): void {
-  if (typeof window === 'undefined') return;
-  try {
-    window.dispatchEvent(
-      new CustomEvent('brainstrike:files-imported', {
-        detail: {
-          results,
-          activeCollectionId,
-          fileCount: results.length,
-          chunkCount: results.reduce((sum, r) => sum + (r.chunksCreated ?? 0), 0),
-        },
-      })
-    );
-  } catch {
-    // ignore dispatch issues; callers already completed persistence work
-  }
-}
-
 function createPorts(
   queuePort: EmbeddingJobQueuePort | null,
   sqlPort: SqlExecutorPort | null
@@ -441,8 +420,6 @@ export function useEnhancedFileImportService(
         );
 
         options.onComplete?.(results);
-
-        dispatchFilesImportedEvent(results, activeSetIdRef.current ?? null);
       } catch (error) {
         options.onError?.(error instanceof Error ? error : new Error('Import failed'));
       } finally {

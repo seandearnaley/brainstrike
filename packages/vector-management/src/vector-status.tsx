@@ -213,7 +213,12 @@ function BackfillButton({
     coverage,
     queueCounts,
   });
-  const descriptiveLabel = activeLabel ? `Backfill ${activeLabel}` : 'Backfill current collection';
+  const normalizedLabel = activeLabel?.trim() ?? '';
+  const labelPreview =
+    normalizedLabel.length > 24 ? `${normalizedLabel.slice(0, 21)}…` : normalizedLabel;
+  const descriptiveLabel = normalizedLabel
+    ? `Backfill ${labelPreview}`
+    : 'Backfill current collection';
   const ariaLabel = backfilling
     ? activeLabel
       ? `Backfilling ${activeLabel}`
@@ -237,7 +242,9 @@ function BackfillButton({
         ? backfillProgress
           ? `${backfillProgress.done}/${backfillProgress.total}`
           : 'Backfilling…'
-        : 'Backfill'}
+        : normalizedLabel
+          ? `Backfill ${labelPreview}`
+          : 'Backfill'}
     </Button>
   );
 }
@@ -389,20 +396,10 @@ function useActiveEmbeddingSet() {
       }
     };
 
-    const handleQueueDrained = (event: Event) => {
-      const custom = event as CustomEvent<{ embeddingSetId?: string }>;
-      const embeddingSetId = custom.detail?.embeddingSetId;
-      if (typeof embeddingSetId === 'string' && embeddingSetId.trim()) {
-        setActiveId(embeddingSetId);
-      }
-    };
-
     window.addEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
 
     return () => {
       window.removeEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
     };
   }, []);
 

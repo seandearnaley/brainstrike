@@ -299,7 +299,8 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
     for (const { index, request, hash } of hashResults) {
       onProgress?.(offset + index, total, request.name);
 
-      const existing = existingMap.get(hash);
+      const dedupeKey = this.buildDedupKey(hash, request.embeddingSetId);
+      const existing = existingMap.get(dedupeKey);
 
       if (existing) {
         results[index] = {
@@ -346,6 +347,11 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
 
       recordsToInsert.push(record);
 
+      if (record.contentHash) {
+        const newKey = this.buildDedupKey(record.contentHash, record.embeddingSetId);
+        existingMap.set(newKey, record);
+      }
+
       results[index] = {
         id,
         imported: true,
@@ -380,11 +386,18 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
       if (!row || typeof row !== 'object') continue;
       const record = this.fromRow(row);
       if (record.contentHash) {
-        map.set(record.contentHash, record);
+        const key = this.buildDedupKey(record.contentHash, record.embeddingSetId);
+        map.set(key, record);
       }
     }
 
     return map;
+  }
+
+  private buildDedupKey(hash: string, embeddingSetId?: string | null): string {
+    const normalizedHash = hash ?? '';
+    const normalizedSet = embeddingSetId?.trim() ? embeddingSetId.trim() : '__default__';
+    return `${normalizedHash}::${normalizedSet}`;
   }
 
   private async batchInsert(records: FileRecord[], tx: IDatabase): Promise<void> {

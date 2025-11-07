@@ -82,6 +82,7 @@ vi.mock('@brainstrike/db', () => ({
   useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
   useDbProviderError: () => null,
   useFactoryReset: () => null,
+  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock('@brainstrike/ui', async () => {

@@ -78,11 +78,5 @@ export function createImportCompletionHandler(
 
     void loadRecords();
     void loadChunks();
-
-    // Dispatch event to notify SearchCollectionSelector to refresh collection counts
-    if (typeof window !== 'undefined') {
-      console.log('[use-import-completion] Dispatching brainstrike:files-imported event');
-      window.dispatchEvent(new CustomEvent('brainstrike:files-imported'));
-    }
   };
 }

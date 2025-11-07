@@ -374,18 +374,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     // Check if Electron IPC is actually available (not just configured)
-    interface WindowWithElectronAPI extends Window {
-      electronAPI?: {
-        db?: {
-          clearAll?: (confirmationToken?: string) => Promise<unknown>;
-        };
-      };
-    }
+    const electronAPI =
+      typeof window !== 'undefined'
+        ? ((
+            window as Window & {
+              electronAPI?: {
+                db?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
+              };
+            }
+          ).electronAPI ?? null)
+        : null;
 
-    const isElectronIPCAvailable =
-      useElectronIPC &&
-      typeof window !== 'undefined' &&
-      (window as WindowWithElectronAPI).electronAPI?.db?.clearAll;
+    const isElectronIPCAvailable = useElectronIPC && electronAPI?.db?.clearAll;
 
     if (isElectronIPCAvailable) {
       return await clearViaElectronIPC();

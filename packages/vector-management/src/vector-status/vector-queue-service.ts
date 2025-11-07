@@ -1,4 +1,5 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
+import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
@@ -66,7 +67,18 @@ export interface VectorQueueServiceDependencies {
 
 export type BackfillProgressHandler = (done: number, total: number) => void;
 
-const EMBEDDINGS_QUEUE = 'embeddings';
+export const EMBEDDINGS_QUEUE = 'embeddings';
+
+type EmbeddingSetJobMetadata = {
+  modelKey: string;
+  expectedDimension: number;
+};
+
+const logger = {
+  info: (...args: unknown[]) => console.info('[VectorQueueService]', ...args),
+  debug: (...args: unknown[]) => console.debug('[VectorQueueService]', ...args),
+  error: (...args: unknown[]) => console.error('[VectorQueueService]', ...args),
+};
 
 function* chunkArray<T>(items: T[], size: number): Generator<T[]> {
   const step = Math.max(1, size);
@@ -91,26 +103,6 @@ export async function withTransaction(
     }
     throw error;
   }
-}
-
-export function handleQueueStateChange(
-  stats: { queued?: number; running?: number },
-  busyRef: { current: boolean },
-  activeId: string | null
-): void {
-  const isBusy = (stats.queued ?? 0) > 0 || (stats.running ?? 0) > 0;
-  if (!isBusy && busyRef.current) {
-    try {
-      window.dispatchEvent(
-        new CustomEvent('brainstrike:queue-drained', {
-          detail: { queue: EMBEDDINGS_QUEUE, embeddingSetId: activeId },
-        })
-      );
-    } catch {
-      // ignore event dispatch errors
-    }
-  }
-  busyRef.current = isBusy;
 }
 
 export interface VectorQueueService {
@@ -201,6 +193,7 @@ export function createVectorQueueService(
     },
 
     async backfill(activeSetId, onProgress) {
+      logger.info('Backfill requested', { embeddingSetId: activeSetId });
       const candidates = await db.query<{
         id: string;
         fileRecordId: string;
@@ -222,12 +215,25 @@ export function createVectorQueueService(
         [activeSetId, EMBEDDINGS_QUEUE]
       );
 
+      const setMetadata = await resolveEmbeddingSetJobMetadata(db, activeSetId);
+      logger.info('Embedding set metadata resolved for backfill', {
+        embeddingSetId: activeSetId,
+        modelKey: setMetadata.modelKey,
+        expectedDimension: setMetadata.expectedDimension,
+        candidates: candidates.rows.length,
+      });
+
       const total = candidates.rows.length;
       let done = 0;
       onProgress(done, total);
 
       for (const batch of chunkArray(candidates.rows, 500)) {
-        const inserted = await enqueueEmbeddingChunkJobsBatch(db, batch, activeSetId);
+        const inserted = await enqueueEmbeddingChunkJobsBatch(db, batch, activeSetId, setMetadata);
+        logger.debug('Embedded batch enqueued', {
+          embeddingSetId: activeSetId,
+          batchSize: batch.length,
+          inserted,
+        });
         done = Math.min(total, done + inserted);
         onProgress(done, total);
       }
@@ -237,6 +243,12 @@ export function createVectorQueueService(
       }
 
       const stats = await jobQueue.getQueueStats(EMBEDDINGS_QUEUE);
+      logger.info('Backfill complete', {
+        embeddingSetId: activeSetId,
+        total,
+        enqueued: done,
+        queueCounts: stats[0] ?? null,
+      });
       const s = stats[0];
       return s
         ? {
@@ -268,10 +280,73 @@ type BackfillCandidate = {
   contentHash: string;
 };
 
+async function resolveEmbeddingSetJobMetadata(
+  db: VectorQueueDatabase,
+  embeddingSetId: string
+): Promise<EmbeddingSetJobMetadata> {
+  const result = await db.query<{
+    modelKey: string | null;
+    modelId: string | null;
+    dimensions: number | string | null;
+  }>(
+    `SELECT model_key AS "modelKey", model_id AS "modelId", dimensions
+       FROM embedding_sets
+      WHERE id = $1
+      LIMIT 1`,
+    [embeddingSetId]
+  );
+
+  const row = result.rows[0];
+  if (!row) {
+    logger.error('Failed to resolve embedding set metadata (missing row)', { embeddingSetId });
+    throw new Error(`Embedding set ${embeddingSetId} not found`);
+  }
+
+  const canonicalKey = (() => {
+    const rawKey = row.modelKey?.trim();
+    if (rawKey) {
+      const canonical = canonicalizeProviderModelKey(rawKey);
+      if (canonical) {
+        return canonical.composite;
+      }
+      if (rawKey.includes('::')) {
+        return rawKey;
+      }
+    }
+    if (row.modelId) {
+      return formatProviderModelKey('local', row.modelId);
+    }
+    if (rawKey) {
+      return rawKey;
+    }
+    logger.error('Failed to resolve embedding set metadata (missing model info)', {
+      embeddingSetId,
+      modelKey: row.modelKey,
+      modelId: row.modelId,
+    });
+    throw new Error(`Embedding set ${embeddingSetId} is missing model metadata`);
+  })();
+
+  const expectedDimension = Number(row.dimensions ?? Number.NaN);
+  if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
+    logger.error('Failed to resolve embedding set metadata (invalid dimension)', {
+      embeddingSetId,
+      dimensions: row.dimensions,
+    });
+    throw new Error(`Embedding set ${embeddingSetId} is missing dimension metadata`);
+  }
+
+  return {
+    modelKey: canonicalKey,
+    expectedDimension,
+  };
+}
+
 async function enqueueEmbeddingChunkJobsBatch(
   db: VectorQueueDatabase,
   batch: BackfillCandidate[],
-  embeddingSetId: string
+  embeddingSetId: string,
+  metadata: EmbeddingSetJobMetadata
 ): Promise<number> {
   if (!batch.length) {
     return 0;
@@ -285,6 +360,8 @@ async function enqueueEmbeddingChunkJobsBatch(
       chunkId: String(row.id),
       fileRecordId: String(row.fileRecordId),
       embeddingSetId,
+      modelKey: metadata.modelKey,
+      expectedDimension: metadata.expectedDimension,
     });
     const dedupeKey = `${row.id}:${embeddingSetId}:${row.contentHash}`;
     const base = index * 4;
@@ -347,7 +424,9 @@ function createJobId(): string {
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
-function calculateLatency(rows: Array<{ runAt: string; updatedAt: string }>): LatencyStats | null {
+export function calculateLatency(
+  rows: Array<{ runAt: string; updatedAt: string }>
+): LatencyStats | null {
   if (rows.length === 0) {
     return null;
   }

@@ -1,5 +1,5 @@
-import { usePGliteDatabase } from '@brainstrike/db';
-import { useCallback, useEffect, useState } from 'react';
+import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useMemo } from 'react';
 
 /**
  * Hook to get the count of indexed documents (chunks with embeddings) in the active collection
@@ -13,36 +13,37 @@ import { useCallback, useEffect, useState } from 'react';
  * // documentCount will be the count of chunks with embeddings in the active collection
  * ```
  */
+const DOCUMENT_COUNT_QUERY = `
+  SELECT COUNT(*)::int AS count
+    FROM file_chunks
+   WHERE embedding_set_id = $1
+     AND embedding IS NOT NULL
+`.trim();
+
 export function useDocumentCount(activeCollectionId: string | null): number | undefined {
-  const db = usePGliteDatabase();
-  const [count, setCount] = useState<number | undefined>(undefined);
+  const params = useMemo<readonly [string] | undefined>(
+    () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
+    [activeCollectionId]
+  );
 
-  const fetchCount = useCallback(async () => {
-    if (!db || !activeCollectionId) {
-      setCount(undefined);
-      return;
+  const { rows, error } = usePGliteLiveQuery<{ count: number }>({
+    query: DOCUMENT_COUNT_QUERY,
+    ...(params ? { params } : {}),
+    enabled: Boolean(activeCollectionId),
+  });
+
+  return useMemo(() => {
+    if (!activeCollectionId) {
+      return undefined;
     }
-
-    try {
-      const result = await db.query<{ count: string }>(
-        `SELECT COUNT(*) as count
-         FROM file_chunks
-         WHERE embedding_set_id = $1
-         AND embedding IS NOT NULL`,
-        [activeCollectionId]
-      );
-
-      const countValue = result.rows[0]?.count;
-      setCount(countValue ? Number.parseInt(countValue, 10) : 0);
-    } catch (error) {
+    if (error) {
       console.error('[useDocumentCount] Failed to fetch document count:', error);
-      setCount(undefined);
+      return undefined;
     }
-  }, [db, activeCollectionId]);
-
-  useEffect(() => {
-    void fetchCount();
-  }, [fetchCount]);
-
-  return count;
+    const row = rows[0];
+    if (!row) {
+      return 0;
+    }
+    return Number.isFinite(row.count) ? row.count : 0;
+  }, [activeCollectionId, rows, error]);
 }

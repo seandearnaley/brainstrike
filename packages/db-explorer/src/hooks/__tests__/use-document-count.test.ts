@@ -1,157 +1,106 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDocumentCount } from '../use-document-count';
 
-// Mock the database hook
-const mockQuery = vi.fn();
-const mockDb = { query: mockQuery };
+type MockRow = { count: number };
+
+const mockLiveQueryState = {
+  rows: [] as MockRow[],
+  loading: false,
+  error: null as Error | null,
+  refresh: vi.fn(),
+};
+
+const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+  () => mockLiveQueryState
+);
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => mockDb,
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
 describe('useDocumentCount', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLiveQueryState.rows = [];
+    mockLiveQueryState.error = null;
+    mockLiveQueryState.refresh = vi.fn();
+    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
-  it('returns undefined when no database', async () => {
-    vi.mocked(mockDb.query).mockResolvedValue({ rows: [] });
-
-    const { result } = renderHook(() => useDocumentCount('collection-1'));
-
-    await waitFor(() => {
-      expect(result.current).toBeUndefined();
-    });
-  });
-
-  it('returns undefined when no active collection', async () => {
+  it('returns undefined when no active collection', () => {
     const { result } = renderHook(() => useDocumentCount(null));
 
-    await waitFor(() => {
-      expect(result.current).toBeUndefined();
-    });
-    expect(mockQuery).not.toHaveBeenCalled();
+    expect(result.current).toBeUndefined();
+    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ enabled: false })
+    );
   });
 
-  it('queries database with correct SQL for active collection', async () => {
-    const activeCollectionId = 'collection-1';
-
-    mockQuery.mockResolvedValue({
-      rows: [{ count: '42' }],
-    });
-
-    renderHook(() => useDocumentCount(activeCollectionId));
-
-    await waitFor(() => {
-      expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('SELECT COUNT(*) as count'), [
-        activeCollectionId,
-      ]);
-
-      expect(mockQuery).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE embedding_set_id = $1'),
-        [activeCollectionId]
-      );
-
-      expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('AND embedding IS NOT NULL'), [
-        activeCollectionId,
-      ]);
-    });
-  });
-
-  it('returns correct document count', async () => {
-    mockQuery.mockResolvedValue({
-      rows: [{ count: '123' }],
-    });
+  it('maps live query count for active collection', () => {
+    mockLiveQueryState.rows = [{ count: 42 }];
 
     const { result } = renderHook(() => useDocumentCount('collection-1'));
 
-    await waitFor(() => {
-      expect(result.current).toBe(123);
-    });
+    expect(result.current).toBe(42);
+    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.stringContaining('COUNT(*)'),
+        params: ['collection-1'],
+        enabled: true,
+      })
+    );
   });
 
-  it('handles zero count', async () => {
-    mockQuery.mockResolvedValue({
-      rows: [{ count: '0' }],
-    });
+  it('returns zero when live query has no rows', () => {
+    mockLiveQueryState.rows = [];
 
     const { result } = renderHook(() => useDocumentCount('collection-1'));
 
-    await waitFor(() => {
-      expect(result.current).toBe(0);
-    });
+    expect(result.current).toBe(0);
   });
 
-  it('handles empty result rows', async () => {
-    mockQuery.mockResolvedValue({
-      rows: [],
-    });
+  it('returns undefined when live query errors', () => {
+    const testError = new Error('live query failed');
+    mockLiveQueryState.error = testError;
 
-    const { result } = renderHook(() => useDocumentCount('collection-1'));
-
-    await waitFor(() => {
-      expect(result.current).toBe(0);
-    });
-  });
-
-  it('returns undefined on database error', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    mockQuery.mockRejectedValue(new Error('Database error'));
 
     const { result } = renderHook(() => useDocumentCount('collection-1'));
 
-    await waitFor(() => {
-      expect(result.current).toBeUndefined();
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to fetch document count'),
-        expect.any(Error)
-      );
-    });
+    expect(result.current).toBeUndefined();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[useDocumentCount] Failed to fetch document count:',
+      testError
+    );
 
     consoleSpy.mockRestore();
   });
 
-  it('refetches when collection changes', async () => {
-    mockQuery.mockResolvedValue({ rows: [{ count: '10' }] });
-
-    const { result, rerender } = renderHook(({ collectionId }) => useDocumentCount(collectionId), {
-      initialProps: { collectionId: 'collection-1' },
+  it('recomputes when rows change', () => {
+    const { result, rerender } = renderHook(({ id }) => useDocumentCount(id), {
+      initialProps: { id: 'collection-1' as string | null },
     });
 
-    await waitFor(() => {
-      expect(result.current).toBe(10);
-    });
+    mockLiveQueryState.rows = [{ count: 10 }];
+    rerender({ id: 'collection-1' });
+    expect(result.current).toBe(10);
 
-    mockQuery.mockClear();
-    mockQuery.mockResolvedValue({ rows: [{ count: '20' }] });
-
-    rerender({ collectionId: 'collection-2' });
-
-    await waitFor(() => {
-      expect(mockQuery).toHaveBeenCalledWith(expect.any(String), ['collection-2']);
-      expect(result.current).toBe(20);
-    });
+    mockLiveQueryState.rows = [{ count: 20 }];
+    rerender({ id: 'collection-1' });
+    expect(result.current).toBe(20);
   });
 
-  it('clears count when collection becomes null', async () => {
-    mockQuery.mockResolvedValue({ rows: [{ count: '10' }] });
+  it('clears count when collection becomes null', () => {
+    mockLiveQueryState.rows = [{ count: 5 }];
 
-    const { result, rerender } = renderHook(({ collectionId }) => useDocumentCount(collectionId), {
-      initialProps: { collectionId: 'collection-1' as string | null },
+    const { result, rerender } = renderHook(({ id }) => useDocumentCount(id), {
+      initialProps: { id: 'collection-1' as string | null },
     });
 
-    await waitFor(() => {
-      expect(result.current).toBe(10);
-    });
+    expect(result.current).toBe(5);
 
-    mockQuery.mockClear();
-
-    rerender({ collectionId: null });
-
-    await waitFor(() => {
-      expect(result.current).toBeUndefined();
-      expect(mockQuery).not.toHaveBeenCalled();
-    });
+    rerender({ id: null });
+    expect(result.current).toBeUndefined();
   });
 });

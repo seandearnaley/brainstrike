@@ -1,11 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatRelativeTimeFromNow } from '../vector-status';
 import { getBackfillDisabledState } from '../vector-status/backfill-utils';
-import {
-  handleQueueStateChange,
-  type VectorQueueDatabase,
-  withTransaction,
-} from '../vector-status/vector-queue-service';
+import { type VectorQueueDatabase, withTransaction } from '../vector-status/vector-queue-service';
 
 describe('vector-status helpers', () => {
   it('withTransaction commits on success and rolls back on error', async () => {
@@ -30,18 +26,6 @@ describe('vector-status helpers', () => {
       })
     ).rejects.toThrow('boom');
     expect(calls).toEqual(['BEGIN', 'BODY', 'ROLLBACK']);
-  });
-
-  it('handleQueueStateChange dispatches queue-drained event when transitioning to idle', () => {
-    const busyRef = { current: true };
-    const spy = vi.spyOn(window, 'dispatchEvent');
-    handleQueueStateChange({ queued: 0, running: 0 }, busyRef, 'set-1');
-    expect(spy).toHaveBeenCalledTimes(1);
-    const evt = spy.mock.calls[0]?.[0] as CustomEvent;
-    expect(evt.type).toBe('brainstrike:queue-drained');
-    expect((evt.detail as { embeddingSetId: string }).embeddingSetId).toBe('set-1');
-    expect(busyRef.current).toBe(false);
-    spy.mockRestore();
   });
 });
 

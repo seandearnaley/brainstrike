@@ -67,6 +67,21 @@ function createQueueProgressTracker(dispatch: ProgressTrackerDispatch) {
       ...(typeof args.elapsedMs === 'number' ? { elapsedMs: Math.max(0, args.elapsedMs) } : {}),
       ...(args.errorMessage ? { errorMessage: args.errorMessage } : {}),
     };
+    if (status === 'error') {
+      logger.error('Embedding job failed', {
+        chunkId: detail.chunkId,
+        model: detail.model,
+        embeddingSetId: detail.embeddingSetId,
+        errorMessage: detail.errorMessage ?? null,
+      });
+    } else if (status === 'completed') {
+      logger.debug('Embedding job completed', {
+        chunkId: detail.chunkId,
+        model: detail.model,
+        embeddingSetId: detail.embeddingSetId,
+        pending: detail.pending,
+      });
+    }
     dispatch(detail);
   };
 
@@ -142,6 +157,14 @@ export function createBrowserEmbeddingQueuePort({
       const dimensionParameter = options?.dimensionParameter ?? null;
       const provider = options?.provider ?? null;
 
+      logger.info('Scheduling embedding batch', {
+        chunkCount: chunks.length,
+        model,
+        targetEmbeddingSetId,
+        provider,
+        targetDimension,
+      });
+
       scheduleChunksBatch(scheduleChunk, chunks, {
         model,
         repository,
@@ -180,6 +203,7 @@ function createChunkScheduler({
 }: SchedulerDependencies) {
   const maybeDispatchDrain = (embeddingSetId: string | null) => {
     if (pendingChunks.size === 0) {
+      logger.info('Embedding queue drained', { embeddingSetId });
       dispatchDrainEvent(embeddingSetId);
     }
   };
@@ -210,6 +234,12 @@ function createChunkScheduler({
       emitDrain: maybeDispatchDrain,
     };
 
+    logger.debug('Queueing chunk for embedding', {
+      chunkId: chunk.id,
+      model,
+      targetEmbeddingSetId,
+      provider,
+    });
     await runChunkTask(taskContext);
   };
 }

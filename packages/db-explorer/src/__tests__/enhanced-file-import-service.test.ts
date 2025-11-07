@@ -40,6 +40,7 @@ vi.mock('@brainstrike/db', () => ({
   })),
   useDbProviderError: () => null,
   useFactoryReset: () => null,
+  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock('@brainstrike/utils', async () => {
