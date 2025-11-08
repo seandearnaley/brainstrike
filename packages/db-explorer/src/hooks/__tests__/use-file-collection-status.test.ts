@@ -1,39 +1,48 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFileCollectionStatus } from '../use-file-collection-status';
 
-// Mock the database hook
-const mockQuery = vi.fn();
-const mockDb = { query: mockQuery };
+type MockRow = {
+  file_id: string;
+  file_name: string;
+  file_path: string;
+  searchable_chunks: string;
+  total_chunks: string;
+  other_collections: string;
+  last_indexed: string | null;
+};
+
+const mockLiveQueryState = {
+  rows: [] as MockRow[],
+  loading: false,
+  error: null as Error | null,
+  refresh: vi.fn(),
+};
+
+const usePGliteLiveQueryMock = vi.fn<(options: unknown) => typeof mockLiveQueryState>(
+  () => mockLiveQueryState
+);
 
 vi.mock('@brainstrike/db', () => ({
-  usePGliteDatabase: () => mockDb,
+  usePGliteLiveQuery: (options: unknown) => usePGliteLiveQueryMock(options),
 }));
 
 describe('useFileCollectionStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLiveQueryState.rows = [];
+    mockLiveQueryState.error = null;
+    mockLiveQueryState.refresh = vi.fn();
+    usePGliteLiveQueryMock.mockReturnValue(mockLiveQueryState);
   });
 
   describe('getFileStatus', () => {
-    it('returns empty array when no database', async () => {
-      vi.mocked(mockDb.query).mockResolvedValue({ rows: [] });
-
-      const { result } = renderHook(() => useFileCollectionStatus(null));
-
-      const statuses = await result.current.getFileStatus(['file-1']);
-
-      expect(statuses).toEqual([]);
-      expect(mockQuery).not.toHaveBeenCalled();
-    });
-
     it('returns empty array when no active collection', async () => {
       const { result } = renderHook(() => useFileCollectionStatus(null));
 
       const statuses = await result.current.getFileStatus(['file-1']);
 
       expect(statuses).toEqual([]);
-      expect(mockQuery).not.toHaveBeenCalled();
     });
 
     it('returns empty array when no file IDs provided', async () => {
@@ -42,196 +51,159 @@ describe('useFileCollectionStatus', () => {
       const statuses = await result.current.getFileStatus([]);
 
       expect(statuses).toEqual([]);
-      expect(mockQuery).not.toHaveBeenCalled();
     });
 
-    it('queries database with correct SQL for single file', async () => {
-      const activeCollectionId = 'collection-1';
-      const fileIds = ['file-1'];
-
-      mockQuery.mockResolvedValue({
-        rows: [
-          {
-            file_id: 'file-1',
-            file_name: 'test.ts',
-            file_path: '/test/test.ts',
-            searchable_chunks: '5',
-            total_chunks: '5',
-            other_collections: '2',
-            last_indexed: '2025-11-02T10:00:00Z',
-          },
-        ],
-      });
-
-      const { result } = renderHook(() => useFileCollectionStatus(activeCollectionId));
-
-      await waitFor(async () => {
-        const statuses = await result.current.getFileStatus(fileIds);
-
-        expect(mockQuery).toHaveBeenCalledWith(expect.stringContaining('SELECT'), [
-          activeCollectionId,
-          ...fileIds,
-        ]);
-
-        expect(statuses).toHaveLength(1);
-        expect(statuses[0]).toMatchObject({
-          fileId: 'file-1',
-          fileName: 'test.ts',
-          filePath: '/test/test.ts',
-          searchableInActive: true,
-          searchableChunksCount: 5,
-          totalChunksCount: 5,
-          otherCollectionsCount: 2,
-          lastIndexedAt: '2025-11-02T10:00:00Z',
-        });
-      });
-    });
-
-    it('queries database with correct SQL for multiple files', async () => {
-      const activeCollectionId = 'collection-1';
-      const fileIds = ['file-1', 'file-2', 'file-3'];
-
-      mockQuery.mockResolvedValue({
-        rows: [
-          {
-            file_id: 'file-1',
-            file_name: 'test1.ts',
-            file_path: '/test/test1.ts',
-            searchable_chunks: '3',
-            total_chunks: '3',
-            other_collections: '0',
-            last_indexed: '2025-11-02T10:00:00Z',
-          },
-          {
-            file_id: 'file-2',
-            file_name: 'test2.ts',
-            file_path: '/test/test2.ts',
-            searchable_chunks: '0',
-            total_chunks: '5',
-            other_collections: '1',
-            last_indexed: null,
-          },
-          {
-            file_id: 'file-3',
-            file_name: 'test3.ts',
-            file_path: '/test/test3.ts',
-            searchable_chunks: '10',
-            total_chunks: '10',
-            other_collections: '3',
-            last_indexed: '2025-11-01T15:30:00Z',
-          },
-        ],
-      });
-
-      const { result } = renderHook(() => useFileCollectionStatus(activeCollectionId));
-
-      await waitFor(async () => {
-        const statuses = await result.current.getFileStatus(fileIds);
-
-        expect(mockQuery).toHaveBeenCalledWith(
-          expect.stringContaining('WHERE fr.id IN ($2, $3, $4)'),
-          [activeCollectionId, ...fileIds]
-        );
-
-        expect(statuses).toHaveLength(3);
-      });
-    });
-
-    it('correctly maps searchableInActive based on searchable_chunks', async () => {
-      mockQuery.mockResolvedValue({
-        rows: [
-          {
-            file_id: 'file-searchable',
-            file_name: 'searchable.ts',
-            file_path: '/test/searchable.ts',
-            searchable_chunks: '5',
-            total_chunks: '5',
-            other_collections: '0',
-            last_indexed: '2025-11-02T10:00:00Z',
-          },
-          {
-            file_id: 'file-not-searchable',
-            file_name: 'not-searchable.ts',
-            file_path: '/test/not-searchable.ts',
-            searchable_chunks: '0',
-            total_chunks: '5',
-            other_collections: '0',
-            last_indexed: null,
-          },
-        ],
-      });
-
-      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
-
-      await waitFor(async () => {
-        const statuses = await result.current.getFileStatus([
-          'file-searchable',
-          'file-not-searchable',
-        ]);
-
-        expect(statuses[0]?.searchableInActive).toBe(true);
-        expect(statuses[1]?.searchableInActive).toBe(false);
-      });
-    });
-
-    it('handles null last_indexed gracefully', async () => {
-      mockQuery.mockResolvedValue({
-        rows: [
-          {
-            file_id: 'file-1',
-            file_name: 'test.ts',
-            file_path: '/test/test.ts',
-            searchable_chunks: '0',
-            total_chunks: '5',
-            other_collections: '0',
-            last_indexed: null,
-          },
-        ],
-      });
-
-      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
-
-      await waitFor(async () => {
-        const statuses = await result.current.getFileStatus(['file-1']);
-
-        expect(statuses[0]?.lastIndexedAt).toBeUndefined();
-      });
-    });
-
-    it('returns empty array on database error', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockQuery.mockRejectedValue(new Error('Database error'));
+    it('maps live query rows for a single file', async () => {
+      mockLiveQueryState.rows = [
+        {
+          file_id: 'file-1',
+          file_name: 'test.ts',
+          file_path: '/test/test.ts',
+          searchable_chunks: '5',
+          total_chunks: '5',
+          other_collections: '2',
+          last_indexed: '2025-11-02T10:00:00Z',
+        },
+      ];
 
       const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
 
       const statuses = await result.current.getFileStatus(['file-1']);
 
-      expect(statuses).toEqual([]);
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to get file status'),
-        expect.any(Error)
-      );
-
-      consoleSpy.mockRestore();
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0]).toMatchObject({
+        fileId: 'file-1',
+        fileName: 'test.ts',
+        filePath: '/test/test.ts',
+        searchableInActive: true,
+        searchableChunksCount: 5,
+        totalChunksCount: 5,
+        otherCollectionsCount: 2,
+        lastIndexedAt: '2025-11-02T10:00:00Z',
+      });
     });
 
-    it('uses correct SQL query structure', async () => {
-      mockQuery.mockResolvedValue({ rows: [] });
+    it('returns statuses only for requested ids', async () => {
+      mockLiveQueryState.rows = [
+        {
+          file_id: 'file-1',
+          file_name: 'test1.ts',
+          file_path: '/test/test1.ts',
+          searchable_chunks: '3',
+          total_chunks: '3',
+          other_collections: '0',
+          last_indexed: '2025-11-02T10:00:00Z',
+        },
+        {
+          file_id: 'file-2',
+          file_name: 'test2.ts',
+          file_path: '/test/test2.ts',
+          searchable_chunks: '0',
+          total_chunks: '5',
+          other_collections: '1',
+          last_indexed: null,
+        },
+      ];
 
       const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
 
-      await result.current.getFileStatus(['file-1']);
+      const statuses = await result.current.getFileStatus(['file-2']);
 
-      const sql = mockQuery.mock.calls[0]?.[0] as string;
+      expect(statuses).toHaveLength(1);
+      expect(statuses[0]?.fileId).toBe('file-2');
+    });
 
-      // Verify SQL structure
-      expect(sql).toContain('SELECT');
-      expect(sql).toContain('fr.id AS file_id');
-      expect(sql).toContain('COUNT(fc.id) FILTER');
-      expect(sql).toContain('WHERE fc.embedding_set_id = $1');
-      expect(sql).toContain('LEFT JOIN file_chunks fc');
-      expect(sql).toContain('GROUP BY fr.id, fr.name, fr.path, fr.created_at');
-      expect(sql).toContain('ORDER BY fr.created_at DESC');
+    it('maps searchableInActive flag based on chunk count', async () => {
+      mockLiveQueryState.rows = [
+        {
+          file_id: 'file-searchable',
+          file_name: 'searchable.ts',
+          file_path: '/test/searchable.ts',
+          searchable_chunks: '5',
+          total_chunks: '5',
+          other_collections: '0',
+          last_indexed: '2025-11-02T10:00:00Z',
+        },
+        {
+          file_id: 'file-not-searchable',
+          file_name: 'not-searchable.ts',
+          file_path: '/test/not-searchable.ts',
+          searchable_chunks: '0',
+          total_chunks: '5',
+          other_collections: '0',
+          last_indexed: null,
+        },
+      ];
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      const statuses = await result.current.getFileStatus([
+        'file-searchable',
+        'file-not-searchable',
+      ]);
+
+      expect(statuses[0]?.searchableInActive).toBe(true);
+      expect(statuses[1]?.searchableInActive).toBe(false);
+    });
+
+    it('handles null last_indexed gracefully', async () => {
+      mockLiveQueryState.rows = [
+        {
+          file_id: 'file-1',
+          file_name: 'test.ts',
+          file_path: '/test/test.ts',
+          searchable_chunks: '0',
+          total_chunks: '5',
+          other_collections: '0',
+          last_indexed: null,
+        },
+      ];
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      const statuses = await result.current.getFileStatus(['file-1']);
+
+      expect(statuses[0]?.lastIndexedAt).toBeUndefined();
+    });
+
+    it('returns empty array when ids are not in the live map', async () => {
+      mockLiveQueryState.rows = [
+        {
+          file_id: 'file-known',
+          file_name: 'known.ts',
+          file_path: '/test/known.ts',
+          searchable_chunks: '1',
+          total_chunks: '1',
+          other_collections: '0',
+          last_indexed: null,
+        },
+      ];
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      const statuses = await result.current.getFileStatus(['missing']);
+
+      expect(statuses).toEqual([]);
+    });
+
+    it('exposes live query errors', () => {
+      const testError = new Error('live query failed');
+      mockLiveQueryState.error = testError;
+
+      const { result } = renderHook(() => useFileCollectionStatus('collection-1'));
+
+      expect(result.current.error).toBe(testError);
+    });
+
+    it('configures live query for the active collection id', () => {
+      renderHook(() => useFileCollectionStatus('collection-1'));
+
+      expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          params: ['collection-1'],
+          query: expect.stringContaining('SELECT'),
+        })
+      );
     });
   });
 

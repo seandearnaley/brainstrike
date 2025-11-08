@@ -101,27 +101,29 @@ import { useVectorQueueState } from '@brainstrike/vector-management';
 
 function QueueMonitor() {
   const {
-    snapshot,
+    queueCounts,
+    coverage,
     backfilling,
     backfillProgress,
     backfillActiveSet,
-    cancelBackfill
-  } = useVectorQueueState(service, {
-    pollIntervalMs: 2000,
-    activeEmbeddingSetId: 1
+  } = useVectorQueueState({
+    service,
+    activeEmbeddingSetId: 'set-1',
+    shouldAutoBackfill: true,
   });
-
-  if (!snapshot) return <div>Loading...</div>;
 
   return (
     <div>
-      <p>Pending: {snapshot.counts.pending}</p>
-      <p>Succeeded: {snapshot.counts.succeeded}</p>
-      <p>Failed: {snapshot.counts.failed}</p>
+      <p>Queued: {queueCounts.queued}</p>
+      <p>Running: {queueCounts.running}</p>
+      <p>
+        Coverage: {coverage.withSet}/{coverage.total}
+      </p>
       {backfilling && (
         <div>
-          <p>Backfilling... {backfillProgress}%</p>
-          <button onClick={cancelBackfill}>Cancel</button>
+          <p>
+            Backfilling... {backfillProgress?.done ?? 0}/{backfillProgress?.total ?? 0}
+          </p>
         </div>
       )}
       <button onClick={backfillActiveSet}>Start Backfill</button>

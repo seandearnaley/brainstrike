@@ -58,6 +58,33 @@ vi.mock('../file-import-service', () => ({
   }),
 }));
 
+vi.mock('@brainstrike/db-explorer', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db-explorer')>(
+    '@brainstrike/db-explorer'
+  );
+  return {
+    ...actual,
+    DatabaseDemoPanel: () => <div data-testid="mock-database-panel">DatabasePanel</div>,
+    EmbeddingsPanel: () => (
+      <div data-testid="mock-embeddings-panel">
+        <div>Text Embeddings</div>
+        <div>Generate embeddings and calculate text similarity</div>
+      </div>
+    ),
+  };
+});
+
+vi.mock('@brainstrike/vector-management', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/vector-management')>(
+    '@brainstrike/vector-management'
+  );
+  return {
+    ...actual,
+    VectorStatusWithDialog: () => <div data-testid="mock-vector-status">VectorStatus</div>,
+    QueueHud: () => <div data-testid="mock-queue-hud">QueueHud</div>,
+  };
+});
+
 // Mock the file explorer hooks
 vi.mock('@brainstrike/file-explorer-hooks', () => ({
   useAdapters: () => ({

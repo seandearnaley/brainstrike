@@ -1,10 +1,24 @@
 import { Button, Input, Label } from '@brainstrike/ui';
 import { Search } from 'lucide-react';
 import type { SearchInterfaceProps } from '../types';
+import { SearchCollectionContext } from './search-collection-context';
 
-export function SearchInterface({ searchFunctionality }: SearchInterfaceProps) {
+export function SearchInterface({
+  searchFunctionality,
+  activeCollection,
+  documentCount,
+}: SearchInterfaceProps) {
   return (
     <div className="mt-4 space-y-2">
+      {/* Collection Context */}
+      {activeCollection && (
+        <SearchCollectionContext
+          collectionName={activeCollection.name}
+          documentCount={documentCount}
+        />
+      )}
+
+      {/* Search Input */}
       <div className="flex gap-2">
         <Input
           placeholder="Search in file chunks..."
@@ -23,6 +37,8 @@ export function SearchInterface({ searchFunctionality }: SearchInterfaceProps) {
           {searchFunctionality.searching ? 'Searching...' : 'Search'}
         </Button>
       </div>
+
+      {/* Threshold Control */}
       <div className="flex items-center gap-2 text-xs">
         <Label>Threshold:</Label>
         <Input

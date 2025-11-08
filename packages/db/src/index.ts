@@ -36,4 +36,5 @@ export type {
   ChunkingStrategy,
 } from './services/chunking-service.js';
 export { ChunkingService } from './services/chunking-service.js';
+export * from './use-live-query.js';
 export * from './wasm-loader.js';

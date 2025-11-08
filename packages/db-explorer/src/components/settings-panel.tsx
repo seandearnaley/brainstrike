@@ -1,5 +1,4 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
@@ -14,11 +13,8 @@ import {
 } from '@brainstrike/ui';
 import type { SettingsPanelProps } from '../types';
 
-const AVAILABLE_MODELS = SimpleEmbeddingService.listModels();
-
 export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelProps) {
   const chunkingId = 'enable-chunking';
-  const embeddingsId = 'enable-embeddings';
   const presetCaps = ['2048', '4096', '6144', '8192'];
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
     ? String(importSettings.chunkTokenLimit)
@@ -52,36 +48,6 @@ export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelP
                 <SelectItem value="sentence">Sentence</SelectItem>
                 <SelectItem value="token">Token</SelectItem>
                 <SelectItem value="recursive">Recursive</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-xs" htmlFor={embeddingsId}>
-            Embeddings
-          </Label>
-          <div className="flex items-center gap-2 mt-1">
-            <input
-              type="checkbox"
-              id={embeddingsId}
-              checked={importSettings.enableEmbedding}
-              onChange={(e) => importSettings.setEnableEmbedding(e.target.checked)}
-              className="h-3 w-3"
-            />
-            <Select
-              value={importSettings.selectedModel}
-              onValueChange={importSettings.setSelectedModel}
-            >
-              <SelectTrigger className="h-6 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {Object.entries(AVAILABLE_MODELS).map(([key, model]) => (
-                  <SelectItem key={key} value={key} className="text-xs">
-                    {model.name}
-                  </SelectItem>
-                ))}
               </SelectContent>
             </Select>
           </div>

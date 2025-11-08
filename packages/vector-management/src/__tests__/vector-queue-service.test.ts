@@ -83,6 +83,11 @@ describe('vector-queue-service', () => {
         } else {
           queries.push({ sql, params });
         }
+        if (sql.includes('FROM embedding_sets')) {
+          return {
+            rows: [{ modelKey: 'local::jina-code', modelId: 'jina-code', dimensions: 768 }],
+          } as { rows: unknown[] };
+        }
         if (sql.startsWith('SELECT c.id')) {
           return {
             rows: [
@@ -113,14 +118,28 @@ describe('vector-queue-service', () => {
       progressUpdates.push({ done, total });
     });
 
-    const [selectQuery, insertQuery] = queries;
-    if (!selectQuery || !insertQuery) {
-      throw new Error('Expected select and insert queries');
+    const metadataQuery = queries.find((entry) => entry.sql.includes('FROM embedding_sets'));
+    const selectQuery = queries.find((entry) => entry.sql.includes('FROM file_chunks'));
+    const insertQuery = queries.find((entry) => entry.sql.includes('INSERT INTO job_queue'));
+
+    if (!metadataQuery || !selectQuery || !insertQuery) {
+      throw new Error('Expected metadata, select, and insert queries');
     }
+
+    expect(metadataQuery.sql).toContain('FROM embedding_sets');
     expect(selectQuery.sql).toContain('FROM file_chunks');
     expect(insertQuery.sql).toContain('INSERT INTO job_queue');
+
     const insertParams = insertQuery.params ?? [];
     expect(insertParams).toEqual(expect.arrayContaining(['1:set-1:aa', '2:set-1:bb']));
+
+    const payloads = insertParams
+      .filter((value) => typeof value === 'string' && String(value).includes('"chunkId"'))
+      .map((value) => JSON.parse(String(value)) as Record<string, unknown>);
+    expect(payloads).toHaveLength(2);
+    for (const payload of payloads) {
+      expect(payload).toMatchObject({ modelKey: 'local::jina-code', expectedDimension: 768 });
+    }
     expect(progressUpdates).toEqual([
       { done: 0, total: 2 },
       { done: 2, total: 2 },

@@ -15,8 +15,7 @@ export const migration006EmbeddingSetsAndColumns: Migration = {
       model_id TEXT NOT NULL,
       dimensions INTEGER NOT NULL,
       distance TEXT NOT NULL CHECK (distance IN ('cosine','l2','ip')),
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(model_key, dimensions, distance)
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     -- Add embedding set linkage and metadata to file_chunks

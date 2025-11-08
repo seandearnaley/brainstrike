@@ -1,13 +1,12 @@
 import {
-  type EmbeddingSet,
   FileChunkRepository,
   JobQueue,
   useFileChunkRepository,
   usePGliteDatabase,
   useVectorEnabled,
 } from '@brainstrike/db';
-import { parseProviderModelKey, TransformersBackend } from '@brainstrike/embeddings';
-import { useVectorPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
+import { TransformersBackend } from '@brainstrike/embeddings';
+import { useVectorPreferencesStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Badge,
@@ -17,37 +16,15 @@ import {
   CardHeader,
   CardTitle,
   Label,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
   useToast,
 } from '@brainstrike/ui';
-import { Settings2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EmbeddingQueueProvider } from './embedding-queue-provider';
-import { setActiveEmbeddingSetId } from './vector-preferences';
+import { getActiveEmbeddingSetId } from './vector-preferences';
 import { getBackfillDisabledState } from './vector-status/backfill-utils';
 import { useEmbeddingWorkerControls } from './vector-status/use-embedding-worker-controls';
 import { useVectorQueueState } from './vector-status/use-vector-queue-state';
 import { createVectorQueueService } from './vector-status/vector-queue-service';
-
-type EmbeddingSetWithStats = EmbeddingSet & {
-  chunkCount: number;
-  lastEmbeddedAt: string | null;
-};
-
-type EmbeddingSetRow = {
-  id: string;
-  modelKey: string;
-  modelId: string;
-  dimensions: number;
-  distance: string;
-  createdAt: string;
-  chunkCount: string | number;
-  lastEmbeddedAt: string | null;
-};
 
 type QueueAddReturn = Awaited<ReturnType<QueueAdapter['add']>>;
 type QueueAddBulkReturn = Awaited<ReturnType<QueueAdapter['addBulk']>>;
@@ -66,29 +43,6 @@ const DISABLED_QUEUE_RESULT = {
     dimensions: 0,
   },
 } as QueueAddReturn;
-
-function formatProviderLabel(modelKey: string): string {
-  const parsed = parseProviderModelKey(modelKey);
-  if (!parsed) {
-    return 'Local';
-  }
-  const provider = parsed.provider;
-  if (provider === 'local') {
-    return 'Local';
-  }
-  return provider.charAt(0).toUpperCase() + provider.slice(1);
-}
-
-function formatEmbeddingSetName(modelKey: string): string {
-  const parsed = parseProviderModelKey(modelKey);
-  if (!parsed) {
-    return modelKey;
-  }
-  if (parsed.provider === 'local') {
-    return parsed.modelId;
-  }
-  return `${formatProviderLabel(modelKey)} · ${parsed.modelId}`;
-}
 
 function createDisabledQueueAdapter(): QueueAdapter {
   return {
@@ -235,6 +189,7 @@ function WorkerControls({
 
 function BackfillButton({
   activeId,
+  activeLabel,
   hasDb,
   backfilling,
   backfillProgress,
@@ -243,6 +198,7 @@ function BackfillButton({
   queueCounts,
 }: {
   activeId: string | null;
+  activeLabel?: string | null;
   hasDb: boolean;
   backfilling: boolean;
   backfillProgress: { done: number; total: number } | null;
@@ -257,6 +213,18 @@ function BackfillButton({
     coverage,
     queueCounts,
   });
+  const normalizedLabel = activeLabel?.trim() ?? '';
+  const labelPreview =
+    normalizedLabel.length > 24 ? `${normalizedLabel.slice(0, 21)}…` : normalizedLabel;
+  const descriptiveLabel = normalizedLabel
+    ? `Backfill ${labelPreview}`
+    : 'Backfill current collection';
+  const ariaLabel = backfilling
+    ? activeLabel
+      ? `Backfilling ${activeLabel}`
+      : 'Backfilling current collection'
+    : descriptiveLabel;
+  const resolvedTitle = title ?? descriptiveLabel;
 
   return (
     <Button
@@ -266,15 +234,17 @@ function BackfillButton({
       onClick={() => {
         void onBackfill();
       }}
-      title={title}
+      title={resolvedTitle}
       className="text-[10px] h-6 px-1.5 w-full"
-      aria-label={backfilling ? 'Backfilling in progress' : 'Backfill current collection'}
+      aria-label={ariaLabel}
     >
       {backfilling
         ? backfillProgress
           ? `${backfillProgress.done}/${backfillProgress.total}`
           : 'Backfilling…'
-        : 'Backfill'}
+        : normalizedLabel
+          ? `Backfill ${labelPreview}`
+          : 'Backfill'}
     </Button>
   );
 }
@@ -366,71 +336,6 @@ function isElectronRenderer(): boolean {
   return !!w.electronAPI;
 }
 
-function normalizeTimestamp(input: string | number | null | undefined): string | null {
-  if (!input) {
-    return null;
-  }
-  const parsed = Date.parse(String(input));
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  return new Date(parsed).toISOString();
-}
-
-export function mapEmbeddingSetRows(
-  rows: EmbeddingSetRow[],
-  hasAnyChunks: boolean
-): EmbeddingSetWithStats[] {
-  return rows
-    .map((row) => {
-      const chunkCount = Number(row.chunkCount ?? 0);
-      const normalizedCount = Number.isFinite(chunkCount) && chunkCount >= 0 ? chunkCount : 0;
-
-      if (!hasAnyChunks && normalizedCount === 0) {
-        return null;
-      }
-
-      return {
-        id: String(row.id),
-        modelKey: String(row.modelKey),
-        modelId: String(row.modelId),
-        dimensions: Number(row.dimensions),
-        distance: String(row.distance) as EmbeddingSet['distance'],
-        createdAt: normalizeTimestamp(row.createdAt) ?? String(row.createdAt ?? ''),
-        chunkCount: normalizedCount,
-        lastEmbeddedAt:
-          normalizeTimestamp(row.lastEmbeddedAt) ?? normalizeTimestamp(row.createdAt) ?? null,
-      };
-    })
-    .filter((entry): entry is EmbeddingSetWithStats => entry !== null);
-}
-
-function getPersistedEmbeddingSetId(): string | null {
-  try {
-    const stored = useVectorStatusUIStore.getState().activeEmbeddingSetId;
-    return stored?.trim() ? stored : null;
-  } catch {
-    return null;
-  }
-}
-
-function pickActiveEmbeddingSetId(
-  sets: EmbeddingSetWithStats[],
-  previousId: string | null
-): string | null {
-  if (!sets.length) {
-    return null;
-  }
-  if (previousId && sets.some((set) => set.id === previousId)) {
-    return previousId;
-  }
-  const persisted = getPersistedEmbeddingSetId();
-  if (persisted && sets.some((set) => set.id === persisted)) {
-    return persisted;
-  }
-  return sets[0]?.id ?? null;
-}
-
 export function formatRelativeTimeFromNow(input: string | null): string {
   if (!input) {
     return 'never';
@@ -475,257 +380,114 @@ export function formatRelativeTimeFromNow(input: string | null): string {
   }
 }
 
-function formatExactTimestamp(input: string | null): string | null {
-  if (!input) {
-    return null;
-  }
-  const parsed = Date.parse(input);
-  if (!Number.isFinite(parsed)) {
-    return null;
-  }
-  try {
-    return new Date(parsed).toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  } catch {
-    return new Date(parsed).toISOString();
-  }
+function useActiveEmbeddingSet() {
+  // Read activeId from global context - Database Explorer controls this
+  const [activeId, setActiveId] = useState<string | null>(() => getActiveEmbeddingSetId());
+
+  // Re-read from global context when it changes externally
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handler = (event: Event) => {
+      const custom = event as CustomEvent<{ id?: string }>;
+      const nextId = custom.detail?.id;
+      if (typeof nextId === 'string' && nextId.trim()) {
+        setActiveId(nextId);
+      }
+    };
+
+    window.addEventListener('brainstrike:embedding-set-updated', handler as EventListener);
+
+    return () => {
+      window.removeEventListener('brainstrike:embedding-set-updated', handler as EventListener);
+    };
+  }, []);
+
+  return { activeId } as const;
 }
 
-function useActiveEmbeddingSet() {
-  const db = usePGliteDatabase();
-  const [sets, setSets] = useState<EmbeddingSetWithStats[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const fetchSetsRef = useRef<() => Promise<number>>(async () => 0);
-
-  const fetchSets = useCallback(async () => {
-    if (!db) return 0;
-    const res = await db.query<{
-      id: string;
-      modelKey: string;
-      modelId: string;
-      dimensions: number;
-      distance: string;
-      createdAt: string;
-      chunkCount: string | number;
-      lastEmbeddedAt: string | null;
-    }>(
-      `SELECT s.id,
-              s.model_key AS "modelKey",
-              s.model_id AS "modelId",
-              s.dimensions,
-              s.distance,
-              s.created_at AS "createdAt",
-              COUNT(c.id) AS "chunkCount",
-              MAX(c.updated_at) AS "lastEmbeddedAt"
-         FROM embedding_sets s
-         LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
-     GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at
-     ORDER BY MAX(c.updated_at) DESC,
-              s.created_at DESC`
-    );
-    const totalChunksResult = await db.query<{ total: string | number }>(
-      'SELECT COUNT(*) AS total FROM file_chunks'
-    );
-    const totalChunksValue = Number(totalChunksResult.rows[0]?.total ?? 0);
-    const hasAnyChunks = Number.isFinite(totalChunksValue) && totalChunksValue > 0;
-    const mapped = mapEmbeddingSetRows(res.rows, hasAnyChunks);
-    setSets(mapped);
-    setActiveId((prev) => pickActiveEmbeddingSetId(mapped, prev ?? null));
-    return mapped.length;
-  }, [db]);
+function useActiveCollectionMeta(
+  db: ReturnType<typeof usePGliteDatabase>,
+  activeId: string | null
+) {
+  const [meta, setMeta] = useState<{
+    id: string;
+    name: string;
+    documents: number;
+  } | null>(null);
 
   useEffect(() => {
-    fetchSetsRef.current = fetchSets;
-  }, [fetchSets]);
+    let cancelled = false;
 
-  useEffect(() => {
-    let canceled = false;
-    if (!db) {
-      setSets([]);
-      setActiveId(null);
-      return;
+    if (!db || !activeId) {
+      setMeta(null);
+      return () => {
+        cancelled = true;
+      };
     }
 
-    const load = async () => {
+    const client = db as {
+      query: <T>(sql: string, params?: unknown[]) => Promise<{ rows: T[] }>;
+    };
+
+    if (typeof client.query !== 'function') {
+      setMeta(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const fetchMeta = async () => {
       try {
-        await fetchSets();
-      } catch (error) {
-        if (!canceled) {
-          console.warn('[VectorStatus] Failed to load collections', error);
+        const result = await client.query<{
+          id: string;
+          name: string | null;
+          modelId: string;
+          documentCount: string | number;
+        }>(
+          `SELECT s.id,
+                  s.name,
+                  s.model_id AS "modelId",
+                  COUNT(DISTINCT fr.id) AS "documentCount"
+             FROM embedding_sets s
+             LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
+            WHERE s.id = $1
+            GROUP BY s.id, s.name, s.model_id`,
+          [activeId]
+        );
+        if (cancelled) return;
+        const row = result.rows[0];
+        if (!row) {
+          setMeta(null);
+          return;
+        }
+        setMeta({
+          id: row.id,
+          name: row.name ?? row.modelId,
+          documents: Number(row.documentCount ?? 0),
+        });
+      } catch {
+        if (!cancelled) {
+          setMeta(null);
         }
       }
     };
 
-    void load();
+    void fetchMeta();
 
     return () => {
-      canceled = true;
+      cancelled = true;
     };
-  }, [db, fetchSets]);
+  }, [db, activeId]);
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handler = (event: Event) => {
-      const custom = event as CustomEvent<{ id?: string }>;
-      const nextId = custom.detail?.id;
-      void fetchSetsRef.current().then(() => {
-        if (nextId) {
-          setActiveId(nextId);
-        }
-      });
-    };
-    const handleQueueDrained = (event: Event) => {
-      const custom = event as CustomEvent<{ embeddingSetId?: string }>; // detail optional for browsers
-      void fetchSetsRef.current().then(() => {
-        if (custom.detail?.embeddingSetId) {
-          setActiveId((prev) => prev ?? custom.detail?.embeddingSetId ?? prev);
-        }
-      });
-    };
-    window.addEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-    window.addEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
-    return () => {
-      window.removeEventListener('brainstrike:embedding-set-updated', handler as EventListener);
-      window.removeEventListener('brainstrike:queue-drained', handleQueueDrained as EventListener);
-    };
-  }, []);
-
-  // Persist selection
-  useEffect(() => {
-    setActiveEmbeddingSetId(activeId ?? null);
-  }, [activeId]);
-
-  const active = useMemo(() => sets.find((s) => s.id === activeId) ?? null, [sets, activeId]);
-  return { sets, active, activeId, setActiveId } as const;
-}
-
-function EmbeddingSetSection({
-  sets,
-  activeId,
-  onSelect,
-  device,
-  onManage,
-}: {
-  sets: EmbeddingSetWithStats[];
-  activeId: string | null;
-  onSelect: (id: string) => void;
-  device: string;
-  onManage: () => void;
-}) {
-  const hasSets = sets.length > 0;
-  const selectedSet =
-    sets.find((set) => set.id === activeId) ?? (hasSets ? (sets[0] ?? null) : null);
-
-  return (
-    <div className="flex gap-2 items-start">
-      <div className="flex-1 min-w-0 space-y-2">
-        <div className="flex items-center justify-between mb-1">
-          <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
-            Current Collection
-          </Label>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 px-1.5 text-[10px] gap-1"
-            onClick={onManage}
-            title="Manage collections"
-          >
-            <Settings2 className="h-3 w-3" />
-            Manage
-          </Button>
-        </div>
-        <div>
-          <Select value={activeId ?? ''} onValueChange={onSelect} disabled={!hasSets}>
-            <SelectTrigger className="h-7 w-full text-[11px]" aria-label="Select collection">
-              <SelectValue placeholder="No collections yet" />
-            </SelectTrigger>
-            {hasSets ? (
-              <SelectContent className="max-w-[320px]">
-                {sets.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
-                    <div className="flex flex-col gap-0.5">
-                      <span className="font-medium truncate">
-                        {formatEmbeddingSetName(s.modelKey)}
-                      </span>
-                      <span className="text-[9px] text-muted-foreground">
-                        {formatProviderLabel(s.modelKey)} · {s.dimensions}d · {s.distance} ·{' '}
-                        {s.chunkCount.toLocaleString()} chunks
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            ) : null}
-          </Select>
-        </div>
-        <div>
-          {selectedSet ? (
-            <div className="grid grid-cols-3 gap-2 border rounded-md p-2 bg-muted/30">
-              <div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                  Model
-                </div>
-                <div className="text-[11px] font-medium truncate">
-                  {formatEmbeddingSetName(selectedSet.modelKey)}
-                </div>
-                <div className="text-[9px] text-muted-foreground">
-                  {formatProviderLabel(selectedSet.modelKey)} · {selectedSet.dimensions}d ·{' '}
-                  {selectedSet.distance}
-                </div>
-              </div>
-              <div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                  Embedded Chunks
-                </div>
-                <div className="text-[11px] font-medium">
-                  {selectedSet.chunkCount.toLocaleString()}
-                </div>
-                <div className="text-[9px] text-muted-foreground">Stored for this set</div>
-              </div>
-              <div>
-                <div className="text-[9px] text-muted-foreground uppercase tracking-wider">
-                  Last Update
-                </div>
-                <div className="text-[11px] font-medium">
-                  {formatRelativeTimeFromNow(selectedSet.lastEmbeddedAt)}
-                </div>
-                <div className="text-[9px] text-muted-foreground">
-                  {formatExactTimestamp(selectedSet.lastEmbeddedAt) ?? 'Awaiting first run'}
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-md border border-dashed border-muted-foreground/40 bg-muted/20 text-[11px] text-muted-foreground px-2 py-2">
-              No collections yet – import files and run a backfill to generate embeddings.
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="flex-shrink-0 w-24">
-        <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium block mb-1">
-          Device
-        </Label>
-        <Badge variant="outline" className="text-[10px] py-0.5 px-1.5 h-7 w-full justify-center">
-          {device}
-        </Badge>
-      </div>
-    </div>
-  );
+  return meta;
 }
 
 interface VectorStatusWithDbProps {
   queueAdapter?: QueueAdapter | null;
-  onManageEmbeddingSets?: () => void;
 }
 
-export function VectorStatusWithDb({
-  queueAdapter = null,
-  onManageEmbeddingSets,
-}: VectorStatusWithDbProps = {}) {
+export function VectorStatusWithDb({ queueAdapter = null }: VectorStatusWithDbProps = {}) {
   const queueEnabled = isQueueEnabled();
   const fallbackQueueAdapter = useMemo<QueueAdapter | undefined>(
     () => (queueEnabled ? undefined : createDisabledQueueAdapter()),
@@ -737,7 +499,6 @@ export function VectorStatusWithDb({
 
   const contentProps: VectorStatusWithDbContentProps = {
     queueEnabled,
-    ...(onManageEmbeddingSets ? { onManageEmbeddingSets } : {}),
   };
 
   return (
@@ -749,20 +510,17 @@ export function VectorStatusWithDb({
 
 interface VectorStatusWithDbContentProps {
   queueEnabled: boolean;
-  onManageEmbeddingSets?: () => void;
 }
 
-function VectorStatusWithDbContent({
-  queueEnabled,
-  onManageEmbeddingSets,
-}: VectorStatusWithDbContentProps) {
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component coordinates queue telemetry, worker controls, and renderer-only state in one place so the vector HUD stays consistent. Splitting further would scatter tightly-coupled hooks and make bugs harder to trace.
+function VectorStatusWithDbContent({ queueEnabled }: VectorStatusWithDbContentProps) {
   const vectorEnabled = useVectorEnabled();
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
-  const { sets, activeId, setActiveId } = useActiveEmbeddingSet();
+  const { activeId } = useActiveEmbeddingSet();
   const { toast } = useToast();
+  const activeCollectionMeta = useActiveCollectionMeta(db, activeId);
 
-  const device = useMemo(() => TransformersBackend.getBestDevice(), []);
   const devicePref = useVectorPreferencesStore((s) => s.devicePref);
   const setDevicePref = useVectorPreferencesStore((s) => s.setDevicePref);
   const reinitEveryN = useVectorPreferencesStore((s) => s.reinitEveryN);
@@ -877,6 +635,29 @@ function VectorStatusWithDbContent({
         </div>
       </CardHeader>
       <CardContent className="py-2 px-3 text-xs space-y-2">
+        <div className="flex items-center justify-between rounded-md border border-dashed bg-muted/40 px-2 py-1">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">
+            Active Collection
+          </div>
+          {activeId ? (
+            <div className="flex items-center gap-2">
+              <Badge variant="secondary" className="text-[10px] py-0 px-2">
+                {activeCollectionMeta?.name ?? 'Resolving…'}
+              </Badge>
+              <span className="text-[10px] text-muted-foreground">
+                {activeCollectionMeta
+                  ? `${activeCollectionMeta.documents.toLocaleString()} file${
+                      activeCollectionMeta.documents === 1 ? '' : 's'
+                    }`
+                  : 'Loading stats…'}
+              </span>
+            </div>
+          ) : (
+            <span className="text-[10px] text-muted-foreground">
+              Select a collection in Database Explorer
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1">
             <input
@@ -904,13 +685,6 @@ function VectorStatusWithDbContent({
             })()}
           </span>
         </div>
-        <EmbeddingSetSection
-          sets={sets}
-          activeId={activeId}
-          onSelect={(value) => setActiveId(value)}
-          device={device}
-          onManage={onManageEmbeddingSets ?? (() => {})}
-        />
         <div className="flex items-center gap-2">
           <Label className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">
             Pref
@@ -966,6 +740,7 @@ function VectorStatusWithDbContent({
         <div className="grid grid-cols-2 gap-1">
           <BackfillButton
             activeId={activeId}
+            activeLabel={activeCollectionMeta?.name ?? null}
             hasDb={hasDb}
             backfilling={queueState.backfilling}
             backfillProgress={queueState.backfillProgress}
