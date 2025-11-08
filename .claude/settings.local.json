@@ -119,7 +119,8 @@
       "Bash(gh run cancel:*)",
       "SlashCommand(/beads:ready)",
       "Bash(git fetch:*)",
-      "Bash(VITEST_RUN_INTEGRATION=true vitest run:*)"
+      "Bash(VITEST_RUN_INTEGRATION=true vitest run:*)",
+      "Bash(timeout 10 pnpm test:*)"
     ],
     "deny": [],
     "ask": []

@@ -81,25 +81,17 @@ async function getTransformersModule(): Promise<TransformersModule> {
 
 /**
  * Determine the appropriate device for the current environment
+ * Note: This function returns the requested device when explicitly specified,
+ * allowing pipeline creation to attempt that device and fallback if it fails.
  */
 function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm' | 'cpu' {
+  // If explicitly requested, return it (even if not available)
+  // Pipeline creation will handle fallback if the device fails
   if (requestedDevice === 'webgpu') {
-    try {
-      // Check if we're in a browser environment with WebGPU support
-      if (typeof navigator !== 'undefined' && 'gpu' in navigator) {
-        return 'webgpu';
-      }
-    } catch (_error) {
-      // Fallback to CPU if WebGPU check fails
-    }
-    return 'cpu';
+    return 'webgpu';
   }
 
   if (requestedDevice === 'wasm') {
-    // In Node.js, WASM isn't supported, use CPU instead
-    if (typeof window === 'undefined') {
-      return 'cpu';
-    }
     return 'wasm';
   }
 
@@ -108,10 +100,8 @@ function determineDevice(requestedDevice: string | undefined): 'webgpu' | 'wasm'
     return typeof window === 'undefined' ? 'cpu' : 'wasm';
   }
 
+  // No device specified - choose a sensible default
   const fallback = typeof window === 'undefined' ? 'cpu' : 'wasm';
-  if (requestedDevice === 'webgpu' || requestedDevice === 'wasm' || requestedDevice === 'cpu') {
-    return requestedDevice;
-  }
   return fallback;
 }
 
@@ -276,20 +266,19 @@ export class TransformersBackend {
       if (!this._transformers) {
         throw new Error('Transformers module not initialized');
       }
-      this._pipeline = await this._transformers.pipeline(
-        'feature-extraction',
-        config.modelId,
-        pipelineConfig
-      );
+      // Create a shallow copy to avoid test issues with mutated config objects
+      this._pipeline = await this._transformers.pipeline('feature-extraction', config.modelId, {
+        ...pipelineConfig,
+      });
     };
 
     const fallbackToCpu = async (lastError: unknown) => {
-      const fallbackDevice = determineDevice('cpu');
+      const fallbackDevice: 'cpu' | 'wasm' = 'cpu';
       if (this._selectedDevice === fallbackDevice) {
         throw lastError;
       }
       this._selectedDevice = fallbackDevice;
-      onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU/WASM…' });
+      onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU…' });
       pipelineConfig.device = fallbackDevice;
       const fallbackDType = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
       pipelineConfig.dtype = fallbackDType;
@@ -411,8 +400,8 @@ export class TransformersBackend {
         maxLength: maxLen,
       });
     } catch (err) {
-      // Runtime fallback: if not already on CPU/WASM, recreate pipeline and retry once
-      const fallbackDevice = determineDevice('cpu');
+      // Runtime fallback: if not already on CPU, recreate pipeline and retry once
+      const fallbackDevice = 'cpu';
       if (this._transformers && this._selectedDevice !== fallbackDevice) {
         this._selectedDevice = fallbackDevice;
         const dtype = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
@@ -565,7 +554,16 @@ export class TransformersBackend {
    * Static method to determine the best device for the current environment
    */
   static getBestDevice(): string {
-    return determineDevice('webgpu');
+    // Try webgpu first if available
+    if (TransformersBackend.isDeviceAvailable('webgpu')) {
+      return 'webgpu';
+    }
+    // Then try wasm if in browser
+    if (TransformersBackend.isDeviceAvailable('wasm')) {
+      return 'wasm';
+    }
+    // Fall back to CPU
+    return 'cpu';
   }
 
   /**

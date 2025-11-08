@@ -6,19 +6,24 @@ import type {
   UsePGliteLiveQueryOptions,
 } from '@brainstrike/db';
 import { usePGliteLiveQuery } from '@brainstrike/db';
-import { act, renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
 
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   class MockMigrationRunner {
-    async initialize() {}
-    async up() {}
+    async initialize() {
+      return Promise.resolve();
+    }
+    async up() {
+      return Promise.resolve();
+    }
   }
   return {
     ...actual,
     MigrationRunner: MockMigrationRunner,
+    migrations: [],
     usePGliteLiveQuery: vi.fn(),
   };
 });
@@ -41,14 +46,6 @@ const createChunkRepository = (chunks: FileChunk[]): FileChunkRepository => {
   } as unknown as FileChunkRepository;
 };
 
-const createLiveResult = <TRow extends Record<string, unknown>>(
-  rows: TRow[],
-  error: Error | null
-) => {
-  const refresh = vi.fn().mockResolvedValue(undefined);
-  return { rows, loading: false, error, refresh };
-};
-
 const setupLiveQueries = (
   options: {
     records?: Record<string, unknown>[];
@@ -58,11 +55,37 @@ const setupLiveQueries = (
   } = {}
 ) => {
   const { records = [], chunks = [], recordError = null, chunkError = null } = options;
-  const recordResult = createLiveResult(records, recordError);
-  const chunkResult = createLiveResult(chunks, chunkError);
+  const recordRefresh = vi.fn().mockResolvedValue(undefined);
+  const chunkRefresh = vi.fn().mockResolvedValue(undefined);
+
+  const recordResult = {
+    rows: records,
+    loading: false,
+    error: recordError,
+    refresh: recordRefresh,
+  };
+
+  const chunkResult = {
+    rows: chunks,
+    loading: false,
+    error: chunkError,
+    refresh: chunkRefresh,
+  };
+
+  const disabledResult = {
+    rows: [],
+    loading: false,
+    error: null,
+    refresh: vi.fn().mockResolvedValue(undefined),
+  };
 
   mockedUsePGliteLiveQuery.mockImplementation(
     (queryOptions: UsePGliteLiveQueryOptions<unknown>) => {
+      // If disabled, return empty result
+      if (queryOptions.enabled === false) {
+        return disabledResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
+      }
+
       if (queryOptions.query.includes('FROM file_records')) {
         return recordResult as ReturnType<typeof mockedUsePGliteLiveQuery>;
       }
@@ -71,15 +94,15 @@ const setupLiveQueries = (
   );
 
   return {
-    recordRefresh: recordResult.refresh,
-    chunkRefresh: chunkResult.refresh,
+    recordRefresh,
+    chunkRefresh,
   };
 };
 
-const flushEffects = async () => {
-  await act(async () => {
-    await Promise.resolve();
-  });
+const createMockDatabase = () => {
+  return {
+    query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
+  } as never;
 };
 
 beforeEach(() => {
@@ -137,13 +160,15 @@ describe('useDatabaseDemoData', () => {
         repository,
         chunkRepository,
         toast,
-        database: {} as never,
+        database: createMockDatabase(),
         activeCollectionId: 'set-1',
       })
     );
 
-    await flushEffects();
-    await flushEffects();
+    // Wait for data to be loaded
+    await waitFor(() => {
+      expect(result.current.records.length).toBeGreaterThan(0);
+    });
 
     expect(result.current.records).toEqual([
       expect.objectContaining({
@@ -172,20 +197,32 @@ describe('useDatabaseDemoData', () => {
         repository,
         chunkRepository,
         toast,
-        database: {} as never,
+        database: createMockDatabase(),
         activeCollectionId: 'set-1',
       })
     );
 
-    await flushEffects();
+    await waitFor(
+      () => {
+        expect(
+          mockedUsePGliteLiveQuery.mock.calls.some(([queryOptions]) => queryOptions.enabled)
+        ).toBe(true);
+      },
+      { timeout: 3000 }
+    );
 
-    await act(async () => {
-      await result.current.loadRecords();
-      await result.current.loadChunks();
+    await waitFor(() => {
+      expect(result.current.loadRecords).toBeDefined();
+      expect(result.current.refreshing).toBe(false);
     });
 
-    expect(recordRefresh).toHaveBeenCalled();
-    expect(chunkRefresh).toHaveBeenCalled();
+    await result.current.loadRecords();
+    await result.current.loadChunks();
+
+    await waitFor(() => {
+      expect(recordRefresh).toHaveBeenCalled();
+      expect(chunkRefresh).toHaveBeenCalled();
+    });
   });
 
   it('surfaces chunk live query errors via toast', async () => {
@@ -202,12 +239,14 @@ describe('useDatabaseDemoData', () => {
         repository,
         chunkRepository,
         toast,
-        database: {} as never,
+        database: createMockDatabase(),
         activeCollectionId: 'set-1',
       })
     );
 
-    await flushEffects();
+    await waitFor(() => {
+      expect(toast).toHaveBeenCalled();
+    });
 
     expect(toast).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -230,7 +269,9 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    await flushEffects();
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+    });
 
     expect(result.current.records).toEqual([]);
     expect(result.current.chunks).toEqual([]);

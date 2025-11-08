@@ -75,15 +75,56 @@ vi.mock('@brainstrike/embeddings', async () => {
   };
 });
 
-vi.mock('@brainstrike/db', () => ({
-  useFileRecordRepository: () => mockRepository,
-  usePGliteDatabase: () => null,
-  useFileChunkRepository: () => mockChunkRepository,
-  useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
-  useDbProviderError: () => null,
-  useFactoryReset: () => null,
-  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
-}));
+// Create stable mock results outside the mock function to prevent infinite loops
+const mockRecordLiveQueryResult = {
+  rows: [] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
+const mockChunkLiveQueryResult = {
+  rows: [] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
+const mockDatabase = {
+  query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
+};
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    useFileRecordRepository: () => mockRepository,
+    usePGliteDatabase: () => mockDatabase,
+    useFileChunkRepository: () => mockChunkRepository,
+    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
+    useDbProviderError: () => null,
+    useFactoryReset: () => null,
+    MigrationRunner: class MockMigrationRunner {
+      async initialize() {
+        return Promise.resolve();
+      }
+      async up() {
+        return Promise.resolve();
+      }
+    },
+    migrations: [],
+    usePGliteLiveQuery: (options: { query: string }) => {
+      // Return stable object references based on query type
+      if (options.query.includes('FROM file_records')) {
+        return mockRecordLiveQueryResult;
+      }
+      if (options.query.includes('FROM file_chunks')) {
+        return mockChunkLiveQueryResult;
+      }
+      return mockRecordLiveQueryResult;
+    },
+  };
+});
 
 vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual('@brainstrike/ui');
@@ -168,6 +209,14 @@ describe('DatabaseDemoPanel', () => {
     mockRepository.findAllWithContent.mockResolvedValue([]);
     mockRepository.count.mockResolvedValue(0);
     mockChunkRepository.findAll.mockResolvedValue([]);
+
+    // Reset live query mock results
+    mockRecordLiveQueryResult.rows = [];
+    mockRecordLiveQueryResult.loading = false;
+    mockRecordLiveQueryResult.error = null;
+    mockChunkLiveQueryResult.rows = [];
+    mockChunkLiveQueryResult.loading = false;
+    mockChunkLiveQueryResult.error = null;
   });
 
   describe('Basic Rendering', () => {
@@ -322,7 +371,7 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          chunkingStrategy: 'semantic' as const,
+          chunkingStrategy: 'sentence' as const,
           chunksCount: 3,
           embeddingSetId: TEST_COLLECTION_ID,
         },
@@ -330,6 +379,7 @@ describe('DatabaseDemoPanel', () => {
 
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -349,7 +399,7 @@ describe('DatabaseDemoPanel', () => {
       // Check that expanded content is shown
       await waitFor(() => {
         expect(screen.getByText('Path: /test/path/test.txt')).toBeInTheDocument();
-        expect(screen.getByText(/Chunking: semantic • 3 chunks/)).toBeInTheDocument();
+        expect(screen.getByText(/Chunking: sentence • 3 chunks/)).toBeInTheDocument();
       });
     });
 
@@ -363,7 +413,7 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          chunkingStrategy: 'semantic' as const,
+          chunkingStrategy: 'sentence' as const,
           chunksCount: 2,
           embeddingSetId: TEST_COLLECTION_ID,
         },
@@ -398,6 +448,8 @@ describe('DatabaseDemoPanel', () => {
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
+      mockRecordLiveQueryResult.rows = mockRecords;
+      mockChunkLiveQueryResult.rows = mockChunks;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -467,6 +519,8 @@ describe('DatabaseDemoPanel', () => {
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
+      mockChunkLiveQueryResult.rows = mockChunks;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -631,6 +685,7 @@ describe('DatabaseDemoPanel', () => {
 
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
 
       render(<DatabaseDemoPanel />);
 
@@ -650,7 +705,8 @@ describe('DatabaseDemoPanel', () => {
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       await user.click(refreshButton);
 
-      expect(mockRepository.findAll).toHaveBeenCalled();
+      // Now using live queries, so refresh should call the live query refresh
+      expect(mockRecordLiveQueryResult.refresh).toHaveBeenCalled();
     });
   });
 
