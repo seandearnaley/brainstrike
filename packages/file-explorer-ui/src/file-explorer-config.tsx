@@ -38,6 +38,25 @@ interface FileExplorerConfigProps {
   };
 }
 
+type InlineFixtureToggleDependencies = {
+  onSettingsChange: (key: 'devInlineFixtureEnabled', value: boolean) => void;
+  persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
+  setDevInlineFixtureEnabled: (value: boolean) => void;
+};
+
+export const createInlineFixtureToggleHandler =
+  (deps: InlineFixtureToggleDependencies) => async (checked: boolean) => {
+    deps.onSettingsChange('devInlineFixtureEnabled', checked);
+    deps.setDevInlineFixtureEnabled(checked);
+    try {
+      await deps.persistPatch({ devInlineFixtureEnabled: checked });
+    } catch (error) {
+      if (isDevEnv()) {
+        console.warn('Failed to persist inline fixture toggle:', error);
+      }
+    }
+  };
+
 // Inner dialog is render-only (no hooks) to avoid HMR hook-order issues
 const ConfigDialogContent: React.FC<{
   filterError: string | null;
@@ -111,18 +130,13 @@ const ConfigDialogContent: React.FC<{
     onClose();
   };
 
-  const handleInlineFixtureToggle = useCallback(
-    async (checked: boolean) => {
-      onSettingsChange('devInlineFixtureEnabled', checked);
-      setDevInlineFixtureEnabled(checked);
-      try {
-        await persistPatch({ devInlineFixtureEnabled: checked });
-      } catch (error) {
-        if (isDevEnv()) {
-          console.warn('Failed to persist inline fixture toggle:', error);
-        }
-      }
-    },
+  const handleInlineFixtureToggle = React.useMemo(
+    () =>
+      createInlineFixtureToggleHandler({
+        onSettingsChange,
+        persistPatch,
+        setDevInlineFixtureEnabled,
+      }),
     [onSettingsChange, persistPatch, setDevInlineFixtureEnabled]
   );
 
