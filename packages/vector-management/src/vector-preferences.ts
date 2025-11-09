@@ -31,4 +31,16 @@ export function setActiveEmbeddingSetId(id: string | null): void {
   } catch {
     // ignore
   }
+
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('brainstrike:embedding-set-updated', {
+          detail: { id },
+        })
+      );
+    } catch {
+      // ignore dispatch issues – consumers still get store/localStorage updates
+    }
+  }
 }

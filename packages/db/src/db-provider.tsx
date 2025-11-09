@@ -76,6 +76,17 @@ function requireNodePath(): { join: (...parts: string[]) => string } {
 
 const DbContext = createContext<DbContextValue | undefined>(undefined);
 
+/** Clear active embedding set ID from localStorage to prevent stale collection references */
+function clearActiveEmbeddingSetIdFromStorage(): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.removeItem('brainstrike.activeEmbeddingSetId');
+    logger.info('[DbProvider] Cleared active embedding set ID from localStorage');
+  } catch (err) {
+    logger.warn('[DbProvider] Failed to clear active embedding set ID:', err);
+  }
+}
+
 function createDbHandle(executor: QueryExecutor): DbHandle {
   const query = executor.query.bind(executor) as DbHandle['query'];
   const handle: DbHandle = {
@@ -363,18 +374,18 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     }
 
     // Check if Electron IPC is actually available (not just configured)
-    interface WindowWithElectronAPI extends Window {
-      electronAPI?: {
-        db?: {
-          clearAll?: (confirmationToken?: string) => Promise<unknown>;
-        };
-      };
-    }
+    const electronAPI =
+      typeof window !== 'undefined'
+        ? ((
+            window as Window & {
+              electronAPI?: {
+                db?: { clearAll?: (confirmationToken?: string) => Promise<unknown> };
+              };
+            }
+          ).electronAPI ?? null)
+        : null;
 
-    const isElectronIPCAvailable =
-      useElectronIPC &&
-      typeof window !== 'undefined' &&
-      (window as WindowWithElectronAPI).electronAPI?.db?.clearAll;
+    const isElectronIPCAvailable = useElectronIPC && electronAPI?.db?.clearAll;
 
     if (isElectronIPCAvailable) {
       return await clearViaElectronIPC();
@@ -513,6 +524,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         setVectorEnabled(false);
         setReady(false);
         setLazyInitialized(false);
+
+        // Clear active embedding set ID from localStorage to prevent stale collections
+        clearActiveEmbeddingSetIdFromStorage();
 
         // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
         // This is critical for web - without it, PGlite reopens the corrupted database

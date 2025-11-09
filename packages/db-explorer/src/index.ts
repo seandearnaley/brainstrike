@@ -17,7 +17,6 @@ export { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 export * from './types';
 // Core Hooks
 export { useDatabaseDemoData } from './use-database-demo-data';
-export { useEmbeddingService } from './use-embedding-service';
 export { useImportFlow } from './use-import-flow';
 export { usePendingChunks } from './use-pending-chunks';
 export { normalizeEmbeddingSets } from './utils/embedding-set-normalizer';

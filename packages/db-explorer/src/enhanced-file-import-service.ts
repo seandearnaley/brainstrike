@@ -10,12 +10,6 @@ import {
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import type { EmbeddingProviderType } from '@brainstrike/embeddings';
-import {
-  isHostedProvider,
-  parseProviderModelKey,
-  SimpleEmbeddingService,
-} from '@brainstrike/embeddings';
 import type {
   BaseImportRunner,
   EmbeddingJobQueuePort,
@@ -53,13 +47,12 @@ interface EnhancedFileImportOptions {
   enableChunking?: boolean;
   chunkingStrategy?: ChunkingStrategy;
   chunkingStrategyExplicit?: boolean;
-  enableEmbedding?: boolean;
-  embeddingModel?: string;
   chunkSize?: number;
   chunkOverlap?: number;
   tokenTrueSizing?: boolean;
   chunkTokenLimit?: number;
   embeddingQueue?: QueueAdapter | null;
+  resolveTargetEmbeddingSetId?: () => string | null;
 }
 
 interface EnhancedFileImportServiceReturn {
@@ -74,31 +67,54 @@ interface EnhancedFileImportServiceReturn {
 }
 
 type EnhancedImportParams = Parameters<typeof runEnhancedImport<IFileNode>>[0];
+type EmbeddingConfig = NonNullable<EnhancedImportParams['embedding']>;
 
-function createEmbeddingConfig(
-  enableEmbedding: boolean | undefined,
-  embeddingModel: string | undefined,
-  embeddingService: SimpleEmbeddingService | null,
-  chunkRepository: ReturnType<typeof useFileChunkRepository>,
-  resolveTargetEmbeddingSetId: () => string | null
-): EnhancedImportParams['embedding'] {
-  if (enableEmbedding === undefined) {
-    return undefined;
+async function backfillEmbeddingSetAssignments(
+  sql: SqlExecutorPort | null,
+  embeddingSetId: string | null,
+  fileIds: string[]
+): Promise<void> {
+  if (!sql || !embeddingSetId || fileIds.length === 0) {
+    return;
   }
 
-  const parsed = parseProviderModelKey(embeddingModel);
-  const provider: EmbeddingProviderType | undefined = parsed?.provider;
+  const uniqueIds = Array.from(new Set(fileIds.filter((id): id is string => Boolean(id))));
+  if (uniqueIds.length === 0) {
+    return;
+  }
 
+  const buildParams = () => [embeddingSetId, ...uniqueIds];
+  const placeholderList = uniqueIds.map((_, idx) => `$${idx + 2}`).join(', ');
+
+  await sql.query(
+    `UPDATE file_records
+       SET embedding_set_id = $1
+     WHERE id IN (${placeholderList})
+       AND (embedding_set_id IS NULL OR embedding_set_id IS DISTINCT FROM $1)`,
+    buildParams()
+  );
+
+  await sql.query(
+    `UPDATE file_chunks
+       SET embedding_set_id = $1
+     WHERE file_record_id IN (${placeholderList})
+       AND embedding_set_id IS NULL`,
+    buildParams()
+  );
+}
+
+function createEmbeddingConfig(
+  chunkRepository: ReturnType<typeof useFileChunkRepository>,
+  resolveTargetEmbeddingSetId: () => string | null
+): EmbeddingConfig {
   return {
-    enabled: Boolean(enableEmbedding),
-    service: embeddingService,
+    enabled: false,
+    service: null,
     chunkRepository,
     resolveTargetEmbeddingSetId,
     onResolvedTargetSetId: (id: string) => {
       setActiveEmbeddingSetId(id);
     },
-    ...(embeddingModel ? { model: embeddingModel } : {}),
-    ...(provider ? { provider } : {}),
   };
 }
 
@@ -162,7 +178,7 @@ export function useEnhancedFileImportService(
 ): EnhancedFileImportServiceReturn {
   const [isImporting, setIsImporting] = useState(false);
   const [progress, setProgress] = useState<EnhancedImportProgress | null>(null);
-  const [embeddingService, setEmbeddingService] = useState<SimpleEmbeddingService | null>(null);
+  const activeSetIdRef = useRef<string | null>(options.resolveTargetEmbeddingSetId?.() ?? null);
   const baseCallbacksRef = useRef<{
     onProgress?: (progress: ImportProgress) => void;
     onComplete?: (results: FileImportResult[]) => void;
@@ -186,23 +202,6 @@ export function useEnhancedFileImportService(
     }
     return false;
   })();
-
-  // Initialize embedding service if enabled
-  useEffect(() => {
-    if (!options.enableEmbedding || !options.embeddingModel) {
-      setEmbeddingService(null);
-      return;
-    }
-
-    const parsed = parseProviderModelKey(options.embeddingModel);
-    if (parsed && isHostedProvider(parsed.provider)) {
-      setEmbeddingService(null);
-      return;
-    }
-
-    const service = new SimpleEmbeddingService();
-    setEmbeddingService(service);
-  }, [options.enableEmbedding, options.embeddingModel]);
 
   const baseImportService = useFileImportService({
     onProgress: (progress) => {
@@ -356,10 +355,15 @@ export function useEnhancedFileImportService(
           },
         };
 
-        baseImportService.importFiles(selectedFilePaths, fileTree, fileContents).catch((error) => {
-          baseCallbacksRef.current = null;
-          reject(error instanceof Error ? error : new Error('Import failed'));
-        });
+        const activeSetId = activeSetIdRef.current ?? null;
+        console.log('[baseImportRunner] Passing embeddingSetId to baseImportService:', activeSetId);
+
+        baseImportService
+          .importFiles(selectedFilePaths, fileTree, fileContents, activeSetId ?? undefined)
+          .catch((error) => {
+            baseCallbacksRef.current = null;
+            reject(error instanceof Error ? error : new Error('Import failed'));
+          });
       }),
     [baseImportService]
   );
@@ -371,6 +375,8 @@ export function useEnhancedFileImportService(
       fileContents: Record<string, string>
     ) => {
       setIsImporting(true);
+
+      activeSetIdRef.current = options.resolveTargetEmbeddingSetId?.() ?? getActiveEmbeddingSetId();
 
       const initialProgress: EnhancedImportProgress = {
         total: selectedFilePaths.size,
@@ -384,13 +390,15 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
+        console.log('[EnhancedFileImportService] About to create embedding config');
+        console.log('[EnhancedFileImportService] active embedding set at import time:', {
+          activeSetId: activeSetIdRef.current,
+        });
         const embeddingConfig = createEmbeddingConfig(
-          options.enableEmbedding,
-          options.embeddingModel,
-          embeddingService,
           chunkRepository,
-          getActiveEmbeddingSetId
+          () => activeSetIdRef.current ?? null
         );
+        console.log('[EnhancedFileImportService] Embedding config created:', embeddingConfig);
         const ports = createPorts(queuePort, sqlPort);
         const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
 
@@ -398,16 +406,18 @@ export function useEnhancedFileImportService(
           request: { selectedFilePaths, fileTree, fileContents },
           baseImportRunner,
           chunking: createChunkingConfig(options, repository, chunkRepository),
+          embedding: embeddingConfig,
           progressHandlers,
+          ...(ports ? { ports } : {}),
         };
-        if (embeddingConfig) {
-          params.embedding = embeddingConfig;
-        }
-        if (ports) {
-          params.ports = ports;
-        }
 
         const results = await runEnhancedImport<IFileNode>(params);
+
+        await backfillEmbeddingSetAssignments(
+          sqlPort ?? null,
+          activeSetIdRef.current ?? null,
+          results.map((result) => result.id)
+        );
 
         options.onComplete?.(results);
       } catch (error) {
@@ -416,17 +426,8 @@ export function useEnhancedFileImportService(
         setIsImporting(false);
       }
     },
-    [baseImportRunner, chunkRepository, embeddingService, options, queuePort, repository, sqlPort]
+    [baseImportRunner, chunkRepository, options, queuePort, repository, sqlPort]
   );
-
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (embeddingService) {
-        embeddingService.dispose();
-      }
-    };
-  }, [embeddingService]);
 
   return useMemo(
     () => ({

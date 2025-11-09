@@ -9,12 +9,22 @@ const STORAGE_KEYS = [
   'embedding-preferences.v1',
   'import-settings.v1',
   'vector-status-ui.v1',
+  'vector-preferences.v1',
   'database-demo.v1',
   'embeddings-panel.v1',
   'assistant-preferences.v1',
   'token-preferences.v1',
-  'panel-layout.v1',
+  'panel-layout-store.v1',
   'logging-preferences.v1',
+  'tab-manager.v1',
+  'inspector-view.v1',
+  'editor-view-state.v1',
+  'editor-cursor.v1',
+  'db-panel.v1',
+  'search-panel.v1',
+  'right-panel.v1',
+  'file-explorer-storage-v4',
+  'previewPanelPreferences.v1',
 ] as const;
 
 /**

@@ -59,6 +59,8 @@ interface ChunkingOptions {
   ) => void;
   tokenTrueSizing?: boolean;
   tokenLimit?: number;
+  // Target embedding set ID to associate chunks with a specific collection
+  targetEmbeddingSetId?: string;
   // Phase 3: optional queue producer injection
   embedQueueEnabled?: boolean;
   enqueueJobsForChunks?: (chunks: FileChunk[], fileRecordId: string) => Promise<void>;
@@ -514,8 +516,24 @@ async function processFileChunkingStreamPath(
 
   let totalCreated = 0;
   const batch: FileChunkInsert[] = [];
+  let chunkCount = 0;
   for await (const ch of stream) {
-    batch.push(ch);
+    // Set embedding_set_id on chunk if targetEmbeddingSetId is provided
+    const chunkWithSetId: FileChunkInsert = options.targetEmbeddingSetId
+      ? { ...ch, embeddingSetId: options.targetEmbeddingSetId }
+      : ch;
+
+    // Debug log first chunk to verify embeddingSetId is set
+    if (chunkCount === 0) {
+      logger.info('[DEBUG] First chunk embeddingSetId', {
+        targetEmbeddingSetId: options.targetEmbeddingSetId,
+        chunkEmbeddingSetId: chunkWithSetId.embeddingSetId,
+        fileRecordId: result.id,
+      });
+    }
+    chunkCount++;
+
+    batch.push(chunkWithSetId);
     if (batch.length >= batchSize) {
       totalCreated += await flushBatch(batch, chunkRepository, options, result.id);
     }

@@ -8,7 +8,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    setupFiles: ['../test-utils/src/vitest.setup.ts'],
+    setupFiles: ['./vitest.setup.ts'],
     unstubGlobals: true,
     // Use threads and cap workers to avoid EPERM during Tinypool worker teardown in sandboxed environments
     pool: 'threads',

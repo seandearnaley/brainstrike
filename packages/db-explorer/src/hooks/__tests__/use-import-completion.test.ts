@@ -31,7 +31,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '2 files imported, 15 chunks created, 13 embeddings generated',
+      description: '2 new • 15 chunks created, 13 embedded',
       variant: 'default',
     });
 
@@ -73,8 +73,8 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
-      description: '1 files imported, 2 import failed, 10 chunks created, 10 embeddings generated',
+      title: 'Import Completed with Errors',
+      description: '1 new • 10 chunks created, 10 embedded, 2 failed',
       variant: 'destructive',
     });
   });
@@ -108,7 +108,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '2 files imported, 1 processing errors, 5 chunks created',
+      description: '2 new • 5 chunks created, 1 errors',
       variant: 'default',
     });
   });
@@ -140,8 +140,8 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
-      description: '0 files imported, 2 import failed',
+      title: 'Import Completed with Errors',
+      description: '2 failed',
       variant: 'destructive',
     });
   });
@@ -157,7 +157,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '0 files imported',
+      description: 'No files processed',
       variant: 'default',
     });
   });
@@ -183,7 +183,7 @@ describe('createImportCompletionHandler', () => {
 
     expect(mockToast).toHaveBeenCalledWith({
       title: 'Import Complete',
-      description: '1 files imported, 10 chunks created',
+      description: '1 new • 10 chunks created',
       variant: 'default',
     });
   });
@@ -223,10 +223,35 @@ describe('createImportCompletionHandler', () => {
     handler(results);
 
     expect(mockToast).toHaveBeenCalledWith({
-      title: 'Import Complete',
-      description:
-        '2 files imported, 1 import failed, 1 processing errors, 15 chunks created, 13 embeddings generated',
+      title: 'Import Completed with Errors',
+      description: '2 new • 15 chunks created, 13 embedded, 1 failed, 1 errors',
       variant: 'destructive',
+    });
+  });
+
+  it('handles existing files imported to new collection (critical case)', () => {
+    const mockToast = vi.fn();
+    const mockLoadRecords = vi.fn().mockResolvedValue(undefined);
+    const mockLoadChunks = vi.fn().mockResolvedValue(undefined);
+
+    const handler = createImportCompletionHandler(mockToast, mockLoadRecords, mockLoadChunks);
+
+    // Simulates importing 10 files that already exist in file_records
+    // to a new collection - creates chunks but files have imported:false, existed:true
+    const results: EnhancedImportResult[] = Array.from({ length: 10 }, (_, i) => ({
+      id: `test${i}.txt`,
+      imported: false,
+      existed: true,
+      chunksCreated: 2,
+      chunksWithEmbeddings: 2,
+    }));
+
+    handler(results);
+
+    expect(mockToast).toHaveBeenCalledWith({
+      title: 'Import Complete',
+      description: '10 existing • 20 chunks created, 20 embedded',
+      variant: 'default',
     });
   });
 });

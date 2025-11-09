@@ -79,6 +79,15 @@ describe('embedding-worker', () => {
 
   it('processes an embed_chunk job and writes embedding', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-1';
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+    );
+
     // Insert a file record + chunk
     const fileId = 'file-1';
     const chunkId = 'chunk-1';
@@ -92,11 +101,11 @@ describe('embedding-worker', () => {
       VALUES ($1,$2,0,$3,$4,10,'text',10,$5,$5)`,
       [chunkId, fileId, 'hello world', 'hash1', now]
     );
-    // Enqueue job
+    // Enqueue job with embeddingSetId
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
       VALUES ('job-1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId }), now]
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
     );
 
     const controller = await startEmbeddingWorker({
@@ -135,6 +144,7 @@ describe('embedding-worker', () => {
 
   it('is idempotent when embedding_hash matches (no write)', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-2';
     const fileId = 'file-2';
     const chunkId = 'chunk-2';
     const modelKey = 'jina-code';
@@ -143,6 +153,13 @@ describe('embedding-worker', () => {
       .createHash('sha256')
       .update(`hash2:${compositeKey}`)
       .digest('hex');
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, compositeKey, modelKey, 768, 'cosine', now]
+    );
 
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
@@ -164,7 +181,7 @@ describe('embedding-worker', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
       VALUES ('job-2','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, embeddingSetId: null }), now]
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
     );
 
     const controller = await startEmbeddingWorker({

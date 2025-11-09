@@ -238,6 +238,17 @@
       "typescript": {
         "config": "tsconfig.json"
       }
+    },
+    "packages/agent": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": [
+        "**/__tests__/**",
+        "**/*.test.{ts,tsx}",
+        "script.js" // Mock MCP server script for tests
+      ],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
     }
   },
   // Root level entries and projects, e.g., for tests/configs not tied to a specific workspace

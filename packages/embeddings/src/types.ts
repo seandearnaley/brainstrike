@@ -25,7 +25,7 @@ export interface ModelConfig {
   /** Embedding dimensions */
   dimensions: number;
   /** Whether to use quantization */
-  quantized: boolean;
+  quantized?: boolean;
   /** Description for UI */
   description: string;
   /** Model tags for categorization */

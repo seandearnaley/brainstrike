@@ -205,8 +205,8 @@ import { EnhancedFileImportService } from '@brainstrike/db-explorer';
 
 const service = new EnhancedFileImportService({
   enableChunking: true,
-  enableEmbedding: true,
-  selectedModelKey: 'all-MiniLM-L6-v2'
+  chunkSize: 512,
+  chunkOverlap: 50
 });
 
 await service.importFiles(files, {

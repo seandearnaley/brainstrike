@@ -15,6 +15,7 @@ let latestOptions: {
   onProgress?: () => void;
   tokenTrueSizing?: boolean;
   chunkTokenLimit?: number;
+  resolveTargetEmbeddingSetId?: () => string | null;
 };
 let selectionPaths = new Set<string>();
 let selectionOptions: { onSelectionLimitExceeded?: () => void } = {};
@@ -43,8 +44,6 @@ const baseSettings = {
   enableChunking: true,
   chunkingStrategy: 'sentence' as const,
   chunkingStrategyExplicit: false,
-  enableEmbedding: false,
-  selectedModel: 'model-1',
   chunkSize: 512,
   chunkOverlap: 0,
   tokenTrueSizing: true,
@@ -64,7 +63,13 @@ describe('useImportFlow', () => {
   it('notifies the user when no files are selected', () => {
     const toast = vi.fn();
 
-    const { result } = renderHook(() => useImportFlow({ importSettings: baseSettings, toast }));
+    const { result } = renderHook(() =>
+      useImportFlow({
+        importSettings: baseSettings,
+        toast,
+        resolveActiveCollectionId: () => 'set-1',
+      })
+    );
 
     act(() => {
       result.current.handleImportClick();
@@ -78,7 +83,13 @@ describe('useImportFlow', () => {
     const toast = vi.fn();
     selectionPaths = new Set(['/file.txt']);
 
-    const { result } = renderHook(() => useImportFlow({ importSettings: baseSettings, toast }));
+    const { result } = renderHook(() =>
+      useImportFlow({
+        importSettings: baseSettings,
+        toast,
+        resolveActiveCollectionId: () => 'set-1',
+      })
+    );
 
     await act(async () => {
       result.current.handleImportClick();
@@ -104,6 +115,7 @@ describe('useImportFlow', () => {
         toast,
         onImportComplete,
         onChunkRepositoryChange,
+        resolveActiveCollectionId: () => 'set-1',
       })
     );
 
@@ -128,7 +140,13 @@ describe('useImportFlow', () => {
 
   it('surfaces selection limit feedback via toast handler', () => {
     const toast = vi.fn();
-    renderHook(() => useImportFlow({ importSettings: baseSettings, toast }));
+    renderHook(() =>
+      useImportFlow({
+        importSettings: baseSettings,
+        toast,
+        resolveActiveCollectionId: () => 'set-1',
+      })
+    );
 
     act(() => {
       selectionOptions.onSelectionLimitExceeded?.();
@@ -144,11 +162,31 @@ describe('useImportFlow', () => {
       useImportFlow({
         importSettings: { ...baseSettings, tokenTrueSizing: false, chunkTokenLimit: 8192 },
         toast,
+        resolveActiveCollectionId: () => 'set-1',
       })
     );
 
     expect(latestOptions).toEqual(
       expect.objectContaining({ tokenTrueSizing: false, chunkTokenLimit: 8192 })
     );
+  });
+
+  it('prevents imports when no collection is selected', async () => {
+    const toast = vi.fn();
+    selectionPaths = new Set(['/file.txt']);
+    const resolver = vi.fn(() => null);
+
+    const { result } = renderHook(() =>
+      useImportFlow({ importSettings: baseSettings, toast, resolveActiveCollectionId: resolver })
+    );
+
+    await act(async () => {
+      result.current.handleImportClick();
+      await Promise.resolve();
+    });
+
+    expect(resolver).toHaveBeenCalled();
+    expect(importServiceReturn.importFiles).not.toHaveBeenCalled();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Select a Collection' }));
   });
 });

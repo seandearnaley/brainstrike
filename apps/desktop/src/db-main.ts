@@ -5,16 +5,17 @@ import { app } from 'electron';
 
 const logger = createLogger('DatabaseMain');
 
-type VectorModuleShape = {
+type ExtensionModuleShape = {
   default?: unknown;
   vector?: unknown;
+  live?: unknown;
 };
 
-function extractVectorExport(module: unknown): unknown {
+function extractExtensionExport(module: unknown, field: 'vector' | 'live'): unknown {
   if (module && typeof module === 'object') {
-    const record = module as VectorModuleShape;
-    if (record.vector) {
-      return record.vector;
+    const record = module as ExtensionModuleShape;
+    if (record[field]) {
+      return record[field];
     }
     try {
       if (record.default) {
@@ -52,7 +53,7 @@ function getErrorDetails(error: unknown) {
 async function loadPgVectorExtension(): Promise<unknown> {
   try {
     const vectorModule = await import('@electric-sql/pglite/vector');
-    const vector = extractVectorExport(vectorModule);
+    const vector = extractExtensionExport(vectorModule, 'vector');
     if (!vector) {
       throw new Error('vector export missing from module');
     }
@@ -74,12 +75,31 @@ async function loadPgVectorExtension(): Promise<unknown> {
   }
 }
 
+async function loadPgLiveExtension(): Promise<unknown> {
+  try {
+    const liveModule = await import('@electric-sql/pglite/live');
+    const live = extractExtensionExport(liveModule, 'live');
+    if (!live) {
+      throw new Error('live export missing from module');
+    }
+    logger.info('pglite live query extension loaded successfully (ESM)');
+    return live;
+  } catch (error) {
+    const details = getErrorDetails(error);
+    logger.error('pglite live query extension failed to load.', details);
+    throw new Error(
+      `live query extension is required and failed to load via ESM import. (${details.message})`
+    );
+  }
+}
+
 // Dynamic imports for ESM packages
 const getPGlite = async () => {
   const { PGlite } = await import('@electric-sql/pglite');
   const { migrate } = await import('@brainstrike/db');
   const vector = await loadPgVectorExtension();
-  return { PGlite, migrate, vector };
+  const live = await loadPgLiveExtension();
+  return { PGlite, migrate, vector, live };
 };
 
 // Database instance for main process
@@ -87,14 +107,19 @@ const getPGlite = async () => {
 let db: any = null;
 
 // Helper to create and validate a PGlite instance with pgvector
-async function createVectorDatabase(PGliteCtor: unknown, dataDir: string, vector: unknown) {
+async function createVectorDatabase(
+  PGliteCtor: unknown,
+  dataDir: string,
+  vector: unknown,
+  live: unknown
+) {
   // biome-ignore lint/suspicious/noExplicitAny: PGlite ctor type not available at compile time
   const Ctor: any = PGliteCtor as any;
   // biome-ignore lint/suspicious/noExplicitAny: PGlite instance type not available at compile time
   const instance: any = new Ctor({
     dataDir,
     // biome-ignore lint/suspicious/noExplicitAny: PGlite vector extension type not available at compile time
-    extensions: { vector: vector as any },
+    extensions: { vector: vector as any, live: live as any },
   });
   await instance.query('SELECT 1');
   await instance.exec('CREATE EXTENSION IF NOT EXISTS vector');
@@ -131,11 +156,11 @@ export async function initializeMainDatabase(): Promise<any> {
     logger.info(`Created database directory: ${dataDir}`);
   }
   // Get ESM modules
-  const { PGlite, migrate, vector } = await getPGlite();
+  const { PGlite, migrate, vector, live } = await getPGlite();
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
   try {
-    db = await createVectorDatabase(PGlite, dataDir, vector);
+    db = await createVectorDatabase(PGlite, dataDir, vector, live);
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
     try {

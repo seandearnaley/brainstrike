@@ -1,5 +1,7 @@
 # DB + Embeddings Modernization Plan
 
+> **2025-10 update:** The renderer-managed embedding worker now auto-starts once the database is available, so `EMBED_QUEUE_ENABLED` references inside this plan reflect historical rollout checkpoints rather than current configuration requirements.
+
 *Phased, checklist-driven, with clear cut-offs, outputs, and validation gates.*
 
 > **Goal:** make the DB the source of truth, add a **local-first queue**, harden chunking/import, and support multiple embedding models **without** foot-guns (dimension drift, pgvector availability, etc.).
@@ -285,7 +287,7 @@ Notes
 
 **— Gate 3: ✅ COMPLETED - queue schema stable, producers working, infrastructure hardened.**
 
-> **🎯 Next Developer**: See [`PHASE_3_HANDOFF.md`](./PHASE_3_HANDOFF.md) for complete implementation details and Phase 4 preparation.
+> **🎯 Next Developer**: See [`PHASE_3_HANDOFF.md`](./20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md) for complete implementation details and Phase 4 preparation.
 
 ### Phase 3 Implementation Summary
 
@@ -534,7 +536,7 @@ type Job = {
   * \[ ]◻ `pnpm -w test -- --run`
   * \[ ]◻ Headless CI environments: `pnpm run check:headless` (prepends display/sandbox setup)
 
-> Status: Up through Gate 5 is complete. Proceed to Phase 6 (UI/API integration & developer affordances). See PHASE_4_HANDOFF.md for a self‑contained handoff.
+> Status: Up through Gate 5 is complete. Proceed to Phase 6 (UI/API integration & developer affordances). See [PHASE_4_HANDOFF.md](./20250905-000000-db-embedding-modernization/20250905-140000-phase-4-handoff.md) for a self‑contained handoff.
 * \[ ]🧪 **E2E**
 
   * \[ ]◻ Web: `pnpm --filter ./apps/web test:e2e` *(or project script)*

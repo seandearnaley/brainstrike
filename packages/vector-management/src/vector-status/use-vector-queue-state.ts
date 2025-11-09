@@ -1,7 +1,9 @@
+import { usePGliteLiveQuery } from '@brainstrike/db';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEmbeddingQueue } from '../embedding-queue-provider';
 import {
-  handleQueueStateChange,
+  calculateLatency,
+  EMBEDDINGS_QUEUE,
   type QueueCounts,
   type VectorQueueService,
 } from './vector-queue-service';
@@ -12,7 +14,6 @@ export interface UseVectorQueueStateParams {
   service: VectorQueueService | null;
   activeEmbeddingSetId: string | null;
   shouldAutoBackfill: boolean;
-  pollIntervalMs?: number;
 }
 
 export interface TelemetryTrendPoint {
@@ -39,78 +40,203 @@ export interface UseVectorQueueStateResult {
 }
 
 const DEFAULT_COVERAGE: { total: number; withSet: number } = { total: 0, withSet: 0 };
-const DEFAULT_LATENCY: { avgMs: number; p50Ms: number; p95Ms: number } = {
-  avgMs: 0,
-  p50Ms: 0,
-  p95Ms: 0,
-};
 const DEFAULT_QUEUE_COUNTS: QueueCounts = { queued: 0, running: 0, failed: 0, succeeded: 0 };
+const EMBEDDINGS_QUEUE_PARAMS: readonly [string] = [EMBEDDINGS_QUEUE];
+
+const QUEUE_COUNTS_QUERY = `
+  SELECT
+    COUNT(*) FILTER (WHERE state = 'queued')::int    AS "queued",
+    COUNT(*) FILTER (WHERE state = 'running')::int   AS "running",
+    COUNT(*) FILTER (WHERE state = 'failed')::int    AS "failed",
+    COUNT(*) FILTER (WHERE state = 'succeeded')::int AS "succeeded"
+  FROM job_queue
+  WHERE queue = $1
+`.trim();
+
+const ISO_UTC_FORMAT = 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"' as const;
+
+const THROUGHPUT_QUERY = `
+  SELECT COUNT(*)::int AS count
+    FROM job_queue
+   WHERE queue = $1
+     AND state = 'succeeded'
+     AND updated_at >= TO_CHAR(
+       (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '60 seconds',
+       '${ISO_UTC_FORMAT}'
+     )
+`.trim();
+
+const LAST_ERROR_QUERY = `
+  SELECT error
+    FROM job_queue
+   WHERE queue = $1
+     AND state = 'failed'
+ORDER BY updated_at DESC
+   LIMIT 1
+`.trim();
+
+const LATENCY_ROWS_QUERY = `
+  SELECT run_at AS "runAt", updated_at AS "updatedAt"
+    FROM job_queue
+   WHERE queue = $1
+     AND state = 'succeeded'
+     AND updated_at >= TO_CHAR(
+       (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '5 minutes',
+       '${ISO_UTC_FORMAT}'
+     )
+ORDER BY updated_at DESC
+   LIMIT 200
+`.trim();
+
+const COVERAGE_QUERY = `
+  WITH target AS (SELECT $1::text AS embedding_set_id)
+  SELECT
+    COUNT(*)::int AS "totalChunks",
+    COUNT(*) FILTER (
+      WHERE (
+        c.embedding_set_id = target.embedding_set_id
+        OR (c.embedding_set_id IS NULL AND fr.embedding_set_id = target.embedding_set_id)
+      )
+      AND c.embedding IS NOT NULL
+    )::int AS "chunksWithEmbeddingsForSet"
+  FROM file_chunks c
+  JOIN file_records fr ON fr.id = c.file_record_id
+  JOIN target ON fr.embedding_set_id = target.embedding_set_id
+`.trim();
+
+type QueueCountsRow = {
+  queued: number | string | null;
+  running: number | string | null;
+  failed: number | string | null;
+  succeeded: number | string | null;
+};
+
+type ThroughputRow = { count: number | string | null };
+
+type LastErrorRow = { error: string | null };
+
+type LatencyRow = { runAt: string; updatedAt: string };
+
+type CoverageRow = {
+  totalChunks: number | string | null;
+  chunksWithEmbeddingsForSet: number | string | null;
+};
 
 export function useVectorQueueState(params: UseVectorQueueStateParams): UseVectorQueueStateResult {
-  const { activeEmbeddingSetId, shouldAutoBackfill, pollIntervalMs = 2500 } = params;
+  const { activeEmbeddingSetId, shouldAutoBackfill } = params;
   const { metrics } = useEmbeddingQueue();
   const service = params.service;
 
-  const [coverage, setCoverage] = useState<{ total: number; withSet: number }>(DEFAULT_COVERAGE);
-  const [queueCounts, setQueueCounts] = useState(DEFAULT_QUEUE_COUNTS);
-  const [throughput, setThroughput] = useState(0);
-  const [latencyStats, setLatencyStats] = useState(DEFAULT_LATENCY);
-  const [lastError, setLastError] = useState<string | null>(null);
-  const [recentErrorCount, setRecentErrorCount] = useState(0);
   const [backfilling, setBackfilling] = useState(false);
   const [backfillProgress, setBackfillProgress] = useState<BackfillProgress>(null);
   const [telemetryTrend, setTelemetryTrend] = useState<readonly TelemetryTrendPoint[]>([]);
-
-  const busyRef = useRef(false);
+  const [recentErrorCount, setRecentErrorCount] = useState(0);
   const autoBackfillRef = useRef<string | null>(null);
+  const lastEmbeddingSetIdRef = useRef<string | null>(null);
 
-  const refreshSnapshot = useCallback(async () => {
-    if (!service) return;
-    try {
-      const snapshot = await service.refresh(activeEmbeddingSetId ?? null);
-      if (snapshot.coverage) {
-        setCoverage(snapshot.coverage);
-      } else if (!activeEmbeddingSetId) {
-        setCoverage(DEFAULT_COVERAGE);
-      }
-      setThroughput(snapshot.throughput);
-      setLastError((prev) => snapshot.lastError ?? prev);
-      setLatencyStats(snapshot.latency);
-      setQueueCounts(snapshot.queueCounts);
-      handleQueueStateChange(snapshot.queueCounts, busyRef, activeEmbeddingSetId ?? null);
-    } catch {
-      // ignore transient refresh errors in the HUD
+  const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
+    query: QUEUE_COUNTS_QUERY,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    enabled: Boolean(service),
+  });
+
+  const queueCounts = useMemo<QueueCounts>(() => {
+    const row = queueCountsResult.rows[0];
+    if (!row) {
+      return DEFAULT_QUEUE_COUNTS;
     }
-  }, [service, activeEmbeddingSetId]);
+    return {
+      queued: Number(row.queued ?? 0),
+      running: Number(row.running ?? 0),
+      failed: Number(row.failed ?? 0),
+      succeeded: Number(row.succeeded ?? 0),
+    };
+  }, [queueCountsResult.rows]);
+
+  const throughputResult = usePGliteLiveQuery<ThroughputRow>({
+    query: THROUGHPUT_QUERY,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    enabled: Boolean(service),
+  });
+
+  const throughput = useMemo(() => {
+    const row = throughputResult.rows[0];
+    if (row && row.count !== null && row.count !== undefined) {
+      return Number(row.count);
+    }
+    return 0;
+  }, [throughputResult.rows]);
+
+  const lastErrorResult = usePGliteLiveQuery<LastErrorRow>({
+    query: LAST_ERROR_QUERY,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    enabled: Boolean(service),
+  });
+
+  const lastError = useMemo(() => lastErrorResult.rows[0]?.error ?? null, [lastErrorResult.rows]);
+
+  const latencyRowsResult = usePGliteLiveQuery<LatencyRow>({
+    query: LATENCY_ROWS_QUERY,
+    params: EMBEDDINGS_QUEUE_PARAMS,
+    enabled: Boolean(service),
+  });
+
+  const latencyStatsFromQuery = useMemo(() => {
+    if (!latencyRowsResult.rows.length) {
+      return null;
+    }
+    return calculateLatency(
+      latencyRowsResult.rows.map((row) => ({ runAt: row.runAt, updatedAt: row.updatedAt }))
+    );
+  }, [latencyRowsResult.rows]);
+
+  const latencyStats = useMemo(() => {
+    if (latencyStatsFromQuery) {
+      return latencyStatsFromQuery;
+    }
+    return {
+      avgMs: 0,
+      p50Ms: 0,
+      p95Ms: 0,
+    };
+  }, [latencyStatsFromQuery]);
+
+  const coverageParams = useMemo<readonly [string] | undefined>(
+    () => (activeEmbeddingSetId ? ([activeEmbeddingSetId] as const) : undefined),
+    [activeEmbeddingSetId]
+  );
+
+  const coverageResult = usePGliteLiveQuery<CoverageRow>({
+    query: COVERAGE_QUERY,
+    ...(coverageParams ? { params: coverageParams } : {}),
+    enabled: Boolean(service && activeEmbeddingSetId),
+  });
+
+  const coverage = useMemo(() => {
+    if (!activeEmbeddingSetId) {
+      return DEFAULT_COVERAGE;
+    }
+    const row = coverageResult.rows[0];
+    if (!row) {
+      return DEFAULT_COVERAGE;
+    }
+    return {
+      total: Number(row.totalChunks ?? 0),
+      withSet: Number(row.chunksWithEmbeddingsForSet ?? 0),
+    };
+  }, [activeEmbeddingSetId, coverageResult.rows]);
 
   useEffect(() => {
-    if (!service) {
-      setCoverage(DEFAULT_COVERAGE);
-      setQueueCounts(DEFAULT_QUEUE_COUNTS);
-      setThroughput(0);
-      setLastError(null);
-      setLatencyStats(DEFAULT_LATENCY);
-      setRecentErrorCount(0);
+    setRecentErrorCount(metrics.windowErrorCount);
+  }, [metrics.windowErrorCount]);
+
+  useEffect(() => {
+    if (lastEmbeddingSetIdRef.current === activeEmbeddingSetId) {
       return;
     }
-
-    let canceled = false;
-    const tick = async () => {
-      if (canceled) return;
-      await refreshSnapshot();
-    };
-
-    void tick();
-    const id = setInterval(tick, pollIntervalMs);
-    return () => {
-      canceled = true;
-      clearInterval(id);
-    };
-  }, [service, pollIntervalMs, refreshSnapshot]);
-
-  useEffect(() => {
+    lastEmbeddingSetIdRef.current = activeEmbeddingSetId;
     autoBackfillRef.current = null;
-  }, []);
+  }, [activeEmbeddingSetId]);
 
   useEffect(() => {
     if (!activeEmbeddingSetId) {
@@ -127,21 +253,6 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   }, [activeEmbeddingSetId, coverage.total, coverage.withSet]);
 
   useEffect(() => {
-    // Note: queueCounts are updated from snapshot.queueCounts in refreshSnapshot
-    // We don't update them from metrics because metrics.active doesn't distinguish
-    // between queued vs running jobs
-    if (metrics.lastError) {
-      setLastError(metrics.lastError);
-    }
-    if (Number.isFinite(metrics.throughputPerMinute)) {
-      setThroughput(metrics.throughputPerMinute);
-    }
-    setLatencyStats({
-      avgMs: metrics.latencyAvgMs ?? 0,
-      p50Ms: metrics.latencyP50Ms ?? 0,
-      p95Ms: metrics.latencyP95Ms ?? 0,
-    });
-    setRecentErrorCount(metrics.windowErrorCount);
     setTelemetryTrend((prev) => {
       const nextPoint: TelemetryTrendPoint = {
         timestamp: Date.now(),
@@ -171,12 +282,11 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
     setBackfilling(true);
     setBackfillProgress(null);
     try {
-      const counts = await service.backfill(activeEmbeddingSetId, (done, total) => {
+      await service.backfill(activeEmbeddingSetId, (done, total) => {
         setBackfillProgress({ done, total });
       });
-      setQueueCounts(counts);
     } catch {
-      // swallow errors; UI will continue polling
+      // swallow errors; live queries will reflect queue changes
     } finally {
       setBackfilling(false);
       setTimeout(() => setBackfillProgress(null), 1000);
@@ -208,11 +318,9 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
         await service.retryFailed(limit);
       } catch {
         // ignore errors from manual retries
-      } finally {
-        await refreshSnapshot();
       }
     },
-    [service, refreshSnapshot]
+    [service]
   );
 
   const clearQueue = useCallback(async () => {
@@ -221,10 +329,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       await service.clearQueue(['failed']);
     } catch {
       // ignore errors when clearing queue
-    } finally {
-      await refreshSnapshot();
     }
-  }, [service, refreshSnapshot]);
+  }, [service]);
 
   const wipeQueue = useCallback(async () => {
     if (!service) return;
@@ -232,10 +338,8 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       await service.wipeQueue();
     } catch {
       // ignore errors when wiping queue
-    } finally {
-      await refreshSnapshot();
     }
-  }, [service, refreshSnapshot]);
+  }, [service]);
 
   return useMemo(
     () => ({

@@ -1,5 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseTab } from '../database-tab';
 import { __resetDbPanelStoreForTests, useDbPanelStore } from '../stores/db-panel-store';
@@ -21,26 +20,25 @@ describe('DatabaseTab', () => {
   });
 
   it('allows configuring logs controls', async () => {
-    const user = userEvent.setup();
     render(<DatabaseTab />);
 
     const viewRow = screen.getByText('View').closest('div');
     const select = within(viewRow as HTMLElement).getByRole('combobox', { name: 'DB subtab' });
-    await user.selectOptions(select, 'logs');
+    fireEvent.change(select, { target: { value: 'logs' } });
 
-    await user.type(screen.getByLabelText('Filter'), 'embeddings');
+    fireEvent.change(screen.getByLabelText('Filter'), { target: { value: 'embeddings' } });
     const sortBy = screen.getByLabelText('Sort By');
-    await user.clear(sortBy);
-    await user.type(sortBy, 'timestamp');
+    fireEvent.change(sortBy, { target: { value: '' } });
+    fireEvent.change(sortBy, { target: { value: 'timestamp' } });
 
     const dir = screen.getByLabelText('Direction');
-    await user.selectOptions(dir, 'desc');
+    fireEvent.change(dir, { target: { value: 'desc' } });
     const page = screen.getByLabelText('Page');
-    await user.clear(page);
-    await user.type(page, '2');
+    fireEvent.change(page, { target: { value: '' } });
+    fireEvent.change(page, { target: { value: '2' } });
     const pageSize = screen.getByLabelText('Page Size');
-    await user.clear(pageSize);
-    await user.type(pageSize, '25');
+    fireEvent.change(pageSize, { target: { value: '' } });
+    fireEvent.change(pageSize, { target: { value: '25' } });
 
     const state = useDbPanelStore.getState();
     expect(state.activeSubtab).toBe('logs');

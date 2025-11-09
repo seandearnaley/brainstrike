@@ -7,17 +7,15 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
-import { parseProviderModelKey, SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 export function useSearchFunctionality(
-  embeddingService: SimpleEmbeddingService | null,
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
   repository: FileRecordRepository | ElectronFileRecordRepository | null,
-  selectedModel: string,
   toast: ReturnType<typeof useToast>['toast']
 ): SearchFunctionality {
   const [searchQuery, setSearchQuery] = useState('');
@@ -28,7 +26,7 @@ export function useSearchFunctionality(
   const db = usePGliteDatabase();
 
   // Maintain an internal service for queries when none is provided (decouples from import toggle)
-  const serviceRef = useRef<SimpleEmbeddingService | null>(embeddingService);
+  const serviceRef = useRef<SimpleEmbeddingService | null>(null);
 
   async function ensureServiceReady(modelKey: string): Promise<SimpleEmbeddingService> {
     let svc = serviceRef.current;
@@ -64,23 +62,21 @@ export function useSearchFunctionality(
 
   async function getEffectiveModelKey(): Promise<string> {
     const activeSetId = getActiveEmbeddingSetId();
-    let modelKey = selectedModel;
     if (db && activeSetId) {
       try {
         const res = await db.query<{ modelKey: string }>(
           'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
           [activeSetId]
         );
-        if (res.rows[0]?.modelKey) modelKey = res.rows[0].modelKey;
+        const resolved = res.rows[0]?.modelKey;
+        if (resolved) {
+          return resolved;
+        }
       } catch {
-        // keep selectedModel on lookup failure
+        // keep fallback
       }
     }
-    const parsed = parseProviderModelKey(modelKey);
-    if (parsed?.provider === 'local') {
-      return parsed.modelId;
-    }
-    return modelKey;
+    return SimpleEmbeddingService.getDefaultModelKey();
   }
 
   async function performRepositorySearch(
@@ -189,7 +185,7 @@ export function useSearchFunctionality(
       // already set to true at start; keep for symmetry
       setHasSearched(true);
     }
-  }, [searchQuery, chunkRepository, selectedModel, db, searchThreshold, enrichChunkResults]);
+  }, [searchQuery, chunkRepository, db, searchThreshold, enrichChunkResults]);
 
   return {
     searchQuery,

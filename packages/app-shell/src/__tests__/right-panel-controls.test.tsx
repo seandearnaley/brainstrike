@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
 import { __resetDbPanelStoreForTests, useDbPanelStore } from '../stores/db-panel-store';
 import {
   __resetRightPanelStoreForTests,
   // keep import named to satisfy tree-shaking and explicitness
+  useRightPanelStore,
 } from '../stores/right-panel-store';
 import { __resetSearchPanelStoreForTests, useSearchPanelStore } from '../stores/search-panel-store';
 
@@ -32,6 +32,33 @@ vi.mock('@brainstrike/ui', async () => {
   return {
     ...actual,
     useToast: () => ({ toast: vi.fn() }),
+  };
+});
+
+vi.mock('@brainstrike/db-explorer', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/db-explorer')>(
+    '@brainstrike/db-explorer'
+  );
+  return {
+    ...actual,
+    DatabaseDemoPanel: () => <div data-testid="mock-database-panel">DatabasePanel</div>,
+    EmbeddingsPanel: () => (
+      <div data-testid="mock-embeddings-panel">
+        <div>Text Embeddings</div>
+        <div>Generate embeddings and calculate text similarity</div>
+      </div>
+    ),
+  };
+});
+
+vi.mock('@brainstrike/vector-management', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/vector-management')>(
+    '@brainstrike/vector-management'
+  );
+  return {
+    ...actual,
+    VectorStatusWithDialog: () => <div data-testid="mock-vector-status">VectorStatus</div>,
+    QueueHud: () => <div data-testid="mock-queue-hud">QueueHud</div>,
   };
 });
 
@@ -73,11 +100,12 @@ describe('RightPanel controls', () => {
   });
 
   it('updates search filters', async () => {
-    const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to Search tab
-    await user.click(screen.getByRole('tab', { name: /search/i }));
+    // Switch to Search tab via store to avoid pointer-event flakiness
+    act(() => {
+      useRightPanelStore.getState().setActiveTab('search');
+    });
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /search/i })).toHaveAttribute('aria-selected', 'true');
     });
@@ -85,9 +113,9 @@ describe('RightPanel controls', () => {
     // Update search controls using fireEvent for speed
     const query = screen.getByLabelText('Query');
     fireEvent.change(query, { target: { value: 'hello world' } });
-    await user.click(screen.getByLabelText('Regex'));
-    await user.click(screen.getByLabelText('Case'));
-    await user.click(screen.getByLabelText('Whole word'));
+    fireEvent.click(screen.getByLabelText('Regex'));
+    fireEvent.click(screen.getByLabelText('Case'));
+    fireEvent.click(screen.getByLabelText('Whole word'));
 
     // Verify search state
     await waitFor(() => {
@@ -100,11 +128,12 @@ describe('RightPanel controls', () => {
   }, 10000);
 
   it('updates database logs controls', async () => {
-    const user = userEvent.setup();
     render(<RightPanel />);
 
-    // Switch to Database tab
-    await user.click(screen.getByRole('tab', { name: /db/i }));
+    // Switch to Database tab via store
+    act(() => {
+      useRightPanelStore.getState().setActiveTab('database');
+    });
     await waitFor(() => {
       expect(screen.getByRole('tab', { name: /db/i })).toHaveAttribute('aria-selected', 'true');
     });

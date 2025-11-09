@@ -6,6 +6,7 @@ import type {
 } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
+import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
 import type ElectronStore from 'electron-store';
@@ -22,6 +23,33 @@ const LAST_FOLDER_STORAGE_KEY = 'lastFolderPath' as const;
 type RegisterIpcHandlerOptions = {
   onResetLocal?: () => Promise<{ success: boolean; message?: string }>;
 };
+
+type LiveSubscriptionRecord = {
+  id: number;
+  mode: 'query' | 'incremental';
+  handle: LiveQuery<unknown>;
+  listener: (results: LiveQueryResults<unknown>) => void;
+  webContentsId: number;
+};
+
+const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
+let nextLiveSubscriptionId = 1;
+
+async function cleanupLiveSubscription(id: number): Promise<void> {
+  const record = liveSubscriptions.get(id);
+  if (!record) return;
+  liveSubscriptions.delete(id);
+  try {
+    await record.handle.unsubscribe(record.listener);
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error ?? '');
+    const normalizedMessage = rawMessage ? rawMessage.toLowerCase() : '';
+    if (normalizedMessage.includes('pglite is closed')) {
+      return;
+    }
+    console.warn('Failed to cleanup live query subscription', id, error);
+  }
+}
 
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
@@ -214,6 +242,117 @@ export function registerIpcHandlers(
     const db = await getDatabase();
     return await db.exec(sql);
   });
+
+  ipcMain.handle(
+    'db:live-query:start',
+    async (
+      event: IpcMainInvokeEvent,
+      payload: {
+        query: string;
+        params?: readonly unknown[];
+        key?: string;
+        mode?: 'query' | 'incremental';
+        offset?: number;
+        limit?: number;
+      }
+    ) => {
+      const { getDatabase } = await import('./db-main');
+      const db = await getDatabase();
+      if (!db.live) {
+        throw new Error('Live query extension is not available');
+      }
+
+      const mode: 'query' | 'incremental' =
+        payload?.mode === 'incremental' ? 'incremental' : 'query';
+
+      let handle: LiveQuery<unknown>;
+      if (mode === 'incremental') {
+        if (!payload.key) {
+          throw new Error('Live incremental queries require a key column');
+        }
+        handle = await db.live.incrementalQuery({
+          query: payload.query,
+          params: payload.params ?? null,
+          key: payload.key,
+          offset: payload.offset,
+          limit: payload.limit,
+        });
+      } else {
+        handle = await db.live.query({
+          query: payload.query,
+          params: payload.params ?? null,
+          offset: payload.offset,
+          limit: payload.limit,
+        });
+      }
+
+      const id = nextLiveSubscriptionId++;
+      const sender = event.sender;
+      const listener = (results: LiveQueryResults<unknown>) => {
+        if (sender.isDestroyed()) {
+          void cleanupLiveSubscription(id);
+          return;
+        }
+        sender.send('db:live-query:update', { id, results });
+      };
+
+      handle.subscribe(listener);
+      liveSubscriptions.set(id, {
+        id,
+        mode,
+        handle,
+        listener,
+        webContentsId: sender.id,
+      });
+      sender.once('destroyed', () => {
+        void cleanupLiveSubscription(id);
+      });
+
+      return {
+        id,
+        initialResults: handle.initialResults,
+      };
+    }
+  );
+
+  ipcMain.handle('db:live-query:stop', async (_event: IpcMainInvokeEvent, id: number) => {
+    await cleanupLiveSubscription(Number(id));
+    return { success: true };
+  });
+
+  ipcMain.handle(
+    'db:live-query:refresh',
+    async (
+      _event: IpcMainInvokeEvent,
+      payload: { id: number; offset?: number; limit?: number }
+    ) => {
+      const record = liveSubscriptions.get(Number(payload?.id));
+      if (!record) {
+        return { success: false, message: 'Subscription not found' };
+      }
+      try {
+        const refreshOptions: { offset?: number; limit?: number } = {};
+        if (payload?.offset !== undefined) {
+          refreshOptions.offset = payload.offset;
+        }
+        if (payload?.limit !== undefined) {
+          refreshOptions.limit = payload.limit;
+        }
+        const refreshArgs =
+          refreshOptions.offset !== undefined || refreshOptions.limit !== undefined
+            ? refreshOptions
+            : undefined;
+        await record.handle.refresh(refreshArgs);
+        return { success: true };
+      } catch (error) {
+        console.warn('Failed to refresh live query', payload?.id, error);
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+  );
 
   // Database test handler for connection validation
   ipcMain.handle('db:ping', async () => {
