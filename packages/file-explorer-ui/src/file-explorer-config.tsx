@@ -6,6 +6,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@brainstrike/ui';
+import { isDevEnv } from '@brainstrike/utils';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -116,7 +117,11 @@ const ConfigDialogContent: React.FC<{
       setDevInlineFixtureEnabled(checked);
       try {
         await persistPatch({ devInlineFixtureEnabled: checked });
-      } catch {}
+      } catch (error) {
+        if (isDevEnv()) {
+          console.warn('Failed to persist inline fixture toggle:', error);
+        }
+      }
     },
     [onSettingsChange, persistPatch, setDevInlineFixtureEnabled]
   );
@@ -385,8 +390,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
         const wrapper = mergeStateWithPatch(current, patch);
         await storage.setItem(name, JSON.stringify(wrapper));
       } catch (error) {
-        // ignore persistence errors but log them in development
-        if (process.env['NODE_ENV'] === 'development') {
+        if (isDevEnv()) {
           console.warn('Failed to persist patch:', error);
         }
       }

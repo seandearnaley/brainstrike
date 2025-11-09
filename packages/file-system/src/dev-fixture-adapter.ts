@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
@@ -24,10 +25,7 @@ export interface FixtureControls {
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
 
 function joinPath(parent: string, name: string): string {
-  if (!parent) {
-    return name;
-  }
-  return `${parent}/${name}`;
+  return parent ? path.posix.join(parent, name) : name;
 }
 
 function sortNodes(nodes: IFileNode[]): IFileNode[] {
