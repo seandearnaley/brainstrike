@@ -17,6 +17,7 @@ vi.mock('@brainstrike/db', () => ({
   useClearAllData: () => null,
   useDbProviderError: () => null,
   useFactoryReset: () => null,
+  usePGliteLiveQuery: () => ({ rows: [], loading: false, error: null, refresh: vi.fn() }),
 }));
 
 vi.mock('@brainstrike/file-explorer-hooks', () => ({

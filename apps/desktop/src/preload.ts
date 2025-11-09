@@ -35,6 +35,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearAll: (confirmationToken?: string) => ipcRenderer.invoke('db:clearAll', confirmationToken),
     resetLocal: () => ipcRenderer.invoke('db:resetLocal'),
   },
+  dbLive: {
+    start: (options: {
+      query: string;
+      params?: readonly unknown[];
+      key?: string;
+      mode?: 'query' | 'incremental';
+      offset?: number;
+      limit?: number;
+    }) => ipcRenderer.invoke('db:live-query:start', options),
+    stop: (id: number) => ipcRenderer.invoke('db:live-query:stop', id),
+    refresh: (payload: { id: number; offset?: number; limit?: number }) =>
+      ipcRenderer.invoke('db:live-query:refresh', payload),
+    onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => {
+      const listener = (_event: unknown, data: { id: number; results: unknown }) => callback(data);
+      ipcRenderer.on('db:live-query:update', listener);
+      return () => {
+        ipcRenderer.removeListener('db:live-query:update', listener);
+      };
+    },
+  },
   // Database path (legacy - kept for compatibility)
   getUserDataPath: () => ipcRenderer.invoke('db:getUserDataPath'),
 });

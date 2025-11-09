@@ -2,8 +2,10 @@ import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 
 type VectorExtension = Extension;
+type LiveExtension = Extension;
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
+let cachedLivePromise: Promise<LiveExtension> | null = null;
 
 async function loadVectorExtension(): Promise<VectorExtension> {
   if (!cachedVectorPromise) {
@@ -21,6 +23,22 @@ async function loadVectorExtension(): Promise<VectorExtension> {
   }
 
   return cachedVectorPromise;
+}
+
+async function loadLiveExtension(): Promise<LiveExtension> {
+  if (!cachedLivePromise) {
+    cachedLivePromise = (async () => {
+      try {
+        const { live } = await import('@electric-sql/pglite/live');
+        return live;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`live query extension is required and failed to load: ${message}`);
+      }
+    })();
+  }
+
+  return cachedLivePromise;
 }
 
 class WasmLoader {
@@ -54,11 +72,11 @@ class WasmLoader {
   private async loadWasm(): Promise<void> {
     try {
       // Load vector extension asynchronously
-      const vector = await loadVectorExtension();
+      const [vector, live] = await Promise.all([loadVectorExtension(), loadLiveExtension()]);
 
       // Create a temporary PGlite instance to trigger WASM loading with pgvector
       const tempDbPath = 'memory://';
-      const tempDb = new PGlite({ dataDir: tempDbPath, extensions: { vector } });
+      const tempDb = new PGlite({ dataDir: tempDbPath, extensions: { vector, live } });
 
       // Ensure the database is ready (this loads the WASM)
       await tempDb.query('SELECT 1');
@@ -77,7 +95,7 @@ class WasmLoader {
     await this.ensureWasmLoaded();
 
     // Load vector extension asynchronously
-    const vector = await loadVectorExtension();
+    const [vector, live] = await Promise.all([loadVectorExtension(), loadLiveExtension()]);
 
     // Normalize in-memory indicator: map legacy ':memory:' to 'memory://'
     const normalizedDataDir = dataDir === ':memory:' ? 'memory://' : dataDir;
@@ -97,8 +115,8 @@ class WasmLoader {
     }
 
     const db = normalizedDataDir
-      ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector } })
-      : new PGlite({ extensions: { vector } });
+      ? new PGlite({ dataDir: normalizedDataDir, extensions: { vector, live } })
+      : new PGlite({ extensions: { vector, live } });
 
     // Cache persisted databases only (not memory://)
     if (normalizedDataDir?.startsWith('idb://')) {

@@ -13,7 +13,7 @@ import {
   parseProviderModelKey,
   STANDARD_EMBEDDING_DIMENSION,
 } from '@brainstrike/embeddings';
-import { useEmbeddingPreferencesStore } from '@brainstrike/preferences';
+import { useEmbeddingPreferencesStore, useVectorStatusUIStore } from '@brainstrike/preferences';
 import type { QueueAdapter } from '@brainstrike/queue';
 import {
   Button,
@@ -50,6 +50,7 @@ import {
 import {
   createImportCompletionHandler,
   useDatabaseErrorBoundary,
+  useDocumentCount,
   useExportHandlers,
   useImportSettings,
   useSearchFunctionality,
@@ -59,7 +60,6 @@ import { useDatabaseDemoStore } from './stores/database-demo-store';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 import type { FileCollectionStatus } from './types/file-collection-status';
 import { useDatabaseDemoData } from './use-database-demo-data';
-import { useEmbeddingService } from './use-embedding-service';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
@@ -245,6 +245,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   } | null>(null);
   const [fileStatuses, setFileStatuses] = useState<Map<string, FileCollectionStatus>>(new Map());
 
+  useEffect(() => {
+    const unsubscribe = useVectorStatusUIStore.subscribe((state) => {
+      const nextId = state.activeEmbeddingSetId;
+      setActiveCollectionId((prev) => {
+        const normalized = typeof nextId === 'string' && nextId.trim() ? nextId : null;
+        return prev === normalized ? prev : normalized;
+      });
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   // Create embedding sets repository
   const embeddingSetsRepository = useMemo(
     () => (dbContext ? new EmbeddingSetsRepository(dbContext as never) : null),
@@ -274,37 +287,41 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const importSettings = useImportSettings();
   const [chunkRepository, setChunkRepository] =
     useState<UseImportFlowResult['chunkRepository']>(null);
+  const resolveActiveCollectionId = useCallback(() => activeCollectionId, [activeCollectionId]);
 
   const data = useDatabaseDemoData({
     repository,
     chunkRepository,
     toast,
     database: dbContext,
+    activeCollectionId,
   });
   const { records, chunks, refreshing, dbInfo, loadRecords, loadChunks } = data;
+
+  const filteredRecords = useMemo(() => {
+    if (!activeCollectionId) return [];
+    return records.filter((record) => record.embeddingSetId === activeCollectionId);
+  }, [records, activeCollectionId]);
+
+  const filteredChunks = useMemo(() => {
+    if (!activeCollectionId) return [];
+    return chunks.filter((chunk) => chunk.embeddingSetId === activeCollectionId);
+  }, [chunks, activeCollectionId]);
 
   const { pendingChunkIds } = usePendingChunks({
     database: dbContext,
     resolveActiveSetId: getActiveEmbeddingSetId,
   });
 
-  const { service: embeddingService, dispose: disposeEmbeddingService } = useEmbeddingService({
-    enableEmbedding: importSettings.enableEmbedding,
-    model: importSettings.selectedModel ?? null,
-  });
+  const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
 
-  const exportHandlers = useExportHandlers(data.records, data.chunks, toast);
-
-  const searchFunctionality = useSearchFunctionality(
-    embeddingService,
-    chunkRepository,
-    repository,
-    importSettings.selectedModel,
-    toast
-  );
+  const searchFunctionality = useSearchFunctionality(chunkRepository, repository, toast);
 
   // Get file collection status hook
   const { getFileStatus } = useFileCollectionStatus(activeCollectionId);
+
+  // Get document count for search tab
+  const documentCount = useDocumentCount(activeCollectionId);
 
   // Load active collection details when activeCollectionId changes
   useEffect(() => {
@@ -314,8 +331,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     }
 
     void embeddingSetsRepository.getById(activeCollectionId).then((set: EmbeddingSet | null) => {
-      if (set?.name) {
-        setActiveCollection({ id: set.id, name: set.name });
+      if (set) {
+        setActiveCollection({ id: set.id, name: set.name ?? set.modelId });
       } else {
         setActiveCollection(null);
       }
@@ -324,17 +341,21 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Load file statuses when records or activeCollectionId changes
   useEffect(() => {
-    if (!records.length || !activeCollectionId) {
+    if (!activeCollectionId) {
+      setFileStatuses(new Map());
+      return;
+    }
+    if (!filteredRecords.length) {
       setFileStatuses(new Map());
       return;
     }
 
-    const fileIds = records.map((r) => r.id);
+    const fileIds = filteredRecords.map((r) => r.id);
     void getFileStatus(fileIds).then((statuses) => {
       const statusMap = new Map(statuses.map((s) => [s.fileId, s]));
       setFileStatuses(statusMap);
     });
-  }, [records, activeCollectionId, getFileStatus]);
+  }, [filteredRecords, activeCollectionId, getFileStatus]);
 
   // Seed search state from persistence on first mount
   useEffect(() => {
@@ -355,8 +376,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       enableChunking: importSettings.enableChunking,
       chunkingStrategy: importSettings.chunkingStrategy,
       chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-      enableEmbedding: importSettings.enableEmbedding,
-      selectedModel: importSettings.selectedModel ?? null,
       chunkSize: importSettings.chunkSize,
       chunkOverlap: importSettings.chunkOverlap,
       tokenTrueSizing: importSettings.tokenTrueSizing,
@@ -366,8 +385,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       importSettings.enableChunking,
       importSettings.chunkingStrategy,
       importSettings.chunkingStrategyExplicit,
-      importSettings.enableEmbedding,
-      importSettings.selectedModel,
       importSettings.chunkSize,
       importSettings.chunkOverlap,
       importSettings.tokenTrueSizing,
@@ -389,17 +406,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     onImportComplete: handleImportComplete,
     onChunkRepositoryChange: setChunkRepository,
     embeddingQueue,
+    resolveActiveCollectionId,
   });
-
-  useEffect(() => {
-    const handler = () => {
-      void loadChunks();
-    };
-    window.addEventListener('brainstrike:queue-drained', handler as EventListener);
-    return () => {
-      window.removeEventListener('brainstrike:queue-drained', handler as EventListener);
-    };
-  }, [loadChunks]);
 
   const handleClearDatabase = useCallback(async () => {
     if (!clearAllData) {
@@ -447,17 +455,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     );
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
 
-  const safeDisposeEmbeddingService = useCallback(async () => {
-    await disposeEmbeddingService();
-  }, [disposeEmbeddingService]);
-
   const handleFactoryResetClick = useCallback(async () => {
     const ok = window.confirm(
       'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
     );
     if (!ok) return;
     try {
-      await safeDisposeEmbeddingService();
       await clearPersistentUiState();
       await purgeDatabaseTables(dbContext);
       await executeFactoryResetOrReload(doFactoryReset ?? undefined);
@@ -468,7 +471,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         variant: 'destructive',
       });
     }
-  }, [safeDisposeEmbeddingService, dbContext, doFactoryReset, toast]);
+  }, [dbContext, doFactoryReset, toast]);
 
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
@@ -479,14 +482,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   );
 
   const getFileChunks = useCallback(
-    (fileId: string) => data.chunks.filter((chunk) => chunk.fileRecordId === fileId),
-    [data.chunks]
+    (fileId: string) => filteredChunks.filter((chunk) => chunk.fileRecordId === fileId),
+    [filteredChunks]
   );
 
   // Collection management handlers
   const handleCollectionChange = useCallback((collectionId: string | null) => {
+    console.log('[DatabaseDemoPanel] Collection changed to:', collectionId);
     setActiveCollectionId(collectionId);
     setActiveEmbeddingSetId(collectionId);
+    console.log(
+      '[DatabaseDemoPanel] After setActiveEmbeddingSetId, checking getActive:',
+      getActiveEmbeddingSetId()
+    );
   }, []);
 
   const handleManageCollections = useCallback(() => {
@@ -496,6 +504,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const handleCreateCollection = useCallback(() => {
     setCreateCollectionOpen(true);
   }, []);
+
+  const handleManualRefresh = useCallback(() => {
+    void (async () => {
+      await Promise.allSettled([loadRecords(), loadChunks()]);
+    })();
+  }, [loadRecords, loadChunks]);
 
   if (dbInitError) {
     return (
@@ -562,8 +576,8 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
         <ViewSelector
           selectedView={selectedView}
           setSelectedView={setSelectedView}
-          recordsCount={records.length}
-          chunksCount={chunks.length}
+          recordsCount={filteredRecords.length}
+          chunksCount={filteredChunks.length}
         />
 
         {/* Settings Panel */}
@@ -595,8 +609,9 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <Button
             size="sm"
             onClick={importFlow.handleImportClick}
-            disabled={importFlow.isImporting}
+            disabled={importFlow.isImporting || !activeCollectionId}
             className="flex items-center gap-1"
+            title={!activeCollectionId ? 'Select a collection first' : undefined}
           >
             <FileText className="h-3 w-3" />
             Import Selected Files ({importFlow.selectedFileCount})
@@ -604,17 +619,18 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           <Button
             size="sm"
             variant="outline"
-            onClick={() => {
-              void loadRecords();
-              void loadChunks();
-            }}
+            onClick={handleManualRefresh}
             disabled={refreshing}
             className="flex items-center gap-1"
           >
             <RefreshCw className={`h-3 w-3 ${refreshing ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <ExportDropdown records={records} chunks={chunks} exportHandlers={exportHandlers} />
+          <ExportDropdown
+            records={filteredRecords}
+            chunks={filteredChunks}
+            exportHandlers={exportHandlers}
+          />
           <ClearDatabaseDialog
             clearAllData={clearAllData}
             records={records}
@@ -635,7 +651,13 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </div>
         )}
 
-        {selectedView === 'search' && <SearchInterface searchFunctionality={searchFunctionality} />}
+        {selectedView === 'search' && (
+          <SearchInterface
+            searchFunctionality={searchFunctionality}
+            activeCollection={activeCollection}
+            documentCount={documentCount}
+          />
+        )}
       </div>
 
       {/* Content Area - virtualized tables */}
@@ -666,24 +688,48 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
                 </div>
               )}
 
-              <FilesViewTable
-                records={records}
-                expandedFiles={expandedFiles}
-                onToggleFileExpansion={toggleFileExpansion}
-                getFileChunks={getFileChunks}
-                activeCollectionId={activeCollectionId}
-                activeCollectionName={activeCollection?.name ?? null}
-                fileStatuses={fileStatuses}
-              />
+              {!activeCollectionId ? (
+                <div className="rounded-md border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground space-y-2">
+                  <p>Select a collection above to see its files.</p>
+                  {records.length === 0 && (
+                    <p>
+                      No files imported yet. Select files and click &quot;Import Selected
+                      Files&quot; to get started.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <FilesViewTable
+                  records={filteredRecords}
+                  expandedFiles={expandedFiles}
+                  onToggleFileExpansion={toggleFileExpansion}
+                  getFileChunks={getFileChunks}
+                  activeCollectionName={activeCollection?.name ?? null}
+                  fileStatuses={fileStatuses}
+                />
+              )}
             </div>
           )}
 
-          {selectedView === 'chunks' && (
-            <ChunksViewTable chunks={chunks} records={records} pendingChunkIds={pendingChunkIds} />
-          )}
+          {selectedView === 'chunks' &&
+            (activeCollectionId ? (
+              <ChunksViewTable
+                chunks={filteredChunks}
+                records={filteredRecords}
+                pendingChunkIds={pendingChunkIds}
+                activeCollectionId={activeCollectionId}
+              />
+            ) : (
+              <div className="rounded-md border border-dashed bg-muted/20 p-4 text-center text-sm text-muted-foreground">
+                Select a collection to inspect its chunks.
+              </div>
+            ))}
 
           {selectedView === 'search' && (
-            <SearchViewTable searchFunctionality={searchFunctionality} />
+            <SearchViewTable
+              searchFunctionality={searchFunctionality}
+              activeCollectionName={activeCollection?.name}
+            />
           )}
         </div>
       )}
@@ -695,7 +741,10 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           onOpenChange={setCreateCollectionOpen}
           repository={embeddingSetsRepository}
           availableModels={availableModels}
-          onSetCreated={() => {
+          onSetCreated={(newSetId?: string) => {
+            if (newSetId) {
+              handleCollectionChange(newSetId);
+            }
             setCreateCollectionOpen(false);
             // Reload collections (SearchCollectionSelector listens to event)
           }}

@@ -31,4 +31,14 @@ export function setActiveEmbeddingSetId(id: string | null): void {
   } catch {
     // ignore
   }
+
+  // Dispatch event to notify Vector Status and other listeners
+  // This ensures immediate UI updates when the active collection changes
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('brainstrike:embedding-set-updated', {
+        detail: { id },
+      })
+    );
+  }
 }

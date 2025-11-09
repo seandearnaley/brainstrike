@@ -451,25 +451,6 @@ function createResolvedEmbeddingModelState(
   };
 }
 
-function resolveDisabledEmbeddingModel(config: EmbeddingConfiguration): ResolvedEmbeddingModel {
-  const resolved = createResolvedEmbeddingModelState(config);
-  const model = config.model;
-  if (!model) {
-    return resolved;
-  }
-
-  const canonical = canonicalizeModelKey(model, config.provider);
-  resolved.modelKey = canonical.composite;
-  resolved.modelId = canonical.modelId;
-  resolved.provider = canonical.provider;
-  resolved.targetDimension =
-    resolved.provider === 'local'
-      ? determineTargetDimension(SimpleEmbeddingService.getModelConfig(resolved.modelId))
-      : DEFAULT_EMBEDDING_DIMENSION;
-
-  return resolved;
-}
-
 async function resolveEnabledEmbeddingModel(
   config: EmbeddingConfiguration,
   ports: RunEnhancedImportPorts | undefined
@@ -593,19 +574,16 @@ async function resolveEmbeddingModel(
   }
 
   if (!config.enabled) {
-    const resolved = resolveDisabledEmbeddingModel(config);
-    if (ports?.sql) {
-      await ensureAndEmitEmbeddingSet({
-        sql: ports.sql,
-        resolved,
-        modelConfig:
-          resolved.provider === 'local' && resolved.modelId
-            ? SimpleEmbeddingService.getModelConfig(resolved.modelId)
-            : undefined,
-        config,
-      });
-    }
-    return resolved;
+    // Even when embeddings are disabled, chunks should be associated with the active collection
+    // This allows:
+    // 1. Document counts to update correctly in the UI
+    // 2. Users to backfill embeddings later via the Backfill button
+    // 3. Proper collection management and visibility
+    const activeSetId = config.resolveTargetEmbeddingSetId?.() ?? null;
+    logger.info('[DEBUG] Embeddings disabled - resolveTargetEmbeddingSetId returned:', {
+      activeSetId,
+    });
+    return { targetSetId: activeSetId };
   }
 
   return resolveEnabledEmbeddingModel(config, ports);
@@ -642,6 +620,12 @@ async function ensureAndEmitEmbeddingSet(params: {
 }): Promise<void> {
   const { sql, resolved, modelConfig, config } = params;
   if (!resolved.modelKey || !resolved.targetDimension) {
+    return;
+  }
+
+  // Only ensure/create embedding set if we have a model and dimensions (embeddings enabled)
+  // Chunks can still be created with embedding_set_id even without this
+  if (!resolved.targetSetId) {
     return;
   }
 
@@ -703,7 +687,14 @@ function buildChunkingOptions(
     // Enable streaming by default for better memory management with large files
     useStreamingForLargeFiles: chunking.useStreamingForLargeFiles ?? true,
     streamBatchSize: chunking.streamBatchSize ?? 250,
+    ...(targetSetId ? { targetEmbeddingSetId: targetSetId } : {}),
   };
+
+  logger.info('[DEBUG] buildChunkingOptions - targetSetId:', targetSetId);
+  logger.info(
+    '[DEBUG] buildChunkingOptions - options.targetEmbeddingSetId:',
+    options.targetEmbeddingSetId
+  );
 
   const queueActive = Boolean(queuePort && embedding?.enabled && embeddingModelKey);
   if (queueActive) {
@@ -938,6 +929,15 @@ export async function runEnhancedImport<TFileNode = unknown>({
 
     const { modelId, modelKey, targetSetId, provider, targetDimension, dimensionParameter } =
       await resolveEmbeddingModel(embedding, ports);
+
+    logger.info('[DEBUG] Resolved embedding model', {
+      modelId,
+      modelKey,
+      targetSetId,
+      provider,
+      targetDimension,
+    });
+
     const queuePort = ports?.embeddingQueue ?? null;
     const runInTransaction = ports?.sql?.runInTransaction;
 
@@ -955,7 +955,14 @@ export async function runEnhancedImport<TFileNode = unknown>({
       ...(targetDimension !== undefined ? { targetDimension } : {}),
       ...(dimensionParameter ? { dimensionParameter } : {}),
     };
+
+    logger.info('[DEBUG] Chunking config targetSetId', { targetSetId: chunkingConfig.targetSetId });
+
     const chunkingOptions = buildChunkingOptions(chunkingConfig);
+
+    logger.info('[DEBUG] Chunking options targetEmbeddingSetId', {
+      targetEmbeddingSetId: chunkingOptions.targetEmbeddingSetId,
+    });
 
     const enhancedResults = await processChunkingImpl(baseResults, chunking.deps, chunkingOptions);
 
