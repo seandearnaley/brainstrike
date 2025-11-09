@@ -11,7 +11,11 @@ import {
   runFileImport,
 } from './file-import/file-import-coordinator';
 import { FileImportError, isFileImportError } from './file-import/file-import-errors';
-import type { FileImportDependencies, FileSystemPort } from './file-import/file-import-types';
+import type {
+  FileImportContext,
+  FileImportDependencies,
+  FileSystemPort,
+} from './file-import/file-import-types';
 
 interface UseFileImportServiceOptions {
   onProgress?: (progress: ImportProgress) => void;
@@ -23,7 +27,8 @@ interface FileImportServiceReturn {
   importFiles: (
     selectedFilePaths: Set<string>,
     fileTree: IFileNode[],
-    fileContents: Record<string, string>
+    fileContents: Record<string, string>,
+    embeddingSetId?: string
   ) => Promise<void>;
   isImporting: boolean;
   progress: ImportProgress | null;
@@ -108,7 +113,8 @@ export function useFileImportService(
     async (
       selectedFilePaths: Set<string>,
       fileTree: IFileNode[],
-      fileContents: Record<string, string>
+      fileContents: Record<string, string>,
+      embeddingSetId?: string
     ) => {
       setIsImporting(true);
 
@@ -118,11 +124,11 @@ export function useFileImportService(
       };
 
       try {
-        const outcome = await runFileImport(
-          dependencies,
-          { selectedFilePaths, fileTree, fileContents },
-          { onProgress: handleProgress }
-        );
+        const context: FileImportContext = embeddingSetId
+          ? { selectedFilePaths, fileTree, fileContents, embeddingSetId }
+          : { selectedFilePaths, fileTree, fileContents };
+
+        const outcome = await runFileImport(dependencies, context, { onProgress: handleProgress });
 
         setProgress(outcome.progress);
         onProgress?.(outcome.progress);

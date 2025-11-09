@@ -1,5 +1,5 @@
-import { usePGliteDatabase } from '@brainstrike/db';
-import { useCallback, useState } from 'react';
+import { usePGliteLiveQuery } from '@brainstrike/db';
+import { useCallback, useMemo } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
 
 /**
@@ -14,11 +14,11 @@ interface FileStatusRow {
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   file_path: string;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  searchable_chunks: string;
+  searchable_chunks: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  total_chunks: string;
+  total_chunks: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
-  other_collections: string;
+  other_collections: string | number;
   // biome-ignore lint/style/useNamingConvention: Database column names use snake_case
   last_indexed: string | null;
 }
@@ -34,9 +34,9 @@ function isValidFileStatusRow(row: unknown): row is FileStatusRow {
     typeof r['file_id'] === 'string' &&
     typeof r['file_name'] === 'string' &&
     typeof r['file_path'] === 'string' &&
-    typeof r['searchable_chunks'] === 'string' &&
-    typeof r['total_chunks'] === 'string' &&
-    typeof r['other_collections'] === 'string' &&
+    (typeof r['searchable_chunks'] === 'string' || typeof r['searchable_chunks'] === 'number') &&
+    (typeof r['total_chunks'] === 'string' || typeof r['total_chunks'] === 'number') &&
+    (typeof r['other_collections'] === 'string' || typeof r['other_collections'] === 'number') &&
     (r['last_indexed'] === null || typeof r['last_indexed'] === 'string')
   );
 }
@@ -45,9 +45,9 @@ function isValidFileStatusRow(row: unknown): row is FileStatusRow {
  * Maps database row to FileCollectionStatus
  */
 function mapRowToStatus(row: FileStatusRow): FileCollectionStatus {
-  const searchableChunksCount = Number.parseInt(row.searchable_chunks, 10);
-  const totalChunksCount = Number.parseInt(row.total_chunks, 10);
-  const otherCollectionsCount = Number.parseInt(row.other_collections, 10);
+  const searchableChunksCount = Number(row.searchable_chunks ?? 0) || 0;
+  const totalChunksCount = Number(row.total_chunks ?? 0) || 0;
+  const otherCollectionsCount = Number(row.other_collections ?? 0) || 0;
 
   const status: FileCollectionStatus = {
     fileId: row.file_id,
@@ -81,77 +81,70 @@ function mapRowToStatus(row: FileStatusRow): FileCollectionStatus {
  * }
  * ```
  */
+const FILE_STATUS_QUERY = `
+  WITH target AS (SELECT $1::text AS embedding_set_id)
+  SELECT
+    fr.id AS file_id,
+    fr.name AS file_name,
+    fr.path AS file_path,
+    COUNT(fc.id) FILTER (
+      WHERE fc.embedding_set_id = target.embedding_set_id
+        AND fc.embedding IS NOT NULL
+    ) AS searchable_chunks,
+    COUNT(fc.id) AS total_chunks,
+    COUNT(DISTINCT fc.embedding_set_id) FILTER (
+      WHERE fc.embedding_set_id IS NOT NULL
+        AND fc.embedding_set_id != target.embedding_set_id
+    ) AS other_collections,
+    MAX(fc.embedding_updated_at) AS last_indexed
+  FROM file_records fr
+  LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
+  JOIN target ON fr.embedding_set_id = target.embedding_set_id
+  GROUP BY fr.id, fr.name, fr.path, fr.created_at
+  ORDER BY fr.created_at DESC
+`.trim();
+
 export function useFileCollectionStatus(activeCollectionId: string | null) {
-  const db = usePGliteDatabase();
-  const [error, setError] = useState<Error | null>(null);
+  const params = useMemo<readonly [string] | undefined>(
+    () => (activeCollectionId ? ([activeCollectionId] as const) : undefined),
+    [activeCollectionId]
+  );
+
+  const { rows, error } = usePGliteLiveQuery<FileStatusRow>({
+    query: FILE_STATUS_QUERY,
+    ...(params ? { params } : {}),
+    mode: 'incremental',
+    key: 'file_id',
+    enabled: Boolean(activeCollectionId),
+  });
+
+  const statusMap = useMemo(() => {
+    if (!activeCollectionId) {
+      return new Map<string, FileCollectionStatus>();
+    }
+
+    const map = new Map<string, FileCollectionStatus>();
+    for (const row of rows) {
+      if (!isValidFileStatusRow(row)) {
+        console.warn('[useFileCollectionStatus] Invalid row data:', row);
+        continue;
+      }
+      map.set(row.file_id, mapRowToStatus(row));
+    }
+    return map;
+  }, [rows, activeCollectionId]);
 
   const getFileStatus = useCallback(
     async (fileIds: string[]): Promise<FileCollectionStatus[]> => {
-      // Clear previous errors
-      setError(null);
-
-      if (!db || !activeCollectionId || fileIds.length === 0) {
+      if (!activeCollectionId || fileIds.length === 0) {
         return [];
       }
 
-      // Validate input
-      if (fileIds.length > 1000) {
-        const err = new Error('Cannot query more than 1000 files at once');
-        setError(err);
-        console.error('[useFileCollectionStatus]', err);
-        return [];
-      }
-
-      try {
-        // Query to get file status for active collection
-        // For each file, count:
-        // - Total chunks
-        // - Chunks with embeddings in active collection
-        // - Distinct other collections this file is in
-        // - Latest embedding timestamp
-        const placeholders = fileIds.map((_, i) => `$${i + 2}`).join(', ');
-        const query = `
-          SELECT
-            fr.id AS file_id,
-            fr.name AS file_name,
-            fr.path AS file_path,
-            COUNT(fc.id) FILTER (
-              WHERE fc.embedding_set_id = $1
-              AND fc.embedding IS NOT NULL
-            ) AS searchable_chunks,
-            COUNT(fc.id) AS total_chunks,
-            COUNT(DISTINCT fc.embedding_set_id) FILTER (
-              WHERE fc.embedding_set_id IS NOT NULL
-              AND fc.embedding_set_id != $1
-            ) AS other_collections,
-            MAX(fc.embedding_updated_at) AS last_indexed
-          FROM file_records fr
-          LEFT JOIN file_chunks fc ON fc.file_record_id = fr.id
-          WHERE fr.id IN (${placeholders})
-          GROUP BY fr.id, fr.name, fr.path, fr.created_at
-          ORDER BY fr.created_at DESC
-        `.trim();
-
-        const result = await db.query(query, [activeCollectionId, ...fileIds]);
-
-        // Validate and map rows with runtime type checking
-        const validatedRows = result.rows.filter((row): row is FileStatusRow => {
-          const isValid = isValidFileStatusRow(row);
-          if (!isValid) {
-            console.warn('[useFileCollectionStatus] Invalid row data:', row);
-          }
-          return isValid;
-        });
-
-        return validatedRows.map(mapRowToStatus);
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        setError(err);
-        console.error('[useFileCollectionStatus] Failed to get file status:', err);
-        return [];
-      }
+      return fileIds
+        .map((id) => statusMap.get(id))
+        .filter((status): status is FileCollectionStatus => Boolean(status));
     },
-    [db, activeCollectionId]
+    [activeCollectionId, statusMap]
   );
 
   return { getFileStatus, error };

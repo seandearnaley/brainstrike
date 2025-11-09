@@ -1,8 +1,6 @@
 import { useImportSettingsStore } from '@brainstrike/preferences';
 import type { ImportSettings } from '../types';
 
-// Model default handled at store initialization
-
 export function useImportSettings(): ImportSettings {
   const enableChunking = useImportSettingsStore((s) => s.enableChunking);
   const setEnableChunking = useImportSettingsStore((s) => s.setEnableChunking);
@@ -17,10 +15,6 @@ export function useImportSettings(): ImportSettings {
   const setTokenTrueSizing = useImportSettingsStore((s) => s.setTokenTrueSizing);
   const chunkTokenLimit = useImportSettingsStore((s) => s.chunkTokenLimit);
   const setChunkTokenLimit = useImportSettingsStore((s) => s.setChunkTokenLimit);
-  const enableEmbedding = useImportSettingsStore((s) => s.enableEmbedding);
-  const setEnableEmbedding = useImportSettingsStore((s) => s.setEnableEmbedding);
-  const selectedModel = useImportSettingsStore((s) => s.selectedModel);
-  const setSelectedModel = useImportSettingsStore((s) => s.setSelectedModel);
 
   return {
     enableChunking,
@@ -36,9 +30,5 @@ export function useImportSettings(): ImportSettings {
     setTokenTrueSizing,
     chunkTokenLimit,
     setChunkTokenLimit,
-    enableEmbedding,
-    setEnableEmbedding,
-    selectedModel,
-    setSelectedModel,
   };
 }

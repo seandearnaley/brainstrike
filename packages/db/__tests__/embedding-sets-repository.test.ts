@@ -18,12 +18,14 @@ describe('EmbeddingSetsRepository', () => {
     await db.close();
   });
 
-  it('getOrCreateSet returns stable set for same composite key', async () => {
+  it('always creates a new set even for the same composite key', async () => {
     const set1 = await repo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 1024, 'cosine');
     const set2 = await repo.getOrCreateSet('bge-m3', 'Xenova/bge-m3', 1024, 'cosine');
-    expect(set1.id).toBe(set2.id);
+    expect(set1.id).not.toBe(set2.id);
     expect(set1.dimensions).toBe(1024);
+    expect(set2.dimensions).toBe(1024);
     expect(set1.distance).toBe('cosine');
+    expect(set2.distance).toBe('cosine');
   });
 
   it('getByModelKey lists sets for a key', async () => {

@@ -74,8 +74,17 @@ describe('embedding-worker retries and backoff', () => {
 
   it('retries after a transient failure and succeeds', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-r1';
     const fileId = 'file-r1';
     const chunkId = 'chunk-r1';
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+    );
+
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
@@ -89,7 +98,7 @@ describe('embedding-worker retries and backoff', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
       VALUES ('job-r1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId }), now]
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
     );
 
     const controller = await startEmbeddingWorker({

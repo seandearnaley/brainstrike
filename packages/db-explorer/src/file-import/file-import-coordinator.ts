@@ -29,7 +29,7 @@ function prepareRequestsFromCache(
   context: FileImportContext,
   tracker: ImportProgressTracker
 ): { requests: FileImportRequest[]; pending: PendingFile[] } {
-  const { selectedFilePaths, fileTree, fileContents } = context;
+  const { selectedFilePaths, fileTree, fileContents, embeddingSetId } = context;
   const requests: FileImportRequest[] = [];
   const pending: PendingFile[] = [];
 
@@ -48,12 +48,18 @@ function prepareRequestsFromCache(
 
     if (cachedContent && isContentAccessible(cachedContent)) {
       const fileName = path.split('/').pop() ?? 'unknown';
-      requests.push({
+      const request: FileImportRequest = {
         path,
         name: fileName,
         content: cachedContent,
         size: cachedContent.length,
-      });
+      };
+
+      if (embeddingSetId) {
+        request.embeddingSetId = embeddingSetId;
+      }
+
+      requests.push(request);
       continue;
     }
 
@@ -73,13 +79,23 @@ function prepareRequestsFromCache(
   return { requests, pending };
 }
 
-function createImportRequest(fileNode: IFileNode, content: string): FileImportRequest {
-  return {
+function createImportRequest(
+  fileNode: IFileNode,
+  content: string,
+  embeddingSetId?: string
+): FileImportRequest {
+  const request: FileImportRequest = {
     path: fileNode.path,
     name: fileNode.name,
     content,
     size: fileNode.size ?? content.length,
   };
+
+  if (embeddingSetId) {
+    request.embeddingSetId = embeddingSetId;
+  }
+
+  return request;
 }
 
 async function readTextFile(
@@ -115,7 +131,8 @@ function resolveReadError(error: unknown): string {
 async function loadMissingFileContents(
   pending: PendingFile[],
   dependencies: FileImportDependencies,
-  tracker: ImportProgressTracker
+  tracker: ImportProgressTracker,
+  embeddingSetId?: string
 ): Promise<FileImportRequest[]> {
   const requests: FileImportRequest[] = [];
 
@@ -137,7 +154,7 @@ async function loadMissingFileContents(
 
     try {
       const content = await readTextFile(fileNode, fileSystem);
-      requests.push(createImportRequest(fileNode, content));
+      requests.push(createImportRequest(fileNode, content, embeddingSetId));
     } catch (error) {
       tracker.addError({
         file: fileNode.path,
@@ -199,7 +216,12 @@ export async function runFileImport(
 
   const { requests: cachedRequests, pending } = prepareRequestsFromCache(context, tracker);
 
-  const loadedRequests = await loadMissingFileContents(pending, dependencies, tracker);
+  const loadedRequests = await loadMissingFileContents(
+    pending,
+    dependencies,
+    tracker,
+    context.embeddingSetId
+  );
   const requests = [...cachedRequests, ...loadedRequests];
 
   if (requests.length === 0) {

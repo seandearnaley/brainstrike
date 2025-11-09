@@ -14,6 +14,7 @@ import { type FC, useCallback, useEffect, useMemo, useState } from 'react';
 
 export interface AssistantUiPanelWrapperProps {
   className?: string;
+  initialProviders?: SupportedProvider[];
 }
 
 const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
@@ -23,8 +24,10 @@ const RUNTIME_LABELS: Record<ProviderRuntime, string> = {
   browser: 'Browser',
 };
 
-export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
-  const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>([]);
+export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = ({ initialProviders }) => {
+  const [configuredProviders, setConfiguredProviders] = useState<SupportedProvider[]>(
+    () => initialProviders ?? []
+  );
 
   const {
     enabledModelsByProvider,
@@ -56,41 +59,18 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     [enabledModelsByProvider, setModel]
   );
 
-  const reconcileSelection = useCallback(
-    (providers: SupportedProvider[]) => {
-      const currentProvider = getSelectedProvider();
-
-      if (currentProvider && !providers.includes(currentProvider)) {
-        clearModel();
-        return;
-      }
-
-      if (currentProvider && providerHasEnabledModels(currentProvider)) {
-        return;
-      }
-
-      const next = providers.find((providerId) => providerHasEnabledModels(providerId));
-      if (next) {
-        selectModelForProvider(next);
-        return;
-      }
-
-      if (currentProvider) {
-        clearModel();
-      }
-    },
-    [getSelectedProvider, clearModel, providerHasEnabledModels, selectModelForProvider]
-  );
-
   useEffect(() => {
     let cancelled = false;
 
     const loadProviders = async () => {
+      if (initialProviders !== undefined) {
+        setConfiguredProviders(initialProviders);
+        return;
+      }
+
       const providers = await getAvailableProviders();
       if (cancelled) return;
-
       setConfiguredProviders(providers);
-      reconcileSelection(providers);
     };
 
     void loadProviders();
@@ -98,11 +78,48 @@ export const AssistantUiPanelWrapper: FC<AssistantUiPanelWrapperProps> = () => {
     return () => {
       cancelled = true;
     };
-  }, [getAvailableProviders, reconcileSelection]);
+  }, [initialProviders, getAvailableProviders]);
 
+  // Reconcile selection whenever providers or enabled models change
+  // Using useEffect (not useLayoutEffect) because we're mutating external state (Zustand store)
+  // React will properly batch these updates and handle them in the commit phase
   useEffect(() => {
-    reconcileSelection(configuredProviders);
-  }, [configuredProviders, reconcileSelection]);
+    if (configuredProviders.length === 0) {
+      return;
+    }
+
+    const currentProvider = getSelectedProvider();
+
+    // Case 1: Current provider is no longer available
+    if (currentProvider && !configuredProviders.includes(currentProvider)) {
+      clearModel();
+      return;
+    }
+
+    // Case 2: Current provider exists and has enabled models - nothing to do
+    if (currentProvider && providerHasEnabledModels(currentProvider)) {
+      return;
+    }
+
+    // Case 3: Find the first provider with enabled models
+    const next = configuredProviders.find((providerId) => providerHasEnabledModels(providerId));
+    if (next) {
+      selectModelForProvider(next);
+      return;
+    }
+
+    // Case 4: No providers with enabled models, clear selection
+    if (currentProvider) {
+      clearModel();
+    }
+  }, [
+    configuredProviders,
+    enabledModelsByProvider,
+    getSelectedProvider,
+    clearModel,
+    providerHasEnabledModels,
+    selectModelForProvider,
+  ]);
 
   const currentModel = getSelectedModel();
 

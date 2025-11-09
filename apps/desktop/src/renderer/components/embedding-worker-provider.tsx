@@ -10,48 +10,60 @@ const logger = createLogger('EmbeddingWorkerProvider');
  * The worker runs in the browser context where Web Workers (workerpool) are available.
  * This is REQUIRED for desktop - without it, backfill jobs won't be processed.
  */
+// Helper to create worker config
+function createWorkerConfig(
+  db: NonNullable<ReturnType<typeof usePGliteDatabase>>
+): Parameters<typeof startEmbeddingWorker>[0] {
+  return {
+    db,
+    concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
+    leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
+    modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
+    log: (msg: string, meta?: unknown) => {
+      if (meta) {
+        logger.info(msg, meta);
+      } else {
+        logger.info(msg);
+      }
+    },
+  };
+}
+
 export function EmbeddingWorkerProvider({ children }: { children: React.ReactNode }) {
   const db = usePGliteDatabase();
   const controllerRef = useRef<EmbeddingWorkerController | null>(null);
+  const startingRef = useRef(false);
 
   useEffect(() => {
-    if (!db) {
-      return;
-    }
+    if (!db) return;
 
-    // Start the worker once database is ready
     const startWorker = async () => {
+      if (startingRef.current || controllerRef.current) return;
+
+      startingRef.current = true;
+
       try {
         logger.info('Starting embedding worker in renderer process...');
-        const controller = await startEmbeddingWorker({
-          db,
-          concurrency: Number(import.meta.env['VITE_EMBED_CONCURRENCY'] ?? 1) || 1,
-          leaseMs: Number(import.meta.env['VITE_EMBED_LEASE_MS'] ?? 60000) || 60000,
-          modelKey: import.meta.env['VITE_EMBED_MODEL_KEY'] || undefined,
-          log: (msg: string, meta?: unknown) => {
-            if (meta) {
-              logger.info(msg, meta);
-            } else {
-              logger.info(msg);
-            }
-          },
-        });
+        const config = createWorkerConfig(db);
+        const controller = await startEmbeddingWorker(config);
         controllerRef.current = controller;
         logger.info('Embedding worker started successfully');
       } catch (error) {
         logger.error('Failed to start embedding worker:', error);
+      } finally {
+        startingRef.current = false;
       }
     };
 
     void startWorker();
 
-    // Cleanup: stop worker when component unmounts
     return () => {
       if (controllerRef.current) {
         logger.info('Stopping embedding worker...');
-        void controllerRef.current.stop().then(() => {
+        const currentController = controllerRef.current;
+        controllerRef.current = null;
+        void currentController.stop().then(() => {
           logger.info('Embedding worker stopped');
-          controllerRef.current = null;
         });
       }
     };

@@ -45,8 +45,17 @@ function tryRequireAgentClient(path: string): AgentClientModule | null {
   }
 }
 
+function shouldForceFallback(): boolean {
+  return process.env['BRAINSTRIKE_AGENT_TEST_MODE'] === '1' || process.env['VITEST'] === 'true';
+}
+
 function loadAgentClient(): AgentClientModule | null {
   if (cachedAgentClient !== undefined) {
+    return cachedAgentClient;
+  }
+
+  if (shouldForceFallback()) {
+    cachedAgentClient = null;
     return cachedAgentClient;
   }
 

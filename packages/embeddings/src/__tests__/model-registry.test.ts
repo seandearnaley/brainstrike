@@ -111,24 +111,49 @@ describe('Model Registry Tests', () => {
       expect(Object.keys(nonExistentTag).length).toBe(0);
     });
 
-    it('should determine quantization correctly', () => {
+    it('should respect explicit quantization flags from registry', () => {
       const models = ModelRegistryManager.listModels();
 
       // Test jina-code (768D, should force quantization)
       const jinaCode = models['jina-code'];
       expect(jinaCode).toBeDefined();
-      expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(true);
+      expect(ModelRegistryManager.shouldQuantize(jinaCode!)).toBe(false);
 
       // Test all-MiniLM-L6-v2 (384D, should force quantization)
       const miniLM = models['all-MiniLM-L6-v2'];
       expect(miniLM).toBeDefined();
-      expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(true);
+      expect(ModelRegistryManager.shouldQuantize(miniLM!)).toBe(false);
 
       // Test BGE-Large (1024D, should recommend quantization)
       const bgeLarge = models['bge-large-en-v1.5'];
       if (bgeLarge) {
-        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(true);
+        expect(ModelRegistryManager.shouldQuantize(bgeLarge)).toBe(false);
       }
+    });
+
+    it('should auto-quantize models without explicit guidance when dimensions are small', () => {
+      const originalRegistry = ModelRegistryManager.getRegistry();
+      const testRegistry: ModelRegistry = {
+        default: 'auto-model',
+        models: {
+          'auto-model': {
+            id: 'auto/model',
+            name: 'Auto Model',
+            dimensions: 512,
+            description: 'Auto quantization test',
+            tags: ['test'],
+            origin: 'Test',
+            size: '50MB',
+          },
+        },
+      };
+
+      ModelRegistryManager.updateRegistry(testRegistry);
+      const autoModel = ModelRegistryManager.getModel('auto-model');
+      expect(autoModel).toBeDefined();
+      expect(ModelRegistryManager.shouldQuantize(autoModel!)).toBe(true);
+
+      ModelRegistryManager.updateRegistry(originalRegistry);
     });
 
     it('should allow registry updates', () => {

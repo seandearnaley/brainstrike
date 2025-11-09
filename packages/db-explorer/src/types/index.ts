@@ -80,6 +80,8 @@ export interface ExportButtonsProps {
 
 export interface SearchInterfaceProps {
   searchFunctionality: SearchFunctionality;
+  activeCollection?: { id: string; name: string } | null | undefined;
+  documentCount?: number | undefined;
 }
 
 export interface ImportSettings {
@@ -96,10 +98,6 @@ export interface ImportSettings {
   setTokenTrueSizing: (value: boolean) => void;
   chunkTokenLimit: number;
   setChunkTokenLimit: (value: number) => void;
-  enableEmbedding: boolean;
-  setEnableEmbedding: (value: boolean) => void;
-  selectedModel: string;
-  setSelectedModel: (value: string) => void;
 }
 
 export interface ExportHandlers {

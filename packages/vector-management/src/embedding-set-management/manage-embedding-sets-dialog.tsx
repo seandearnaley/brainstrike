@@ -221,9 +221,13 @@ export function ManageEmbeddingSetsDialog({
     setDeleteDialogOpen(true);
   };
 
-  const handleSetAction = async () => {
+  const handleSetAction = async (newSetId?: string) => {
     await loadSets();
     setSelectedSet(null);
+    // Auto-select newly created collection
+    if (newSetId && onSetSelected) {
+      onSetSelected(newSetId);
+    }
   };
 
   // Get available models from preferences and model registry

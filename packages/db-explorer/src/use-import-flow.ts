@@ -3,25 +3,19 @@ import type {
   ElectronFileChunkRepository,
   FileChunkRepository,
 } from '@brainstrike/db';
-import {
-  isHostedProvider,
-  parseProviderModelKey,
-  resolveHostedProviderApiKey,
-} from '@brainstrike/embeddings';
 import { useFileExplorer, useSelectionManager } from '@brainstrike/file-explorer-ui';
 import type { QueueAdapter } from '@brainstrike/queue';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useEnhancedFileImportService } from './enhanced-file-import-service';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
+import { getActiveEmbeddingSetId } from './vector-preferences';
 
 export interface UseImportFlowOptions {
   importSettings: {
     enableChunking: boolean;
     chunkingStrategy: ChunkingStrategy;
     chunkingStrategyExplicit: boolean;
-    enableEmbedding: boolean;
-    selectedModel: string | null;
     chunkSize: number;
     chunkOverlap: number;
     tokenTrueSizing: boolean;
@@ -33,6 +27,7 @@ export interface UseImportFlowOptions {
     repository: FileChunkRepository | ElectronFileChunkRepository | null
   ) => void;
   embeddingQueue?: QueueAdapter | null;
+  resolveActiveCollectionId?: () => string | null;
 }
 
 export interface UseImportFlowResult {
@@ -51,6 +46,7 @@ export function useImportFlow({
   onImportComplete,
   onChunkRepositoryChange,
   embeddingQueue,
+  resolveActiveCollectionId,
 }: UseImportFlowOptions): UseImportFlowResult {
   const [showImportProgress, setShowImportProgress] = useState(false);
   const { fileContents, fileTree } = useFileExplorer();
@@ -69,6 +65,11 @@ export function useImportFlow({
     onImportCompleteRef.current = onImportComplete;
   }, [onImportComplete]);
 
+  const resolveCollectionId = useCallback(
+    () => resolveActiveCollectionId?.() ?? getActiveEmbeddingSetId(),
+    [resolveActiveCollectionId]
+  );
+
   const { isImporting, progress, importFiles, chunkRepository } = useEnhancedFileImportService({
     onProgress: () => setShowImportProgress(true),
     onComplete: async (results) => {
@@ -84,13 +85,12 @@ export function useImportFlow({
     enableChunking: importSettings.enableChunking,
     chunkingStrategy: importSettings.chunkingStrategy,
     chunkingStrategyExplicit: importSettings.chunkingStrategyExplicit,
-    enableEmbedding: importSettings.enableEmbedding,
-    ...(importSettings.selectedModel ? { embeddingModel: importSettings.selectedModel } : {}),
     chunkSize: importSettings.chunkSize,
     chunkOverlap: importSettings.chunkOverlap,
     tokenTrueSizing: importSettings.tokenTrueSizing,
     chunkTokenLimit: importSettings.chunkTokenLimit,
     embeddingQueue: embeddingQueue ?? null,
+    resolveTargetEmbeddingSetId: resolveCollectionId,
   });
 
   useEffect(() => {
@@ -120,42 +120,31 @@ export function useImportFlow({
     return false;
   }, [selectedFilePaths, showDestructiveToast]);
 
-  const ensureHostedCredentials = useCallback(async (): Promise<boolean> => {
-    if (!importSettings.enableEmbedding || !importSettings.selectedModel) {
-      return true;
-    }
-
-    const parsed = parseProviderModelKey(importSettings.selectedModel);
-    if (!parsed || !isHostedProvider(parsed.provider)) {
-      return true;
-    }
-
-    const apiKey = await resolveHostedProviderApiKey(parsed.provider);
-    if (apiKey) {
+  const ensureCollectionSelected = useCallback((): boolean => {
+    const collectionId = resolveCollectionId();
+    if (collectionId) {
       return true;
     }
 
     showDestructiveToast(
-      'API Key Required',
-      `Configure a ${parsed.provider.toUpperCase()} API key before running hosted embeddings.`
+      'Select a Collection',
+      'Choose a search collection before importing files.'
     );
     return false;
-  }, [importSettings.enableEmbedding, importSettings.selectedModel, showDestructiveToast]);
+  }, [resolveCollectionId, showDestructiveToast]);
 
   const runImport = useCallback(async () => {
     if (!ensureSelection()) {
       return;
     }
-
-    const hasCredentials = await ensureHostedCredentials();
-    if (!hasCredentials) {
+    if (!ensureCollectionSelected()) {
       return;
     }
 
     await importFiles(selectedFilePaths, fileTree, fileContents);
   }, [
-    ensureHostedCredentials,
     ensureSelection,
+    ensureCollectionSelected,
     fileContents,
     fileTree,
     importFiles,

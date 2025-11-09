@@ -58,8 +58,17 @@ describe('embedding-worker: heartbeat error logging', () => {
 
   it('logs heartbeat errors without crashing the worker', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-h1';
     const fileId = 'file-h1';
     const chunkId = 'chunk-h1';
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+    );
+
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
@@ -73,7 +82,7 @@ describe('embedding-worker: heartbeat error logging', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-h1','embeddings','embed_chunk', $1, 'queued', $2, 0, 3, 0, $2, $2)`,
-      [JSON.stringify({ chunkId }), now]
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
     );
 
     // Wrap db to throw on heartbeat updates

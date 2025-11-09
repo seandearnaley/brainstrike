@@ -131,12 +131,12 @@ export function updateRegistry(newRegistry: ModelRegistry): void {
  * Prefer quantization for smaller models for better performance
  */
 export function shouldQuantize(model: ModelConfig): boolean {
-  // Explicitly quantized models always use quantization
-  if (model.quantized) return true;
+  // Respect explicit quantization signals from the registry
+  if (typeof model.quantized === 'boolean') {
+    return model.quantized;
+  }
 
-  // For models with fewer dimensions, quantization is recommended for better performance
-  // Larger models may benefit from full precision
-  // Use 1024 as threshold: models ≤1024D can benefit from quantization
+  // Auto-quantize smaller models when no explicit guidance is present
   return model.dimensions <= 1024;
 }
 

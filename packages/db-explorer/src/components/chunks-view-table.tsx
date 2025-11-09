@@ -3,12 +3,12 @@ import { Badge, DataTable, type DataTableColumn, ScrollArea } from '@brainstrike
 import { Brain } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { formatDate } from '../utils/format';
-import { getActiveEmbeddingSetId } from '../vector-preferences';
 
 interface ChunksViewTableProps {
   chunks: FileChunk[];
   records: FileRecord[];
   pendingChunkIds?: Set<string>;
+  activeCollectionId: string | null;
 }
 
 function getEmbeddingBadge(chunk: FileChunk, activeSetId: string | null, isPending: boolean) {
@@ -39,9 +39,13 @@ function getEmbeddingBadge(chunk: FileChunk, activeSetId: string | null, isPendi
   );
 }
 
-export function ChunksViewTable({ chunks, records, pendingChunkIds }: ChunksViewTableProps) {
+export function ChunksViewTable({
+  chunks,
+  records,
+  pendingChunkIds,
+  activeCollectionId,
+}: ChunksViewTableProps) {
   const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set());
-  const activeSetId = useMemo(() => getActiveEmbeddingSetId(), []);
 
   const toggleExpanded = (chunkId: string) => {
     setExpandedChunks((prev) => {
@@ -85,7 +89,7 @@ export function ChunksViewTable({ chunks, records, pendingChunkIds }: ChunksView
         id: 'embedding',
         header: 'Embedding',
         cell: ({ row }) =>
-          getEmbeddingBadge(row, activeSetId, pendingChunkIds?.has(row.id) ?? false),
+          getEmbeddingBadge(row, activeCollectionId, pendingChunkIds?.has(row.id) ?? false),
         className: 'w-36',
       },
       {
@@ -134,7 +138,7 @@ export function ChunksViewTable({ chunks, records, pendingChunkIds }: ChunksView
         className: 'w-24',
       },
     ],
-    [activeSetId, pendingChunkIds, records, expandedChunks]
+    [activeCollectionId, pendingChunkIds, records, expandedChunks]
   );
 
   const renderExpandedContent = (row: FileChunk) => {

@@ -1,5 +1,4 @@
-import { render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { SearchTab } from '../search-tab';
 import { __resetSearchPanelStoreForTests, useSearchPanelStore } from '../stores/search-panel-store';
@@ -10,19 +9,18 @@ describe('SearchTab', () => {
   });
 
   it('updates store state based on form interactions', async () => {
-    const user = userEvent.setup();
     render(<SearchTab />);
 
     const queryInput = screen.getByLabelText('Query');
-    await user.clear(queryInput);
-    await user.type(queryInput, 'brainstrike');
+    fireEvent.change(queryInput, { target: { value: '' } });
+    fireEvent.change(queryInput, { target: { value: 'brainstrike' } });
 
     const regex = screen.getByLabelText('Regex');
     const caseSensitive = screen.getByLabelText('Case');
     const wholeWord = screen.getByLabelText('Whole word');
-    await user.click(regex);
-    await user.click(caseSensitive);
-    await user.click(wholeWord);
+    fireEvent.click(regex);
+    fireEvent.click(caseSensitive);
+    fireEvent.click(wholeWord);
 
     const state = useSearchPanelStore.getState();
     expect(state.query).toBe('brainstrike');
