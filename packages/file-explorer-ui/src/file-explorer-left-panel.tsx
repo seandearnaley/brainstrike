@@ -103,6 +103,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     folderSummaryThreshold,
     devInlineFixtureEnabled,
     setDevInlineFixtureEnabled,
+    setRootDirectoryHandle,
   ] = store(
     (s) =>
       [
@@ -117,6 +118,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.folderSummaryThreshold,
         s.devInlineFixtureEnabled,
         s.setDevInlineFixtureEnabled,
+        s.setRootDirectoryHandle,
       ] as const
   );
 
@@ -294,7 +296,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
   const enableInlineFixture = useCallback(async () => {
     if (!fixtureAdapter) return;
-    await fixtureAdapter.loadInlineFixture();
+    const handle = await fixtureAdapter.loadInlineFixture();
+    if (handle && setRootDirectoryHandle) {
+      setRootDirectoryHandle(handle);
+    }
     await handleDirectorySelectRef.current?.();
   }, [fixtureAdapter]);
 
@@ -328,6 +333,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     });
   }, []);
 
+  const prevTargetStateRef = useRef<boolean | null>(null);
+
   useEffect(() => {
     if (!fixtureAdapter || !inlineFixtureAvailable) {
       if (devInlineFixtureEnabled) {
@@ -339,6 +346,14 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     if (!hasAppliedInitialFixtureRef.current && !devInlineFixtureEnabled) {
       return;
     }
+
+    if (
+      prevTargetStateRef.current === devInlineFixtureEnabled &&
+      hasAppliedInitialFixtureRef.current
+    ) {
+      return;
+    }
+    prevTargetStateRef.current = devInlineFixtureEnabled;
 
     let isCancelled = false;
     const targetState = devInlineFixtureEnabled;
