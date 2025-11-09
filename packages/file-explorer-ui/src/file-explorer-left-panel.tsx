@@ -342,6 +342,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
 
     let isCancelled = false;
     const targetState = devInlineFixtureEnabled;
+    // Avoid re-applying the same state if the fixture is already in the desired state.
+    // This prevents the effect from running when unrelated dependencies (like the adapter)
+    // change after the initial application.
+    const currentActive = fixtureAdapter?.isInlineFixtureActive?.() ?? false;
+    if (currentActive === targetState) {
+      // Mark that we've applied the initial fixture so future toggles work correctly,
+      // but skip the async work since nothing needs to change.
+      hasAppliedInitialFixtureRef.current = true;
+      return;
+    }
 
     const applySetting = async () => {
       setIsInlineFixtureLoading(true);
