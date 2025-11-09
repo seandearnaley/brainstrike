@@ -90,5 +90,5 @@ Notes:
 - Latency stats use recent succeeded jobs (60s) based on ISO timestamps; portable across PGlite.
 
 ## Phase 6 — Web UX consolidation (2025‑08‑31)
-- Settings no longer contains separate worker controls on Web to avoid divergence from Desktop. Start/Stop Worker, Embedding Set selection, Backfill, coverage/throughput/latency are all consolidated in Right Panel → DB → Vector Status.
-- On Web, worker badge shows `disabled` until explicitly started; transitions to `running` with active jobs.
+- Settings no longer contains separate worker controls on Web to avoid divergence from Desktop. Vector Status in Right Panel → DB owns the worker lifecycle, automatically launching once the database handshake completes and surfacing Start/Stop/Reset for manual restarts, Backfill, coverage/throughput/latency in a single place.
+- The worker badge reflects the renderer-managed lifecycle: it flips to `running` after the auto-launch and stays available for manual intervention if needed.

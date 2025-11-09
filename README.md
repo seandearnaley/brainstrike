@@ -58,10 +58,12 @@ See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md
 
 ## Queue & Worker (2025)
 
-- Enable: set `EMBED_QUEUE_ENABLED=true` to turn on the DB-backed queue and local worker.
-- **Starting/Stopping**: Web UX: Right Panel → DB → Vector Status shows worker controls (Start/Stop buttons). Desktop: worker starts automatically on app ready when enabled; stops on quit.
-- CLI: `pnpm queue stats` (view queue status), `pnpm queue requeue -- --queue embeddings --limit 20` (retry failed jobs), `pnpm queue prune -- --olderThan <ISO> --states succeeded failed` (clean old records).
-- **Configuration**: 
+- **Renderer auto-start**: Once the local database is ready, the renderer spins up the embedding worker automatically. Desktop boots it on load and shuts it down when the renderer unmounts (e.g., quitting the app). The web app wires the same provider; Start/Stop/Reset buttons remain in Vector Status for manual restarts or debugging but are no longer required for routine operation.
+- **Manual controls**:
+  - Desktop: no UI toggle; closing the renderer stops the worker. Use CLI tooling if you need to drain or reset outside of app shutdown.
+  - Web: Vector Status exposes Start/Stop/Reset to temporarily pause or recycle the worker in a tab. The worker will relaunch automatically the next time the DB connection is available.
+- **CLI**: `pnpm queue stats` (view queue status), `pnpm queue requeue -- --queue embeddings --limit 20` (retry failed jobs), `pnpm queue prune -- --olderThan <ISO> --states succeeded failed` (clean old records).
+- **Configuration**:
   - `EMBED_CONCURRENCY`: Number of parallel embedding jobs (default varies by device)
   - `EMBED_LEASE_MS`: Job lock duration in milliseconds
   - `EMBED_MODEL_KEY`: Which embedding model to use
@@ -71,8 +73,8 @@ See also: [`docs/onboarding.md`](docs/onboarding.md) and [`docs/monorepo-docs.md
 Refer to `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-130000-phase-3-handoff.md` (Post-Review Deltas) and `docs/arch_logs/20250905-170000-db-embedding-modernization-2025.md` for the phased plan. API shapes: `docs/arch_logs/20250905-000000-db-embedding-modernization/20250905-090000-api-contracts.md`.
 
 Web UX notes:
-- Start/Stop the local worker from Right Panel → DB → Vector Status (no separate Settings controls).
-- Worker badge shows `disabled` until explicitly started in the tab, then `running` when jobs are active.
+- Vector Status (Right Panel → DB) surfaces Start/Stop/Reset for optional manual control and exposes coverage, throughput, and retry actions.
+- Worker badge transitions to `running` automatically when the renderer launches the worker and jobs begin processing.
 
 ---
 
