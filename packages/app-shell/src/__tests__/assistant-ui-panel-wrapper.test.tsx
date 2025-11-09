@@ -1,10 +1,11 @@
+import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   __resetAssistantPreferencesStoreForTests,
   useAssistantPreferencesStore,
 } from '@brainstrike/preferences';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 
 // Mock the agent/client exports
@@ -215,72 +216,70 @@ vi.mock('@brainstrike/ui/assistant-ui-panel', () => ({
   },
 }));
 
-// Mock window.secrets API
-const mockSecretsList = vi.fn();
 beforeEach(() => {
-  Object.defineProperty(window, 'secrets', {
-    value: { list: mockSecretsList },
-    writable: true,
-    configurable: true,
-  });
+  __resetAssistantPreferencesStoreForTests();
 });
 
 afterEach(() => {
-  mockSecretsList.mockReset();
   __resetAssistantPreferencesStoreForTests();
-  (window as { secrets?: unknown }).secrets = undefined;
 });
+
+const renderAssistantPanel = async (providers: string[], afterRender?: () => Promise<void>) => {
+  const renderResult = render(
+    <AssistantUiPanelWrapper initialProviders={providers as SupportedProvider[]} />
+  );
+
+  if (afterRender) {
+    await act(async () => {
+      await afterRender();
+    });
+  }
+
+  return renderResult;
+};
 
 describe('AssistantUiPanelWrapper', () => {
   test('auto-selects first provider and default model when none selected', async () => {
-    // Mock available providers
-    mockSecretsList.mockResolvedValue(['openai', 'anthropic']);
+    await renderAssistantPanel(['openai', 'anthropic'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
 
-    render(<AssistantUiPanelWrapper />);
-
-    // Wait for auto-selection to occur - this waits for all async effects
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-
-        expect(providerSelect.value).toBe('openai');
-        expect(modelSelect.value).toBe('gpt-4o-mini');
-        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
-      },
-      { timeout: 3000 }
+          expect(providerSelect.value).toBe('openai');
+          expect(modelSelect.value).toBe('gpt-4o-mini');
+          expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+        },
+        { timeout: 3000 }
+      )
     );
   });
 
   test('shows disabled reason when no providers available', async () => {
-    mockSecretsList.mockResolvedValue([]);
-
-    render(<AssistantUiPanelWrapper />);
-
-    await waitFor(
-      () => {
-        expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
-          'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
-        );
-        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
-      },
-      { timeout: 3000 }
+    await renderAssistantPanel([], () =>
+      waitFor(
+        () => {
+          expect(screen.getByTestId('disabled-reason')).toHaveTextContent(
+            'Connect an AI provider in Settings → LLM Provider Keys to enable the assistant.'
+          );
+          expect(screen.getByTestId('panel-disabled')).toHaveTextContent('true');
+        },
+        { timeout: 3000 }
+      )
     );
   });
 
   test('allows changing provider and auto-selects default model', async () => {
     const user = userEvent.setup();
-    mockSecretsList.mockResolvedValue(['openai', 'anthropic']);
 
-    render(<AssistantUiPanelWrapper />);
-
-    // Wait for initial auto-selection
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        expect(providerSelect.value).toBe('openai');
-      },
-      { timeout: 3000 }
+    await renderAssistantPanel(['openai', 'anthropic'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          expect(providerSelect.value).toBe('openai');
+        },
+        { timeout: 3000 }
+      )
     );
 
     // Change provider to anthropic
@@ -297,17 +296,15 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('allows changing model for selected provider', async () => {
     const user = userEvent.setup();
-    mockSecretsList.mockResolvedValue(['openai']);
 
-    render(<AssistantUiPanelWrapper />);
-
-    // Wait for auto-selection
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        expect(providerSelect.value).toBe('openai');
-      },
-      { timeout: 3000 }
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          expect(providerSelect.value).toBe('openai');
+        },
+        { timeout: 3000 }
+      )
     );
 
     // Change model
@@ -324,18 +321,16 @@ describe('AssistantUiPanelWrapper', () => {
   });
 
   test('preserves selected provider across re-renders', async () => {
-    mockSecretsList.mockResolvedValue(['openai', 'anthropic', 'google']);
-
-    const { rerender } = render(<AssistantUiPanelWrapper />);
-
-    // Wait for auto-selection
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        expect(providerSelect.value).toBe('openai');
-      },
-      { timeout: 3000 }
+    const renderResult = await renderAssistantPanel(['openai', 'anthropic', 'google'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          expect(providerSelect.value).toBe('openai');
+        },
+        { timeout: 3000 }
+      )
     );
+    const { rerender } = renderResult;
 
     // Manually select a different provider
     const user = userEvent.setup();
@@ -347,7 +342,9 @@ describe('AssistantUiPanelWrapper', () => {
     });
 
     // Re-render component
-    rerender(<AssistantUiPanelWrapper />);
+    await act(async () => {
+      rerender(<AssistantUiPanelWrapper initialProviders={['openai', 'anthropic', 'google']} />);
+    });
 
     // Selection should persist - wait for re-render to complete
     await waitFor(() => {
@@ -358,51 +355,43 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('starts with first provider when initially loaded', async () => {
     // Start with a single provider
-    mockSecretsList.mockResolvedValue(['anthropic']);
+    await renderAssistantPanel(['anthropic'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          expect(providerSelect.value).toBe('anthropic');
 
-    render(<AssistantUiPanelWrapper />);
+          const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+          expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
 
-    // Should auto-select the only available provider and update all state
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        expect(providerSelect.value).toBe('anthropic');
-
-        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-        expect(modelSelect.value).toBe('claude-3-5-haiku-latest');
-
-        expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
-      },
-      { timeout: 3000 }
+          expect(screen.getByTestId('panel-disabled')).toHaveTextContent('false');
+        },
+        { timeout: 3000 }
+      )
     );
   });
 
   test('model selector is disabled when no provider selected', async () => {
-    mockSecretsList.mockResolvedValue([]);
-
-    render(<AssistantUiPanelWrapper />);
-
-    await waitFor(
-      () => {
-        const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
-        expect(modelSelect).toBeDisabled();
-      },
-      { timeout: 3000 }
+    await renderAssistantPanel([], () =>
+      waitFor(
+        () => {
+          const modelSelect = screen.getByTestId('model-select') as HTMLSelectElement;
+          expect(modelSelect).toBeDisabled();
+        },
+        { timeout: 3000 }
+      )
     );
   });
 
   test('shows correct models for each provider', async () => {
-    mockSecretsList.mockResolvedValue(['openai', 'google']);
-
-    render(<AssistantUiPanelWrapper />);
-
-    // Wait for auto-selection (openai)
-    await waitFor(
-      () => {
-        const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
-        expect(providerSelect.value).toBe('openai');
-      },
-      { timeout: 3000 }
+    await renderAssistantPanel(['openai', 'anthropic', 'google'], () =>
+      waitFor(
+        () => {
+          const providerSelect = screen.getByTestId('provider-select') as HTMLSelectElement;
+          expect(providerSelect.value).toBe('openai');
+        },
+        { timeout: 3000 }
+      )
     );
 
     // Check OpenAI models are available
@@ -429,15 +418,13 @@ describe('AssistantUiPanelWrapper', () => {
   });
 
   test('persists provider and model selections in store', async () => {
-    mockSecretsList.mockResolvedValue(['openai', 'anthropic']);
-
-    render(<AssistantUiPanelWrapper />);
-
-    await waitFor(() => {
-      const state = useAssistantPreferencesStore.getState();
-      expect(state.getSelectedProvider()).toBe('openai');
-      expect(state.modelsByProvider.openai).toBe('gpt-4o-mini');
-    });
+    await renderAssistantPanel(['openai', 'anthropic'], () =>
+      waitFor(() => {
+        const state = useAssistantPreferencesStore.getState();
+        expect(state.getSelectedProvider()).toBe('openai');
+        expect(state.modelsByProvider.openai).toBe('gpt-4o-mini');
+      })
+    );
 
     // Change provider
     const user = userEvent.setup();
@@ -460,13 +447,11 @@ describe('AssistantUiPanelWrapper', () => {
 
   test('disabling the active model through toggles selects a fallback', async () => {
     const user = userEvent.setup();
-    mockSecretsList.mockResolvedValue(['openai']);
-
-    render(<AssistantUiPanelWrapper />);
-
-    await waitFor(() => {
-      expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
-    });
+    await renderAssistantPanel(['openai'], () =>
+      waitFor(() => {
+        expect((screen.getByTestId('provider-select') as HTMLSelectElement).value).toBe('openai');
+      })
+    );
 
     const initialCompositeModel = useAssistantPreferencesStore.getState().getSelectedModel();
     if (!initialCompositeModel) {

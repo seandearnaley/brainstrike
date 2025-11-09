@@ -19,12 +19,9 @@ export class EmbeddingSetsRepository {
     const defaultName = `${modelKey} (${dimensions}D)`;
     const name = metadata?.name ?? defaultName;
 
-    // Use INSERT ... ON CONFLICT atomically to prevent race conditions
-    // On conflict, DO NOTHING and then fetch the existing row
     const insertResult = await this.db.query(
       `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at, name, description, tags, category)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       ON CONFLICT (model_key, dimensions, distance) DO NOTHING
        RETURNING *`,
       [
         id,
@@ -40,34 +37,18 @@ export class EmbeddingSetsRepository {
       ]
     );
 
-    // If insert succeeded, return the new row
-    if (insertResult.rows.length > 0) {
-      console.log('[EmbeddingSetsRepo] Created new embedding set:', {
-        id,
-        modelKey,
-        dimensions,
-        distance,
-        name,
-      });
-      return this.fromRow(insertResult.rows[0] as Record<string, unknown>);
+    if (insertResult.rows.length === 0) {
+      throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
     }
 
-    // If conflict occurred, fetch the existing row
-    const existing = await this.getByComposite(modelKey, dimensions, distance);
-    if (!existing) {
-      throw new Error(
-        `Failed to get or create embedding set for ${modelKey}/${dimensions}/${distance}`
-      );
-    }
-
-    console.log('[EmbeddingSetsRepo] Reusing existing embedding set:', {
-      id: existing.id,
+    console.log('[EmbeddingSetsRepo] Created new embedding set:', {
+      id,
       modelKey,
       dimensions,
       distance,
-      name: existing.name,
+      name,
     });
-    return existing;
+    return this.fromRow(insertResult.rows[0] as Record<string, unknown>);
   }
 
   async getById(id: string): Promise<EmbeddingSet | null> {
@@ -108,19 +89,6 @@ export class EmbeddingSetsRepository {
         metadata.tags ?? null,
         metadata.category ?? null,
       ]
-    );
-    const row = result.rows[0];
-    return row ? this.fromRow(row as Record<string, unknown>) : null;
-  }
-
-  private async getByComposite(
-    modelKey: string,
-    dimensions: number,
-    distance: EmbeddingDistance
-  ): Promise<EmbeddingSet | null> {
-    const result = await this.db.query(
-      'SELECT * FROM embedding_sets WHERE model_key = $1 AND dimensions = $2 AND distance = $3',
-      [modelKey, dimensions, distance]
     );
     const row = result.rows[0];
     return row ? this.fromRow(row as Record<string, unknown>) : null;

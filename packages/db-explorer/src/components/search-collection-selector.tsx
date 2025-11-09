@@ -1,4 +1,5 @@
 import type { EmbeddingSet, usePGliteDatabase } from '@brainstrike/db';
+import { usePGliteLiveQuery } from '@brainstrike/db';
 import {
   Button,
   Label,
@@ -14,10 +15,24 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import { HelpCircle, Plus, Settings2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
-type EmbeddingSetWithChunkCount = EmbeddingSet & {
-  chunkCount: number;
+type EmbeddingSetWithDocumentCount = EmbeddingSet & {
+  documentCount: number;
+};
+
+type CollectionRow = {
+  id: string;
+  modelKey: string;
+  modelId: string;
+  dimensions: number;
+  distance: string;
+  createdAt: string;
+  name: string | null;
+  description: string | null;
+  tags: string | null;
+  category: string | null;
+  documentCount: string | number;
 };
 
 /**
@@ -43,9 +58,9 @@ const COLLECTIONS_WITH_COUNTS_QUERY = `
     s.description,
     s.tags,
     s.category,
-    COUNT(c.id) AS "chunkCount"
+    COUNT(DISTINCT fr.id) AS "documentCount"
   FROM embedding_sets s
-  LEFT JOIN file_chunks c ON c.embedding_set_id = s.id
+  LEFT JOIN file_records fr ON fr.embedding_set_id = s.id
   GROUP BY s.id, s.model_key, s.model_id, s.dimensions, s.distance, s.created_at, s.name, s.description, s.tags, s.category
   ORDER BY s.created_at DESC
 `.trim();
@@ -94,107 +109,59 @@ export function SearchCollectionSelector({
   onCreateCollection,
 }: SearchCollectionSelectorProps) {
   const { toast } = useToast();
-  const [collections, setCollections] = useState<EmbeddingSetWithChunkCount[]>([]);
-  const [loading, setLoading] = useState(true);
+  const lastToastErrorRef = useRef<string | null>(null);
 
-  // Load collections from database
-  const loadCollections = useCallback(async () => {
-    if (!db) {
-      setCollections([]);
-      setLoading(false);
+  const {
+    rows: rawCollections,
+    loading: liveLoading,
+    error: liveError,
+  } = usePGliteLiveQuery<CollectionRow>({
+    query: COLLECTIONS_WITH_COUNTS_QUERY,
+    enabled: Boolean(db),
+  });
+
+  const collections = useMemo<EmbeddingSetWithDocumentCount[]>(() => {
+    return rawCollections.map((row) => {
+      const set: EmbeddingSetWithDocumentCount = {
+        id: row.id,
+        modelKey: row.modelKey,
+        modelId: row.modelId,
+        dimensions: row.dimensions,
+        distance: row.distance as 'cosine' | 'l2' | 'ip',
+        createdAt: row.createdAt,
+        documentCount: Number(row.documentCount ?? 0),
+      };
+
+      if (row.name) set.name = row.name;
+      if (row.description) set.description = row.description;
+      if (row.tags) set.tags = row.tags;
+      if (row.category) set.category = row.category;
+
+      return set;
+    });
+  }, [rawCollections]);
+
+  useEffect(() => {
+    if (!liveError) {
+      lastToastErrorRef.current = null;
       return;
     }
-
-    try {
-      setLoading(true);
-      const result = await db.query<{
-        id: string;
-        modelKey: string;
-        modelId: string;
-        dimensions: number;
-        distance: string;
-        createdAt: string;
-        name: string | null;
-        description: string | null;
-        tags: string | null;
-        category: string | null;
-        chunkCount: string | number;
-      }>(COLLECTIONS_WITH_COUNTS_QUERY);
-
-      const sets: EmbeddingSetWithChunkCount[] = result.rows.map(
-        (row: {
-          id: string;
-          modelKey: string;
-          modelId: string;
-          dimensions: number;
-          distance: string;
-          createdAt: string;
-          name: string | null;
-          description: string | null;
-          tags: string | null;
-          category: string | null;
-          chunkCount: string | number;
-        }) => {
-          const set: EmbeddingSetWithChunkCount = {
-            id: row.id,
-            modelKey: row.modelKey,
-            modelId: row.modelId,
-            dimensions: row.dimensions,
-            distance: row.distance as 'cosine' | 'l2' | 'ip',
-            createdAt: row.createdAt,
-            chunkCount: Number(row.chunkCount ?? 0),
-          };
-
-          if (row.name) set.name = row.name;
-          if (row.description) set.description = row.description;
-          if (row.tags) set.tags = row.tags;
-          if (row.category) set.category = row.category;
-
-          return set;
-        }
-      );
-
-      setCollections(sets);
-    } catch (error) {
-      console.error('[SearchCollectionSelector] Failed to load collections:', error);
-      setCollections([]);
-      toast({
-        title: 'Failed to Load Collections',
-        description:
-          error instanceof Error ? error.message : 'Unable to retrieve collections from database',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
+    const message =
+      liveError instanceof Error
+        ? liveError.message
+        : 'Unable to retrieve collections from database';
+    if (lastToastErrorRef.current === message) {
+      return;
     }
-  }, [db, toast]);
+    lastToastErrorRef.current = message;
+    toast({
+      title: 'Failed to Load Collections',
+      description: message,
+      variant: 'destructive',
+    });
+  }, [liveError, toast]);
 
-  // Load collections on mount and when repository changes
-  useEffect(() => {
-    void loadCollections();
-  }, [loadCollections]);
-
-  // Listen for collection changes (from manage dialog, etc.)
-  // Uses brainstrike: prefix for consistency with rest of app
-  useEffect(() => {
-    let mounted = true;
-
-    const handleCollectionChange = () => {
-      if (mounted) {
-        void loadCollections();
-      }
-    };
-
-    if (typeof window !== 'undefined') {
-      window.addEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
-
-      return () => {
-        mounted = false;
-        window.removeEventListener('brainstrike:embedding-set-updated', handleCollectionChange);
-      };
-    }
-    return undefined;
-  }, [loadCollections]);
+  const loading = liveLoading || !db;
 
   // Find active collection
   const activeCollection = useMemo(
@@ -203,9 +170,9 @@ export function SearchCollectionSelector({
   );
 
   // Format collection label with stats
-  const formatCollectionLabel = useCallback((collection: EmbeddingSetWithChunkCount) => {
+  const formatCollectionLabel = useCallback((collection: EmbeddingSetWithDocumentCount) => {
     const name = collection.name || collection.modelId;
-    const count = collection.chunkCount ?? 0;
+    const count = collection.documentCount ?? 0;
     return `${name} (${count.toLocaleString()} docs)`;
   }, []);
 
@@ -288,7 +255,7 @@ export function SearchCollectionSelector({
                 {activeCollection.dimensions}D {activeCollection.distance}
               </span>
             </div>
-            <div>{activeCollection.chunkCount.toLocaleString()} documents</div>
+            <div>{activeCollection.documentCount.toLocaleString()} documents</div>
           </div>
         )}
 

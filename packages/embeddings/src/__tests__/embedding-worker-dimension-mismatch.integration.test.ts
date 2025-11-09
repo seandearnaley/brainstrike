@@ -93,8 +93,17 @@ describe('embedding-worker: dimension mismatch handling', () => {
 
   it('fails the job when custom service returns wrong dimension embeddings', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-d1';
     const fileId = 'file-d1';
     const chunkId = 'chunk-d1';
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+    );
+
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
@@ -109,7 +118,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-d1','embeddings','embed_chunk', $1, 'queued', $2, 0, 1, 0, $2, $2)`,
-      [JSON.stringify({ chunkId }), now]
+      [JSON.stringify({ chunkId, embeddingSetId }), now]
     );
 
     const controller = await startEmbeddingWorker({
@@ -138,8 +147,17 @@ describe('embedding-worker: dimension mismatch handling', () => {
 
   it('processes jobs even when payload expectedDimension is stale', async () => {
     const now = new Date().toISOString();
+    const embeddingSetId = 'set-d2';
     const fileId = 'file-d2';
     const chunkId = 'chunk-d2';
+
+    // Create embedding set first (required for jobs)
+    await db.query(
+      `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)`,
+      [embeddingSetId, 'local::jina-code', 'jina-code', 768, 'cosine', now]
+    );
+
     await db.query(
       `INSERT INTO file_records (id, name, path, size, content, content_hash, token_count, created_at, updated_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)`,
@@ -154,7 +172,7 @@ describe('embedding-worker: dimension mismatch handling', () => {
     await db.query(
       `INSERT INTO job_queue (id, queue, job_type, payload, state, run_at, attempts, max_attempts, backoff_ms, created_at, updated_at)
        VALUES ('job-d2','embeddings','embed_chunk', $1, 'queued', $2, 0, 1, 0, $2, $2)`,
-      [JSON.stringify({ chunkId, expectedDimension: 384 }), now]
+      [JSON.stringify({ chunkId, embeddingSetId, expectedDimension: 384 }), now]
     );
 
     const controller = await startEmbeddingWorker({

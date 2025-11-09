@@ -4,6 +4,14 @@ import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, vi } from 'vitest';
 import { resetStore } from './test-utils';
 
+// Configure React's act() environment for Zustand store updates
+// This prevents false-positive act(...) warnings when Zustand triggers re-renders
+// See: https://github.com/pmndrs/zustand/issues/2200
+if (typeof globalThis !== 'undefined') {
+  // @ts-expect-error - IS_REACT_ACT_ENVIRONMENT is a React internal flag
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+}
+
 // Reset store state for each test to ensure isolation
 beforeEach(() => {
   resetStore();

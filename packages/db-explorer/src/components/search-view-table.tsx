@@ -4,9 +4,13 @@ import type { SearchFunctionality } from '../types';
 
 interface SearchViewTableProps {
   searchFunctionality: SearchFunctionality;
+  activeCollectionName?: string | undefined;
 }
 
-export function SearchViewTable({ searchFunctionality }: SearchViewTableProps) {
+export function SearchViewTable({
+  searchFunctionality,
+  activeCollectionName,
+}: SearchViewTableProps) {
   const { searchResults, hasSearched, searchQuery } = searchFunctionality;
 
   const columns = useMemo<DataTableColumn<(typeof searchResults)[0]>[]>(
@@ -60,15 +64,22 @@ export function SearchViewTable({ searchFunctionality }: SearchViewTableProps) {
         id: 'file',
         header: 'Source File',
         cell: ({ row }) => (
-          <div className="text-xs text-muted-foreground">
+          <div className="text-xs text-muted-foreground space-y-1">
             <div className="font-medium">{row.fileRecord.name}</div>
             <div className="opacity-70">{row.fileRecord.path}</div>
+            {activeCollectionName && (
+              <div className="flex items-center gap-1 mt-1">
+                <Badge variant="outline" className="text-xs">
+                  {activeCollectionName}
+                </Badge>
+              </div>
+            )}
           </div>
         ),
         className: 'w-64',
       },
     ],
-    []
+    [activeCollectionName]
   );
 
   return (
@@ -82,10 +93,30 @@ export function SearchViewTable({ searchFunctionality }: SearchViewTableProps) {
         pageSize: 25,
       }}
       emptyState={
-        <div className="text-center">
-          {hasSearched || searchQuery
-            ? 'No matching chunks found. Try adjusting your search query or threshold.'
-            : 'Enter a search query to find similar content.'}
+        <div className="text-center space-y-3 py-6">
+          {hasSearched || searchQuery ? (
+            <>
+              <div className="text-sm font-medium">No matching chunks found</div>
+              <div className="text-sm text-muted-foreground space-y-2">
+                <div className="font-semibold">💡 Not finding what you need?</div>
+                <div className="text-left max-w-md mx-auto space-y-1">
+                  <div>• Try adjusting your search query or lowering the threshold</div>
+                  <div>• Check the Files tab to see which files are indexed in this collection</div>
+                  <div>• Switch to a different collection using the selector above</div>
+                  <div>• Make sure your files have been processed with embeddings</div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-medium">
+                Enter a search query to find similar content
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Semantic search helps you find content by meaning, not just keywords
+              </div>
+            </>
+          )}
         </div>
       }
     />

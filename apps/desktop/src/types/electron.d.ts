@@ -9,6 +9,13 @@ interface QueryResult {
   fields?: { name: string; dataType: string }[];
 }
 
+interface ElectronLiveQueryResults {
+  rows: unknown[];
+  totalCount?: number;
+  offset?: number;
+  limit?: number;
+}
+
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
@@ -40,6 +47,24 @@ declare global {
           deletedChunks?: number;
         }>;
         resetLocal: () => Promise<{ success: boolean; message?: string }>;
+      };
+      dbLive: {
+        start: (options: {
+          query: string;
+          params?: readonly unknown[];
+          key?: string;
+          mode?: 'query' | 'incremental';
+          offset?: number;
+          limit?: number;
+        }) => Promise<{ id: number; initialResults: ElectronLiveQueryResults }>;
+        stop: (id: number) => Promise<{ success: boolean } | undefined>;
+        refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
+          success: boolean;
+          message?: string;
+        }>;
+        onUpdate: (
+          callback: (payload: { id: number; results: ElectronLiveQueryResults }) => void
+        ) => () => void;
       };
       // Layout persistence methods
       saveLayout: (state: PanelPersistenceState) => Promise<void>;

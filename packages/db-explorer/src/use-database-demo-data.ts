@@ -7,7 +7,7 @@ import type {
   FileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
-import { MigrationRunner, migrations } from '@brainstrike/db';
+import { MigrationRunner, migrations, usePGliteLiveQuery } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -22,6 +22,7 @@ export interface UseDatabaseDemoDataOptions {
   chunkRepository?: FileChunkRepository | ElectronFileChunkRepository | null;
   toast: ReturnType<typeof useToast>['toast'];
   database?: ReturnType<typeof usePGliteDatabase>;
+  activeCollectionId: string | null;
 }
 
 interface DatabaseLoaders {
@@ -43,6 +44,187 @@ const DEFAULT_DB_INFO: DatabaseInfo = {
   connected: false,
 };
 
+const FILE_RECORDS_LIVE_QUERY = `
+  SELECT
+    id,
+    name,
+    path,
+    size,
+    created_at AS "createdAt",
+    updated_at AS "updatedAt",
+    content,
+    content_hash AS "contentHash",
+    token_count AS "tokenCount",
+    processed_at AS "processedAt",
+    chunks_processed_at AS "chunksProcessedAt",
+    chunks_count AS "chunksCount",
+    chunking_strategy AS "chunkingStrategy",
+    embedding,
+    embedding_set_id AS "embeddingSetId"
+  FROM file_records
+  WHERE embedding_set_id = $1
+  ORDER BY updated_at DESC
+`.trim();
+
+const FILE_CHUNKS_LIVE_QUERY = `
+  SELECT
+    id,
+    file_record_id AS "fileRecordId",
+    chunk_index AS "chunkIndex",
+    content,
+    content_hash AS "contentHash",
+    token_count AS "tokenCount",
+    chunk_type AS "chunkType",
+    chunk_size AS "chunkSize",
+    embedding,
+    embedding_set_id AS "embeddingSetId",
+    embedding_updated_at AS "embeddingUpdatedAt",
+    embedding_hash AS "embeddingHash",
+    created_at AS "createdAt",
+    updated_at AS "updatedAt"
+  FROM file_chunks
+  WHERE embedding_set_id = $1
+  ORDER BY updated_at DESC
+`.trim();
+
+type FileRecordRow = {
+  id: string;
+  name: string;
+  path: string;
+  size: number;
+  createdAt: string;
+  updatedAt: string;
+  content: string | null;
+  contentHash: string | null;
+  tokenCount: number | null;
+  processedAt: string | null;
+  chunksProcessedAt: string | null;
+  chunksCount: number | null;
+  chunkingStrategy: string | null;
+  embedding: unknown;
+  embeddingSetId: string | null;
+};
+
+type FileChunkRow = {
+  id: string;
+  fileRecordId: string;
+  chunkIndex: number;
+  content: string;
+  contentHash: string;
+  tokenCount: number;
+  chunkType: FileChunk['chunkType'];
+  chunkSize: number;
+  embedding: unknown;
+  embeddingSetId: string | null;
+  embeddingUpdatedAt: string | null;
+  embeddingHash: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function coerceNumericArray(values: ArrayLike<unknown>): number[] | undefined {
+  const normalized = Array.from(values)
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isFinite(entry));
+  return normalized.length ? normalized : undefined;
+}
+
+function parseStringEmbedding(value: string): number[] | undefined {
+  const trimmed = value.trim();
+  if (!trimmed.length) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return coerceNumericArray(parsed);
+    }
+  } catch {
+    // fall through to manual parsing
+  }
+
+  const withoutBrackets = trimmed.replace(/^\s*\[?/, '').replace(/\]?\s*$/, '');
+  if (!withoutBrackets.length) {
+    return undefined;
+  }
+  const parts = withoutBrackets.split(/,\s*/).filter(Boolean);
+  if (!parts.length) {
+    return undefined;
+  }
+  return coerceNumericArray(parts);
+}
+
+function normalizeEmbeddingVector(value: unknown): number[] | undefined {
+  if (!value) return undefined;
+  if (Array.isArray(value)) {
+    return coerceNumericArray(value);
+  }
+
+  if (ArrayBuffer.isView(value)) {
+    return coerceNumericArray(value as unknown as ArrayLike<number>);
+  }
+
+  if (typeof value === 'string') {
+    return parseStringEmbedding(value);
+  }
+
+  return undefined;
+}
+
+function mapRecordRow(row: FileRecordRow): FileRecord {
+  const record: FileRecord = {
+    id: row.id,
+    name: row.name,
+    path: row.path,
+    size: row.size,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+
+  if (row.content) record.content = row.content;
+  if (row.contentHash) record.contentHash = row.contentHash;
+  if (row.tokenCount != null) record.tokenCount = Number(row.tokenCount);
+  if (row.processedAt) record.processedAt = row.processedAt;
+  const embeddingVector = normalizeEmbeddingVector(row.embedding);
+  if (embeddingVector?.length) record.embedding = embeddingVector;
+  if (row.embeddingSetId) record.embeddingSetId = row.embeddingSetId;
+  if (row.chunksProcessedAt) record.chunksProcessedAt = row.chunksProcessedAt;
+  if (row.chunksCount != null) record.chunksCount = Number(row.chunksCount);
+  if (
+    row.chunkingStrategy === 'sentence' ||
+    row.chunkingStrategy === 'token' ||
+    row.chunkingStrategy === 'recursive'
+  ) {
+    record.chunkingStrategy = row.chunkingStrategy;
+  }
+
+  return record;
+}
+
+function mapChunkRow(row: FileChunkRow): FileChunk {
+  const chunk: FileChunk = {
+    id: row.id,
+    fileRecordId: row.fileRecordId,
+    chunkIndex: row.chunkIndex,
+    content: row.content,
+    contentHash: row.contentHash,
+    tokenCount: row.tokenCount,
+    chunkType: row.chunkType,
+    chunkSize: row.chunkSize,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+
+  const embeddingVector = normalizeEmbeddingVector(row.embedding);
+  if (embeddingVector?.length) chunk.embedding = embeddingVector;
+  if (row.embeddingSetId) chunk.embeddingSetId = row.embeddingSetId;
+  if (row.embeddingUpdatedAt) chunk.embeddingUpdatedAt = row.embeddingUpdatedAt;
+  if (row.embeddingHash) chunk.embeddingHash = row.embeddingHash;
+
+  return chunk;
+}
+
 function extractErrorMessage(error: unknown): string | null {
   if (error instanceof Error) {
     return error.message ?? null;
@@ -61,14 +243,15 @@ function isMissingRelation(message: string | null, table: string): boolean {
 
 export function useDatabaseDemoData({
   repository,
-  chunkRepository,
+  chunkRepository: _chunkRepository,
   toast,
   database,
+  activeCollectionId,
 }: UseDatabaseDemoDataOptions): UseDatabaseDemoDataResult {
-  const [records, setRecords] = useState<FileRecord[]>([]);
-  const [chunks, setChunks] = useState<FileChunk[]>([]);
-  const [refreshing, setRefreshing] = useState(false);
   const [dbInfo, setDbInfo] = useState<DatabaseInfo | null>(null);
+  const [schemaReady, setSchemaReady] = useState(false);
+  const manualRefreshCountRef = useRef(0);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const schemaStateRef = useRef<{
     db: ReturnType<typeof usePGliteDatabase> | null;
     ensured: boolean;
@@ -79,6 +262,8 @@ export function useDatabaseDemoData({
     promise: null,
   });
 
+  void _chunkRepository;
+
   useEffect(() => {
     if (schemaStateRef.current.db !== database) {
       schemaStateRef.current = {
@@ -86,6 +271,7 @@ export function useDatabaseDemoData({
         ensured: false,
         promise: null,
       };
+      setSchemaReady(false);
     }
   }, [database]);
 
@@ -112,66 +298,181 @@ export function useDatabaseDemoData({
   }, [database]);
 
   useEffect(() => {
-    if (!database) return;
-    ensureSchema().catch((error) => {
-      console.error('[DatabaseDemo] Failed to verify schema', error);
-    });
-  }, [database, ensureSchema]);
-
-  const loadRecords = useCallback(async () => {
-    if (!repository) return;
-
-    try {
-      setRefreshing(true);
-      await ensureSchema();
-      const importedRecords = await repository.findAll();
-      setRecords(importedRecords);
-    } catch (error) {
-      console.error('[DatabaseDemo] Failed to load file records', error);
-      const message = extractErrorMessage(error);
-      const description = (() => {
-        if (message && isMissingRelation(message, 'file_records')) {
-          return 'File storage is missing or needs migration. Run Factory Reset to rebuild the database.';
-        }
-        if (message && /pg_toast/i.test(message)) {
-          return 'Stored file contents appear corrupted. Run Factory Reset in settings and retry.';
-        }
-        return 'Failed to load database records';
-      })();
-      toast({
-        title: 'Error',
-        description,
-        variant: 'destructive',
-      });
-    } finally {
-      setRefreshing(false);
-    }
-  }, [repository, ensureSchema, toast]);
-
-  const loadChunks = useCallback(async () => {
-    if (!chunkRepository) {
-      setChunks([]);
+    if (!database) {
+      setSchemaReady(false);
       return;
     }
 
-    try {
-      await ensureSchema();
-      const allChunks = await chunkRepository.findAll();
-      setChunks(allChunks);
-    } catch (error) {
-      console.error('[DatabaseDemo] Failed to load chunks', error);
-      const message = extractErrorMessage(error);
-      toast({
-        title: 'Error',
-        description:
-          message && isMissingRelation(message, 'file_chunks')
-            ? 'Chunk storage is missing or out of date. Run Factory Reset to rebuild the database.'
-            : 'Failed to load chunks',
-        variant: 'destructive',
+    let cancelled = false;
+    ensureSchema()
+      .then(() => {
+        if (!cancelled) {
+          setSchemaReady(true);
+        }
+      })
+      .catch((error) => {
+        console.error('[DatabaseDemo] Failed to verify schema', error);
+        if (!cancelled) {
+          setSchemaReady(false);
+          toast({
+            title: 'Database Error',
+            description: 'Unable to initialize local database schema. Try Factory Reset.',
+            variant: 'destructive',
+          });
+        }
       });
-      setChunks([]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [database, ensureSchema, toast]);
+
+  const recordErrorRef = useRef<string | null>(null);
+  const chunkErrorRef = useRef<string | null>(null);
+
+  const runManualRefresh = useCallback(async (task: () => Promise<void>) => {
+    manualRefreshCountRef.current += 1;
+    setManualRefreshing(true);
+    try {
+      await task();
+    } finally {
+      manualRefreshCountRef.current -= 1;
+      if (manualRefreshCountRef.current <= 0) {
+        manualRefreshCountRef.current = 0;
+        setManualRefreshing(false);
+      }
     }
-  }, [chunkRepository, ensureSchema, toast]);
+  }, []);
+
+  const recordQueryParams = useMemo<readonly [string] | undefined>(
+    () => (activeCollectionId ? [activeCollectionId] : undefined),
+    [activeCollectionId]
+  );
+
+  const chunkQueryParams = useMemo<readonly [string] | undefined>(
+    () => (activeCollectionId ? [activeCollectionId] : undefined),
+    [activeCollectionId]
+  );
+
+  const {
+    rows: recordRows,
+    loading: recordsLoading,
+    error: recordsError,
+    refresh: refreshRecordsQuery,
+  } = usePGliteLiveQuery<FileRecordRow>({
+    query: FILE_RECORDS_LIVE_QUERY,
+    ...(recordQueryParams ? { params: recordQueryParams } : {}),
+    enabled: Boolean(database && schemaReady && activeCollectionId),
+  });
+
+  const {
+    rows: chunkRows,
+    loading: chunksLoading,
+    error: chunksError,
+    refresh: refreshChunksQuery,
+  } = usePGliteLiveQuery<FileChunkRow>({
+    query: FILE_CHUNKS_LIVE_QUERY,
+    ...(chunkQueryParams ? { params: chunkQueryParams } : {}),
+    enabled: Boolean(database && schemaReady && activeCollectionId),
+  });
+
+  const records = useMemo<FileRecord[]>(() => {
+    if (!schemaReady || !activeCollectionId) {
+      return [];
+    }
+    return recordRows.map(mapRecordRow);
+  }, [recordRows, schemaReady, activeCollectionId]);
+
+  const chunks = useMemo<FileChunk[]>(() => {
+    if (!schemaReady || !activeCollectionId) {
+      return [];
+    }
+    return chunkRows.map(mapChunkRow);
+  }, [chunkRows, schemaReady, activeCollectionId]);
+
+  const loadRecords = useCallback(async () => {
+    if (!database || !schemaReady || !activeCollectionId) {
+      return;
+    }
+
+    await runManualRefresh(async () => {
+      try {
+        await refreshRecordsQuery();
+      } catch (error) {
+        console.error('[DatabaseDemo] Failed to refresh records', error);
+        const message = extractErrorMessage(error);
+        toast({
+          title: 'Error',
+          description:
+            message && isMissingRelation(message, 'file_records')
+              ? 'File storage is missing or needs migration. Run Factory Reset to rebuild the database.'
+              : 'Failed to refresh file list',
+          variant: 'destructive',
+        });
+      }
+    });
+  }, [database, schemaReady, activeCollectionId, refreshRecordsQuery, runManualRefresh, toast]);
+
+  const loadChunks = useCallback(async () => {
+    if (!database || !schemaReady || !activeCollectionId) {
+      return;
+    }
+
+    await runManualRefresh(async () => {
+      try {
+        await refreshChunksQuery();
+      } catch (error) {
+        console.error('[DatabaseDemo] Failed to refresh chunks', error);
+        const message = extractErrorMessage(error);
+        toast({
+          title: 'Error',
+          description:
+            message && isMissingRelation(message, 'file_chunks')
+              ? 'Chunk storage is missing or out of date. Run Factory Reset to rebuild the database.'
+              : 'Failed to refresh chunks',
+          variant: 'destructive',
+        });
+      }
+    });
+  }, [database, schemaReady, activeCollectionId, refreshChunksQuery, runManualRefresh, toast]);
+
+  useEffect(() => {
+    if (!recordsError) {
+      recordErrorRef.current = null;
+      return;
+    }
+    const message = extractErrorMessage(recordsError) ?? 'Failed to load files';
+    if (recordErrorRef.current === message) {
+      return;
+    }
+    recordErrorRef.current = message;
+    toast({
+      title: 'Error',
+      description: message,
+      variant: 'destructive',
+    });
+  }, [recordsError, toast]);
+
+  useEffect(() => {
+    if (!chunksError) {
+      chunkErrorRef.current = null;
+      return;
+    }
+    const message = extractErrorMessage(chunksError);
+    const description =
+      message && isMissingRelation(message, 'file_chunks')
+        ? 'Chunk storage is missing or out of date. Run Factory Reset to rebuild the database.'
+        : (message ?? 'Failed to load chunks');
+    if (chunkErrorRef.current === description) {
+      return;
+    }
+    chunkErrorRef.current = description;
+    toast({
+      title: 'Error',
+      description,
+      variant: 'destructive',
+    });
+  }, [chunksError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
     if (!repository) {
@@ -250,22 +551,12 @@ export function useDatabaseDemoData({
 
   useEffect(() => {
     if (!repository) {
-      setRecords([]);
       setDbInfo(DEFAULT_DB_INFO);
       return;
     }
 
-    void loadRecords();
     void testDatabaseConnection();
-  }, [repository, loadRecords, testDatabaseConnection]);
-
-  useEffect(() => {
-    if (!chunkRepository) {
-      setChunks([]);
-      return;
-    }
-    void loadChunks();
-  }, [chunkRepository, loadChunks]);
+  }, [repository, testDatabaseConnection]);
 
   useEffect(() => {
     if (databasePingHandlers.length === 0) return;
@@ -311,6 +602,8 @@ export function useDatabaseDemoData({
       canceled = true;
     };
   }, [database]);
+
+  const refreshing = manualRefreshing || recordsLoading || chunksLoading;
 
   return {
     records,

@@ -1,12 +1,14 @@
 import {
   __resetImportSettingsStoreForTests,
   __resetTokenPreferencesStoreForTests,
+  __resetVectorStatusUIStoreForTests,
 } from '@brainstrike/preferences';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DatabaseDemoPanel } from '../database-demo-panel';
 import { __resetDatabaseDemoStoreForTests } from '../stores/database-demo-store';
+import { setActiveEmbeddingSetId } from '../vector-preferences';
 
 // Mock all external dependencies at the top level
 const mockRepository = {
@@ -41,6 +43,9 @@ const mockEmbeddingService = {
 const mockToast = vi.fn();
 
 const mockImportFiles = vi.fn();
+const mockGetFileStatus = vi.fn().mockResolvedValue([]);
+
+const TEST_COLLECTION_ID = 'test-collection-id';
 
 vi.mock('@brainstrike/embeddings', async () => {
   const actual =
@@ -70,14 +75,56 @@ vi.mock('@brainstrike/embeddings', async () => {
   };
 });
 
-vi.mock('@brainstrike/db', () => ({
-  useFileRecordRepository: () => mockRepository,
-  usePGliteDatabase: () => null,
-  useFileChunkRepository: () => mockChunkRepository,
-  useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
-  useDbProviderError: () => null,
-  useFactoryReset: () => null,
-}));
+// Create stable mock results outside the mock function to prevent infinite loops
+const mockRecordLiveQueryResult = {
+  rows: [] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
+const mockChunkLiveQueryResult = {
+  rows: [] as unknown[],
+  loading: false,
+  error: null,
+  refresh: vi.fn().mockResolvedValue(undefined),
+};
+
+const mockDatabase = {
+  query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
+};
+
+vi.mock('@brainstrike/db', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/db')>();
+  return {
+    ...actual,
+    useFileRecordRepository: () => mockRepository,
+    usePGliteDatabase: () => mockDatabase,
+    useFileChunkRepository: () => mockChunkRepository,
+    useClearAllData: () => vi.fn(() => Promise.resolve({ deletedFiles: 0, deletedChunks: 0 })),
+    useDbProviderError: () => null,
+    useFactoryReset: () => null,
+    MigrationRunner: class MockMigrationRunner {
+      async initialize() {
+        return Promise.resolve();
+      }
+      async up() {
+        return Promise.resolve();
+      }
+    },
+    migrations: [],
+    usePGliteLiveQuery: (options: { query: string }) => {
+      // Return stable object references based on query type
+      if (options.query.includes('FROM file_records')) {
+        return mockRecordLiveQueryResult;
+      }
+      if (options.query.includes('FROM file_chunks')) {
+        return mockChunkLiveQueryResult;
+      }
+      return mockRecordLiveQueryResult;
+    },
+  };
+});
 
 vi.mock('@brainstrike/ui', async () => {
   const actual = await vi.importActual('@brainstrike/ui');
@@ -109,6 +156,12 @@ vi.mock('./enhanced-file-import-service', () => ({
     progress: null,
     importFiles: mockImportFiles,
     chunkRepository: mockChunkRepository,
+  }),
+}));
+
+vi.mock('../hooks/use-file-collection-status', () => ({
+  useFileCollectionStatus: () => ({
+    getFileStatus: mockGetFileStatus,
   }),
 }));
 
@@ -144,13 +197,26 @@ describe('DatabaseDemoPanel', () => {
     __resetDatabaseDemoStoreForTests();
     __resetImportSettingsStoreForTests();
     __resetTokenPreferencesStoreForTests();
+    __resetVectorStatusUIStoreForTests();
     vi.clearAllMocks();
+    mockImportFiles.mockReset();
+    mockGetFileStatus.mockReset();
+    mockGetFileStatus.mockResolvedValue([]);
+    setActiveEmbeddingSetId(TEST_COLLECTION_ID);
 
     // Setup default mock returns
     mockRepository.findAll.mockResolvedValue([]);
     mockRepository.findAllWithContent.mockResolvedValue([]);
     mockRepository.count.mockResolvedValue(0);
     mockChunkRepository.findAll.mockResolvedValue([]);
+
+    // Reset live query mock results
+    mockRecordLiveQueryResult.rows = [];
+    mockRecordLiveQueryResult.loading = false;
+    mockRecordLiveQueryResult.error = null;
+    mockChunkLiveQueryResult.rows = [];
+    mockChunkLiveQueryResult.loading = false;
+    mockChunkLiveQueryResult.error = null;
   });
 
   describe('Basic Rendering', () => {
@@ -234,7 +300,7 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Chunking')).toBeInTheDocument();
-        expect(screen.getByText('Embeddings')).toBeInTheDocument();
+        expect(screen.getByText('Factory Reset')).toBeInTheDocument();
       });
     }, 10000);
 
@@ -256,17 +322,19 @@ describe('DatabaseDemoPanel', () => {
         expect(screen.getByText('Chunking')).toBeInTheDocument();
       });
 
-      // Find chunking checkbox (first checkbox in the settings panel)
-      const checkboxes = screen.getAllByRole('checkbox');
-      expect(checkboxes.length).toBeGreaterThan(0);
-      const chunkingCheckbox = checkboxes[0];
-      expect(chunkingCheckbox).toBeDefined();
-
-      // Toggle chunking
-      if (chunkingCheckbox) await user.click(chunkingCheckbox);
+      const chunkingCheckbox = screen.getByLabelText('Chunking');
+      expect(chunkingCheckbox).toBeChecked();
+      await user.click(chunkingCheckbox);
+      await waitFor(() => {
+        expect(chunkingCheckbox).not.toBeChecked();
+      });
+      await user.click(chunkingCheckbox);
+      await waitFor(() => {
+        expect(chunkingCheckbox).toBeChecked();
+      });
     }, 10000);
 
-    it('toggles embedding setting', async () => {
+    it('updates token cap input when value changes', async () => {
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
 
@@ -275,17 +343,20 @@ describe('DatabaseDemoPanel', () => {
       await user.click(settingsButton);
 
       await waitFor(() => {
-        expect(screen.getByText('Embeddings')).toBeInTheDocument();
+        expect(screen.getByText('Token cap')).toBeInTheDocument();
       });
 
-      // Find embedding checkbox (second checkbox in the settings panel)
-      const checkboxes = screen.getAllByRole('checkbox');
-      expect(checkboxes.length).toBeGreaterThan(1);
-      const embeddingCheckbox = checkboxes[1];
-      expect(embeddingCheckbox).toBeDefined();
-
-      // Toggle embedding
-      if (embeddingCheckbox) await user.click(embeddingCheckbox);
+      const tokenCapLabel = screen.getByText('Token cap');
+      const tokenCapContainer = tokenCapLabel.closest('div');
+      expect(tokenCapContainer).toBeTruthy();
+      const tokenCapInput = tokenCapContainer?.querySelector('input');
+      expect(tokenCapInput).toBeTruthy();
+      if (tokenCapInput) {
+        fireEvent.change(tokenCapInput, { target: { value: '8192' } });
+        await waitFor(() => {
+          expect(tokenCapInput).toHaveValue(8192);
+        });
+      }
     });
   });
 
@@ -300,12 +371,15 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          chunkingStrategy: 'semantic' as const,
+          chunkingStrategy: 'sentence' as const,
           chunksCount: 3,
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
       mockRepository.findAll.mockResolvedValue(mockRecords);
+      mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -325,7 +399,7 @@ describe('DatabaseDemoPanel', () => {
       // Check that expanded content is shown
       await waitFor(() => {
         expect(screen.getByText('Path: /test/path/test.txt')).toBeInTheDocument();
-        expect(screen.getByText(/Chunking: semantic • 3 chunks/)).toBeInTheDocument();
+        expect(screen.getByText(/Chunking: sentence • 3 chunks/)).toBeInTheDocument();
       });
     });
 
@@ -339,8 +413,9 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
-          chunkingStrategy: 'semantic' as const,
+          chunkingStrategy: 'sentence' as const,
           chunksCount: 2,
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
@@ -355,6 +430,7 @@ describe('DatabaseDemoPanel', () => {
           tokenCount: 50,
           embedding: null,
           createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
         {
           id: 'chunk2',
@@ -365,12 +441,15 @@ describe('DatabaseDemoPanel', () => {
           tokenCount: 25,
           embedding: new Float32Array([0.1, 0.2, 0.3]),
           createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
+      mockRecordLiveQueryResult.rows = mockRecords;
+      mockChunkLiveQueryResult.rows = mockChunks;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -420,6 +499,7 @@ describe('DatabaseDemoPanel', () => {
           tokenCount: 75,
           embedding: new Float32Array([0.1, 0.2, 0.3]),
           createdAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
@@ -432,12 +512,15 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
       mockChunkRepository.findAll.mockResolvedValue(mockChunks);
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
+      mockChunkLiveQueryResult.rows = mockChunks;
 
       const user = userEvent.setup();
       render(<DatabaseDemoPanel />);
@@ -536,7 +619,7 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(
-          screen.getByText('Enter a search query to find similar content.')
+          screen.getByText('Enter a search query to find similar content')
         ).toBeInTheDocument();
       });
     });
@@ -596,11 +679,13 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
       mockRepository.findAllWithContent.mockResolvedValue(mockRecords);
       mockRepository.findAll.mockResolvedValue(mockRecords);
+      mockRecordLiveQueryResult.rows = mockRecords;
 
       render(<DatabaseDemoPanel />);
 
@@ -620,7 +705,8 @@ describe('DatabaseDemoPanel', () => {
       const refreshButton = screen.getByRole('button', { name: /Refresh/ });
       await user.click(refreshButton);
 
-      expect(mockRepository.findAll).toHaveBeenCalled();
+      // Now using live queries, so refresh should call the live query refresh
+      expect(mockRecordLiveQueryResult.refresh).toHaveBeenCalled();
     });
   });
 
@@ -654,6 +740,7 @@ describe('DatabaseDemoPanel', () => {
             tokenCount: 50,
             embedding: new Float32Array([0.1, 0.2, 0.3]),
             createdAt: '2025-01-01T00:00:00Z',
+            embeddingSetId: TEST_COLLECTION_ID,
           },
           similarity: 0.85,
           fileRecord: {
@@ -664,6 +751,7 @@ describe('DatabaseDemoPanel', () => {
             content: 'test content',
             createdAt: '2025-01-01T00:00:00Z',
             processedAt: '2025-01-01T00:00:00Z',
+            embeddingSetId: TEST_COLLECTION_ID,
           },
         },
         {
@@ -676,6 +764,7 @@ describe('DatabaseDemoPanel', () => {
             tokenCount: 30,
             embedding: new Float32Array([0.4, 0.5, 0.6]),
             createdAt: '2025-01-01T00:00:00Z',
+            embeddingSetId: TEST_COLLECTION_ID,
           },
           similarity: 0.72,
           fileRecord: {
@@ -686,6 +775,7 @@ describe('DatabaseDemoPanel', () => {
             content: 'another content',
             createdAt: '2025-01-01T00:00:00Z',
             processedAt: '2025-01-01T00:00:00Z',
+            embeddingSetId: TEST_COLLECTION_ID,
           },
         },
       ];
@@ -699,6 +789,7 @@ describe('DatabaseDemoPanel', () => {
           content: 'test content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
         {
           id: '2',
@@ -708,6 +799,7 @@ describe('DatabaseDemoPanel', () => {
           content: 'another content',
           createdAt: '2025-01-01T00:00:00Z',
           processedAt: '2025-01-01T00:00:00Z',
+          embeddingSetId: TEST_COLLECTION_ID,
         },
       ];
 
@@ -742,25 +834,6 @@ describe('DatabaseDemoPanel', () => {
       await waitFor(() => {
         expect(screen.getByText('Enhanced Database Demo')).toBeInTheDocument();
       });
-
-      // First enable embeddings in settings
-      const settingsButton = screen.getByRole('button', { name: /import settings/i });
-      await user.click(settingsButton);
-
-      // Enable embeddings via the Embeddings section (robust selector)
-      const embeddingsLabel = screen.getByText('Embeddings');
-      const embeddingsSection = embeddingsLabel.closest('div');
-      expect(embeddingsSection).toBeTruthy();
-      const embeddingCheckbox = within(embeddingsSection as HTMLElement).getByRole('checkbox');
-      await user.click(embeddingCheckbox);
-
-      // Wait a bit for state changes to propagate and verify
-      await waitFor(() => {
-        expect(embeddingCheckbox).toBeChecked();
-      });
-
-      // Close settings after verifying
-      await user.click(settingsButton);
 
       // Switch to search tab
       const viewButtons = screen.getAllByRole('button');
