@@ -68,6 +68,11 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
     }
   }, [fileSystemAdapter, isFileSystemAccessSupported, setCurrentFolderId]);
 
+  const clearRootDirectory = useCallback(() => {
+    dispatch({ type: 'setRoot', handle: null });
+    setCurrentFolderId(null);
+  }, [setCurrentFolderId]);
+
   // Auto-restore last folder on startup (desktop only). Runs once and never changes hook order.
   useEffect(() => {
     if (hasAttemptedRestoreRef.current || rootDirectoryHandle || isRestoringRef.current) {
@@ -106,7 +111,14 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
       isAccessLoading,
       selectRootDirectory,
       isFileSystemAccessSupported,
+      clearRootDirectory,
     }),
-    [rootDirectoryHandle, isAccessLoading, selectRootDirectory, isFileSystemAccessSupported]
+    [
+      rootDirectoryHandle,
+      isAccessLoading,
+      selectRootDirectory,
+      isFileSystemAccessSupported,
+      clearRootDirectory,
+    ]
   );
 }

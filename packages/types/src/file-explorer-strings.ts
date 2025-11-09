@@ -42,6 +42,16 @@ export const FileExplorerStrings = {
     reportGenerating: 'Report is currently being generated...',
   },
 
+  inlineFixture: {
+    settingLabel: 'Enable Inline Fixture',
+    settingDescription:
+      'Loads a scripted mock project so you can test without accessing the local filesystem.',
+    enableSuccess: 'Inline fixture enabled.',
+    disableSuccess: 'Inline fixture disabled.',
+    enableError: 'Unable to enable the inline fixture.',
+    disableError: 'Unable to disable the inline fixture.',
+  },
+
   // File Names
   fileNames: {
     report: 'report.txt',

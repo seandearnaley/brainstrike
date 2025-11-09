@@ -57,6 +57,9 @@ const stateCreator: StateCreator<FileExplorerState, [['zustand/persist', unknown
     setRootDirectoryHandle: (handle: FileExplorerState['rootDirectoryHandle']) => {
       set({ rootDirectoryHandle: handle });
     },
+    setDevInlineFixtureEnabled: (value: boolean) => {
+      set({ devInlineFixtureEnabled: value });
+    },
   };
 
   // Combine data and actions. Type assertion might be needed if inference fails.

@@ -1,6 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
-import { createFileSystemAdapter } from '@brainstrike/file-system';
+import { createFileSystemAdapter, createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import { createStorageAdapter } from '@brainstrike/storage';
@@ -20,7 +20,8 @@ import './app/globals.css';
 import RootLayoutContent from './app/root-layout-content';
 
 // Create web adapters
-const fileSystemAdapter = createFileSystemAdapter('web');
+const baseFileSystemAdapter = createFileSystemAdapter('web');
+const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, { platform: 'web' });
 const storageAdapter = createStorageAdapter('web');
 
 const defaultLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;

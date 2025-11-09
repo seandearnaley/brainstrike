@@ -178,6 +178,7 @@ describe('FileExplorerMiddlePanelTabbed', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     const previewPanelModule = await import('../preview-panel');

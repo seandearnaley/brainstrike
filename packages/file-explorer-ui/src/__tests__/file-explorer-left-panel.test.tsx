@@ -186,6 +186,7 @@ describe('FileExplorerLeftPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
       loadFileContent: vi.fn(),
       clearFileContents: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;

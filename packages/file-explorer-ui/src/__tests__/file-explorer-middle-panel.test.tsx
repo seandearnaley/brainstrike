@@ -126,6 +126,7 @@ describe('FileExplorerMiddlePanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     handleSelectionChangeMock = vi.fn();

@@ -6,6 +6,7 @@ import { useFileExplorerStoreContext } from './file-explorer-provider';
 import FileExtensionFilter from './file-extension-filter';
 import FolderSummaryThresholdSetting from './folder-summary-threshold-setting';
 import IncludeProjectTreeSetting from './include-project-tree-setting';
+import InlineFixtureSetting from './inline-fixture-setting';
 import MaxSelectionCountSetting from './max-selection-count-setting';
 import UseRegexSetting from './use-regex-setting';
 
@@ -17,11 +18,16 @@ interface FileExplorerSettings {
   maxSelectionCount: number;
   includeProjectTree: boolean;
   folderSummaryThreshold: number;
+  devInlineFixtureEnabled: boolean;
 }
 
 interface FileExplorerConfigProps {
   filterError: string | null;
   onFilterChange: (includeFilters: string[], excludeFilters: string[], useRegex: boolean) => void;
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+  };
 }
 
 // Inner dialog is render-only (no hooks) to avoid HMR hook-order issues
@@ -40,6 +46,11 @@ const ConfigDialogContent: React.FC<{
   setIncludeProjectTree: (v: boolean) => void;
   setFolderSummaryThreshold: (v: number) => void;
   persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
+  setDevInlineFixtureEnabled: (v: boolean) => void;
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+  };
 }> = ({
   filterError,
   onFilterChange,
@@ -52,6 +63,8 @@ const ConfigDialogContent: React.FC<{
   setIncludeProjectTree,
   setFolderSummaryThreshold,
   persistPatch,
+  setDevInlineFixtureEnabled,
+  inlineFixtureSetting,
 }) => {
   const handleApplySettings = async () => {
     const {
@@ -61,6 +74,7 @@ const ConfigDialogContent: React.FC<{
       excludeFilters: e,
       includeProjectTree: t,
       folderSummaryThreshold: f,
+      devInlineFixtureEnabled: fixtureEnabled,
     } = settings;
 
     setMaxSelectionCount(m);
@@ -68,6 +82,7 @@ const ConfigDialogContent: React.FC<{
     setFilters(i, e);
     setIncludeProjectTree(t);
     setFolderSummaryThreshold(f);
+    setDevInlineFixtureEnabled(fixtureEnabled);
 
     onFilterChange(i, e, r);
 
@@ -80,12 +95,24 @@ const ConfigDialogContent: React.FC<{
         excludeFilters: e,
         includeProjectTree: t,
         folderSummaryThreshold: f,
+        devInlineFixtureEnabled: fixtureEnabled,
       });
     } catch {}
     // Allow persist middleware a brief window to flush writes to storage before closing
     await new Promise((resolve) => setTimeout(resolve, 50));
     onClose();
   };
+
+  const handleInlineFixtureToggle = useCallback(
+    async (checked: boolean) => {
+      onSettingsChange('devInlineFixtureEnabled', checked);
+      setDevInlineFixtureEnabled(checked);
+      try {
+        await persistPatch({ devInlineFixtureEnabled: checked });
+      } catch {}
+    },
+    [onSettingsChange, persistPatch, setDevInlineFixtureEnabled]
+  );
 
   return (
     <div>
@@ -130,8 +157,17 @@ const ConfigDialogContent: React.FC<{
             onChange={(checked) => onSettingsChange('includeProjectTree', checked)}
           />
         </div>
+        {inlineFixtureSetting?.available && (
+          <InlineFixtureSetting
+            checked={settings.devInlineFixtureEnabled}
+            disabled={inlineFixtureSetting.loading}
+            onChange={handleInlineFixtureToggle}
+          />
+        )}
         <div className="flex justify-end pt-2 border-t mt-2">
-          <Button onClick={handleApplySettings}>Apply Settings</Button>
+          <Button onClick={handleApplySettings} disabled={inlineFixtureSetting?.loading}>
+            Apply Settings
+          </Button>
         </div>
       </div>
     </div>
@@ -148,6 +184,7 @@ const ConfigDialogContainer: React.FC<
       maxSelectionCount: number;
       includeProjectTree: boolean;
       folderSummaryThreshold: number;
+      devInlineFixtureEnabled: boolean;
     };
     actions: {
       setMaxSelectionCount: (v: number) => void;
@@ -155,10 +192,11 @@ const ConfigDialogContainer: React.FC<
       setFilters: (i: string[], e: string[]) => void;
       setIncludeProjectTree: (v: boolean) => void;
       setFolderSummaryThreshold: (v: number) => void;
+      setDevInlineFixtureEnabled: (v: boolean) => void;
     };
     persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
   }
-> = ({ filterError, onFilterChange, selectors, actions, persistPatch }) => {
+> = ({ filterError, onFilterChange, selectors, actions, persistPatch, inlineFixtureSetting }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [settings, setSettings] = useState<FileExplorerSettings>(() => ({
     includeFilters: selectors.includeFilters,
@@ -167,6 +205,7 @@ const ConfigDialogContainer: React.FC<
     maxSelectionCount: selectors.maxSelectionCount,
     includeProjectTree: selectors.includeProjectTree,
     folderSummaryThreshold: selectors.folderSummaryThreshold,
+    devInlineFixtureEnabled: selectors.devInlineFixtureEnabled,
   }));
 
   const handleSettingChange = useCallback(
@@ -187,6 +226,7 @@ const ConfigDialogContainer: React.FC<
       maxSelectionCount: selectors.maxSelectionCount ?? prev.maxSelectionCount,
       includeProjectTree: selectors.includeProjectTree ?? prev.includeProjectTree,
       folderSummaryThreshold: selectors.folderSummaryThreshold ?? prev.folderSummaryThreshold,
+      devInlineFixtureEnabled: selectors.devInlineFixtureEnabled ?? prev.devInlineFixtureEnabled,
     }));
   }, [
     isOpen,
@@ -196,6 +236,7 @@ const ConfigDialogContainer: React.FC<
     selectors.maxSelectionCount,
     selectors.includeProjectTree,
     selectors.folderSummaryThreshold,
+    selectors.devInlineFixtureEnabled,
   ]);
 
   return (
@@ -231,6 +272,8 @@ const ConfigDialogContainer: React.FC<
               setIncludeProjectTree={actions.setIncludeProjectTree}
               setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
               persistPatch={persistPatch}
+              setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
+              {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
             />
           </dialog>
         </PopoverContent>
@@ -241,7 +284,7 @@ const ConfigDialogContainer: React.FC<
 
 // Main Component (compiled wrapper)
 const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
-  ({ filterError, onFilterChange }) => {
+  ({ filterError, onFilterChange, inlineFixtureSetting }) => {
     const store = useFileExplorerStoreContext();
     const [
       includeFilters,
@@ -250,11 +293,13 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
       maxSelectionCount,
       includeProjectTree,
       folderSummaryThreshold,
+      devInlineFixtureEnabled,
       setMaxSelectionCount,
       setUseRegex,
       setFilters,
       setIncludeProjectTree,
       setFolderSummaryThreshold,
+      setDevInlineFixtureEnabled,
     ] = store(
       (s) =>
         [
@@ -264,11 +309,13 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
           s.maxSelectionCount,
           s.includeProjectTree,
           s.folderSummaryThreshold,
+          s.devInlineFixtureEnabled,
           s.setMaxSelectionCount,
           s.setUseRegex,
           s.setFilters,
           s.setIncludeProjectTree,
           s.setFolderSummaryThreshold,
+          s.setDevInlineFixtureEnabled,
         ] as const
     );
 
@@ -343,6 +390,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
           maxSelectionCount,
           includeProjectTree,
           folderSummaryThreshold,
+          devInlineFixtureEnabled,
         }}
         actions={{
           setMaxSelectionCount,
@@ -350,8 +398,10 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
           setFilters,
           setIncludeProjectTree,
           setFolderSummaryThreshold,
+          setDevInlineFixtureEnabled,
         }}
         persistPatch={persistPatch}
+        {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
       />
     );
   }

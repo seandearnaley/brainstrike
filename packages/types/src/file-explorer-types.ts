@@ -41,6 +41,7 @@ export interface SerializedState {
   maxSelectionCount: number;
   lastActiveTab: string;
   quickFilter: string;
+  devInlineFixtureEnabled: boolean;
 }
 
 export interface FolderState {
@@ -84,6 +85,8 @@ export interface FileExplorerData {
    * Persisting this improves UX across unmounts and reloads.
    */
   quickFilter: string;
+  /** Whether the inline dev fixture should be used instead of native FS access. */
+  devInlineFixtureEnabled: boolean;
 }
 
 export interface CacheStats {
@@ -135,6 +138,7 @@ export interface FileExplorerState extends FileExplorerData {
   // UI state actions (ephemeral + lightweight persisted)
   setQuickFilter: (value: string) => void;
   clearQuickFilter: () => void;
+  setDevInlineFixtureEnabled: (value: boolean) => void;
 
   // Ephemeral handle for current root directory. Not serialized.
   rootDirectoryHandle: import('./file-system').DirectoryHandle | null;
@@ -171,4 +175,5 @@ export const DEFAULT_STATE = {
   folderAccessOrder: [] as string[],
   fileContents: {} as Record<string, string>,
   quickFilter: '',
+  devInlineFixtureEnabled: false,
 } as const;
