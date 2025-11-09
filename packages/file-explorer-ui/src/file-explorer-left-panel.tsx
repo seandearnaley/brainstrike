@@ -336,6 +336,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
       return;
     }
 
+    if (!hasAppliedInitialFixtureRef.current && !devInlineFixtureEnabled) {
+      return;
+    }
+
     let isCancelled = false;
     const targetState = devInlineFixtureEnabled;
 
@@ -348,9 +352,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
           await disableInlineFixture();
         }
         notifySuccess(targetState);
-        if (!hasAppliedInitialFixtureRef.current) {
-          hasAppliedInitialFixtureRef.current = true;
-        }
+        hasAppliedInitialFixtureRef.current = true;
       } catch (_error) {
         notifyError(targetState);
         setDevInlineFixtureEnabled(!targetState);
@@ -358,9 +360,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         if (!isCancelled) {
           setIsInlineFixtureLoading(false);
         }
-        if (!hasAppliedInitialFixtureRef.current) {
-          hasAppliedInitialFixtureRef.current = true;
-        }
+        hasAppliedInitialFixtureRef.current = true;
       }
     };
 

@@ -1,4 +1,11 @@
-import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogTrigger,
+} from '@brainstrike/ui';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -117,10 +124,15 @@ const ConfigDialogContent: React.FC<{
   return (
     <div>
       <div className="from-primary/5 to-card bg-gradient-to-t p-4 rounded-t-lg border-b bg-card text-foreground">
-        <h4 id="config-title" className="text-lg font-semibold leading-none tracking-tight">
+        <DialogTitle
+          id="config-title"
+          className="text-lg font-semibold leading-none tracking-tight"
+        >
           File Explorer Configuration
-        </h4>
-        <p className="text-sm text-muted-foreground mt-1">Customize behavior and appearance</p>
+        </DialogTitle>
+        <DialogDescription className="text-sm text-muted-foreground mt-1">
+          Customize behavior and appearance
+        </DialogDescription>
       </div>
       <div className="@container p-4 flex flex-col gap-4 bg-card text-foreground">
         <div className="grid @md/settings:grid-cols-2 gap-4">
@@ -165,7 +177,11 @@ const ConfigDialogContent: React.FC<{
           />
         )}
         <div className="flex justify-end pt-2 border-t mt-2">
-          <Button onClick={handleApplySettings} disabled={inlineFixtureSetting?.loading}>
+          <Button
+            data-testid="apply-settings-button"
+            onClick={handleApplySettings}
+            disabled={inlineFixtureSetting?.loading}
+          >
             Apply Settings
           </Button>
         </div>
@@ -240,8 +256,8 @@ const ConfigDialogContainer: React.FC<
   ]);
 
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger asChild>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
         <Button
           variant="outline"
           size="sm"
@@ -252,33 +268,30 @@ const ConfigDialogContainer: React.FC<
           <Settings className="size-4" data-testid="settings-icon" />
           <span className="hidden md:inline">Settings</span>
         </Button>
-      </PopoverTrigger>
+      </DialogTrigger>
       {isOpen && (
-        <PopoverContent className="w-screen max-w-sm p-0 @container/settings" asChild>
-          <dialog
-            aria-labelledby="config-title"
-            open
-            className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
-          >
-            <ConfigDialogContent
-              filterError={filterError}
-              onFilterChange={onFilterChange}
-              onClose={() => setIsOpen(false)}
-              settings={settings}
-              onSettingsChange={handleSettingChange}
-              setMaxSelectionCount={actions.setMaxSelectionCount}
-              setUseRegex={actions.setUseRegex}
-              setFilters={actions.setFilters}
-              setIncludeProjectTree={actions.setIncludeProjectTree}
-              setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
-              persistPatch={persistPatch}
-              setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
-              {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
-            />
-          </dialog>
-        </PopoverContent>
+        <DialogContent
+          className="w-full max-w-sm p-0 rounded-md border bg-card text-foreground"
+          data-testid="settings-dialog"
+        >
+          <ConfigDialogContent
+            filterError={filterError}
+            onFilterChange={onFilterChange}
+            onClose={() => setIsOpen(false)}
+            settings={settings}
+            onSettingsChange={handleSettingChange}
+            setMaxSelectionCount={actions.setMaxSelectionCount}
+            setUseRegex={actions.setUseRegex}
+            setFilters={actions.setFilters}
+            setIncludeProjectTree={actions.setIncludeProjectTree}
+            setFolderSummaryThreshold={actions.setFolderSummaryThreshold}
+            persistPatch={persistPatch}
+            setDevInlineFixtureEnabled={actions.setDevInlineFixtureEnabled}
+            {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
+          />
+        </DialogContent>
       )}
-    </Popover>
+    </Dialog>
   );
 };
 

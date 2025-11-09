@@ -75,7 +75,7 @@ test.describe('Report Folder Summary Threshold', () => {
 
     // Change threshold to 2
     await page.getByTestId('settings-button').click();
-    const dialog = page.locator('dialog[aria-labelledby="config-title"]');
+    const dialog = page.locator('[data-testid="settings-dialog"]');
     await expect(dialog).toBeVisible();
 
     const input = dialog.getByLabel('Folder Summary Threshold');
