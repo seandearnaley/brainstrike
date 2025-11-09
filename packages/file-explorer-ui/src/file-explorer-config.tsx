@@ -424,4 +424,5 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
   }
 );
 
+export { ConfigDialogContent };
 export default FileExplorerConfig;
