@@ -36,10 +36,7 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
   private async persist() {
     await this.ready;
-    // Only persist if storePath was successfully initialized
-    if (this.storePath) {
-      await fsPromises.writeFile(this.storePath, JSON.stringify(this.cache, null, 2), 'utf8');
-    }
+    await fsPromises.writeFile(this.storePath, JSON.stringify(this.cache, null, 2), 'utf8');
   }
 
   async getItem(key: string): Promise<string | null> {
