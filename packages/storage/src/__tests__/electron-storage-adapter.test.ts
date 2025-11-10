@@ -208,6 +208,10 @@ describe('ElectronStorageAdapter', () => {
   });
 
   it('should handle electron import failure', async () => {
+    // Reset modules to clear cache
+    vi.resetModules();
+
+    // Mock electron to fail
     vi.doMock('electron', () => {
       throw new Error('Electron not available');
     });
@@ -225,7 +229,8 @@ describe('ElectronStorageAdapter', () => {
     await failingAdapter.setItem('test', 'value');
     expect(await failingAdapter.getItem('test')).toBe('value');
 
-    // Restore mock
+    // Clean up: reset modules and restore the original mock
+    vi.resetModules();
     vi.doMock('electron', () => ({
       app: {
         whenReady: () => Promise.resolve(),
