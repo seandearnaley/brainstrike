@@ -143,16 +143,12 @@ describe('embedding-constants', () => {
     });
 
     it('should accept default dimension', () => {
-      const isValid =
-        DEFAULT_EMBEDDING_DIMENSION >= DEFAULT_EMBEDDING_DIMENSION &&
-        DEFAULT_EMBEDDING_DIMENSION <= MAX_EMBEDDING_DIMENSION;
+      const isValid = DEFAULT_EMBEDDING_DIMENSION <= MAX_EMBEDDING_DIMENSION;
       expect(isValid).toBe(true);
     });
 
     it('should accept maximum dimension', () => {
-      const isValid =
-        MAX_EMBEDDING_DIMENSION >= DEFAULT_EMBEDDING_DIMENSION &&
-        MAX_EMBEDDING_DIMENSION <= MAX_EMBEDDING_DIMENSION;
+      const isValid = MAX_EMBEDDING_DIMENSION >= DEFAULT_EMBEDDING_DIMENSION;
       expect(isValid).toBe(true);
     });
   });

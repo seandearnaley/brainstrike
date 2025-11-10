@@ -177,7 +177,7 @@ describe('electron-watchers', () => {
       };
       const fsWatchSpy = vi
         .spyOn(fs, 'watch')
-        .mockImplementation((_, options, listener) => {
+        .mockImplementation((_, _options, listener) => {
           // Emit an event without filename
           setTimeout(() => {
             if (typeof listener === 'function') {

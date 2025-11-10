@@ -357,7 +357,6 @@ describe('file-explorer-constants', () => {
     });
 
     it('should not have overlapping file classifications', () => {
-      const textSet = new Set(TEXT_FILE_EXTENSIONS);
       const binarySet = new Set(BINARY_FILE_EXTENSIONS);
 
       TEXT_FILE_EXTENSIONS.forEach((ext) => {

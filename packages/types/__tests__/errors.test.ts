@@ -225,7 +225,7 @@ describe('ConcurrentLoadingError', () => {
     });
 
     it('should handle long file paths', () => {
-      const longPath = '/very/'.repeat(50) + 'long/path/to/file.txt';
+      const longPath = `${'/very/'.repeat(50)}long/path/to/file.txt`;
       const error = new FileContentError('Test', longPath, 'TOO_LARGE');
       expect(error.path).toBe(longPath);
     });
