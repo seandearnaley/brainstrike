@@ -128,7 +128,9 @@
       "Bash(git restore:*)",
       "Bash(git clean:*)",
       "Bash(git log:*)",
-      "Bash(gh repo set-default:*)"
+      "Bash(gh repo set-default:*)",
+      "Bash(xargs git log:*)",
+      "Bash(gh run rerun:*)"
     ],
     "deny": [],
     "ask": []
