@@ -123,7 +123,9 @@
       "Bash(timeout 10 pnpm test:*)",
       "Bash(gh pr checkout:*)",
       "Bash(\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/type-check.sh)",
-      "Bash(.claude/hooks/scripts/type-check.sh:*)"
+      "Bash(.claude/hooks/scripts/type-check.sh:*)",
+      "Bash(comm:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
