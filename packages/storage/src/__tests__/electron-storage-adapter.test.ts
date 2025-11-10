@@ -208,26 +208,23 @@ describe('ElectronStorageAdapter', () => {
   });
 
   it('should handle electron import failure', async () => {
-    // Use isolateModules to prevent test pollution
-    await vi.isolateModules(async () => {
-      // Mock electron to fail
-      vi.doMock('electron', () => {
-        throw new Error('Electron not available');
-      });
-
-      const { ElectronStorageAdapter: FailingAdapter } = await import(
-        '../adapters/electron-storage-adapter'
-      );
-      const failingAdapter = new FailingAdapter();
-
-      // Should initialize with empty cache even when electron fails
-      const value = await failingAdapter.getItem('test');
-      expect(value).toBeNull();
-
-      // Should still allow operations even with failed electron
-      await failingAdapter.setItem('test', 'value');
-      expect(await failingAdapter.getItem('test')).toBe('value');
+    // Mock electron to fail for this dynamic import only
+    vi.doMock('electron', () => {
+      throw new Error('Electron not available');
     });
+
+    const { ElectronStorageAdapter: FailingAdapter } = await import(
+      '../adapters/electron-storage-adapter'
+    );
+    const failingAdapter = new FailingAdapter();
+
+    // Should initialize with empty cache even when electron fails
+    const value = await failingAdapter.getItem('test');
+    expect(value).toBeNull();
+
+    // Should still allow operations even with failed electron
+    await failingAdapter.setItem('test', 'value');
+    expect(await failingAdapter.getItem('test')).toBe('value');
   });
 
   it('should wait for initialization before operations', async () => {
