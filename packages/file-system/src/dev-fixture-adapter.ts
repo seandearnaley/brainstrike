@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { IFileNode } from '@brainstrike/types';
 import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
@@ -24,8 +23,15 @@ export interface FixtureControls {
 
 export type FixtureCapableFileSystemAdapter = FileSystemAdapter & FixtureControls;
 
+/**
+ * Cross-platform path joining using forward slashes (works in both Node.js and browser).
+ * Always uses POSIX-style paths for consistency.
+ */
 function joinPath(parent: string, name: string): string {
-  return parent ? path.posix.join(parent, name) : name;
+  if (!parent) return name;
+  // Remove trailing slash from parent if present
+  const cleanParent = parent.endsWith('/') ? parent.slice(0, -1) : parent;
+  return `${cleanParent}/${name}`;
 }
 
 function sortNodes(nodes: IFileNode[]): IFileNode[] {
@@ -55,8 +61,13 @@ function buildFixtureState(
   const directories = new Map<string, IFileNode[]>();
   const fileContents = new Map<string, { content: string; size: number; lastModified: number }>();
   const timestamp = Date.now();
+
+  // For web, use empty string as root path (relative paths)
+  // For electron, use the definition name (absolute paths)
+  const rootPath = platform === 'web' ? '' : definition.name;
+
   const rootHandle: DirectoryHandle = {
-    path: definition.name,
+    path: rootPath,
     name: definition.name,
     kind: 'directory',
     platform,
@@ -154,8 +165,17 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
     handle: DirectoryHandle,
     optionsArg?: DirectoryReadOptions
   ): Promise<IFileNode[]> {
-    if (fixtureState?.directories.has(handle.path)) {
-      return cloneNodes(fixtureState.directories.get(handle.path) ?? []);
+    if (fixtureState) {
+      // When fixture is active, only serve data from the fixture
+      if (fixtureState.directories.has(handle.path)) {
+        return cloneNodes(fixtureState.directories.get(handle.path) ?? []);
+      }
+      // Path not found in fixture - this shouldn't happen if fixture is properly built
+      console.warn(
+        `[FixtureAdapter] Path "${handle.path}" not found in fixture. Available paths:`,
+        Array.from(fixtureState.directories.keys())
+      );
+      return [];
     }
     return originalReadDirectory(handle, optionsArg);
   }
@@ -166,6 +186,8 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       if (record) {
         return record.content;
       }
+      console.warn(`[FixtureAdapter] File "${handle.path}" not found in fixture`);
+      return '';
     }
     return originalReadFile(handle);
   }

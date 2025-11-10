@@ -278,13 +278,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     isFileSystemAccessSupported,
   ]);
 
-  const handleDirectorySelectRef = useRef(handleDirectorySelect);
   const clearRootDirectoryRef = useRef(clearRootDirectory);
   const showToastRef = useRef(showToast);
-
-  useEffect(() => {
-    handleDirectorySelectRef.current = handleDirectorySelect;
-  }, [handleDirectorySelect]);
 
   useEffect(() => {
     clearRootDirectoryRef.current = clearRootDirectory;
@@ -298,10 +293,10 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     if (!fixtureAdapter) return;
     const handle = await fixtureAdapter.loadInlineFixture();
     if (handle && setRootDirectoryHandle) {
+      // Setting the root directory handle will automatically trigger the file tree to load
       setRootDirectoryHandle(handle);
     }
-    await handleDirectorySelectRef.current?.();
-  }, [fixtureAdapter]);
+  }, [fixtureAdapter, setRootDirectoryHandle]);
 
   const disableInlineFixture = useCallback(async () => {
     if (!fixtureAdapter) return;
@@ -402,6 +397,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     notifyError,
     notifySuccess,
     setDevInlineFixtureEnabled,
+    fixtureAdapter,
   ]);
 
   const handleFilterChange = useCallback(
