@@ -36,10 +36,6 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
   private async persist() {
     await this.ready;
-    // Skip persistence if storePath wasn't initialized (electron import failed)
-    if (!this.storePath) {
-      return;
-    }
     await fsPromises.writeFile(this.storePath, JSON.stringify(this.cache, null, 2), 'utf8');
   }
 
