@@ -147,6 +147,7 @@ describe('TabbedFileEditorPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     const tabModule0 = await import('../hooks/use-tab-manager');
@@ -231,6 +232,7 @@ describe('TabbedFileEditorPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     render(
@@ -309,6 +311,7 @@ describe('TabbedFileEditorPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     render(

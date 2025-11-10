@@ -84,6 +84,11 @@ export function useFileSystem() {
     return handle;
   };
 
+  const clearRootDirectory = () => {
+    coreApi.clearRootDirectory();
+    setRootDirectoryHandle(null);
+  };
+
   // Sync core hook's restoration to the store (desktop auto-restore)
   // Initial one-way sync only: if the core restored a handle and the store is empty.
   useEffect(() => {
@@ -98,12 +103,14 @@ export function useFileSystem() {
       isAccessLoading: coreApi.isAccessLoading,
       selectRootDirectory,
       isFileSystemAccessSupported,
+      clearRootDirectory,
     }),
     [
       storedRootDirectoryHandle,
       coreApi.rootDirectoryHandle,
       coreApi.isAccessLoading,
       selectRootDirectory,
+      clearRootDirectory,
     ]
   );
 }

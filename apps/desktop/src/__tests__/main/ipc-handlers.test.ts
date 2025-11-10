@@ -39,6 +39,7 @@ vi.mock('electron', () => ({
 
 vi.mock('@brainstrike/file-system', () => ({
   ElectronFileSystemAdapter: vi.fn(() => mockElectronFileSystemAdapter),
+  createFixtureCapableAdapter: (adapter: unknown) => adapter,
 }));
 
 vi.mock('@brainstrike/storage', () => ({

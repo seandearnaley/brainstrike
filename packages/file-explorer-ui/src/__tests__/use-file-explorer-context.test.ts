@@ -111,6 +111,8 @@ describe('useFileExplorer (context)', () => {
       setFolderSummaryThreshold: vi.fn(),
       setMaxSelectionCount: vi.fn(),
       setLastActiveTab: vi.fn(),
+      devInlineFixtureEnabled: false,
+      setDevInlineFixtureEnabled: vi.fn(),
       setFileContent: vi.fn(),
       getFileContent: vi.fn(),
       clearFileContents: vi.fn(),
@@ -141,6 +143,7 @@ describe('useFileExplorer (context)', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      clearRootDirectory: vi.fn(),
     });
 
     vi.mocked(useFileTree).mockReturnValue({
@@ -227,6 +230,7 @@ describe('useFileExplorer (context)', () => {
       isAccessLoading: false,
       selectRootDirectory: mockSelectRootDirectory,
       isFileSystemAccessSupported: vi.fn().mockReturnValue({ supported: true, reason: '' }),
+      clearRootDirectory: vi.fn(),
     });
 
     const { result } = renderHook(() => useFileExplorer());

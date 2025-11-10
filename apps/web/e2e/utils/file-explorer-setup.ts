@@ -89,7 +89,7 @@ export async function openExplorerSettings(
   explorer: FileExplorerPage
 ): Promise<Locator> {
   await explorer.openSettingsButton.click();
-  const dialog = page.locator('dialog[aria-labelledby="config-title"]');
+  const dialog = page.locator('[data-testid="settings-dialog"]');
   await dialog.waitFor({ state: 'visible' });
   return dialog;
 }

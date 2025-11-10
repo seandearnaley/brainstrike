@@ -327,7 +327,7 @@ describe('agent-runtime edge cases', () => {
       // MCP client may not be defined if connection fails (expected in test environments)
       expect(runtime).toBeDefined();
       await runtime.dispose();
-    });
+    }, 10000);
 
     it('uses custom model when provided', async () => {
       const { createMastraAgentRuntime } = await import('../mastra/agent-runtime');
