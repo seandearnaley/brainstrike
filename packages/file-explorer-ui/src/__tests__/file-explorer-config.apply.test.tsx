@@ -1,5 +1,5 @@
 import { Dialog } from '@brainstrike/ui';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigDialogContent } from '../file-explorer-config';
@@ -43,9 +43,11 @@ describe('ConfigDialogContent apply settings', () => {
     const applyButton = screen.getByRole('button', { name: /Apply Settings/i });
     await userEvent.click(applyButton);
 
-    expect(persistPatch).toHaveBeenCalled();
-    expect(onClose).toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalled();
+    await waitFor(() => {
+      expect(persistPatch).toHaveBeenCalled();
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(consoleSpy).not.toHaveBeenCalled();
 
     consoleSpy.mockRestore();
   });
