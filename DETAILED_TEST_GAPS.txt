@@ -1,0 +1,250 @@
+DETAILED TEST COVERAGE GAPS - BrainStrike Monorepo
+===================================================
+
+CRITICAL PACKAGES (Immediate Action Required)
+==============================================
+
+1. @brainstrike/queue (28.6% - 2 tests for 7 source files)
+   Location: /home/user/brainstrike/packages/queue
+   
+   FILES WITH NO TESTS:
+   - /home/user/brainstrike/packages/queue/src/adapters/browser-pqueue.ts
+     Purpose: Browser-based p-queue job queue adapter
+     Missing: Unit tests for queue operations, error handling, concurrency
+   
+   - /home/user/brainstrike/packages/queue/src/adapters/browser-workerpool.ts
+     Purpose: Browser-based workerpool job queue adapter
+     Missing: Worker pool lifecycle tests, message passing tests
+   
+   - /home/user/brainstrike/packages/queue/src/remote-telemetry-sink.ts
+     Purpose: Remote HTTP telemetry sink for queue events
+     Missing: HTTP request tests, payload validation, error retry tests
+   
+   - /home/user/brainstrike/packages/queue/src/types.ts
+     Purpose: Type definitions and interfaces
+     Missing: Type validation tests
+   
+   PARTIAL COVERAGE:
+   - /home/user/brainstrike/packages/queue/src/util.ts (1 test)
+   - /home/user/brainstrike/packages/queue/src/telemetry.ts (1 test)
+   - /home/user/brainstrike/packages/queue/src/index.ts (no dedicated test)
+
+---
+
+2. @brainstrike/file-system (50.0% - 6 tests for 10 source files)
+   Location: /home/user/brainstrike/packages/file-system
+   
+   FILES WITH NO TESTS:
+   - /home/user/brainstrike/packages/file-system/src/adapters/electron-watchers.ts
+     Purpose: File system event watching for Electron
+     Missing: Watch start/stop tests, event emission tests, filter tests
+   
+   - /home/user/brainstrike/packages/file-system/src/errors.ts (partial)
+     Purpose: File system error definitions
+     Missing: Error type validation
+   
+   PARTIAL COVERAGE (need more tests):
+   - /home/user/brainstrike/packages/file-system/src/adapters/electron-adapter.ts
+     Currently has tests but incomplete:
+     - Missing: Deep nested directory operations
+     - Missing: Special file handling (symlinks, permissions)
+     - Missing: Error recovery scenarios
+   
+   - /home/user/brainstrike/packages/file-system/src/factory.ts (partial)
+     Purpose: Adapter selection factory
+     Missing: Adapter selection logic tests for different platforms
+
+---
+
+3. @brainstrike/storage (50.0% - 4 tests for 7 source files)
+   Location: /home/user/brainstrike/packages/storage
+   
+   FILES WITH NO/PARTIAL TESTS:
+   - /home/user/brainstrike/packages/storage/src/adapters/electron-storage-adapter.ts
+     Purpose: Electron store-based persistent storage
+     Missing: Store initialization, data persistence, migration tests
+   
+   - /home/user/brainstrike/packages/storage/src/index.ts
+     Purpose: Main export/factory
+     Missing: Integration tests between adapters
+   
+   EXISTING TESTS (expand these):
+   - /home/user/brainstrike/packages/storage/src/__tests__/electron-storage-adapter.test.ts
+     Current coverage: ~60%
+     Gaps: Edge cases, error scenarios, data corruption recovery
+
+---
+
+4. @brainstrike/types (25.0% - 2 tests for 8 source files)
+   Location: /home/user/brainstrike/packages/types
+   
+   FILES WITH NO TESTS:
+   - /home/user/brainstrike/packages/types/src/embedding-constants.ts
+     Purpose: Embedding model configuration and constants
+     Missing: Constant validation, model config schema tests
+   
+   - /home/user/brainstrike/packages/types/src/errors.ts
+     Purpose: Error type definitions
+     Missing: Error type exhaustiveness checks
+   
+   - /home/user/brainstrike/packages/types/src/file-explorer-constants.ts
+     Purpose: UI and file explorer constants
+     Missing: Constant value validation
+   
+   - /home/user/brainstrike/packages/types/src/env.d.ts
+     Purpose: TypeScript environment declarations
+     Missing: Environment variable type tests (if applicable)
+   
+   - /home/user/brainstrike/packages/types/src/file-explorer-types.ts (partial)
+     Purpose: Core file explorer type definitions
+     Missing: Type guard function tests
+   
+   MINIMAL COVERAGE:
+   - /home/user/brainstrike/packages/types/src/file-system.ts (partial)
+   - /home/user/brainstrike/packages/types/src/index.ts (exports only)
+
+---
+
+HIGH-IMPACT PACKAGES (Improve Next)
+===================================
+
+5. @brainstrike/vector-management (52.9% - 9 tests for 16 source files)
+   Location: /home/user/brainstrike/packages/vector-management
+   
+   COMPONENTS WITH NO/MINIMAL TESTS:
+   - /home/user/brainstrike/packages/vector-management/src/embedding-set-management/*.tsx
+     Components: create-embedding-set-dialog, delete-embedding-set-dialog, 
+                 rename-embedding-set-dialog, manage-embedding-sets-dialog
+     Missing: Dialog interaction tests, form validation, async operations
+   
+   - /home/user/brainstrike/packages/vector-management/src/embedding-queue-provider.tsx
+     Purpose: React context provider for embedding queue
+     Missing: Provider initialization, context value tests
+   
+   - /home/user/brainstrike/packages/vector-management/src/vector-status/*.tsx
+     Components with gaps:
+     - vector-status.tsx (partial)
+     - queue-hud.tsx (partial)
+     Missing: State transitions, error display, progress tracking
+   
+   HOOKS WITH PARTIAL COVERAGE:
+   - /home/user/brainstrike/packages/vector-management/src/vector-status/use-embedding-worker-controls.ts
+   - /home/user/brainstrike/packages/vector-management/src/vector-status/use-vector-queue-state.ts
+   Missing: Error scenarios, edge cases, performance tests
+
+---
+
+6. @brainstrike/ui (61.5% - 40 tests for 64 source files)
+   Location: /home/user/brainstrike/packages/ui
+   
+   COMPONENTS WITH <70% COVERAGE:
+   - /home/user/brainstrike/packages/ui/src/ide-layout.tsx (partial)
+     Missing: Layout switching, responsive behavior tests
+   
+   - /home/user/brainstrike/packages/ui/src/assistant-ui-panel.tsx (partial)
+     Missing: Panel state management, message rendering
+   
+   - /home/user/brainstrike/packages/ui/src/theme-provider.tsx (partial)
+     Missing: Theme switching, persistence tests
+   
+   - /home/user/brainstrike/packages/ui/src/use-panel-persistence.tsx (partial)
+     Missing: Storage interaction, error recovery
+   
+   CUSTOM HOOKS WITH GAPS:
+   - /home/user/brainstrike/packages/ui/src/use-toast.ts (partial)
+   - /home/user/brainstrike/packages/ui/src/use-panel-layout-provider.tsx (partial)
+
+---
+
+7. @brainstrike/db-explorer (46.0% - 23 tests for 49 source files)
+   Location: /home/user/brainstrike/packages/db-explorer
+   
+   LARGE UNTESTED AREAS:
+   - /home/user/brainstrike/packages/db-explorer/src/utils/ (multiple files with partial coverage)
+     - factory-reset-helpers.ts
+     - format.ts
+     - embedding-set-normalizer.ts (has 1 test but incomplete)
+   
+   - /home/user/brainstrike/packages/db-explorer/src/stores/database-demo-store.ts
+     Missing: Store initialization, state transitions, data persistence
+   
+   - /home/user/brainstrike/packages/db-explorer/src/enhanced-file-import-service.ts
+     Missing: Service integration tests, error handling
+   
+   COMPONENTS:
+   - /home/user/brainstrike/packages/db-explorer/src/components/*.tsx
+     Multiple UI components with partial/missing test coverage
+
+---
+
+INFRASTRUCTURE PACKAGES (Lower Priority)
+========================================
+
+8. @brainstrike/queue-telemetry-collector (33.3% - 0 tests for 3 source files)
+   Location: /home/user/brainstrike/packages/queue-telemetry-collector
+   
+   FILES WITH NO TESTS:
+   - /home/user/brainstrike/packages/queue-telemetry-collector/src/collector.ts
+     Purpose: HTTP telemetry event collector
+     Missing: HTTP server tests, event aggregation, batch sending
+   
+   - /home/user/brainstrike/packages/queue-telemetry-collector/src/cli.ts
+     Purpose: CLI interface for telemetry service
+     Missing: CLI argument parsing, process lifecycle tests
+   
+   - /home/user/brainstrike/packages/queue-telemetry-collector/src/index.ts
+     Purpose: Main exports
+     Missing: API surface tests
+
+---
+
+9. @brainstrike/build-utils (33.3% - 1 test for 2 source files)
+   Location: /home/user/brainstrike/packages/build-utils
+   
+   FILES WITH NO TESTS:
+   - /home/user/brainstrike/packages/build-utils/src/index.ts
+     Purpose: Main export
+     Missing: Re-export verification
+   
+   PARTIAL COVERAGE:
+   - /home/user/brainstrike/packages/build-utils/src/vite.ts
+     Currently: 1 test
+     Missing: Plugin options validation, build scenarios
+
+---
+
+10. @brainstrike/server-config (50.0% - 1 test for 2 source files)
+    Location: /home/user/brainstrike/packages/server-config
+    
+    FILES WITH PARTIAL COVERAGE:
+    - /home/user/brainstrike/packages/server-config/src/server.ts
+      Currently: 1 test
+      Missing: Server initialization variations, middleware tests
+    
+    - /home/user/brainstrike/packages/server-config/src/index.ts
+      Purpose: Exports
+      Missing: API surface validation
+
+---
+
+SUMMARY TABLE: Critical Missing Tests
+=====================================
+
+Package | Missing Test Files | Total Missing Coverage | Estimated Test Hours
+--------|-------------------|----------------------|---------------------
+queue | 3 files completely untested | ~41% | 10-12
+file-system | 1 file + partial coverage gaps | ~30% | 10-12
+storage | 1 file + gaps | ~20% | 6-8
+types | 4 files untested | ~50% | 4-6
+vector-management | 8 components + 2 hooks | ~28% | 8-10
+ui | 5 components + gaps | ~20% | 8-10
+db-explorer | ~15-20 files | ~35% | 8-10
+queue-telemetry-collector | 2 files completely untested | ~67% | 4-6
+build-utils | 1 file + gaps | ~50% | 2-3
+server-config | 1 file + gaps | ~25% | 2-3
+
+TOTAL ESTIMATED EFFORT: 60-80 hours across all critical/high-priority packages
+
+RECOMMENDED PHASE 1 (2 weeks): queue, file-system, storage, types = 30-38 hours
+RECOMMENDED PHASE 2 (2-3 weeks): vector-management, ui, db-explorer = 24-30 hours
+
