@@ -4,7 +4,7 @@
 
 BrainStrike is a modern, modular monorepo built for AI-powered productivity tools. It leverages **Turborepo** for orchestrated builds, **pnpm** for workspace-aware package management, and a strict separation between application code (`apps/`) and reusable libraries (`packages/`).
 
-- **Apps**: Contains deployable applications (e.g., `apps/web` is the main Vite + React frontend).
+- **Apps**: Contains deployable applications (e.g., `apps/web` is the Vite + React frontend and `apps/desktop` is the Electron app).
 - **Packages**: Houses shared code—UI components (`ui`), hooks, types, utilities, and configuration.
 - **Build & CI**: Turbo pipelines (`turbo.jsonc`) ensure fast, cacheable, and ordered builds/tests/lints across all workspaces.
 
@@ -13,6 +13,7 @@ BrainStrike is a modern, modular monorepo built for AI-powered productivity tool
 ```
 brainstrike/
 ├── apps/
+│   ├── desktop/      # Electron app (renderer + main processes)
 │   └── web/          # Main Vite + React app (see src/ for components/pages)
 ├── packages/
 │   ├── ui/           # Canonical UI library (React + Tailwind components)
@@ -26,7 +27,8 @@ brainstrike/
 ├── pnpm-workspace.yaml # pnpm workspace definition
 ├── package.json      # Root scripts, devDeps, workspace definition
 ├── tsconfig.json     # Root TS config (references packages/app configs)
-├── onboarding.md     # In-depth onboarding & architectural rationale
+├── docs/
+│   └── onboarding.md # In-depth onboarding & architectural rationale
 ├── README.md         # Quick start and migration notes
 └── ...
 ```
@@ -163,7 +165,7 @@ mocking packages like `@brainstrike/hooks` and `@brainstrike/ui`.
 | Run full validation suite   | `pnpm check`                     |
 
 ## 9. Further Reading
-- `onboarding.md`: Deep-dive onboarding, architecture, and rationale
+- `docs/onboarding.md`: Deep-dive onboarding, architecture, and rationale
 - `packages/ui/README.md`: UI library usage and setup
 - `turbo.jsonc`: Turborepo pipeline config
 - `pnpm-workspace.yaml`: Workspace/project boundaries
@@ -171,4 +173,4 @@ mocking packages like `@brainstrike/hooks` and `@brainstrike/ui`.
 
 ---
 
-**This document is self-contained and should serve as the primary reference for component extraction and migration in the BrainStrike monorepo. For architectural decisions and onboarding, see `onboarding.md`.**
+**This document is self-contained and should serve as the primary reference for component extraction and migration in the BrainStrike monorepo. For architectural decisions and onboarding, see `docs/onboarding.md`.**

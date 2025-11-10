@@ -1,5 +1,7 @@
 # DB + Embeddings Modernization Plan
 
+> **2025-10 update:** The renderer-managed embedding worker now auto-starts once the database is available, so `EMBED_QUEUE_ENABLED` references inside this plan reflect historical rollout checkpoints rather than current configuration requirements.
+
 *Phased, checklist-driven, with clear cut-offs, outputs, and validation gates.*
 
 > **Goal:** make the DB the source of truth, add a **local-first queue**, harden chunking/import, and support multiple embedding models **without** foot-guns (dimension drift, pgvector availability, etc.).
