@@ -177,15 +177,21 @@ describe('electron-watchers', () => {
       };
       const fsWatchSpy = vi
         .spyOn(fs, 'watch')
-        .mockImplementation((_, _options, listener) => {
-          // Emit an event without filename
-          setTimeout(() => {
-            if (typeof listener === 'function') {
-              listener('rename', null);
-            }
-          }, 10);
-          return mockWatcher as unknown as ReturnType<typeof fs.watch>;
-        });
+        .mockImplementation(
+          (
+            _filename: fs.PathLike,
+            _options: fs.WatchOptions | BufferEncoding | string | null,
+            listener?: fs.WatchListener<string>
+          ) => {
+            // Emit an event without filename
+            setTimeout(() => {
+              if (typeof listener === 'function') {
+                listener('rename', null);
+              }
+            }, 10);
+            return mockWatcher as unknown as ReturnType<typeof fs.watch>;
+          }
+        );
 
       const stop = startFsWatch(handle, callback);
 
