@@ -143,8 +143,8 @@ describe('ConcurrentLoadingError', () => {
         failCount: error.failCount,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
-      expect(parsed.successCount).toBe(5);
-      expect(parsed.failCount).toBe(3);
+      expect(parsed['successCount']).toBe(5);
+      expect(parsed['failCount']).toBe(3);
     });
   });
 
@@ -220,8 +220,8 @@ describe('ConcurrentLoadingError', () => {
         code: error.code,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
-      expect(parsed.path).toBe('/big/file.txt');
-      expect(parsed.code).toBe('TOO_LARGE');
+      expect(parsed['path']).toBe('/big/file.txt');
+      expect(parsed['code']).toBe('TOO_LARGE');
     });
 
     it('should handle long file paths', () => {
@@ -285,8 +285,8 @@ describe('ConcurrentLoadingError', () => {
         failedPaths: error.failedPaths,
       });
       const parsed = JSON.parse(serialized) as Record<string, unknown>;
-      expect(Array.isArray(parsed.failedPaths)).toBe(true);
-      expect((parsed.failedPaths as string[]).length).toBe(2);
+      expect(Array.isArray(parsed['failedPaths'])).toBe(true);
+      expect((parsed['failedPaths'] as string[]).length).toBe(2);
     });
 
     it('should handle very long path arrays', () => {
