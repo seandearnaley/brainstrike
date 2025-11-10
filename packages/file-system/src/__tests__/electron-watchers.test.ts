@@ -175,20 +175,21 @@ describe('electron-watchers', () => {
       const mockWatcher = {
         close: vi.fn(),
       };
-      const fsWatchSpy = vi
-        .spyOn(fs, 'watch')
-        .mockImplementation(((...args: unknown[]) => {
-          // Emit an event without filename
-          const listener = args.find((arg) => typeof arg === 'function') as
-            | fs.WatchListener<string>
-            | undefined;
-          setTimeout(() => {
-            if (typeof listener === 'function') {
-              listener('rename', null);
-            }
-          }, 10);
-          return mockWatcher as unknown as ReturnType<typeof fs.watch>;
-        }) as typeof fs.watch);
+      // Create mock function with correct type to satisfy all fs.watch overloads
+      const mockFsWatch: typeof fs.watch = ((...args: unknown[]) => {
+        // Emit an event without filename
+        const listener = args.find((arg) => typeof arg === 'function') as
+          | fs.WatchListener<string>
+          | undefined;
+        setTimeout(() => {
+          if (typeof listener === 'function') {
+            listener('rename', null);
+          }
+        }, 10);
+        return mockWatcher as unknown as ReturnType<typeof fs.watch>;
+      }) as typeof fs.watch;
+
+      const fsWatchSpy = vi.spyOn(fs, 'watch').mockImplementation(mockFsWatch);
 
       const stop = startFsWatch(handle, callback);
 
