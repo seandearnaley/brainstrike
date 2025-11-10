@@ -1,4 +1,5 @@
 import { useAdapters, useToastManager } from '@brainstrike/file-explorer-hooks';
+import { isFixtureCapableAdapter } from '@brainstrike/file-system';
 import { useReportGeneration, useReportManager } from '@brainstrike/hooks';
 import { FileExplorerStrings, type IFileNode } from '@brainstrike/types';
 import {
@@ -12,7 +13,7 @@ import {
 import { encodeFileSelection, parseFilterString } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import FileExplorerErrorBoundary from './file-explorer-error-boundary';
 import { useFileExplorerStoreContext } from './file-explorer-provider';
 import { DirectoryStatus, FilterStatus } from './file-explorer-status-components';
@@ -100,6 +101,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     maxSelectionCount,
     includeProjectTree,
     folderSummaryThreshold,
+    devInlineFixtureEnabled,
+    setDevInlineFixtureEnabled,
+    setRootDirectoryHandle,
   ] = store(
     (s) =>
       [
@@ -112,6 +116,9 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         s.maxSelectionCount,
         s.includeProjectTree,
         s.folderSummaryThreshold,
+        s.devInlineFixtureEnabled,
+        s.setDevInlineFixtureEnabled,
+        s.setRootDirectoryHandle,
       ] as const
   );
 
@@ -135,6 +142,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     cancellable,
     cancelOperation,
     isCancelling,
+    clearRootDirectory,
   } = useFileExplorer();
 
   const onSelectionLimitExceeded = useCallback(() => {
@@ -148,6 +156,11 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const safeSelectedFilesList: string[] = Array.isArray(selectedFilesList) ? selectedFilesList : [];
   const safeSetSelectedFilesFromList =
     (setSelectedFilesFromList as undefined | ((l: readonly string[]) => void)) ?? (() => {});
+
+  const fixtureAdapter = isFixtureCapableAdapter(fileSystemAdapter) ? fileSystemAdapter : null;
+  const inlineFixtureAvailable = Boolean(fixtureAdapter?.canLoadInlineFixture);
+  const [isInlineFixtureLoading, setIsInlineFixtureLoading] = useState(false);
+  const hasAppliedInitialFixtureRef = useRef(false);
 
   // Report generation configured with current state
   const { generateReportWithContent } = useReportGeneration({
@@ -194,6 +207,16 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
   const quickFilter = typeof quickFilterRaw === 'string' ? quickFilterRaw : '';
   const setQuickFilter = (setQuickFilterRaw ?? (() => {})) as (v: string) => void;
   const clearQuickFilter = (clearQuickFilterRaw ?? (() => {})) as () => void;
+
+  const inlineFixtureSetting = useMemo(() => {
+    if (!inlineFixtureAvailable) {
+      return undefined;
+    }
+    return {
+      available: inlineFixtureAvailable,
+      loading: isInlineFixtureLoading,
+    } as const;
+  }, [inlineFixtureAvailable, isInlineFixtureLoading]);
 
   // Local filtering utility modeled after hooks/use-quick-filter
   const quickFilteredTree = useMemo(() => {
@@ -253,6 +276,128 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
     handleBrowserCompatibilityError,
     handleDirectorySelectError,
     isFileSystemAccessSupported,
+  ]);
+
+  const clearRootDirectoryRef = useRef(clearRootDirectory);
+  const showToastRef = useRef(showToast);
+
+  useEffect(() => {
+    clearRootDirectoryRef.current = clearRootDirectory;
+  }, [clearRootDirectory]);
+
+  useEffect(() => {
+    showToastRef.current = showToast;
+  }, [showToast]);
+
+  const enableInlineFixture = useCallback(async () => {
+    if (!fixtureAdapter) return;
+    const handle = await fixtureAdapter.loadInlineFixture();
+    if (handle && setRootDirectoryHandle) {
+      // Setting the root directory handle will automatically trigger the file tree to load
+      setRootDirectoryHandle(handle);
+    }
+  }, [fixtureAdapter, setRootDirectoryHandle]);
+
+  const disableInlineFixture = useCallback(async () => {
+    if (!fixtureAdapter) return;
+    await fixtureAdapter.clearInlineFixture();
+    clearRootDirectoryRef.current?.();
+  }, [fixtureAdapter]);
+
+  const notifySuccess = useCallback((enabled: boolean) => {
+    if (!hasAppliedInitialFixtureRef.current) {
+      return;
+    }
+    const description = enabled
+      ? FileExplorerStrings.inlineFixture.enableSuccess
+      : FileExplorerStrings.inlineFixture.disableSuccess;
+    showToastRef.current?.({
+      title: FileExplorerStrings.success.title,
+      description,
+    });
+  }, []);
+
+  const notifyError = useCallback((enabled: boolean) => {
+    const description = enabled
+      ? FileExplorerStrings.inlineFixture.enableError
+      : FileExplorerStrings.inlineFixture.disableError;
+    showToastRef.current?.({
+      title: FileExplorerStrings.error.title,
+      description,
+      variant: 'destructive',
+    });
+  }, []);
+
+  const prevTargetStateRef = useRef<boolean | null>(null);
+
+  useEffect(() => {
+    if (!fixtureAdapter || !inlineFixtureAvailable) {
+      if (devInlineFixtureEnabled) {
+        setDevInlineFixtureEnabled(false);
+      }
+      return;
+    }
+
+    if (!hasAppliedInitialFixtureRef.current && !devInlineFixtureEnabled) {
+      return;
+    }
+
+    if (
+      prevTargetStateRef.current === devInlineFixtureEnabled &&
+      hasAppliedInitialFixtureRef.current
+    ) {
+      return;
+    }
+    prevTargetStateRef.current = devInlineFixtureEnabled;
+
+    let isCancelled = false;
+    const targetState = devInlineFixtureEnabled;
+    // Avoid re-applying the same state if the fixture is already in the desired state.
+    // This prevents the effect from running when unrelated dependencies (like the adapter)
+    // change after the initial application.
+    const currentActive = fixtureAdapter?.isInlineFixtureActive?.() ?? false;
+    if (currentActive === targetState) {
+      // Mark that we've applied the initial fixture so future toggles work correctly,
+      // but skip the async work since nothing needs to change.
+      hasAppliedInitialFixtureRef.current = true;
+      return;
+    }
+
+    const applySetting = async () => {
+      setIsInlineFixtureLoading(true);
+      try {
+        if (targetState) {
+          await enableInlineFixture();
+        } else {
+          await disableInlineFixture();
+        }
+        notifySuccess(targetState);
+        hasAppliedInitialFixtureRef.current = true;
+      } catch (_error) {
+        notifyError(targetState);
+        setDevInlineFixtureEnabled(!targetState);
+      } finally {
+        if (!isCancelled) {
+          setIsInlineFixtureLoading(false);
+        }
+        hasAppliedInitialFixtureRef.current = true;
+      }
+    };
+
+    void applySetting();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    devInlineFixtureEnabled,
+    disableInlineFixture,
+    enableInlineFixture,
+    inlineFixtureAvailable,
+    notifyError,
+    notifySuccess,
+    setDevInlineFixtureEnabled,
+    fixtureAdapter,
   ]);
 
   const handleFilterChange = useCallback(
@@ -332,6 +477,7 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
             rootDirectoryHandle={rootDirectoryHandle}
             selectedCount={safeSelectedFilesList.length}
             maxSelectionCount={maxSelectionCount}
+            {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
           />
           <DirectoryStatus rootDirectoryHandle={rootDirectoryHandle} />
           <FilterStatus

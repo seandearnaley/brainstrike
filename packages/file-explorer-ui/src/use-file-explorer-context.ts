@@ -44,6 +44,7 @@ interface UseFileExplorerReturn {
   cancelOperation: () => void;
   /** Whether the operation is currently being cancelled */
   isCancelling: boolean;
+  clearRootDirectory: () => void;
 }
 
 export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerReturn {
@@ -66,7 +67,12 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
   // Call the core hook
   const coreExplorer = useCoreFileExplorer();
 
-  const { rootDirectoryHandle, selectRootDirectory, isFileSystemAccessSupported } = useFileSystem();
+  const {
+    rootDirectoryHandle,
+    selectRootDirectory,
+    isFileSystemAccessSupported,
+    clearRootDirectory,
+  } = useFileSystem();
 
   const {
     fileTree,
@@ -184,5 +190,6 @@ export function useFileExplorer(_: UseFileExplorerProps = {}): UseFileExplorerRe
     cancellable,
     cancelOperation,
     isCancelling,
+    clearRootDirectory,
   };
 }

@@ -103,4 +103,97 @@ describe('useGroupSelection', () => {
     });
     expect(result.current.selections.size).toBe(0);
   });
+
+  it('handles empty group correctly', () => {
+    const emptyGroup: GroupedData<Item> = {
+      groupKey: 'empty',
+      groupLabel: 'Empty',
+      items: [],
+      count: 0,
+      totalTokens: 0,
+      totalSize: 0,
+    };
+
+    const { result } = renderHook(() => useTestHook());
+
+    expect(result.current.isGroupFullySelected(emptyGroup)).toBe(false);
+    expect(result.current.isGroupPartiallySelected(emptyGroup)).toBe(false);
+  });
+
+  it('handles empty items list for isAllSelected', () => {
+    const { result } = renderHook(() => useTestHook());
+
+    expect(result.current.isAllSelected([])).toBe(false);
+  });
+
+  it('selectAllOnPage preserves existing selections', () => {
+    const { result } = renderHook(() => useTestHook(['c']));
+
+    act(() => {
+      result.current.selectAllOnPage([itemA, itemB]);
+    });
+
+    expect(Array.from(result.current.selections).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('handleGroupSelectAll preserves existing selections', () => {
+    const { result } = renderHook(() => useTestHook(['c']));
+
+    act(() => {
+      result.current.handleGroupSelectAll(group1);
+    });
+
+    expect(Array.from(result.current.selections).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('toggleItemSelection handles repeated operations', () => {
+    const { result } = renderHook(() => useTestHook());
+
+    act(() => {
+      result.current.toggleItemSelection('a', true);
+    });
+    expect(result.current.selections.has('a')).toBe(true);
+
+    act(() => {
+      result.current.toggleItemSelection('a', true);
+    });
+    expect(result.current.selections.has('a')).toBe(true);
+
+    act(() => {
+      result.current.toggleItemSelection('a', false);
+    });
+    expect(result.current.selections.has('a')).toBe(false);
+
+    act(() => {
+      result.current.toggleItemSelection('a', false);
+    });
+    expect(result.current.selections.has('a')).toBe(false);
+  });
+
+  it('isGroupPartiallySelected returns false when all selected', () => {
+    const { result } = renderHook(() => useTestHook(['a', 'b']));
+
+    expect(result.current.isGroupPartiallySelected(group1)).toBe(false);
+    expect(result.current.isGroupFullySelected(group1)).toBe(true);
+  });
+
+  it('selectAll replaces existing selection completely', () => {
+    const { result } = renderHook(() => useTestHook(['a', 'b', 'c']));
+
+    act(() => {
+      result.current.selectAll([itemA]);
+    });
+
+    expect(Array.from(result.current.selections)).toEqual(['a']);
+  });
+
+  it('handleGroupDeselectAll only removes group items', () => {
+    const { result } = renderHook(() => useTestHook(['a', 'b', 'c']));
+
+    act(() => {
+      result.current.handleGroupDeselectAll(group1);
+    });
+
+    expect(Array.from(result.current.selections)).toEqual(['c']);
+  });
 });

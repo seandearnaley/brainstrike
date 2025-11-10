@@ -17,6 +17,10 @@ interface FileExplorerToolbarProps {
   rootDirectoryHandle: DirectoryHandle | null;
   selectedCount: number;
   maxSelectionCount: number;
+  inlineFixtureSetting?: {
+    available: boolean;
+    loading: boolean;
+  };
 }
 
 const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
@@ -31,6 +35,7 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
     rootDirectoryHandle,
     selectedCount,
     maxSelectionCount,
+    inlineFixtureSetting,
   }) => {
     return (
       <div className="flex flex-col gap-2 px-2 py-2 border-b">
@@ -46,7 +51,11 @@ const FileExplorerToolbar: React.FC<FileExplorerToolbarProps> = React.memo(
               <Folder className="h-4 w-4 mr-2" />
               {FileExplorerStrings.selectRoot}
             </Button>
-            <FileExplorerConfig filterError={filterError} onFilterChange={onFilterChange} />
+            <FileExplorerConfig
+              filterError={filterError}
+              onFilterChange={onFilterChange}
+              {...(inlineFixtureSetting ? { inlineFixtureSetting } : {})}
+            />
           </div>
           <output>
             <Badge

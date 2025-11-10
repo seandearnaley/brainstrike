@@ -1,5 +1,6 @@
 import { DbProvider } from '@brainstrike/db';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
+import { createFixtureCapableAdapter } from '@brainstrike/file-system';
 import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import {
@@ -17,7 +18,10 @@ import './styles.css';
 import RootLayoutContent from './components/root-layout-content';
 
 // Create renderer-specific adapters that use IPC
-const fileSystemAdapter = new ElectronRendererFileSystemAdapter();
+const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter();
+const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
+  platform: 'electron',
+});
 const storageAdapter = new ElectronRendererStorageAdapter();
 
 const rendererLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;

@@ -5,6 +5,42 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 // Utility to dynamically import the main entry after setting up mocks
 const importMain = () => import('../main');
 
+vi.mock('react-helmet-async', () => ({
+  HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@brainstrike/db', () => ({
+  DbProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@brainstrike/file-explorer-hooks', () => ({
+  AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock('@brainstrike/file-system', () => ({
+  createFileSystemAdapter: () => ({}),
+  createFixtureCapableAdapter: (adapter: unknown) => adapter,
+}));
+
+vi.mock('@brainstrike/storage', () => ({
+  createStorageAdapter: () => ({}),
+}));
+
+vi.mock('../app/root-layout-content', () => ({
+  __esModule: true,
+  default: () => <div data-testid="root-layout">Root Layout</div>,
+}));
+
+vi.mock('../app/home-page-content', () => ({
+  __esModule: true,
+  default: () => <div data-testid="home-page">Home Page</div>,
+}));
+
+vi.mock('../app/settings/page-content', () => ({
+  __esModule: true,
+  default: () => <div data-testid="settings-page">Settings Page</div>,
+}));
+
 describe('main entry file', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -27,36 +63,6 @@ describe('main entry file', () => {
     vi.doMock('react-dom/client', () => ({
       __esModule: true,
       default: { createRoot: createRootMock },
-    }));
-
-    // Mock providers to render children directly
-    vi.mock('react-helmet-async', () => ({
-      HelmetProvider: ({ children }: { children: React.ReactNode }) => children,
-    }));
-    vi.mock('@brainstrike/db', () => ({
-      DbProvider: ({ children }: { children: React.ReactNode }) => children,
-    }));
-    vi.mock('@brainstrike/file-explorer-hooks', () => ({
-      AdaptersProvider: ({ children }: { children: React.ReactNode }) => children,
-    }));
-    vi.mock('@brainstrike/file-system', () => ({
-      createFileSystemAdapter: () => ({}),
-    }));
-    vi.mock('@brainstrike/storage', () => ({
-      createStorageAdapter: () => ({}),
-    }));
-
-    vi.mock('../app/root-layout-content', () => ({
-      __esModule: true,
-      default: () => <div data-testid="root-layout">Root Layout</div>,
-    }));
-    vi.mock('../app/home-page-content', () => ({
-      __esModule: true,
-      default: () => <div data-testid="home-page">Home Page</div>,
-    }));
-    vi.mock('../app/settings/page-content', () => ({
-      __esModule: true,
-      default: () => <div data-testid="settings-page">Settings Page</div>,
     }));
 
     await importMain();

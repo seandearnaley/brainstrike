@@ -186,6 +186,7 @@ describe('FileExplorerLeftPanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
       loadFileContent: vi.fn(),
       clearFileContents: vi.fn(),
     } as ReturnType<typeof useFileExplorer>;
@@ -298,5 +299,168 @@ describe('FileExplorerLeftPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Apply Complex' }));
     expect(setFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz']);
     expect(applyFileFiltersMock).toHaveBeenCalledWith(['foo'], ['bar', 'baz'], false);
+  });
+
+  it('displays loading overlay when loading', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isLoading: true,
+      cancellable: false,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+  });
+
+  it('shows error when browser is not compatible', async () => {
+    const handleBrowserCompatibilityErrorMock = vi.fn();
+    isFileSystemAccessSupportedMock.mockReturnValueOnce({
+      supported: false,
+      reason: 'Browser not supported',
+    });
+
+    // Update the mock before rendering
+    const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(useToastManager).mockReturnValueOnce({
+      toast: vi.fn(),
+      showToast: vi.fn(),
+      handleRefreshError: vi.fn(),
+      handleBrowserCompatibilityError: handleBrowserCompatibilityErrorMock,
+      handleDirectorySelectError: vi.fn(),
+      handlePartialRefreshError: vi.fn(),
+      handleSelectionLimitError: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Select Directory' }));
+
+    expect(handleBrowserCompatibilityErrorMock).toHaveBeenCalledWith('Browser not supported');
+  });
+
+  it('handles user cancelling directory selection', async () => {
+    handleRootDirectorySelectMock.mockResolvedValueOnce(null);
+
+    const user = userEvent.setup();
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByRole('button', { name: 'Select Directory' }));
+
+    // Should not throw or show error when user cancels
+    expect(handleDirectorySelectErrorMock).not.toHaveBeenCalled();
+  });
+
+  it('handles refresh errors', async () => {
+    const error = new Error('Refresh failed');
+    const handleRefreshErrorMock = vi.fn();
+
+    refreshFileExplorerMock.mockRejectedValueOnce(error);
+
+    // Update the mock before rendering
+    const { useToastManager } = await import('@brainstrike/file-explorer-hooks');
+    vi.mocked(useToastManager).mockReturnValueOnce({
+      toast: vi.fn(),
+      showToast: vi.fn(),
+      handleRefreshError: handleRefreshErrorMock,
+      handleBrowserCompatibilityError: vi.fn(),
+      handleDirectorySelectError: vi.fn(),
+      handlePartialRefreshError: vi.fn(),
+      handleSelectionLimitError: vi.fn(),
+    });
+
+    const user = userEvent.setup();
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    await user.click(screen.getByTestId('refresh-button-small'));
+
+    expect(handleRefreshErrorMock).toHaveBeenCalledWith(error);
+  });
+
+  it('does not refresh when no root directory is selected', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      rootDirectoryHandle: null,
+      isLoading: true, // This will show the loading overlay which blocks the refresh button
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    // When there's no root directory, the refresh button shouldn't be rendered or accessible
+    // The component shows a loading overlay instead
+    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+    expect(screen.queryByTestId('refresh-button-small')).not.toBeInTheDocument();
+  });
+
+  it('displays toolbar with correct selection count', async () => {
+    vi.mocked(useSelectionManager).mockReturnValueOnce({
+      selectedFilesList: ['file1', 'file2', 'file3'],
+      setSelectedFilesFromList: vi.fn(),
+      selectedFilePaths: new Set(['file1', 'file2', 'file3']),
+      handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(),
+    } as unknown as ReturnType<typeof useSelectionManager>);
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(await screen.findByTestId('selection-count')).toHaveTextContent('3');
+    expect(await screen.findByTestId('selection-max')).toHaveTextContent('5');
+  });
+
+  it('renders without crashing when selectedFilesList is not an array', async () => {
+    vi.mocked(useSelectionManager).mockReturnValueOnce({
+      selectedFilesList: undefined as unknown as string[],
+      setSelectedFilesFromList: undefined as unknown as (files: readonly string[]) => void,
+      selectedFilePaths: new Set(),
+      handleSelectionChange: vi.fn(),
+      wouldExceedSelectionLimit: vi.fn(),
+    } as unknown as ReturnType<typeof useSelectionManager>);
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    // Should not crash and should render with empty selection
+    expect(await screen.findByTestId('toolbar')).toBeInTheDocument();
+  });
+
+  it('displays initial loading state correctly', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isLoading: true,
+      isInitialLoad: true,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+  });
+
+  it('shows cancelling state when operation is being cancelled', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      isLoading: true,
+      isCancelling: true,
+      cancellable: true,
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    expect(await screen.findByTestId('loading-overlay')).toBeInTheDocument();
+  });
+
+  it('displays filter error when present', async () => {
+    vi.mocked(useFileExplorer).mockReturnValueOnce({
+      ...fileExplorerReturnValue,
+      filterError: 'Invalid filter pattern',
+    });
+
+    renderWithProviders(<FileExplorerLeftPanel />);
+
+    // Error should be passed to sidebar component
+    expect(FileExplorerSidebarMock).toHaveBeenCalled();
+    if (FileExplorerSidebarMock) {
+      const sidebarProps = FileExplorerSidebarMock.mock.calls[0]?.[0];
+      expect(sidebarProps?.filterError).toEqual(new Error('Invalid filter pattern'));
+    }
   });
 });

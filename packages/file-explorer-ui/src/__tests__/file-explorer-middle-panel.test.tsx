@@ -25,11 +25,13 @@ interface MockPreviewPanelProps {
   ) => void;
 }
 
-vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
-
+vi.mock('../preview-panel', () => {
   previewPanelMock = vi.fn(
-    ({ onSelectionChange, performUndoableAction }: MockPreviewPanelProps) => {
+    ({
+      onSelectionChange,
+      performUndoableAction,
+      onFileClick,
+    }: MockPreviewPanelProps & { onFileClick?: (key: string) => void }) => {
       previewSnapshot = new Set(['file']);
 
       const handleClick = () => {
@@ -42,11 +44,20 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
         onSelectionChange(previewSnapshot);
       };
 
+      const handleFileClickTrigger = () => {
+        if (onFileClick) {
+          onFileClick('test-file-key');
+        }
+      };
+
       return (
         <div data-testid="preview">
           Preview
           <button type="button" data-testid="trigger" onClick={handleClick}>
             trigger
+          </button>
+          <button type="button" data-testid="file-click-trigger" onClick={handleFileClickTrigger}>
+            file-click
           </button>
         </div>
       );
@@ -54,9 +65,16 @@ vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
   );
 
   return {
+    PreviewPanel: previewPanelMock,
+  };
+});
+
+vi.mock('@brainstrike/file-explorer-ui', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/file-explorer-ui')>();
+
+  return {
     ...actual,
     FileExplorerHeader: () => <div data-testid="header">Header</div>,
-    VirtualizedPreviewPanelTabbed: previewPanelMock,
     FileExplorerErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   };
 });
@@ -90,7 +108,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => {
   };
 });
 
-import { useUndoableAction } from '@brainstrike/ui';
+import { useIdeFileEditor, useUndoableAction } from '@brainstrike/ui';
 import { useFileExplorer } from '../use-file-explorer-context';
 import { useSelectionManager } from '../use-selection-manager-context';
 
@@ -126,6 +144,7 @@ describe('FileExplorerMiddlePanel', () => {
       cancellable: false,
       cancelOperation: vi.fn(),
       isCancelling: false,
+      clearRootDirectory: vi.fn(),
     });
 
     handleSelectionChangeMock = vi.fn();
@@ -151,11 +170,7 @@ describe('FileExplorerMiddlePanel', () => {
     });
 
     expect(await screen.findByTestId('header')).toBeInTheDocument();
-
-    // Check for elements that should be present in the tabbed preview panel
-    expect(screen.getByText('1')).toBeInTheDocument(); // file count
-    expect(screen.getByText(/files/)).toBeInTheDocument();
-    expect(screen.getByText(/tokens/)).toBeInTheDocument();
+    expect(await screen.findByTestId('preview')).toBeInTheDocument();
   });
 
   it('calls selection change when interacting with the component', async () => {
@@ -163,12 +178,63 @@ describe('FileExplorerMiddlePanel', () => {
       renderWithProviders(<FileExplorerMiddlePanel />);
     });
 
-    // The component should be rendered and functional
-    expect(screen.getByText('1')).toBeInTheDocument(); // file count
+    // The component should be rendered with the preview panel
+    expect(await screen.findByTestId('preview')).toBeInTheDocument();
 
-    // We can't easily test the interaction without mocking the entire component,
-    // but we can verify that the component is set up with the correct props
+    // Verify that the mock was called with the correct props
+    expect(previewPanelMock).toHaveBeenCalled();
     expect(handleSelectionChangeMock).toBeDefined();
     expect(performUndoableActionMock).toBeDefined();
+  });
+
+  it('calls performUndoableAction when preview panel triggers action', async () => {
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
+
+    const trigger = await screen.findByTestId('trigger');
+    act(() => {
+      trigger.click();
+    });
+
+    expect(performUndoableActionMock).toHaveBeenCalled();
+  });
+
+  it('handles file click when openFileInTab is available', async () => {
+    const openFileInTabMock = vi.fn();
+    vi.mocked(useIdeFileEditor).mockReturnValue({
+      openFileInTab: openFileInTabMock,
+      registerOpenFileInTab: vi.fn(),
+    });
+
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
+
+    const fileClickTrigger = await screen.findByTestId('file-click-trigger');
+    act(() => {
+      fileClickTrigger.click();
+    });
+
+    expect(openFileInTabMock).toHaveBeenCalledWith('test-file-key');
+  });
+
+  it('handles file click when openFileInTab is not available', async () => {
+    vi.mocked(useIdeFileEditor).mockReturnValue({
+      openFileInTab: undefined,
+      registerOpenFileInTab: vi.fn(),
+    });
+
+    act(() => {
+      renderWithProviders(<FileExplorerMiddlePanel />);
+    });
+
+    const fileClickTrigger = await screen.findByTestId('file-click-trigger');
+    act(() => {
+      fileClickTrigger.click();
+    });
+
+    // Should not crash when openFileInTab is undefined
+    expect(await screen.findByTestId('header')).toBeInTheDocument();
   });
 });

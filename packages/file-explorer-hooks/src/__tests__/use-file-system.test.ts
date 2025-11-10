@@ -449,4 +449,28 @@ describe('useFileSystem', () => {
       // Should not throw even with undefined setCurrentFolderId
     });
   });
+
+  describe('clearRootDirectory', () => {
+    it('clears the active handle and resets the folder id reference', async () => {
+      const { result } = renderHook(
+        () => useFileSystem({ setCurrentFolderId: mockSetCurrentFolderId }),
+        { wrapper: AdaptersTestWrapper }
+      );
+
+      await act(async () => {
+        await result.current?.selectRootDirectory();
+      });
+
+      expect(result.current?.rootDirectoryHandle).not.toBeNull();
+
+      await act(async () => {
+        result.current?.clearRootDirectory();
+      });
+
+      await waitFor(() => {
+        expect(result.current?.rootDirectoryHandle).toBeNull();
+      });
+      expect(mockSetCurrentFolderId).toHaveBeenCalledWith(null);
+    });
+  });
 });

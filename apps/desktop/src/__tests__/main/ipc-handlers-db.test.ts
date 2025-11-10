@@ -33,6 +33,7 @@ vi.mock('../../db-main', () => ({ getDatabase: getDatabaseMock }));
 
 vi.mock('@brainstrike/file-system', () => ({
   ElectronFileSystemAdapter: vi.fn(() => ({})),
+  createFixtureCapableAdapter: (adapter: unknown) => adapter,
 }));
 
 vi.mock('@brainstrike/storage', () => ({

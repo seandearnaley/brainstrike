@@ -24,6 +24,7 @@ vi.mock('@brainstrike/file-system', () => ({
     exists: vi.fn().mockResolvedValue(false),
     createDirectory: vi.fn().mockResolvedValue(undefined),
   }),
+  createFixtureCapableAdapter: (adapter: unknown) => adapter,
   WebFileSystemAdapter: vi.fn(),
 }));
 

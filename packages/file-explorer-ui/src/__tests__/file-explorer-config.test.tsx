@@ -1,4 +1,5 @@
 import { composeWrappers, makeRenderWithProviders } from '@brainstrike/test-utils';
+import { FileExplorerStrings } from '@brainstrike/types';
 import { act, fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -115,6 +116,21 @@ describe('FileExplorerConfig', () => {
 
     // Just verify UI interaction works
     expect(defaultProps.onFilterChange).toHaveBeenCalled();
+  });
+
+  it('shows inline fixture toggle when available', async () => {
+    renderWithProviders(
+      <FileExplorerConfig
+        {...defaultProps}
+        inlineFixtureSetting={{ available: true, loading: false }}
+      />
+    );
+    const button = screen.getByRole('button');
+    await userEvent.click(button);
+
+    expect(
+      screen.getByRole('switch', { name: FileExplorerStrings.inlineFixture.settingLabel })
+    ).toBeInTheDocument();
   });
 
   it('applies settings and closes popover', async () => {

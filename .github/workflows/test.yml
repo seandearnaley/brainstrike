@@ -89,6 +89,10 @@ jobs:
             echo "✅ No duplicate CSS layers detected"
           fi
 
+      - name: Clear coverage directories
+        run: |
+          find packages apps -type d -name "coverage" -maxdepth 3 -prune -exec rm -rf {} +
+
       - name: Run unit tests with coverage
         run: pnpm run test:coverage
         env:
