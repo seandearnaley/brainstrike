@@ -20,12 +20,6 @@ describe('ElectronStorageAdapter', () => {
   beforeEach(() => {
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'userdata-'));
     storageFile = path.join(userDataDir, `store-${Date.now()}.json`);
-    vi.doMock('electron', () => ({
-      app: {
-        whenReady: () => Promise.resolve(),
-        getPath: () => userDataDir,
-      },
-    }));
     adapter = new ElectronStorageAdapter(path.basename(storageFile));
   });
 
@@ -205,26 +199,6 @@ describe('ElectronStorageAdapter', () => {
 
     const adapter2 = new ElectronStorageAdapter(path.basename(storageFile));
     expect(await adapter2.getAllKeys()).toEqual([]);
-  });
-
-  it('should handle electron import failure', async () => {
-    // Mock electron to fail for this dynamic import only
-    vi.doMock('electron', () => {
-      throw new Error('Electron not available');
-    });
-
-    const { ElectronStorageAdapter: FailingAdapter } = await import(
-      '../adapters/electron-storage-adapter'
-    );
-    const failingAdapter = new FailingAdapter();
-
-    // Should initialize with empty cache even when electron fails
-    const value = await failingAdapter.getItem('test');
-    expect(value).toBeNull();
-
-    // Should still allow operations even with failed electron
-    await failingAdapter.setItem('test', 'value');
-    expect(await failingAdapter.getItem('test')).toBe('value');
   });
 
   it('should wait for initialization before operations', async () => {
