@@ -125,7 +125,12 @@
       "Bash(\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/scripts/type-check.sh)",
       "Bash(.claude/hooks/scripts/type-check.sh:*)",
       "Bash(comm:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(git clean:*)",
+      "Bash(git log:*)",
+      "Bash(gh repo set-default:*)",
+      "Bash(xargs git log:*)",
+      "Bash(gh run rerun:*)"
     ],
     "deny": [],
     "ask": []

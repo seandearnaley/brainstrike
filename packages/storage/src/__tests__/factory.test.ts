@@ -4,6 +4,14 @@ import { ElectronStorageAdapter } from '../adapters/electron-storage-adapter';
 import { WebStorageAdapter } from '../adapters/web-storage-adapter';
 import { createStorageAdapter } from '../factory';
 
+// Mock electron to prevent file creation during factory tests
+vi.mock('electron', () => ({
+  app: {
+    whenReady: () => Promise.resolve(),
+    getPath: () => '/tmp/test-storage',
+  },
+}));
+
 describe('Storage Factory', () => {
   describe('createStorageAdapter', () => {
     it('should create web storage adapter for web platform', () => {

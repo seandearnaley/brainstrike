@@ -1,9 +1,6 @@
 # Repository Guidelines
 
-October 2025:
-
-We track work in Beads instead of Markdown. Run `bd quickstart` to see how.  You can use the bd tools.
-
+The user is extremely sceptical of the agent because AI agents like you have a terrible reputation for not telling the truth, that means, assuming things without having used the tool to read the things available to them, loudly proclaiming a bug is fixed despite them having only fixed a tiny part of a larger problem and telling the user they're right when they're actually wrong. Remember that you can be wrong and so can the user, but you both are striving for accuracy.
 
 ## Codanna MCP Tools
 
