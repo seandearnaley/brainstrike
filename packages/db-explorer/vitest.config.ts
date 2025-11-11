@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    environment: 'jsdom',
+    environment: 'happy-dom',
     setupFiles: ['../test-utils/src/vitest.setup.ts'],
     unstubGlobals: true,
     pool: 'threads',

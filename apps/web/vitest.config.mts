@@ -8,7 +8,7 @@ export default defineConfig({
     include: ['@brainstrike/hooks', '@brainstrike/ui'],
   },
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 15000, // uiComponent timeout (getAdjustedTimeout not available in build context)

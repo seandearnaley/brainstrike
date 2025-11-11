@@ -10,12 +10,13 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     unstubGlobals: true,
-    testTimeout: 20000,
-    // Use threads and cap workers to avoid EPERM during Tinypool worker teardown in sandboxed environments
+    testTimeout: 30000,
+    hookTimeout: 30000,
+    // Use all available cores for faster test execution
     pool: 'threads',
     poolOptions: {
       threads: {
-        maxThreads: 2,
+        maxThreads: 4,
       },
     },
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
