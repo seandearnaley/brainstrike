@@ -8,7 +8,7 @@ export default defineConfig({
     },
   },
   test: {
-    environment: 'jsdom',
+    environment: 'happy-dom',
     globals: true,
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
@@ -16,7 +16,7 @@ export default defineConfig({
     pool: 'threads',
     poolOptions: {
       threads: {
-        maxThreads: 2,
+        maxThreads: 4,
       },
     },
     // Coverage consolidated at root vitest.config.ts

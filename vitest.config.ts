@@ -15,6 +15,14 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 export default defineConfig({
   test: {
     projects: ['packages/*', 'apps/*'],
+    // Disable CSS processing for faster unit test execution
+    css: false,
+    // Enable dependency optimization for better performance
+    deps: {
+      optimizer: {
+        web: { enabled: true },
+      },
+    },
     coverage: {
       enabled: coverageEnabled,
       // Local aggregate coverage only. CI ignores this and relies on per‑package reporters.

@@ -8,11 +8,11 @@ export default defineConfig({
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     exclude: ['node_modules', 'dist'],
-    // Cap threads to improve stability across environments
+    // Use all available cores for faster test execution
     pool: 'threads',
     poolOptions: {
       threads: {
-        maxThreads: 2,
+        maxThreads: 4,
       },
     },
     // Coverage consolidated at root vitest.config.ts
