@@ -30,14 +30,6 @@ describe('embedding-preferences-store', () => {
   });
 
   describe('default state', () => {
-    it('has default local model selected', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-      expect(store.selectedModel).toBe('local::jina-code');
-      expect(store.getSelectedModel()).toBe('local::jina-code');
-      expect(store.getSelectedProvider()).toBe('local');
-      expect(store.getSelectedModelId()).toBe('jina-code');
-    });
-
     it('has browser as default preferred runtime', () => {
       const store = useEmbeddingPreferencesStore.getState();
       expect(store.preferredRuntime).toBe('browser');
@@ -58,65 +50,7 @@ describe('embedding-preferences-store', () => {
     });
   });
 
-  describe('model selection', () => {
-    it('sets model using composite key format', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Enable an OpenAI model first
-      store.setModelEnabled('openai', 'text-embedding-3-small', true);
-
-      const compositeKey = 'openai::text-embedding-3-small';
-      store.setModel(compositeKey);
-
-      expect(store.getSelectedModel()).toBe(compositeKey);
-      expect(store.getSelectedProvider()).toBe('openai');
-      expect(store.getSelectedModelId()).toBe('text-embedding-3-small');
-    });
-
-    it('parses composite key correctly', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Enable Google model
-      store.setModelEnabled('google', 'text-embedding-004', true);
-      store.setModel('google::text-embedding-004');
-
-      expect(store.getSelectedProvider()).toBe('google');
-      expect(store.getSelectedModelId()).toBe('text-embedding-004');
-    });
-
-    it('ignores invalid composite key format', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-      const initialModel = store.getSelectedModel();
-
-      // Try to set invalid format (missing ::)
-      store.setModel('invalid-format');
-
-      expect(store.getSelectedModel()).toBe(initialModel);
-    });
-
-    it('ignores setting disabled model', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-      const initialModel = store.getSelectedModel();
-
-      // Try to set a model that's not enabled
-      store.setModel('openai::text-embedding-3-large');
-
-      // Should remain unchanged
-      expect(store.getSelectedModel()).toBe(initialModel);
-    });
-
-    it('clears selected model', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      expect(store.getSelectedModel()).toBe('local::jina-code');
-
-      store.clearModel();
-
-      expect(store.getSelectedModel()).toBeNull();
-      expect(store.getSelectedProvider()).toBeNull();
-      expect(store.getSelectedModelId()).toBeNull();
-    });
-  });
+  // Global model selection has been removed; selection is now per-collection/embedding-set.
 
   describe('model enablement', () => {
     it('enables a model for a provider', () => {
@@ -176,50 +110,7 @@ describe('embedding-preferences-store', () => {
     });
   });
 
-  describe('selection and enablement interaction', () => {
-    it('clears selection when currently selected model is disabled', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Enable and select a model
-      store.setModelEnabled('openai', 'text-embedding-3-small', true);
-      store.setModel('openai::text-embedding-3-small');
-
-      expect(store.getSelectedModel()).toBe('openai::text-embedding-3-small');
-
-      // Disable the selected model
-      store.setModelEnabled('openai', 'text-embedding-3-small', false);
-
-      expect(store.getSelectedModel()).toBeNull();
-    });
-
-    it('preserves selection when a different model is disabled', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Enable two models
-      store.setModelEnabled('openai', 'text-embedding-3-small', true);
-      store.setModelEnabled('openai', 'text-embedding-3-large', true);
-
-      // Select one
-      store.setModel('openai::text-embedding-3-small');
-
-      // Disable the other
-      store.setModelEnabled('openai', 'text-embedding-3-large', false);
-
-      // Selection should be preserved
-      expect(store.getSelectedModel()).toBe('openai::text-embedding-3-small');
-    });
-
-    it('clears selection when all models for selected provider are disabled', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      expect(store.getSelectedModel()).toBe('local::jina-code');
-
-      // Disable all local models
-      store.setModelEnabled('local', 'jina-code', false);
-
-      expect(store.getSelectedModel()).toBeNull();
-    });
-  });
+  // Selection and selection interactions removed.
 
   describe('runtime preference', () => {
     it('sets preferred runtime to hosted', () => {
@@ -247,18 +138,6 @@ describe('embedding-preferences-store', () => {
   });
 
   describe('persistence', () => {
-    it('persists selected model across store instances', () => {
-      const store1 = useEmbeddingPreferencesStore.getState();
-
-      store1.setModelEnabled('google', 'text-embedding-004', true);
-      store1.setModel('google::text-embedding-004');
-
-      // Simulate new instance by getting fresh state
-      const store2 = useEmbeddingPreferencesStore.getState();
-
-      expect(store2.getSelectedModel()).toBe('google::text-embedding-004');
-    });
-
     it('persists enabled models across store instances', () => {
       const store1 = useEmbeddingPreferencesStore.getState();
 
@@ -282,73 +161,9 @@ describe('embedding-preferences-store', () => {
     });
   });
 
-  describe('migration', () => {
-    it('migrates legacy string model ID to composite key', () => {
-      // Test the migration logic directly by simulating old state
-      useEmbeddingPreferencesStore.setState({
-        selectedModel: 'jina-code', // Old format: just model ID (no ::)
-        enabledModelsByProvider: {
-          local: ['jina-code'],
-          openai: [],
-          google: [],
-          cohere: [],
-          voyage: [],
-        },
-        preferredRuntime: 'browser',
-      });
-
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // The getSelectedProvider and getSelectedModelId functions handle parsing
-      // For a string without ::, the whole string is the provider, modelId is null
-      // This is expected behavior - migration happens in the persist middleware
-      expect(store.selectedModel).toBe('jina-code');
-    });
-
-    it('preserves composite key format', () => {
-      // Set a proper composite key
-      useEmbeddingPreferencesStore.setState({
-        selectedModel: 'openai::text-embedding-3-small',
-        enabledModelsByProvider: {
-          local: ['jina-code'],
-          openai: ['text-embedding-3-small'],
-          google: [],
-          cohere: [],
-          voyage: [],
-        },
-        preferredRuntime: 'hosted',
-      });
-
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Should preserve composite key
-      expect(store.getSelectedModel()).toBe('openai::text-embedding-3-small');
-      expect(store.getSelectedProvider()).toBe('openai');
-      expect(store.getSelectedModelId()).toBe('text-embedding-3-small');
-    });
-  });
+  // Migration tests for legacy selection removed - migration now drops legacy selectedModel.
 
   describe('edge cases', () => {
-    it('handles null selected model', () => {
-      const store = useEmbeddingPreferencesStore.getState();
-
-      store.clearModel();
-
-      expect(store.getSelectedProvider()).toBeNull();
-      expect(store.getSelectedModelId()).toBeNull();
-    });
-
-    it('handles malformed composite key', () => {
-      // Directly set malformed key (bypassing validation)
-      useEmbeddingPreferencesStore.setState({ selectedModel: 'malformed' });
-
-      const store = useEmbeddingPreferencesStore.getState();
-
-      // Malformed keys without :: will return the whole string as provider
-      expect(store.getSelectedProvider()).toBe('malformed');
-      expect(store.getSelectedModelId()).toBeNull();
-    });
-
     it('returns empty array for unknown provider', () => {
       const store = useEmbeddingPreferencesStore.getState();
 

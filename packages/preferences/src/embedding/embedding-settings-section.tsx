@@ -17,14 +17,6 @@ import {
   CardHeader,
   CardTitle,
   Input,
-  Label,
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
   Switch,
 } from '@brainstrike/ui';
 import { SearchIcon } from 'lucide-react';
@@ -228,42 +220,14 @@ function buildEmbeddingProviders(): readonly NormalizedEmbeddingProvider[] {
   return [localProvider, ...hostedProviders];
 }
 
-function parseCompositeKey(
-  composite: string | null
-): { provider: EmbeddingProviderType; modelId: string } | null {
-  if (!composite) {
-    return null;
-  }
-  const [provider, modelId] = composite.split('::');
-  if (!provider || !modelId) {
-    return null;
-  }
-  return {
-    provider: provider as EmbeddingProviderType,
-    modelId,
-  };
-}
+// parseCompositeKey removed - selection is now per-collection/embedding-set, not a global preference.
 
 export function EmbeddingSettings() {
   const providers = useMemo(buildEmbeddingProviders, []);
-  const providersById = useMemo(
-    () =>
-      providers.reduce<Record<EmbeddingProviderType, NormalizedEmbeddingProvider>>(
-        (acc, provider) => {
-          acc[provider.id] = provider;
-          return acc;
-        },
-        {} as Record<EmbeddingProviderType, NormalizedEmbeddingProvider>
-      ),
-    [providers]
-  );
 
-  const selectedModel = useEmbeddingPreferencesStore((state) => state.selectedModel);
   const enabledModelsByProvider = useEmbeddingPreferencesStore(
     (state) => state.enabledModelsByProvider
   );
-  const setModel = useEmbeddingPreferencesStore((state) => state.setModel);
-  const clearModel = useEmbeddingPreferencesStore((state) => state.clearModel);
   const setModelEnabled = useEmbeddingPreferencesStore((state) => state.setModelEnabled);
   const setProviderModelsEnabled = useEmbeddingPreferencesStore(
     (state) => state.setProviderModelsEnabled
@@ -272,79 +236,17 @@ export function EmbeddingSettings() {
   const [searchTerm, setSearchTerm] = useState('');
   const normalizedSearch = searchTerm.trim().toLowerCase();
 
-  const enabledOptions = useMemo(() => {
-    return providers
-      .map((provider) => {
-        const enabledModels = new Set(enabledModelsByProvider[provider.id] ?? []);
-        const options = provider.models.filter((model) => enabledModels.has(model.id));
-        if (options.length === 0) {
-          return null;
-        }
-        return {
-          provider,
-          options,
-        };
-      })
-      .filter(
-        (
-          value
-        ): value is {
-          provider: NormalizedEmbeddingProvider;
-          options: NormalizedEmbeddingModel[];
-        } => value !== null
-      );
-  }, [enabledModelsByProvider, providers]);
-
-  const selectedLabel = useMemo(() => {
-    const parsed = parseCompositeKey(selectedModel);
-    if (!parsed) {
-      return null;
-    }
-    const provider = providersById[parsed.provider];
-    const model = provider?.models.find((item) => item.id === parsed.modelId);
-    if (!provider || !model) {
-      return null;
-    }
-    return `${provider.displayName} · ${model.label}`;
-  }, [providersById, selectedModel]);
-
-  const handleSelectChange = (value: string) => {
-    if (!value) {
-      clearModel();
-      return;
-    }
-    setModel(value);
-  };
-
-  const resetToDefault = () => {
-    const localProvider = providersById.local;
-    const defaultModel = localProvider.models.find((model) => model.isDefault);
-    if (!defaultModel) {
-      clearModel();
-      return;
-    }
-    const composite = `local::${defaultModel.id}`;
-    const enabledSet = new Set(enabledModelsByProvider.local ?? []);
-    if (!enabledSet.has(defaultModel.id)) {
-      setModelEnabled('local', defaultModel.id, true);
-    }
-    setModel(composite);
-  };
+  // enabledOptions removed (selection UI removed); we keep enabledModelsByProvider for rendering availability.
 
   const applyPreset = (preset: ModelPreset) => {
-    const composite = `${preset.provider}::${preset.modelId}`;
     const enabledSet = new Set(enabledModelsByProvider[preset.provider] ?? []);
-
     // Enable the model if it's not already enabled
     if (!enabledSet.has(preset.modelId)) {
       setModelEnabled(preset.provider, preset.modelId, true);
     }
-
-    // Set it as the active model
-    setModel(composite);
   };
 
-  const hasEnabledSelection = enabledOptions.length > 0;
+  // whether any enabled models exist (kept for potential UI decisions)
 
   return (
     <div className="space-y-4">
@@ -384,80 +286,7 @@ export function EmbeddingSettings() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Active Embedding Model</CardTitle>
-          <CardDescription>
-            Select the embedding model used for indexing, semantic search, and import jobs.
-            Different models support various dimensions (256-1536D). Each embedding set is isolated
-            by dimensions to maintain compatibility.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="embedding-model-select">Active model</Label>
-            <Select value={selectedModel ?? ''} onValueChange={handleSelectChange}>
-              <SelectTrigger
-                id="embedding-model-select"
-                data-testid="embedding-model-select"
-                disabled={!hasEnabledSelection}
-              >
-                <SelectValue placeholder="Select embedding model" />
-              </SelectTrigger>
-              <SelectContent>
-                {enabledOptions.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground">
-                    Enable a model below to select it
-                  </div>
-                ) : (
-                  enabledOptions.map(({ provider, options }) => (
-                    <SelectGroup key={provider.id}>
-                      <SelectLabel>{provider.displayName}</SelectLabel>
-                      {options.map((model) => {
-                        const composite = `${provider.id}::${model.id}`;
-                        return (
-                          <SelectItem key={composite} value={composite}>
-                            {model.label}
-                            <Badge
-                              variant={model.dimensions === 768 ? 'secondary' : 'outline'}
-                              className="ml-2"
-                            >
-                              {model.dimensions}D
-                            </Badge>
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectGroup>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground" data-testid="embedding-model-summary">
-              {selectedLabel ?? 'No model selected'}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={resetToDefault}
-              data-testid="embedding-reset-default"
-            >
-              Reset to recommended default
-            </Button>
-            {hasEnabledSelection ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => clearModel()}
-                data-testid="embedding-clear-selection"
-              >
-                Clear selection
-              </Button>
-            ) : null}
-          </div>
-        </CardContent>
-      </Card>
+      {/* Active model selection removed: models are selected per-collection/embedding-set */}
 
       <Card>
         <CardHeader>

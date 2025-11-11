@@ -96,14 +96,7 @@ export function shouldQuantize(model: ModelConfig): boolean
 **Main Component: `EmbeddingSettings()`**
 
 #### Layout Structure:
-1. **Active Embedding Model Card** (Lines 296-374)
-   - Dropdown to select active model
-   - Shows selected model with dimension badge
-   - "Reset to recommended default" button
-   - "Clear selection" button
-   - Only shows enabled models in dropdown
-
-2. **Model Availability Card** (Lines 376-501)
+1. **Model Availability Card** (Lines 296-501)
    - Search box to filter models
    - Per-provider sections showing all available models
    - Enable/Disable toggles for each model
@@ -423,7 +416,6 @@ export interface FileChunk {
 #### State Shape:
 ```typescript
 interface EmbeddingPreferencesData {
-  selectedModel: string | null;  // "local::jina-code"
   enabledModelsByProvider: Record<EmbeddingProviderType, string[]>;
   preferredRuntime: 'browser' | 'hosted';
 }
@@ -439,7 +431,7 @@ const DEFAULT_ENABLED_MODELS = {
   voyage: [],
 };
 
-const DEFAULT_SELECTED_MODEL = 'local::jina-code';
+// DEFAULT_SELECTED_MODEL removed - selection is per-collection/embedding-set
 ```
 
 #### Key Methods (Lines 255-382):
@@ -773,7 +765,6 @@ async dispose(): Promise<void>
 │         (embedding-preferences-store.ts: Lines 255-424)          │
 │                                                                   │
 │  State:                                                          │
-│  - selectedModel: "local::jina-code"                             │
 │  - enabledModelsByProvider: { local: ['jina-code'], ... }       │
 │  - preferredRuntime: 'browser'                                   │
 │                                                                   │
