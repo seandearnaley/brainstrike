@@ -31,9 +31,25 @@ vi.mock('../factory-reset/factory-reset-helpers', () => ({
 // Import after mocks are set up
 const { FactoryResetPanel } = await import('../factory-reset/factory-reset-panel');
 
+// Mock window.location.reload at the module level
+const mockReload = vi.fn();
+const originalLocation = window.location;
+
 describe('FactoryResetPanel', () => {
   let mockConfirm: ReturnType<typeof vi.fn>;
-  let mockReload: ReturnType<typeof vi.fn>;
+
+  beforeAll(() => {
+    // Mock window.location with our custom reload function
+    vi.stubGlobal('location', {
+      ...originalLocation,
+      reload: mockReload,
+    });
+  });
+
+  afterAll(() => {
+    // Restore original location
+    vi.unstubAllGlobals();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -46,14 +62,6 @@ describe('FactoryResetPanel', () => {
     mockConfirm = vi.fn();
     window.confirm = mockConfirm;
     mockConfirm.mockReturnValue(true);
-
-    // Setup window.location.reload mock
-    mockReload = vi.fn();
-    const originalLocation = window.location;
-    // @ts-expect-error - mocking window.location
-    window.location = undefined;
-    // @ts-expect-error - mocking window.location
-    window.location = { ...originalLocation, reload: mockReload };
   });
 
   describe('rendering', () => {
