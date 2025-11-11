@@ -4,11 +4,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EmbeddingsPanel } from '../embeddings-panel';
 import { __resetEmbeddingsPanelStoreForTests } from '../stores/embeddings-panel-store';
 
-// Mock clipboard API
-Object.assign(navigator, {
-  clipboard: {
+// Mock clipboard API (happy-dom compatible)
+Object.defineProperty(navigator, 'clipboard', {
+  value: {
     writeText: vi.fn().mockResolvedValue(undefined),
   },
+  writable: true,
+  configurable: true,
 });
 
 // Mock hasPointerCapture for React 19 compatibility
