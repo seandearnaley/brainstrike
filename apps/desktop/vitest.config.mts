@@ -8,7 +8,7 @@ const coverageEnabled = process.env['CI'] === 'true' || process.env['COVERAGE'] 
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: 'happy-dom',
+    environment: 'jsdom',
     setupFiles: ['../../packages/test-utils/src/vitest.setup.ts', './src/__tests__/setup.ts'],
     globals: true,
     testTimeout: getAdjustedTimeout('uiComponent'),
