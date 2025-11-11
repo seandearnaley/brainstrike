@@ -9,29 +9,40 @@ let storageFile: string;
 let userDataDir: string;
 let adapter: ElectronStorageAdapter;
 
-// Mock electron module with a getter function that reads the current value
-const mockGetPath = vi.fn((name: string) => {
-  if (name === 'userData') {
-    return userDataDir;
-  }
-  return '';
-});
+// Use a mutable object so the mock can always read the current value
+// Initialize with a safe temp path to prevent writing to cwd
+const mockState = { userDataDir: '/tmp/electron-storage-test-init' };
 
-vi.mock('electron', () => ({
-  app: {
-    whenReady: () => Promise.resolve(),
-    getPath: mockGetPath,
-  },
-}));
+// Mock electron at the top level - this is hoisted and always active
+vi.mock('electron', () => {
+  // The mock module object must be created fresh each time
+  return {
+    app: {
+      whenReady: () => Promise.resolve(),
+      getPath: (name: string) => {
+        if (name === 'userData') {
+          // Access the mockState object which will be mutated by beforeEach
+          return mockState.userDataDir;
+        }
+        return '';
+      },
+    },
+  };
+});
 
 describe('ElectronStorageAdapter', () => {
   beforeEach(() => {
+    // Create temp directory and update mock state
     userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'userdata-'));
     storageFile = path.join(userDataDir, `store-${Date.now()}.json`);
+    mockState.userDataDir = userDataDir;
+
+    // Create the adapter instance
     adapter = new ElectronStorageAdapter(path.basename(storageFile));
   });
 
   afterEach(async () => {
+    // Clean up files
     await fsPromises.rm(storageFile, { force: true });
     await fsPromises.rm(userDataDir, { recursive: true, force: true });
   });

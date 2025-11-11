@@ -17,7 +17,16 @@ export class ElectronStorageAdapter implements StorageAdapter {
     this.ready = import('electron')
       .then(async ({ app }) => {
         await app.whenReady();
-        const fullPath = path.resolve(app.getPath('userData'), storeFile);
+        const userDataPath = app.getPath('userData');
+
+        // Safety check: never use empty or relative paths that would write to cwd
+        // This prevents test artifacts from leaking into the source tree
+        if (!userDataPath || !path.isAbsolute(userDataPath) || userDataPath === process.cwd()) {
+          this.cache = {};
+          return;
+        }
+
+        const fullPath = path.resolve(userDataPath, storeFile);
         await fsPromises.mkdir(path.dirname(fullPath), { recursive: true });
         this.storePath = fullPath;
         if (fs.existsSync(this.storePath)) {
@@ -36,6 +45,10 @@ export class ElectronStorageAdapter implements StorageAdapter {
 
   private async persist() {
     await this.ready;
+    // Don't persist if storePath wasn't set (e.g., electron import failed)
+    if (!this.storePath) {
+      return;
+    }
     await fsPromises.writeFile(this.storePath, JSON.stringify(this.cache, null, 2), 'utf8');
   }
 
