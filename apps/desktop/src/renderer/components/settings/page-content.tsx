@@ -1,6 +1,7 @@
 import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
+  createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategory,
   EmbeddingSettings,
   type SettingsCategory,
@@ -128,6 +129,7 @@ export default function SettingsPageContent() {
         icon: Layers,
         render: () => <McpIntegrationsCategory />,
       },
+      createFactoryResetSettingsCategory(),
     ],
     []
   );

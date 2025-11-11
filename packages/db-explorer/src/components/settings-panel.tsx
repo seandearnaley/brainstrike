@@ -1,8 +1,12 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
+import {
+  FactoryResetPanel,
+  tokenPreferencesSelectors,
+  useTokenPreferencesStore,
+} from '@brainstrike/preferences';
 import {
   Badge,
-  Button,
+  // Button removed; FactoryResetPanel provides the destructive action
   Input,
   Label,
   Select,
@@ -13,7 +17,7 @@ import {
 } from '@brainstrike/ui';
 import type { SettingsPanelProps } from '../types';
 
-export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelProps) {
+export function SettingsPanel({ importSettings }: SettingsPanelProps) {
   const chunkingId = 'enable-chunking';
   const presetCaps = ['2048', '4096', '6144', '8192'];
   const selectedPreset = presetCaps.includes(String(importSettings.chunkTokenLimit))
@@ -133,22 +137,7 @@ export function SettingsPanel({ importSettings, onFactoryReset }: SettingsPanelP
         </p>
       </div>
 
-      <div className="border rounded-md p-3 bg-destructive/5 space-y-1">
-        <Label className="text-xs text-destructive">Factory Reset</Label>
-        <p className="text-[11px] text-muted-foreground">
-          Clears all files, embeddings, queues, and local preferences. The app will reload after the
-          reset completes.
-        </p>
-        <Button
-          size="sm"
-          variant="destructive"
-          className="h-6 mt-1"
-          onClick={onFactoryReset}
-          data-testid="factory-reset-button"
-        >
-          Factory Reset Brainstrike
-        </Button>
-      </div>
+      <FactoryResetPanel />
     </div>
   );
 }

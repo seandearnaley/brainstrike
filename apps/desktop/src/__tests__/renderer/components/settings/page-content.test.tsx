@@ -141,6 +141,20 @@ describe('Desktop SettingsPageContent', () => {
     expect(screen.getByText(/No settings matched "unknown"/i)).toBeInTheDocument();
   });
 
+  it('shows Factory Reset category when searching for factory', async () => {
+    render(
+      <ThemeProvider>
+        <SettingsPageContent />
+      </ThemeProvider>
+    );
+
+    const searchbox = await screen.findByRole('searchbox', { name: /Search settings/i });
+    fireEvent.change(searchbox, { target: { value: 'factory' } });
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    expect(await within(nav).findByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
+  });
+
   it('renders LLM credentials form fields in Desktop Preferences', async () => {
     render(
       <ThemeProvider>

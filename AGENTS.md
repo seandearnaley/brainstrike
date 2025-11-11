@@ -292,7 +292,7 @@ Rules:
 
 Implementation:
 - Update:
-  - packages/db-explorer/src/utils/factory-reset-helpers.ts
+  - packages/preferences/src/factory-reset/factory-reset-helpers.ts
   - Ensure clearPersistentUiState() includes:
     - All new persistent UI store keys.
     - Electron renderer storage bridge.

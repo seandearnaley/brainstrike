@@ -78,9 +78,10 @@ describe('Web SettingsPageContent', () => {
     renderPage();
 
     const searchbox = screen.getByRole('searchbox', { name: /search settings/i });
-    fireEvent.change(searchbox, { target: { value: 'upcoming' } });
+    fireEvent.change(searchbox, { target: { value: 'factory' } });
 
-    expect(screen.getByRole('button', { name: /Upcoming Preferences/i })).toBeInTheDocument();
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    expect(within(nav).getByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Appearance/i })).not.toBeInTheDocument();
 
     fireEvent.change(searchbox, { target: { value: 'missing' } });

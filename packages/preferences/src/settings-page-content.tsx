@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { ChevronRight, Palette, Search, Settings, Sigma } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useState } from 'react';
+import { FactoryResetSettingsSection } from './factory-reset/factory-reset-settings-section';
 import { TokenCountingSettingsSection } from './token-counting/token-counting-settings-section';
 
 /**
@@ -362,5 +363,16 @@ export function createTokenCountingSettingsCategory(): SettingsCategory {
     keywords: ['token', 'counting', 'tiktoken', 'preview', 'chunking'],
     icon: Sigma,
     render: () => <TokenCountingSettingsSection />,
+  };
+}
+
+export function createFactoryResetSettingsCategory(): SettingsCategory {
+  return {
+    id: 'factory-reset',
+    title: 'Factory Reset',
+    description: 'Wipe application data and reset preferences.',
+    keywords: ['factory', 'reset', 'resetting', 'wipe', 'preferences'],
+    icon: Settings,
+    render: () => <FactoryResetSettingsSection />,
   };
 }

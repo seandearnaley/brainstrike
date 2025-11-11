@@ -1,6 +1,7 @@
 import { QueueHud, VectorStatusWithDialog } from '@brainstrike/app-shell';
 import {
   createAppearanceSettingsCategory,
+  createFactoryResetSettingsCategory,
   createTokenCountingSettingsCategory,
   EmbeddingSettings,
   LoggingSettingsSection,
@@ -8,7 +9,7 @@ import {
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
 import { Badge } from '@brainstrike/ui';
-import { Cpu, FileCog, Layers, Sparkles } from 'lucide-react';
+import { Cpu, FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
 
@@ -51,27 +52,7 @@ function EmbeddingWorkerCategory() {
   );
 }
 
-function UpcomingPreferencesCategory() {
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <h3 className="text-lg font-semibold flex items-center gap-2">
-          Coming Soon
-          <Badge variant="outline">roadmap</Badge>
-        </h3>
-        <p className="text-sm text-muted-foreground">
-          We&apos;re actively expanding the BrainStrike web experience. Expect controls for
-          authentication, workspace sharing, and assistant defaults in upcoming releases.
-        </p>
-      </div>
-      <ul className="list-disc list-inside text-sm text-muted-foreground space-y-1">
-        <li>Bring-your-own models with project scoped secrets</li>
-        <li>Context explorer defaults and search customisation</li>
-        <li>Notifications and collaboration controls</li>
-      </ul>
-    </div>
-  );
-}
+// Factory Reset category provided via createFactoryResetSettingsCategory()
 
 export default function SettingsPageContent() {
   const categories = useMemo<SettingsCategory[]>(
@@ -102,14 +83,7 @@ export default function SettingsPageContent() {
         icon: Cpu,
         render: () => <EmbeddingWorkerCategory />,
       },
-      {
-        id: 'upcoming',
-        title: 'Upcoming Preferences',
-        description: 'Preview the roadmap of controls arriving in the BrainStrike web console.',
-        keywords: ['roadmap', 'coming soon', 'future'],
-        icon: Sparkles,
-        render: () => <UpcomingPreferencesCategory />,
-      },
+      createFactoryResetSettingsCategory(),
     ],
     []
   );
