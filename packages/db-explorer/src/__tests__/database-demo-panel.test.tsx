@@ -300,7 +300,8 @@ describe('DatabaseDemoPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Chunking')).toBeInTheDocument();
-        expect(screen.getByText('Factory Reset')).toBeInTheDocument();
+        // Factory Reset was moved to global Preferences; it should not appear in Import Settings
+        expect(screen.queryByText('Factory Reset')).not.toBeInTheDocument();
       });
     }, 10000);
 
