@@ -81,6 +81,11 @@ Use:
 - pnpm turbo run <task> --filter <pkg>
 to leverage caching; avoid full-repo runs unless necessary.
 
+
+@brainstrike/desktop:dev: ➜  Local:   http://localhost:8081/
+@brainstrike/desktop:dev: ➜  Network: use --host to expose
+@brainstrike/web:dev:   ➜  Local:   http://localhost:8080/
+
 ---
 
 ## 4. ELECTRON E2E (PLAYWRIGHT) / HEADLESS LINUX
