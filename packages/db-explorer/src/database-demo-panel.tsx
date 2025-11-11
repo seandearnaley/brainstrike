@@ -3,7 +3,6 @@ import {
   EmbeddingSetsRepository,
   useClearAllData,
   useDbProviderError,
-  useFactoryReset,
   useFileRecordRepository,
   usePGliteDatabase,
 } from '@brainstrike/db';
@@ -63,7 +62,6 @@ import { useDatabaseDemoData } from './use-database-demo-data';
 import type { UseImportFlowResult } from './use-import-flow';
 import { useImportFlow } from './use-import-flow';
 import { usePendingChunks } from './use-pending-chunks';
-import { clearPersistentUiState } from './utils/factory-reset-helpers';
 import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-preferences';
 
 interface DatabaseDemoPanelProps {
@@ -149,48 +147,7 @@ function buildAvailableModelsFromPreferences(
   return models;
 }
 
-/**
- * Performs factory reset or window reload with fallback handling
- * Extracted to reduce cognitive complexity of DatabaseDemoPanel
- */
-async function executeFactoryResetOrReload(
-  doFactoryReset: (() => Promise<void>) | undefined
-): Promise<void> {
-  try {
-    if (typeof doFactoryReset === 'function') {
-      await doFactoryReset();
-    } else {
-      window.location.reload();
-    }
-  } catch (err) {
-    console.warn('Provider-level factory reset failed, reloading window:', err);
-    try {
-      window.location.reload();
-    } catch (e) {
-      console.warn('Window reload after provider-level reset failed:', e);
-    }
-  }
-}
-
-/**
- * Purges database tables during factory reset with error handling
- * Extracted to reduce cognitive complexity of DatabaseDemoPanel
- */
-async function purgeDatabaseTables(dbContext: unknown): Promise<void> {
-  if (!dbContext) return;
-  const db = dbContext as { query: (sql: string) => Promise<unknown> };
-
-  try {
-    await db.query('DELETE FROM job_queue');
-  } catch (err) {
-    console.warn('Failed to purge job_queue during factory reset:', err);
-  }
-  try {
-    await db.query('DELETE FROM embedding_sets');
-  } catch (err) {
-    console.warn('Failed to purge embedding_sets during factory reset:', err);
-  }
-}
+// Factory reset is now provided via the shared Preferences UI (FactoryResetPanel).
 
 /**
  * Seeds search state from persisted values on first mount
@@ -223,7 +180,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = usePGliteDatabase();
-  const doFactoryReset = useFactoryReset();
+
   const { toast } = useToast();
   const errorBoundary = useDatabaseErrorBoundary({
     toast,
@@ -455,24 +412,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     );
   }, [clearAllData, toast, loadRecords, loadChunks, errorBoundary]);
 
-  const handleFactoryResetClick = useCallback(async () => {
-    const ok = window.confirm(
-      'Factory Reset will wipe all data (files, chunks, embedding sets, job queue), dispose embeddings, and reload the database. Continue?'
-    );
-    if (!ok) return;
-    try {
-      await clearPersistentUiState();
-      await purgeDatabaseTables(dbContext);
-      await executeFactoryResetOrReload(doFactoryReset ?? undefined);
-    } catch (err) {
-      toast({
-        title: 'Factory Reset Failed',
-        description: String(err),
-        variant: 'destructive',
-      });
-    }
-  }, [dbContext, doFactoryReset, toast]);
-
   const toggleFileExpansion = useCallback(
     (fileId: string) => {
       if (expandedFiles.has(fileId)) removeExpanded(fileId);
@@ -597,10 +536,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           </Button>
 
           <div className={showSettings ? '' : 'hidden'}>
-            <SettingsPanel
-              importSettings={importSettings}
-              onFactoryReset={handleFactoryResetClick}
-            />
+            <SettingsPanel importSettings={importSettings} />
           </div>
         </div>
 

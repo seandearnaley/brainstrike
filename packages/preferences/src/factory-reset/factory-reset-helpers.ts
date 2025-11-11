@@ -20,7 +20,6 @@ const STORAGE_KEYS = [
   'inspector-view.v1',
   'editor-view-state.v1',
   'editor-cursor.v1',
-  'db-panel.v1',
   'search-panel.v1',
   'right-panel.v1',
   'file-explorer-storage-v4',
@@ -50,6 +49,9 @@ async function clearElectronStorage(): Promise<void> {
   }
 }
 
+/**
+ * Deletes the given IndexedDB database, catching and silencing errors.
+ */
 async function deleteIndexedDb(name: string): Promise<void> {
   if (!name) return;
   if (typeof window === 'undefined' || !window.indexedDB) return;
@@ -66,6 +68,9 @@ async function deleteIndexedDb(name: string): Promise<void> {
   });
 }
 
+/**
+ * Clears every IndexedDB database we can enumerate, falling back to known names.
+ */
 async function clearIndexedDbDatabases(): Promise<void> {
   if (typeof window === 'undefined' || !window.indexedDB) return;
   try {
@@ -81,6 +86,9 @@ async function clearIndexedDbDatabases(): Promise<void> {
   }
 }
 
+/**
+ * Clears the CacheStorage entries so cached bundles and responses do not survive resets.
+ */
 async function clearCacheStorage(): Promise<void> {
   if (typeof caches === 'undefined') return;
   try {

@@ -1,8 +1,12 @@
 // Preference Stores
 
 export * from './embedding/embedding-settings-section';
+export * from './factory-reset/factory-reset-helpers';
+export * from './factory-reset/factory-reset-panel';
+export * from './factory-reset/factory-reset-settings-section';
 // Settings UI Components
 export * from './logging/logging-settings-section';
+export * from './settings-page-content';
 export * from './settings-page-content';
 export * from './stores/assistant-preferences-store';
 export * from './stores/embedding-preferences-store';

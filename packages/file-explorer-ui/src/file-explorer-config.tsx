@@ -143,10 +143,7 @@ const ConfigDialogContent: React.FC<{
   return (
     <div>
       <div className="from-primary/5 to-card bg-gradient-to-t p-4 rounded-t-lg border-b bg-card text-foreground">
-        <DialogTitle
-          id="config-title"
-          className="text-lg font-semibold leading-none tracking-tight"
-        >
+        <DialogTitle className="text-lg font-semibold leading-none tracking-tight">
           File Explorer Configuration
         </DialogTitle>
         <DialogDescription className="text-sm text-muted-foreground mt-1">

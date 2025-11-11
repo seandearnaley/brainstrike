@@ -373,85 +373,21 @@ export class EmbeddingProviderFactory {
 
 ### 5. Preferences Store
 
+The preferences store tracks which models are enabled per provider and a small set of runtime preferences.
+
 ```typescript
-// packages/preferences/src/embedding-preferences-store.ts
+// packages/preferences/src/stores/embedding-preferences-store.ts
 
-export interface EmbeddingPreferencesState {
-  // Selected model (composite key: provider::model)
-  selectedModel: string | null; // e.g., "openai::text-embedding-3-small"
-
+export interface EmbeddingPreferencesData {
   // Enabled models per provider
-  enabledModels: {
-    local: Set<string>;
-    openai: Set<string>;
-    google: Set<string>;
-  };
-
+  enabledModelsByProvider: Record<EmbeddingProviderType, string[]>;
   // Runtime preference (local first vs hosted first)
   preferredRuntime: 'browser' | 'hosted';
-
-  // Actions
-  setSelectedModel: (compositeKey: string) => void;
-  enableModel: (provider: EmbeddingProviderType, modelId: string) => void;
-  disableModel: (provider: EmbeddingProviderType, modelId: string) => void;
-  getSelectedProvider: () => EmbeddingProviderType | null;
-  getSelectedModelId: () => string | null;
 }
 
-export const useEmbeddingPreferences = create<EmbeddingPreferencesState>(
-  persist(
-    (set, get) => ({
-      selectedModel: 'local::jina-code', // Default
-      enabledModels: {
-        local: new Set(['jina-code']),
-        openai: new Set(),
-        google: new Set(),
-      },
-      preferredRuntime: 'browser',
-
-      setSelectedModel: (compositeKey) => {
-        set({ selectedModel: compositeKey });
-      },
-
-      enableModel: (provider, modelId) => {
-        set((state) => ({
-          enabledModels: {
-            ...state.enabledModels,
-            [provider]: new Set([...state.enabledModels[provider], modelId]),
-          },
-        }));
-      },
-
-      disableModel: (provider, modelId) => {
-        set((state) => {
-          const updated = new Set(state.enabledModels[provider]);
-          updated.delete(modelId);
-          return {
-            enabledModels: {
-              ...state.enabledModels,
-              [provider]: updated,
-            },
-          };
-        });
-      },
-
-      getSelectedProvider: () => {
-        const selected = get().selectedModel;
-        if (!selected) return null;
-        return selected.split('::')[0] as EmbeddingProviderType;
-      },
-
-      getSelectedModelId: () => {
-        const selected = get().selectedModel;
-        if (!selected) return null;
-        return selected.split('::')[1];
-      },
-    }),
-    {
-      name: 'embedding-preferences',
-    }
-  )
-);
+// The store exposes actions to enable/disable models per provider and to set runtime preference.
+// Model *selection* is not stored globally; selection happens per-collection/embedding-set and is
+// persisted as part of the embedding_sets metadata in the database.
 ```
 
 ### 6. Settings UI

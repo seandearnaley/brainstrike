@@ -69,7 +69,7 @@ export interface ImportProgressDisplayProps {
 
 export interface SettingsPanelProps {
   importSettings: ImportSettings;
-  onFactoryReset: () => void;
+  onFactoryReset?: (() => Promise<void>) | undefined;
 }
 
 export interface ExportButtonsProps {

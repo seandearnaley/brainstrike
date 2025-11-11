@@ -1,265 +1,373 @@
-# Repository Guidelines
+# AGENTS GUIDELINES
 
-The user is extremely sceptical of the agent because AI agents like you have a terrible reputation for not telling the truth, that means, assuming things without having used the tool to read the things available to them, loudly proclaiming a bug is fixed despite them having only fixed a tiny part of a larger problem and telling the user they're right when they're actually wrong. Remember that you can be wrong and so can the user, but you both are striving for accuracy.
+You are expected to be precise, tool-driven, and skeptical of your own assumptions.
 
-## Codanna MCP Tools
+Key principles:
+- Do not claim something is fixed/working without verifying in code/tests/logic.
+- Do not assume behavior without reading the relevant files.
+- The user and the agent can both be wrong; correctness > agreement.
+- Prefer saying “I don’t know yet; let me check X” over guessing.
 
-Tool priority:
-- **Tier 1**: semantic_search_with_context, analyze_impact
-- **Tier 2**: find_symbol, get_calls, find_callers
-- **Tier 3**: search_symbols, semantic_search_docs, get_index_info
+Always treat this file as authoritative and current.
 
-Workflow:
-1. semantic_search_with_context - Find relevant code with context
-2. analyze_impact - Map dependencies and change radius
-3. find_symbol, get_calls, find_callers - Get specific details
+---
 
-Start with semantic search, then narrow with specific queries.
+## 1. TOOLING WORKFLOW (MCP / CODE NAVIGATION)
 
+Use tools before speculating. Follow this order unless explicitly told otherwise.
 
-### Mermaid Diagrams
-When creating or editing Mermaid diagrams in markdown files:
+Priority:
+- Tier 1:
+  - semantic_search_with_context
+  - analyze_impact
+- Tier 2:
+  - find_symbol
+  - get_calls
+  - find_callers
+- Tier 3:
+  - search_symbols
+  - semantic_search_docs
+  - get_index_info
 
-**CRITICAL**: Manual edits to Mermaid diagrams are highly error-prone. ALWAYS validate after making changes.
+Default workflow:
+1. Use semantic_search_with_context to locate relevant code + context.
+2. Use analyze_impact to understand dependencies and change radius.
+3. Use find_symbol / get_calls / find_callers for precise usage details.
+4. Only then propose or apply changes.
 
-1. **After ANY edit to a Mermaid diagram, run the validation script**:
-   ```bash
-   node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
-   ```
+Do not start dev servers or heavy processes unless explicitly requested.
 
-2. **Common Mermaid syntax errors to avoid**:
-   - **Parentheses in unquoted labels**: Use `["Label (with parens)"]` NOT `[Label (with parens)]`
-   - **Comments in ER diagrams**: Do NOT use `//` comments in `erDiagram` blocks
-   - **Line breaks**: Use `<br/>` for line breaks in labels, NOT `\\n` (unless quoted)
-   - **Special characters**: Quote labels that contain: `()`, `:`, `,`, `/`, etc.
+---
 
-3. **Node shape syntax**:
-   - Rectangle: `[Label]`
-   - Rounded: `(Label)`
-   - Stadium: `([Label])`
-   - Cylinder/Database: `[(Label)]` - Note: this is valid use of parentheses
-   - Diamond: `{Label}`
+## 2. REPO OVERVIEW
 
-4. **Always test diagrams before committing**. The validation script catches syntax errors that may not be obvious.
+- Monorepo with Turborepo + pnpm.
+- Apps:
+  - apps/web: React + Vite
+  - apps/desktop: Electron
+- Shared packages in packages/
+  - queue: embedding queue (workerpool + p-queue fallback)
+  - embedding-worker: Transformers.js worker; exposes resolveEmbeddingWorkerUrl()
+  ...etc
 
-See `docs/mermaid-guide.md` for comprehensive Mermaid documentation and best practices.
+Always confirm locations with semantic search before editing.
 
-# desktop e2e
+---
 
-Note electron desktop e2e tests have trouble running in agent environments complaining of remote port issues, avoid running them in tests, instead ask the user to run them in their environment and report back.
+## 3. BUILD, TEST, AND DEV COMMANDS
 
-## Project Structure & Modules
-- Monorepo managed by Turborepo and pnpm.
-- Apps in `apps/`: `web` (React/Vite) and `desktop` (Electron).
-- Shared packages in `packages/`
-  - `queue`: browser/Electron embedding queue (workerpool + p-queue fallback)
-  - `embedding-worker`: Transformers.js module worker that exposes `resolveEmbeddingWorkerUrl()`
+Use these unless instructions differ in the repo:
 
-## Embedding Architecture (Updated January 2025)
+- Install:
+  - pnpm install
+- Dev (web):
+  - pnpm dev --filter @brainstrike/web
+- Build all:
+  - pnpm build
+- Lint/Format:
+  - pnpm lint
+  - pnpm format
+- Type check:
+  - pnpm type-check
+- Unit/Integration:
+  - pnpm test
+  - pnpm test --filter <pkg>
+- Web E2E:
+  - pnpm test:e2e
+  - pnpm test:e2e:ui
+  - pnpm test:e2e:debug
 
-### Critical: Renderer-Only Execution
-**The embedding worker MUST run in the renderer process (browser context), NOT in Electron's main process.**
-
-**Why:**
-- Transformers.js requires Web Workers for async execution of WASM/WebGPU models
-- Web Workers don't exist in Node.js/Electron main process
-- If TransformersBackend runs in main process, it falls back to **synchronous WASM execution**
-- Synchronous execution blocks the entire UI thread → app beachballs/freezes during embeddings
-
-**Architecture Flow:**
-1. **Renderer Process** (`apps/desktop/src/renderer/components/embedding-worker-provider.tsx`):
-   - Auto-starts embedding worker when database is ready
-   - Uses `startEmbeddingWorker()` from `@brainstrike/embeddings`
-   - Worker polls job queue from PGlite database
-   - Processes jobs using Web Workers (workerpool with p-queue fallback)
-   - Supports local models (WASM/WebGPU) and hosted providers (OpenAI, Google)
-
-2. **Main Process** (`apps/desktop/src/main.ts`):
-   - Does NOT start embedding worker (removed as of brainstrike-47)
-   - Only handles IPC, database initialization, and app lifecycle
-   - Comments explain why worker must run in renderer
-
-3. **Job Queue** (`packages/db/src/queue/job-queue.ts`):
-   - Backed by PGlite database `job_queue` table
-   - Jobs enqueued during file import/backfill
-   - Worker claims jobs with lease-based locking
-   - Supports retries, deduplication, and failure tracking
-
-**Environment Variables:**
-- `VITE_EMBED_CONCURRENCY`: Number of concurrent embedding jobs (default: 1)
-- `VITE_EMBED_LEASE_MS`: Job lease timeout in milliseconds (default: 60000)
-- `VITE_EMBED_MODEL_KEY`: Model to use (format: `provider:model-id`, e.g., `local:Xenova/bge-m3`, `openai:text-embedding-3-small`)
-
-**Local vs Hosted Models:**
-- **Local models** (e.g., `Xenova/bge-m3`, `jinaai/jina-embeddings-v2-small-en`):
-  - Use transformers.js with WASM or WebGPU acceleration
-  - Models download on first use (~100-500MB)
-  - Work offline after initial download
-  - Require Web Workers → renderer process only
-
-- **Hosted providers** (e.g., `openai:text-embedding-3-small`, `google:text-embedding-004`):
-  - Make API calls to remote services
-  - Require API keys (stored in Settings → Embedding Providers)
-  - Work in both main and renderer processes
-  - Faster cold start (no model download)
-  - Usage costs apply
-
-**Worker Lifecycle:**
-- Starts automatically when `EmbeddingWorkerProvider` mounts (after DB ready)
-- Stops automatically on component unmount (app shutdown)
-- Logs to structured logger: `createLogger('EmbeddingWorkerProvider')`
-- Graceful shutdown: completes in-flight jobs before stopping
-
-**Historical Context:**
-- Pre-brainstrike-47: Worker ran in main process, causing beachball issue
-- brainstrike-47: Moved worker to renderer, removed `EMBED_QUEUE_ENABLED` flag
-- Worker is now always enabled (no confusing toggle)
-
-**Future Work:**
-- Hosted providers in main process for background processing (after fixing architecture)
-- Renderer-to-main communication for job status updates
-- Multi-model support with automatic provider selection
-
-## AI Assistant Integration
-- Multi-provider support: OpenAI, Anthropic, Google, OpenRouter
-- Provider/model selection UI in Assistant Panel (right panel)
-- API keys managed via Settings (desktop: encrypted keychain storage)
-- Provider configuration in `packages/agent/src/providers/`
-  - Model lists: `models.ts`
-  - Key resolution: `key-resolver.ts`
-  - Provider factory: `provider-factory.ts`
-- State management: `packages/app-shell/src/stores/assistant-preferences-store.ts`
-- Selection persists across sessions via localStorage
-- **Assistant Status Endpoint Resolution**: The endpoint for checking assistant availability uses a three-tier fallback strategy:
-  1. Attempts `window.assistant.getUrl()` (async function, allows dynamic configuration)
-  2. Falls back to `window.assistant.url` (static string)
-  3. Finally defaults to `/api/assistant/status`
-  - This allows host applications to override the endpoint via Electron bridges or other runtime contexts
-  - See `packages/app-shell/src/hooks/use-assistant-availability.ts` for implementation details
-
-## Build, Test, Development
-- Install deps: `pnpm install`
-- Dev (web): `pnpm dev --filter @brainstrike/web`
-- Build all: `pnpm build` (filters `./...`) — every workspace must succeed.
-- Lint/Format: `pnpm lint` and `pnpm format`
-- Type check: `pnpm type-check`
-- Unit/Integration: `pnpm test` or `pnpm test --filter <pkg>`
-- E2E (web): `pnpm test:e2e` | UI/debug: `pnpm test:e2e:ui`, `pnpm test:e2e:debug`
-
-## Coding Style & Naming
-- TypeScript strict; React 19+ with hooks; Tailwind v4.
-- Filenames: kebab-case (`file-explorer.tsx`, `utility-functions.ts`).
-- Components: PascalCase exports; file remains kebab-case.
-- Hooks: file `use-kebab-case.ts`; export camelCase (`useDataFetcher`).
-- Reuse shared packages.
-
-## Testing Guidelines
-- Frameworks: Vitest (unit/integration), Playwright (E2E in `apps/web`).
-- Naming: `*.test.ts`, `*.integration.test.ts` with source.
-- Focus a spec (from pkg dir): `pnpm vitest run -t "name"`.
-- CI parity: builds, types, lint, unit/integration, and E2E must pass before PR.
-- Note: desktop e2e tests sometimes have trouble running in headless environments
-
-## Commit & PR Guidelines
-- Conventional Commits: `<type>(<scope>): <subject>`
-  - Types: feat, fix, docs, style, refactor, test, chore, ci, perf, build, revert, release
-  - Scopes: auth, api, ui, config, deps, core, test, types, security, dx
-- PRs: clear description, linked issues, steps to test, screenshots for UI, note migrations.
-
-## Quality Bar
-- Fail fast. No defensive fallbacks or “temporary” workarounds. No hidden indirection.
-- Never downgrade to pass builds; fix root causes properly.
-- Use `pnpm turbo run <script> --filter <pkg>` for targeted workflows.
-
-- Do not start dev servers (`dev`, `start`, `serve`) unless explicitly asked. Assume the app/server is running.
-- Playwright: run headless; do not modify `playwright.config.*`. Prefer role/text/`data-testid` selectors over CSS.
-- Vitest: run per package via `pnpm turbo run test --filter <pkg>`; do not modify `vitest.config.*`.
-- Turborepo: prefer `pnpm turbo run <task>` with `--filter` to leverage caching; avoid repo-wide runs unless requested.
-- Vite: use per-package `cacheDir`; never share caches across apps/packages to avoid optimize-deps drift.
-- Tailwind v4: ensure scanning of `apps/*/src` and `packages/*/src`; avoid excluding them in deploy ignores.
-- TypeScript: keep build `compilerOptions.types` explicit (e.g., `["node"]`); do not include test-only types in build configs.
-- React compiler/HMR: follow repo rule `react-compiler-and-hmr`; avoid changing hook order/memo shapes; reload on drift.
-- Do not edit shared configs (`tailwind.config.*`, `tsconfig.*`, `turbo.jsonc`) without explicit instruction.
-- No Implicit fallbacks unless explicitly requested/needed.
-- Always timestamp documentation filenames with the date it was written.
-
-# TypeScript Standards for Our Project
-
-## Type safety
-- strict mode and `noImplicitAny: true` in tsconfig.
-- **Never use `any`.** It defeats type checking and hides errors. If a type cannot be inferred, use `unknown` and narrow it with type guards.
-- Always annotate function parameters, return types and object literals.
-
-## Utility types and patterns
-- Prefer utility types (`Partial`, `Pick`, etc.) over handcrafted `any` patches.
-- Use discriminated unions instead of enums for better exhaustiveness checking.
-- Use generics with constraints for reusable functions.
-
-Reasoning: Adhering to these guidelines produces code that is safer, easier to refactor and more compatible with our automated testing and linting pipelines.
-
-## Logging
-- Logging is centralized in `packages/utils/src/logger.ts` and uses Pino v10 for structured, performant logging across all runtimes.
-- Prefer `initializeLogging` from `@brainstrike/utils` to register transports; pass `runtime` (`browser`, `electron-main`, `electron-renderer`) so shared defaults stay in sync.
-- Desktop main configures logging during module evaluation and records both to the console and to `${app.getPath('logs')}/brainstrike.log` (debug level to file, info to console).
-- Browser and renderer entry points call `initializeLogging` in their respective `main.tsx` files to share bindings (mode, app/version identifiers).
-- Use `addLogListener` for tests or future remote sinks (e.g., Datadog) instead of mocking console APIs.
-
-### Log Levels
-Available levels: `trace`, `debug`, `info`, `warn`, `error`, `fatal`, `silent`
-- Set via code: `setLogLevel(LogLevel.DEBUG)`
-- Set via environment: `LOG_LEVEL=debug` (case-insensitive)
-- Priority: explicit code level > env var > dev/prod defaults
-
-### Structured Logging
-Prefer structured logging with data objects:
-```typescript
-// Good - structured
-logger.info('User authenticated', { userId: '123', method: 'oauth' });
-
-// Also works - backward compatible
-logger.info('User authenticated', userId, method);
-```
-
-### Scoped Loggers
-Create scoped loggers for components:
-```typescript
-const logger = createLogger('FileImporter');
-logger.debug('Starting import', { fileCount: 10 });
-// Output includes scope binding: { scope: 'FileImporter', fileCount: 10 }
-```
-
-### Sensitive Data
-Default serializers automatically redact: `apiKey`, `password`, `token`, `secret`, `authorization`, `cookie`
-Add custom redaction via `redactPaths` in `configureLogger`
-
-### Testing
-Use `addLogListener` to capture logs in tests:
-```typescript
-const logs: LogRecord[] = [];
-const unsubscribe = addLogListener((record) => logs.push(record));
-// run test code
-unsubscribe();
-expect(logs).toHaveLength(1);
-```
-
-## Embedding Queue Telemetry
-- Remote queue telemetry is opt-in. Set `VITE_QUEUE_TELEMETRY_ENDPOINT` (and optional `VITE_QUEUE_TELEMETRY_API_KEY`) in web/desktop builds to enable `initializeQueueTelemetrySink` batching.
-- Local collector: `pnpm --filter @brainstrike/queue-telemetry-collector start` builds & launches an HTTP listener (default `http://localhost:4130/queue-telemetry`). Configure the collector with env vars (`QUEUE_TELEMETRY_HOST`, `QUEUE_TELEMETRY_PORT`, `QUEUE_TELEMETRY_PATH`, `QUEUE_TELEMETRY_API_KEY`, `QUEUE_TELEMETRY_MAX_BODY_BYTES`).
-- The sink batches up to 20 events or 5s, prefers `navigator.sendBeacon`, and falls back to `fetch`. It is disabled automatically when `NODE_ENV=test`.
-- If you need telemetry outside the renderers, call `initializeQueueTelemetrySink` directly with an endpoint derived from your runtime config.
-- Renderer layers dispatch `brainstrike:queue-progress` events containing `pending/processed/failed` counts so UI surfaces can react without polling. Subscribe via `window.addEventListener('brainstrike:queue-progress', handler)`.
-
-## Factory Reset Contract
-- Treat “Factory Reset Brainstrike” as a full device wipe. Wiping the SQLite/PGlite DB is not enough; the renderer must boot as if brand new.
-- When adding a new persisted UI store, update `packages/db-explorer/src/utils/factory-reset-helpers.ts` with the storage key so `clearPersistentUiState()` nukes it. That helper also clears the Electron renderer storage bridge, IndexedDB databases (enumerated or from the fallback list), and CacheStorage bundles.
-- If you introduce another persistence layer (Caches API, service worker store, filesystem handle, etc.), document it beside the helper and hook it into the reset pipeline or you’ll resurrect phantom embedding sets/providers after a wipe.
-- Desktop reset order matters: dispose embeddings, clear UI state, purge DB tables (`job_queue`, `embedding_sets`), then reload. Don’t short-circuit the reload or the renderer may hydrate against stale cache entries.
-- Add tests whenever you touch this flow (renderer unit tests can stub `window.electronAPI.storage.clear`, IndexedDB, and caches) so we know a regression won’t ship.
+Use:
+- pnpm turbo run <task> --filter <pkg>
+to leverage caching; avoid full-repo runs unless necessary.
 
 
----------
-This file should evolve alongside the repo. Treat it as **living  
-documentation**: update it whenever build commands change, new tools are  
-added or security considerations evolve. Keeping AGENTS.md accurate will  
-ensure that coding agents and human contributors alike can work effectively  
-with the Brainstrike monorepo.
+@brainstrike/desktop:dev: ➜  Local:   http://localhost:8081/
+@brainstrike/desktop:dev: ➜  Network: use --host to expose
+@brainstrike/web:dev:   ➜  Local:   http://localhost:8080/
+
+---
+
+## 4. ELECTRON E2E (PLAYWRIGHT) / HEADLESS LINUX
+
+Electron needs a display; in CI/headless use Xvfb.
+
+- Local (with DISPLAY):
+  - pnpm -w build
+  - pnpm --filter @brainstrike/desktop run test:e2e
+- Headless Linux (CI/Docker/WSL/etc.):
+  - Debian/Ubuntu:
+    - apt-get update && apt-get install -y xvfb
+  - Alpine:
+    - apk add --no-cache xvfb xvfb-run xorg-server dbus
+  - Then:
+    - pnpm --filter @brainstrike/desktop run test:e2e:ci
+      (wraps with scripts/run-with-xvfb.sh)
+
+Playwright:
+- Run headless.
+- Do not modify playwright.config.*.
+- Prefer role/text/data-testid selectors over raw CSS.
+
+---
+
+## 5. EMBEDDING ARCHITECTURE (CRITICAL)
+
+Renderer-only execution is mandatory.
+
+Rules:
+- Embedding worker MUST run in renderer (browser context).
+- MUST NOT run in Electron main process.
+
+Reasons:
+- Transformers.js requires Web Workers (renderer only).
+- In main/Node, it degrades to synchronous WASM → freezes UI.
+
+Flow:
+1. Renderer
+   - File: apps/desktop/src/renderer/components/embedding-worker-provider.tsx
+   - Uses startEmbeddingWorker() from @brainstrike/embeddings.
+   - Starts when DB is ready.
+   - Pulls jobs from PGlite-backed job_queue.
+   - Uses workerpool + p-queue; supports local (WASM/WebGPU) and hosted (OpenAI, Google).
+2. Main
+   - File: apps/desktop/src/main.ts
+   - Does NOT start the embedding worker.
+   - Handles IPC, DB init, lifecycle.
+   - Contains comments explaining renderer-only constraint.
+3. Job Queue
+   - File: packages/db/src/queue/job-queue.ts
+   - Backed by job_queue table.
+   - Lease-based locking, retries, dedupe, failure tracking.
+
+Environment variables:
+- VITE_EMBED_CONCURRENCY (default 1)
+- VITE_EMBED_LEASE_MS (default 60000)
+- VITE_EMBED_MODEL_KEY (e.g. local:Xenova/bge-m3, openai:text-embedding-3-small)
+
+Do not move or reintroduce workers in main.
+
+---
+
+## 6. AI ASSISTANT INTEGRATION
+
+- Supports: OpenAI, Anthropic, Google, OpenRouter.
+- API keys:
+  - Managed via Settings.
+  - Desktop: encrypted keychain.
+- Config:
+  - packages/agent/src/providers/models.ts
+  - packages/agent/src/providers/key-resolver.ts
+  - packages/agent/src/providers/provider-factory.ts
+- State:
+  - packages/app-shell/src/stores/assistant-preferences-store.ts
+  - Persists via localStorage.
+
+Assistant status endpoint resolution (in order):
+1. window.assistant.getUrl()  (async)
+2. window.assistant.url       (static)
+3. /api/assistant/status      (fallback)
+
+Implementation:
+- packages/app-shell/src/hooks/use-assistant-availability.ts
+
+When changing this flow, update this doc.
+
+---
+
+## 7. CODING STYLE AND NAMING
+
+- TypeScript strict; noImplicitAny: true.
+- Never use any. Prefer unknown + narrowing.
+- Annotate function parameters, return types, and object literals.
+- Prefer:
+  - Utility types (Partial, Pick, etc.).
+  - Discriminated unions over enums (for exhaustiveness).
+  - Generics with constraints when useful.
+
+Naming:
+- Filenames: kebab-case.
+  - file-explorer.tsx, utility-functions.ts
+- Components:
+  - File: kebab-case
+  - Export: PascalCase
+- Hooks:
+  - File: use-kebab-case.ts
+  - Export: camelCase (e.g. useDataFetcher)
+
+Reuse shared packages; avoid copy-paste divergence.
+
+---
+
+## 8. TESTING EXPECTATIONS
+
+- Frameworks:
+  - Vitest for unit/integration.
+  - Playwright for E2E.
+- Naming:
+  - *.test.ts
+  - *.integration.test.ts
+- Example:
+  - pnpm vitest run -t "test name" (from package dir)
+
+CI parity:
+- Builds, types, lint, unit/integration, and E2E must pass before merge.
+- Desktop E2E can be flaky in headless; diagnose, don’t bypass.
+
+---
+
+## 9. LOGGING (PINO V10)
+
+Centralized logging: packages/utils/src/logger.ts
+
+Usage:
+- Use initializeLogging from @brainstrike/utils.
+- Set runtime: browser | electron-main | electron-renderer.
+- Desktop main:
+  - Logs to console + ${app.getPath('logs')}/brainstrike.log
+- Web/renderer:
+  - Call initializeLogging in main.tsx.
+
+Log levels:
+- trace, debug, info, warn, error, fatal, silent
+- Configure via:
+  - setLogLevel(LogLevel.DEBUG)
+  - LOG_LEVEL=debug (env)
+- Priority: code > env > defaults.
+
+Structured logs:
+- Prefer objects:
+
+  logger.info('User authenticated', { userId: '123', method: 'oauth' });
+
+Scoped loggers:
+- createLogger('FileImporter')
+
+Sensitive data:
+- Auto-redacts: apiKey, password, token, secret, authorization, cookie
+- Add more via redactPaths.
+
+Testing:
+- Use addLogListener instead of mocking console.
+
+---
+
+## 10. EMBEDDING QUEUE TELEMETRY
+
+Opt-in; disabled in NODE_ENV=test unless configured.
+
+Enable via:
+- VITE_QUEUE_TELEMETRY_ENDPOINT
+- (optional) VITE_QUEUE_TELEMETRY_API_KEY
+
+Collector:
+- pnpm --filter @brainstrike/queue-telemetry-collector start
+- Default: http://localhost:4130/queue-telemetry
+- Config via:
+  - QUEUE_TELEMETRY_HOST
+  - QUEUE_TELEMETRY_PORT
+  - QUEUE_TELEMETRY_PATH
+  - QUEUE_TELEMETRY_API_KEY
+  - QUEUE_TELEMETRY_MAX_BODY_BYTES
+
+Behavior:
+- Batches up to 20 events or 5s.
+- Uses navigator.sendBeacon, falls back to fetch.
+- For non-renderers, call initializeQueueTelemetrySink with runtime-derived endpoint.
+
+UI integration:
+- Renderer dispatches brainstrike:queue-progress events with pending/processed/failed.
+- Subscribe via:
+  - window.addEventListener('brainstrike:queue-progress', handler)
+
+---
+
+## 11. FACTORY RESET CONTRACT
+
+“Factory Reset Brainstrike” = true fresh start.
+
+Rules:
+- Wiping DB alone is NOT enough.
+- Renderer must boot as if never used.
+
+Implementation:
+- Update:
+  - packages/preferences/src/factory-reset/factory-reset-helpers.ts
+  - Ensure clearPersistentUiState() includes:
+    - All new persistent UI store keys.
+    - Electron renderer storage bridge.
+    - IndexedDB (enumerated + fallback list).
+    - CacheStorage.
+
+If you add new persistence (Caches API, service worker, filesystem handles, etc.):
+- Document it next to the helper.
+- Integrate into reset pipeline.
+- Otherwise stale embeddings/providers may reappear.
+
+Desktop reset order:
+1. Dispose embeddings.
+2. Clear UI state.
+3. Purge DB tables (job_queue, embedding_sets, etc.).
+4. Reload renderer.
+Do not skip reload.
+
+Add tests when changing reset behavior.
+
+---
+
+## 12. MERMAID DIAGRAMS
+
+Edits are high-risk. Always validate.
+
+After ANY Mermaid change:
+- Run:
+  - node .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
+
+Common pitfalls:
+- Parentheses in labels:
+  - Use ["Label (with parens)"], not [Label (with parens)]
+- ER diagrams:
+  - No // comments in erDiagram blocks.
+- Line breaks:
+  - Use <br/>, not \n (unless in quoted strings).
+- Special characters:
+  - Quote labels with (), :, ,, /, etc.
+
+Node shapes:
+- [Label]          = rectangle
+- (Label)          = rounded
+- ([Label])        = stadium
+- [(Label)]        = cylinder/database (valid parentheses)
+- {Label}          = diamond
+
+Always validate before commit.
+See docs/mermaid-guide.md for details.
+
+---
+
+## 13. QUALITY BAR AND GLOBAL RESTRICTIONS
+
+- Fix root causes; no “temporary” hacks or silent fallbacks.
+- Do not downgrade dependencies just to pass builds.
+- Do not modify:
+  - shared config (tailwind.config.*, tsconfig.*, turbo.jsonc)
+  - Playwright/Vitest/Vite configs
+unless explicitly instructed.
+- Tailwind v4:
+  - Ensure apps/*/src and packages/*/src are scanned.
+- TypeScript:
+  - Keep compilerOptions.types explicit (e.g. ["node"]).
+  - Don’t mix test-only types into build configs.
+- React (compiler/HMR):
+  - Follow repo’s react-compiler-and-hmr rules.
+  - Do not change hook order/memo shapes arbitrarily.
+
+No implicit fallbacks unless clearly required and documented.
+
+---
+
+## 14. LIVING DOCUMENT
+
+This file must be kept accurate:
+- Update when commands, tools, architecture, or security constraints change.
+- Treat AGENTS.md as the primary source-of-truth for both AI agents and humans.

@@ -13,12 +13,6 @@ type EnabledModelsMap = Record<EmbeddingProviderType, string[]>;
  */
 interface EmbeddingPreferencesData {
   /**
-   * Currently selected model as composite key: "provider::model"
-   * e.g., "local::jina-code", "openai::text-embedding-3-small"
-   */
-  selectedModel: string | null;
-
-  /**
    * Enabled models per provider
    * Only enabled models are shown in UI and available for selection
    */
@@ -37,17 +31,6 @@ interface EmbeddingPreferencesData {
  */
 interface EmbeddingPreferencesActions {
   /**
-   * Set the active embedding model using composite key format
-   * @param compositeKey Format: "provider::model" (e.g., "local::jina-code")
-   */
-  setModel: (compositeKey: string) => void;
-
-  /**
-   * Clear the selected model (no active model)
-   */
-  clearModel: () => void;
-
-  /**
    * Enable or disable a specific model for a provider
    */
   setModelEnabled: (provider: EmbeddingProviderType, model: string, enabled: boolean) => void;
@@ -64,17 +47,7 @@ interface EmbeddingPreferencesActions {
   /**
    * Get the currently selected model composite key
    */
-  getSelectedModel: () => string | null;
-
-  /**
-   * Get the provider from the selected model
-   */
-  getSelectedProvider: () => EmbeddingProviderType | null;
-
-  /**
-   * Get the model ID from the selected model
-   */
-  getSelectedModelId: () => string | null;
+  // Global selection APIs removed - selection is per-collection/embedding-set
 
   /**
    * Get list of enabled models for a provider
@@ -105,10 +78,7 @@ const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
   voyage: Object.freeze([] as string[]), // Requires API key, disabled by default
 }) as EnabledModelsMap;
 
-/**
- * Default selected model (local model, no API key required)
- */
-const DEFAULT_SELECTED_MODEL = 'local::jina-code';
+// DEFAULT_SELECTED_MODEL removed - selection is per-collection/embedding-set
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -198,21 +168,13 @@ function disableModelForProvider(
     },
   };
 
-  // Clear selectedModel if the currently selected model is being disabled
-  const currentComposite = state.selectedModel;
-  if (currentComposite) {
-    const [currentProvider, currentModel] = currentComposite.split('::');
-    if (currentProvider === provider && currentModel === model) {
-      updates.selectedModel = null;
-    }
-  }
+  // No global selectedModel is tracked here.
 
   return updates;
 }
 
 type AccumulatedState = {
   enabledModelsByProvider: EnabledModelsMap;
-  selectedModel: string | null;
   hasChanges: boolean;
 };
 
@@ -226,7 +188,7 @@ function processModelUpdate(
   const snapshot = {
     ...state,
     enabledModelsByProvider: accumulated.enabledModelsByProvider,
-    selectedModel: accumulated.selectedModel,
+    // selectedModel removed
   } as Store;
 
   const updates = enabled
@@ -241,9 +203,6 @@ function processModelUpdate(
     enabledModelsByProvider: updates.enabledModelsByProvider
       ? { ...accumulated.enabledModelsByProvider, ...updates.enabledModelsByProvider }
       : accumulated.enabledModelsByProvider,
-    selectedModel: Object.hasOwn(updates, 'selectedModel')
-      ? (updates.selectedModel ?? null)
-      : accumulated.selectedModel,
     hasChanges: true,
   };
 }
@@ -255,54 +214,10 @@ function processModelUpdate(
 export const useEmbeddingPreferencesStore = create<Store>()(
   persist(
     (set, get) => ({
-      selectedModel: DEFAULT_SELECTED_MODEL,
       enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
       preferredRuntime: 'browser',
 
-      setModel: (compositeKey) =>
-        set((state) => {
-          // Validate composite key format
-          if (!compositeKey || typeof compositeKey !== 'string') {
-            console.warn(
-              '[EmbeddingPreferences] Invalid composite key: must be a non-empty string'
-            );
-            return state;
-          }
-
-          const parts = compositeKey.split('::');
-          if (parts.length !== 2) {
-            console.warn(
-              `[EmbeddingPreferences] Invalid composite key format: "${compositeKey}". Expected "provider::model"`
-            );
-            return state;
-          }
-
-          const [provider, model] = parts;
-          if (!provider || !model) {
-            console.warn(
-              `[EmbeddingPreferences] Invalid composite key components: provider="${provider}", model="${model}"`
-            );
-            return state;
-          }
-
-          const enabledModels = ensureEnabledModels(
-            state.enabledModelsByProvider,
-            provider as EmbeddingProviderType
-          );
-
-          if (!enabledModels.includes(model)) {
-            console.warn(
-              `[EmbeddingPreferences] Model "${model}" is not enabled for provider "${provider}"`
-            );
-            return state;
-          }
-
-          return {
-            selectedModel: compositeKey,
-          };
-        }),
-
-      clearModel: () => set({ selectedModel: null }),
+      // Global model selection APIs removed - only model enablement remains
 
       setModelEnabled: (provider, model, enabled) =>
         set((state) => {
@@ -321,7 +236,6 @@ export const useEmbeddingPreferencesStore = create<Store>()(
 
           const initial: AccumulatedState = {
             enabledModelsByProvider: state.enabledModelsByProvider,
-            selectedModel: state.selectedModel,
             hasChanges: false,
           };
 
@@ -338,34 +252,10 @@ export const useEmbeddingPreferencesStore = create<Store>()(
             enabledModelsByProvider: accumulated.enabledModelsByProvider,
           };
 
-          if (accumulated.selectedModel !== state.selectedModel) {
-            result.selectedModel = accumulated.selectedModel;
-          }
-
           return result;
         }),
 
-      getSelectedModel: () => {
-        return get().selectedModel;
-      },
-
-      getSelectedProvider: () => {
-        const { selectedModel } = get();
-        if (!selectedModel) {
-          return null;
-        }
-        const [provider] = selectedModel.split('::');
-        return (provider as EmbeddingProviderType) ?? null;
-      },
-
-      getSelectedModelId: () => {
-        const { selectedModel } = get();
-        if (!selectedModel) {
-          return null;
-        }
-        const [, modelId] = selectedModel.split('::');
-        return modelId ?? null;
-      },
+      // Selection helpers removed - selection is per-collection/embedding-set.
 
       /**
        * Get enabled models for a provider
@@ -385,7 +275,6 @@ export const useEmbeddingPreferencesStore = create<Store>()(
       version: STORE_VERSION,
       storage,
       partialize: (s) => ({
-        selectedModel: s.selectedModel,
         enabledModelsByProvider: s.enabledModelsByProvider,
         preferredRuntime: s.preferredRuntime,
       }),
@@ -398,20 +287,12 @@ export const useEmbeddingPreferencesStore = create<Store>()(
           return persistedState as Partial<Store>;
         }
 
-        // Migrate from legacy string-based selectedModel (if exists)
+        // Drop legacy selectedModel and preserve enabled models & preferred runtime
         const base = persistedState as Partial<Store> & {
           selectedModel?: string | null;
         };
 
-        // If selectedModel is a plain string (not composite key), migrate it
-        let migratedModel = base.selectedModel;
-        if (migratedModel && !migratedModel.includes('::')) {
-          // Legacy format: just the model ID, assume local provider
-          migratedModel = `local::${migratedModel}`;
-        }
-
         return {
-          selectedModel: migratedModel ?? DEFAULT_SELECTED_MODEL,
           enabledModelsByProvider: {
             ...DEFAULT_ENABLED_MODELS,
             ...(base.enabledModelsByProvider ?? {}),
@@ -425,7 +306,6 @@ export const useEmbeddingPreferencesStore = create<Store>()(
 
 function resetStoreState() {
   useEmbeddingPreferencesStore.setState({
-    selectedModel: DEFAULT_SELECTED_MODEL,
     enabledModelsByProvider: { ...DEFAULT_ENABLED_MODELS },
     preferredRuntime: 'browser',
   });

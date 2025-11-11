@@ -1,7 +1,6 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RightPanel } from '../right-panel';
-import { __resetDbPanelStoreForTests, useDbPanelStore } from '../stores/db-panel-store';
 import {
   __resetRightPanelStoreForTests,
   // keep import named to satisfy tree-shaking and explicitness
@@ -84,7 +83,6 @@ describe('RightPanel controls', () => {
     // Reset persisted UI stores to avoid cross-test flakiness
     __resetRightPanelStoreForTests();
     __resetSearchPanelStoreForTests();
-    __resetDbPanelStoreForTests();
 
     // Make assistant status check fast and deterministic
     mockFetch.mockResolvedValue({
@@ -124,45 +122,6 @@ describe('RightPanel controls', () => {
       expect(searchState.regex).toBe(true);
       expect(searchState.caseSensitive).toBe(true);
       expect(searchState.wholeWord).toBe(true);
-    });
-  }, 10000);
-
-  it('updates database logs controls', async () => {
-    render(<RightPanel />);
-
-    // Switch to Database tab via store
-    act(() => {
-      useRightPanelStore.getState().setActiveTab('database');
-    });
-    await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /db/i })).toHaveAttribute('aria-selected', 'true');
-    });
-
-    // Select logs subtab
-    const viewRow = screen.getByText('View').closest('div');
-    const select = within(viewRow as HTMLElement).getByRole('combobox', { name: 'DB subtab' });
-    fireEvent.change(select, { target: { value: 'logs' } });
-
-    // Update DB controls using fireEvent for speed
-    await waitFor(() => {
-      expect(screen.getByLabelText('Filter')).toBeInTheDocument();
-    });
-
-    fireEvent.change(screen.getByLabelText('Filter'), { target: { value: 'embeddings' } });
-    fireEvent.change(screen.getByLabelText('Sort By'), { target: { value: 'timestamp' } });
-    fireEvent.change(screen.getByLabelText('Direction'), { target: { value: 'desc' } });
-    fireEvent.change(screen.getByLabelText('Page'), { target: { value: '2' } });
-    fireEvent.change(screen.getByLabelText('Page Size'), { target: { value: '25' } });
-
-    // Verify DB state
-    await waitFor(() => {
-      const dbState = useDbPanelStore.getState();
-      expect(dbState.activeSubtab).toBe('logs');
-      expect(dbState.filterText).toBe('embeddings');
-      expect(dbState.sortBy).toBe('timestamp');
-      expect(dbState.sortDir).toBe('desc');
-      expect(dbState.page).toBeGreaterThan(1);
-      expect(dbState.pageSize).toBeGreaterThan(10);
     });
   }, 10000);
 });

@@ -41,20 +41,24 @@ describe('EmbeddingSettings', () => {
   it('shows the default local model selection', () => {
     renderComponent();
 
-    const summary = screen.getByTestId('embedding-model-summary');
-    expect(summary.textContent ?? '').toMatch(/Local \(Transformers\.js\)/);
-    expect(summary.textContent ?? '').toMatch(/Jina Code/i);
+    const localModels = useEmbeddingPreferencesStore.getState().getEnabledModels('local');
+    expect(localModels).toContain('jina-code');
   });
 
-  it('disables the selected model and clears the selection summary', async () => {
+  it('toggles model enablement', async () => {
     renderComponent();
     const toggle = await screen.findByTestId('embedding-toggle-local-jina-code');
 
+    // Toggle off
     await userEvent.click(toggle);
-
-    expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBeNull();
-    const summary = screen.getByTestId('embedding-model-summary');
-    expect(summary.textContent ?? '').toContain('No model selected');
+    expect(useEmbeddingPreferencesStore.getState().getEnabledModels('local')).not.toContain(
+      'jina-code'
+    );
+    // Toggle on
+    await userEvent.click(toggle);
+    expect(useEmbeddingPreferencesStore.getState().getEnabledModels('local')).toContain(
+      'jina-code'
+    );
   });
 
   it('filters models via search input', async () => {
@@ -68,7 +72,7 @@ describe('EmbeddingSettings', () => {
     expect(screen.queryByTestId('embedding-model-row-local-jina-code')).toBeNull();
   });
 
-  it('enables a hosted model and allows selection', async () => {
+  it('enables a hosted model', async () => {
     renderComponent();
 
     const hostedToggle = await screen.findByTestId(
@@ -76,19 +80,8 @@ describe('EmbeddingSettings', () => {
     );
     await userEvent.click(hostedToggle);
 
-    const selectTrigger = screen.getByTestId('embedding-model-select');
-    await userEvent.click(selectTrigger);
-
-    const option = await screen.findByRole('option', {
-      name: /text-embedding-3-small/i,
-    });
-    await userEvent.click(option);
-
-    expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe(
-      'openai::text-embedding-3-small'
-    );
-    const summary = screen.getByTestId('embedding-model-summary');
-    expect(summary.textContent ?? '').toMatch(/OpenAI/i);
+    const enabled = useEmbeddingPreferencesStore.getState().getEnabledModels('openai');
+    expect(enabled).toContain('text-embedding-3-small');
   });
 
   describe('Quick Start Presets', () => {
@@ -107,7 +100,6 @@ describe('EmbeddingSettings', () => {
       await userEvent.click(presetButton);
 
       const state = useEmbeddingPreferencesStore.getState();
-      expect(state.getSelectedModel()).toBe('voyage::voyage-3');
       expect(state.enabledModelsByProvider.voyage).toContain('voyage-3');
     });
 
@@ -118,7 +110,6 @@ describe('EmbeddingSettings', () => {
       await userEvent.click(presetButton);
 
       const state = useEmbeddingPreferencesStore.getState();
-      expect(state.getSelectedModel()).toBe('openai::text-embedding-3-small');
       expect(state.enabledModelsByProvider.openai).toContain('text-embedding-3-small');
     });
 
@@ -129,7 +120,6 @@ describe('EmbeddingSettings', () => {
       await userEvent.click(presetButton);
 
       const state = useEmbeddingPreferencesStore.getState();
-      expect(state.getSelectedModel()).toBe('cohere::embed-multilingual-v3.0');
       expect(state.enabledModelsByProvider.cohere).toContain('embed-multilingual-v3.0');
     });
 
@@ -144,7 +134,7 @@ describe('EmbeddingSettings', () => {
 
       const stateAfter = useEmbeddingPreferencesStore.getState();
       expect(stateAfter.enabledModelsByProvider.voyage).toContain('voyage-3');
-      expect(stateAfter.getSelectedModel()).toBe('voyage::voyage-3');
+      // No global selection should be set
     });
 
     it('switches between presets correctly', async () => {
@@ -152,19 +142,21 @@ describe('EmbeddingSettings', () => {
 
       // First apply cost-optimized
       await userEvent.click(screen.getByTestId('preset-cost-optimized'));
-      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe(
-        'openai::text-embedding-3-small'
+      expect(useEmbeddingPreferencesStore.getState().getEnabledModels('openai')).toContain(
+        'text-embedding-3-small'
       );
 
       // Then switch to multilingual
       await userEvent.click(screen.getByTestId('preset-multilingual'));
-      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe(
-        'cohere::embed-multilingual-v3.0'
+      expect(useEmbeddingPreferencesStore.getState().getEnabledModels('cohere')).toContain(
+        'embed-multilingual-v3.0'
       );
 
       // Then switch to high-accuracy
       await userEvent.click(screen.getByTestId('preset-high-accuracy'));
-      expect(useEmbeddingPreferencesStore.getState().getSelectedModel()).toBe('voyage::voyage-3');
+      expect(useEmbeddingPreferencesStore.getState().getEnabledModels('voyage')).toContain(
+        'voyage-3'
+      );
     });
   });
 });
