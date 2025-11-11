@@ -56,13 +56,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
         className="h-6 mt-1"
         onClick={handleClick}
         data-testid="factory-reset-button"
-        disabled={running || !(doFactoryReset ?? providerFactoryReset)}
+        disabled={running}
       >
         Factory Reset Brainstrike
       </Button>
       {!(doFactoryReset ?? providerFactoryReset) ? (
         <p className="text-xs text-muted-foreground mt-1">
-          Factory reset unavailable until the database is ready.
+          Database-level reset is unavailable, so this will only clear the UI state before
+          reloading.
         </p>
       ) : null}
     </div>
