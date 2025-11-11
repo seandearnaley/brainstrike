@@ -13,6 +13,13 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: [],
+    testTimeout: 15000, // UI component tests with async operations
+    pool: 'threads',
+    poolOptions: {
+      threads: {
+        maxThreads: 4,
+      },
+    },
     coverage: {
       enabled: coverageEnabled,
       provider: 'v8',
