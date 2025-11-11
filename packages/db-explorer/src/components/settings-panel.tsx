@@ -1,9 +1,5 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
-import {
-  FactoryResetPanel,
-  tokenPreferencesSelectors,
-  useTokenPreferencesStore,
-} from '@brainstrike/preferences';
+import { tokenPreferencesSelectors, useTokenPreferencesStore } from '@brainstrike/preferences';
 import {
   Badge,
   // Button removed; FactoryResetPanel provides the destructive action
@@ -137,7 +133,7 @@ export function SettingsPanel({ importSettings }: SettingsPanelProps) {
         </p>
       </div>
 
-      <FactoryResetPanel />
+      {/* Factory reset moved to global Preferences; do not render it in Import Settings */}
     </div>
   );
 }
