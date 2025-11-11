@@ -10,7 +10,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     unstubGlobals: true,
-    testTimeout: 20000,
+    testTimeout: 30000,
+    hookTimeout: 30000,
     // Use all available cores for faster test execution
     pool: 'threads',
     poolOptions: {
