@@ -9,10 +9,18 @@ let storageFile: string;
 let userDataDir: string;
 let adapter: ElectronStorageAdapter;
 
+// Mock electron module with a getter function that reads the current value
+const mockGetPath = vi.fn((name: string) => {
+  if (name === 'userData') {
+    return userDataDir;
+  }
+  return '';
+});
+
 vi.mock('electron', () => ({
   app: {
     whenReady: () => Promise.resolve(),
-    getPath: () => userDataDir,
+    getPath: mockGetPath,
   },
 }));
 
@@ -170,9 +178,7 @@ describe('ElectronStorageAdapter', () => {
 
   it('should create storage directory if it does not exist', async () => {
     const nestedPath = path.join(userDataDir, 'nested', 'deep', 'storage.json');
-    const nestedAdapter = new ElectronStorageAdapter(
-      path.relative(userDataDir, nestedPath)
-    );
+    const nestedAdapter = new ElectronStorageAdapter(path.relative(userDataDir, nestedPath));
 
     await nestedAdapter.setItem('key', 'value');
 

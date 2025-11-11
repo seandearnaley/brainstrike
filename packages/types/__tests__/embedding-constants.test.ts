@@ -123,8 +123,7 @@ describe('embedding-constants', () => {
     it('should allow dimension validation', () => {
       const testDimension = 1024;
       const isValid =
-        testDimension >= DEFAULT_EMBEDDING_DIMENSION &&
-        testDimension <= MAX_EMBEDDING_DIMENSION;
+        testDimension >= DEFAULT_EMBEDDING_DIMENSION && testDimension <= MAX_EMBEDDING_DIMENSION;
       expect(isValid).toBe(true);
     });
 

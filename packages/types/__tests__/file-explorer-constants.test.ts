@@ -80,9 +80,7 @@ describe('file-explorer-constants', () => {
     });
 
     it('should not overlap with binary extensions', () => {
-      const overlap = TEXT_FILE_EXTENSIONS.filter((ext) =>
-        BINARY_FILE_EXTENSIONS.includes(ext)
-      );
+      const overlap = TEXT_FILE_EXTENSIONS.filter((ext) => BINARY_FILE_EXTENSIONS.includes(ext));
       expect(overlap).toEqual([]);
     });
   });

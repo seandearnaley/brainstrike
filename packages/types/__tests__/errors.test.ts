@@ -296,11 +296,7 @@ describe('ConcurrentLoadingError', () => {
     });
 
     it('should handle paths with special characters', () => {
-      const paths = [
-        '/path/with spaces',
-        '/path/with-特殊-characters',
-        '/path/with/émojis/🚀',
-      ];
+      const paths = ['/path/with spaces', '/path/with-特殊-characters', '/path/with/émojis/🚀'];
       const error = new ConcurrentLoadingError('Test', paths);
       expect(error.failedPaths).toEqual(paths);
     });
