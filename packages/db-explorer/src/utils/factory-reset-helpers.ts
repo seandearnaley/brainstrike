@@ -20,7 +20,7 @@ const STORAGE_KEYS = [
   'inspector-view.v1',
   'editor-view-state.v1',
   'editor-cursor.v1',
-  'db-panel.v1',
+  //'db-panel.v1', // removed: db panel store deleted during placeholder cleanup
   'search-panel.v1',
   'right-panel.v1',
   'file-explorer-storage-v4',
