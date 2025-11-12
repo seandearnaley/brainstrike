@@ -4,6 +4,7 @@ import type { InputHTMLAttributes } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createAppearanceSettingsCategory,
+  createFactoryResetSettingsCategory,
   type SettingsCategory,
   SettingsPageContent,
 } from '../settings-page-content';
@@ -14,6 +15,12 @@ vi.mock('@brainstrike/ui', () => {
   const cn = (...values: string[]) => values.filter(Boolean).join(' ');
   return { Input, ThemeSettings, cn };
 });
+
+vi.mock('../factory-reset/factory-reset-settings-section', () => ({
+  FactoryResetSettingsSection: () => (
+    <div data-testid="factory-reset-settings-section">Factory Reset Settings</div>
+  ),
+}));
 
 describe('SettingsPageContent', () => {
   beforeEach(() => {
@@ -114,5 +121,88 @@ describe('SettingsPageContent', () => {
     render(<SettingsPageContent categories={[]} />);
     expect(screen.getByText('No settings matched "".')).toBeInTheDocument();
     expect(screen.getByText(/Try adjusting your search/i)).toBeInTheDocument();
+  });
+});
+
+describe('createFactoryResetSettingsCategory', () => {
+  it('returns a SettingsCategory object with correct id', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.id).toBe('factory-reset');
+  });
+
+  it('returns a category with correct title', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.title).toBe('Factory Reset');
+  });
+
+  it('returns a category with correct description', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.description).toBe('Wipe application data and reset preferences.');
+  });
+
+  it('returns a category with correct keywords', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.keywords).toEqual(['factory', 'reset', 'resetting', 'wipe', 'preferences']);
+  });
+
+  it('returns a category with an icon', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.icon).toBeDefined();
+  });
+
+  it('returns a category with a render function', () => {
+    const category = createFactoryResetSettingsCategory();
+    expect(category.render).toBeInstanceOf(Function);
+  });
+
+  it('render function returns FactoryResetSettingsSection component', () => {
+    const category = createFactoryResetSettingsCategory();
+    const { container } = render(category.render() as React.ReactElement);
+    expect(container.querySelector('[data-testid="factory-reset-settings-section"]')).toBeTruthy();
+  });
+
+  it('integrates with SettingsPageContent', () => {
+    render(
+      <SettingsPageContent
+        categories={[createAppearanceSettingsCategory(), createFactoryResetSettingsCategory()]}
+      />
+    );
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/i });
+    expect(factoryResetButton).toBeInTheDocument();
+  });
+
+  it('shows factory reset category when clicked', () => {
+    render(
+      <SettingsPageContent
+        categories={[createAppearanceSettingsCategory(), createFactoryResetSettingsCategory()]}
+      />
+    );
+
+    const nav = screen.getByRole('navigation', { name: /settings categories/i });
+    const factoryResetButton = within(nav).getByRole('button', { name: /Factory Reset/i });
+    fireEvent.click(factoryResetButton);
+
+    expect(factoryResetButton).toHaveAttribute('aria-current', 'page');
+    expect(screen.getByTestId('settings-category-factory-reset')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#settings/factory-reset');
+  });
+
+  it('is discoverable via search keywords', () => {
+    render(
+      <SettingsPageContent
+        categories={[createAppearanceSettingsCategory(), createFactoryResetSettingsCategory()]}
+      />
+    );
+
+    const searchbox = screen.getByRole('searchbox', { name: /search settings/i });
+
+    // Test each keyword
+    const keywords = ['factory', 'reset', 'wipe', 'preferences'];
+    for (const keyword of keywords) {
+      fireEvent.change(searchbox, { target: { value: keyword } });
+      expect(screen.getByRole('button', { name: /Factory Reset/i })).toBeInTheDocument();
+    }
   });
 });
