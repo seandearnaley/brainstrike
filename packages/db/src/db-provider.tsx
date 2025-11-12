@@ -487,19 +487,48 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       try {
         await wasmLoader.deleteIndexedDB(resolvedPath);
         logger.info('[DbProvider] IndexedDB deleted successfully');
+
+        // Wait for IndexedDB deletion to fully complete
+        // This prevents "PGlite is closed" errors when reinitializing immediately
+        await new Promise((resolve) => {
+          setTimeout(resolve, 100);
+        });
       } catch (err) {
         logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
       }
     }
 
-    // Reinitialize the database from scratch
-    try {
-      await initializeDirectPGlite({ value: false });
-      logger.info('[DbProvider] Database reinitialized after factory reset');
-    } catch (err) {
-      logger.error('[DbProvider] Failed to reinitialize database after factory reset:', err);
-      throw err;
+    // Reinitialize the database from scratch with retry logic
+    const maxRetries = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`[DbProvider] Reinitializing database (attempt ${attempt}/${maxRetries})`);
+        await initializeDirectPGlite({ value: false });
+        logger.info('[DbProvider] Database reinitialized successfully after factory reset');
+        return;
+      } catch (err) {
+        lastError = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[DbProvider] Reinitialization attempt ${attempt} failed:`, errorMsg);
+
+        // If this was the last attempt, throw the error
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        // Wait before retrying (exponential backoff)
+        const delay = attempt * 200;
+        logger.info(`[DbProvider] Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => {
+          setTimeout(resolve, delay);
+        });
+      }
     }
+
+    logger.error('[DbProvider] All reinitialization attempts failed after factory reset');
+    throw lastError;
   }, [purgeAndClosePGlite, resolvedPath, initializeDirectPGlite]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {

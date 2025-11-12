@@ -1,8 +1,5 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
-import { listAgentProviders } from './agent-client-loader';
-import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
 function isTestMode(): boolean {
@@ -22,17 +19,6 @@ export function clearTestModeSecrets(): void {
   if (isTestMode()) {
     testModeSecrets.clear();
   }
-}
-
-function resolveEnvConfiguredProviders(): SupportedProvider[] {
-  const configured: SupportedProvider[] = [];
-  for (const provider of listAgentProviders()) {
-    const value = resolveProviderEnvKey(provider);
-    if (value) {
-      configured.push(provider);
-    }
-  }
-  return configured;
 }
 
 function appendTestModeProviders(target: Set<string>) {
@@ -124,8 +110,11 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
       return Array.from(providers);
     }
 
-    // In production, include both env-configured and stored providers
-    const providers = new Set<string>(resolveEnvConfiguredProviders());
+    // Only return STORED providers, not env-configured ones
+    // This ensures "Saved Providers" UI accurately reflects what's in the secrets store
+    // and factory reset correctly shows empty list after clearing
+    // Environment variables are still used as fallback when reading keys via secrets:get
+    const providers = new Set<string>();
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);
   });
