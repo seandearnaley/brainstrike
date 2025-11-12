@@ -55,7 +55,7 @@ describe('registerSecretsIpcHandlers', () => {
     return { getHandler };
   }
 
-  it('merges environment providers with stored provider list outside test mode', async () => {
+  it('returns only stored providers (not environment variables)', async () => {
     process.env['NODE_ENV'] = 'production';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
 
@@ -72,8 +72,9 @@ describe('registerSecretsIpcHandlers', () => {
 
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
 
-    expect(result).toEqual(expect.arrayContaining(['openai', 'anthropic', 'custom']));
-    expect(result.filter((provider) => provider === 'openai')).toHaveLength(1);
+    // Only stored providers should be returned, not env vars
+    expect(result).toEqual(['anthropic', 'custom']);
+    expect(result).not.toContain('openai'); // env var should NOT be in the list
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
   });
 
