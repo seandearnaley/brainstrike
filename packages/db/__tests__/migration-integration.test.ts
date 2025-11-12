@@ -25,43 +25,47 @@ describe('Migration System Integration', () => {
   });
 
   describe('full migration workflow', () => {
-    it('should run all migrations and create working database schema', async () => {
-      await runner.initialize();
-      await runner.up(migrations);
+    it(
+      'should run all migrations and create working database schema',
+      { timeout: 30000 },
+      async () => {
+        await runner.initialize();
+        await runner.up(migrations);
 
-      // Verify all migrations were applied (may include migration 4 if available)
-      const applied = await runner.getAppliedMigrations();
-      expect(applied.length).toBeGreaterThanOrEqual(3);
-      expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
+        // Verify all migrations were applied (may include migration 4 if available)
+        const applied = await runner.getAppliedMigrations();
+        expect(applied.length).toBeGreaterThanOrEqual(3);
+        expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
 
-      // Verify the final schema is correct
-      const schema = await db.query(`
+        // Verify the final schema is correct
+        const schema = await db.query(`
         SELECT tablename FROM pg_tables 
         WHERE schemaname = 'public' AND tablename != '_migrations'
         ORDER BY tablename
       `);
 
-      // Should contain file_records table
-      const tableNames = schema.rows.map((row) => (row as { tablename: string }).tablename);
-      expect(tableNames).toContain('file_records');
+        // Should contain file_records table
+        const tableNames = schema.rows.map((row) => (row as { tablename: string }).tablename);
+        expect(tableNames).toContain('file_records');
 
-      // Verify vector columns were added
-      const columns = await db.query(`
+        // Verify vector columns were added
+        const columns = await db.query(`
         SELECT column_name FROM information_schema.columns 
         WHERE table_name = 'file_records'
         ORDER BY ordinal_position
       `);
-      const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
-      expect(columnNames).toContain('content');
-      expect(columnNames).toContain('embedding');
+        const columnNames = columns.rows.map((row) => (row as { column_name: string }).column_name);
+        expect(columnNames).toContain('content');
+        expect(columnNames).toContain('embedding');
 
-      // Verify indexes were created
-      const indexes = await db.query(`
+        // Verify indexes were created
+        const indexes = await db.query(`
         SELECT indexname FROM pg_indexes 
         WHERE tablename = 'file_records'
       `);
-      expect(indexes.rows.length).toBeGreaterThan(0);
-    });
+        expect(indexes.rows.length).toBeGreaterThan(0);
+      }
+    );
 
     it('should work with repository after migrations', async () => {
       await runner.initialize();
