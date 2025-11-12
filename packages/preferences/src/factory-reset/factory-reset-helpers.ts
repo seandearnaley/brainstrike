@@ -11,40 +11,34 @@
 async function clearElectronStorage(): Promise<void> {
   if (typeof window === 'undefined') return;
 
-  const api = (
-    window as {
-      electronAPI?: {
-        storage?: { clear?: () => Promise<void> };
-        secrets?: { clearAll?: () => Promise<void> };
-        settings?: { clearAll?: () => Promise<void> };
-      };
-    }
-  ).electronAPI;
-
-  if (!api) return;
+  const w = window as {
+    electronAPI?: { storage?: { clear?: () => Promise<void> } };
+    secrets?: { clearAll?: () => Promise<void> };
+    settings?: { clearAll?: () => Promise<void> };
+  };
 
   // Clear renderer storage (electron-storage.json)
-  if (api.storage?.clear) {
+  if (w.electronAPI?.storage?.clear) {
     try {
-      await api.storage.clear();
+      await w.electronAPI.storage.clear();
     } catch (error) {
       console.warn('[FactoryReset] Failed to clear Electron renderer storage', error);
     }
   }
 
   // Clear secrets store (brainstrike-secrets.json) - API keys, provider configs
-  if (api.secrets?.clearAll) {
+  if (w.secrets?.clearAll) {
     try {
-      await api.secrets.clearAll();
+      await w.secrets.clearAll();
     } catch (error) {
       console.warn('[FactoryReset] Failed to clear Electron secrets store', error);
     }
   }
 
   // Clear settings store (brainstrike-settings.json) - panel layouts, logging prefs
-  if (api.settings?.clearAll) {
+  if (w.settings?.clearAll) {
     try {
-      await api.settings.clearAll();
+      await w.settings.clearAll();
     } catch (error) {
       console.warn('[FactoryReset] Failed to clear Electron settings store', error);
     }
