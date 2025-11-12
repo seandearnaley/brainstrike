@@ -1,51 +1,53 @@
 /**
- * LocalStorage keys that hydrate renderer stores during boot.
- * Factory reset must remove every one of these or the UI will resurrect
- * stale embedding/import preferences even after the database is wiped.
- * Keep this list in sync with new `*.v1` store namespaces.
+ * Nuclear option: no hardcoded lists, no maintenance burden.
+ * Factory reset uses blanket .clear() methods that wipe everything
+ * without needing to know specific key names or database names.
  */
-const STORAGE_KEYS = [
-  'brainstrike.activeEmbeddingSetId',
-  'embedding-preferences.v1',
-  'import-settings.v1',
-  'vector-status-ui.v1',
-  'vector-preferences.v1',
-  'database-demo.v1',
-  'embeddings-panel.v1',
-  'assistant-preferences.v1',
-  'token-preferences.v1',
-  'panel-layout-store.v1',
-  'logging-preferences.v1',
-  'tab-manager.v1',
-  'inspector-view.v1',
-  'editor-view-state.v1',
-  'editor-cursor.v1',
-  'search-panel.v1',
-  'right-panel.v1',
-  'file-explorer-storage-v4',
-  'previewPanelPreferences.v1',
-] as const;
 
 /**
- * IndexedDB names we know about today. The IndexedDB API that enumerates
- * database names is not supported in every browser/WebView, so we keep a
- * fallback list to ensure a true clean slate when enumeration fails.
- */
-const FALLBACK_IDB_NAMES = ['app', 'brainstrike-desktop', 'brainstrike-web'];
-
-/**
- * Desktop bridges expose a renderer storage adapter (encrypted keychain + IPC).
- * Clearing it ensures API keys/provider selections don't leak across resets.
+ * Desktop bridges expose storage, secrets, and settings stores via IPC.
+ * Nuclear option: clear ALL electron stores without exceptions.
  */
 async function clearElectronStorage(): Promise<void> {
   if (typeof window === 'undefined') return;
-  const api = (window as { electronAPI?: { storage?: { clear?: () => Promise<void> } } })
-    .electronAPI?.storage;
-  if (!api?.clear) return;
-  try {
-    await api.clear();
-  } catch (error) {
-    console.warn('[FactoryReset] Failed to clear Electron renderer storage', error);
+
+  const api = (
+    window as {
+      electronAPI?: {
+        storage?: { clear?: () => Promise<void> };
+        secrets?: { clearAll?: () => Promise<void> };
+        settings?: { clearAll?: () => Promise<void> };
+      };
+    }
+  ).electronAPI;
+
+  if (!api) return;
+
+  // Clear renderer storage (electron-storage.json)
+  if (api.storage?.clear) {
+    try {
+      await api.storage.clear();
+    } catch (error) {
+      console.warn('[FactoryReset] Failed to clear Electron renderer storage', error);
+    }
+  }
+
+  // Clear secrets store (brainstrike-secrets.json) - API keys, provider configs
+  if (api.secrets?.clearAll) {
+    try {
+      await api.secrets.clearAll();
+    } catch (error) {
+      console.warn('[FactoryReset] Failed to clear Electron secrets store', error);
+    }
+  }
+
+  // Clear settings store (brainstrike-settings.json) - panel layouts, logging prefs
+  if (api.settings?.clearAll) {
+    try {
+      await api.settings.clearAll();
+    } catch (error) {
+      console.warn('[FactoryReset] Failed to clear Electron settings store', error);
+    }
   }
 }
 
@@ -69,20 +71,34 @@ async function deleteIndexedDb(name: string): Promise<void> {
 }
 
 /**
- * Clears every IndexedDB database we can enumerate, falling back to known names.
+ * Nuclear option: enumerate and delete ALL IndexedDB databases.
+ * No fallback lists - if enumeration fails, we can't guarantee a clean slate.
  */
 async function clearIndexedDbDatabases(): Promise<void> {
   if (typeof window === 'undefined' || !window.indexedDB) return;
+
   try {
-    const databases = await (window.indexedDB.databases?.() ?? []);
+    // Enumerate all databases - this is supported in modern browsers
+    if (typeof window.indexedDB.databases !== 'function') {
+      console.warn(
+        '[FactoryReset] IndexedDB.databases() not available - cannot enumerate databases'
+      );
+      return;
+    }
+
+    const databases = await window.indexedDB.databases();
     const names = databases
       .map((entry) => entry?.name)
       .filter((value): value is string => Boolean(value));
-    const targets = names.length ? names : FALLBACK_IDB_NAMES;
-    await Promise.all(targets.map((name) => deleteIndexedDb(name)));
+
+    if (names.length === 0) {
+      return; // No databases to clear
+    }
+
+    await Promise.all(names.map((name) => deleteIndexedDb(name)));
   } catch (error) {
-    console.warn('[FactoryReset] Failed to enumerate IndexedDB databases', error);
-    await Promise.all(FALLBACK_IDB_NAMES.map((name) => deleteIndexedDb(name)));
+    console.warn('[FactoryReset] Failed to enumerate and clear IndexedDB databases', error);
+    // Fail fast - don't use fallback lists that might become stale
   }
 }
 
@@ -100,35 +116,39 @@ async function clearCacheStorage(): Promise<void> {
 }
 
 /**
- * Removes all persisted renderer state so the app boots as if freshly installed.
+ * Nuclear option: removes ALL persisted renderer state so the app boots as if freshly installed.
  *
- * Why so many layers?
- * - localStorage hydrates all of our Zustand stores (embedding prefs, panel layout, etc.).
- * - Electron renderer storage wraps `@electron/remote` APIs that persist assistant/provider data.
- * - IndexedDB caches file previews, chunk metadata, and pending queue payloads.
- * - CacheStorage keeps fetch and worker bundle caches that can otherwise rehydrate deleted models.
+ * Layers cleared without exceptions:
+ * - localStorage: All Zustand stores (embedding prefs, panel layout, etc.)
+ * - sessionStorage: Any transient state (future-proofed)
+ * - Electron storage: renderer storage adapter (electron-storage.json)
+ * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
+ * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
+ * - IndexedDB: All databases enumerated and deleted (no fallback lists)
+ * - CacheStorage: All caches (fetch, worker bundles)
  *
- * If any of these survive a reset the user can get stuck with phantom embedding sets,
- * mismatched provider selections, or worker queues that immediately repopulate.
+ * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
+ * If any storage survives, the user gets phantom data. This is a true nuke.
  */
 export async function clearPersistentUiState(): Promise<void> {
+  // Clear localStorage - blanket clear, no fallback lists
   try {
-    if (typeof localStorage !== 'undefined') {
-      if (typeof localStorage.clear === 'function') {
-        localStorage.clear();
-      } else {
-        for (const key of STORAGE_KEYS) {
-          try {
-            localStorage.removeItem(key);
-          } catch (error) {
-            console.warn(`[FactoryReset] Failed to remove localStorage key "${key}"`, error);
-          }
-        }
-      }
+    if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
+      localStorage.clear();
     }
   } catch (error) {
     console.warn('[FactoryReset] Failed to clear localStorage', error);
   }
 
+  // Clear sessionStorage - future-proofed for any transient state
+  try {
+    if (typeof sessionStorage !== 'undefined' && typeof sessionStorage.clear === 'function') {
+      sessionStorage.clear();
+    }
+  } catch (error) {
+    console.warn('[FactoryReset] Failed to clear sessionStorage', error);
+  }
+
+  // Clear all other storage layers in parallel
   await Promise.all([clearElectronStorage(), clearIndexedDbDatabases(), clearCacheStorage()]);
 }

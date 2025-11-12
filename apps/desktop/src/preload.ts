@@ -65,6 +65,12 @@ contextBridge.exposeInMainWorld('secrets', {
   getKey: (provider: string) => ipcRenderer.invoke('secrets:get', provider),
   deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
   list: () => ipcRenderer.invoke('secrets:list'),
+  clearAll: () => ipcRenderer.invoke('secrets:clearAll'),
+});
+
+// Settings Store API (factory reset support)
+contextBridge.exposeInMainWorld('settings', {
+  clearAll: () => ipcRenderer.invoke('settings:clearAll'),
 });
 
 // Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)

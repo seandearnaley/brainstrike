@@ -129,4 +129,22 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);
   });
+
+  ipcMain.handle('secrets:clearAll', async () => {
+    // In test mode, clear in-memory storage
+    if (isTestMode()) {
+      testModeSecrets.clear();
+      return { success: true };
+    }
+
+    try {
+      const result = await secrets.clearAll();
+      return { success: result };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
 }
