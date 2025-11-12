@@ -491,11 +491,16 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
         // Wait for IndexedDB deletion to fully complete
         // This prevents "PGlite is closed" errors when reinitializing immediately
         await new Promise((resolve) => {
-          setTimeout(resolve, 100);
+          setTimeout(resolve, 250);
         });
       } catch (err) {
         logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
       }
+    } else {
+      // Even for non-IDB paths, wait a bit to ensure cleanup completes
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
     }
 
     // Reinitialize the database from scratch with retry logic
