@@ -453,14 +453,24 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('VACUUM after purge failed:', err);
     }
-    try {
-      await dbRef.current.close();
-    } catch (err) {
-      logger.warn('Closing database after purge failed:', err);
+    const usesIndexedDb = resolvedPath.startsWith('idb://');
+    if (usesIndexedDb) {
+      try {
+        await wasmLoader.closeCached(resolvedPath);
+        logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+      } catch (err) {
+        logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+      }
+    } else {
+      try {
+        await dbRef.current.close();
+      } catch (err) {
+        logger.warn('Closing database after purge failed:', err);
+      }
     }
     dbRef.current = null;
     setExposedDb(null);
-  }, [purgeTablesTx]);
+  }, [purgeTablesTx, resolvedPath]);
 
   const cleanupAndWaitForReset = useCallback(async () => {
     // Delete the IndexedDB database to fully wipe corrupted TOAST chunks

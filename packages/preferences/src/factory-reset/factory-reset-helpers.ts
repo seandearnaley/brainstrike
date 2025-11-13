@@ -5,6 +5,27 @@
  */
 
 /**
+ * Known IndexedDB database names that Brainstrike creates across environments.
+ * Used as a fallback when the browser cannot enumerate databases (Safari/WebKit, Firefox).
+ * Keep this in sync with any new `idb://` paths introduced in DbProvider/App bootstraps.
+ */
+export const FALLBACK_INDEXED_DB_NAMES = [
+  'app', // Default DbProvider path for shared packages and tests (idb://app)
+  'web', // apps/web explicitly uses idb://web for persisted storage
+  'brainstrike-desktop', // Desktop renderer stores its queue/embeddings database in IndexedDB
+  'brainstrike-web', // Legacy web builds used idb://brainstrike-web; keep to clean up stale installs
+] as const;
+
+export interface ClearPersistentUiStateOptions {
+  /**
+   * When true, skips clearing IndexedDB databases. Use when the database layer has already deleted
+   * its storage (e.g., DbProvider factoryReset). Defaults to false so standalone callers still wipe
+   * IndexedDB completely.
+   */
+  skipIndexedDb?: boolean;
+}
+
+/**
  * Desktop bridges expose storage, secrets, and settings stores via IPC.
  * Nuclear option: clear ALL electron stores without exceptions.
  */
@@ -71,29 +92,33 @@ async function deleteIndexedDb(name: string): Promise<void> {
 async function clearIndexedDbDatabases(): Promise<void> {
   if (typeof window === 'undefined' || !window.indexedDB) return;
 
-  try {
-    // Enumerate all databases - this is supported in modern browsers
-    if (typeof window.indexedDB.databases !== 'function') {
+  let enumeratedNames: string[] = [];
+
+  if (typeof window.indexedDB.databases === 'function') {
+    try {
+      const databases = await window.indexedDB.databases();
+      enumeratedNames = databases
+        .map((entry) => entry?.name)
+        .filter((value): value is string => Boolean(value));
+    } catch (error) {
       console.warn(
-        '[FactoryReset] IndexedDB.databases() not available - cannot enumerate databases'
+        '[FactoryReset] Failed to enumerate IndexedDB databases, falling back to known stores',
+        error
       );
-      return;
     }
-
-    const databases = await window.indexedDB.databases();
-    const names = databases
-      .map((entry) => entry?.name)
-      .filter((value): value is string => Boolean(value));
-
-    if (names.length === 0) {
-      return; // No databases to clear
-    }
-
-    await Promise.all(names.map((name) => deleteIndexedDb(name)));
-  } catch (error) {
-    console.warn('[FactoryReset] Failed to enumerate and clear IndexedDB databases', error);
-    // Fail fast - don't use fallback lists that might become stale
+  } else {
+    console.warn(
+      '[FactoryReset] IndexedDB.databases() not available - falling back to known Brainstrike databases'
+    );
   }
+
+  const targets = enumeratedNames.length > 0 ? enumeratedNames : [...FALLBACK_INDEXED_DB_NAMES];
+  if (targets.length === 0) {
+    return;
+  }
+
+  const uniqueTargets = [...new Set(targets)];
+  await Promise.all(uniqueTargets.map((name) => deleteIndexedDb(name)));
 }
 
 /**
@@ -118,13 +143,16 @@ async function clearCacheStorage(): Promise<void> {
  * - Electron storage: renderer storage adapter (electron-storage.json)
  * - Electron secrets: API keys and provider configurations (brainstrike-secrets.json)
  * - Electron settings: panel layouts, logging preferences (brainstrike-settings.json)
- * - IndexedDB: All databases enumerated and deleted (no fallback lists)
+ * - IndexedDB: All databases enumerated and deleted (unless skipIndexedDb=true)
  * - CacheStorage: All caches (fetch, worker bundles)
  *
  * No hardcoded lists. No manual maintenance. Just blanket .clear() methods.
  * If any storage survives, the user gets phantom data. This is a true nuke.
  */
-export async function clearPersistentUiState(): Promise<void> {
+export async function clearPersistentUiState(
+  options: ClearPersistentUiStateOptions = {}
+): Promise<void> {
+  const { skipIndexedDb = false } = options;
   // Clear localStorage - blanket clear, no fallback lists
   try {
     if (typeof localStorage !== 'undefined' && typeof localStorage.clear === 'function') {
@@ -143,6 +171,11 @@ export async function clearPersistentUiState(): Promise<void> {
     console.warn('[FactoryReset] Failed to clear sessionStorage', error);
   }
 
-  // Clear all other storage layers in parallel
-  await Promise.all([clearElectronStorage(), clearIndexedDbDatabases(), clearCacheStorage()]);
+  const tasks = [clearElectronStorage(), clearCacheStorage()];
+  if (!skipIndexedDb) {
+    tasks.push(clearIndexedDbDatabases());
+  }
+
+  // Clear all other storage layers in parallel (optionally skipping IndexedDB if already deleted)
+  await Promise.all(tasks);
 }
