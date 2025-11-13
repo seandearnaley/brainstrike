@@ -462,6 +462,58 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     setExposedDb(null);
   }, [purgeTablesTx]);
 
+  const cleanupAndWaitForReset = useCallback(async () => {
+    // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
+    if (resolvedPath.startsWith('idb://')) {
+      try {
+        await wasmLoader.deleteIndexedDB(resolvedPath);
+        logger.info('[DbProvider] IndexedDB deleted successfully');
+        // Wait for IndexedDB deletion to fully complete
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
+      } catch (err) {
+        logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
+      }
+    } else {
+      // Even for non-IDB paths, wait a bit to ensure cleanup completes
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+  }, [resolvedPath]);
+
+  const retryInitialization = useCallback(async () => {
+    const maxRetries = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`[DbProvider] Reinitializing database (attempt ${attempt}/${maxRetries})`);
+        await initializeDirectPGlite({ value: false });
+        logger.info('[DbProvider] Database reinitialized successfully after factory reset');
+        return;
+      } catch (err) {
+        lastError = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[DbProvider] Reinitialization attempt ${attempt} failed:`, errorMsg);
+
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        const delay = attempt * 200;
+        logger.info(`[DbProvider] Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => {
+          setTimeout(resolve, delay);
+        });
+      }
+    }
+
+    logger.error('[DbProvider] All reinitialization attempts failed after factory reset');
+    throw lastError;
+  }, [initializeDirectPGlite]);
+
   const resetPGliteState = useCallback(async () => {
     // Purge and close if database exists
     if (!dbRef.current) {
@@ -482,59 +534,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     // Clear active embedding set ID from localStorage to prevent stale collections
     clearActiveEmbeddingSetIdFromStorage();
 
-    // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
-    if (resolvedPath.startsWith('idb://')) {
-      try {
-        await wasmLoader.deleteIndexedDB(resolvedPath);
-        logger.info('[DbProvider] IndexedDB deleted successfully');
-
-        // Wait for IndexedDB deletion to fully complete
-        // This prevents "PGlite is closed" errors when reinitializing immediately
-        await new Promise((resolve) => {
-          setTimeout(resolve, 250);
-        });
-      } catch (err) {
-        logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
-      }
-    } else {
-      // Even for non-IDB paths, wait a bit to ensure cleanup completes
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100);
-      });
-    }
-
-    // Reinitialize the database from scratch with retry logic
-    const maxRetries = 3;
-    let lastError: unknown;
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        logger.info(`[DbProvider] Reinitializing database (attempt ${attempt}/${maxRetries})`);
-        await initializeDirectPGlite({ value: false });
-        logger.info('[DbProvider] Database reinitialized successfully after factory reset');
-        return;
-      } catch (err) {
-        lastError = err;
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        logger.warn(`[DbProvider] Reinitialization attempt ${attempt} failed:`, errorMsg);
-
-        // If this was the last attempt, throw the error
-        if (attempt === maxRetries) {
-          break;
-        }
-
-        // Wait before retrying (exponential backoff)
-        const delay = attempt * 200;
-        logger.info(`[DbProvider] Waiting ${delay}ms before retry...`);
-        await new Promise((resolve) => {
-          setTimeout(resolve, delay);
-        });
-      }
-    }
-
-    logger.error('[DbProvider] All reinitialization attempts failed after factory reset');
-    throw lastError;
-  }, [purgeAndClosePGlite, resolvedPath, initializeDirectPGlite]);
+    await cleanupAndWaitForReset();
+    await retryInitialization();
+  }, [purgeAndClosePGlite, cleanupAndWaitForReset, retryInitialization]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
