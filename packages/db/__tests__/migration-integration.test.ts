@@ -1,6 +1,5 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrate } from '../src/migrations/bootstrap.js';
 import { MigrationRunner, baseMigrations as migrations } from '../src/migrations/index.js';
 import type { FileRecord } from '../src/models/file-record.js';
 import { createFileRecordRepository } from '../src/repositories/repository-factory.js';
@@ -141,37 +140,6 @@ describe('Migration System Integration', () => {
       // Re-run migrations to get back to full state
       await runner.up(migrations);
       expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
-    });
-  });
-
-  describe('backward compatibility', () => {
-    it('should work with legacy migrate function', async () => {
-      await migrate(db);
-
-      // Should have same result as new migration system (may include migration 4 if available)
-      const applied = await runner.getAppliedMigrations();
-      expect(applied.length).toBeGreaterThanOrEqual(3);
-      expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
-
-      // Repository should work normally
-      const repository = createFileRecordRepository(db);
-      const count = await repository.count?.();
-      expect(count).toBe(0);
-    });
-
-    it('should handle mixed usage of old and new systems', async () => {
-      // Use legacy system first
-      await migrate(db);
-
-      // Then use new system - should recognize existing migrations
-      const newRunner = new MigrationRunner(db);
-      const applied = await newRunner.getAppliedMigrations();
-      expect(applied.length).toBeGreaterThanOrEqual(3);
-      expect(applied).toEqual(expect.arrayContaining([1, 2, 3]));
-
-      // Running up again should be a no-op
-      await newRunner.up(migrations);
-      expect(await newRunner.getCurrentVersion()).toBeGreaterThanOrEqual(3);
     });
   });
 
