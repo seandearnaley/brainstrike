@@ -38,6 +38,8 @@ const mockSecrets = {
   getKey: vi.fn().mockResolvedValue(null as string | null),
   deleteKey: vi.fn().mockResolvedValue(true),
   list: vi.fn().mockResolvedValue([] as string[]),
+  listStored: vi.fn().mockResolvedValue([] as string[]),
+  clearAll: vi.fn().mockResolvedValue({ success: true } as const),
 };
 Object.defineProperty(window, 'secrets', {
   value: mockSecrets,

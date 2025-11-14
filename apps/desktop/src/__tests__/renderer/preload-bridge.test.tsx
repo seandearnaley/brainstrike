@@ -7,6 +7,8 @@ describe('preload bridge APIs', () => {
     expect(typeof window.secrets.getKey).toBe('function');
     expect(typeof window.secrets.deleteKey).toBe('function');
     expect(typeof window.secrets.list).toBe('function');
+    expect(typeof window.secrets.listStored).toBe('function');
+    expect(typeof window.secrets.clearAll).toBe('function');
   });
 
   it('exposes window.agent with chat method', () => {

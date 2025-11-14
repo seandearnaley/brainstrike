@@ -9,9 +9,11 @@ import SettingsPageContent from '../../../../renderer/components/settings/page-c
 
 type SecretsApi = {
   list: () => Promise<string[]>;
+  listStored: () => Promise<string[]>;
   saveKey: (provider: string, key: string) => Promise<unknown>;
   getKey: (provider: string) => Promise<string | null>;
   deleteKey: (provider: string) => Promise<boolean>;
+  clearAll?: () => Promise<{ success: boolean; message?: string }>;
 };
 
 type McpApi = {
@@ -60,6 +62,7 @@ beforeEach(() => {
 
   const secrets: SecretsApi = {
     list: vi.fn().mockResolvedValue([]),
+    listStored: vi.fn().mockResolvedValue([]),
     saveKey: vi.fn().mockResolvedValue(true),
     getKey: vi.fn().mockResolvedValue(null),
     deleteKey: vi.fn().mockResolvedValue(true),

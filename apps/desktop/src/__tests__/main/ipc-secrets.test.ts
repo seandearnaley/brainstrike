@@ -15,10 +15,12 @@ type SecretsServiceMock = {
   getKey: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
   listProviders: ReturnType<typeof vi.fn>;
+  clearAll: ReturnType<typeof vi.fn>;
 };
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 describe('registerSecretsIpcHandlers', () => {
   beforeEach(() => {
@@ -55,7 +57,7 @@ describe('registerSecretsIpcHandlers', () => {
     return { getHandler };
   }
 
-  it('merges environment providers with stored provider list outside test mode', async () => {
+  it('merges env-configured providers with stored entries when listing', async () => {
     process.env['NODE_ENV'] = 'production';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
 
@@ -72,8 +74,31 @@ describe('registerSecretsIpcHandlers', () => {
 
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
 
-    expect(result).toEqual(expect.arrayContaining(['openai', 'anthropic', 'custom']));
-    expect(result.filter((provider) => provider === 'openai')).toHaveLength(1);
+    // Env + stored providers should be merged (with whitespace trimmed)
+    expect(result).toEqual(['openai', 'anthropic', 'custom']);
+    expect(result).toContain('openai');
+    expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes stored providers-only list via secrets:listStored', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
+
+    const secretsService: SecretsServiceMock = {
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', ' custom ']),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const listHandler = getHandler('secrets:listStored');
+    expect(listHandler).toBeDefined();
+
+    const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+
+    expect(result).toEqual(['anthropic', 'custom']);
+    expect(result).not.toContain('openai');
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
   });
 
@@ -91,16 +116,56 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService);
     const saveHandler = getHandler('secrets:save');
     const listHandler = getHandler('secrets:list');
+    const listStoredHandler = getHandler('secrets:listStored');
 
     expect(saveHandler).toBeDefined();
     expect(listHandler).toBeDefined();
+    expect(listStoredHandler).toBeDefined();
 
     await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+    const storedResult = (await listStoredHandler!({} as IpcMainInvokeEvent)) as string[];
 
     // Test mode should only include in-memory secrets, NOT env vars
     expect(result).toEqual(['anthropic']);
     expect(result).not.toContain('google');
+    expect(storedResult).toEqual(['anthropic']);
+    expect(storedResult).not.toContain('google');
     expect(secretsService.listProviders).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation token to clear secrets store', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+      clearAll: vi.fn().mockResolvedValue(true),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const clearHandler = getHandler('secrets:clearAll');
+    expect(clearHandler).toBeDefined();
+
+    const unauthorized = (await clearHandler!({} as IpcMainInvokeEvent)) as {
+      success: false;
+      message: string;
+    };
+
+    expect(unauthorized).toEqual({
+      success: false,
+      message: 'Unauthorized: Invalid confirmation token',
+    });
+    expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
+
+    const success = (await clearHandler!(
+      {} as IpcMainInvokeEvent,
+      SECRETS_CLEAR_CONFIRMATION_TOKEN
+    )) as { success: true };
+
+    expect(success).toEqual({ success: true });
+    expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
   });
 });

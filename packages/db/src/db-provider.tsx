@@ -431,11 +431,8 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     try {
       const res = await w.electronAPI.db.resetLocal?.();
       if (res?.success) {
-        try {
-          window.location.reload();
-        } catch (err) {
-          logger.warn('Window reload after Electron reset failed:', err);
-        }
+        // Don't reload here - let the caller handle clearing UI state and reloading
+        // This ensures clearPersistentUiState() runs before the page reloads
         return true;
       }
     } catch (err) {
@@ -456,14 +453,100 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
     } catch (err) {
       logger.warn('VACUUM after purge failed:', err);
     }
-    try {
-      await dbRef.current.close();
-    } catch (err) {
-      logger.warn('Closing database after purge failed:', err);
+    const usesIndexedDb = resolvedPath.startsWith('idb://');
+    if (usesIndexedDb) {
+      try {
+        await wasmLoader.closeCached(resolvedPath);
+        logger.info('[DbProvider] Closed cached IndexedDB instance during factory reset');
+      } catch (err) {
+        logger.warn('Failed to close cached IndexedDB instance during reset:', err);
+      }
+    } else {
+      try {
+        await dbRef.current.close();
+      } catch (err) {
+        logger.warn('Closing database after purge failed:', err);
+      }
     }
     dbRef.current = null;
     setExposedDb(null);
-  }, [purgeTablesTx]);
+  }, [purgeTablesTx, resolvedPath]);
+
+  const cleanupAndWaitForReset = useCallback(async () => {
+    // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
+    if (resolvedPath.startsWith('idb://')) {
+      try {
+        await wasmLoader.deleteIndexedDB(resolvedPath);
+        logger.info('[DbProvider] IndexedDB deleted successfully');
+        // Wait for IndexedDB deletion to fully complete
+        await new Promise((resolve) => {
+          setTimeout(resolve, 250);
+        });
+      } catch (err) {
+        logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
+      }
+    } else {
+      // Even for non-IDB paths, wait a bit to ensure cleanup completes
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
+    }
+  }, [resolvedPath]);
+
+  const retryInitialization = useCallback(async () => {
+    const maxRetries = 3;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`[DbProvider] Reinitializing database (attempt ${attempt}/${maxRetries})`);
+        await initializeDirectPGlite({ value: false });
+        logger.info('[DbProvider] Database reinitialized successfully after factory reset');
+        return;
+      } catch (err) {
+        lastError = err;
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        logger.warn(`[DbProvider] Reinitialization attempt ${attempt} failed:`, errorMsg);
+
+        if (attempt === maxRetries) {
+          break;
+        }
+
+        const delay = attempt * 200;
+        logger.info(`[DbProvider] Waiting ${delay}ms before retry...`);
+        await new Promise((resolve) => {
+          setTimeout(resolve, delay);
+        });
+      }
+    }
+
+    logger.error('[DbProvider] All reinitialization attempts failed after factory reset');
+    throw lastError;
+  }, [initializeDirectPGlite]);
+
+  const resetPGliteState = useCallback(async () => {
+    // Purge and close if database exists
+    if (!dbRef.current) {
+      logger.warn('[DbProvider] No active database to purge during factory reset');
+    } else {
+      await purgeAndClosePGlite();
+    }
+
+    // Reset all state
+    dbRef.current = null;
+    setExposedDb(null);
+    setFileRecordRepository(null);
+    setChunkRepository(null);
+    setVectorEnabled(false);
+    setReady(false);
+    setLazyInitialized(false);
+
+    // Clear active embedding set ID from localStorage to prevent stale collections
+    clearActiveEmbeddingSetIdFromStorage();
+
+    await cleanupAndWaitForReset();
+    await retryInitialization();
+  }, [purgeAndClosePGlite, cleanupAndWaitForReset, retryInitialization]);
 
   const purgeQueuesAndSetsElectron = useCallback(async () => {
     // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
@@ -509,37 +592,23 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializeDatabase,
       vectorEnabled,
       factoryReset: async () => {
-        // Try Electron hard reset and early-exit on success
+        // Try Electron hard reset and return if successful
+        // Caller (factory-reset-panel) will handle clearing UI state and reloading
         try {
           const handled = await tryElectronHardReset();
-          if (handled) return;
-        } catch {}
-
-        // Fallback: direct PGlite purge and recreate
-        await purgeAndClosePGlite();
-        dbRef.current = null;
-        setExposedDb(null);
-        setFileRecordRepository(null);
-        setChunkRepository(null);
-        setVectorEnabled(false);
-        setReady(false);
-        setLazyInitialized(false);
-
-        // Clear active embedding set ID from localStorage to prevent stale collections
-        clearActiveEmbeddingSetIdFromStorage();
-
-        // Delete the IndexedDB database to fully wipe corrupted TOAST chunks
-        // This is critical for web - without it, PGlite reopens the corrupted database
-        if (resolvedPath.startsWith('idb://')) {
-          try {
-            await wasmLoader.deleteIndexedDB(resolvedPath);
-            logger.info('[DbProvider] IndexedDB deleted successfully');
-          } catch (err) {
-            logger.warn('[DbProvider] Failed to delete IndexedDB, reinitializing anyway:', err);
+          if (handled) {
+            logger.info('[DbProvider] Electron hard reset completed');
+            return;
           }
+        } catch (err) {
+          logger.warn(
+            '[DbProvider] Electron hard reset failed, falling back to PGlite reset:',
+            err
+          );
         }
 
-        await initializeDirectPGlite({ value: false });
+        // Fallback: direct PGlite purge and recreate
+        await resetPGliteState();
       },
       clearQueuesAndEmbeddingSets: async () => {
         // Prefer Electron IPC when truly available; otherwise use local DB
@@ -567,13 +636,11 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       initializeDatabase,
       vectorEnabled,
       useElectronIPC,
-      initializeDirectPGlite,
       tryElectronHardReset,
-      purgeAndClosePGlite,
+      resetPGliteState,
       purgeQueuesAndSetsElectron,
       purgeQueuesAndSetsTx,
       exposedDb,
-      resolvedPath,
     ]
   );
 

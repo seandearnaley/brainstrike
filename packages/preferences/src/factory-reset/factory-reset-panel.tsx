@@ -22,11 +22,13 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       setRunning(true);
       // Prefer provider-level factory reset if available so DB purge occurs before UI state is removed.
       const resetFn = doFactoryReset ?? providerFactoryReset;
+      let skipIndexedDb = false;
       if (typeof resetFn === 'function') {
         await resetFn();
+        skipIndexedDb = true;
       }
       // Clear renderer persistent UI state after provider reset to avoid rehydrating stale stores.
-      await clearPersistentUiState();
+      await clearPersistentUiState({ skipIndexedDb });
       // Ensure a full reload so the renderer boots cleanly.
       try {
         window.location.reload();
