@@ -65,12 +65,12 @@ brainstrike/
 This project utilizes a modern stack focused on performance, type safety, and developer productivity.
 
 - **Build & Orchestration**:
-  - **Turborepo `2.5.8`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
+  - **Turborepo `2.6.1`**: Manages the monorepo build system, task execution, and caching. ([`turbo.jsonc`](./turbo.jsonc))
 - **Package Management**:
   - **pnpm `10.17.0`**: Efficiently manages dependencies and workspaces. ([`pnpm-workspace.yaml`](./pnpm-workspace.yaml), root [`package.json`](./package.json))
 - **Runtime & Language**:
   - **Node.js `v22`**: Specified in [`.nvmrc`](./.nvmrc). Use `nvm use` to switch.
-  - **TypeScript `5.9.2`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
+  - **TypeScript `5.9.3`**: Provides static typing across the entire codebase. ([`tsconfig.json`](./tsconfig.json), [`packages/config/tsconfig/base.json`](./packages/config/tsconfig/base.json))
 - **Frontend Framework (`apps/web`)**:
   - **React `19.x`**: UI library using functional components and hooks.
   - **Vite**: Next-generation frontend tooling for extremely fast HMR and optimized builds. (See `apps/web/vite.config.ts`)
@@ -83,10 +83,10 @@ This project utilizes a modern stack focused on performance, type safety, and de
 - **Code Quality & Formatting**:
   - **Biome `2.3.5`**: All-in-one tool for linting, formatting, and more, replacing ESLint and Prettier. ([`biome.json`](./biome.json))
 - **Commit Linting & Hooks**:
-  - **Commitlint `19.8.1`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
+  - **Commitlint `20.1.0`**: Enforces conventional commit message formats using `@commitlint/config-conventional`. ([`commitlint.config.ts`](./commitlint.config.ts))
   - **Lefthook**: Automates pre-commit Biome checks and commit message linting via [`lefthook.yml`](../lefthook.yml).
 - **Code Health**:
-  - **Knip `5.63.1`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
+  - **Knip `5.64.2`**: Detects unused files, dependencies, and exports. ([`knip.jsonc`](./knip.jsonc))
 
 ---
 
