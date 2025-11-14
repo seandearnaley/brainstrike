@@ -101,11 +101,11 @@ Critical architectural pattern enabling cross-platform functionality:
 ### Technology Stack
 - **Node.js**: 22+ required (check `.nvmrc`)
 - **Package Manager**: pnpm 10.17.0+ with workspaces
-- **Build System**: Turborepo with intelligent caching
+- **Build System**: Turborepo 2.6.1 with intelligent caching
 - **Frontend**: React 19, Vite 7, TypeScript 5.9
 - **Styling**: Tailwind CSS v4 with shared configuration
 - **Testing**: Vitest (unit), Playwright (E2E)
-- **Linting**: Biome 2.2.5
+- **Linting**: Biome 2.3.5
 
 ### Code Standards
 - **TypeScript**: Strict mode enabled across all packages
@@ -178,7 +178,7 @@ When working with file operations:
 
 ## Build System
 
-### Turborepo Configuration
+### Turborepo Configuration (v2.6.1)
 - Topological builds with dependency awareness
 - Shared caching across local and CI environments
 - Parallel execution where possible

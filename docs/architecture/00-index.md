@@ -1,6 +1,6 @@
-# Brainstrike — Architecture Pack (Draft)
+# Brainstrike — Architecture Pack
 
-> **Status**: Draft, based on repository structure & filenames accessible via the GitHub connector. Some specifics are placeholders pending full code ingestion.
+> **Status**: Living documentation reflecting the current monorepo structure. Updated regularly as the architecture evolves.
 
 This pack contains a concise set of C4-style views, sequence diagrams, and state machines to make the system legible at a glance and deep-diveable when needed.
 
@@ -16,14 +16,13 @@ This pack contains a concise set of C4-style views, sequence diagrams, and state
 8. [Data Model (High-Level)](./08-data-model.md)
 9. [Deployment & Environments](./09-deployment.md)
 
-**Grounding (discovered paths & clues)**
+**Architecture Foundation**
 
-- Monorepo: `seandearnaley/brainstrike` with `apps/web`, `apps/desktop`, and `packages/*`.
-- Embeddings & Vector mgmt: `packages/embeddings`, `packages/embedding-worker`, `packages/vector-management`, `packages/db` (migrations mention embedding sets, flexible dimensions, and vector helpers), `packages/db-explorer`.
-- Workers & Queues: `apps/web/src/workers/embedding-worker-web.ts`, `apps/desktop/src/renderer/create-embedding-queue.ts`, `packages/embedding-worker/src/embedding.worker.ts`.
-- Desktop/Electron: adapters in `packages/file-system`, `packages/storage`, Electron-specific DB repositories.
-- Agent runtime: `packages/agent` with MAStra integration and MCP config (`mcp.config.json`).
-- Web build: `apps/web/vite.config.mts` (separate `brainstrike-web` repo includes `docs/next-to-vite-migration.md`).
-- API/Infra: separate private repo `brainstrike-api` contains an `cdk/` folder (AWS CDK based infra).
+- **Monorepo**: Turborepo-based monorepo with `apps/web`, `apps/desktop`, and `packages/*`
+- **Embeddings & Vector Management**: `packages/embeddings`, `packages/embedding-worker`, `packages/vector-management`, `packages/db` (migrations with embedding sets, flexible dimensions, and vector helpers), `packages/db-explorer`
+- **Workers & Queues**: Renderer-based embedding workers in both web and desktop apps, utilizing `packages/embedding-worker` and PGlite-backed job queues
+- **Cross-Platform Adapters**: `packages/file-system` and `packages/storage` provide platform-agnostic interfaces for Node.js, Web, and Electron environments
+- **Agent Runtime**: `packages/agent` with Mastra AI integration and MCP tooling support
+- **Build Configuration**: Vite 7 for both web and desktop renderer, with shared Tailwind v4 configuration
 
-Where a diagram includes a **(verify)** label, it marks an assumption to confirm once full code access is available.
+Note: Some diagrams may include **(verify)** labels indicating areas pending validation or upcoming changes.
