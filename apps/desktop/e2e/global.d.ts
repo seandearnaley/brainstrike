@@ -21,6 +21,8 @@ declare global {
       getKey?: (provider: string) => Promise<string | null>;
       deleteKey?: (provider: string) => Promise<void>;
       list?: () => Promise<string[]>;
+      listStored?: () => Promise<string[]>;
+      clearAll?: () => Promise<{ success: boolean; message?: string }>;
     };
     mcp?: {
       getConfig?: () => Promise<unknown>;

@@ -55,7 +55,7 @@ describe('registerSecretsIpcHandlers', () => {
     return { getHandler };
   }
 
-  it('returns only stored providers (not environment variables)', async () => {
+  it('merges env-configured providers with stored entries when listing', async () => {
     process.env['NODE_ENV'] = 'production';
     process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
 
@@ -72,9 +72,31 @@ describe('registerSecretsIpcHandlers', () => {
 
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
 
-    // Only stored providers should be returned, not env vars
+    // Env + stored providers should be merged (with whitespace trimmed)
+    expect(result).toEqual(['openai', 'anthropic', 'custom']);
+    expect(result).toContain('openai');
+    expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes stored providers-only list via secrets:listStored', async () => {
+    process.env['NODE_ENV'] = 'production';
+    process.env['BRAINSTRIKE_OPENAI_API_KEY'] = 'sk-environment';
+
+    const secretsService: SecretsServiceMock = {
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', ' custom ']),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const listHandler = getHandler('secrets:listStored');
+    expect(listHandler).toBeDefined();
+
+    const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+
     expect(result).toEqual(['anthropic', 'custom']);
-    expect(result).not.toContain('openai'); // env var should NOT be in the list
+    expect(result).not.toContain('openai');
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
   });
 
@@ -92,16 +114,21 @@ describe('registerSecretsIpcHandlers', () => {
     const { getHandler } = await bootstrap(secretsService);
     const saveHandler = getHandler('secrets:save');
     const listHandler = getHandler('secrets:list');
+    const listStoredHandler = getHandler('secrets:listStored');
 
     expect(saveHandler).toBeDefined();
     expect(listHandler).toBeDefined();
+    expect(listStoredHandler).toBeDefined();
 
     await saveHandler!({} as IpcMainInvokeEvent, 'anthropic', 'sk-test-anthropic');
     const result = (await listHandler!({} as IpcMainInvokeEvent)) as string[];
+    const storedResult = (await listStoredHandler!({} as IpcMainInvokeEvent)) as string[];
 
     // Test mode should only include in-memory secrets, NOT env vars
     expect(result).toEqual(['anthropic']);
     expect(result).not.toContain('google');
+    expect(storedResult).toEqual(['anthropic']);
+    expect(storedResult).not.toContain('google');
     expect(secretsService.listProviders).not.toHaveBeenCalled();
   });
 });

@@ -65,6 +65,7 @@ contextBridge.exposeInMainWorld('secrets', {
   getKey: (provider: string) => ipcRenderer.invoke('secrets:get', provider),
   deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
   list: () => ipcRenderer.invoke('secrets:list'),
+  listStored: () => ipcRenderer.invoke('secrets:listStored'),
   clearAll: () => ipcRenderer.invoke('secrets:clearAll'),
 });
 

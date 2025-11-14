@@ -1,5 +1,7 @@
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
+import { listAgentProviders } from './agent-client-loader';
+import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
 function isTestMode(): boolean {
@@ -42,6 +44,16 @@ async function appendStoredProviders(target: Set<string>, secrets: SecretsServic
       continue;
     }
     target.add(trimmed);
+  }
+}
+
+function appendEnvConfiguredProviders(target: Set<string>) {
+  const supportedProviders = listAgentProviders();
+  for (const provider of supportedProviders) {
+    const envValue = resolveProviderEnvKey(provider);
+    if (typeof envValue === 'string' && envValue.length > 0) {
+      target.add(provider);
+    }
   }
 }
 
@@ -110,10 +122,22 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
       return Array.from(providers);
     }
 
-    // Only return STORED providers, not env-configured ones
-    // This ensures "Saved Providers" UI accurately reflects what's in the secrets store
-    // and factory reset correctly shows empty list after clearing
-    // Environment variables are still used as fallback when reading keys via secrets:get
+    // Merge environment-configured providers with stored secrets so renderer consumers
+    // (assistant preferences, etc.) discover env-only setups.
+    // Consumers that only want persisted secrets should call secrets:listStored.
+    const providers = new Set<string>();
+    appendEnvConfiguredProviders(providers);
+    await appendStoredProviders(providers, secrets);
+    return Array.from(providers);
+  });
+
+  ipcMain.handle('secrets:listStored', async () => {
+    if (isTestMode()) {
+      const providers = new Set<string>();
+      appendTestModeProviders(providers);
+      return Array.from(providers);
+    }
+
     const providers = new Set<string>();
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);

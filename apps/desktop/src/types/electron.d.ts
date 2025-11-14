@@ -80,6 +80,8 @@ declare global {
       getKey: (provider: string) => Promise<string | null>;
       deleteKey: (provider: string) => Promise<boolean>;
       list: () => Promise<string[]>;
+      listStored: () => Promise<string[]>;
+      clearAll: () => Promise<{ success: boolean; message?: string }>;
     };
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
