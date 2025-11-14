@@ -6,6 +6,7 @@ export interface SecretsService {
   getKey(provider: string): Promise<string | null>;
   deleteKey(provider: string): Promise<boolean>;
   listProviders(): Promise<string[]>;
+  clearAll(): Promise<boolean>;
 }
 
 interface SecretsSchema {
@@ -64,6 +65,14 @@ export function createSecretsService(store?: ElectronStore<SecretsSchema>): Secr
     async listProviders(): Promise<string[]> {
       const secrets = (secretsStore.get('secrets') as SecretsSchema['secrets']) ?? {};
       return Object.keys(secrets);
+    },
+    async clearAll(): Promise<boolean> {
+      try {
+        secretsStore.set('secrets', {});
+        return true;
+      } catch {
+        return false;
+      }
     },
   } satisfies SecretsService;
 }

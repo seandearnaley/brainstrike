@@ -154,7 +154,7 @@ describe('FactoryResetPanel', () => {
 
       await waitFor(() => {
         expect(mockDoFactoryReset).toHaveBeenCalled();
-        expect(mockClearPersistentUiState).toHaveBeenCalled();
+        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
         expect(mockReload).toHaveBeenCalled();
       });
     });
@@ -188,7 +188,7 @@ describe('FactoryResetPanel', () => {
         expect(mockDoFactoryReset).toHaveBeenCalled();
       });
 
-      expect(mockClearPersistentUiState).toHaveBeenCalled();
+      expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
     });
 
     it('reloads the page after successful reset', async () => {
@@ -236,7 +236,7 @@ describe('FactoryResetPanel', () => {
 
       await waitFor(() => {
         expect(mockProviderReset).toHaveBeenCalled();
-        expect(mockClearPersistentUiState).toHaveBeenCalled();
+        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: true });
         expect(mockReload).toHaveBeenCalled();
       });
     });
@@ -268,7 +268,7 @@ describe('FactoryResetPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(mockClearPersistentUiState).toHaveBeenCalled();
+        expect(mockClearPersistentUiState).toHaveBeenCalledWith({ skipIndexedDb: false });
         expect(mockReload).toHaveBeenCalled();
       });
     });

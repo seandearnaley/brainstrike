@@ -230,6 +230,20 @@ export function registerIpcHandlers(
     return layout?.v1;
   });
 
+  // Settings store clear handler for factory reset
+  ipcMain.handle('settings:clearAll', async () => {
+    try {
+      // Clear all settings from the store
+      (store as ElectronStore<DesktopSettingsStoreSchema> & { clear: () => void }).clear();
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
   // Database IPC handlers
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
     const { getDatabase } = await import('./db-main');

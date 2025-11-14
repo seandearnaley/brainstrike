@@ -55,6 +55,12 @@ export function LlmKeysSettings() {
 
   const refreshProviders = useCallback(async () => {
     try {
+      const storedProviders = await window.secrets?.listStored?.();
+      if (Array.isArray(storedProviders)) {
+        setProvidersWithSecrets(storedProviders);
+        return;
+      }
+
       const list = await window.secrets?.list?.();
       if (Array.isArray(list)) {
         setProvidersWithSecrets(list);

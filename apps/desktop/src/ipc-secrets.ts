@@ -1,9 +1,10 @@
-import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import { listAgentProviders } from './agent-client-loader';
 import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
+
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 function isTestMode(): boolean {
   const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
@@ -22,17 +23,6 @@ export function clearTestModeSecrets(): void {
   if (isTestMode()) {
     testModeSecrets.clear();
   }
-}
-
-function resolveEnvConfiguredProviders(): SupportedProvider[] {
-  const configured: SupportedProvider[] = [];
-  for (const provider of listAgentProviders()) {
-    const value = resolveProviderEnvKey(provider);
-    if (value) {
-      configured.push(provider);
-    }
-  }
-  return configured;
 }
 
 function appendTestModeProviders(target: Set<string>) {
@@ -56,6 +46,16 @@ async function appendStoredProviders(target: Set<string>, secrets: SecretsServic
       continue;
     }
     target.add(trimmed);
+  }
+}
+
+function appendEnvConfiguredProviders(target: Set<string>) {
+  const supportedProviders = listAgentProviders();
+  for (const provider of supportedProviders) {
+    const envValue = resolveProviderEnvKey(provider);
+    if (typeof envValue === 'string' && envValue.length > 0) {
+      target.add(provider);
+    }
   }
 }
 
@@ -124,9 +124,48 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
       return Array.from(providers);
     }
 
-    // In production, include both env-configured and stored providers
-    const providers = new Set<string>(resolveEnvConfiguredProviders());
+    // Merge environment-configured providers with stored secrets so renderer consumers
+    // (assistant preferences, etc.) discover env-only setups.
+    // Consumers that only want persisted secrets should call secrets:listStored.
+    const providers = new Set<string>();
+    appendEnvConfiguredProviders(providers);
     await appendStoredProviders(providers, secrets);
     return Array.from(providers);
+  });
+
+  ipcMain.handle('secrets:listStored', async () => {
+    if (isTestMode()) {
+      const providers = new Set<string>();
+      appendTestModeProviders(providers);
+      return Array.from(providers);
+    }
+
+    const providers = new Set<string>();
+    await appendStoredProviders(providers, secrets);
+    return Array.from(providers);
+  });
+
+  ipcMain.handle('secrets:clearAll', async (_e: IpcMainInvokeEvent, confirmationToken?: string) => {
+    if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
+      return {
+        success: false,
+        message: 'Unauthorized: Invalid confirmation token',
+      };
+    }
+
+    if (isTestMode()) {
+      testModeSecrets.clear();
+      return { success: true };
+    }
+
+    try {
+      const result = await secrets.clearAll();
+      return { success: result };
+    } catch (error) {
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 }
