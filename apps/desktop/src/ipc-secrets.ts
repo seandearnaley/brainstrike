@@ -4,6 +4,8 @@ import { listAgentProviders } from './agent-client-loader';
 import { resolveProviderEnvKey } from './provider-api-key';
 import type { SecretsService } from './secrets';
 
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+
 function isTestMode(): boolean {
   const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
   const nodeEnv = process.env['NODE_ENV'];
@@ -143,8 +145,14 @@ export function registerSecretsIpcHandlers(secrets: SecretsService) {
     return Array.from(providers);
   });
 
-  ipcMain.handle('secrets:clearAll', async () => {
-    // In test mode, clear in-memory storage
+  ipcMain.handle('secrets:clearAll', async (_e: IpcMainInvokeEvent, confirmationToken?: string) => {
+    if (confirmationToken !== SECRETS_CLEAR_CONFIRMATION_TOKEN) {
+      return {
+        success: false,
+        message: 'Unauthorized: Invalid confirmation token',
+      };
+    }
+
     if (isTestMode()) {
       testModeSecrets.clear();
       return { success: true };

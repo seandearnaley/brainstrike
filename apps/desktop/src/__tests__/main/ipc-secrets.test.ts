@@ -15,10 +15,12 @@ type SecretsServiceMock = {
   getKey: ReturnType<typeof vi.fn>;
   deleteKey: ReturnType<typeof vi.fn>;
   listProviders: ReturnType<typeof vi.fn>;
+  clearAll: ReturnType<typeof vi.fn>;
 };
 
 const ORIGINAL_NODE_ENV = process.env['NODE_ENV'];
 const ORIGINAL_ELECTRON_E2E = process.env['ELECTRON_IS_E2E_TEST'];
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 describe('registerSecretsIpcHandlers', () => {
   beforeEach(() => {
@@ -130,5 +132,40 @@ describe('registerSecretsIpcHandlers', () => {
     expect(storedResult).toEqual(['anthropic']);
     expect(storedResult).not.toContain('google');
     expect(secretsService.listProviders).not.toHaveBeenCalled();
+  });
+
+  it('requires confirmation token to clear secrets store', async () => {
+    process.env['NODE_ENV'] = 'production';
+
+    const secretsService: SecretsServiceMock = {
+      saveKey: vi.fn(),
+      getKey: vi.fn(),
+      deleteKey: vi.fn(),
+      listProviders: vi.fn().mockResolvedValue([]),
+      clearAll: vi.fn().mockResolvedValue(true),
+    };
+
+    const { getHandler } = await bootstrap(secretsService);
+    const clearHandler = getHandler('secrets:clearAll');
+    expect(clearHandler).toBeDefined();
+
+    const unauthorized = (await clearHandler!({} as IpcMainInvokeEvent)) as {
+      success: false;
+      message: string;
+    };
+
+    expect(unauthorized).toEqual({
+      success: false,
+      message: 'Unauthorized: Invalid confirmation token',
+    });
+    expect(secretsService.clearAll).toHaveBeenCalledTimes(0);
+
+    const success = (await clearHandler!(
+      {} as IpcMainInvokeEvent,
+      SECRETS_CLEAR_CONFIRMATION_TOKEN
+    )) as { success: true };
+
+    expect(success).toEqual({ success: true });
+    expect(secretsService.clearAll).toHaveBeenCalledTimes(1);
   });
 });

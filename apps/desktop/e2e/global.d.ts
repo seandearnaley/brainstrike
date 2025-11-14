@@ -22,7 +22,7 @@ declare global {
       deleteKey?: (provider: string) => Promise<void>;
       list?: () => Promise<string[]>;
       listStored?: () => Promise<string[]>;
-      clearAll?: () => Promise<{ success: boolean; message?: string }>;
+      clearAll?: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
     };
     mcp?: {
       getConfig?: () => Promise<unknown>;

@@ -81,7 +81,7 @@ declare global {
       deleteKey: (provider: string) => Promise<boolean>;
       list: () => Promise<string[]>;
       listStored: () => Promise<string[]>;
-      clearAll: () => Promise<{ success: boolean; message?: string }>;
+      clearAll: (confirmationToken?: string) => Promise<{ success: boolean; message?: string }>;
     };
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape

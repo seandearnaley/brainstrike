@@ -1,5 +1,6 @@
 // Electron preload script - must use CommonJS syntax
 const { contextBridge, ipcRenderer, clipboard } = require('electron');
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { PanelPersistenceState } from '@brainstrike/ui';
@@ -66,7 +67,7 @@ contextBridge.exposeInMainWorld('secrets', {
   deleteKey: (provider: string) => ipcRenderer.invoke('secrets:delete', provider),
   list: () => ipcRenderer.invoke('secrets:list'),
   listStored: () => ipcRenderer.invoke('secrets:listStored'),
-  clearAll: () => ipcRenderer.invoke('secrets:clearAll'),
+  clearAll: () => ipcRenderer.invoke('secrets:clearAll', SECRETS_CLEAR_CONFIRMATION_TOKEN),
 });
 
 // Settings Store API (factory reset support)

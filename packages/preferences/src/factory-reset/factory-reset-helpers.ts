@@ -29,12 +29,14 @@ export interface ClearPersistentUiStateOptions {
  * Desktop bridges expose storage, secrets, and settings stores via IPC.
  * Nuclear option: clear ALL electron stores without exceptions.
  */
+const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
+
 async function clearElectronStorage(): Promise<void> {
   if (typeof window === 'undefined') return;
 
   const w = window as {
     electronAPI?: { storage?: { clear?: () => Promise<void> } };
-    secrets?: { clearAll?: () => Promise<void> };
+    secrets?: { clearAll?: (confirmationToken?: string) => Promise<void> };
     settings?: { clearAll?: () => Promise<void> };
   };
 
@@ -50,7 +52,7 @@ async function clearElectronStorage(): Promise<void> {
   // Clear secrets store (brainstrike-secrets.json) - API keys, provider configs
   if (w.secrets?.clearAll) {
     try {
-      await w.secrets.clearAll();
+      await w.secrets.clearAll(SECRETS_CLEAR_CONFIRMATION_TOKEN);
     } catch (error) {
       console.warn('[FactoryReset] Failed to clear Electron secrets store', error);
     }
