@@ -33,13 +33,13 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
   const setActiveTab = useRightPanelStore((state) => state.setActiveTab);
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col min-w-[320px]">
       <Tabs
         value={activeTab}
         onValueChange={(value) => setActiveTab((value as RightPanelTab) ?? 'assistant')}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="grid grid-cols-4 mx-2 mt-2 mb-2 flex-shrink-0">
+        <TabsList className="grid grid-cols-3 mx-2 mt-2 mb-2 flex-shrink-0">
           <TabsTrigger value="assistant" className="flex items-center gap-1">
             <MessageCircle className="h-3 w-3" />
             <span className="hidden sm:inline">Assistant</span>
