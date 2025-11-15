@@ -2,7 +2,7 @@ import type { IDatabase } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
-import { generateUUID } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import { SimpleEmbeddingService } from '../bge-m3-service';
 import { EmbeddingProviderFactory } from '../factory';
 import type {
@@ -12,6 +12,8 @@ import type {
 } from '../provider-types';
 import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from '../provider-utils';
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
+
+const workerLogger = createLogger('EmbeddingWorker');
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
@@ -64,8 +66,8 @@ async function sha256Hex(input: string): Promise<string> {
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
     }
-  } catch {
-    // fall through to node path
+  } catch (error) {
+    workerLogger.debug('Web Crypto SHA-256 failed, falling back to node:crypto', { error });
   }
   // Node crypto path (Node 16+)
   const { createHash } = await import('node:crypto');
@@ -150,7 +152,8 @@ function resolveWorkerModel(fromOptions?: string): {
         return String(process.env['EMBED_MODEL_KEY']);
       }
       return '';
-    } catch {
+    } catch (error) {
+      workerLogger.debug('Unable to read EMBED_MODEL_KEY from environment', { error });
       return '';
     }
   })();
@@ -185,7 +188,10 @@ function isNodejsMainProcess(): boolean {
       typeof process.versions?.node !== 'undefined' &&
       typeof window === 'undefined'
     );
-  } catch {
+  } catch (error) {
+    workerLogger.debug('Failed to detect Node.js runtime while checking embedding worker context', {
+      error,
+    });
     return false;
   }
 }
@@ -387,7 +393,11 @@ function ensureModelDimension(
 export async function startEmbeddingWorker(
   options: EmbeddingWorkerOptions
 ): Promise<EmbeddingWorkerController> {
-  const log = options.log || (() => {});
+  const log =
+    options.log ||
+    ((message: string, meta?: unknown) => {
+      workerLogger.debug(message, meta);
+    });
 
   // Check if worker is disabled BEFORE resolving model to avoid errors in tests
   if (!shouldStartWorker(options, log)) {
@@ -421,8 +431,11 @@ export async function startEmbeddingWorker(
       "SELECT 1 as one FROM pg_extension WHERE extname = 'vector'"
     );
     vectorEnabledForWrites = Array.isArray(res.rows) && res.rows.length > 0;
-  } catch {
+  } catch (error) {
     vectorEnabledForWrites = false;
+    workerLogger.debug('Failed to detect pgvector extension; treating writes as disabled', {
+      error,
+    });
   }
 
   // Lightweight metrics for observability
@@ -454,7 +467,7 @@ export async function startEmbeddingWorker(
     const forceCpu = opts?.forceCpu ?? false;
     const shouldReinitialize = forceCpu || forceReinit || targetModelId !== activeModelId;
 
-    console.log('[EMBED-WORKER] ensureLocalModel check', {
+    workerLogger.debug('ensureLocalModel check', {
       targetModelId,
       activeModelId,
       shouldReinitialize,
@@ -477,11 +490,13 @@ export async function startEmbeddingWorker(
       );
     }
 
-    console.log('[EMBED-WORKER] REINITIALIZING SERVICE - this blocks the main thread!');
+    workerLogger.warn('Reinitializing embedding service; this blocks the main thread');
 
     try {
       await service.dispose();
-    } catch {}
+    } catch (error) {
+      workerLogger.warn('Failed to dispose embedding service during reinitialization', { error });
+    }
 
     const device = forceCpu ? 'cpu' : options.device;
     const nextService = new SimpleEmbeddingService();
@@ -525,7 +540,7 @@ export async function startEmbeddingWorker(
       throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
     }
 
-    console.log('[EMBED-WORKER] Calling service.generateEmbedding - THIS MAY BLOCK MAIN THREAD!', {
+    workerLogger.debug('Calling service.generateEmbedding (may block main thread)', {
       contentLength: chunk.content.length,
       expectedDimension,
     });
@@ -538,7 +553,7 @@ export async function startEmbeddingWorker(
       ? await svcAny.generateDocEmbedding(chunk.content)
       : await service.generateEmbedding(chunk.content);
 
-    console.log('[EMBED-WORKER] service.generateEmbedding completed');
+    workerLogger.debug('service.generateEmbedding completed');
 
     if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
       throw new Error(
@@ -681,14 +696,14 @@ export async function startEmbeddingWorker(
   }
 
   async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
-    console.log('[EMBED-WORKER] Job start', {
+    workerLogger.debug('Job start', {
       jobId: claimed.id,
       activeModelId,
       activeCompositeKey,
     });
 
     const payload = assertEmbedChunkJob(claimed);
-    console.log('[EMBED-WORKER] Job payload', {
+    workerLogger.debug('Job payload', {
       chunkId: payload.chunkId,
       payloadModelKey: payload.modelKey,
       payloadProvider: payload.provider,
@@ -699,7 +714,7 @@ export async function startEmbeddingWorker(
     const expectedDimension = await determineExpectedDimension(targetSetId, payload);
     const jobModel = resolveJobModel(payload);
 
-    console.log('[EMBED-WORKER] Resolved job model', {
+    workerLogger.debug('Resolved job model', {
       jobModelId: jobModel.modelId,
       jobCompositeKey: jobModel.compositeKey,
       jobProvider: jobModel.provider,
@@ -715,11 +730,11 @@ export async function startEmbeddingWorker(
 
     let embedding: number[];
     if (jobModel.provider === 'local') {
-      console.log('[EMBED-WORKER] Processing local embedding...');
+      workerLogger.debug('Processing local embedding job');
       await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
-      console.log('[EMBED-WORKER] About to call generateLocalEmbedding...');
+      workerLogger.debug('About to call generateLocalEmbedding');
       const result = await generateLocalEmbedding(chunk, expectedDimension);
-      console.log('[EMBED-WORKER] generateLocalEmbedding returned', {
+      workerLogger.debug('generateLocalEmbedding returned', {
         dimensions: result.dimensions,
       });
       embedding = result.embedding;
@@ -859,8 +874,8 @@ export async function startEmbeddingWorker(
       await Promise.race([Promise.allSettled(loops).then(() => {}), sleep(leaseMs)]);
       try {
         await service.dispose();
-      } catch {
-        // ignore
+      } catch (error) {
+        workerLogger.warn('Failed to dispose embedding service during shutdown', { error });
       }
       clearInterval(metricsTimer);
     },

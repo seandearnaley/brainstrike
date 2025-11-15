@@ -12,9 +12,13 @@ import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import { getElectronAPI, hasElectronAPI } from '../lib/electron-utils';
 
 // Mock @brainstrike/utils
-vi.mock('@brainstrike/utils', () => ({
-  isDevEnv: vi.fn(() => false),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    isDevEnv: vi.fn(() => false),
+  };
+});
 
 // Mock the debounce utility from hooks
 vi.mock('@brainstrike/hooks', () => ({

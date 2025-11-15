@@ -1,4 +1,5 @@
 import type { usePGliteDatabase } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 type PendingRow = { dedupeKey: string | null };
@@ -23,6 +24,8 @@ export interface UsePendingChunksResult {
   pendingChunkIds: Set<string>;
   refreshPendingChunks: () => Promise<void>;
 }
+
+const logger = createLogger('usePendingChunks');
 
 export function usePendingChunks({
   database,
@@ -63,8 +66,8 @@ export function usePendingChunks({
 
       const ids = derivePendingChunkIds(res.rows, activeSetId);
       setPendingChunkIds(ids);
-    } catch (_error) {
-      // ignore HUD errors
+    } catch (error) {
+      logger.debug('Failed to fetch pending chunks', { error });
     }
   }, [database, resolveActiveSetId, resetPendingChunks]);
 

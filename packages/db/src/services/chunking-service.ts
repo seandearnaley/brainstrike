@@ -509,8 +509,11 @@ async function computeCharsPerToken(content: string, options: ChunkingOptions): 
       const measured = sample.length / (tokens as number);
       return Math.max(1, Math.min(8, measured));
     }
-  } catch (_err) {
-    // ignore
+  } catch (error) {
+    logger.debug('Token counter failed, using average character-to-token ratio', {
+      error,
+      sampleLength: sample.length,
+    });
   }
   return Number(CHUNKING_CONFIG.averageCharsPerToken);
 }

@@ -1,6 +1,7 @@
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createLogger } from '@brainstrike/utils';
 import { codecovVitePlugin } from '@codecov/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 /// <reference types="vitest" />
@@ -12,8 +13,7 @@ import { defineConfig } from 'vitest/config';
 import { getDevCSP } from './src/csp-utils';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const isDev = process.env['NODE_ENV'] === 'development';
-
+const viteLogger = createLogger('WebViteConfig');
 function copyFontsPlugin() {
   return {
     name: 'copy-fonts',
@@ -43,9 +43,6 @@ function copyFontsPlugin() {
         if (existsSync(src)) {
           copyFileSync(src, destPublic);
           copyFileSync(src, destDist);
-          if (isDev) {
-            console.log(`Copied font: ${file}`);
-          }
         }
       });
     },
@@ -143,6 +140,7 @@ export default defineConfig({
   build: {
     minify: 'terser', // Use terser for better minification
     terserOptions: {
+      // biome-ignore lint/style/useNamingConvention: required for terser drop_console target
       compress: { drop_console: false },
     },
     outDir: 'dist', // Output directory for the build - cache bust
@@ -324,8 +322,8 @@ async function createApiMiddleware(mode: 'dev' | 'preview') {
       }
 
       return next();
-    } catch (_e) {
-      console.error(`[dev-chat-api] ${mode} handler error`, _e);
+    } catch (error) {
+      viteLogger.error(`[dev-chat-api] ${mode} handler error`, { error });
       res.statusCode = 500;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.end(JSON.stringify({ error: `${mode} chat route failed` }));

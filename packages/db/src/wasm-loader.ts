@@ -1,8 +1,11 @@
+import { createLogger } from '@brainstrike/utils';
 import type { Extension } from '@electric-sql/pglite';
 import { PGlite } from '@electric-sql/pglite';
 
 type VectorExtension = Extension;
 type LiveExtension = Extension;
+
+const logger = createLogger('WasmLoader');
 
 let cachedVectorPromise: Promise<VectorExtension> | null = null;
 let cachedLivePromise: Promise<LiveExtension> | null = null;
@@ -109,7 +112,7 @@ class WasmLoader {
     if (normalizedDataDir?.startsWith('idb://')) {
       const cached = this.dbCache.get(cacheKey);
       if (cached) {
-        console.info(`[WasmLoader] Reusing cached PGlite instance for ${cacheKey}`);
+        logger.info('Reusing cached PGlite instance', { cacheKey });
         return cached;
       }
     }
@@ -139,9 +142,9 @@ class WasmLoader {
       this.dbCache.delete(cacheKey);
       try {
         await db.close();
-        console.info(`[WasmLoader] Closed and removed cached instance for ${cacheKey}`);
+        logger.info('Closed and removed cached PGlite instance', { cacheKey });
       } catch (err) {
-        console.warn(`[WasmLoader] Failed to close ${cacheKey}:`, err);
+        logger.warn('Failed to close cached PGlite instance', { cacheKey, error: err });
       }
     }
   }
@@ -174,20 +177,25 @@ class WasmLoader {
       const request = window.indexedDB.deleteDatabase(dbName);
 
       request.onsuccess = () => {
-        console.info(`[WasmLoader] Successfully deleted IndexedDB database: ${dbName}`);
+        logger.info('Deleted IndexedDB database for PGlite', { dbName });
         resolve();
       };
 
       request.onerror = () => {
         const error = new Error(`Failed to delete IndexedDB database: ${dbName}`);
-        console.error('[WasmLoader]', error, request.error);
+        logger.error('Failed to delete IndexedDB database', {
+          dbName,
+          error,
+          requestError: request.error,
+        });
         reject(error);
       };
 
       request.onblocked = () => {
-        console.warn(
-          `[WasmLoader] IndexedDB deletion blocked for: ${dbName}. Close all tabs/connections.`
-        );
+        logger.warn('IndexedDB deletion blocked', {
+          dbName,
+          message: 'Close all tabs/connections.',
+        });
         // Don't reject - the database will be deleted when connections close
       };
     });

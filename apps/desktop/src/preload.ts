@@ -4,7 +4,7 @@ const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
 import type { PanelPersistenceState } from '@brainstrike/ui';
-import type { LoggingPreferences } from '@brainstrike/utils';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 // Expose storage APIs to renderer
@@ -114,6 +114,14 @@ contextBridge.exposeInMainWorld('logging', {
   selectDestination: (): Promise<string | null> => ipcRenderer.invoke('logging:select-destination'),
   openDestination: (target: string | null): Promise<boolean> =>
     ipcRenderer.invoke('logging:open-destination', target ?? null),
+  getBufferedLogs: (): Promise<LogRecord[]> => ipcRenderer.invoke('logging:get-buffered-logs'),
+  onPreferencesUpdated: (callback: (preferences: LoggingPreferences) => void) => {
+    const listener = (_event: unknown, prefs: LoggingPreferences) => callback(prefs);
+    ipcRenderer.on('logging:preferences-updated', listener);
+    return () => {
+      ipcRenderer.removeListener('logging:preferences-updated', listener);
+    };
+  },
 });
 
 // System Clipboard helper (renderer-friendly)

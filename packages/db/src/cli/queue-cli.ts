@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createLogger } from '@brainstrike/utils';
 import type { JobState } from '../queue/job-queue.js';
 import { JobQueue } from '../queue/job-queue.js';
 /*
@@ -9,6 +10,8 @@ import { JobQueue } from '../queue/job-queue.js';
    node dist/cli/queue-cli.js clear --queue embeddings --states failed queued --db memory://
 */
 import { wasmLoader } from '../wasm-loader.js';
+
+const logger = createLogger('QueueCli');
 
 type Args = {
   cmd: 'stats' | 'requeue' | 'clear' | 'prune' | 'help';
@@ -74,20 +77,35 @@ function parseArgs(argv: string[]): Args {
   return out;
 }
 
+function writeInfo(message: string): void {
+  logger.info(message);
+  process.stdout.write(`${message}\n`);
+}
+
+function writeJson(label: string, payload: unknown): void {
+  logger.info(label, { payload });
+  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+}
+
+function writeError(message: string, error?: unknown): void {
+  logger.error(message, { error });
+  process.stderr.write(`${message}\n`);
+}
+
 function printHelp() {
-  console.log(
+  writeInfo(
     'Usage: queue-cli <stats|requeue|clear|prune> [--queue embeddings] [--limit 20] [--db memory://] [--states failed queued] [--olderThan 2025-01-01T00:00:00Z]'
   );
 }
 
 async function executeStats(jq: JobQueue, queue?: string) {
   const stats = await jq.getQueueStats(queue);
-  console.log(JSON.stringify(stats, null, 2));
+  writeJson('queue-stats', { queue, stats });
 }
 
 async function executeRequeue(jq: JobQueue, queue?: string, limit = 20) {
   const moved = await jq.requeueFailed(queue, limit);
-  console.log(`Requeued ${moved} failed jobs${queue ? ` in queue '${queue}'` : ''}.`);
+  writeInfo(`Requeued ${moved} failed jobs${queue ? ` in queue '${queue}'` : ''}.`);
 }
 
 function sanitizeStates(states?: string[]): JobState[] | undefined {
@@ -99,7 +117,7 @@ function sanitizeStates(states?: string[]): JobState[] | undefined {
 async function executeClear(jq: JobQueue, queue?: string, states?: string[]) {
   const safeStates = sanitizeStates(states);
   const deleted = await jq.clear(queue, safeStates);
-  console.log(
+  writeInfo(
     `Deleted ${deleted} jobs${queue ? ` in queue '${queue}'` : ''}${
       safeStates ? ` with states [${safeStates.join(',')}]` : ''
     }.`
@@ -108,12 +126,12 @@ async function executeClear(jq: JobQueue, queue?: string, states?: string[]) {
 
 async function executePrune(jq: JobQueue, states?: string[], olderThan?: string) {
   if (!olderThan) {
-    console.error('prune requires --olderThan ISO timestamp');
+    writeError('prune requires --olderThan ISO timestamp');
     process.exit(2);
   }
   const safeStates = sanitizeStates(states) ?? ['succeeded', 'failed'];
   const deleted = await jq.prune(safeStates, olderThan);
-  console.log(
+  writeInfo(
     `Pruned ${deleted} jobs with states [${safeStates.join(',')}] older than ${olderThan}.`
   );
 }
@@ -151,6 +169,6 @@ async function main() {
 
 // eslint-disable-next-line unicorn/prefer-top-level-await
 main().catch((err) => {
-  console.error('queue-cli error:', err);
+  writeError('queue-cli error', err);
   process.exit(1);
 });

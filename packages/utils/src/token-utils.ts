@@ -1,6 +1,7 @@
 /**
  * Utility functions for estimating token counts for large language models
  */
+import { createLogger } from './logger';
 
 type EncodeFn = (text: string) => Uint32Array;
 
@@ -22,6 +23,7 @@ type BrowserEncoderCtor = new (
 let nodeEncoderPromise: Promise<EncodeFn | null> | null = null;
 let browserEncoderPromise: Promise<EncodeFn | null> | null = null;
 let loadFailureLogged = false;
+const logger = createLogger('TokenUtils');
 
 const isBrowserLike = () =>
   typeof window !== 'undefined' ||
@@ -41,10 +43,7 @@ function tryCreateEncoder(factory: EncoderFactory | undefined, input: string): E
 function logTiktokenFailure(runtime: 'node' | 'browser', error: unknown) {
   if (!loadFailureLogged) {
     loadFailureLogged = true;
-    console.warn(
-      `[token-utils] Failed to load tiktoken (${runtime}); falling back to heuristic`,
-      error
-    );
+    logger.warn(`Failed to load tiktoken (${runtime}); falling back to heuristic`, { error });
   }
 }
 
@@ -192,7 +191,7 @@ export async function countTokensAccurate(text: string): Promise<number> {
   } catch (error) {
     if (!loadFailureLogged) {
       loadFailureLogged = true;
-      console.warn('[token-utils] tiktoken encode failed; falling back to heuristic', error);
+      logger.warn('tiktoken encode failed; falling back to heuristic', { error });
     }
     return countTokensHeuristic(text);
   }
@@ -259,7 +258,7 @@ export async function calculateGroupTokens(texts: string[]): Promise<number> {
   } catch (error) {
     if (!loadFailureLogged) {
       loadFailureLogged = true;
-      console.warn('[token-utils] Batch token count failed; falling back to heuristic', error);
+      logger.warn('Batch token count failed; falling back to heuristic', { error });
     }
     return texts.reduce((total, text) => total + countTokensHeuristic(text), 0);
   }

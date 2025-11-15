@@ -197,8 +197,8 @@ export function useEnhancedFileImportService(
       if (process?.env?.['EMBED_QUEUE_ENABLED']) {
         return String(process.env['EMBED_QUEUE_ENABLED']).toLowerCase() === 'true';
       }
-    } catch (_e) {
-      // Silently fail in browser environments
+    } catch (error) {
+      logger.debug('Failed to read EMBED_QUEUE_ENABLED env flag', { error });
     }
     return false;
   })();
@@ -356,7 +356,7 @@ export function useEnhancedFileImportService(
         };
 
         const activeSetId = activeSetIdRef.current ?? null;
-        console.log('[baseImportRunner] Passing embeddingSetId to baseImportService:', activeSetId);
+        logger.debug('Passing embeddingSetId to baseImportService', { activeSetId });
 
         baseImportService
           .importFiles(selectedFilePaths, fileTree, fileContents, activeSetId ?? undefined)
@@ -390,15 +390,14 @@ export function useEnhancedFileImportService(
       options.onProgress?.(initialProgress);
 
       try {
-        console.log('[EnhancedFileImportService] About to create embedding config');
-        console.log('[EnhancedFileImportService] active embedding set at import time:', {
+        logger.info('Preparing embedding config for enhanced import', {
           activeSetId: activeSetIdRef.current,
         });
         const embeddingConfig = createEmbeddingConfig(
           chunkRepository,
           () => activeSetIdRef.current ?? null
         );
-        console.log('[EnhancedFileImportService] Embedding config created:', embeddingConfig);
+        logger.debug('Embedding config created', { embeddingConfig });
         const ports = createPorts(queuePort, sqlPort);
         const progressHandlers = createProgressHandlers(setProgress, options.onProgress);
 

@@ -1,5 +1,21 @@
 import type { PGlite } from '@electric-sql/pglite';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockLogger = vi.hoisted(() => ({
+  info: vi.fn(),
+  warn: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: vi.fn(() => mockLogger),
+  };
+});
+
 import { type Migration, MigrationRunner } from '../src/migrations/migration-runner.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 
@@ -31,6 +47,9 @@ describe('MigrationRunner', () => {
   // October 2025: Fresh database per test - WASM pre-loaded in vitest.setup.ts
   // Note: Don't run app migrations, just initialize the migration tracking table
   beforeEach(async () => {
+    Object.values(mockLogger).forEach((fn) => {
+      fn.mockReset();
+    });
     const dataDir = `/tmp/pglite-test-migration-runner-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
     db = await wasmLoader.createPGlite(dataDir);
     runner = new MigrationRunner(db);
@@ -104,14 +123,13 @@ describe('MigrationRunner', () => {
     });
 
     it('should skip already applied migrations', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-
       await runner.runMigration(testMigration1);
       await runner.runMigration(testMigration1); // Second time should skip
 
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('already applied'));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Migration already applied, skipping',
+        expect.objectContaining({ version: testMigration1.version })
+      );
     });
 
     it('should run migrations in order with up() method', async () => {
@@ -177,8 +195,6 @@ describe('MigrationRunner', () => {
     });
 
     it('should skip rollback for unapplied migrations', async () => {
-      const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
-
       const unappliedMigration: Migration = {
         version: 99,
         name: 'unapplied',
@@ -188,9 +204,10 @@ describe('MigrationRunner', () => {
 
       await runner.rollback(unappliedMigration);
 
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('is not applied'));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.info).toHaveBeenCalledWith(
+        'Migration not applied, skipping rollback',
+        expect.objectContaining({ version: 99 })
+      );
     });
 
     it('should throw error for migration without down script', async () => {
@@ -235,15 +252,14 @@ describe('MigrationRunner', () => {
         up: 'CREATE TABLE test_table (id INTEGER PRIMARY KEY, name TEXT, modified BOOLEAN);',
       };
 
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       const migrations = [modifiedMigration];
       const isValid = await runner.verify(migrations);
       expect(isValid).toBe(false);
 
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('checksum mismatch'));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('checksum mismatch'),
+        expect.objectContaining({ version: testMigration1.version })
+      );
     });
 
     it('should handle verification of unapplied migrations', async () => {

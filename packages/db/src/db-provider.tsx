@@ -173,9 +173,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       try {
         const res = await electronDB.query("SELECT 1 FROM pg_extension WHERE extname = 'vector'");
         hasVector = Array.isArray(res.rows) && res.rows.length > 0;
-      } catch (_err) {
-        // If detection fails, assume not available
+      } catch (error) {
         hasVector = false;
+        logger.warn('Failed to detect pgvector extension over IPC', { error });
       }
       if (!hasVector) {
         throw new Error(

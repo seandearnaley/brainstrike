@@ -19,6 +19,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  useToast,
 } from '@brainstrike/ui';
 import { AlertCircle, Brain, Copy, Cpu, Square, Zap } from 'lucide-react';
 import { useEffect } from 'react';
@@ -145,11 +146,19 @@ const SimilarityInterface = ({
   onCalculate,
   onDispose,
 }: SimilarityInterfaceProps) => {
+  const { toast } = useToast();
+
   const handleCopySimilarity = async () => {
     if (similarity !== null) {
       try {
         await navigator.clipboard.writeText((similarity * 100).toFixed(3));
-      } catch (_error) {}
+      } catch (error) {
+        toast({
+          title: 'Unable to copy similarity score',
+          description: error instanceof Error ? error.message : 'Clipboard access is unavailable.',
+          variant: 'destructive',
+        });
+      }
     }
   };
 

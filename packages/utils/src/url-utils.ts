@@ -1,7 +1,10 @@
+import { createLogger } from './logger';
+
 /**
  * Utility functions for URL handling and manipulation
  */
 
+const logger = createLogger('UrlUtils');
 /**
  * Removes trailing slashes from a URL or path
  * @param url The URL or path to normalize
@@ -72,7 +75,11 @@ export function parseQueryParams(url: string): Record<string, string> {
     for (const [key, value] of urlObj.searchParams.entries()) {
       params[key] = value;
     }
-  } catch (_e) {
+  } catch (error) {
+    logger.debug('Failed to parse full URL, falling back to query string parsing', {
+      url,
+      error,
+    });
     // If URL is invalid, try to parse just the query string
     const queryString = url.split('?')[1] || '';
     for (const param of queryString.split('&')) {

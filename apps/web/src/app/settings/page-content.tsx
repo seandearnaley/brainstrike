@@ -5,6 +5,7 @@ import {
   createTokenCountingSettingsCategory,
   EmbeddingSettings,
   LoggingSettingsSection,
+  type LogSourceAdapter,
   type SettingsCategory,
   SettingsPageContent as SettingsLayout,
 } from '@brainstrike/preferences';
@@ -12,6 +13,7 @@ import { Badge } from '@brainstrike/ui';
 import { Cpu, FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
 import { Helmet } from 'react-helmet-async';
+import { getWebLogBuffer } from '../../log-buffer';
 
 function EmbeddingModelsCategory() {
   return (
@@ -55,6 +57,13 @@ function EmbeddingWorkerCategory() {
 // Factory Reset category provided via createFactoryResetSettingsCategory()
 
 export default function SettingsPageContent() {
+  const logSource = useMemo<LogSourceAdapter>(() => {
+    const buffer = getWebLogBuffer();
+    return {
+      getInitialRecords: async () => buffer.getRecords(),
+      subscribe: (handler) => buffer.subscribe(handler),
+    };
+  }, []);
   const categories = useMemo<SettingsCategory[]>(
     () => [
       createAppearanceSettingsCategory(),
@@ -73,7 +82,7 @@ export default function SettingsPageContent() {
         description: 'Control browser log verbosity and redaction for debugging.',
         keywords: ['logging', 'debugging', 'console', 'diagnostics'],
         icon: FileCog,
-        render: () => <LoggingSettingsSection runtime="browser" />,
+        render: () => <LoggingSettingsSection runtime="browser" logSource={logSource} />,
       },
       {
         id: 'embedding-worker',
@@ -85,7 +94,7 @@ export default function SettingsPageContent() {
       },
       createFactoryResetSettingsCategory(),
     ],
-    []
+    [logSource]
   );
 
   return (

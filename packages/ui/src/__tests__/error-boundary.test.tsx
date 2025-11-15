@@ -41,9 +41,13 @@ vi.mock('../button', () => ({
 }));
 
 // Mock utility functions
-vi.mock('@brainstrike/utils', () => ({
-  isDevEnv: vi.fn(() => false),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    isDevEnv: vi.fn(() => false),
+  };
+});
 
 // Mock component that throws an error
 const ErrorThrowingComponent = ({ error }: { error: Error }) => {

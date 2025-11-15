@@ -6,6 +6,7 @@
  */
 
 import type { FileContents } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useState } from 'react';
 
 interface UseFileLoadingManagerProps {
@@ -19,6 +20,7 @@ export const useFileLoadingManager = ({
   fileContents,
   loadFileContent,
 }: UseFileLoadingManagerProps) => {
+  const logger = createLogger('FileLoadingManager');
   const [loadingFiles, setLoadingFiles] = useState<Set<string>>(new Set());
 
   const handleFileLoading = useCallback(
@@ -31,7 +33,8 @@ export const useFileLoadingManager = ({
 
       try {
         await loadFileContent(path);
-      } catch (_error) {
+      } catch (error) {
+        logger.warn('Failed to load file content', { path, error });
       } finally {
         setLoadingFiles((prev) => {
           const newSet = new Set(prev);

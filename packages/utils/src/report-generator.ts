@@ -1,6 +1,9 @@
-import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/file-system';
+import type { DirectoryHandle, FileSystemAdapter } from '@brainstrike/types';
 import { readFullFileTree } from './file-system-utils';
+import { createLogger } from './logger';
 import { generateProjectTreeText } from './tree-generator';
+
+const logger = createLogger('ReportGenerator');
 
 // File tree processing configuration
 interface FileTreeProcessingConfig {
@@ -195,7 +198,12 @@ async function readFullFileTreeFromAdapter(
     }
 
     return entries;
-  } catch (_error) {
+  } catch (error) {
+    logger.warn('Failed to read directory contents, returning empty node list', {
+      path: directoryHandle.path,
+      depth,
+      error,
+    });
     return [];
   }
 }

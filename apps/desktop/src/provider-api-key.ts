@@ -1,7 +1,10 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { createLogger } from '@brainstrike/utils';
 import { getAgentProviderEnvKeys, listAgentProviders } from './agent-client-loader';
 import { getSecretsService } from './secrets';
+
+const logger = createLogger('ProviderApiKey');
 
 function normalizeSecretValue(value: unknown): string | undefined {
   if (typeof value !== 'string') {
@@ -30,10 +33,7 @@ export async function readProviderSecretKey(
     const value = await secretsService.getKey(provider);
     return normalizeSecretValue(value);
   } catch (error) {
-    console.error(
-      `[provider-api-key] Failed to read secrets entry for provider "${provider}":`,
-      error
-    );
+    logger.error('Failed to read secrets entry for provider', { provider, error });
     return undefined;
   }
 }
@@ -68,7 +68,7 @@ export async function listConfiguredProviders(): Promise<SupportedProvider[]> {
       }
     }
   } catch (error) {
-    console.error('[provider-api-key] Failed to enumerate stored provider keys:', error);
+    logger.error('Failed to enumerate stored provider keys', { error });
   }
 
   return Array.from(configured.values());

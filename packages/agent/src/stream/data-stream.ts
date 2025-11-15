@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type {
   StreamChunk,
   StreamChunkFinish,
@@ -67,13 +68,14 @@ interface CreateResponseOptions {
   headers?: HeadersInit;
 }
 
+const logger = createLogger('AgentDataStream');
 const encoder = new TextEncoder();
 const DEFAULT_CLEANUP_DELAY_MS = 2 * 60 * 1000;
 const STREAM_DEBUG_ENABLED = Boolean(process.env['BRAINSTRIKE_DEBUG_STREAM']);
 
 function debugLog(stage: string, payload: unknown): void {
   if (STREAM_DEBUG_ENABLED) {
-    console.debug(`[brainstrike:data-stream] ${stage}`, payload);
+    logger.debug(`[brainstrike:data-stream] ${stage}`, payload);
   }
 }
 

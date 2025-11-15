@@ -10,10 +10,13 @@ import {
   toAiSdkStyleStream,
   webTools,
 } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/utils';
 import type { AssistantProviderConfig } from './server/assistant-config';
 import { resolveAssistantProviderConfig } from './server/assistant-config';
 
 export type { StreamChunk };
+
+const logger = createLogger('WebAssistantStream');
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
@@ -51,7 +54,7 @@ export async function handleChatEndpoint(
       apiKey: provider.apiKey,
     });
   } catch (error) {
-    console.error('[web assistant] failed to initialize chat stream', error);
+    logger.error('Failed to initialize chat stream', { error });
     res.writeHead(502, {
       'Content-Type': 'application/json; charset=utf-8',
       'Cache-Control': 'no-store',
@@ -119,7 +122,7 @@ export async function handleAssistantEndpoint(
       signal: abortController.signal,
     });
   } catch (error) {
-    console.error('[web assistant] failed to initialize assistant stream', error);
+    logger.error('Failed to initialize assistant stream', { error });
     res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
     res.end(
       JSON.stringify({
@@ -229,7 +232,7 @@ async function pipeStreamToResponse(
     }
   } catch (error) {
     if (!signal.aborted && !res.destroyed) {
-      console.error('[assistant-stream] failed to stream response', error);
+      logger.error('Failed to stream assistant response', { error });
     }
   }
 }

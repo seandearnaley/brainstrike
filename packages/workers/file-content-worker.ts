@@ -1,6 +1,12 @@
 import type { FileHandle, FileSystemAdapter } from '@brainstrike/file-system';
 import { FileContentError } from '@brainstrike/types';
-import { fileContent, fileExplorer, isBinaryExtension, isTextExtension } from '@brainstrike/utils';
+import {
+  createLogger,
+  fileContent,
+  fileExplorer,
+  isBinaryExtension,
+  isTextExtension,
+} from '@brainstrike/utils';
 
 export interface FileReadRequest {
   compositeKey: string;
@@ -18,6 +24,8 @@ export interface FileContentWorkerOptions {
   fileSystemAdapter: FileSystemAdapter;
   concurrency?: number;
 }
+
+const logger = createLogger('FileContentWorker');
 
 export function createFileContentWorker({
   fileSystemAdapter,
@@ -70,7 +78,8 @@ export function createFileContentWorker({
     let content: string;
     try {
       content = await fileSystemAdapter.readFile(req.handle);
-    } catch (_err) {
+    } catch (error) {
+      logger.warn('Failed to read file content via adapter', { error, path: req.path });
       throw new FileContentError('Error accessing file', req.path, 'LOADING_ERROR');
     }
 

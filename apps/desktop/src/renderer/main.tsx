@@ -5,8 +5,10 @@ import { useLoggingPreferencesStore } from '@brainstrike/preferences';
 import { initializeQueueTelemetrySink } from '@brainstrike/queue';
 import {
   applyLoggingPreferences,
+  createLogger,
   initializeLogging,
   installConsoleGuard,
+  installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
 import React, { useEffect, useState } from 'react';
@@ -25,6 +27,8 @@ const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, {
 const storageAdapter = new ElectronRendererStorageAdapter();
 
 const rendererLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+const rendererLogger = createLogger('DesktopRenderer');
+let flushQueueTelemetry: (() => void) | null = null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -42,6 +46,16 @@ initializeLogging({
   },
 });
 
+const removeRendererErrorHooks =
+  typeof window !== 'undefined'
+    ? installRendererErrorHooks({
+        scope: 'DesktopRenderer',
+        onError: () => {
+          flushQueueTelemetry?.();
+        },
+      })
+    : () => {};
+
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
   loggingStore.updatePreferences({
@@ -50,19 +64,42 @@ if (!loggingStore.hasHydrated) {
   });
 }
 
+async function syncLoggingPreferencesFromMain(): Promise<void> {
+  if (!window.logging?.getPreferences) {
+    return;
+  }
+  try {
+    const payload = await window.logging.getPreferences();
+    useLoggingPreferencesStore.getState().setPreferences(payload.preferences);
+  } catch (error) {
+    rendererLogger.warn('Failed to synchronize logging preferences from main process', { error });
+  }
+}
+
+void syncLoggingPreferencesFromMain();
+
 applyLoggingPreferences(useLoggingPreferencesStore.getState().preferences, 'electron-renderer');
 
 const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((state) => {
   applyLoggingPreferences(state.preferences, 'electron-renderer');
 });
 
+const unsubscribeLoggingEvents =
+  window.logging?.onPreferencesUpdated?.((preferences) => {
+    useLoggingPreferencesStore.getState().setPreferences(preferences);
+  }) ?? null;
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unsubscribeLoggingPreferences();
+    unsubscribeLoggingEvents?.();
+    removeRendererErrorHooks();
   });
 }
 
-const telemetryEndpoint = import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT;
+const telemetryEndpoint =
+  import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT ??
+  (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
 const rendererTelemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
@@ -83,15 +120,20 @@ if (rendererTelemetrySink) {
   const flushTelemetry = () => {
     void rendererTelemetrySink.flush();
   };
+  flushQueueTelemetry = flushTelemetry;
+  const handleBeforeUnload = () => {
+    flushTelemetry();
+  };
   if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', flushTelemetry);
+    window.addEventListener('beforeunload', handleBeforeUnload);
   }
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       if (typeof window !== 'undefined') {
-        window.removeEventListener('beforeunload', flushTelemetry);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
       }
+      flushQueueTelemetry = null;
       void rendererTelemetrySink.dispose();
     });
   }

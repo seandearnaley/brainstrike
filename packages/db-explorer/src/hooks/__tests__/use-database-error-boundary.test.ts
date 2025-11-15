@@ -1,6 +1,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useDatabaseErrorBoundary } from '../use-database-error-boundary';
+import {
+  databaseErrorBoundaryLogger,
+  useDatabaseErrorBoundary,
+} from '../use-database-error-boundary';
 
 describe('useDatabaseErrorBoundary', () => {
   const mockToast = vi.fn();
@@ -191,7 +194,9 @@ describe('useDatabaseErrorBoundary', () => {
     });
 
     it('should handle error in custom error handler gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(databaseErrorBoundaryLogger, 'error')
+        .mockImplementation(() => {});
       const errorThrowingHandler = vi.fn().mockImplementation(() => {
         throw new Error('Handler error');
       });
@@ -206,13 +211,15 @@ describe('useDatabaseErrorBoundary', () => {
         });
       });
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Error in custom error handler:',
-        expect.any(Error)
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Error in custom database error handler',
+        expect.objectContaining({
+          error: expect.any(Error),
+        })
       );
       expect(mockToast).toHaveBeenCalled();
 
-      consoleErrorSpy.mockRestore();
+      loggerErrorSpy.mockRestore();
     });
   });
 
@@ -449,7 +456,9 @@ describe('useDatabaseErrorBoundary', () => {
     it('should log errors in development', async () => {
       const originalEnv = process.env['NODE_ENV'];
       process.env['NODE_ENV'] = 'development';
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(databaseErrorBoundaryLogger, 'error')
+        .mockImplementation(() => {});
 
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
 
@@ -460,8 +469,8 @@ describe('useDatabaseErrorBoundary', () => {
         });
       });
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Database operation failed:',
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Database operation failed',
         expect.objectContaining({
           operation: 'anonymous',
           error,
@@ -470,13 +479,15 @@ describe('useDatabaseErrorBoundary', () => {
       );
 
       process.env['NODE_ENV'] = originalEnv;
-      consoleErrorSpy.mockRestore();
+      loggerErrorSpy.mockRestore();
     });
 
     it('should not log errors in production', async () => {
       const originalEnv = process.env['NODE_ENV'];
       process.env['NODE_ENV'] = 'production';
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(databaseErrorBoundaryLogger, 'error')
+        .mockImplementation(() => {});
 
       const { result } = renderHook(() => useDatabaseErrorBoundary({ toast: mockToast }));
 
@@ -486,13 +497,10 @@ describe('useDatabaseErrorBoundary', () => {
         });
       });
 
-      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
-        'Database operation failed:',
-        expect.any(Object)
-      );
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
 
       process.env['NODE_ENV'] = originalEnv;
-      consoleErrorSpy.mockRestore();
+      loggerErrorSpy.mockRestore();
     });
   });
 });

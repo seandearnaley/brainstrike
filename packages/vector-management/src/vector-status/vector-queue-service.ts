@@ -1,5 +1,6 @@
 import type { FileChunkRepository, JobQueue } from '@brainstrike/db';
 import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
+import { createLogger } from '@brainstrike/utils';
 
 /**
  * Snapshot of embedding coverage statistics for a specific embedding set.
@@ -74,11 +75,7 @@ type EmbeddingSetJobMetadata = {
   expectedDimension: number;
 };
 
-const logger = {
-  info: (...args: unknown[]) => console.info('[VectorQueueService]', ...args),
-  debug: (...args: unknown[]) => console.debug('[VectorQueueService]', ...args),
-  error: (...args: unknown[]) => console.error('[VectorQueueService]', ...args),
-};
+const logger = createLogger('VectorQueueService');
 
 function* chunkArray<T>(items: T[], size: number): Generator<T[]> {
   const step = Math.max(1, size);

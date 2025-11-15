@@ -31,14 +31,18 @@ vi.mock('@electric-sql/pglite', () => ({ PGlite: PGliteMock }));
 vi.mock('@electric-sql/pglite/vector', () => ({ vector: { name: 'vector' } }));
 vi.mock('@brainstrike/db', () => ({ migrate: (...args: unknown[]) => migrateMock(...args) }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
-  }),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: () => ({
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    }),
+  };
+});
 
 describe('db-main lifecycle', () => {
   beforeEach(() => {

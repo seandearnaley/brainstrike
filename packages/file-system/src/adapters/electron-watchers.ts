@@ -1,6 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/utils';
 import type { DirectoryHandle, FileSystemChange } from '../types';
+
+const logger = createLogger('ElectronWatchers');
 
 export function startFsWatch(
   handle: DirectoryHandle,
@@ -24,7 +27,8 @@ export function startFsWatch(
       callback([{ type, path: full, kind: isDir ? 'directory' : 'file' }]);
     });
     return () => native.close();
-  } catch (_e) {
+  } catch (error) {
+    logger.error('Failed to start native fs.watch', { error, path: handle.path });
     return () => {};
   }
 }
@@ -60,7 +64,9 @@ export async function startChokidarWatch(
     .on('change', (file: string) => toChange('modified', file, false))
     .on('unlink', (file: string) => toChange('removed', file, false))
     .on('unlinkDir', (dir: string) => toChange('removed', dir, true))
-    .on('error', (_error: unknown) => {});
+    .on('error', (error: unknown) => {
+      logger.error('Chokidar watcher reported an error', { error, path: handle.path });
+    });
 
   return () => watcher.close();
 }
@@ -72,6 +78,10 @@ export function handleWatcherSetupError(
 ): () => void {
   const e = err as NodeJS.ErrnoException;
   if (e?.code !== 'MODULE_NOT_FOUND') {
+    logger.error('Failed to set up chokidar watcher, falling back to fs.watch', {
+      error: err,
+      path: handle.path,
+    });
   }
   return startFsWatch(handle, callback);
 }

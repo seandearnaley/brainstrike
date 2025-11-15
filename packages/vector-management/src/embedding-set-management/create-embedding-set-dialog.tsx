@@ -17,6 +17,7 @@ import {
   SelectValue,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 import { setActiveEmbeddingSetId } from '../vector-preferences';
 
@@ -76,6 +77,8 @@ function buildMetadata(formData: {
 
   return metadata;
 }
+
+const logger = createLogger('CreateEmbeddingSetDialog');
 
 export function CreateEmbeddingSetDialog({
   open,
@@ -162,7 +165,7 @@ export function CreateEmbeddingSetDialog({
       onOpenChange(false);
       onSetCreated?.(newSet.id);
     } catch (error) {
-      console.error('[CreateEmbeddingSetDialog] Failed to create set:', error);
+      logger.error('Failed to create embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to create collection',

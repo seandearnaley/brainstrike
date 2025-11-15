@@ -1,9 +1,13 @@
 import { render } from '@testing-library/react';
 
 // Mock dev environment BEFORE importing component
-vi.mock('@brainstrike/utils', () => ({
-  isDevEnv: vi.fn(() => true),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    isDevEnv: vi.fn(() => true),
+  };
+});
 
 // Mock persistence hook used internally by IdeLayout
 vi.mock('../hooks/use-panel-persistence', () => ({
