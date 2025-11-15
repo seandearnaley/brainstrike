@@ -1,11 +1,12 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 // Note: TableRowData type is imported where this hook is used
 import { createDebounce } from '@brainstrike/hooks';
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 const STORAGE_KEY = 'previewPanelPreferences.v1';
 const SAVE_DEBOUNCE_MS = 250;
+const logger = createLogger('PreviewPanelPersistence');
 
 // Define specific column visibility keys
 export interface ColumnVisibility {
@@ -107,8 +108,9 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
         };
         return validated;
       }
-    } catch (_error) {
+    } catch (error) {
       if (isDevEnv()) {
+        logger.warn('Failed to load preview panel preferences', { error });
       }
     }
     return null;
@@ -120,8 +122,9 @@ export function usePreviewPanelPersistence<T = Record<string, unknown>>(
       try {
         await storageAdapter.setItem(STORAGE_KEY, JSON.stringify(preferencesToSave));
         lastSavedRef.current = preferencesToSave;
-      } catch (_error) {
+      } catch (error) {
         if (isDevEnv()) {
+          logger.warn('Failed to persist preview panel preferences', { error });
         }
       }
     },

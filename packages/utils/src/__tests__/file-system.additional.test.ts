@@ -8,12 +8,12 @@ vi.mock('../hash-utils', () => ({
 }));
 
 // Mock the logger
-const mockLogger = {
+const mockLogger = vi.hoisted(() => ({
   warn: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
   debug: vi.fn(),
-};
+}));
 
 vi.mock('../logger', () => ({
   createLogger: vi.fn(() => mockLogger),

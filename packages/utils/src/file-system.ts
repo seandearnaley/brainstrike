@@ -19,6 +19,8 @@ export class BrainStrikeError extends Error {
   }
 }
 
+const logger = createLogger('FileSystem');
+
 /**
  * Core file system operations and utilities
  */
@@ -35,9 +37,8 @@ export const fileSystem = {
     if ('isSameEntry' in handle1) {
       try {
         return await (handle1 as unknown as ExperimentalFileSystemFeatures).isSameEntry(handle2);
-      } catch (_error) {
-        const logger = createLogger('fileSystem');
-        logger.warn('isSameEntry API failed, falling back to path comparison', _error);
+      } catch (error) {
+        logger.warn('isSameEntry API failed, falling back to path comparison', { error });
       }
     }
 
@@ -115,7 +116,11 @@ export const fileSystem = {
 
           pathSegments.unshift(parent.name);
           current = parent as unknown as ExperimentalFileSystemFeatures & FileSystemDirectoryHandle;
-        } catch (_error) {
+        } catch (error) {
+          logger.debug('getParent failed while generating folder id, using fallback path segment', {
+            error,
+            handleName: handle.name,
+          });
           // If getParent fails, try to use just the handle name with a prefix
           const fallbackPath = `root/${handle.name}`;
           return `h${await stableHash(fallbackPath)}`;
@@ -125,7 +130,11 @@ export const fileSystem = {
       // Join path segments and hash
       const fullPath = pathSegments.join('/');
       return `h${await stableHash(fullPath)}`;
-    } catch (_error) {
+    } catch (error) {
+      logger.warn('Failed to traverse directory tree while generating folder id', {
+        error,
+        handleName: handle.name,
+      });
       return `h${await stableHash(`fallback/${handle.name}_${Date.now()}`)}`;
     }
   },
@@ -139,17 +148,21 @@ export const fileSystem = {
     // Try text() first, fallback to arrayBuffer if not available
     try {
       return await file.text();
-    } catch (_error) {
+    } catch (error) {
+      logger.debug('Failed to read file via text(), falling back to arrayBuffer', {
+        error,
+        fileName: file.name,
+      });
       try {
         const arrayBuffer = await file.arrayBuffer();
         // Ensure we're using a proper TextDecoder instance
         const decoder = new TextDecoder('utf-8');
         return decoder.decode(new Uint8Array(arrayBuffer));
-      } catch (error) {
+      } catch (innerError) {
         throw new BrainStrikeError(
           'READ_FILE_CONTENT_FAILED',
           'Failed to read file content',
-          error instanceof Error ? error : undefined
+          innerError instanceof Error ? innerError : undefined
         );
       }
     }

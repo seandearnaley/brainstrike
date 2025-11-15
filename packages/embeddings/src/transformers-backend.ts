@@ -1,8 +1,11 @@
 import type { EmbeddingDType } from '@brainstrike/embedding-worker';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import type { EmbeddingConfig, EmbeddingProgress, EmbeddingResult, ModelConfig } from './types';
 import { BGE_M3_CONFIG, FALLBACK_MODEL_CONFIG } from './types';
+
+const logger = createLogger('TransformersBackend');
 
 // Type definitions for transformers.js
 interface TransformersModule {
@@ -183,7 +186,10 @@ export class TransformersBackend {
           message: 'Model ready!',
         });
         return;
-      } catch (_error) {
+      } catch (error) {
+        logger.warn('Embedding worker queue initialization failed, falling back to pipeline', {
+          error,
+        });
         this._useWorkerQueue = false;
         this._queue = null;
         // Fall through to local pipeline initialization
@@ -213,10 +219,11 @@ export class TransformersBackend {
       if (TransformersBackend._verboseOrtLogs && g.ort?.env) {
         g.ort.env.logLevel = 'verbose';
         // Monkey-patch console.warn once to catch EP assignment messages
-        const kAny = globalThis as unknown as { __bsWarnPatched?: boolean } & Console;
-        if (!kAny.__bsWarnPatched) {
-          const origWarn = console.warn.bind(console);
-          console.warn = (...args: unknown[]) => {
+        const kAny = globalThis as unknown as { __bsWarnPatched?: boolean; console?: Console };
+        const consoleRef = kAny.console;
+        if (!kAny.__bsWarnPatched && consoleRef) {
+          const origWarn = consoleRef.warn.bind(consoleRef);
+          consoleRef.warn = (...args: unknown[]) => {
             const first = String(args[0] ?? '');
             if (first.includes('VerifyEachNodeIsAssignedToAnEp')) {
               TransformersBackend._epFallbackSeen += 1;
@@ -226,8 +233,8 @@ export class TransformersBackend {
           kAny.__bsWarnPatched = true;
         }
       }
-    } catch {
-      // ignore if ORT not present yet
+    } catch (error) {
+      logger.debug('Failed to configure verbose ORT logging', { error });
     }
 
     onProgress?.({
@@ -289,27 +296,14 @@ export class TransformersBackend {
     try {
       await instantiatePipeline();
     } catch (initialError) {
-      if (pipelineConfig.quantized) {
-        console.warn(
-          '[TransformersBackend] Quantized pipeline failed, retrying without quantization',
-          initialError
-        );
-        pipelineConfig.quantized = false;
-        this._quantized = false;
-        const retryDType = this.resolveDTypeForDevice(
-          (pipelineConfig.device as 'webgpu' | 'wasm' | 'cpu' | undefined) ?? resolvedDevice,
-          false
-        );
-        pipelineConfig.dtype = retryDType;
-        this._selectedDType = retryDType;
-        try {
-          await instantiatePipeline();
-        } catch (retryError) {
-          await fallbackToCpu(retryError);
-        }
-      } else {
-        await fallbackToCpu(initialError);
-      }
+      await this.handlePipelineException(
+        initialError,
+        pipelineConfig,
+        resolvedDevice,
+        config.modelId,
+        instantiatePipeline,
+        fallbackToCpu
+      );
     }
 
     onProgress?.({
@@ -319,6 +313,36 @@ export class TransformersBackend {
     });
 
     this._isInitialized = true;
+  }
+
+  private async handlePipelineException(
+    error: unknown,
+    pipelineConfig: PipelineConfig,
+    resolvedDevice: 'webgpu' | 'wasm' | 'cpu',
+    _modelId: string,
+    instantiatePipeline: () => Promise<void>,
+    fallbackToCpu: (err: unknown) => Promise<void>
+  ): Promise<void> {
+    if (pipelineConfig.quantized) {
+      logger.warn('Quantized pipeline failed, retrying without quantization', {
+        error,
+      });
+      pipelineConfig.quantized = false;
+      this._quantized = false;
+      const retryDType = this.resolveDTypeForDevice(
+        (pipelineConfig.device as 'webgpu' | 'wasm' | 'cpu' | undefined) ?? resolvedDevice,
+        false
+      );
+      pipelineConfig.dtype = retryDType;
+      this._selectedDType = retryDType;
+      try {
+        await instantiatePipeline();
+      } catch (retryError) {
+        await fallbackToCpu(retryError);
+      }
+    } else {
+      await fallbackToCpu(error);
+    }
   }
 
   private async warmupQueue(
@@ -350,8 +374,12 @@ export class TransformersBackend {
         dtype: this._selectedDType ?? 'fp16',
         maxBatchSize: 1,
       });
-    } catch {
-      // Warm-up is best effort; ignore failures
+    } catch (error) {
+      logger.debug('Warmup job submission failed', {
+        embeddingId: warmupId,
+        modelId: config.modelId,
+        error,
+      });
     }
   }
 
@@ -464,7 +492,11 @@ export class TransformersBackend {
         dimensions,
         model: modelId,
       };
-    } catch {
+    } catch (error) {
+      logger.warn('Falling back to inline embedding generation after queue failure', {
+        modelId,
+        error,
+      });
       this._useWorkerQueue = false;
       this._queue = null;
       return null;
@@ -541,7 +573,9 @@ export class TransformersBackend {
     ) {
       try {
         await (this._pipeline as unknown as { dispose: () => Promise<void> }).dispose();
-      } catch (_error) {}
+      } catch (error) {
+        logger.debug('Failed to dispose transformers pipeline', { error });
+      }
     }
 
     this._pipeline = null;
@@ -574,7 +608,8 @@ export class TransformersBackend {
       case 'webgpu':
         try {
           return typeof navigator !== 'undefined' && 'gpu' in navigator;
-        } catch {
+        } catch (error) {
+          logger.debug('navigator.gpu detection failed', { error });
           return false;
         }
       case 'wasm':

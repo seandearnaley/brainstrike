@@ -6,7 +6,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@brainstrike/ui';
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
 import { Settings } from 'lucide-react';
 import * as React from 'react';
 import { useCallback, useState } from 'react';
@@ -38,6 +38,8 @@ interface FileExplorerConfigProps {
   };
 }
 
+const logger = createLogger('FileExplorerConfig');
+
 type InlineFixtureToggleDependencies = {
   onSettingsChange: (key: 'devInlineFixtureEnabled', value: boolean) => void;
   persistPatch: (patch: Partial<FileExplorerSettings>) => Promise<void> | void;
@@ -52,7 +54,7 @@ export const createInlineFixtureToggleHandler =
       await deps.persistPatch({ devInlineFixtureEnabled: checked });
     } catch (error) {
       if (isDevEnv()) {
-        console.warn('Failed to persist inline fixture toggle:', error);
+        logger.warn('Failed to persist inline fixture toggle', { error });
       }
     }
   };
@@ -402,7 +404,7 @@ const FileExplorerConfig: React.FC<FileExplorerConfigProps> = React.memo(
         await storage.setItem(name, JSON.stringify(wrapper));
       } catch (error) {
         if (isDevEnv()) {
-          console.warn('Failed to persist patch:', error);
+          logger.warn('Failed to persist file explorer settings patch', { error });
         }
       }
     };

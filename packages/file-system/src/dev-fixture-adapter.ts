@@ -1,7 +1,10 @@
 import type { IFileNode } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import type { FixtureDefinition, FixtureTree } from './dev-fixture-types';
 import { DEV_INLINE_FIXTURE } from './fixtures/dev-inline-fixture';
 import type { DirectoryHandle, DirectoryReadOptions, FileHandle, FileSystemAdapter } from './types';
+
+const logger = createLogger('FixtureAdapter');
 
 interface FixtureState {
   rootHandle: DirectoryHandle;
@@ -171,10 +174,10 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
         return cloneNodes(fixtureState.directories.get(handle.path) ?? []);
       }
       // Path not found in fixture - this shouldn't happen if fixture is properly built
-      console.warn(
-        `[FixtureAdapter] Path "${handle.path}" not found in fixture. Available paths:`,
-        Array.from(fixtureState.directories.keys())
-      );
+      logger.warn('Path not found in fixture', {
+        path: handle.path,
+        availablePaths: Array.from(fixtureState.directories.keys()),
+      });
       return [];
     }
     return originalReadDirectory(handle, optionsArg);
@@ -186,7 +189,7 @@ export function createFixtureCapableAdapter<T extends FileSystemAdapter>(
       if (record) {
         return record.content;
       }
-      console.warn(`[FixtureAdapter] File "${handle.path}" not found in fixture`);
+      logger.warn('File not found in fixture', { path: handle.path });
       return '';
     }
     return originalReadFile(handle);

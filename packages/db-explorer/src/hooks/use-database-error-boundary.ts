@@ -1,4 +1,5 @@
 import type { useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback } from 'react';
 
 export interface DatabaseErrorBoundaryOptions {
@@ -34,6 +35,8 @@ export interface ClearOperationResult {
   deletedFiles: number;
   deletedChunks: number;
 }
+
+const logger = createLogger('useDatabaseErrorBoundary');
 
 export function useDatabaseErrorBoundary({
   toast,
@@ -92,12 +95,12 @@ export function useDatabaseErrorBoundary({
         try {
           onError(error);
         } catch (handlerError) {
-          console.error('Error in custom error handler:', handlerError);
+          logger.error('Error in custom database error handler', { error: handlerError });
         }
       }
 
       if (process.env['NODE_ENV'] === 'development') {
-        console.error('Database operation failed:', {
+        logger.error('Database operation failed', {
           operation: operation.name || 'anonymous',
           error,
           stack: error instanceof Error ? error.stack : undefined,
@@ -311,7 +314,10 @@ export function useDatabaseErrorBoundary({
             failedCount++;
 
             if (process.env['NODE_ENV'] === 'development') {
-              console.error(`Operation '${name}' failed:`, error);
+              logger.error('Database operation failed during batch execution', {
+                operation: name,
+                error,
+              });
             }
 
             if (critical) {

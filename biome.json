@@ -41,12 +41,7 @@
         "noExplicitAny": "error",
         "noDebugger": "error",
         "noDuplicateParameters": "error",
-        "noConsole": {
-          "level": "warn",
-          "options": {
-            "allow": ["log", "error", "warn", "info", "debug"]
-          }
-        }
+        "noConsole": "error"
       },
       "style": {
         "useConst": "error",
@@ -143,7 +138,8 @@
             "noNonNullAssertion": "off"
           },
           "suspicious": {
-            "noNonNullAssertedOptionalChain": "off"
+            "noNonNullAssertedOptionalChain": "off",
+            "noConsole": "off"
           },
           "correctness": {
             "noUnusedVariables": "error",
@@ -175,6 +171,9 @@
           "correctness": {
             "noUnusedVariables": "error",
             "noEmptyPattern": "off"
+          },
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }
@@ -190,6 +189,9 @@
           },
           "correctness": {
             "noUnusedVariables": "warn"
+          },
+          "suspicious": {
+            "noConsole": "off"
           }
         }
       }
@@ -219,8 +221,6 @@
         "**/constants/**",
         "**/use-toast.ts",
         "**/logger.ts",
-        "**/*.config.js",
-        "**/*.config.{ts,mts}",
         "**/setup-security.ts",
         "**/vitest.setup.ts",
         "**/use-tab-manager.ts",

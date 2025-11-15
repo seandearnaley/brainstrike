@@ -8,6 +8,7 @@ import {
   applyLoggingPreferences,
   initializeLogging,
   installConsoleGuard,
+  installRendererErrorHooks,
   LogLevel,
 } from '@brainstrike/utils';
 import React from 'react';
@@ -25,6 +26,7 @@ const fileSystemAdapter = createFixtureCapableAdapter(baseFileSystemAdapter, { p
 const storageAdapter = createStorageAdapter('web');
 
 const defaultLevel = import.meta.env.DEV ? LogLevel.DEBUG : LogLevel.INFO;
+let flushQueueTelemetry: (() => void) | null = null;
 
 if (typeof window !== 'undefined') {
   installConsoleGuard();
@@ -40,6 +42,16 @@ initializeLogging({
     mode: import.meta.env.MODE,
   },
 });
+
+const removeRendererErrorHooks =
+  typeof window !== 'undefined'
+    ? installRendererErrorHooks({
+        scope: 'WebRenderer',
+        onError: () => {
+          flushQueueTelemetry?.();
+        },
+      })
+    : () => {};
 
 const loggingStore = useLoggingPreferencesStore.getState();
 if (!loggingStore.hasHydrated) {
@@ -58,10 +70,13 @@ const unsubscribeLoggingPreferences = useLoggingPreferencesStore.subscribe((stat
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     unsubscribeLoggingPreferences();
+    removeRendererErrorHooks();
   });
 }
 
-const telemetryEndpoint = import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT;
+const telemetryEndpoint =
+  import.meta.env.VITE_QUEUE_TELEMETRY_ENDPOINT ??
+  (import.meta.env.DEV ? 'http://localhost:4130/queue-telemetry' : undefined);
 const telemetrySink =
   typeof window !== 'undefined' && telemetryEndpoint
     ? initializeQueueTelemetrySink({
@@ -82,21 +97,31 @@ if (telemetrySink) {
   const flushTelemetry = () => {
     void telemetrySink.flush();
   };
+  flushQueueTelemetry = flushTelemetry;
+  const handleBeforeUnload = () => {
+    flushTelemetry();
+  };
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      flushTelemetry();
+    }
+  };
   if (typeof window !== 'undefined') {
-    window.addEventListener('beforeunload', flushTelemetry);
+    window.addEventListener('beforeunload', handleBeforeUnload);
   }
   if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', flushTelemetry);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   }
 
   if (import.meta.hot) {
     import.meta.hot.dispose(() => {
       if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', flushTelemetry);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
       if (typeof window !== 'undefined') {
-        window.removeEventListener('beforeunload', flushTelemetry);
+        window.removeEventListener('beforeunload', handleBeforeUnload);
       }
+      flushQueueTelemetry = null;
       void telemetrySink.dispose();
     });
   }

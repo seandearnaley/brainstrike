@@ -1,4 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const mockLogger = vi.hoisted(() => ({
+  warn: vi.fn(),
+  info: vi.fn(),
+  error: vi.fn(),
+  debug: vi.fn(),
+}));
+
+vi.mock('../logger', () => ({
+  createLogger: vi.fn(() => mockLogger),
+}));
+
 import {
   generateContentHash,
   generateUUID,
@@ -125,17 +137,13 @@ describe('crypto-utils', () => {
         writable: true,
       });
 
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-
       const result = await generateContentHash('test content');
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'crypto.subtle.digest failed, using fallback hash:',
-        expect.any(Error)
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'crypto.subtle.digest failed, using fallback hash',
+        { error: expect.any(Error) }
       );
       expect(result).toMatch(/^[0-9a-f]{32}$/);
-
-      consoleSpy.mockRestore();
     });
 
     it('generates consistent hashes for the same content', async () => {

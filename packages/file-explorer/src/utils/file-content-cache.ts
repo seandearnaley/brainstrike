@@ -1,3 +1,7 @@
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('FileContentCache');
+
 /**
  * LRU Cache for file contents with automatic eviction based on memory limits
  */
@@ -58,7 +62,10 @@ export class FileContentCache {
 
     // Don't cache large files (>1MB) - much more aggressive
     if (size > 1024 * 1024) {
-      console.warn(`File ${key} is too large (${Math.round(size / 1024)}KB) - skipping cache`);
+      logger.warn('File is too large to cache', {
+        key,
+        sizeKb: Math.round(size / 1024),
+      });
       return;
     }
 
@@ -177,9 +184,10 @@ export class FileContentCache {
       this.evictions++;
     }
 
-    console.log(
-      `FileContentCache: Evicted ${this.evictions} entries by size. Current size: ${Math.round(currentSize / 1024 / 1024)}MB`
-    );
+    logger.info('Evicted entries by size', {
+      evictions: this.evictions,
+      currentSizeMb: Math.round(currentSize / 1024 / 1024),
+    });
   }
 
   /**
@@ -199,9 +207,10 @@ export class FileContentCache {
       this.evictions++;
     }
 
-    console.log(
-      `FileContentCache: Evicted ${toRemove.length} entries by count. Current count: ${this.cache.size}`
-    );
+    logger.info('Evicted entries by count', {
+      removedEntries: toRemove.length,
+      currentCount: this.cache.size,
+    });
   }
 
   /**
@@ -240,7 +249,7 @@ export class FileContentCache {
       this.evictions++;
     }
 
-    console.log(`FileContentCache: Force evicted ${toRemove.length} oldest entries`);
+    logger.info('Force evicted oldest cache entries', { removedEntries: toRemove.length });
   }
 
   private nextAccessOrder(): number {

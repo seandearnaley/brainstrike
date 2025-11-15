@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ProviderDefinition, SupportedProvider } from '@brainstrike/agent/client';
+import { createLogger } from '@brainstrike/utils';
 
 type AgentClientModule = typeof import('@brainstrike/agent/client');
 
 let cachedAgentClient: AgentClientModule | null | undefined;
 let fallbackNotified = false;
+const logger = createLogger('AgentClientLoader');
 
 const FALLBACK_PROVIDERS: readonly SupportedProvider[] = [
   'openai',
@@ -88,9 +90,8 @@ function loadAgentClient(): AgentClientModule | null {
 
   if (!cachedAgentClient && !fallbackNotified) {
     fallbackNotified = true;
-    console.warn(
-      '[agent-client-loader] Falling back to static provider metadata. ' +
-        'Run "pnpm --filter @brainstrike/agent build" to restore @brainstrike/agent/client outputs.'
+    logger.warn(
+      'Falling back to static provider metadata. Run "pnpm --filter @brainstrike/agent build" to restore @brainstrike/agent/client outputs.'
     );
   }
 

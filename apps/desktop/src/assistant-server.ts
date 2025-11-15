@@ -8,6 +8,7 @@ import {
   webTools,
 } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { createLogger } from '@brainstrike/utils';
 
 type AgentModule = typeof import('@brainstrike/agent');
 type AgentMessage = AgentModule['AgentMessage'];
@@ -40,6 +41,8 @@ import {
   readProviderSecretKey,
   resolveProviderEnvKey,
 } from './provider-api-key';
+
+const logger = createLogger('DesktopAssistantServer');
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {
@@ -100,7 +103,7 @@ async function handleAssistantPost(
   const runtimeData = data ? { ...data, provider } : { provider };
   const apiKey = await resolveProviderApiKey(provider);
 
-  console.info('[assistant-server] request received', {
+  logger.info('Assistant request received', {
     messageCount: messages.length,
     provider,
     hasApiKey: Boolean(apiKey),
@@ -144,7 +147,7 @@ async function handleAssistantPost(
     await streamResponse(res, response, signal);
   } catch (error) {
     if (!signal.aborted) {
-      console.error('[assistant-server] stream error', error);
+      logger.error('Assistant stream error', { error });
     }
   } finally {
     cleanup();
@@ -193,16 +196,13 @@ async function resolveProviderApiKey(provider: string): Promise<string | undefin
 
   const envKey = resolveProviderEnvKey(supportedProvider);
   if (envKey) {
-    console.info(`[assistant-server] Using environment API key for provider "${provider}"`);
+    logger.info('Using environment API key for provider', { provider });
     return envKey;
   }
 
   const storedKey = await readProviderSecretKey(supportedProvider);
   if (storedKey) {
-    console.info(
-      `[assistant-server] Retrieved stored API key for provider "${provider}":`,
-      'present'
-    );
+    logger.info('Retrieved stored API key for provider', { provider });
     return storedKey;
   }
 
@@ -217,7 +217,7 @@ async function collectAvailableProviders(): Promise<string[]> {
       providers.add('openai');
     }
   } catch (error) {
-    console.error('[assistant-server] Failed to read legacy OpenAI key:', error);
+    logger.error('Failed to read legacy OpenAI key', { error });
     throw error;
   }
   return Array.from(providers);
@@ -307,7 +307,7 @@ async function resumeStreamIfAvailable(
     return false;
   }
 
-  console.info('[assistant-server] resuming stream', { lastEventId });
+  logger.info('Resuming assistant stream', { lastEventId });
   const response = session.createResponse(
     lastEventId ? { resumeFromEventId: lastEventId } : undefined
   );
@@ -337,10 +337,10 @@ async function initializeAgentStream(
 
   try {
     const stream = await toAiSdkStyleStream(messages, runtime);
-    console.info('[assistant-server] stream initialized');
+    logger.info('Assistant stream initialized');
     return { ok: true, stream };
   } catch (error) {
-    console.error('[assistant-server] failed to initialize assistant stream', error);
+    logger.error('Failed to initialize assistant stream', { error });
     const message = error instanceof Error ? error.message : String(error);
     return {
       ok: false,

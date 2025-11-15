@@ -10,7 +10,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@brainstrike/ui';
-import { encodeFileSelection, parseFilterString } from '@brainstrike/utils';
+import { createLogger, encodeFileSelection, parseFilterString } from '@brainstrike/utils';
 import { ChevronsDown, ChevronsUp, RefreshCw } from 'lucide-react';
 import * as React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +23,8 @@ import { useFileExplorer } from './use-file-explorer-context';
 import { useSelectionManager } from './use-selection-manager-context';
 
 // Lazy load the sidebar component (relative import to avoid duplicate module graphs/context)
+const logger = createLogger('FileExplorerLeftPanel');
+
 const FileExplorerSidebar = lazy(() =>
   import('./file-explorer-sidebar').then((m) => ({
     default: (m.default || m) as unknown as React.ComponentType<Record<string, unknown>>,
@@ -373,7 +375,8 @@ export const FileExplorerLeftPanel: React.FC = React.memo(() => {
         }
         notifySuccess(targetState);
         hasAppliedInitialFixtureRef.current = true;
-      } catch (_error) {
+      } catch (error) {
+        logger.warn('Failed to toggle inline fixture', { error, targetState });
         notifyError(targetState);
         setDevInlineFixtureEnabled(!targetState);
       } finally {

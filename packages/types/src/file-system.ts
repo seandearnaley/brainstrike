@@ -78,3 +78,40 @@ export interface FileHandle {
   platform: 'web' | 'electron';
   _internal?: unknown;
 }
+
+/**
+ * Options that influence how adapters enumerate directories.
+ */
+export interface DirectoryReadOptions {
+  /**
+   * When false, adapters may skip expensive metadata calls (size/lastModified).
+   * Defaults to true for backward compatibility.
+   */
+  includeMetadata?: boolean;
+  /**
+   * Maximum number of concurrent metadata operations (fs.stat/getFile, etc.).
+   * Values <= 0 or non-finite are treated as "unlimited".
+   */
+  concurrency?: number;
+}
+
+export interface FileSystemChange {
+  type: 'added' | 'removed' | 'modified';
+  path: string;
+  kind: 'file' | 'directory';
+}
+
+/**
+ * Platform-agnostic adapter contract implemented by web/electron shims.
+ */
+export interface FileSystemAdapter {
+  requestDirectoryAccess(): Promise<DirectoryHandle>;
+  readDirectory(handle: DirectoryHandle, options?: DirectoryReadOptions): Promise<IFileNode[]>;
+  readFile(handle: FileHandle): Promise<string>;
+  exists(path: string): Promise<boolean>;
+  watchDirectory?(
+    handle: DirectoryHandle,
+    callback: (changes: FileSystemChange[]) => void
+  ): () => void;
+  restoreLastFolder?(): Promise<DirectoryHandle | null>;
+}

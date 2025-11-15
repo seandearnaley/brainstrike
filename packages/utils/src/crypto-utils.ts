@@ -1,6 +1,9 @@
 /**
  * Cross-platform crypto utilities with fallbacks for non-secure contexts
  */
+import { createLogger } from './logger';
+
+const logger = createLogger('CryptoUtils');
 
 /**
  * Generate a UUID with fallback for environments without crypto.randomUUID
@@ -33,7 +36,7 @@ export async function generateContentHash(content: string): Promise<string> {
       return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     } catch (error) {
       // Fall through to fallback if crypto.subtle fails
-      console.warn('crypto.subtle.digest failed, using fallback hash:', error);
+      logger.warn('crypto.subtle.digest failed, using fallback hash', { error });
     }
   }
 

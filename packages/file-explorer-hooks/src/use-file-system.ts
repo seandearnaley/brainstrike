@@ -1,8 +1,11 @@
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { FileExplorerState } from '@brainstrike/types';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import { useAdapters } from './adapters-context';
 import { isUserCancellation, mapFileSystemError } from './file-system-error-helpers';
+
+const logger = createLogger('FileSystemHook');
 
 interface UseFileSystemParams {
   setCurrentFolderId: FileExplorerState['setCurrentFolderId'];
@@ -95,8 +98,8 @@ export function useFileSystem({ setCurrentFolderId }: UseFileSystemParams) {
           dispatch({ type: 'setRoot', handle: restored });
           setCurrentFolderId(restored.name);
         }
-      } catch (_err) {
-        // ignore
+      } catch (error) {
+        logger.warn('Failed to restore last folder', { error });
       } finally {
         dispatch({ type: 'setAccessLoading', loading: false });
         isRestoringRef.current = false;

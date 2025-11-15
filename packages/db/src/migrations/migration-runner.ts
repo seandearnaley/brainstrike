@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 
 export interface Migration {
@@ -9,6 +10,7 @@ export interface Migration {
 
 export class MigrationRunner {
   private static MIGRATION_TABLE = '_migrations';
+  private readonly logger = createLogger('MigrationRunner');
 
   constructor(private db: PGlite) {}
 
@@ -81,7 +83,7 @@ export class MigrationRunner {
       );
       const appliedCount = Number(appliedResult.rows[0]?.count ?? 0);
       if (appliedCount > 0) {
-        console.info(`Migration ${migration.version} is already applied, skipping`);
+        this.logger.info('Migration already applied, skipping', { version: migration.version });
         return;
       }
       // Execute migration based on type
@@ -151,7 +153,9 @@ export class MigrationRunner {
       );
       const appliedCount = Number(appliedResult.rows[0]?.count ?? 0);
       if (appliedCount === 0) {
-        console.info(`Migration ${migration.version} is not applied, skipping rollback`);
+        this.logger.info('Migration not applied, skipping rollback', {
+          version: migration.version,
+        });
         return;
       }
 
@@ -223,9 +227,11 @@ export class MigrationRunner {
         );
 
         if (storedChecksum && storedChecksum !== currentChecksum) {
-          console.warn(
-            `Migration ${migration.version} checksum mismatch: stored=${storedChecksum}, current=${currentChecksum}`
-          );
+          this.logger.warn('Migration checksum mismatch', {
+            version: migration.version,
+            storedChecksum,
+            currentChecksum,
+          });
           return false;
         }
       }

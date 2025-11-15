@@ -9,6 +9,7 @@ import {
   DialogTitle,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { useState } from 'react';
 
@@ -19,6 +20,8 @@ interface DeleteEmbeddingSetDialogProps {
   embeddingSet: (EmbeddingSet & { chunkCount: number }) | null;
   onSetDeleted?: (setId: string) => void;
 }
+
+const logger = createLogger('DeleteEmbeddingSetDialog');
 
 export function DeleteEmbeddingSetDialog({
   open,
@@ -65,7 +68,7 @@ export function DeleteEmbeddingSetDialog({
       onOpenChange(false);
       onSetDeleted?.(embeddingSet.id);
     } catch (error) {
-      console.error('[DeleteEmbeddingSetDialog] Failed to delete set:', error);
+      logger.error('Failed to delete embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to delete collection',

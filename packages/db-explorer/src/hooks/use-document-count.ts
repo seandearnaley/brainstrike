@@ -1,5 +1,8 @@
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils';
 import { useMemo } from 'react';
+
+const logger = createLogger('useDocumentCount');
 
 /**
  * Hook to get the count of indexed documents (chunks with embeddings) in the active collection
@@ -37,7 +40,7 @@ export function useDocumentCount(activeCollectionId: string | null): number | un
       return undefined;
     }
     if (error) {
-      console.error('[useDocumentCount] Failed to fetch document count:', error);
+      logger.error('Failed to fetch document count', { error });
       return undefined;
     }
     const row = rows[0];

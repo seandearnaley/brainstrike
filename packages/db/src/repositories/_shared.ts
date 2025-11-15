@@ -126,6 +126,10 @@ async function resolveTargetDimension(
   return undefined;
 }
 
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('DbRepositoriesShared');
+
 /**
  * Parse embeddings from various formats (TEXT/pgvector/JSON)
  * Handles multiple input formats:
@@ -160,7 +164,7 @@ function handleArrayInput(arr: unknown[]): number[] | undefined {
   if (validateNumberArray(arr)) {
     return arr;
   }
-  console.warn('parseEmbeddingLoose: Array contains non-numeric values');
+  logger.warn('parseEmbeddingLoose: Array contains non-numeric values');
   return undefined;
 }
 
@@ -202,13 +206,12 @@ export function parseEmbeddingLoose(embedding: unknown): number[] | undefined {
       return handleStringInput(embedding);
     }
 
-    console.warn('parseEmbeddingLoose: Unsupported embedding type:', typeof embedding);
+    logger.warn('parseEmbeddingLoose: Unsupported embedding type', { type: typeof embedding });
     return undefined;
   } catch (error) {
-    console.warn(
-      'parseEmbeddingLoose: Failed to parse embedding:',
-      error instanceof Error ? error.message : 'Unknown error'
-    );
+    logger.warn('parseEmbeddingLoose: Failed to parse embedding', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return undefined;
   }
 }

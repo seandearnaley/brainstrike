@@ -32,7 +32,6 @@
     "mutation": "npx @stryker-mutator/core run"
   },
   "dependencies": {
-    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "minimatch": "^10.0.3",
     "pino": "^10.0.0",

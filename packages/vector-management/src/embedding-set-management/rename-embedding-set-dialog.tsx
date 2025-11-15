@@ -11,6 +11,7 @@ import {
   Label,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useEffect, useState } from 'react';
 
 interface RenameEmbeddingSetDialogProps {
@@ -59,6 +60,8 @@ function buildMetadata(formData: {
 
   return metadata;
 }
+
+const logger = createLogger('RenameEmbeddingSetDialog');
 
 export function RenameEmbeddingSetDialog({
   open,
@@ -138,7 +141,7 @@ export function RenameEmbeddingSetDialog({
       onOpenChange(false);
       onSetRenamed?.(embeddingSet.id);
     } catch (error) {
-      console.error('[RenameEmbeddingSetDialog] Failed to update set:', error);
+      logger.error('Failed to rename embedding set', { error });
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to update collection',

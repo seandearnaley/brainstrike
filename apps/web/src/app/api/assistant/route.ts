@@ -10,7 +10,10 @@ import {
   toAiSdkStyleStream,
   webTools,
 } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/utils';
 import { resolveAssistantProviderConfig } from '../../../server/assistant-config';
+
+const logger = createLogger('WebAssistantRoute');
 
 export async function POST(req: Request): Promise<Response> {
   const lastEventId = req.headers.get('last-event-id');
@@ -53,7 +56,7 @@ export async function POST(req: Request): Promise<Response> {
       apiKey: provider.apiKey,
     });
   } catch (error) {
-    console.error('[api/assistant] failed to initialize assistant stream', error);
+    logger.error('Failed to initialize assistant stream', { error });
     return new Response(
       JSON.stringify({
         error: 'agent_stream_init_failed',

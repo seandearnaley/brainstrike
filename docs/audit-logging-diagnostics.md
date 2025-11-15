@@ -10,6 +10,15 @@
 
 BrainStrike has a **solid foundation** for logging and diagnostics with Pino-based structured logging, a queue telemetry system, and comprehensive UI components. However, there are **significant gaps** in consistency, observability, and production-ready monitoring that need addressing.
 
+## 2025-11-15 Updates
+
+- Standardized logger usage across desktop/web runtimes, job queue infrastructure, and embedding services; Biome now fails builds when `console.*` appears outside tests/scripts.
+- Added defensive logging for previously silent error paths (clipboard copy, file-system restore, queue cleanup, and the `packages/embeddings/src/{transformers-backend,worker/embedding-worker}.ts` hot-paths that used to swallow failures).
+- Desktop and browser runtimes now install `window.onerror` / `unhandledrejection` hooks via `installRendererErrorHooks()` so crashes are recorded alongside queue telemetry flushes.
+- Logging preferences are synchronized from the Electron main process on renderer boot (`syncLoggingPreferencesFromMain`) and updated live through the `logging:preferences-updated` IPC broadcast.
+- Introduced a reusable in-memory `LogBuffer`, IPC surfacing of main-process logs, and a new log viewer UI embedded in `LoggingSettingsSection` with filtering, search, pause/resume, and JSON export.
+- Job queue operations (`enqueue`, `claim`, `heartbeat`, `complete`, `fail`, lease expiry) now emit scoped log events and queue telemetry from `packages/db/src/queue/job-queue.ts`, enabling HUD components to react without raw SQL polling.
+
 ### Key Strengths ✅
 - Well-architected Pino v10 logging with scoped loggers
 - Comprehensive queue telemetry with metrics aggregation
@@ -487,22 +496,19 @@ throw error
 
 **Recommendation:** Log before throwing with full context
 
-### 2.4 No Log Viewer UI
+### 2.4 In-App Log Viewer (New)
 
-**Issue:** Logs written to file but no in-app viewer
+**Status:** ✅ Both desktop and web runtimes now expose a structured log buffer and viewer embedded directly in `LoggingSettingsSection`.
 
-**Current State:**
-- Desktop: File logging to `app.getPath('logs')/brainstrike.log`
-- Settings: Can configure destination
-- No UI to view logs without opening external file
+**Highlights:**
+- Ring buffer (1 000 entries) fed by `addLogListener`.
+- Desktop renderer merges local buffer with main-process buffered logs over IPC before rendering.
+- Live streaming with level filter, scoped search, auto-scroll, manual refresh, and JSON export.
 
-**User Impact:**
-- Must open file system to view logs
-- Cannot search/filter logs in-app
-- No real-time log streaming view
-- Poor UX for troubleshooting
-
-**Recommendation:** Build log viewer component
+**Remaining Opportunities:**
+- Persist filtered views between sessions.
+- Add per-scope quick filters and “copy entry” affordances.
+- Surface log buffer state (size, dropped entries) in telemetry.
 
 ### 2.5 Limited Database Diagnostics
 
@@ -721,6 +727,8 @@ try {
 ---
 
 ### Phase 2: Build Log Viewer (1-2 weeks)
+
+> **Update (2025-11-15):** ✅ The shared `LoggingSettingsSection` now ships with a live log viewer + export workflow powered by the new `LogBuffer`. Remaining work in this phase is limited to richer desktop file-tail UX (2.2).
 
 #### 2.1 In-App Log Viewer Component
 **Priority:** High

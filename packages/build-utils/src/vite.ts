@@ -1,10 +1,11 @@
 import { existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { isCompilerHotspot } from '@brainstrike/utils';
+import { createLogger, isCompilerHotspot } from '@brainstrike/utils';
 import type { HmrContext, Plugin } from 'vite';
 
 // @ts-expect-error: process.env has index signature
 const isDev = process.env.NODE_ENV === 'development';
+const logger = createLogger('PGliteLocator');
 
 export function findPGliteWasm(baseDir: string): string | null {
   const possiblePaths = [
@@ -34,13 +35,13 @@ export function findPGliteWasm(baseDir: string): string | null {
   for (const wasmPath of possiblePaths) {
     if (existsSync(wasmPath)) {
       if (isDev) {
-        console.log(`Found PGLite WASM at: ${wasmPath}`);
+        logger.debug('Found PGLite WASM', { wasmPath });
       }
       return wasmPath;
     }
   }
 
-  console.warn('PGLite WASM file not found in any expected location');
+  logger.warn('PGLite WASM file not found in any expected location');
   return null;
 }
 

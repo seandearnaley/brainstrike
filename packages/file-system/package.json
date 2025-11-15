@@ -24,6 +24,7 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "dependencies": {
+    "@brainstrike/utils": "workspace:*",
     "@brainstrike/platform-utils": "workspace:*",
     "@brainstrike/types": "workspace:*"
   },

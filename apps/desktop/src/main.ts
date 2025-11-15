@@ -3,11 +3,13 @@ import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
 import {
+  addLogListener,
   applyLoggingPreferences,
   createDefaultLoggingPreferences,
   createLogger,
   type InitializeLoggingOptions,
   initializeLogging,
+  LogBuffer,
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
@@ -168,6 +170,12 @@ const loggingOptions: InitializeLoggingOptions = {
   enableDebugInProduction: true,
 };
 
+const logger = createLogger('DesktopMain');
+const mainLogBuffer = new LogBuffer({ size: 1000 });
+const removeLogBufferListener = addLogListener((record) => {
+  mainLogBuffer.push(record);
+});
+
 if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.destination) {
   loggingOptions.file = {
     destination: initialLoggingPreferences.file.destination,
@@ -180,10 +188,9 @@ if (initialLoggingPreferences.file.enabled && initialLoggingPreferences.file.des
 try {
   initializeLogging(loggingOptions);
 } catch (error) {
-  console.error(
-    'Failed to initialize structured logging; continuing with console-only logs.',
-    error
-  );
+  logger.error('Failed to initialize structured logging; continuing with console-only logs.', {
+    error,
+  });
 }
 
 let currentLoggingPreferences = initialLoggingPreferences;
@@ -266,8 +273,6 @@ async function openLogDestination(target: string | null): Promise<boolean> {
   }
 }
 
-const logger = createLogger('DesktopMain');
-
 let stopAssistantServer: null | (() => Promise<void>) = null;
 
 async function handleResetLocal(): Promise<{ success: boolean; message?: string }> {
@@ -292,17 +297,16 @@ registerLoggingIpcHandlers({
   setPreferences: applyAndPersistLoggingPreferences,
   selectDestination: selectLogDestination,
   openDestination: openLogDestination,
+  getBufferedLogs: () => mainLogBuffer.getRecords(),
 });
 
 // Add global error handlers to catch silent crashes
 process.on('uncaughtException', (error) => {
   logger.error('Uncaught exception:', error);
-  console.error('Uncaught exception:', error);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled promise rejection:', reason);
-  console.error('Unhandled promise rejection at:', promise, 'reason:', reason);
+  logger.error('Unhandled promise rejection', { reason, promise });
 });
 
 logger.info('Setting up IPC handlers...');
@@ -440,6 +444,10 @@ app.on('before-quit', async () => {
   } catch (error) {
     logger.error('Error closing database:', error);
   }
+});
+
+app.on('will-quit', () => {
+  removeLogBufferListener();
 });
 
 export { createWindow, setupSecurity, registerIpcHandlers };

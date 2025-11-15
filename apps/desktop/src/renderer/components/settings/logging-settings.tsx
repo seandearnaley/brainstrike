@@ -12,8 +12,9 @@ import {
   useToast,
 } from '@brainstrike/ui';
 import type { LoggingPreferences } from '@brainstrike/utils';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { LoggingSettingsPayload } from '../../../logging-shared';
+import { getRendererLogBuffer } from '../../log-buffer';
 
 export function DesktopLoggingSettings() {
   const [loading, setLoading] = useState(true);
@@ -24,6 +25,24 @@ export function DesktopLoggingSettings() {
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
+  const logSource = useMemo<LoggingSettingsSectionProps['logSource']>(() => {
+    const buffer = getRendererLogBuffer();
+    return {
+      getInitialRecords: async () => {
+        const rendererRecords = buffer.getRecords();
+        if (!window.logging?.getBufferedLogs) {
+          return rendererRecords;
+        }
+        try {
+          const mainRecords = await window.logging.getBufferedLogs();
+          return [...rendererRecords, ...mainRecords];
+        } catch {
+          return rendererRecords;
+        }
+      },
+      subscribe: (handler) => buffer.subscribe(handler),
+    };
+  }, []);
 
   const mapPayload = useCallback(
     (payload: LoggingSettingsPayload) => {
@@ -157,6 +176,7 @@ export function DesktopLoggingSettings() {
       onSelectLogDestination={selectDestination}
       onOpenLogDestination={openDestination}
       onResetPreferences={resetPreferences}
+      logSource={logSource}
     />
   );
 }

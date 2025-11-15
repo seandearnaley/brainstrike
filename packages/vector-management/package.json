@@ -37,6 +37,7 @@
     "@brainstrike/queue": "workspace:*",
     "@brainstrike/preferences": "workspace:*",
     "@brainstrike/ui": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
     "@electric-sql/pglite": "^0.3.11",
     "lucide-react": "^0.545.0"
   },

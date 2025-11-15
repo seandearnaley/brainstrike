@@ -1,8 +1,10 @@
-import { generateUUID } from '@brainstrike/utils';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 
 export class EmbeddingSetsRepository {
+  private readonly logger = createLogger('EmbeddingSetsRepository');
+
   constructor(private db: PGlite) {}
 
   async getOrCreateSet(
@@ -41,7 +43,7 @@ export class EmbeddingSetsRepository {
       throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
     }
 
-    console.log('[EmbeddingSetsRepo] Created new embedding set:', {
+    this.logger.info('Created new embedding set', {
       id,
       modelKey,
       dimensions,

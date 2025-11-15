@@ -27,6 +27,7 @@ import {
   TooltipTrigger,
   useToast,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import {
   CreateEmbeddingSetDialog,
   ManageEmbeddingSetsDialog,
@@ -67,6 +68,8 @@ import { getActiveEmbeddingSetId, setActiveEmbeddingSetId } from './vector-prefe
 interface DatabaseDemoPanelProps {
   embeddingQueue?: QueueAdapter | null;
 }
+
+const logger = createLogger('DatabaseDemoPanel');
 
 type AvailableModel = {
   modelKey: string;
@@ -185,7 +188,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const errorBoundary = useDatabaseErrorBoundary({
     toast,
     onError: (error) => {
-      console.error('Database operation error:', error);
+      logger.error('Database operation error', { error });
     },
   });
 
@@ -427,13 +430,12 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
 
   // Collection management handlers
   const handleCollectionChange = useCallback((collectionId: string | null) => {
-    console.log('[DatabaseDemoPanel] Collection changed to:', collectionId);
+    logger.info('Collection changed', { collectionId });
     setActiveCollectionId(collectionId);
     setActiveEmbeddingSetId(collectionId);
-    console.log(
-      '[DatabaseDemoPanel] After setActiveEmbeddingSetId, checking getActive:',
-      getActiveEmbeddingSetId()
-    );
+    logger.debug('Active embedding set after update', {
+      activeEmbeddingSetId: getActiveEmbeddingSetId(),
+    });
   }, []);
 
   const handleManageCollections = useCallback(() => {

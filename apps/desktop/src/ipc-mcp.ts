@@ -4,6 +4,7 @@ import {
   mcpToolRegistry,
   saveToolPreferences,
 } from '@brainstrike/agent';
+import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, dialog, ipcMain } from 'electron';
 import { disposeClients, initClients } from './mcp';
@@ -19,9 +20,10 @@ import { getSecretsService } from './secrets';
 
 let unwatch: null | (() => void) = null;
 let last: LoadedMcpConfig | null = null;
+const logger = createLogger('DesktopMcpIpc');
 
 export function registerMcpIpcHandlers() {
-  console.log('[ipc-mcp] Registering MCP IPC handlers');
+  logger.info('Registering MCP IPC handlers');
 
   ipcMain.handle('mcp:config:get', async (): Promise<LoadedMcpConfig> => {
     last = await loadMcpConfig();
@@ -178,32 +180,30 @@ export function registerMcpIpcHandlers() {
 }
 
 async function discoverMcpToolsOnStartup(): Promise<void> {
-  console.log('[ipc-mcp] discoverMcpToolsOnStartup called');
+  logger.info('discoverMcpToolsOnStartup called');
   try {
     const loaded = await loadMcpConfig();
-    console.log('[ipc-mcp] Loaded config:', loaded);
+    logger.debug('Loaded MCP config for discovery', { loaded });
     if (loaded.config) {
       await discoverToolsFromConfig(loaded.config);
     } else {
-      console.log('[ipc-mcp] No config found, skipping discovery');
+      logger.info('No MCP config found, skipping discovery');
     }
   } catch (error) {
-    console.error('[ipc-mcp] Failed to discover MCP tools on startup:', error);
+    logger.error('Failed to discover MCP tools on startup', { error });
   }
 }
 
 async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promise<void> {
   if (!config || config.servers.length === 0) {
-    console.info('[ipc-mcp] No MCP servers configured, skipping tool discovery');
+    logger.info('No MCP servers configured, skipping tool discovery');
     return;
   }
 
-  console.info(
-    '[ipc-mcp] Starting tool discovery for',
-    config.servers.length,
-    'MCP servers:',
-    config.servers.map((s) => s.name).join(', ')
-  );
+  logger.info('Starting tool discovery', {
+    serverCount: config.servers.length,
+    servers: config.servers.map((s) => s.name),
+  });
 
   // We need to use Mastra's MCPClient to discover tools
   // Import it dynamically to avoid circular dependencies
@@ -212,7 +212,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
   try {
     const credentials = await resolveDiscoveryCredentials();
     if (!credentials) {
-      console.warn('[ipc-mcp] Skipping tool discovery - no provider credentials configured');
+      logger.warn('Skipping tool discovery - no provider credentials configured');
       return;
     }
 
@@ -228,7 +228,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
 
     // Tools are now registered in the global registry
     const stats = mcpToolRegistry.getStats();
-    console.info('[ipc-mcp] Tool discovery complete:', stats);
+    logger.info('Tool discovery complete', stats);
 
     // Clean up the runtime
     await runtime.dispose();
@@ -236,7 +236,7 @@ async function discoverToolsFromConfig(config: LoadedMcpConfig['config']): Promi
     // Apply saved tool preferences now that discovery has populated the registry
     await loadToolPreferencesOnStartup();
   } catch (error) {
-    console.error('[ipc-mcp] Failed to discover tools:', error);
+    logger.error('Failed to discover tools', { error });
     throw error; // Re-throw to see the full error
   }
 }
@@ -260,7 +260,7 @@ async function resolveDiscoveryCredentials(): Promise<
       }
     }
   } catch (error) {
-    console.error('[ipc-mcp] Unable to read stored provider credentials:', error);
+    logger.error('Unable to read stored provider credentials', { error });
   }
 
   const envKey = await readOpenAIApiKey();
@@ -297,7 +297,7 @@ async function saveToolPreferencesIfNeeded(): Promise<void> {
 
     await saveToolPreferences(app.getPath('userData'), preferences);
   } catch (error) {
-    console.error('Failed to save tool preferences:', error);
+    logger.error('Failed to save tool preferences', { error });
   }
 }
 
@@ -314,6 +314,6 @@ async function loadToolPreferencesOnStartup(): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('Failed to load tool preferences:', error);
+    logger.error('Failed to load tool preferences', { error });
   }
 }

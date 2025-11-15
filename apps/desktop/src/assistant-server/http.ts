@@ -1,4 +1,7 @@
 import type http from 'node:http';
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('DesktopAssistantHttpStream');
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;
@@ -94,7 +97,7 @@ export async function pumpReadableToResponse(
     await pumpChunks(reader, res, abortState);
   } catch (error) {
     if (!abortState.aborted && !res.destroyed) {
-      console.error('[desktop] stream error:', error);
+      logger.error('Stream pipeline failed', { error });
     }
   } finally {
     try {

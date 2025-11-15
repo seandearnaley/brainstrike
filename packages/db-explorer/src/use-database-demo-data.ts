@@ -9,7 +9,10 @@ import type {
 } from '@brainstrike/db';
 import { MigrationRunner, migrations, usePGliteLiveQuery } from '@brainstrike/db';
 import type { useToast } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+const logger = createLogger('DatabaseDemoData');
 
 export interface DatabaseInfo {
   location: string;
@@ -311,7 +314,7 @@ export function useDatabaseDemoData({
         }
       })
       .catch((error) => {
-        console.error('[DatabaseDemo] Failed to verify schema', error);
+        logger.error('Failed to verify database schema', { error });
         if (!cancelled) {
           setSchemaReady(false);
           toast({
@@ -399,7 +402,7 @@ export function useDatabaseDemoData({
       try {
         await refreshRecordsQuery();
       } catch (error) {
-        console.error('[DatabaseDemo] Failed to refresh records', error);
+        logger.error('Failed to refresh database records', { error });
         const message = extractErrorMessage(error);
         toast({
           title: 'Error',
@@ -422,7 +425,7 @@ export function useDatabaseDemoData({
       try {
         await refreshChunksQuery();
       } catch (error) {
-        console.error('[DatabaseDemo] Failed to refresh chunks', error);
+        logger.error('Failed to refresh database chunks', { error });
         const message = extractErrorMessage(error);
         toast({
           title: 'Error',
@@ -523,8 +526,9 @@ export function useDatabaseDemoData({
               connected: true,
             });
           }
-        } catch (_err) {
-          // ignore and allow repository-based test to set state
+        } catch (error) {
+          logger.debug('Electron DB ping failed', { error });
+          // allow repository-based test to set state
         }
       });
     }
@@ -540,8 +544,9 @@ export function useDatabaseDemoData({
               connected: true,
             });
           }
-        } catch (_err) {
-          // ignore and fall back to repository-based test
+        } catch (error) {
+          logger.debug('Electron DB test handler failed', { error });
+          // fall back to repository-based test
         }
       });
     }
@@ -593,8 +598,8 @@ export function useDatabaseDemoData({
                 }
           );
         }
-      } catch (_err) {
-        // ignore
+      } catch (error) {
+        logger.debug('Database info query failed', { error });
       }
     };
     void fetchInfo();
