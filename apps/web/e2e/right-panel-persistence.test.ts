@@ -11,64 +11,6 @@ test.describe('Right Panel - Persistence', () => {
     await waitForAppLoad(page);
   });
 
-  test('persists right panel search filters across hide/show and reload', async ({ page }) => {
-    const elements = getPanelElements(page);
-
-    // Show right panel
-    await expect(elements.showRightPanelShim).toBeVisible();
-    await elements.showRightPanelShim.click();
-    await expect(elements.rightPanel).toBeVisible();
-
-    // Navigate to Search tab (radix tabs render triggers as buttons; role may be tab or button)
-    const tabList = page.getByRole('tablist');
-    await expect(tabList).toBeVisible();
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-
-    // Fill query and toggle flags
-    const query = page.locator('#rp-search-query');
-    await expect(query).toBeVisible();
-    await query.fill('foo bar');
-    await page.getByLabel('Regex').click();
-    await page.getByLabel('Case').click();
-    await page.getByLabel('Whole word').click();
-
-    // Hide and re-show right panel
-    await elements.hideRightPanelButton.click();
-    await expect(elements.rightPanel).not.toBeVisible();
-    await elements.showRightPanelShim.click();
-    await expect(elements.rightPanel).toBeVisible();
-
-    // Verify Search filters persisted
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-    await expect(page.locator('#rp-search-query')).toHaveValue('foo bar');
-    await expect(page.getByLabel('Regex')).toBeChecked();
-    await expect(page.getByLabel('Case')).toBeChecked();
-    await expect(page.getByLabel('Whole word')).toBeChecked();
-
-    // Reload and verify again
-    await page.reload();
-    await waitForAppLoad(page);
-    // Right panel may restore visible depending on last state; if hidden, show it
-    if (await elements.rightPanel.isHidden()) {
-      await elements.showRightPanelShim.click();
-    }
-    await expect(elements.rightPanel).toBeVisible();
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-    await expect(page.locator('#rp-search-query')).toHaveValue('foo bar');
-    await expect(page.getByLabel('Regex')).toBeChecked();
-    await expect(page.getByLabel('Case')).toBeChecked();
-    await expect(page.getByLabel('Whole word')).toBeChecked();
-  });
-
   test('persists DB logs subtab controls across hide/show and reload (if Database tab present)', async ({
     page,
   }) => {
