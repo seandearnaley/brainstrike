@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { test } from '@playwright/test';
 import { resetAppState } from './utils/app-state';
-import { ensureRightPanelVisible, getPanelElements, waitForAppLoad } from './utils/layout-helpers';
+import { waitForAppLoad } from './utils/layout-helpers';
 
 test.describe('Right Panel - Navigation Persistence', () => {
   test.beforeEach(async ({ page }) => {
@@ -18,41 +18,5 @@ test.describe('Right Panel - Navigation Persistence', () => {
     });
   });
 
-  test('retains search filters after navigating to Settings and back', async ({ page }) => {
-    const elements = getPanelElements(page);
-
-    // Show right panel if hidden
-    await ensureRightPanelVisible(page);
-    await expect(elements.rightPanel).toBeVisible();
-
-    // Go to Search tab and set filters
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-    const query = page.locator('#rp-search-query');
-    await query.fill('navtest');
-    await page.getByLabel('Regex').click();
-    await page.getByLabel('Case').click();
-
-    // Navigate to Settings via nav sidebar
-    const nav = page.getByRole('navigation', { name: 'Main navigation' });
-    await nav.getByRole('button', { name: 'Settings' }).click();
-    await expect(
-      page.getByRole('heading', { name: 'Settings', exact: true, level: 1 })
-    ).toBeVisible();
-
-    // Navigate back to Context Explorer
-    await nav.getByRole('button', { name: 'Context Explorer' }).click();
-    await expect(elements.rightPanel).toBeVisible();
-
-    // Verify filters persisted
-    await page
-      .getByRole('tab', { name: 'Search' })
-      .or(page.getByRole('button', { name: 'Search' }))
-      .click();
-    await expect(page.locator('#rp-search-query')).toHaveValue('navtest');
-    await expect(page.getByLabel('Regex')).toBeChecked();
-    await expect(page.getByLabel('Case')).toBeChecked();
-  });
+  // Placeholder for future navigation persistence tests
 });

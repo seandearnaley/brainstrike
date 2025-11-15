@@ -116,7 +116,6 @@ describe('RightPanel', () => {
     // Check that all tab triggers are present
     expect(screen.getByRole('tab', { name: /assistant/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /embed/i })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: /search/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /db/i })).toBeInTheDocument();
 
     // Wait for async state updates to complete
@@ -146,10 +145,6 @@ describe('RightPanel', () => {
       await screen.findByText('Generate embeddings and calculate text similarity')
     ).toBeInTheDocument();
 
-    // Click on the search tab
-    await user.click(screen.getByRole('tab', { name: /search/i }));
-    expect(await screen.findByText('Search and replace functionality')).toBeInTheDocument();
-
     // Click on the database tab
     await user.click(screen.getByRole('tab', { name: /db/i }));
     const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });
@@ -174,13 +169,12 @@ describe('RightPanel', () => {
     expect(tabList).toBeInTheDocument();
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(4);
+    expect(tabs).toHaveLength(3);
 
     // Each tab should have text content
     expect(tabs[0]).toHaveTextContent('Assistant');
     expect(tabs[1]).toHaveTextContent('Embed');
-    expect(tabs[2]).toHaveTextContent('Search');
-    expect(tabs[3]).toHaveTextContent('DB');
+    expect(tabs[2]).toHaveTextContent('DB');
   });
 
   test('maintains content state when switching tabs', async () => {
@@ -198,8 +192,10 @@ describe('RightPanel', () => {
     await user.click(screen.getByRole('tab', { name: /embed/i }));
     expect(await screen.findByText('Text Embeddings')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('tab', { name: /search/i }));
-    expect(await screen.findByText('Search and replace functionality')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /db/i }));
+    const dbPanel = await screen.findByRole('tabpanel', { name: /db/i });
+    expect(await within(dbPanel).findByTestId('mock-database-panel')).toBeInTheDocument();
+
     await user.click(screen.getByRole('tab', { name: /assistant/i }));
     expect(await screen.findByText(/Chat with the Brainstrike assistant/i)).toBeInTheDocument();
   }, 30000);

@@ -36,7 +36,7 @@ const logger = createLogger('JobQueue');
 const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'custom';
 
 function fromRow(row: JobRow): Job {
-  return {
+  const job: Job = {
     id: row.id,
     queue: row.queue,
     jobType: row.job_type as JobType,
@@ -44,7 +44,7 @@ function fromRow(row: JobRow): Job {
     state: row.state,
     runAt: row.run_at,
     attempts: row.attempts,
-    maxAttempts: row.max_attempts,
+    max_attempts: row.max_attempts,
     backoff_ms: row.backoff_ms,
     lease_token: row.lease_token ?? null,
     leasedUntil: row.leased_until ?? null,
@@ -53,7 +53,8 @@ function fromRow(row: JobRow): Job {
     error: row.error ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
-  } as unknown as Job; // property names aligned above
+  };
+  return job;
 }
 
 function computeElapsedMs(startIso: string, endIso: string): number | null {

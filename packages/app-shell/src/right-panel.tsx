@@ -1,11 +1,10 @@
 import type { QueueAdapter } from '@brainstrike/queue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@brainstrike/ui';
-import { Brain, Database, MessageCircle, Search } from 'lucide-react';
+import { Brain, Database, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { AssistantTab } from './assistant-tab';
 import { DatabaseTab } from './database-tab';
 import { EmbeddingsTab } from './embeddings-tab';
-import { SearchTab } from './search-tab';
 import {
   type RightPanelTab,
   rightPanelSelectors,
@@ -24,7 +23,7 @@ interface RightPanelProps {
 }
 
 /**
- * Right panel containing Assistant, Embeddings, Search, and Database tabs.
+ * Right panel containing Assistant, Embeddings, and Database tabs.
  *
  * IMPORTANT: The embeddingQueue prop must be forwarded to DatabaseTab to ensure
  * the manage embedding sets button and embedding operations work correctly.
@@ -49,10 +48,6 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
             <Brain className="h-3 w-3" />
             <span className="hidden sm:inline">Embed</span>
           </TabsTrigger>
-          <TabsTrigger value="search" className="flex items-center gap-1">
-            <Search className="h-3 w-3" />
-            <span className="hidden sm:inline">Search</span>
-          </TabsTrigger>
           <TabsTrigger value="database" className="flex items-center gap-1">
             <Database className="h-3 w-3" />
             <span className="hidden sm:inline">DB</span>
@@ -70,10 +65,6 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
 
           <TabsContent value="embeddings" className="flex-1 mt-0 overflow-y-auto min-h-0">
             <EmbeddingsTab />
-          </TabsContent>
-
-          <TabsContent value="search" className="flex-1 mt-0 overflow-y-auto min-h-0">
-            <SearchTab />
           </TabsContent>
 
           <TabsContent value="database" className="flex-1 mt-0 overflow-y-auto min-h-0">
