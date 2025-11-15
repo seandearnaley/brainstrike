@@ -1,6 +1,9 @@
 import { usePGliteLiveQuery } from '@brainstrike/db';
+import { createLogger } from '@brainstrike/utils';
 import { useCallback, useMemo } from 'react';
 import type { FileCollectionStatus } from '../types/file-collection-status';
+
+const logger = createLogger('useFileCollectionStatus');
 
 /**
  * Database row returned by file status query
@@ -126,7 +129,7 @@ export function useFileCollectionStatus(activeCollectionId: string | null) {
     const map = new Map<string, FileCollectionStatus>();
     for (const row of rows) {
       if (!isValidFileStatusRow(row)) {
-        console.warn('[useFileCollectionStatus] Invalid row data:', row);
+        logger.warn('Invalid row data returned from file status query', { row });
         continue;
       }
       map.set(row.file_id, mapRowToStatus(row));

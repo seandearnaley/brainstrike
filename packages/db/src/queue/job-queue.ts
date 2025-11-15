@@ -1,4 +1,5 @@
-import { generateUUID } from '@brainstrike/utils';
+import { emitQueueTelemetry, type QueueTelemetryAdapter } from '@brainstrike/queue';
+import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { IDatabase } from '../repositories/interfaces.js';
 
 export type JobState = 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled' | 'expired';
@@ -31,6 +32,9 @@ export interface Job extends Omit<JobRow, 'job_type' | 'payload' | 'run_at' | 'l
   payload?: unknown | null;
 }
 
+const logger = createLogger('JobQueue');
+const JOB_QUEUE_TELEMETRY_ADAPTER: QueueTelemetryAdapter = 'custom';
+
 function fromRow(row: JobRow): Job {
   return {
     id: row.id,
@@ -50,6 +54,15 @@ function fromRow(row: JobRow): Job {
     created_at: row.created_at,
     updated_at: row.updated_at,
   } as unknown as Job; // property names aligned above
+}
+
+function computeElapsedMs(startIso: string, endIso: string): number | null {
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isFinite(start) && Number.isFinite(end)) {
+    return Math.max(0, end - start);
+  }
+  return null;
 }
 
 export interface EnqueueParams {
@@ -150,7 +163,38 @@ export class JobQueue {
     );
 
     if (!inserted.rows[0]) throw new Error('Failed to insert job');
-    return fromRow(inserted.rows[0]);
+    const job = fromRow(inserted.rows[0]);
+    const isNewEnqueue = job.id === id;
+
+    if (isNewEnqueue) {
+      logger.debug('Job enqueued', {
+        jobId: job.id,
+        queue: job.queue,
+        jobType: job.jobType,
+        runAt: job.runAt,
+        dedupeKey: dedupe,
+      });
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'enqueue',
+        taskId: job.id,
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+          dedupeKey: dedupe,
+        },
+      });
+    } else {
+      logger.debug('Job enqueue deduped; returning existing job', {
+        jobId: job.id,
+        queue: job.queue,
+        jobType: job.jobType,
+        runAt: job.runAt,
+        dedupeKey: dedupe,
+      });
+    }
+    return job;
   }
 
   async claim(params: ClaimParams): Promise<Job | null> {
@@ -194,7 +238,15 @@ export class JobQueue {
     );
 
     if (!result.rows[0]) return null;
-    return fromRow(result.rows[0]);
+    const job = fromRow(result.rows[0]);
+    logger.debug('Job claimed', {
+      jobId: job.id,
+      queue: job.queue,
+      leaseToken,
+      workerId: params.workerId ?? null,
+      attempts: job.attempts,
+    });
+    return job;
   }
 
   async heartbeat(params: HeartbeatParams): Promise<Job | null> {
@@ -206,7 +258,16 @@ export class JobQueue {
        RETURNING *`,
       [newLease, updatedAt, params.id, params.leaseToken]
     );
-    return res.rows[0] ? fromRow(res.rows[0]) : null;
+    if (!res.rows[0]) {
+      return null;
+    }
+    const job = fromRow(res.rows[0]);
+    logger.debug('Heartbeat extended lease', {
+      jobId: job.id,
+      leaseToken: params.leaseToken,
+      leasedUntil: job.leasedUntil,
+    });
+    return job;
   }
 
   async complete(params: CompleteParams): Promise<Job | null> {
@@ -217,7 +278,24 @@ export class JobQueue {
        RETURNING *`,
       [updatedAt, params.id, params.leaseToken]
     );
-    return res.rows[0] ? fromRow(res.rows[0]) : null;
+    if (!res.rows[0]) {
+      return null;
+    }
+    const job = fromRow(res.rows[0]);
+    logger.info('Job completed', { jobId: job.id, queue: job.queue, jobType: job.jobType });
+    const elapsedMs = computeElapsedMs(job.runAt, updatedAt);
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+      event: 'complete',
+      taskId: job.id,
+      ...(typeof elapsedMs === 'number' ? { elapsedMs } : {}),
+      metadata: {
+        queue: job.queue,
+        jobType: job.jobType,
+      },
+    });
+    return job;
   }
 
   async fail(params: FailParams): Promise<Job | null> {
@@ -241,7 +319,29 @@ export class JobQueue {
          RETURNING *`,
         [attempts, params.error, updatedAt, params.id, params.leaseToken]
       );
-      return res.rows[0] ? fromRow(res.rows[0]) : null;
+      if (!res.rows[0]) {
+        return null;
+      }
+      const failedJob = fromRow(res.rows[0]);
+      logger.error('Job failed permanently', {
+        jobId: failedJob.id,
+        queue: failedJob.queue,
+        error: params.error,
+      });
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'error',
+        taskId: failedJob.id,
+        errorMessage: params.error,
+        metadata: {
+          queue: failedJob.queue,
+          jobType: failedJob.jobType,
+          attempts,
+          terminal: true,
+        },
+      });
+      return failedJob;
     }
 
     const backoff = this.retryPolicy(attempts);
@@ -261,7 +361,30 @@ export class JobQueue {
        RETURNING *`,
       [attempts, backoff, runAt, params.error, updatedAt, params.id, params.leaseToken]
     );
-    return res.rows[0] ? fromRow(res.rows[0]) : null;
+    if (!res.rows[0]) {
+      return null;
+    }
+    const retriedJob = fromRow(res.rows[0]);
+    logger.warn('Job failed; retry scheduled', {
+      jobId: retriedJob.id,
+      queue: retriedJob.queue,
+      attempts,
+      retryAt: runAt,
+    });
+    emitQueueTelemetry({
+      timestamp: Date.now(),
+      adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+      event: 'error',
+      taskId: retriedJob.id,
+      errorMessage: params.error,
+      metadata: {
+        queue: retriedJob.queue,
+        jobType: retriedJob.jobType,
+        attempts,
+        retryAt: runAt,
+      },
+    });
+    return retriedJob;
   }
 
   async expireLeases(nowIso?: string): Promise<number> {
@@ -281,7 +404,11 @@ export class JobQueue {
       ) SELECT COUNT(*)::text as count FROM upd`,
       [now]
     );
-    return Number(res.rows[0]?.count ?? 0);
+    const released = Number(res.rows[0]?.count ?? 0);
+    if (released > 0) {
+      logger.warn('Expired job leases', { count: released });
+    }
+    return released;
   }
 
   async prune(states: JobState[], olderThanIso: string): Promise<number> {
@@ -296,7 +423,11 @@ export class JobQueue {
       ) SELECT COUNT(*)::text as count FROM del`,
       [olderThanIso, ...states]
     );
-    return Number(res.rows[0]?.count ?? 0);
+    const removed = Number(res.rows[0]?.count ?? 0);
+    if (removed > 0) {
+      logger.info('Pruned historical jobs', { count: removed, states, olderThanIso });
+    }
+    return removed;
   }
 
   // Stats helpers
@@ -382,7 +513,11 @@ export class JobQueue {
       ) SELECT COUNT(*)::text as count FROM del`,
       params
     );
-    return Number(res.rows[0]?.count ?? 0);
+    const removed = Number(res.rows[0]?.count ?? 0);
+    if (removed > 0) {
+      logger.info('Cleared job queue entries', { count: removed, queue: queue ?? 'all', states });
+    }
+    return removed;
   }
 
   async requeueFailed(queue?: string, limit = 20): Promise<number> {

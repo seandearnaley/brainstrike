@@ -1,8 +1,6 @@
-/**
- * Nuclear option: no hardcoded lists, no maintenance burden.
- * Factory reset uses blanket .clear() methods that wipe everything
- * without needing to know specific key names or database names.
- */
+import { createLogger } from '@brainstrike/utils';
+
+const logger = createLogger('FactoryReset');
 
 /**
  * Known IndexedDB database names that Brainstrike creates across environments.
@@ -45,7 +43,7 @@ async function clearElectronStorage(): Promise<void> {
     try {
       await w.electronAPI.storage.clear();
     } catch (error) {
-      console.warn('[FactoryReset] Failed to clear Electron renderer storage', error);
+      logger.warn('Failed to clear Electron renderer storage', { error });
     }
   }
 
@@ -54,7 +52,7 @@ async function clearElectronStorage(): Promise<void> {
     try {
       await w.secrets.clearAll(SECRETS_CLEAR_CONFIRMATION_TOKEN);
     } catch (error) {
-      console.warn('[FactoryReset] Failed to clear Electron secrets store', error);
+      logger.warn('Failed to clear Electron secrets store', { error });
     }
   }
 
@@ -63,7 +61,7 @@ async function clearElectronStorage(): Promise<void> {
     try {
       await w.settings.clearAll();
     } catch (error) {
-      console.warn('[FactoryReset] Failed to clear Electron settings store', error);
+      logger.warn('Failed to clear Electron settings store', { error });
     }
   }
 }
@@ -103,14 +101,13 @@ async function clearIndexedDbDatabases(): Promise<void> {
         .map((entry) => entry?.name)
         .filter((value): value is string => Boolean(value));
     } catch (error) {
-      console.warn(
-        '[FactoryReset] Failed to enumerate IndexedDB databases, falling back to known stores',
-        error
-      );
+      logger.warn('Failed to enumerate IndexedDB databases, falling back to known stores', {
+        error,
+      });
     }
   } else {
-    console.warn(
-      '[FactoryReset] IndexedDB.databases() not available - falling back to known Brainstrike databases'
+    logger.warn(
+      'IndexedDB.databases() not available - falling back to known Brainstrike databases'
     );
   }
 
@@ -132,7 +129,7 @@ async function clearCacheStorage(): Promise<void> {
     const cacheKeys = await caches.keys();
     await Promise.all(cacheKeys.map((key) => caches.delete(key).catch(() => false)));
   } catch (error) {
-    console.warn('[FactoryReset] Failed to clear CacheStorage', error);
+    logger.warn('Failed to clear CacheStorage', { error });
   }
 }
 
@@ -161,7 +158,7 @@ export async function clearPersistentUiState(
       localStorage.clear();
     }
   } catch (error) {
-    console.warn('[FactoryReset] Failed to clear localStorage', error);
+    logger.warn('Failed to clear localStorage', { error });
   }
 
   // Clear sessionStorage - future-proofed for any transient state
@@ -170,7 +167,7 @@ export async function clearPersistentUiState(
       sessionStorage.clear();
     }
   } catch (error) {
-    console.warn('[FactoryReset] Failed to clear sessionStorage', error);
+    logger.warn('Failed to clear sessionStorage', { error });
   }
 
   const tasks = [clearElectronStorage(), clearCacheStorage()];

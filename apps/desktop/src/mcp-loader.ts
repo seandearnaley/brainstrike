@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import { createLogger } from '@brainstrike/utils';
 import { app, safeStorage } from 'electron';
 export type McpServer =
   | {
@@ -14,6 +15,8 @@ export type McpServer =
 export interface McpConfig {
   servers: McpServer[];
 }
+
+const logger = createLogger('DesktopMcpLoader');
 
 function parseStdioServer(s: unknown): McpServer | null {
   if (!s || typeof s !== 'object' || !('transport' in s)) return null;
@@ -125,7 +128,7 @@ async function loadCustomConfigPath(): Promise<string | null> {
       return content.trim() || null;
     }
   } catch (error) {
-    console.error('[mcp-loader] Failed to load custom config path:', error);
+    logger.error('Failed to load custom MCP config path', { error });
   }
   return null;
 }
@@ -145,7 +148,7 @@ async function saveCustomConfigPath(configPath: string | null): Promise<void> {
       }
     }
   } catch (error) {
-    console.error('[mcp-loader] Failed to save custom config path:', error);
+    logger.error('Failed to save custom MCP config path', { error });
   }
 }
 

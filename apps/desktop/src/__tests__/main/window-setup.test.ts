@@ -64,6 +64,11 @@ const createLoggerMock = vi.fn(() => ({
   warn: vi.fn(),
   error: vi.fn(),
 }));
+
+const getLoggerInstance = (scope: string) => {
+  const index = createLoggerMock.mock.calls.findIndex(([arg]) => arg === scope);
+  return index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
+};
 const initializeLoggingMock = vi.fn();
 const createDefaultLoggingPreferencesMock = vi.fn(() => ({
   level: 'info',
@@ -80,22 +85,26 @@ const createDefaultLoggingPreferencesMock = vi.fn(() => ({
   },
 }));
 const applyLoggingPreferencesMock = vi.fn();
-vi.mock('@brainstrike/utils', () => ({
-  isDevEnv: isDevEnvMock,
-  createLogger: createLoggerMock,
-  initializeLogging: initializeLoggingMock,
-  createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
-  applyLoggingPreferences: applyLoggingPreferencesMock,
-  LogLevel: {
-    TRACE: 'trace',
-    DEBUG: 'debug',
-    INFO: 'info',
-    WARN: 'warn',
-    ERROR: 'error',
-    FATAL: 'fatal',
-    SILENT: 'silent',
-  },
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    isDevEnv: isDevEnvMock,
+    createLogger: createLoggerMock,
+    initializeLogging: initializeLoggingMock,
+    createDefaultLoggingPreferences: createDefaultLoggingPreferencesMock,
+    applyLoggingPreferences: applyLoggingPreferencesMock,
+    LogLevel: {
+      TRACE: 'trace',
+      DEBUG: 'debug',
+      INFO: 'info',
+      WARN: 'warn',
+      ERROR: 'error',
+      FATAL: 'fatal',
+      SILENT: 'silent',
+    },
+  };
+});
 vi.mock('electron-store', () => ({ default: vi.fn(() => ({})) }));
 
 describe('window setup', () => {
@@ -108,8 +117,6 @@ describe('window setup', () => {
   it('setupSecurity dev mode sets dev CSP and logs when isDevEnv is true', async () => {
     mockApp.isPackaged = false;
     isDevEnvMock.mockReturnValue(true);
-
-    const consoleSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
     const { setupSecurity } = await import('../../main');
     setupSecurity();
@@ -124,8 +131,14 @@ describe('window setup', () => {
     expect(cb.mock.calls[0]?.[0].responseHeaders['Content-Security-Policy'][0]).toContain(
       'localhost:*'
     );
-    expect(consoleSpy).toHaveBeenCalledWith('🔒 Development CSP configured:', expect.any(String));
-    consoleSpy.mockRestore();
+    const securityLogger = getLoggerInstance('DesktopSecurity');
+    expect(securityLogger?.info).toHaveBeenCalledWith(
+      'CSP configured',
+      expect.objectContaining({
+        mode: 'Development',
+        policy: expect.any(String),
+      })
+    );
   });
 
   it('setupSecurity prod mode sets restrictive CSP', async () => {

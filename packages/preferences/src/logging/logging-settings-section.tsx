@@ -16,9 +16,9 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
+import { type LoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/utils';
 import { FolderOpen, RefreshCw } from 'lucide-react';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
@@ -48,6 +48,12 @@ export interface LoggingSettingsSectionProps {
   onSelectLogDestination?: () => Promise<string | null>;
   onOpenLogDestination?: (target: string | null) => Promise<boolean>;
   onResetPreferences?: (preferences: LoggingPreferences) => Promise<void>;
+  logSource?: LogSourceAdapter;
+}
+
+export interface LogSourceAdapter {
+  getInitialRecords?: () => Promise<readonly LogRecord[]>;
+  subscribe?: (handler: (records: readonly LogRecord[]) => void) => () => void;
 }
 
 function formatLogLevel(level: LogLevel): string {
@@ -78,6 +84,7 @@ export function LoggingSettingsSection({
   onSelectLogDestination,
   onOpenLogDestination,
   onResetPreferences,
+  logSource,
 }: LoggingSettingsSectionProps) {
   const preferences = useLoggingPreferencesStore((state) => state.preferences);
   const updatePreferences = useLoggingPreferencesStore((state) => state.updatePreferences);
@@ -86,7 +93,6 @@ export function LoggingSettingsSection({
   const [isSyncing, setIsSyncing] = useState(false);
   const { toast } = useToast();
   const updateTokenRef = useRef(0);
-
   const pending = busy || isSyncing;
 
   const commitPreferences = useCallback(
@@ -220,8 +226,13 @@ export function LoggingSettingsSection({
       }
       await commitPreferences(next);
       toast({ title: 'Logging preferences reset' });
-    } catch (_error) {
+    } catch (error) {
       setPreferences(previous);
+      toast({
+        title: 'Failed to reset logging preferences',
+        description: error instanceof Error ? error.message : 'Unknown error occurred.',
+        variant: 'destructive',
+      });
     } finally {
       setIsSyncing(false);
     }
@@ -483,8 +494,299 @@ export function LoggingSettingsSection({
           </div>
         </CardContent>
       </Card>
+      <LogViewerCard logSource={logSource} toast={toast} />
     </div>
   );
 }
 
 export default LoggingSettingsSection;
+
+interface LogViewerCardProps {
+  logSource: LogSourceAdapter | undefined;
+  toast: ReturnType<typeof useToast>['toast'];
+}
+
+function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
+  const [logRecords, setLogRecords] = useState<readonly LogRecord[]>([]);
+  const [logLevelFilter, setLogLevelFilter] = useState<LogLevel>(LogLevel.DEBUG);
+  const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const logViewportRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!logSource) {
+      setLogRecords([]);
+      return;
+    }
+    let cancelled = false;
+
+    if (logSource.getInitialRecords) {
+      setLogsLoading(true);
+      logSource
+        .getInitialRecords()
+        .then((initial) => {
+          if (!cancelled && initial) {
+            setLogRecords(sortLogRecords(initial));
+          }
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          toast({
+            title: 'Failed to load logs',
+            description: message,
+            variant: 'destructive',
+          });
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLogsLoading(false);
+          }
+        });
+    }
+
+    const unsubscribe = logSource.subscribe?.((records) => {
+      setLogRecords(sortLogRecords(records));
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
+  }, [logSource, toast]);
+
+  const filteredLogRecords = useMemo(() => {
+    if (logRecords.length === 0) {
+      return [];
+    }
+    const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
+    const searchTerm = logSearchTerm.trim().toLowerCase();
+    return sortLogRecords(
+      logRecords.filter((record) => {
+        const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
+        if (recordLevelIndex < levelIndex) {
+          return false;
+        }
+        if (!searchTerm) {
+          return true;
+        }
+        const haystack = [
+          record.message ?? '',
+          record.scope ?? '',
+          serializeArgs(record.args),
+          JSON.stringify(record.bindings ?? {}),
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(searchTerm);
+      })
+    );
+  }, [logLevelFilter, logRecords, logSearchTerm]);
+
+  useEffect(() => {
+    if (!autoScroll || !logViewportRef.current) {
+      return;
+    }
+    logViewportRef.current.scrollTop = logViewportRef.current.scrollHeight;
+  }, [autoScroll, filteredLogRecords]);
+
+  const logLevelItems = useMemo(
+    () =>
+      LOG_LEVEL_OPTIONS.map((level) => (
+        <SelectItem key={level} value={level}>
+          {formatLogLevel(level)}
+        </SelectItem>
+      )),
+    []
+  );
+
+  const handleRefreshLogs = useCallback(async () => {
+    if (!logSource?.getInitialRecords) {
+      return;
+    }
+    setLogsLoading(true);
+    try {
+      const records = await logSource.getInitialRecords();
+      setLogRecords(sortLogRecords(records));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast({
+        title: 'Failed to refresh logs',
+        description: message,
+        variant: 'destructive',
+      });
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [logSource, toast]);
+
+  const handleExportLogs = useCallback(() => {
+    if (typeof window === 'undefined' || filteredLogRecords.length === 0) {
+      return;
+    }
+    const blob = new Blob([JSON.stringify(filteredLogRecords, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `brainstrike-logs-${new Date().toISOString()}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }, [filteredLogRecords]);
+
+  if (!logSource) {
+    return null;
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Log Viewer</CardTitle>
+        <CardDescription>
+          Stream recent structured logs and search by scope or text.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+            <div className="space-y-1">
+              <Label htmlFor="log-viewer-level">Minimum Level</Label>
+              <Select
+                value={logLevelFilter}
+                onValueChange={(value) => setLogLevelFilter(value as LogLevel)}
+              >
+                <SelectTrigger id="log-viewer-level" className="w-[180px]">
+                  <SelectValue placeholder="Level" />
+                </SelectTrigger>
+                <SelectContent>{logLevelItems}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="log-viewer-search">Search</Label>
+              <Input
+                id="log-viewer-search"
+                placeholder="Scope, message, payload"
+                value={logSearchTerm}
+                onChange={(event) => setLogSearchTerm(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+            <div className="flex items-center gap-2">
+              <Switch
+                id="log-viewer-autoscroll"
+                checked={autoScroll}
+                onCheckedChange={setAutoScroll}
+              />
+              <Label htmlFor="log-viewer-autoscroll">Auto-scroll</Label>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleExportLogs}
+                disabled={filteredLogRecords.length === 0}
+              >
+                Export
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleRefreshLogs}
+                disabled={logsLoading || !logSource.getInitialRecords}
+              >
+                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+                Refresh
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div
+          ref={logViewportRef}
+          className="h-64 w-full overflow-y-auto rounded-md border border-border/60 bg-muted/20"
+        >
+          {logsLoading && filteredLogRecords.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
+          ) : filteredLogRecords.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">
+              No logs recorded for the current session.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border/60 text-xs font-mono">
+              {filteredLogRecords.map((record, index) => (
+                <li key={`${record.timestamp}-${index}`} className="px-3 py-2">
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    <Badge variant={getLevelBadgeVariant(record.level)}>
+                      {record.level.toUpperCase()}
+                    </Badge>
+                    <span className="text-muted-foreground">
+                      {formatLogTimestamp(record.timestamp)}
+                    </span>
+                    {record.scope ? (
+                      <span className="text-muted-foreground">[{record.scope}]</span>
+                    ) : null}
+                  </div>
+                  {record.message ? (
+                    <div className="mt-1 text-[11px] leading-snug">{record.message}</div>
+                  ) : null}
+                  {record.args?.length ? (
+                    <pre className="mt-1 text-[11px] text-muted-foreground whitespace-pre-wrap">
+                      {serializeArgs(record.args)}
+                    </pre>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function sortLogRecords(records: readonly LogRecord[]): LogRecord[] {
+  return [...records].sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function formatLogTimestamp(timestamp: number): string {
+  try {
+    return new Date(timestamp).toLocaleTimeString();
+  } catch {
+    return String(timestamp);
+  }
+}
+
+function serializeArgs(args?: readonly unknown[]): string {
+  if (!args || args.length === 0) {
+    return '';
+  }
+  return args
+    .map((arg) => {
+      if (typeof arg === 'string') {
+        return arg;
+      }
+      try {
+        return JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    })
+    .join(' ');
+}
+
+function getLevelBadgeVariant(level: LogLevel): 'default' | 'secondary' | 'destructive' {
+  switch (level) {
+    case LogLevel.ERROR:
+    case LogLevel.FATAL:
+      return 'destructive';
+    case LogLevel.TRACE:
+    case LogLevel.DEBUG:
+      return 'secondary';
+    default:
+      return 'default';
+  }
+}

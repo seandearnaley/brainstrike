@@ -1,5 +1,5 @@
-import type { LoggingPreferences } from '@brainstrike/utils';
-import { ipcMain } from 'electron';
+import type { LoggingPreferences, LogRecord } from '@brainstrike/utils';
+import { ipcMain, webContents } from 'electron';
 import type { LoggingSettingsPayload } from './logging-shared';
 
 export interface LoggingIpcHandlers {
@@ -7,6 +7,7 @@ export interface LoggingIpcHandlers {
   setPreferences: (preferences: LoggingPreferences) => LoggingSettingsPayload;
   selectDestination: () => Promise<string | null>;
   openDestination: (target: string | null) => Promise<boolean>;
+  getBufferedLogs: () => readonly LogRecord[];
 }
 
 export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
@@ -15,7 +16,9 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
   ipcMain.handle(
     'logging:set-preferences',
     async (_event, preferences: LoggingPreferences): Promise<LoggingSettingsPayload> => {
-      return handlers.setPreferences(preferences);
+      const payload = handlers.setPreferences(preferences);
+      broadcastLoggingPreferences(payload.preferences);
+      return payload;
     }
   );
 
@@ -25,6 +28,18 @@ export function registerLoggingIpcHandlers(handlers: LoggingIpcHandlers): void {
     'logging:open-destination',
     async (_event, target: string | null): Promise<boolean> => handlers.openDestination(target)
   );
+
+  ipcMain.handle('logging:get-buffered-logs', async () => handlers.getBufferedLogs());
+}
+
+function broadcastLoggingPreferences(preferences: LoggingPreferences): void {
+  const cloned = cloneLoggingPreferences(preferences);
+  for (const contents of webContents.getAllWebContents()) {
+    const targetType = contents.getType?.();
+    if (targetType === 'window' || targetType === 'webview' || !targetType) {
+      contents.send('logging:preferences-updated', cloned);
+    }
+  }
 }
 
 export function cloneLoggingSettingsPayload(

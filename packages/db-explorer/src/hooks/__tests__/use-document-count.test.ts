@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useDocumentCount } from '../use-document-count';
+import { documentCountLogger, useDocumentCount } from '../use-document-count';
 
 type MockRow = { count: number };
 
@@ -64,17 +64,17 @@ describe('useDocumentCount', () => {
     const testError = new Error('live query failed');
     mockLiveQueryState.error = testError;
 
-    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const loggerErrorSpy = vi.spyOn(documentCountLogger, 'error').mockImplementation(() => {});
 
     const { result } = renderHook(() => useDocumentCount('collection-1'));
 
     expect(result.current).toBeUndefined();
-    expect(consoleSpy).toHaveBeenCalledWith(
-      '[useDocumentCount] Failed to fetch document count:',
-      testError
+    expect(loggerErrorSpy).toHaveBeenCalledWith(
+      'Failed to fetch document count',
+      expect.objectContaining({ error: testError })
     );
 
-    consoleSpy.mockRestore();
+    loggerErrorSpy.mockRestore();
   });
 
   it('recomputes when rows change', () => {

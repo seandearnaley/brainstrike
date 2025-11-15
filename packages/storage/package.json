@@ -23,7 +23,8 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "dependencies": {
-    "@brainstrike/platform-utils": "workspace:*"
+    "@brainstrike/platform-utils": "workspace:*",
+    "@brainstrike/utils": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.7.0",

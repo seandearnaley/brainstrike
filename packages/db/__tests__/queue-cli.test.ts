@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalArgv = [...process.argv];
 const originalExit = process.exit;
-const originalLog = console.log;
-const originalError = console.error;
+const originalStdoutWrite = process.stdout.write;
+const originalStderrWrite = process.stderr.write;
 
 describe('queue-cli smoke tests', () => {
   beforeEach(() => {
@@ -14,8 +14,8 @@ describe('queue-cli smoke tests', () => {
   afterEach(() => {
     process.argv = [...originalArgv];
     process.exit = originalExit;
-    console.log = originalLog;
-    console.error = originalError;
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
     vi.restoreAllMocks();
   });
 
@@ -28,8 +28,8 @@ describe('queue-cli smoke tests', () => {
       }
       return undefined as never;
     }) as never);
-    const logMock = vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logMock = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     process.argv = ['node', 'queue-cli'];
 
     const createPGlite = vi.fn();
@@ -54,17 +54,21 @@ describe('queue-cli smoke tests', () => {
     });
     expect(exitCalls[0]).toBe(0);
     expect(createPGlite).not.toHaveBeenCalled();
-    expect(logMock).toHaveBeenCalledWith(
-      expect.stringContaining('Usage: queue-cli <stats|requeue|clear|prune>')
-    );
+    expect(
+      logMock.mock.calls.some(
+        ([chunk]) =>
+          typeof chunk === 'string' &&
+          chunk.includes('Usage: queue-cli <stats|requeue|clear|prune>')
+      )
+    ).toBe(true);
   });
 
   it('executes stats command against the job queue', async () => {
     const exitMock = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`unexpected exit ${code ?? 0}`);
     }) as never);
-    const logMock = vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const logMock = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     process.argv = ['node', 'queue-cli', 'stats', '--queue', 'embeddings'];
 
@@ -91,7 +95,16 @@ describe('queue-cli smoke tests', () => {
       expect(createPGlite).toHaveBeenCalledWith('memory://');
       expect(JobQueueMock).toHaveBeenCalledTimes(1);
       expect(getQueueStats).toHaveBeenCalledWith('embeddings');
-      expect(logMock).toHaveBeenCalledWith(JSON.stringify(statsPayload, null, 2));
+      const expectedStatsPayload = JSON.stringify(
+        { queue: 'embeddings', stats: statsPayload },
+        null,
+        2
+      );
+      expect(
+        logMock.mock.calls.some(
+          ([chunk]) => typeof chunk === 'string' && chunk.includes(expectedStatsPayload)
+        )
+      ).toBe(true);
     });
 
     expect(exitMock).not.toHaveBeenCalled();

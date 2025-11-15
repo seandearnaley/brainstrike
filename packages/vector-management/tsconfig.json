@@ -22,6 +22,7 @@
     { "path": "../db" },
     { "path": "../embeddings" },
     { "path": "../preferences" },
-    { "path": "../ui" }
+    { "path": "../ui" },
+    { "path": "../utils" }
   ]
 }

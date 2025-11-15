@@ -6,6 +6,7 @@ import type {
 } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import type { LiveQuery, LiveQueryResults } from '@electric-sql/pglite/live';
 import type { IpcMainInvokeEvent } from 'electron';
 import { app, ipcMain } from 'electron';
@@ -34,6 +35,7 @@ type LiveSubscriptionRecord = {
 
 const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 let nextLiveSubscriptionId = 1;
+const logger = createLogger('DesktopIpcHandlers');
 
 async function cleanupLiveSubscription(id: number): Promise<void> {
   const record = liveSubscriptions.get(id);
@@ -47,7 +49,7 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
     if (normalizedMessage.includes('pglite is closed')) {
       return;
     }
-    console.warn('Failed to cleanup live query subscription', id, error);
+    logger.warn('Failed to cleanup live query subscription', { id, error });
   }
 }
 
@@ -142,8 +144,8 @@ export function registerIpcHandlers(
           return false;
         }
       }
-    } catch (_error) {
-      // Invalid path format
+    } catch (error) {
+      logger.debug('Invalid path provided during exists check', { error, path: p });
       return false;
     }
 
@@ -182,10 +184,8 @@ export function registerIpcHandlers(
       };
       return handle;
     } catch (error) {
-      // Debug logging in development only
-      const nodeEnv = process.env['NODE_ENV'];
-      if (nodeEnv === 'development') {
-        console.debug('Auto-restore failed:', error);
+      if (process.env['NODE_ENV'] === 'development') {
+        logger.debug('Auto-restore failed', { error });
       }
       // If there's any error, just return null and let user select manually
       return null;
@@ -200,10 +200,8 @@ export function registerIpcHandlers(
     try {
       await storage.setItem(LAST_FOLDER_STORAGE_KEY, folderPath);
     } catch (error) {
-      // Debug logging in development only
-      const nodeEnv = process.env['NODE_ENV'];
-      if (nodeEnv === 'development') {
-        console.debug('Failed to save last folder:', error);
+      if (process.env['NODE_ENV'] === 'development') {
+        logger.debug('Failed to save last folder', { error });
       }
       // Non-critical error, silently fail
       // The worst case is the user needs to select folder again on next launch
@@ -359,7 +357,7 @@ export function registerIpcHandlers(
         await record.handle.refresh(refreshArgs);
         return { success: true };
       } catch (error) {
-        console.warn('Failed to refresh live query', payload?.id, error);
+        logger.warn('Failed to refresh live query', { id: payload?.id, error });
         return {
           success: false,
           message: error instanceof Error ? error.message : String(error),

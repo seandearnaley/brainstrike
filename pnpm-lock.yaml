@@ -535,6 +535,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@brainstrike/queue':
+        specifier: workspace:*
+        version: link:../queue
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -996,6 +999,9 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@stryker-mutator/core':
         specifier: ^9.2.0
@@ -1257,6 +1263,9 @@ importers:
       '@brainstrike/platform-utils':
         specifier: workspace:*
         version: link:../platform-utils
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
     devDependencies:
       '@types/node':
         specifier: ^24.7.0
@@ -1475,9 +1484,6 @@ importers:
 
   packages/utils:
     dependencies:
-      '@brainstrike/file-system':
-        specifier: workspace:*
-        version: link:../file-system
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
@@ -1539,6 +1545,9 @@ importers:
       '@brainstrike/ui':
         specifier: workspace:*
         version: link:../ui
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
       '@electric-sql/pglite':
         specifier: ^0.3.11
         version: 0.3.11

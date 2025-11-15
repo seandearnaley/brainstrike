@@ -17,5 +17,6 @@
     "types": ["node"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "node_modules"]
+  "exclude": ["dist", "node_modules"],
+  "references": [{ "path": "../types" }, { "path": "../queue" }, { "path": "../utils" }]
 }

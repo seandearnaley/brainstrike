@@ -1,13 +1,162 @@
-import {
-  type DirectoryHandle,
-  type FileHandle,
-  type FileSystemAdapter,
-  type IFileNode,
-  type MockFileEntry,
-  MockFileSystemAdapter,
-} from '@brainstrike/file-system';
+import type {
+  DirectoryHandle,
+  DirectoryReadOptions,
+  FileHandle,
+  FileSystemAdapter,
+  FileSystemChange,
+  IFileNode,
+} from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateReport, generateReportFromAdapter } from '../report-generator';
+
+type MockFileEntry = {
+  name: string;
+  type: 'file' | 'directory';
+  content?: string;
+  size?: number;
+  children?: Record<string, MockFileEntry>;
+};
+
+class MockFileSystemAdapter implements FileSystemAdapter {
+  private readonly rootName = 'mock-root';
+
+  constructor(private readonly mockFileSystem: Record<string, MockFileEntry>) {}
+
+  async requestDirectoryAccess(): Promise<DirectoryHandle> {
+    return {
+      path: this.rootName,
+      name: this.rootName,
+      kind: 'directory',
+      platform: 'web',
+    };
+  }
+
+  async readDirectory(
+    handle: DirectoryHandle,
+    _options?: DirectoryReadOptions
+  ): Promise<IFileNode[]> {
+    const relative =
+      handle.path === this.rootName ? '' : handle.path.replace(`${this.rootName}/`, '');
+    const level = this.navigate(relative);
+    if (!level) return [];
+
+    const entries: IFileNode[] = [];
+    for (const [name, entry] of Object.entries(level)) {
+      const fullPath = relative ? `${handle.path}/${name}` : `${handle.path}/${name}`;
+      entries.push(this.createNode(name, entry, fullPath));
+    }
+    return entries.sort((a, b) => {
+      if (a.type !== b.type) {
+        return a.type === 'directory' ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }
+
+  async readFile(_handle: FileHandle): Promise<string> {
+    return '';
+  }
+
+  async exists(_path: string): Promise<boolean> {
+    return false;
+  }
+
+  watchDirectory?(
+    _handle: DirectoryHandle,
+    _callback: (changes: FileSystemChange[]) => void
+  ): () => void {
+    return () => {};
+  }
+
+  restoreLastFolder?(): Promise<DirectoryHandle | null> {
+    return Promise.resolve(null);
+  }
+
+  private navigate(path: string): Record<string, MockFileEntry> | null {
+    if (!path) {
+      return this.mockFileSystem;
+    }
+    const segments = path.split('/').filter(Boolean);
+    let current = this.mockFileSystem;
+    for (const part of segments) {
+      const entry = current[part];
+      if (!entry || entry.type !== 'directory' || !entry.children) {
+        return null;
+      }
+      current = entry.children;
+    }
+    return current;
+  }
+
+  private createNode(name: string, entry: MockFileEntry, fullPath: string): IFileNode {
+    const base: IFileNode = {
+      name,
+      path: fullPath,
+      type: entry.type,
+      depth: 0,
+      selectionState: 'unchecked',
+      rootFolderId: this.rootName,
+      handle: {
+        path: fullPath,
+        name,
+        kind: entry.type,
+        platform: 'web',
+        _internal: entry,
+      } as unknown as FileSystemFileHandle | FileSystemDirectoryHandle,
+    };
+
+    if (entry.type === 'file') {
+      base.size = entry.size ?? entry.content?.length ?? 0;
+      base.lastModified = Date.now();
+    } else {
+      base.children = [];
+    }
+
+    return base;
+  }
+
+  static createSimpleFileSystem(): Record<string, MockFileEntry> {
+    return {
+      src: {
+        name: 'src',
+        type: 'directory',
+        children: {
+          'index.ts': {
+            name: 'index.ts',
+            type: 'file',
+            content: 'export * from "./components";',
+          },
+          components: {
+            name: 'components',
+            type: 'directory',
+            children: {
+              'Button.tsx': {
+                name: 'Button.tsx',
+                type: 'file',
+                content: 'export const Button = () => <button>Click me</button>;',
+              },
+              'Input.tsx': {
+                name: 'Input.tsx',
+                type: 'file',
+                content: 'export const Input = () => <input />;',
+              },
+            },
+          },
+        },
+      },
+      'package.json': {
+        name: 'package.json',
+        type: 'file',
+        content: '{"name": "test-package", "version": "1.0.0"}',
+      },
+      'README.md': {
+        name: 'README.md',
+        type: 'file',
+        content: '# Test Project\n\nThis is a test project.',
+      },
+    };
+  }
+}
 
 describe('reportGenerator', () => {
   const mockFileContents = {

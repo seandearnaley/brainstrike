@@ -1,5 +1,9 @@
+import { createLogger } from '@brainstrike/utils';
 import { app, session } from 'electron';
 import { getCSP } from './csp-utils';
+
+const logger = createLogger('DesktopSecurity');
+export const desktopSecurityLogger = logger;
 
 // Type definitions for Electron's webRequest
 interface WebRequestDetails {
@@ -28,5 +32,5 @@ export function setupSecurity() {
     }
   );
 
-  console.info(`🔒 ${mode} CSP configured:`, csp);
+  logger.info('CSP configured', { mode, policy: csp });
 }

@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@brainstrike/ui';
+import { createLogger } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import { Pencil, Plus, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -137,6 +138,8 @@ function createModelFromConfig(
   return model;
 }
 
+const logger = createLogger('ManageEmbeddingSetsDialog');
+
 export function ManageEmbeddingSetsDialog({
   open,
   onOpenChange,
@@ -195,7 +198,7 @@ export function ManageEmbeddingSetsDialog({
 
       setSets(mapped);
     } catch (error) {
-      console.error('[ManageEmbeddingSetsDialog] Failed to load sets:', error);
+      logger.error('Failed to load embedding sets', { error });
     } finally {
       setLoading(false);
     }

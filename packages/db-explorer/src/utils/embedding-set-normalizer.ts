@@ -1,5 +1,6 @@
 import type { EmbeddingProviderType } from '@brainstrike/embeddings';
 import { canonicalizeProviderModelKey, formatProviderModelKey } from '@brainstrike/embeddings';
+import { createLogger } from '@brainstrike/utils';
 
 type SqlClient = {
   query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
@@ -24,6 +25,8 @@ type NormalizedRow = EmbeddingSetRow & {
   chunkCount: number;
 };
 
+const logger = createLogger('EmbeddingSetNormalizer');
+
 let normalizationPromise: Promise<void> | null = null;
 
 export async function normalizeEmbeddingSets(db: SqlClient | null | undefined): Promise<void> {
@@ -33,7 +36,7 @@ export async function normalizeEmbeddingSets(db: SqlClient | null | undefined): 
   if (!normalizationPromise) {
     normalizationPromise = normalize(db)
       .catch((error) => {
-        console.warn('[EmbeddingSetNormalizer] Failed to normalize embedding sets', error);
+        logger.error('Failed to normalize embedding sets', { error });
       })
       .finally(() => {
         normalizationPromise = null;

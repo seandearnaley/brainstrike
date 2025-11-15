@@ -17,7 +17,10 @@ import {
   Switch,
   useToast,
 } from '@brainstrike/ui';
-import { type LoggingPreferences, LogLevel } from '@brainstrike/utils';
+import { createLogger, type LoggingPreferences, LogLevel } from '@brainstrike/utils';
+
+const logger = createLogger('LoggingSettingsSection');
+
 import { FolderOpen, RefreshCw } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
 
@@ -220,7 +223,8 @@ export function LoggingSettingsSection({
       }
       await commitPreferences(next);
       toast({ title: 'Logging preferences reset' });
-    } catch (_error) {
+    } catch (error) {
+      logger.error('Failed to reset logging preferences', { error });
       setPreferences(previous);
     } finally {
       setIsSyncing(false);

@@ -1,4 +1,4 @@
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
 import { ChevronLeft, ChevronRight, Terminal } from 'lucide-react';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { type ImperativePanelHandle, Panel, PanelGroup } from 'react-resizable-panels';
@@ -12,6 +12,8 @@ import { usePanelLayout } from '../providers/panel-layout-provider';
 import { ConsolePanel } from './console-panel';
 import { LeftPanel } from './left-panel';
 import { RightPanel } from './right-panel';
+
+const logger = createLogger('IdeLayout');
 
 // Context for sharing file editor functionality between main content and console
 interface FileEditorContextValue {
@@ -45,8 +47,15 @@ function syncPanelState(
           panel.collapse();
         }
       }
-    } catch (_error) {
+    } catch (error) {
       if (isDevEnv()) {
+        logger.debug('Failed to sync panel state', {
+          error,
+          shouldShow,
+          hasContent,
+          panelCollapsed: panel?.isCollapsed?.(),
+          panelExpanded: panel?.isExpanded?.(),
+        });
       }
     }
   });

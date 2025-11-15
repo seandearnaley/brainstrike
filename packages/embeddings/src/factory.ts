@@ -1,3 +1,4 @@
+import { createLogger } from '@brainstrike/utils';
 import type { IEmbeddingProvider } from './interfaces/provider';
 import type {
   EmbeddingProviderConfig,
@@ -14,6 +15,8 @@ import { GoogleEmbeddingProvider } from './providers/hosted/google-provider';
 import { OpenAIEmbeddingProvider } from './providers/hosted/openai-provider';
 import { VoyageEmbeddingProvider } from './providers/hosted/voyage-provider';
 import { TransformersEmbeddingProvider } from './providers/local/transformers-provider';
+
+const logger = createLogger('EmbeddingProviderFactory');
 
 /**
  * Custom error for missing API keys that preserves provider information
@@ -240,7 +243,7 @@ export class EmbeddingProviderFactory {
       try {
         await instance.dispose();
       } catch (error) {
-        console.warn(`Failed to dispose provider ${key}:`, error);
+        logger.warn(`Failed to dispose provider ${key}`, { error });
       }
     }
 
@@ -259,7 +262,7 @@ export class EmbeddingProviderFactory {
       if ('dispose' in instance && typeof instance.dispose === 'function') {
         disposePromises.push(
           instance.dispose().catch((error: unknown) => {
-            console.warn(`Failed to dispose provider ${key}:`, error);
+            logger.warn(`Failed to dispose provider ${key}`, { error });
           })
         );
       }

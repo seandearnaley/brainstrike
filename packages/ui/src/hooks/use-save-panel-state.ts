@@ -1,5 +1,8 @@
 import { createDebounce } from '@brainstrike/hooks';
-import { isDevEnv } from '@brainstrike/utils';
+import { createLogger, isDevEnv } from '@brainstrike/utils';
+
+const logger = createLogger('UseSavePanelState');
+
 import { useCallback, useEffect, useRef } from 'react';
 import { statesEqual } from '../lib/panel-utils';
 import type { PanelPersistenceState } from '../types/panel';
@@ -23,8 +26,12 @@ export function useSavePanelState(
           throw new Error('[useSavePanelState] Missing adapter in Phase 3');
         }
         onSaved(stateToSave);
-      } catch (_error) {
+      } catch (error) {
         if (isDevEnv()) {
+          logger.warn('Failed to save panel state', {
+            error,
+            hasAdapter: Boolean(adapter),
+          });
         }
       }
     },

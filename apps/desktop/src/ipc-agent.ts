@@ -1,5 +1,6 @@
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
+import { createLogger } from '@brainstrike/utils';
 import type { IpcMainInvokeEvent } from 'electron';
 import { ipcMain } from 'electron';
 import type { McpConfig } from './mcp-loader';
@@ -38,6 +39,8 @@ type StreamChunk =
       usage: { promptTokens: number; completionTokens: number };
       path: ReadonlyArray<number>;
     };
+
+const logger = createLogger('DesktopIpcAgent');
 type AgentModule = typeof import('@brainstrike/agent');
 type MaybeAsyncIterable<T> = AsyncIterable<T> | Promise<AsyncIterable<T>>;
 
@@ -107,23 +110,23 @@ async function resolveIpcApiKey(provider: string): Promise<string | undefined> {
 
   const envKey = resolveProviderEnvKey(supportedProvider);
   if (envKey) {
-    console.log(`[ipc-agent] Using environment API key for provider "${provider}"`);
+    logger.info('Using environment API key for provider', { provider });
     return envKey;
   }
 
   const storedKey = await readProviderSecretKey(supportedProvider);
   if (storedKey) {
-    console.log(
-      `[ipc-agent] Retrieved stored API key for provider "${provider}":`,
-      `${storedKey.slice(0, 10)}...`
-    );
+    logger.info('Retrieved stored API key for provider', {
+      provider,
+      prefix: storedKey.slice(0, 10),
+    });
     return storedKey;
   }
 
   if (provider === 'openai') {
     const fallback = await readOpenAIApiKey();
     if (fallback) {
-      console.log('[ipc-agent] Using fallback OpenAI key:', `${fallback.slice(0, 10)}...`);
+      logger.info('Using fallback OpenAI key', { prefix: fallback.slice(0, 10) });
     }
     return fallback ?? undefined;
   }
