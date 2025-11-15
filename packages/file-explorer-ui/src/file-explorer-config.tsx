@@ -39,6 +39,7 @@ interface FileExplorerConfigProps {
 }
 
 const logger = createLogger('FileExplorerConfig');
+export const fileExplorerConfigLogger = logger;
 
 type InlineFixtureToggleDependencies = {
   onSettingsChange: (key: 'devInlineFixtureEnabled', value: boolean) => void;

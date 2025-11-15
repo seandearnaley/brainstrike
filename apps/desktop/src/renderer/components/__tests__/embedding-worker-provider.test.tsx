@@ -32,9 +32,13 @@ vi.mock('@brainstrike/embeddings', () => ({
   startEmbeddingWorker: (...args: unknown[]) => mockStartEmbeddingWorker(...args),
 }));
 
-vi.mock('@brainstrike/utils', () => ({
-  createLogger: () => mockLogger,
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    createLogger: () => mockLogger,
+  };
+});
 
 // Import component after mocks are set up
 import { EmbeddingWorkerProvider } from '../embedding-worker-provider';

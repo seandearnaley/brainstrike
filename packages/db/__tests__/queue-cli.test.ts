@@ -54,9 +54,13 @@ describe('queue-cli smoke tests', () => {
     });
     expect(exitCalls[0]).toBe(0);
     expect(createPGlite).not.toHaveBeenCalled();
-    expect(logMock).toHaveBeenCalledWith(
-      expect.stringContaining('Usage: queue-cli <stats|requeue|clear|prune>')
-    );
+    expect(
+      logMock.mock.calls.some(
+        ([chunk]) =>
+          typeof chunk === 'string' &&
+          chunk.includes('Usage: queue-cli <stats|requeue|clear|prune>')
+      )
+    ).toBe(true);
   });
 
   it('executes stats command against the job queue', async () => {
@@ -91,9 +95,16 @@ describe('queue-cli smoke tests', () => {
       expect(createPGlite).toHaveBeenCalledWith('memory://');
       expect(JobQueueMock).toHaveBeenCalledTimes(1);
       expect(getQueueStats).toHaveBeenCalledWith('embeddings');
-      expect(logMock).toHaveBeenCalledWith(
-        expect.stringContaining(JSON.stringify(statsPayload, null, 2))
+      const expectedStatsPayload = JSON.stringify(
+        { queue: 'embeddings', stats: statsPayload },
+        null,
+        2
       );
+      expect(
+        logMock.mock.calls.some(
+          ([chunk]) => typeof chunk === 'string' && chunk.includes(expectedStatsPayload)
+        )
+      ).toBe(true);
     });
 
     expect(exitMock).not.toHaveBeenCalled();

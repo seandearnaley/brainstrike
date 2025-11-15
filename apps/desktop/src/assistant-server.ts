@@ -43,6 +43,7 @@ import {
 } from './provider-api-key';
 
 const logger = createLogger('DesktopAssistantServer');
+export const desktopAssistantServerLogger = logger;
 
 export function startAssistantServer(portHint?: number) {
   const server = http.createServer(async (req, res) => {

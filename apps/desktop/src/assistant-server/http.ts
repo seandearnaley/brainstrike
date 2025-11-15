@@ -2,6 +2,7 @@ import type http from 'node:http';
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('DesktopAssistantHttpStream');
+export const assistantServerHttpStreamLogger = logger;
 
 type ServerResponseWithFlush = http.ServerResponse & {
   flushHeaders?: () => void;

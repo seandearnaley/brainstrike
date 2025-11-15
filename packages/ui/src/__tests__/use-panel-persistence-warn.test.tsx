@@ -1,9 +1,13 @@
 import { renderHook } from '@testing-library/react';
 
 // Mock dev environment BEFORE importing hook
-vi.mock('@brainstrike/utils', () => ({
-  isDevEnv: vi.fn(() => true),
-}));
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return {
+    ...actual,
+    isDevEnv: vi.fn(() => true),
+  };
+});
 
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 

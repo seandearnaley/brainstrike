@@ -1,6 +1,7 @@
 import { createLogger } from '@brainstrike/utils';
 
 const logger = createLogger('FileContentCache');
+export const fileContentCacheLogger = logger;
 
 /**
  * LRU Cache for file contents with automatic eviction based on memory limits

@@ -1,7 +1,7 @@
 import { app, session } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCSP } from '../csp-utils';
-import { setupSecurity } from '../setup-security';
+import { desktopSecurityLogger, setupSecurity } from '../setup-security';
 
 vi.mock('electron', () => ({
   app: {
@@ -21,14 +21,14 @@ vi.mock('../csp-utils', () => ({
 }));
 
 describe('setupSecurity', () => {
-  const mockConsoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const mockLoggerInfo = vi.spyOn(desktopSecurityLogger, 'info').mockImplementation(() => {});
 
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   afterEach(() => {
-    mockConsoleInfo.mockClear();
+    mockLoggerInfo.mockClear();
   });
 
   it('should configure CSP for development mode', () => {
@@ -40,7 +40,10 @@ describe('setupSecurity', () => {
 
     expect(getCSP).toHaveBeenCalledWith('development');
     expect(session.defaultSession.webRequest.onHeadersReceived).toHaveBeenCalledTimes(1);
-    expect(mockConsoleInfo).toHaveBeenCalledWith('🔒 Development CSP configured:', mockCSP);
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      'CSP configured',
+      expect.objectContaining({ mode: 'Development', policy: mockCSP })
+    );
   });
 
   it('should configure CSP for production mode', () => {
@@ -52,7 +55,10 @@ describe('setupSecurity', () => {
 
     expect(getCSP).toHaveBeenCalledWith('production');
     expect(session.defaultSession.webRequest.onHeadersReceived).toHaveBeenCalledTimes(1);
-    expect(mockConsoleInfo).toHaveBeenCalledWith('🔒 Production CSP configured:', mockCSP);
+    expect(mockLoggerInfo).toHaveBeenCalledWith(
+      'CSP configured',
+      expect.objectContaining({ mode: 'Production', policy: mockCSP })
+    );
   });
 
   it('should set CSP headers in response', () => {

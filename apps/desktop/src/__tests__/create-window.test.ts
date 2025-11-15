@@ -4,7 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWindow } from '../create-window';
 
 vi.mock('node:fs');
-vi.mock('@brainstrike/utils');
+vi.mock('@brainstrike/utils', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/utils')>('@brainstrike/utils');
+  return actual;
+});
 vi.mock('electron', () => ({
   app: {
     isPackaged: false,

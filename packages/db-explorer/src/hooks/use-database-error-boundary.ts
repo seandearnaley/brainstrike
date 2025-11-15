@@ -37,6 +37,7 @@ export interface ClearOperationResult {
 }
 
 const logger = createLogger('useDatabaseErrorBoundary');
+export const databaseErrorBoundaryLogger = logger;
 
 export function useDatabaseErrorBoundary({
   toast,

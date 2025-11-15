@@ -1,6 +1,7 @@
 import type http from 'node:http';
 import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import {
+  assistantServerHttpStreamLogger,
   pumpReadableToResponse,
   readRequestBody,
   streamResponse,
@@ -263,7 +264,9 @@ describe('assistant-server/http utilities', () => {
     });
 
     it('should handle stream errors gracefully', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(assistantServerHttpStreamLogger, 'error')
+        .mockImplementation(() => {});
       const stream = new ReadableStream({
         start(controller) {
           controller.error(new Error('Stream error'));
@@ -272,14 +275,19 @@ describe('assistant-server/http utilities', () => {
 
       await pumpReadableToResponse(stream, mockRes);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[desktop] stream error:', expect.any(Error));
+      expect(loggerErrorSpy).toHaveBeenCalledWith(
+        'Stream pipeline failed',
+        expect.objectContaining({ error: expect.any(Error) })
+      );
       expect(mockRes.end).toHaveBeenCalled();
 
-      consoleErrorSpy.mockRestore();
+      loggerErrorSpy.mockRestore();
     });
 
     it('should not log errors if aborted', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(assistantServerHttpStreamLogger, 'error')
+        .mockImplementation(() => {});
       const abortController = new AbortController();
       abortController.abort();
 
@@ -291,12 +299,14 @@ describe('assistant-server/http utilities', () => {
 
       await pumpReadableToResponse(stream, mockRes, abortController.signal);
 
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+      loggerErrorSpy.mockRestore();
     });
 
     it('should not log errors if response destroyed', async () => {
-      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const loggerErrorSpy = vi
+        .spyOn(assistantServerHttpStreamLogger, 'error')
+        .mockImplementation(() => {});
       const mockResDestroyed = {
         ...mockRes,
         destroyed: true,
@@ -310,8 +320,8 @@ describe('assistant-server/http utilities', () => {
 
       await pumpReadableToResponse(stream, mockResDestroyed);
 
-      expect(consoleErrorSpy).not.toHaveBeenCalled();
-      consoleErrorSpy.mockRestore();
+      expect(loggerErrorSpy).not.toHaveBeenCalled();
+      loggerErrorSpy.mockRestore();
     });
 
     it('should stop if response destroyed during pumping', async () => {

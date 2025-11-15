@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { startAssistantServer } from '../assistant-server';
+import { desktopAssistantServerLogger, startAssistantServer } from '../assistant-server';
 
 // Mock dependencies
 vi.mock('../assistant-server/http', async () => {
@@ -198,7 +198,9 @@ describe('assistant-server', () => {
     }, 10000);
 
     it('should handle POST to assistant route with valid message', async () => {
-      const consoleInfoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const loggerInfoSpy = vi
+        .spyOn(desktopAssistantServerLogger, 'info')
+        .mockImplementation(() => {});
       const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
       const { streamResponse } = await import('../assistant-server/http');
 
@@ -228,20 +230,20 @@ describe('assistant-server', () => {
 
       await vi.waitUntil(
         () =>
-          consoleInfoSpy.mock.calls.some(
+          loggerInfoSpy.mock.calls.some(
             ([message, payload]) =>
-              message === '[assistant-server] request received' &&
+              message === 'Assistant request received' &&
               Boolean((payload as { hasApiKey?: boolean })?.hasApiKey)
           ),
         { timeout: 2000 }
       );
 
-      expect(consoleInfoSpy).toHaveBeenCalledWith(
-        '[assistant-server] request received',
+      expect(loggerInfoSpy).toHaveBeenCalledWith(
+        'Assistant request received',
         expect.objectContaining({ hasApiKey: true })
       );
 
-      consoleInfoSpy.mockRestore();
+      loggerInfoSpy.mockRestore();
 
       // Don't await the fetch as the response may not complete
       await Promise.race([fetchPromise, new Promise((resolve) => setTimeout(resolve, 1000))]);

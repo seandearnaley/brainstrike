@@ -3,6 +3,7 @@ import { app, session } from 'electron';
 import { getCSP } from './csp-utils';
 
 const logger = createLogger('DesktopSecurity');
+export const desktopSecurityLogger = logger;
 
 // Type definitions for Electron's webRequest
 interface WebRequestDetails {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FileContentCache } from '../file-content-cache';
+import { FileContentCache, fileContentCacheLogger } from '../file-content-cache';
 
 describe('FileContentCache', () => {
   let cache: FileContentCache;
@@ -43,16 +43,20 @@ describe('FileContentCache', () => {
     it('should reject files larger than 1MB', () => {
       // Test larger than 1MB boundary (should be rejected)
       const largeMBContent = 'x'.repeat(1024 * 1024 + 1); // 1MB + 1 byte
-      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const loggerWarnSpy = vi.spyOn(fileContentCacheLogger, 'warn').mockImplementation(() => {});
 
       cache.set('large', largeMBContent);
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/File large is too large.*skipping cache/)
+      expect(loggerWarnSpy).toHaveBeenCalledWith(
+        'File is too large to cache',
+        expect.objectContaining({
+          key: 'large',
+          sizeKb: expect.any(Number),
+        })
       );
       expect(cache.getStats().entryCount).toBe(0);
 
-      consoleWarnSpy.mockRestore();
+      loggerWarnSpy.mockRestore();
     });
 
     it('should accept files just under 1MB boundary', () => {

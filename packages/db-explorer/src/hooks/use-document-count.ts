@@ -3,6 +3,7 @@ import { createLogger } from '@brainstrike/utils';
 import { useMemo } from 'react';
 
 const logger = createLogger('useDocumentCount');
+export const documentCountLogger = logger;
 
 /**
  * Hook to get the count of indexed documents (chunks with embeddings) in the active collection
