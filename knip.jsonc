@@ -272,8 +272,8 @@
     "playwright-merge.config.js",
     // Ignore all scripts - utility scripts run directly, not imported
     "scripts/**/*",
-    // Ignore CLI scripts in Agent Skills - executed via command line, not imported
-    ".claude/skills/**/*"
+    // Ignore entire .claude directory - hooks, scripts, and skills are executed via CLI, not imported
+    ".claude/**/*"
   ],
   // Keep existing global settings
   "ignoreBinaries": [
