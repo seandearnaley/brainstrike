@@ -39,7 +39,7 @@ export function RightPanel({ embeddingQueue = null }: RightPanelProps): ReactEle
         onValueChange={(value) => setActiveTab((value as RightPanelTab) ?? 'assistant')}
         className="flex-1 flex flex-col min-h-0"
       >
-        <TabsList className="grid grid-cols-3 mx-2 mt-2 mb-2 flex-shrink-0">
+        <TabsList className="grid grid-cols-3 mx-2 mt-2 mb-2 flex-shrink-0 min-w-[300px]">
           <TabsTrigger value="assistant" className="flex items-center gap-1">
             <MessageCircle className="h-3 w-3" />
             <span className="hidden sm:inline">Assistant</span>
