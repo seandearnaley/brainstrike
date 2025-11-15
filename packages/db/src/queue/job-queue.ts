@@ -164,24 +164,36 @@ export class JobQueue {
 
     if (!inserted.rows[0]) throw new Error('Failed to insert job');
     const job = fromRow(inserted.rows[0]);
-    logger.debug('Job enqueued', {
-      jobId: job.id,
-      queue: job.queue,
-      jobType: job.jobType,
-      runAt: job.runAt,
-      dedupeKey: dedupe,
-    });
-    emitQueueTelemetry({
-      timestamp: Date.now(),
-      adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
-      event: 'enqueue',
-      taskId: job.id,
-      metadata: {
+    const isNewEnqueue = job.id === id;
+
+    if (isNewEnqueue) {
+      logger.debug('Job enqueued', {
+        jobId: job.id,
         queue: job.queue,
         jobType: job.jobType,
+        runAt: job.runAt,
         dedupeKey: dedupe,
-      },
-    });
+      });
+      emitQueueTelemetry({
+        timestamp: Date.now(),
+        adapter: JOB_QUEUE_TELEMETRY_ADAPTER,
+        event: 'enqueue',
+        taskId: job.id,
+        metadata: {
+          queue: job.queue,
+          jobType: job.jobType,
+          dedupeKey: dedupe,
+        },
+      });
+    } else {
+      logger.debug('Job enqueue deduped; returning existing job', {
+        jobId: job.id,
+        queue: job.queue,
+        jobType: job.jobType,
+        runAt: job.runAt,
+        dedupeKey: dedupe,
+      });
+    }
     return job;
   }
 
