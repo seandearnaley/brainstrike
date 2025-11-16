@@ -6,6 +6,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
   Input,
   Label,
   Select,
@@ -14,10 +18,27 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
   useToast,
 } from '@brainstrike/ui';
 import { type LoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/utils';
-import { FolderOpen, RefreshCw } from 'lucide-react';
+import {
+  type ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  getSortedRowModel,
+  useReactTable,
+  type VisibilityState,
+} from '@tanstack/react-table';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { ChevronDown, FolderOpen, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
 
@@ -506,13 +527,20 @@ interface LogViewerCardProps {
   toast: ReturnType<typeof useToast>['toast'];
 }
 
+interface LogRecordRow extends LogRecord {
+  serializedArgs: string;
+  flattenedBindings: string;
+}
+
 function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   const [logRecords, setLogRecords] = useState<readonly LogRecord[]>([]);
   const [logLevelFilter, setLogLevelFilter] = useState<LogLevel>(LogLevel.DEBUG);
-  const [logSearchTerm, setLogSearchTerm] = useState('');
+  const [globalFilter, setGlobalFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [logsLoading, setLogsLoading] = useState(false);
-  const logViewportRef = useRef<HTMLDivElement | null>(null);
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [pageSize, setPageSize] = useState(100);
+  const tableContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!logSource) {
@@ -555,40 +583,155 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     };
   }, [logSource, toast]);
 
-  const filteredLogRecords = useMemo(() => {
-    if (logRecords.length === 0) {
-      return [];
-    }
-    const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
-    const searchTerm = logSearchTerm.trim().toLowerCase();
-    return sortLogRecords(
-      logRecords.filter((record) => {
+  const tableData = useMemo<LogRecordRow[]>(() => {
+    return logRecords
+      .filter((record) => {
+        const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
         const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
-        if (recordLevelIndex < levelIndex) {
-          return false;
-        }
-        if (!searchTerm) {
-          return true;
-        }
-        const haystack = [
-          record.message ?? '',
-          record.scope ?? '',
-          serializeArgs(record.args),
-          JSON.stringify(record.bindings ?? {}),
-        ]
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(searchTerm);
+        return recordLevelIndex >= levelIndex;
       })
-    );
-  }, [logLevelFilter, logRecords, logSearchTerm]);
+      .map((record) => ({
+        ...record,
+        serializedArgs: serializeArgs(record.args),
+        flattenedBindings: JSON.stringify(record.bindings ?? {}),
+      }));
+  }, [logRecords, logLevelFilter]);
+
+  const columns = useMemo<ColumnDef<LogRecordRow>[]>(
+    () => [
+      {
+        accessorKey: 'timestamp',
+        header: 'Timestamp',
+        cell: ({ getValue }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatLogTimestamp(getValue() as number)}
+          </span>
+        ),
+        size: 120,
+      },
+      {
+        accessorKey: 'level',
+        header: 'Level',
+        cell: ({ getValue }) => {
+          const level = getValue() as LogLevel;
+          return (
+            <Badge variant={getLevelBadgeVariant(level)} className="text-[11px]">
+              {level.toUpperCase()}
+            </Badge>
+          );
+        },
+        size: 100,
+      },
+      {
+        accessorKey: 'scope',
+        header: 'Scope',
+        cell: ({ getValue }) => {
+          const scope = getValue() as string | undefined;
+          return scope ? (
+            <span className="text-xs text-muted-foreground">[{scope}]</span>
+          ) : (
+            <span className="text-xs text-muted-foreground/50">—</span>
+          );
+        },
+        size: 150,
+      },
+      {
+        accessorKey: 'message',
+        header: 'Message',
+        cell: ({ getValue }) => {
+          const message = getValue() as string | undefined;
+          return (
+            <div className="max-w-md truncate text-xs" title={message ?? ''}>
+              {message || <span className="text-muted-foreground/50">—</span>}
+            </div>
+          );
+        },
+        size: 300,
+      },
+      {
+        accessorKey: 'serializedArgs',
+        header: 'Payload',
+        cell: ({ getValue }) => {
+          const payload = getValue() as string;
+          return payload ? (
+            <pre
+              className="max-w-xs truncate text-[11px] text-muted-foreground font-mono"
+              title={payload}
+            >
+              {payload}
+            </pre>
+          ) : (
+            <span className="text-xs text-muted-foreground/50">—</span>
+          );
+        },
+        size: 250,
+      },
+      {
+        accessorKey: 'flattenedBindings',
+        header: 'Bindings',
+        cell: ({ getValue }) => {
+          const bindings = getValue() as string;
+          const parsed = bindings && bindings !== '{}' ? bindings : null;
+          return parsed ? (
+            <pre
+              className="max-w-xs truncate text-[11px] text-muted-foreground font-mono"
+              title={parsed}
+            >
+              {parsed}
+            </pre>
+          ) : (
+            <span className="text-xs text-muted-foreground/50">—</span>
+          );
+        },
+        size: 200,
+      },
+    ],
+    []
+  );
+
+  const table = useReactTable({
+    data: tableData,
+    columns,
+    state: {
+      globalFilter,
+      columnVisibility,
+      pagination: {
+        pageIndex: 0,
+        pageSize,
+      },
+    },
+    onGlobalFilterChange: setGlobalFilter,
+    onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: () => {}, // Controlled by virtualization
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    globalFilterFn: 'includesString',
+    initialState: {
+      sorting: [{ id: 'timestamp', desc: true }],
+    },
+  });
+
+  const { rows } = table.getRowModel();
+
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 36,
+    overscan: 10,
+  });
+
+  const virtualItems = virtualizer.getVirtualItems();
 
   useEffect(() => {
-    if (!autoScroll || !logViewportRef.current) {
+    if (!autoScroll || rows.length === 0) {
       return;
     }
-    logViewportRef.current.scrollTop = logViewportRef.current.scrollHeight;
-  }, [autoScroll, filteredLogRecords]);
+    requestAnimationFrame(() => {
+      virtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
+    });
+  }, [autoScroll, rows.length, virtualizer]);
 
   const logLevelItems = useMemo(
     () =>
@@ -621,10 +764,11 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   }, [logSource, toast]);
 
   const handleExportLogs = useCallback(() => {
-    if (typeof window === 'undefined' || filteredLogRecords.length === 0) {
+    if (typeof window === 'undefined' || rows.length === 0) {
       return;
     }
-    const blob = new Blob([JSON.stringify(filteredLogRecords, null, 2)], {
+    const exportData = rows.map((row) => row.original);
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json',
     });
     const url = URL.createObjectURL(blob);
@@ -633,7 +777,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     anchor.download = `brainstrike-logs-${new Date().toISOString()}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [filteredLogRecords]);
+  }, [rows]);
 
   if (!logSource) {
     return null;
@@ -644,7 +788,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       <CardHeader>
         <CardTitle>Log Viewer</CardTitle>
         <CardDescription>
-          Stream recent structured logs and search by scope or text.
+          Stream recent structured logs with advanced filtering, sorting, and virtualization.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -667,9 +811,26 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
               <Input
                 id="log-viewer-search"
                 placeholder="Scope, message, payload"
-                value={logSearchTerm}
-                onChange={(event) => setLogSearchTerm(event.target.value)}
+                value={globalFilter}
+                onChange={(event) => setGlobalFilter(event.target.value)}
               />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="log-viewer-page-size">Page Size</Label>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(value) => setPageSize(Number(value))}
+              >
+                <SelectTrigger id="log-viewer-page-size" className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                  <SelectItem value="250">250</SelectItem>
+                  <SelectItem value="500">500</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
@@ -681,13 +842,34 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
               />
               <Label htmlFor="log-viewer-autoscroll">Auto-scroll</Label>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="outline" size="sm">
+                  Columns <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {table
+                  .getAllColumns()
+                  .filter((column) => column.getCanHide())
+                  .map((column) => (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                    >
+                      {column.id.charAt(0).toUpperCase() + column.id.slice(1)}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <div className="flex gap-2">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={handleExportLogs}
-                disabled={filteredLogRecords.length === 0}
+                disabled={rows.length === 0}
               >
                 Export
               </Button>
@@ -705,43 +887,88 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
           </div>
         </div>
 
-        <div
-          ref={logViewportRef}
-          className="h-64 w-full overflow-y-auto rounded-md border border-border/60 bg-muted/20"
-        >
-          {logsLoading && filteredLogRecords.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
-          ) : filteredLogRecords.length === 0 ? (
-            <div className="p-4 text-sm text-muted-foreground">
-              No logs recorded for the current session.
-            </div>
-          ) : (
-            <ul className="divide-y divide-border/60 text-xs font-mono">
-              {filteredLogRecords.map((record, index) => (
-                <li key={`${record.timestamp}-${index}`} className="px-3 py-2">
-                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                    <Badge variant={getLevelBadgeVariant(record.level)}>
-                      {record.level.toUpperCase()}
-                    </Badge>
-                    <span className="text-muted-foreground">
-                      {formatLogTimestamp(record.timestamp)}
-                    </span>
-                    {record.scope ? (
-                      <span className="text-muted-foreground">[{record.scope}]</span>
-                    ) : null}
-                  </div>
-                  {record.message ? (
-                    <div className="mt-1 text-[11px] leading-snug">{record.message}</div>
-                  ) : null}
-                  {record.args?.length ? (
-                    <pre className="mt-1 text-[11px] text-muted-foreground whitespace-pre-wrap">
-                      {serializeArgs(record.args)}
-                    </pre>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="rounded-md border border-border/60">
+          <div ref={tableContainerRef} className="h-[500px] overflow-auto relative bg-muted/20">
+            {logsLoading && rows.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
+            ) : rows.length === 0 ? (
+              <div className="p-4 text-sm text-muted-foreground">
+                No logs recorded for the current session.
+              </div>
+            ) : (
+              <Table>
+                <TableHeader className="sticky top-0 z-10 bg-background">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id} style={{ width: header.getSize() }}>
+                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                            <button
+                              type="button"
+                              className="cursor-pointer select-none w-full text-left font-medium"
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                              {{
+                                asc: ' ↑',
+                                desc: ' ↓',
+                              }[header.column.getIsSorted() as string] ?? null}
+                            </button>
+                          ) : (
+                            <div>
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </div>
+                          )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody
+                  style={{
+                    height: `${virtualizer.getTotalSize()}px`,
+                    position: 'relative',
+                  }}
+                >
+                  {virtualItems.map((virtualRow) => {
+                    const row = rows[virtualRow.index];
+                    return (
+                      <TableRow
+                        key={row.id}
+                        data-index={virtualRow.index}
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          width: '100%',
+                          height: `${virtualRow.size}px`,
+                          transform: `translateY(${virtualRow.start}px)`,
+                        }}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <div>
+            Showing {virtualItems.length > 0 ? virtualItems[0].index + 1 : 0} to{' '}
+            {virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index + 1 : 0} of{' '}
+            {rows.length} log{rows.length === 1 ? '' : 's'}
+          </div>
+          <div>
+            {rows.length} row{rows.length === 1 ? '' : 's'} (filtered from {logRecords.length}{' '}
+            total)
+          </div>
         </div>
       </CardContent>
     </Card>
