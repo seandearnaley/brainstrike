@@ -932,6 +932,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
                 >
                   {virtualItems.map((virtualRow) => {
                     const row = rows[virtualRow.index];
+                    if (!row) return null;
                     return (
                       <TableRow
                         key={row.id}
@@ -961,9 +962,11 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div>
-            Showing {virtualItems.length > 0 ? virtualItems[0].index + 1 : 0} to{' '}
-            {virtualItems.length > 0 ? virtualItems[virtualItems.length - 1].index + 1 : 0} of{' '}
-            {rows.length} log{rows.length === 1 ? '' : 's'}
+            Showing {virtualItems.length > 0 && virtualItems[0] ? virtualItems[0].index + 1 : 0} to{' '}
+            {virtualItems.length > 0 && virtualItems[virtualItems.length - 1]
+              ? (virtualItems[virtualItems.length - 1]?.index ?? 0) + 1
+              : 0}{' '}
+            of {rows.length} log{rows.length === 1 ? '' : 's'}
           </div>
           <div>
             {rows.length} row{rows.length === 1 ? '' : 's'} (filtered from {logRecords.length}{' '}
