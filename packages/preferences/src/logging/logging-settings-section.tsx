@@ -28,16 +28,22 @@ import {
 } from '@brainstrike/ui';
 import { type LoggingPreferences, LogLevel, type LogRecord } from '@brainstrike/utils';
 import {
+  type Cell,
+  type CellContext,
+  type Column,
   type ColumnDef,
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
+  type Header,
+  type HeaderGroup,
+  type Row,
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { ChevronDown, FolderOpen, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
@@ -602,7 +608,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'timestamp',
         header: 'Timestamp',
-        cell: ({ getValue }) => (
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => (
           <span className="text-xs text-muted-foreground">
             {formatLogTimestamp(getValue() as number)}
           </span>
@@ -612,7 +618,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'level',
         header: 'Level',
-        cell: ({ getValue }) => {
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const level = getValue() as LogLevel;
           return (
             <Badge variant={getLevelBadgeVariant(level)} className="text-[11px]">
@@ -625,7 +631,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'scope',
         header: 'Scope',
-        cell: ({ getValue }) => {
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const scope = getValue() as string | undefined;
           return scope ? (
             <span className="text-xs text-muted-foreground">[{scope}]</span>
@@ -638,7 +644,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'message',
         header: 'Message',
-        cell: ({ getValue }) => {
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const message = getValue() as string | undefined;
           return (
             <div className="max-w-md truncate text-xs" title={message ?? ''}>
@@ -651,7 +657,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'serializedArgs',
         header: 'Payload',
-        cell: ({ getValue }) => {
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const payload = getValue() as string;
           return payload ? (
             <pre
@@ -669,7 +675,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       {
         accessorKey: 'flattenedBindings',
         header: 'Bindings',
-        cell: ({ getValue }) => {
+        cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
           const bindings = getValue() as string;
           const parsed = bindings && bindings !== '{}' ? bindings : null;
           return parsed ? (
@@ -767,7 +773,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     if (typeof window === 'undefined' || rows.length === 0) {
       return;
     }
-    const exportData = rows.map((row) => row.original);
+    const exportData = rows.map((row: Row<LogRecordRow>) => row.original);
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json',
     });
@@ -851,8 +857,8 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
               <DropdownMenuContent align="end">
                 {table
                   .getAllColumns()
-                  .filter((column) => column.getCanHide())
-                  .map((column) => (
+                  .filter((column: Column<LogRecordRow, unknown>) => column.getCanHide())
+                  .map((column: Column<LogRecordRow, unknown>) => (
                     <DropdownMenuCheckboxItem
                       key={column.id}
                       checked={column.getIsVisible()}
@@ -898,9 +904,9 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
             ) : (
               <Table>
                 <TableHeader className="sticky top-0 z-10 bg-background">
-                  {table.getHeaderGroups().map((headerGroup) => (
+                  {table.getHeaderGroups().map((headerGroup: HeaderGroup<LogRecordRow>) => (
                     <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => (
+                      {headerGroup.headers.map((header: Header<LogRecordRow, unknown>) => (
                         <TableHead key={header.id} style={{ width: header.getSize() }}>
                           {header.isPlaceholder ? null : header.column.getCanSort() ? (
                             <button
@@ -930,7 +936,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
                     position: 'relative',
                   }}
                 >
-                  {virtualItems.map((virtualRow) => {
+                  {virtualItems.map((virtualRow: VirtualItem) => {
                     const row = rows[virtualRow.index];
                     if (!row) return null;
                     return (
@@ -946,7 +952,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
                           transform: `translateY(${virtualRow.start}px)`,
                         }}
                       >
-                        {row.getVisibleCells().map((cell) => (
+                        {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
                           <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}
                           </TableCell>
