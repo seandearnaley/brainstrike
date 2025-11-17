@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
   Switch,
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -39,13 +38,21 @@ import {
   getSortedRowModel,
   type Header,
   type HeaderGroup,
+  type Table as ReactTableInstance,
   type Row,
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useVirtualizer, type VirtualItem } from '@tanstack/react-virtual';
 import { ChevronDown, FolderOpen, RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type MutableRefObject,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useLoggingPreferencesStore } from '../stores/logging-preferences-store';
 
 const LOG_LEVEL_OPTIONS: LogLevel[] = [
@@ -540,10 +547,10 @@ interface LogRecordRow extends LogRecord {
 
 function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   const [logRecords, setLogRecords] = useState<readonly LogRecord[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
   const [logLevelFilter, setLogLevelFilter] = useState<LogLevel>(LogLevel.DEBUG);
   const [globalFilter, setGlobalFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
-  const [logsLoading, setLogsLoading] = useState(false);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
   const [pageSize, setPageSize] = useState(100);
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
@@ -589,19 +596,36 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     };
   }, [logSource, toast]);
 
+  const filteredRecords = useMemo(() => {
+    const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
+    const term = globalFilter.trim().toLowerCase();
+    return logRecords.filter((record) => {
+      const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
+      if (recordLevelIndex < levelIndex) {
+        return false;
+      }
+      if (!term) {
+        return true;
+      }
+      const haystack = [
+        record.message ?? '',
+        record.scope ?? '',
+        serializeArgs(record.args),
+        JSON.stringify(record.bindings ?? {}),
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [globalFilter, logLevelFilter, logRecords]);
+
   const tableData = useMemo<LogRecordRow[]>(() => {
-    return logRecords
-      .filter((record) => {
-        const levelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(logLevelFilter));
-        const recordLevelIndex = Math.max(0, LOG_LEVEL_OPTIONS.indexOf(record.level));
-        return recordLevelIndex >= levelIndex;
-      })
-      .map((record) => ({
-        ...record,
-        serializedArgs: serializeArgs(record.args),
-        flattenedBindings: JSON.stringify(record.bindings ?? {}),
-      }));
-  }, [logRecords, logLevelFilter]);
+    return filteredRecords.map((record) => ({
+      ...record,
+      serializedArgs: serializeArgs(record.args),
+      flattenedBindings: JSON.stringify(record.bindings ?? {}),
+    }));
+  }, [filteredRecords]);
 
   const columns = useMemo<ColumnDef<LogRecordRow>[]>(
     () => [
@@ -708,7 +732,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     },
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
-    onPaginationChange: () => {}, // Controlled by virtualization
+    onPaginationChange: () => {},
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -719,25 +743,20 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     },
   });
 
-  const { rows } = table.getRowModel();
-
-  const virtualizer = useVirtualizer({
-    count: rows.length,
-    getScrollElement: () => tableContainerRef.current,
-    estimateSize: () => 36,
-    overscan: 10,
-  });
-
-  const virtualItems = virtualizer.getVirtualItems();
+  const rows = table.getRowModel().rows;
+  const visibleColumns = table.getVisibleLeafColumns();
 
   useEffect(() => {
     if (!autoScroll || rows.length === 0) {
       return;
     }
     requestAnimationFrame(() => {
-      virtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
+      const container = tableContainerRef.current;
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     });
-  }, [autoScroll, rows.length, virtualizer]);
+  }, [autoScroll, rows.length]);
 
   const logLevelItems = useMemo(
     () =>
@@ -785,6 +804,8 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     URL.revokeObjectURL(url);
   }, [rows]);
 
+  const canRefresh = Boolean(logSource?.getInitialRecords);
+
   if (!logSource) {
     return null;
   }
@@ -794,193 +815,287 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       <CardHeader>
         <CardTitle>Log Viewer</CardTitle>
         <CardDescription>
-          Stream recent structured logs with advanced filtering, sorting, and virtualization.
+          Stream recent structured logs with filtering, sorting, and search.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="log-viewer-level">Minimum Level</Label>
-              <Select
-                value={logLevelFilter}
-                onValueChange={(value) => setLogLevelFilter(value as LogLevel)}
-              >
-                <SelectTrigger id="log-viewer-level" className="w-[180px]">
-                  <SelectValue placeholder="Level" />
-                </SelectTrigger>
-                <SelectContent>{logLevelItems}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="log-viewer-search">Search</Label>
-              <Input
-                id="log-viewer-search"
-                placeholder="Scope, message, payload"
-                value={globalFilter}
-                onChange={(event) => setGlobalFilter(event.target.value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="log-viewer-page-size">Page Size</Label>
-              <Select
-                value={String(pageSize)}
-                onValueChange={(value) => setPageSize(Number(value))}
-              >
-                <SelectTrigger id="log-viewer-page-size" className="w-[120px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="50">50</SelectItem>
-                  <SelectItem value="100">100</SelectItem>
-                  <SelectItem value="250">250</SelectItem>
-                  <SelectItem value="500">500</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
-            <div className="flex items-center gap-2">
-              <Switch
-                id="log-viewer-autoscroll"
-                checked={autoScroll}
-                onCheckedChange={setAutoScroll}
-              />
-              <Label htmlFor="log-viewer-autoscroll">Auto-scroll</Label>
-            </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button type="button" variant="outline" size="sm">
-                  Columns <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {table
-                  .getAllColumns()
-                  .filter((column: Column<LogRecordRow, unknown>) => column.getCanHide())
-                  .map((column: Column<LogRecordRow, unknown>) => (
-                    <DropdownMenuCheckboxItem
-                      key={column.id}
-                      checked={column.getIsVisible()}
-                      onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                    >
-                      {column.id.charAt(0).toUpperCase() + column.id.slice(1)}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleExportLogs}
-                disabled={rows.length === 0}
-              >
-                Export
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleRefreshLogs}
-                disabled={logsLoading || !logSource.getInitialRecords}
-              >
-                <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
-                Refresh
-              </Button>
-            </div>
-          </div>
-        </div>
+        <LogViewerToolbar
+          logLevelFilter={logLevelFilter}
+          onLevelChange={(value) => setLogLevelFilter(value)}
+          logLevelItems={logLevelItems}
+          globalFilter={globalFilter}
+          onSearchChange={(value) => setGlobalFilter(value)}
+          pageSize={pageSize}
+          onPageSizeChange={(value) => setPageSize(value)}
+          autoScroll={autoScroll}
+          onAutoScrollChange={setAutoScroll}
+          table={table}
+          rowsCount={filteredRecords.length}
+          logsLoading={logsLoading}
+          onExport={handleExportLogs}
+          onRefresh={handleRefreshLogs}
+          canRefresh={canRefresh}
+        />
 
-        <div className="rounded-md border border-border/60">
-          <div ref={tableContainerRef} className="h-[500px] overflow-auto relative bg-muted/20">
-            {logsLoading && rows.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
-            ) : rows.length === 0 ? (
-              <div className="p-4 text-sm text-muted-foreground">
-                No logs recorded for the current session.
-              </div>
-            ) : (
-              <Table>
-                <TableHeader className="sticky top-0 z-10 bg-background">
-                  {table.getHeaderGroups().map((headerGroup: HeaderGroup<LogRecordRow>) => (
-                    <TableRow key={headerGroup.id}>
-                      {headerGroup.headers.map((header: Header<LogRecordRow, unknown>) => (
-                        <TableHead key={header.id} style={{ width: header.getSize() }}>
-                          {header.isPlaceholder ? null : header.column.getCanSort() ? (
-                            <button
-                              type="button"
-                              className="cursor-pointer select-none w-full text-left font-medium"
-                              onClick={header.column.getToggleSortingHandler()}
-                            >
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                              {{
-                                asc: ' ↑',
-                                desc: ' ↓',
-                              }[header.column.getIsSorted() as string] ?? null}
-                            </button>
-                          ) : (
-                            <div>
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                            </div>
-                          )}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  ))}
-                </TableHeader>
-                <TableBody
-                  style={{
-                    height: `${virtualizer.getTotalSize()}px`,
-                    position: 'relative',
-                  }}
-                >
-                  {virtualItems.map((virtualRow: VirtualItem) => {
-                    const row = rows[virtualRow.index];
-                    if (!row) return null;
-                    return (
-                      <TableRow
-                        key={row.id}
-                        data-index={virtualRow.index}
-                        style={{
-                          position: 'absolute',
-                          top: 0,
-                          left: 0,
-                          width: '100%',
-                          height: `${virtualRow.size}px`,
-                          transform: `translateY(${virtualRow.start}px)`,
-                        }}
-                      >
-                        {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
-                          <TableCell key={cell.id} style={{ width: cell.column.getSize() }}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            )}
-          </div>
-        </div>
+        <LogViewerTable
+          table={table}
+          rows={rows}
+          logsLoading={logsLoading}
+          tableContainerRef={tableContainerRef}
+          visibleColumns={visibleColumns}
+        />
 
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div>
-            Showing {virtualItems.length > 0 && virtualItems[0] ? virtualItems[0].index + 1 : 0} to{' '}
-            {virtualItems.length > 0 && virtualItems[virtualItems.length - 1]
-              ? (virtualItems[virtualItems.length - 1]?.index ?? 0) + 1
-              : 0}{' '}
-            of {rows.length} log{rows.length === 1 ? '' : 's'}
-          </div>
-          <div>
-            {rows.length} row{rows.length === 1 ? '' : 's'} (filtered from {logRecords.length}{' '}
-            total)
-          </div>
-        </div>
+        <LogViewerFooter rowsCount={filteredRecords.length} totalRecords={logRecords.length} />
       </CardContent>
     </Card>
+  );
+}
+
+interface LogViewerToolbarProps {
+  logLevelFilter: LogLevel;
+  onLevelChange: (value: LogLevel) => void;
+  logLevelItems: ReactNode;
+  globalFilter: string;
+  onSearchChange: (value: string) => void;
+  pageSize: number;
+  onPageSizeChange: (value: number) => void;
+  autoScroll: boolean;
+  onAutoScrollChange: (value: boolean) => void;
+  table: ReactTableInstance<LogRecordRow>;
+  rowsCount: number;
+  logsLoading: boolean;
+  onExport: () => void;
+  onRefresh: () => void;
+  canRefresh: boolean;
+}
+
+function LogViewerToolbar({
+  logLevelFilter,
+  onLevelChange,
+  logLevelItems,
+  globalFilter,
+  onSearchChange,
+  pageSize,
+  onPageSizeChange,
+  autoScroll,
+  onAutoScrollChange,
+  table,
+  rowsCount,
+  logsLoading,
+  onExport,
+  onRefresh,
+  canRefresh,
+}: LogViewerToolbarProps) {
+  return (
+    <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:gap-4">
+        <div className="space-y-1">
+          <Label htmlFor="log-viewer-level">Minimum Level</Label>
+          <Select
+            value={logLevelFilter}
+            onValueChange={(value) => onLevelChange(value as LogLevel)}
+          >
+            <SelectTrigger id="log-viewer-level" className="w-[180px]">
+              <SelectValue placeholder="Level" />
+            </SelectTrigger>
+            <SelectContent>{logLevelItems}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="log-viewer-search">Search</Label>
+          <Input
+            id="log-viewer-search"
+            placeholder="Scope, message, payload"
+            value={globalFilter}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="log-viewer-page-size">Page Size</Label>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => onPageSizeChange(Number(value))}
+          >
+            <SelectTrigger id="log-viewer-page-size" className="w-[120px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+              <SelectItem value="250">250</SelectItem>
+              <SelectItem value="500">500</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
+        <div className="flex items-center gap-2">
+          <Switch
+            id="log-viewer-autoscroll"
+            checked={autoScroll}
+            onCheckedChange={onAutoScrollChange}
+          />
+          <Label htmlFor="log-viewer-autoscroll">Auto-scroll</Label>
+        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" variant="outline" size="sm">
+              Columns <ChevronDown className="ml-2 h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {table
+              .getAllColumns()
+              .filter((column: Column<LogRecordRow, unknown>) => column.getCanHide())
+              .map((column: Column<LogRecordRow, unknown>) => (
+                <DropdownMenuCheckboxItem
+                  key={column.id}
+                  checked={column.getIsVisible()}
+                  onCheckedChange={(value) => column.toggleVisibility(!!value)}
+                >
+                  {column.id.charAt(0).toUpperCase() + column.id.slice(1)}
+                </DropdownMenuCheckboxItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onExport}
+            disabled={rowsCount === 0}
+          >
+            Export
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onRefresh}
+            disabled={logsLoading || !canRefresh}
+          >
+            <RefreshCw className="mr-2 h-4 w-4" aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface LogViewerTableProps {
+  table: ReactTableInstance<LogRecordRow>;
+  rows: Row<LogRecordRow>[];
+  logsLoading: boolean;
+  tableContainerRef: MutableRefObject<HTMLDivElement | null>;
+  visibleColumns: Column<LogRecordRow, unknown>[];
+}
+
+function LogViewerTable({
+  table,
+  rows,
+  logsLoading,
+  tableContainerRef,
+  visibleColumns,
+}: LogViewerTableProps) {
+  useEffect(() => {
+    if (rows.length === 0) {
+      return;
+    }
+    const container = tableContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [rows.length, tableContainerRef]);
+
+  return (
+    <div className="rounded-md border border-border/60">
+      <div ref={tableContainerRef} className="relative h-[500px] overflow-auto bg-muted/20">
+        {logsLoading && rows.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
+        ) : rows.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            No logs recorded for the current session.
+          </div>
+        ) : (
+          <table className="w-full min-w-[720px] table-fixed text-sm">
+            <colgroup>
+              {visibleColumns.map((column) => (
+                <col
+                  key={column.id}
+                  style={{
+                    width: column.getSize() ? `${column.getSize()}px` : undefined,
+                  }}
+                />
+              ))}
+            </colgroup>
+            <TableHeader className="sticky top-0 z-10 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 shadow-sm">
+              {table.getHeaderGroups().map((headerGroup: HeaderGroup<LogRecordRow>) => (
+                <TableRow key={headerGroup.id} className="hover:bg-transparent">
+                  {headerGroup.headers.map((header: Header<LogRecordRow, unknown>) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder ? null : header.column.getCanSort() ? (
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-2 text-left text-sm font-medium text-foreground transition hover:text-primary"
+                          onClick={header.column.getToggleSortingHandler()}
+                        >
+                          <span>
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                          {{
+                            asc: '↑',
+                            desc: '↓',
+                          }[header.column.getIsSorted() as string] ?? (
+                            <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                          )}
+                        </button>
+                      ) : (
+                        <div className="text-sm font-medium">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </div>
+                      )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id} className="align-top">
+                  {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
+                    <TableCell key={cell.id} className="align-top">
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface LogViewerFooterProps {
+  rowsCount: number;
+  totalRecords: number;
+}
+
+function LogViewerFooter({ rowsCount, totalRecords }: LogViewerFooterProps) {
+  const start = rowsCount === 0 ? 0 : 1;
+  const end = rowsCount;
+  return (
+    <div className="flex items-center justify-between text-xs text-muted-foreground">
+      <div>
+        Showing {start} to {end} of {rowsCount} log{rowsCount === 1 ? '' : 's'}
+      </div>
+      <div>
+        {rowsCount} row{rowsCount === 1 ? '' : 's'} (filtered from {totalRecords} total)
+      </div>
+    </div>
   );
 }
 
