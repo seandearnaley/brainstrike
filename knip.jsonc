@@ -35,7 +35,8 @@
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
       "ignoreDependencies": [
-        "electron-builder-squirrel-windows" // Required peer dependency for electron-builder Windows builds
+        "electron-builder-squirrel-windows", // Required peer dependency for electron-builder Windows builds
+        "@vitest/coverage-v8" // Only used in vitest.config.mts, not imported in source code
       ],
       "typescript": {
         "config": "tsconfig.json"
@@ -294,7 +295,9 @@
     "@vitejs/plugin-react", // Only used in Vite config
     "@stryker-mutator/api", // Used for JSDoc type annotations in stryker.config.js files
     "@mermaid-js/mermaid-cli", // Used in .claude/skills/mermaid-diagrams/scripts/validate-mermaid.mjs
-    "mermaid" // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
+    "mermaid", // Used in .claude/skills/mermaid-diagrams/scripts/ (validate-mermaid.mjs and test-one-diagram.mjs)
+    "@tanstack/react-table", // Used in packages/preferences for LogViewerCard table component
+    "@tanstack/react-virtual" // Used in packages/preferences for row virtualization
   ],
   "ignoreExportsUsedInFile": true,
   "rules": {
