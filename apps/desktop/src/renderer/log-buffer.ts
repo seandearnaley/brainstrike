@@ -5,6 +5,14 @@ const removeListener = addLogListener((record) => {
   rendererLogBuffer.push(record);
 });
 
+if (typeof window !== 'undefined') {
+  Object.defineProperty(window, '__brainstrikeRendererLogBuffer', {
+    value: rendererLogBuffer,
+    configurable: true,
+    writable: false,
+  });
+}
+
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     removeListener();

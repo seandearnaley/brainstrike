@@ -498,7 +498,7 @@ throw error
 
 ### 2.4 In-App Log Viewer (New)
 
-**Status:** ✅ Both desktop and web runtimes now expose a structured log buffer and viewer embedded directly in `LoggingSettingsSection`.
+**Status:** ✅ Both desktop and web runtimes now expose a structured log buffer and viewer embedded directly in `LoggingSettingsSection`. **Updated (2025-11-16):** Upgraded to TanStack Table v8 with virtualization for enhanced performance and UX.
 
 **Highlights:**
 - Ring buffer (1 000 entries) fed by `addLogListener`.
@@ -507,8 +507,23 @@ throw error
 
 **Remaining Opportunities:**
 - Persist filtered views between sessions.
-- Add per-scope quick filters and “copy entry” affordances.
+- Add per-scope quick filters and "copy entry" affordances.
 - Surface log buffer state (size, dropped entries) in telemetry.
+
+**2025-11-16 TanStack Table Upgrade:**
+
+The log viewer has been upgraded from a simple `<ul>` rendering to a professional-grade table implementation using:
+- TanStack Table v8.21.3 for advanced table features (sorting, filtering, column visibility)
+- TanStack Virtual v3.13.12 for row virtualization (handles 10k+ entries without DOM bloat)
+
+Key improvements:
+- **Columnar layout** with sortable headers (Timestamp, Level, Scope, Message, Payload, Bindings)
+- **Column visibility controls** - hide/show columns via dropdown menu
+- **Row virtualization** - only renders ~20 visible rows, estimated 36px per row with 10-row overscan
+- **Pagination UI** - configurable page sizes (50/100/250/500) with range indicators
+- **Enhanced auto-scroll** - integrated with virtualizer using scrollToIndex for smooth tracking
+- **Performance** - DOM node count capped, memoized formatters, lazy serialization
+- **Accessibility** - sortable columns use proper button elements with keyboard support
 
 ### 2.5 Limited Database Diagnostics
 

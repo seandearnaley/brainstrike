@@ -38,6 +38,8 @@
     "@brainstrike/storage": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.12",
     "lucide-react": "^0.545.0"
   },
   "devDependencies": {
