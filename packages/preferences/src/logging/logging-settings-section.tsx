@@ -34,7 +34,6 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
   type Header,
   type HeaderGroup,
@@ -552,7 +551,6 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   const [globalFilter, setGlobalFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
-  const [pageSize, setPageSize] = useState(100);
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -725,18 +723,12 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     state: {
       globalFilter,
       columnVisibility,
-      pagination: {
-        pageIndex: 0,
-        pageSize,
-      },
     },
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
-    onPaginationChange: () => {},
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     globalFilterFn: 'includesString',
     initialState: {
       sorting: [{ id: 'timestamp', desc: true }],
@@ -825,8 +817,6 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
           logLevelItems={logLevelItems}
           globalFilter={globalFilter}
           onSearchChange={(value) => setGlobalFilter(value)}
-          pageSize={pageSize}
-          onPageSizeChange={(value) => setPageSize(value)}
           autoScroll={autoScroll}
           onAutoScrollChange={setAutoScroll}
           table={table}
@@ -857,8 +847,6 @@ interface LogViewerToolbarProps {
   logLevelItems: ReactNode;
   globalFilter: string;
   onSearchChange: (value: string) => void;
-  pageSize: number;
-  onPageSizeChange: (value: number) => void;
   autoScroll: boolean;
   onAutoScrollChange: (value: boolean) => void;
   table: ReactTableInstance<LogRecordRow>;
@@ -875,8 +863,6 @@ function LogViewerToolbar({
   logLevelItems,
   globalFilter,
   onSearchChange,
-  pageSize,
-  onPageSizeChange,
   autoScroll,
   onAutoScrollChange,
   table,
@@ -909,23 +895,6 @@ function LogViewerToolbar({
             value={globalFilter}
             onChange={(event) => onSearchChange(event.target.value)}
           />
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="log-viewer-page-size">Page Size</Label>
-          <Select
-            value={String(pageSize)}
-            onValueChange={(value) => onPageSizeChange(Number(value))}
-          >
-            <SelectTrigger id="log-viewer-page-size" className="w-[120px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
-              <SelectItem value="250">250</SelectItem>
-              <SelectItem value="500">500</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
       </div>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4">
