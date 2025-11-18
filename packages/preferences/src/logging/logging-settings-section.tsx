@@ -34,15 +34,26 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
   type Header,
   type HeaderGroup,
+  type PaginationState,
   type Table as ReactTableInstance,
   type Row,
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { ChevronDown, FolderOpen, RefreshCw } from 'lucide-react';
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  FolderOpen,
+  RefreshCw,
+} from 'lucide-react';
 import {
   type MutableRefObject,
   type ReactNode,
@@ -63,6 +74,8 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
   LogLevel.FATAL,
   LogLevel.SILENT,
 ];
+
+const LOG_PAGE_SIZE_OPTIONS = [50, 100, 250, 500];
 
 interface FileCapabilities {
   fileLoggingSupported: boolean;
@@ -551,6 +564,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   const [globalFilter, setGlobalFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
+  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 100 });
   const tableContainerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -723,12 +737,15 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     state: {
       globalFilter,
       columnVisibility,
+      pagination,
     },
     onGlobalFilterChange: setGlobalFilter,
     onColumnVisibilityChange: setColumnVisibility,
+    onPaginationChange: setPagination,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
     globalFilterFn: 'includesString',
     initialState: {
       sorting: [{ id: 'timestamp', desc: true }],
@@ -737,18 +754,54 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
 
   const rows = table.getRowModel().rows;
   const visibleColumns = table.getVisibleLeafColumns();
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: () => 48,
+    overscan: 8,
+  });
+  const pageCount = table.getPageCount();
+
+  useEffect(() => {
+    setPagination((current) => {
+      if (filteredRecords.length === 0) {
+        if (current.pageIndex === 0) {
+          return current;
+        }
+        return { ...current, pageIndex: 0 };
+      }
+      const lastPageIndex = Math.max(pageCount - 1, 0);
+      if (current.pageIndex > lastPageIndex) {
+        return { ...current, pageIndex: lastPageIndex };
+      }
+      return current;
+    });
+  }, [filteredRecords.length, pageCount, setPagination]);
 
   useEffect(() => {
     if (!autoScroll || rows.length === 0) {
       return;
     }
     requestAnimationFrame(() => {
-      const container = tableContainerRef.current;
-      if (container) {
-        container.scrollTop = container.scrollHeight;
+      if (!tableContainerRef.current) {
+        return;
       }
+      rowVirtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
     });
-  }, [autoScroll, rows.length]);
+  }, [autoScroll, rows.length, rowVirtualizer]);
+
+  useEffect(() => {
+    if (!autoScroll || filteredRecords.length === 0) {
+      return;
+    }
+    const lastPageIndex = Math.max(pageCount - 1, 0);
+    setPagination((current) => {
+      if (current.pageIndex === lastPageIndex) {
+        return current;
+      }
+      return { ...current, pageIndex: lastPageIndex };
+    });
+  }, [autoScroll, filteredRecords.length, pageCount, setPagination]);
 
   const logLevelItems = useMemo(
     () =>
@@ -781,10 +834,14 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
   }, [logSource, toast]);
 
   const handleExportLogs = useCallback(() => {
-    if (typeof window === 'undefined' || rows.length === 0) {
+    if (typeof window === 'undefined') {
       return;
     }
-    const exportData = rows.map((row: Row<LogRecordRow>) => row.original);
+    const exportRows = table.getPrePaginationRowModel().rows;
+    if (exportRows.length === 0) {
+      return;
+    }
+    const exportData = exportRows.map((row: Row<LogRecordRow>) => row.original);
     const blob = new Blob([JSON.stringify(exportData, null, 2)], {
       type: 'application/json',
     });
@@ -794,7 +851,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     anchor.download = `brainstrike-logs-${new Date().toISOString()}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
-  }, [rows]);
+  }, [table]);
 
   const canRefresh = Boolean(logSource?.getInitialRecords);
 
@@ -830,12 +887,17 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
         <LogViewerTable
           table={table}
           rows={rows}
+          rowVirtualizer={rowVirtualizer}
           logsLoading={logsLoading}
           tableContainerRef={tableContainerRef}
           visibleColumns={visibleColumns}
         />
 
-        <LogViewerFooter rowsCount={filteredRecords.length} totalRecords={logRecords.length} />
+        <LogViewerFooter
+          table={table}
+          filteredCount={filteredRecords.length}
+          totalRecords={logRecords.length}
+        />
       </CardContent>
     </Card>
   );
@@ -956,6 +1018,7 @@ function LogViewerToolbar({
 interface LogViewerTableProps {
   table: ReactTableInstance<LogRecordRow>;
   rows: Row<LogRecordRow>[];
+  rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   logsLoading: boolean;
   tableContainerRef: MutableRefObject<HTMLDivElement | null>;
   visibleColumns: Column<LogRecordRow, unknown>[];
@@ -964,19 +1027,26 @@ interface LogViewerTableProps {
 function LogViewerTable({
   table,
   rows,
+  rowVirtualizer,
   logsLoading,
   tableContainerRef,
   visibleColumns,
 }: LogViewerTableProps) {
-  useEffect(() => {
-    if (rows.length === 0) {
-      return;
-    }
-    const container = tableContainerRef.current;
-    if (container) {
-      container.scrollTop = container.scrollHeight;
-    }
-  }, [rows.length, tableContainerRef]);
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalSize = rowVirtualizer.getTotalSize();
+  const firstVirtualRow = virtualRows[0];
+  const lastVirtualRow = virtualRows[virtualRows.length - 1];
+  const paddingTop = firstVirtualRow ? firstVirtualRow.start : 0;
+  const paddingBottom = lastVirtualRow ? totalSize - lastVirtualRow.end : 0;
+  const columnCount = Math.max(visibleColumns.length, 1);
+  const measureRow = useCallback(
+    (node: HTMLTableRowElement | null) => {
+      if (node) {
+        rowVirtualizer.measureElement(node);
+      }
+    },
+    [rowVirtualizer]
+  );
 
   return (
     <div className="rounded-md border border-border/60">
@@ -1031,15 +1101,37 @@ function LogViewerTable({
               ))}
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id} className="align-top">
-                  {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
-                    <TableCell key={cell.id} className="align-top">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
+              {paddingTop > 0 ? (
+                <TableRow className="pointer-events-none">
+                  <TableCell colSpan={columnCount} style={{ height: `${paddingTop}px` }} />
                 </TableRow>
-              ))}
+              ) : null}
+              {virtualRows.map((virtualRow) => {
+                const row = rows[virtualRow.index];
+                if (!row) {
+                  return null;
+                }
+                return (
+                  <TableRow
+                    key={row.id}
+                    data-index={virtualRow.index}
+                    ref={measureRow}
+                    className="align-top"
+                    style={{ height: `${virtualRow.size}px` }}
+                  >
+                    {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
+                      <TableCell key={cell.id} className="align-top">
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                );
+              })}
+              {paddingBottom > 0 ? (
+                <TableRow className="pointer-events-none">
+                  <TableCell colSpan={columnCount} style={{ height: `${paddingBottom}px` }} />
+                </TableRow>
+              ) : null}
             </TableBody>
           </table>
         )}
@@ -1049,20 +1141,97 @@ function LogViewerTable({
 }
 
 interface LogViewerFooterProps {
-  rowsCount: number;
+  table: ReactTableInstance<LogRecordRow>;
+  filteredCount: number;
   totalRecords: number;
 }
 
-function LogViewerFooter({ rowsCount, totalRecords }: LogViewerFooterProps) {
-  const start = rowsCount === 0 ? 0 : 1;
-  const end = rowsCount;
+function LogViewerFooter({ table, filteredCount, totalRecords }: LogViewerFooterProps) {
+  const { pageIndex, pageSize } = table.getState().pagination;
+  const pageCount = table.getPageCount();
+  const safePageCount = filteredCount === 0 ? 0 : pageCount;
+  const currentPageNumber = filteredCount === 0 ? 0 : pageIndex + 1;
+  const start = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
+  const end = filteredCount === 0 ? 0 : Math.min(filteredCount, (pageIndex + 1) * pageSize);
+  const canPrevious = table.getCanPreviousPage();
+  const canNext = table.getCanNextPage();
   return (
-    <div className="flex items-center justify-between text-xs text-muted-foreground">
+    <div className="flex flex-col gap-3 text-xs text-muted-foreground lg:flex-row lg:items-center lg:justify-between">
       <div>
-        Showing {start} to {end} of {rowsCount} log{rowsCount === 1 ? '' : 's'}
+        Showing {start === 0 && end === 0 ? 0 : `${start}–${end}`} of {filteredCount} filtered log
+        {filteredCount === 1 ? '' : 's'} ({totalRecords} total)
       </div>
-      <div>
-        {rowsCount} row{rowsCount === 1 ? '' : 's'} (filtered from {totalRecords} total)
+      <div className="flex flex-col gap-2 text-foreground sm:flex-row sm:items-center sm:gap-4">
+        <div className="flex items-center gap-2">
+          <Label
+            htmlFor="log-viewer-page-size"
+            className="text-xs font-medium text-muted-foreground"
+          >
+            Rows per page
+          </Label>
+          <Select
+            value={String(pageSize)}
+            onValueChange={(value) => table.setPageSize(Number(value))}
+          >
+            <SelectTrigger id="log-viewer-page-size" className="h-8 w-[96px] text-xs">
+              <SelectValue placeholder={`${pageSize}`} />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {LOG_PAGE_SIZE_OPTIONS.map((size) => (
+                <SelectItem key={size} value={String(size)} className="text-xs">
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span>
+            Page {currentPageNumber} of {safePageCount}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Go to first page"
+              disabled={!canPrevious}
+              onClick={() => table.setPageIndex(0)}
+            >
+              <ChevronsLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Go to previous page"
+              disabled={!canPrevious}
+              onClick={() => table.previousPage()}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Go to next page"
+              disabled={!canNext}
+              onClick={() => table.nextPage()}
+            >
+              <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Go to last page"
+              disabled={!canNext}
+              onClick={() => table.setPageIndex(Math.max(pageCount - 1, 0))}
+            >
+              <ChevronsRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );
