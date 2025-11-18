@@ -44,7 +44,7 @@ import {
   useReactTable,
   type VisibilityState,
 } from '@tanstack/react-table';
-import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer, type VirtualItem, type Virtualizer } from '@tanstack/react-virtual';
 import {
   ChevronDown,
   ChevronLeft,
@@ -76,6 +76,7 @@ const LOG_LEVEL_OPTIONS: LogLevel[] = [
 ];
 
 const LOG_PAGE_SIZE_OPTIONS = [50, 100, 250, 500];
+const LOG_VIEWPORT_HEIGHT_PX = 500;
 
 interface FileCapabilities {
   fileLoggingSupported: boolean;
@@ -759,6 +760,7 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
     getScrollElement: () => tableContainerRef.current,
     estimateSize: () => 48,
     overscan: 8,
+    initialRect: { width: 0, height: LOG_VIEWPORT_HEIGHT_PX },
   });
   const pageCount = table.getPageCount();
 
@@ -783,10 +785,15 @@ function LogViewerCard({ logSource, toast }: LogViewerCardProps) {
       return;
     }
     requestAnimationFrame(() => {
-      if (!tableContainerRef.current) {
+      const container = tableContainerRef.current;
+      if (!container) {
         return;
       }
-      rowVirtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
+      if (rowVirtualizer.getVirtualItems().length > 0) {
+        rowVirtualizer.scrollToIndex(rows.length - 1, { align: 'end' });
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
     });
   }, [autoScroll, rows.length, rowVirtualizer]);
 
@@ -1047,10 +1054,15 @@ function LogViewerTable({
     },
     [rowVirtualizer]
   );
+  const renderVirtualRows = virtualRows.length > 0;
 
   return (
     <div className="rounded-md border border-border/60">
-      <div ref={tableContainerRef} className="relative h-[500px] overflow-auto bg-muted/20">
+      <div
+        ref={tableContainerRef}
+        className="relative overflow-auto bg-muted/20"
+        style={{ height: LOG_VIEWPORT_HEIGHT_PX }}
+      >
         {logsLoading && rows.length === 0 ? (
           <div className="p-4 text-sm text-muted-foreground">Loading logs…</div>
         ) : rows.length === 0 ? (
@@ -1101,42 +1113,93 @@ function LogViewerTable({
               ))}
             </TableHeader>
             <TableBody>
-              {paddingTop > 0 ? (
-                <TableRow className="pointer-events-none">
-                  <TableCell colSpan={columnCount} style={{ height: `${paddingTop}px` }} />
-                </TableRow>
-              ) : null}
-              {virtualRows.map((virtualRow) => {
-                const row = rows[virtualRow.index];
-                if (!row) {
-                  return null;
-                }
-                return (
-                  <TableRow
-                    key={row.id}
-                    data-index={virtualRow.index}
-                    ref={measureRow}
-                    className="align-top"
-                    style={{ height: `${virtualRow.size}px` }}
-                  >
-                    {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
-                      <TableCell key={cell.id} className="align-top">
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                );
-              })}
-              {paddingBottom > 0 ? (
-                <TableRow className="pointer-events-none">
-                  <TableCell colSpan={columnCount} style={{ height: `${paddingBottom}px` }} />
-                </TableRow>
-              ) : null}
+              {renderVirtualRows ? (
+                <VirtualizedLogRows
+                  virtualRows={virtualRows}
+                  rows={rows}
+                  columnCount={columnCount}
+                  paddingTop={paddingTop}
+                  paddingBottom={paddingBottom}
+                  measureRow={measureRow}
+                />
+              ) : (
+                <StaticLogRows rows={rows} />
+              )}
             </TableBody>
           </table>
         )}
       </div>
     </div>
+  );
+}
+
+interface VirtualizedLogRowsProps {
+  virtualRows: VirtualItem[];
+  rows: Row<LogRecordRow>[];
+  columnCount: number;
+  paddingTop: number;
+  paddingBottom: number;
+  measureRow: (node: HTMLTableRowElement | null) => void;
+}
+
+function VirtualizedLogRows({
+  virtualRows,
+  rows,
+  columnCount,
+  paddingTop,
+  paddingBottom,
+  measureRow,
+}: VirtualizedLogRowsProps) {
+  return (
+    <>
+      {paddingTop > 0 ? (
+        <TableRow className="pointer-events-none">
+          <TableCell colSpan={columnCount} style={{ height: `${paddingTop}px` }} />
+        </TableRow>
+      ) : null}
+      {virtualRows.map((virtualRow) => {
+        const row = rows[virtualRow.index];
+        if (!row) {
+          return null;
+        }
+        return (
+          <TableRow
+            key={row.id}
+            data-index={virtualRow.index}
+            ref={measureRow}
+            className="align-top"
+            style={{ height: `${virtualRow.size}px` }}
+          >
+            {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
+              <TableCell key={cell.id} className="align-top">
+                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+              </TableCell>
+            ))}
+          </TableRow>
+        );
+      })}
+      {paddingBottom > 0 ? (
+        <TableRow className="pointer-events-none">
+          <TableCell colSpan={columnCount} style={{ height: `${paddingBottom}px` }} />
+        </TableRow>
+      ) : null}
+    </>
+  );
+}
+
+function StaticLogRows({ rows }: { rows: Row<LogRecordRow>[] }) {
+  return (
+    <>
+      {rows.map((row) => (
+        <TableRow key={row.id} className="align-top">
+          {row.getVisibleCells().map((cell: Cell<LogRecordRow, unknown>) => (
+            <TableCell key={cell.id} className="align-top">
+              {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </>
   );
 }
 
