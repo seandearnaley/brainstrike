@@ -10,7 +10,7 @@ export default defineConfig({
     environment: 'node',
     globals: true,
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
-    include: ['test/**/*.spec.ts'],
+    include: ['test/**/*.spec.ts', 'src/**/*.test.ts'],
     exclude: ['dist', 'node_modules'],
     restoreMocks: true,
     clearMocks: true,
