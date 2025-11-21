@@ -200,14 +200,19 @@ export class JobQueue {
   }
 
   async claim(params: ClaimParams): Promise<Job | null> {
+    const jobs = await this.claimMany({ ...params, limit: 1 });
+    return jobs[0] ?? null;
+  }
+
+  async claimMany(params: ClaimParams & { limit?: number }): Promise<Job[]> {
     const now = params.now ?? new Date().toISOString();
     const leaseToken = generateUUID();
     const leasedUntil = new Date(Date.now() + params.leaseMs).toISOString();
     const updatedAt = now;
+    const limit = Math.max(1, params.limit ?? 1);
 
     // Atomic claim: next runnable or expired lease; bump attempts on claim.
     // Re-check state/lease conditions in the UPDATE to prevent double-claim races.
-    // (This remains portable for PGlite and Postgres; FOR UPDATE SKIP LOCKED can be added if available.)
     const result = await this.db.query<JobRow>(
       `WITH candidate AS (
          SELECT id
@@ -219,7 +224,7 @@ export class JobQueue {
                OR (state = 'running' AND (leased_until IS NULL OR leased_until <= $2))
                 )
           ORDER BY run_at ASC, id ASC
-          LIMIT 1
+          LIMIT $7
        )
        UPDATE job_queue AS j SET
          state = 'running',
@@ -236,19 +241,19 @@ export class JobQueue {
             OR (j.state = 'running' AND (j.leased_until IS NULL OR j.leased_until <= $2))
              )
        RETURNING j.*`,
-      [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt]
+      [params.queue, now, leaseToken, leasedUntil, params.workerId ?? null, updatedAt, limit]
     );
 
-    if (!result.rows[0]) return null;
-    const job = fromRow(result.rows[0]);
-    logger.debug('Job claimed', {
-      jobId: job.id,
-      queue: job.queue,
-      leaseToken,
-      workerId: params.workerId ?? null,
-      attempts: job.attempts,
-    });
-    return job;
+    const jobs = result.rows.map(fromRow);
+    if (jobs.length > 0) {
+      logger.debug('Jobs claimed', {
+        count: jobs.length,
+        queue: params.queue,
+        leaseToken,
+        workerId: params.workerId ?? null,
+      });
+    }
+    return jobs;
   }
 
   async heartbeat(params: HeartbeatParams): Promise<Job | null> {

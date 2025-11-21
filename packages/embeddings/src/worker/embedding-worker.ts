@@ -1,4 +1,4 @@
-import type { IDatabase } from '@brainstrike/db';
+import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -541,109 +541,99 @@ export async function startEmbeddingWorker(
     });
   }
 
-  type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
+  // biome-ignore lint/style/useNamingConvention: DB field name
+  type ClaimedJob = Job & { lease_token: string };
 
-  async function generateLocalEmbedding(
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
+  async function generateLocalEmbeddings(
+    chunks: Array<NonNullable<Awaited<ReturnType<typeof loadChunk>>>>,
     expectedDimension: number
-  ): Promise<EmbeddingResult> {
+  ): Promise<EmbeddingResult[]> {
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
       throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
     }
 
-    workerLogger.debug('Calling service.generateEmbedding (may block main thread)', {
-      contentLength: chunk.content.length,
+    workerLogger.debug('Calling service.generateEmbeddings (may block main thread)', {
+      count: chunks.length,
       expectedDimension,
     });
 
+    const texts = chunks.map((c) => c.content);
     const svcAny = service as unknown as {
-      generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
+      generateEmbeddings?: (t: string[]) => Promise<EmbeddingResult[]>;
       generateEmbedding: (t: string) => Promise<EmbeddingResult>;
     };
-    const result = svcAny.generateDocEmbedding
-      ? await svcAny.generateDocEmbedding(chunk.content)
-      : await service.generateEmbedding(chunk.content);
 
-    workerLogger.debug('service.generateEmbedding completed');
-
-    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
-      throw new Error(
-        `Embedding dimension mismatch for model '${activeCompositeKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
-          'Verify provider configuration (dimension/size parameter) and retry.'
-      );
+    let results: EmbeddingResult[];
+    if (svcAny.generateEmbeddings) {
+      results = await svcAny.generateEmbeddings(texts);
+    } else {
+      // Fallback for services that don't support batching
+      results = [];
+      for (const text of texts) {
+        results.push(await service.generateEmbedding(text));
+      }
     }
 
-    return result;
-  }
+    workerLogger.debug('service.generateEmbeddings completed');
 
-  function resolveJobModel(payload: EmbedChunkPayload): {
-    compositeKey: string;
-    provider: EmbeddingProviderType;
-    modelId: string;
-  } {
-    const rawModelKey = payload.modelKey ?? undefined;
-    const providerHint = payload.provider ?? undefined;
-
-    const candidateComposite = (() => {
-      if (!rawModelKey) {
-        return undefined;
+    for (const result of results) {
+      if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+        throw new Error(
+          `Embedding dimension mismatch for model '${activeCompositeKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
+            'Verify provider configuration (dimension/size parameter) and retry.'
+        );
       }
-      const parsed = parseProviderModelKey(rawModelKey);
-      if (parsed) {
-        return rawModelKey;
-      }
-      if (providerHint && isHostedProvider(providerHint)) {
-        return formatProviderModelKey(providerHint, rawModelKey);
-      }
-      return rawModelKey;
-    })();
-
-    const compositeKey = candidateComposite ?? activeCompositeKey;
-    const parsed = parseProviderModelKey(compositeKey);
-
-    if (parsed) {
-      return {
-        compositeKey,
-        provider: parsed.provider,
-        modelId: parsed.modelId,
-      };
     }
 
-    return {
-      compositeKey,
-      provider: 'local',
-      modelId: compositeKey,
-    };
+    return results;
   }
 
-  async function generateHostedEmbedding(
+  function handleHostedError(provider: SupportedHostedProvider, error: EmbeddingProviderError) {
+    if (error.type === 'rate_limit_exceeded') {
+      const retryAfter = error.retryAfter;
+      const ms = retryAfter ? retryAfter * 1000 : undefined;
+      throw new WorkerRateLimitError(formatHostedEmbedError(provider, error), ms);
+    }
+    throw new Error(formatHostedEmbedError(provider, error));
+  }
+
+  async function generateHostedEmbeddings(
     provider: Exclude<EmbeddingProviderType, 'local'>,
     modelId: string,
     expectedDimension: number,
-    text: string
-  ): Promise<number[]> {
+    texts: string[]
+  ): Promise<number[][]> {
     const supportedProvider = toSupportedHostedProvider(provider);
     const config = buildHostedProviderConfig(supportedProvider, modelId, expectedDimension);
     const providerInstance = await createHostedProviderInstance(supportedProvider, config);
-    const embedResult = await providerInstance.embed({ text, modelId });
+
+    // Casting to allow array input which we added support for
+    const embedResult = await providerInstance.embed({
+      text: texts,
+      modelId,
+    });
+
     if (!embedResult.ok) {
-      if (embedResult.error.type === 'rate_limit_exceeded') {
-        const retryAfter = embedResult.error.retryAfter;
-        const ms = retryAfter ? retryAfter * 1000 : undefined;
-        throw new WorkerRateLimitError(
-          formatHostedEmbedError(supportedProvider, embedResult.error),
-          ms
-        );
-      }
-      throw new Error(formatHostedEmbedError(supportedProvider, embedResult.error));
+      handleHostedError(supportedProvider, embedResult.error);
+      throw new Error('Unreachable'); // handleHostedError always throws
     }
 
-    const embedding = embedResult.value.embedding;
-    validateHostedEmbeddingDimensions(supportedProvider, modelId, embedding, expectedDimension);
+    const embeddings =
+      embedResult.value.embeddings ||
+      (embedResult.value.embedding ? [embedResult.value.embedding] : []);
 
-    return embedding;
+    if (embeddings.length !== texts.length) {
+      throw new Error(
+        `Hosted provider returned ${embeddings.length} embeddings for ${texts.length} inputs.`
+      );
+    }
+
+    for (const embedding of embeddings) {
+      validateHostedEmbeddingDimensions(supportedProvider, modelId, embedding, expectedDimension);
+    }
+
+    return embeddings;
   }
-
   function assertEmbedChunkJob(claimed: ClaimedJob): EmbedChunkPayload {
     if (claimed.jobType !== 'embed_chunk') {
       throw new Error(`Unsupported job type: ${claimed.jobType}`);
@@ -714,150 +704,292 @@ export async function startEmbeddingWorker(
     return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
   }
 
-  async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
-    workerLogger.debug('Job start', {
-      jobId: claimed.id,
-      activeModelId,
-      activeCompositeKey,
-    });
+  async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const truncated = message.slice(0, 4000);
 
-    const payload = assertEmbedChunkJob(claimed);
-    workerLogger.debug('Job payload', {
-      chunkId: payload.chunkId,
-      payloadModelKey: payload.modelKey,
-      payloadProvider: payload.provider,
-    });
+    let backoffMs: number | undefined;
+    if (error instanceof WorkerRateLimitError && error.retryAfterMs) {
+      backoffMs = error.retryAfterMs;
+    }
 
-    const chunk = await loadChunkOrThrow(payload.chunkId);
-    const targetSetId = resolveTargetSetId(payload, chunk);
-    const expectedDimension = await determineExpectedDimension(targetSetId, payload);
-    const jobModel = resolveJobModel(payload);
+    // Fail all jobs in the batch with the same error
+    await Promise.all(
+      jobs.map((job) =>
+        jq.fail({
+          id: job.id,
+          leaseToken: job.lease_token,
+          error: truncated,
+          ...(backoffMs !== undefined ? { backoffMs } : {}),
+        })
+      )
+    );
 
-    workerLogger.debug('Resolved job model', {
-      jobModelId: jobModel.modelId,
-      jobCompositeKey: jobModel.compositeKey,
-      jobProvider: jobModel.provider,
-      willReinitialize: jobModel.modelId !== activeModelId,
-    });
+    metrics.jobsFailed += jobs.length;
+    consecutiveFailures += 1;
 
-    const expectedHash = await sha256Hex(`${chunk.contentHash}:${jobModel.compositeKey}`);
+    const looksLikeModelExecError =
+      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
 
-    if (isEmbeddingUpToDate(chunk, expectedHash)) {
-      await jq.complete({ id: claimed.id, leaseToken });
+    if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
+      workerLogger.warn(
+        `Consecutive model execution failures (${consecutiveFailures}); forcing CPU reset.`
+      );
+      await resetService(true);
+      consecutiveFailures = 0;
+    } else if (consecutiveFailures >= reinitEveryN) {
+      workerLogger.warn(
+        `Consecutive failures (${consecutiveFailures}); forcing service reinitialization.`
+      );
+      await resetService(false);
+      consecutiveFailures = 0;
+    }
+  }
+
+  async function loadAndFilterChunks(
+    jobs: ClaimedJob[],
+    jobModel: ReturnType<typeof resolveJobModel>
+  ) {
+    // 1. Load all chunks
+    const chunks = await Promise.all(
+      jobs.map(async (job) => {
+        const p = assertEmbedChunkJob(job);
+        return { job, chunk: await loadChunkOrThrow(p.chunkId), payload: p };
+      })
+    );
+
+    // 2. Filter out up-to-date chunks
+    const toProcess: typeof chunks = [];
+    const completed: typeof chunks = [];
+
+    for (const item of chunks) {
+      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+      if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
+        completed.push(item);
+      } else {
+        toProcess.push(item);
+      }
+    }
+    return { toProcess, completed };
+  }
+
+  type LoadedChunkItem = {
+    job: ClaimedJob;
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
+    payload: EmbedChunkPayload;
+  };
+
+  async function generateEmbeddingsForGroup(
+    jobModel: ReturnType<typeof resolveJobModel>,
+    toProcess: LoadedChunkItem[],
+    expectedDimension: number
+  ) {
+    const texts = toProcess.map((item) => item.chunk.content);
+    if (jobModel.provider === 'local') {
+      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+      const results = await generateLocalEmbeddings(
+        toProcess.map((item) => item.chunk),
+        expectedDimension
+      );
+      return results.map((r) => r.embedding);
+    }
+    return generateHostedEmbeddings(jobModel.provider, jobModel.modelId, expectedDimension, texts);
+  }
+
+  async function validateBatchDimensions(toProcess: LoadedChunkItem[]) {
+    const dimensions = await Promise.all(
+      toProcess.map((item) =>
+        determineExpectedDimension(resolveTargetSetId(item.payload, item.chunk), item.payload)
+      )
+    );
+
+    const expectedDimension = dimensions[0];
+    if (!expectedDimension) {
+      throw new Error('Could not determine expected dimension for batch.');
+    }
+
+    if (dimensions.some((d) => d !== expectedDimension)) {
+      throw new Error('Batch contains jobs with conflicting expected dimensions.');
+    }
+    return expectedDimension;
+  }
+
+  async function completeBatch(
+    toProcess: LoadedChunkItem[],
+    embeddings: number[][],
+    jobModel: ReturnType<typeof resolveJobModel>
+  ) {
+    await Promise.all(
+      toProcess.map(async (item, index) => {
+        const embedding = embeddings[index];
+        if (!embedding) {
+          throw new Error(`Missing embedding for item ${index} in batch.`);
+        }
+        const targetSetId = resolveTargetSetId(item.payload, item.chunk);
+        const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+
+        await updateChunkEmbedding(
+          options.db,
+          item.chunk.id,
+          embedding,
+          targetSetId,
+          expectedHash,
+          vectorEnabledForWrites
+        );
+
+        await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
+      })
+    );
+  }
+
+  function resolveJobModel(payload: EmbedChunkPayload): {
+    compositeKey: string;
+    provider: EmbeddingProviderType;
+    modelId: string;
+  } {
+    const rawModelKey = payload.modelKey ?? undefined;
+    const providerHint = payload.provider ?? undefined;
+
+    const candidateComposite = (() => {
+      if (!rawModelKey) {
+        return undefined;
+      }
+      const parsed = parseProviderModelKey(rawModelKey);
+      if (parsed) {
+        return rawModelKey;
+      }
+      if (providerHint && isHostedProvider(providerHint)) {
+        return formatProviderModelKey(providerHint, rawModelKey);
+      }
+      return rawModelKey;
+    })();
+
+    const compositeKey = candidateComposite ?? activeCompositeKey;
+    const parsed = parseProviderModelKey(compositeKey);
+
+    if (parsed) {
+      return {
+        compositeKey,
+        provider: parsed.provider,
+        modelId: parsed.modelId,
+      };
+    }
+
+    return {
+      compositeKey,
+      provider: 'local',
+      modelId: compositeKey,
+    };
+  }
+
+  async function processGroup(jobs: ClaimedJob[]): Promise<void> {
+    if (jobs.length === 0) return;
+
+    const firstJob = jobs[0];
+    if (!firstJob) return;
+
+    let payload: EmbedChunkPayload;
+    let jobModel: ReturnType<typeof resolveJobModel>;
+
+    try {
+      payload = assertEmbedChunkJob(firstJob);
+      jobModel = resolveJobModel(payload);
+    } catch (err) {
+      await handleBatchFailure(jobs, err);
       return;
     }
 
-    let embedding: number[];
-    if (jobModel.provider === 'local') {
-      workerLogger.debug('Processing local embedding job');
-      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
-      workerLogger.debug('About to call generateLocalEmbedding');
-      const result = await generateLocalEmbedding(chunk, expectedDimension);
-      workerLogger.debug('generateLocalEmbedding returned', {
-        dimensions: result.dimensions,
-      });
-      embedding = result.embedding;
-    } else {
-      embedding = await generateHostedEmbedding(
-        jobModel.provider,
-        jobModel.modelId,
-        expectedDimension,
-        chunk.content
-      );
-    }
-
-    await updateChunkEmbedding(
-      options.db,
-      chunk.id,
-      embedding,
-      targetSetId,
-      expectedHash,
-      vectorEnabledForWrites
-    );
-    await jq.complete({ id: claimed.id, leaseToken });
-  }
-
-  async function handleClaimedJob(claimed: ClaimedJob): Promise<void> {
-    // Our Job shape retains DB column name `lease_token`; use it directly
-    const leaseToken = claimed.lease_token as string;
-    const jobId = claimed.id;
-
     const hb = setInterval(() => {
-      // Fire-and-forget heartbeat; log errors for observability
-      jq.heartbeat({ id: jobId, leaseToken, extendMs: leaseMs }).catch((err) =>
-        log('worker_heartbeat_error', { jobId, error: String(err) })
-      );
+      Promise.all(
+        jobs.map((job) =>
+          jq.heartbeat({ id: job.id, leaseToken: job.lease_token, extendMs: leaseMs })
+        )
+      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
     }, heartbeatMs);
 
-    const jobStart = Date.now();
     try {
-      await executeJobPayload(claimed, leaseToken);
-      const dur = Date.now() - jobStart;
-      metrics.jobsProcessed += 1;
-      metrics.totalDurationMs += dur;
-      processedSinceInit += 1;
+      const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
+
+      if (completed.length > 0) {
+        await Promise.all(
+          completed.map((item) =>
+            jq.complete({ id: item.job.id, leaseToken: item.job.lease_token })
+          )
+        );
+        metrics.jobsProcessed += completed.length;
+        processedSinceInit += completed.length;
+      }
+
+      if (toProcess.length === 0) return;
+
+      const expectedDimension = await validateBatchDimensions(toProcess);
+      const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+
+      await completeBatch(toProcess, embeddings, jobModel);
+
+      metrics.jobsProcessed += toProcess.length;
+      processedSinceInit += toProcess.length;
       consecutiveFailures = 0;
-      if (reinitEveryN > 0 && processedSinceInit >= reinitEveryN) {
-        // Periodic re-init to release native resources (WebGPU/WASM)
+
+      if (processedSinceInit >= reinitEveryN) {
+        workerLogger.info(
+          `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
+        );
         await resetService(false);
       }
-      log('worker_job_complete', {
-        jobId,
-        attempts: claimed.attempts,
-        durationMs: dur,
-        queue: claimed.queue,
-      });
-    } catch (err) {
-      await handleJobFailure(jobId, leaseToken, claimed.attempts, err);
+    } catch (error) {
+      await handleBatchFailure(jobs, error);
     } finally {
       clearInterval(hb);
     }
   }
 
-  async function handleJobFailure(
-    jobId: string,
-    leaseToken: string,
-    attempts: number,
-    err: unknown
-  ): Promise<void> {
-    const message = err instanceof Error ? err.message : String(err);
-    // Truncate to ~4k to fit error column expectations
-    const truncated = message.slice(0, 4000);
-    let backoffMs: number | undefined;
-    if (err instanceof WorkerRateLimitError) {
-      backoffMs = err.retryAfterMs;
+  function groupJobs(jobs: ClaimedJob[]): Map<string, ClaimedJob[]> {
+    const groups = new Map<string, ClaimedJob[]>();
+    for (const job of jobs) {
+      try {
+        const payload = assertEmbedChunkJob(job);
+        const model = resolveJobModel(payload);
+        const key = `${model.provider}:${model.compositeKey}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)?.push(job);
+      } catch (err) {
+        // If we can't parse job/model, fail it immediately
+        jq.fail({
+          id: job.id,
+          leaseToken: job.lease_token,
+          error: err instanceof Error ? err.message : String(err),
+        }).catch((e) => workerLogger.error('Failed to fail job', { error: e }));
+        metrics.jobsFailed += 1;
+      }
     }
-    if (backoffMs !== undefined) {
-      await jq.fail({ id: jobId, leaseToken, error: truncated, backoffMs });
-    } else {
-      await jq.fail({ id: jobId, leaseToken, error: truncated });
-    }
-    metrics.jobsFailed += 1;
-    consecutiveFailures += 1;
-    // If repeated model execution errors occur, force CPU re-init
-    const looksLikeModelExecError =
-      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
-    if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
-      log('worker_force_cpu_fallback', {
-        jobId,
-        consecutiveFailures,
-        reason: 'repeated_model_exec_errors',
-      });
-      await resetService(true);
-    }
-    log('worker_job_fail', { jobId, attempts, error: truncated });
+    return groups;
   }
 
-  async function processOne(): Promise<void> {
+  async function processBatch(): Promise<void> {
     try {
-      const claimed = await jq.claim({ queue: queueName, leaseMs, workerId });
-      if (!claimed) {
+      // Claim a batch of jobs
+      const jobs = (await jq.claimMany({
+        queue: queueName,
+        leaseMs,
+        workerId,
+        limit: 50, // Configurable batch size
+      })) as ClaimedJob[];
+
+      if (jobs.length === 0) {
         await sleep(400); // idle backoff
         return;
       }
 
-      await handleClaimedJob(claimed);
-      // Small yield to let GC/native resources settle
+      // Group by model key AND provider to ensure we process same-model jobs together
+      const groups = groupJobs(jobs);
+
+      // Process each group
+      for (const group of groups.values()) {
+        await processGroup(group);
+      }
+
+      // Small yield
       await sleep(5);
     } catch (err) {
       // If database is closed/closing, gracefully stop the worker
@@ -866,8 +998,8 @@ export async function startEmbeddingWorker(
         running = false; // Stop the worker loop
         return;
       }
-      // Re-throw other errors
-      throw err;
+      workerLogger.error('Critical worker error in processBatch', { error: err });
+      await sleep(1000);
     }
   }
 
@@ -876,7 +1008,7 @@ export async function startEmbeddingWorker(
     loops.push(
       (async () => {
         while (running) {
-          await processOne();
+          await processBatch();
         }
       })()
     );

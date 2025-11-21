@@ -85,18 +85,9 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   async embed(input: EmbeddingInput): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
-    const apiKey = this.apiKey;
-
-    if (!apiKey) {
-      return {
-        ok: false,
-        error: {
-          type: 'missing_api_key',
-          provider: 'openai',
-        },
-      };
+    if (!this.apiKey) {
+      return { ok: false, error: { type: 'missing_api_key', provider: 'openai' } };
     }
-
     if (!this.fetchImpl) {
       return {
         ok: false,
@@ -109,86 +100,11 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     try {
-      const response = await this.fetchImpl(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.modelId,
-          input: input.text,
-          // biome-ignore lint/style/useNamingConvention: OpenAI API expects snake_case key
-          encoding_format: 'float',
-          dimensions: this.targetDimensions,
-        }),
-      });
-
+      const response = await this.makeEmbeddingRequest(input.text);
       if (!response.ok) {
-        if (response.status === 429) {
-          const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
-          const rateLimitError: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
-            type: 'rate_limit_exceeded',
-            provider: 'openai',
-          };
-          if (retryAfter !== undefined) {
-            rateLimitError.retryAfter = retryAfter;
-          }
-          return {
-            ok: false,
-            error: rateLimitError,
-          };
-        }
-
-        const errorPayload = (await safeJson(response)) as OpenAIEmbeddingResponse | undefined;
-        const message =
-          errorPayload?.error?.message ??
-          `OpenAI embeddings request failed with status ${response.status}`;
-
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'openai',
-            statusCode: response.status,
-            message,
-          },
-        };
+        return this.handleErrorResponse(response);
       }
-
-      const payload = (await response.json()) as OpenAIEmbeddingResponse;
-      const embedding = payload.data?.[0]?.embedding;
-
-      if (!Array.isArray(embedding)) {
-        return {
-          ok: false,
-          error: {
-            type: 'api_error',
-            provider: 'openai',
-            statusCode: response.status,
-            message: 'OpenAI response did not include an embedding array.',
-          },
-        };
-      }
-
-      const validation = this.validateDimensions(embedding, this.targetDimensions);
-      if (!validation.ok) {
-        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
-      }
-
-      const output: EmbeddingOutput = {
-        embedding,
-        dimensions: embedding.length,
-        modelId: input.modelId,
-        provider: 'openai',
-      };
-      const inputTokens = payload.usage?.['prompt_tokens'];
-      if (typeof inputTokens === 'number') {
-        output.usage = { inputTokens };
-      }
-
-      return { ok: true, value: output };
+      return this.processSuccessResponse(response, input.modelId);
     } catch (error) {
       return {
         ok: false,
@@ -199,6 +115,125 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
         },
       };
     }
+  }
+
+  private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
+    return this.fetchImpl(this.endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        // biome-ignore lint/style/useNamingConvention: HTTP header casing is standardized
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: this.modelId,
+        input: text,
+        // biome-ignore lint/style/useNamingConvention: OpenAI API expects snake_case key
+        encoding_format: 'float',
+        dimensions: this.targetDimensions,
+      }),
+    });
+  }
+
+  private async handleErrorResponse(
+    response: Response
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    if (response.status === 429) {
+      const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+      const error: Extract<EmbeddingProviderError, { type: 'rate_limit_exceeded' }> = {
+        type: 'rate_limit_exceeded',
+        provider: 'openai',
+      };
+      if (retryAfter !== undefined) {
+        error.retryAfter = retryAfter;
+      }
+      return { ok: false, error };
+    }
+
+    const errorPayload = (await safeJson(response)) as OpenAIEmbeddingResponse | undefined;
+    const message =
+      errorPayload?.error?.message ??
+      `OpenAI embeddings request failed with status ${response.status}`;
+
+    return {
+      ok: false,
+      error: { type: 'api_error', provider: 'openai', statusCode: response.status, message },
+    };
+  }
+
+  private async processSuccessResponse(
+    response: Response,
+    modelId: string
+  ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
+    const payload = (await response.json()) as OpenAIEmbeddingResponse;
+
+    if (!payload.data || !Array.isArray(payload.data) || payload.data.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'openai',
+          statusCode: response.status,
+          message: 'OpenAI response did not include any embedding data.',
+        },
+      };
+    }
+
+    const embeddings: number[][] = [];
+    for (const item of payload.data) {
+      if (item.embedding && Array.isArray(item.embedding)) {
+        embeddings.push(item.embedding);
+      }
+    }
+
+    if (embeddings.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'openai',
+          statusCode: response.status,
+          message: 'OpenAI response data contained no valid embeddings.',
+        },
+      };
+    }
+
+    const firstEmbedding = embeddings[0];
+    if (!firstEmbedding) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'openai',
+          statusCode: response.status,
+          message: 'OpenAI response data contained no valid embeddings.',
+        },
+      };
+    }
+
+    const validation = this.validateDimensions(firstEmbedding, this.targetDimensions);
+    if (!validation.ok) {
+      return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+    }
+
+    const output: EmbeddingOutput = {
+      embedding: firstEmbedding,
+      embeddings: embeddings,
+      dimensions: firstEmbedding.length,
+      modelId,
+      provider: 'openai',
+    };
+
+    if (payload.usage) {
+      output.usage = {
+        inputTokens: payload.usage.prompt_tokens ?? 0,
+      };
+      if (payload.usage.total_tokens !== undefined) {
+        output.usage.totalTokens = payload.usage.total_tokens;
+      }
+    }
+
+    return { ok: true, value: output };
   }
 
   validateDimensions(
