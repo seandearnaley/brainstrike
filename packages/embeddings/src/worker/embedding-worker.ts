@@ -15,6 +15,17 @@ import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 const workerLogger = createLogger('EmbeddingWorker');
 
+class WorkerRateLimitError extends Error {
+  retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = 'WorkerRateLimitError';
+    if (retryAfterMs !== undefined) {
+      this.retryAfterMs = retryAfterMs;
+    }
+  }
+}
+
 type Distance = 'cosine' | 'l2' | 'ip';
 
 type SupportedHostedProvider = Extract<EmbeddingProviderType, 'openai' | 'google'>;
@@ -616,6 +627,14 @@ export async function startEmbeddingWorker(
     const providerInstance = await createHostedProviderInstance(supportedProvider, config);
     const embedResult = await providerInstance.embed({ text, modelId });
     if (!embedResult.ok) {
+      if (embedResult.error.type === 'rate_limit_exceeded') {
+        const retryAfter = embedResult.error.retryAfter;
+        const ms = retryAfter ? retryAfter * 1000 : undefined;
+        throw new WorkerRateLimitError(
+          formatHostedEmbedError(supportedProvider, embedResult.error),
+          ms
+        );
+      }
       throw new Error(formatHostedEmbedError(supportedProvider, embedResult.error));
     }
 
@@ -789,23 +808,44 @@ export async function startEmbeddingWorker(
         queue: claimed.queue,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Truncate to ~4k to fit error column expectations
-      const truncated = message.slice(0, 4000);
-      await jq.fail({ id: jobId, leaseToken, error: truncated });
-      metrics.jobsFailed += 1;
-      consecutiveFailures += 1;
-      // If repeated model execution errors occur, force CPU re-init
-      const looksLikeModelExecError =
-        /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
-      if (consecutiveFailures >= forceCpuAfterFailures && looksLikeModelExecError) {
-        log('worker_reset_service', { reason: 'consecutive_failures', consecutiveFailures });
-        await resetService(true);
-      }
-      log('worker_job_fail', { jobId, attempts: claimed.attempts, error: truncated });
+      await handleJobFailure(jobId, leaseToken, claimed.attempts, err);
     } finally {
       clearInterval(hb);
     }
+  }
+
+  async function handleJobFailure(
+    jobId: string,
+    leaseToken: string,
+    attempts: number,
+    err: unknown
+  ): Promise<void> {
+    const message = err instanceof Error ? err.message : String(err);
+    // Truncate to ~4k to fit error column expectations
+    const truncated = message.slice(0, 4000);
+    let backoffMs: number | undefined;
+    if (err instanceof WorkerRateLimitError) {
+      backoffMs = err.retryAfterMs;
+    }
+    if (backoffMs !== undefined) {
+      await jq.fail({ id: jobId, leaseToken, error: truncated, backoffMs });
+    } else {
+      await jq.fail({ id: jobId, leaseToken, error: truncated });
+    }
+    metrics.jobsFailed += 1;
+    consecutiveFailures += 1;
+    // If repeated model execution errors occur, force CPU re-init
+    const looksLikeModelExecError =
+      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
+    if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
+      log('worker_force_cpu_fallback', {
+        jobId,
+        consecutiveFailures,
+        reason: 'repeated_model_exec_errors',
+      });
+      await resetService(true);
+    }
+    log('worker_job_fail', { jobId, attempts, error: truncated });
   }
 
   async function processOne(): Promise<void> {

@@ -97,6 +97,7 @@ export interface FailParams {
   id: string;
   leaseToken: string;
   error: string;
+  backoffMs?: number;
 }
 
 export class JobQueue {
@@ -345,7 +346,7 @@ export class JobQueue {
       return failedJob;
     }
 
-    const backoff = this.retryPolicy(attempts);
+    const backoff = params.backoffMs ?? this.retryPolicy(attempts);
     const runAt = new Date(now.getTime() + backoff).toISOString();
 
     const res = await this.db.query<JobRow>(
