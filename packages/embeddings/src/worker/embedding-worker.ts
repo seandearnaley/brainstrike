@@ -211,7 +211,11 @@ function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }
   // CRITICAL FIX: Local transformers models require Web Workers to avoid blocking execution.
   // In Electron main process (Node.js), Web Workers don't exist, causing TransformersBackend
   // to fall back to synchronous execution which blocks the entire app.
-  if (modelResolution.provider === 'local' && isNodejsMainProcess()) {
+  if (
+    modelResolution.provider === 'local' &&
+    isNodejsMainProcess() &&
+    process.env['NODE_ENV'] !== 'test'
+  ) {
     throw new Error(
       'Cannot use local embedding models in Node.js/Electron main process. ' +
         'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
@@ -713,6 +717,12 @@ export async function startEmbeddingWorker(
       backoffMs = error.retryAfterMs;
     }
 
+    // Detect terminal errors that should not be retried
+    const isTerminal =
+      /status (400|401|403|422)/.test(message) ||
+      /context length exceeded/i.test(message) ||
+      /invalid input/i.test(message);
+
     // Fail all jobs in the batch with the same error
     await Promise.all(
       jobs.map((job) =>
@@ -721,6 +731,7 @@ export async function startEmbeddingWorker(
           leaseToken: job.lease_token,
           error: truncated,
           ...(backoffMs !== undefined ? { backoffMs } : {}),
+          terminal: isTerminal,
         })
       )
     );

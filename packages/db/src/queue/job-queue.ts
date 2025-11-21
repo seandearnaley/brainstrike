@@ -98,6 +98,7 @@ export interface FailParams {
   leaseToken: string;
   error: string;
   backoffMs?: number;
+  terminal?: boolean;
 }
 
 export class JobQueue {
@@ -318,7 +319,7 @@ export class JobQueue {
     const updatedAt = now.toISOString();
     const maxAttempts = row.max_attempts ?? 5;
 
-    if (attempts >= maxAttempts) {
+    if (params.terminal || attempts >= maxAttempts) {
       // Poison pill — mark as failed
       const res = await this.db.query<JobRow>(
         `UPDATE job_queue SET state = 'failed', attempts = $1, error = $2, updated_at = $3
