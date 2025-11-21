@@ -226,6 +226,7 @@ export class JobQueue {
                 )
           ORDER BY run_at ASC, id ASC
           LIMIT $7
+          FOR UPDATE SKIP LOCKED
        )
        UPDATE job_queue AS j SET
          state = 'running',
