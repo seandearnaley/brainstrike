@@ -358,10 +358,14 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Also clear embedding sets and queue to avoid stale state
       try {
         await tx.query('DELETE FROM embedding_sets');
-      } catch {}
+      } catch (err) {
+        logger.warn('Failed to clear embedding_sets during reset:', err);
+      }
       try {
         await tx.query('DELETE FROM job_queue');
-      } catch {}
+      } catch (err) {
+        logger.warn('Failed to clear job_queue during reset:', err);
+      }
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
@@ -447,7 +451,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await dbRef.current.transaction(async (tx) => {
         await purgeTablesTx(tx);
       });
-    } catch {}
+    } catch (err) {
+      logger.warn('Failed to purge tables during factory reset:', err);
+    }
     try {
       await dbRef.current.exec('VACUUM');
     } catch (err) {
