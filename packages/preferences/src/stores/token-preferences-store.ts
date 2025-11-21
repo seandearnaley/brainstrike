@@ -1,3 +1,4 @@
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -13,39 +14,11 @@ export type TokenPreferencesStore = TokenPreferencesData & TokenPreferencesActio
 
 const STORE_NAME = 'token-preferences.v1' as const;
 
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (key: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(key);
-      }
-    } catch {
-      // ignore storage access errors (e.g., SSR, sandbox restrictions)
-    }
-    return memory.get(key) ?? null;
-  },
-  setItem: (key: string, value: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.setItem(key, value);
-      }
-    } catch {
-      // ignore storage access errors
-    }
-    memory.set(key, value);
-  },
-  removeItem: (key: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.removeItem(key);
-      }
-    } catch {
-      // ignore storage access errors
-    }
-    memory.delete(key);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 export const useTokenPreferencesStore = create<TokenPreferencesStore>()(
   persist(
@@ -86,9 +59,8 @@ export function __resetTokenPreferencesStoreForTests() {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(STORE_NAME);
     }
-  } catch {
-    // ignore storage access errors during tests
+  } catch (error) {
+    console.warn('[Test] Failed to remove storage in test reset:', error);
   }
-  memory.delete(STORE_NAME);
   useTokenPreferencesStore.setState({ accurateCounting: true });
 }

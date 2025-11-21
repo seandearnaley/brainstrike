@@ -1,4 +1,5 @@
 import type { ChunkingStrategy } from '@brainstrike/db';
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 import { useTokenPreferencesStore } from './token-preferences-store';
@@ -27,27 +28,11 @@ export type ImportSettingsStore = ImportSettingsData & ImportSettingsActions;
 const STORE_NAME = 'import-settings.v1' as const;
 const STORE_VERSION = 5 as const;
 
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 const getAccurateCountingPreference = () => useTokenPreferencesStore.getState().accurateCounting;
 
@@ -137,8 +122,9 @@ export const importSettingsSelectors = {
 export function __resetImportSettingsStoreForTests() {
   try {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
-  } catch {}
-  memory.delete(STORE_NAME);
+  } catch (error) {
+    console.warn('[Test] Failed to remove storage in test reset:', error);
+  }
   const persistApi = (
     useImportSettingsStore as unknown as {
       persist?: { clearStorage?: () => void };

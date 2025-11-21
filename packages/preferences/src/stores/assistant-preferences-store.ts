@@ -4,6 +4,7 @@ import {
   PROVIDER_MODELS,
   type SupportedProvider,
 } from '@brainstrike/agent/client';
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -86,27 +87,11 @@ function resolvePreferredModel(
   return enabledModels[0] ?? null;
 }
 
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 function ensureEnabledModels(
   enabledModelsByProvider: EnabledModelsMap,
@@ -429,5 +414,9 @@ export function __resetAssistantPreferencesStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch {}
+  } catch (error) {
+    // Intentionally silent in tests - if storage fails, state is still reset
+    // This prevents test failures when localStorage is unavailable
+    console.warn('[Test] Failed to clear storage in test reset:', error);
+  }
 }

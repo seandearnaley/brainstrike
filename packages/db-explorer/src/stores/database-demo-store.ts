@@ -1,3 +1,4 @@
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -26,28 +27,11 @@ export type DatabaseDemoStore = DatabaseDemoData & DatabaseDemoActions;
 
 const STORE_NAME = 'database-demo.v1' as const;
 
-// SSR-safe storage
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
   persist(
@@ -107,5 +91,9 @@ export function __resetDatabaseDemoStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch {}
+  } catch (error) {
+    // Intentionally silent in tests - if storage fails, state is still reset
+    // This prevents test failures when localStorage is unavailable
+    console.warn('[Test] Failed to clear storage in test reset:', error);
+  }
 }
