@@ -39,18 +39,6 @@ const isTestOrCI =
   process.argv.includes('--test-mode') ||
   process.env['CI'] === 'true';
 
-// Apply headless-friendly switches early to avoid GPU/display issues in CI/Xvfb
-if (isTestOrCI) {
-  if (typeof app.disableHardwareAcceleration === 'function') {
-    app.disableHardwareAcceleration();
-  }
-  const cmd = app.commandLine;
-  cmd?.appendSwitch('disable-gpu');
-  cmd?.appendSwitch('disable-features', 'VizDisplayCompositor');
-  cmd?.appendSwitch('no-sandbox');
-  cmd?.appendSwitch('disable-dev-shm-usage');
-}
-
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
 
