@@ -404,7 +404,7 @@ describe('VoyageEmbeddingProvider', () => {
 
       expect(result.ok).toBe(false);
       if (!result.ok && result.error.type === 'api_error') {
-        expect(result.error.message).toContain('did not include an embedding array');
+        expect(result.error.message).toContain('did not include data array');
       }
     });
 

@@ -22,8 +22,15 @@ class WrongDimService implements EmbeddingService {
     return Promise.resolve();
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    // Return intentionally wrong dimensions (e.g., 4)
-    return { embedding: [0, 0, 0, 0], dimensions: 4, model: 'wrong-dim-model' };
+    return {
+      embedding: new Array(10).fill(0.1), // Wrong dimension (10 vs 768)
+      dimensions: 10,
+      model: 'wrong-dim-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    return Promise.all(texts.map((t) => this.generateEmbedding(t)));
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);

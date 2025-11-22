@@ -119,6 +119,21 @@ export class SimpleEmbeddingService implements EmbeddingService {
     return this._backend.generateEmbedding(withPrompt, this._config.modelId);
   }
 
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    if (this._status !== 'ready' || !this._backend.isInitialized()) {
+      throw new Error('Service not initialized. Call initialize() first.');
+    }
+    const withPrompts = texts.map((text) =>
+      applyRetrievalPrompt(
+        text,
+        'document',
+        this._currentModelConfig?.id || this._config.modelId,
+        this._currentModelKey
+      )
+    );
+    return this._backend.generateEmbeddings(withPrompts, this._config.modelId);
+  }
+
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {
     return calculateCosineSimilarity(embedding1, embedding2);
   }

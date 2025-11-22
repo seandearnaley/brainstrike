@@ -14,8 +14,8 @@ import type {
 
 class FlakyEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
-  private dims = 768;
-  private fails = 1;
+  private attempts = 0;
+
   initialize(
     _config?: Partial<EmbeddingConfig>,
     _onProgress?: (progress: EmbeddingProgress) => void
@@ -24,12 +24,23 @@ class FlakyEmbeddingService implements EmbeddingService {
     return Promise.resolve();
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    if (this.fails > 0) {
-      this.fails -= 1;
-      throw new Error('transient-failure');
+    this.attempts++;
+    if (this.attempts <= 2) {
+      throw new Error('Temporary service failure');
     }
-    const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 10);
-    return { embedding, dimensions: this.dims, model: 'fake-model' };
+    return {
+      embedding: new Array(768).fill(0.1),
+      dimensions: 768,
+      model: 'fake-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    const results: EmbeddingResult[] = [];
+    for (const text of texts) {
+      results.push(await this.generateEmbedding(text));
+    }
+    return results;
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);
