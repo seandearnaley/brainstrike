@@ -90,15 +90,17 @@ describe('usePanelPersistence', () => {
   const createLocal = () => new LocalStoragePanelPersistenceAdapter();
   const createElectron = () => new ElectronPanelPersistenceAdapter();
 
-  it('should initialize with default values when no stored data', () => {
+  it('should initialize with default values when no stored data', async () => {
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    expect(result.current.sizes).toEqual([20, 30]);
-    expect(result.current.showConsole).toBe(true);
+    await waitFor(() => {
+      expect(result.current.sizes).toEqual([20, 30]);
+      expect(result.current.showConsole).toBe(true);
+    });
   });
 
   it('should initialize with stored values when available', async () => {
@@ -177,16 +179,18 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.saveLayout([25, 35], false);
     });
 
     // State should update immediately
-    expect(result.current.sizes).toEqual([25, 35]);
-    expect(result.current.showConsole).toBe(false);
+    await waitFor(() => {
+      expect(result.current.sizes).toEqual([25, 35]);
+      expect(result.current.showConsole).toBe(false);
+    });
 
     // Advance timers to trigger the debounced save
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -211,15 +215,17 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.saveLayout([60, 60], false); // Total 120%, should be normalized
     });
 
     // State should be normalized immediately
-    expect(result.current.sizes).toEqual([50, 50]); // Normalized to 100%
+    await waitFor(() => {
+      expect(result.current.sizes).toEqual([50, 50]); // Normalized to 100%
+    });
 
     // Advance timers to trigger the debounced save
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -244,14 +250,16 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.toggleConsole();
     });
 
-    expect(result.current.showConsole).toBe(false);
+    await waitFor(() => {
+      expect(result.current.showConsole).toBe(false);
+    });
 
     // Advance timers to trigger the debounced save
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -275,11 +283,11 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.saveLayout([20, 30], true, true, false);
     });
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -296,11 +304,11 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createElectron())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.saveLayout([25, 35], false);
     });
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -390,7 +398,7 @@ describe('usePanelPersistence', () => {
     expect(result.current?.showConsole).toBe(true);
   });
 
-  it('should save pending changes on beforeunload', () => {
+  it('should save pending changes on beforeunload', async () => {
     vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
     const { result, unmount } = renderHook(() =>
@@ -398,7 +406,7 @@ describe('usePanelPersistence', () => {
     );
 
     expect(result.current).not.toBeNull();
-    act(() => {
+    await act(async () => {
       result.current?.saveLayout([25, 35], false); // This creates a pending save
     });
 
@@ -485,14 +493,14 @@ describe('usePanelPersistence', () => {
     vi.mocked(isDevEnv).mockReturnValue(false);
   });
 
-  it('cleans up pending save on unmount', () => {
+  it('cleans up pending save on unmount', async () => {
     vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
     const { result, unmount } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.saveLayout([25, 35], false);
     });
 
@@ -523,7 +531,7 @@ describe('usePanelPersistence', () => {
     vi.useRealTimers();
   });
 
-  it('toggleLeftPanel persists updated state', () => {
+  it('toggleLeftPanel persists updated state', async () => {
     vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -531,11 +539,11 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.toggleLeftPanel();
     });
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
@@ -552,7 +560,7 @@ describe('usePanelPersistence', () => {
     vi.useRealTimers();
   });
 
-  it('toggleRightPanel persists updated state', () => {
+  it('toggleRightPanel persists updated state', async () => {
     vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -560,11 +568,11 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    act(() => {
+    await act(async () => {
       result.current.toggleRightPanel();
     });
 
-    act(() => {
+    await act(async () => {
       vi.advanceTimersByTime(250);
     });
 
