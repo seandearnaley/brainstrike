@@ -893,6 +893,68 @@ export async function startEmbeddingWorker(
     };
   }
 
+  function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: () => void) {
+    let leaseLost = false;
+    return setInterval(() => {
+      if (leaseLost) return;
+      Promise.all(
+        jobs.map(async (job) => {
+          const res = await jq.heartbeat({
+            id: job.id,
+            leaseToken: job.lease_token,
+            extendMs: leaseMs,
+          });
+          if (!res) {
+            workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
+            leaseLost = true;
+            onLeaseLost();
+          }
+        })
+      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
+    }, heartbeatMs);
+  }
+
+  async function processJobGroup(
+    jobs: ClaimedJob[],
+    jobModel: ReturnType<typeof resolveJobModel>,
+    checkLease: () => boolean
+  ) {
+    const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
+
+    if (checkLease()) throw new Error('Lease lost during processing');
+
+    if (completed.length > 0) {
+      await Promise.all(
+        completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
+      );
+      metrics.jobsProcessed += completed.length;
+      processedSinceInit += completed.length;
+    }
+
+    if (toProcess.length === 0) return;
+
+    const expectedDimension = await validateBatchDimensions(toProcess);
+
+    if (checkLease()) throw new Error('Lease lost during processing');
+
+    const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+
+    if (checkLease()) throw new Error('Lease lost during processing');
+
+    await completeBatch(toProcess, embeddings, jobModel);
+
+    metrics.jobsProcessed += toProcess.length;
+    processedSinceInit += toProcess.length;
+    consecutiveFailures = 0;
+
+    if (processedSinceInit >= reinitEveryN) {
+      workerLogger.info(
+        `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
+      );
+      await resetService(false);
+    }
+  }
+
   async function processGroup(jobs: ClaimedJob[]): Promise<void> {
     if (jobs.length === 0) return;
 
@@ -910,45 +972,18 @@ export async function startEmbeddingWorker(
       return;
     }
 
-    const hb = setInterval(() => {
-      Promise.all(
-        jobs.map((job) =>
-          jq.heartbeat({ id: job.id, leaseToken: job.lease_token, extendMs: leaseMs })
-        )
-      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
-    }, heartbeatMs);
+    let leaseLost = false;
+    const hb = startHeartbeat(jobs, () => {
+      leaseLost = true;
+    });
 
     try {
-      const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
-
-      if (completed.length > 0) {
-        await Promise.all(
-          completed.map((item) =>
-            jq.complete({ id: item.job.id, leaseToken: item.job.lease_token })
-          )
-        );
-        metrics.jobsProcessed += completed.length;
-        processedSinceInit += completed.length;
-      }
-
-      if (toProcess.length === 0) return;
-
-      const expectedDimension = await validateBatchDimensions(toProcess);
-      const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
-
-      await completeBatch(toProcess, embeddings, jobModel);
-
-      metrics.jobsProcessed += toProcess.length;
-      processedSinceInit += toProcess.length;
-      consecutiveFailures = 0;
-
-      if (processedSinceInit >= reinitEveryN) {
-        workerLogger.info(
-          `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
-        );
-        await resetService(false);
-      }
+      await processJobGroup(jobs, jobModel, () => leaseLost);
     } catch (error) {
+      if (leaseLost) {
+        workerLogger.warn('Aborting batch processing due to lost lease');
+        return; // Do not fail/retry jobs, as we don't own them anymore
+      }
       await handleBatchFailure(jobs, error);
     } finally {
       clearInterval(hb);
