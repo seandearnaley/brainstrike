@@ -121,16 +121,15 @@ export const importSettingsSelectors = {
 // Test-only helper to avoid cross-test persistence
 export function __resetImportSettingsStoreForTests() {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
-  } catch (error) {
-    console.warn('[Test] Failed to remove storage in test reset:', error);
+    const persistApi = (
+      useImportSettingsStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - storage errors should not fail test resets.
   }
-  const persistApi = (
-    useImportSettingsStore as unknown as {
-      persist?: { clearStorage?: () => void };
-    }
-  ).persist;
-  persistApi?.clearStorage?.();
   useTokenPreferencesStore.getState().setAccurateCounting(true);
   useImportSettingsStore.setState({
     enableChunking: true,

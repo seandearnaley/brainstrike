@@ -44,9 +44,14 @@ export const rightPanelSelectors = {
 // Test-only helper to reset store and storage
 export function __resetRightPanelStoreForTests() {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
-  } catch (error) {
-    console.warn('[Test] Failed to remove storage in test reset:', error);
+    const persistApi = (
+      useRightPanelStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - storage errors should not fail test resets.
   }
   useRightPanelStore.setState({ activeTab: 'assistant' });
 }

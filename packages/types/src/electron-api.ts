@@ -1,9 +1,4 @@
-/**
- * Type definitions for Electron IPC API exposed to renderer process
- *
- * These interfaces define the contract between the main process and renderer process
- * for database operations, file system access, and other Electron-specific features.
- */
+import type { DirectoryHandle, FileHandle, IFileNode } from './file-system';
 
 /**
  * Result of a database test operation
@@ -21,52 +16,103 @@ export interface QueryResult<T = unknown> {
 }
 
 /**
+ * Storage API exposed via Electron IPC
+ */
+export interface ElectronStorageAPI {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+  clear: () => Promise<void>;
+  getAllKeys: () => Promise<string[]>;
+}
+
+/**
+ * File system API exposed via Electron IPC
+ */
+export interface ElectronFileSystemAPI {
+  requestDirectoryAccess: () => Promise<DirectoryHandle>;
+  readDirectory: (handle: DirectoryHandle) => Promise<IFileNode[]>;
+  readFile: (handle: FileHandle) => Promise<string>;
+  exists: (path: string) => Promise<boolean>;
+  restoreLastFolder: () => Promise<DirectoryHandle | null>;
+  saveLastFolder: (folderPath: string) => Promise<void>;
+}
+
+/**
  * Electron database API exposed via IPC
  *
- * This interface defines all database operations available to the renderer process.
  * Operations are executed in the main process and results are returned via IPC.
  */
 export interface ElectronDatabaseAPI {
   /**
+   * Basic connectivity check
+   */
+  ping?: () => Promise<unknown>;
+
+  /**
    * Test database connection health
-   * @returns Promise resolving to test result with success status and message
    */
   test?: () => Promise<DatabaseTestResult>;
 
   /**
    * Execute a parameterized SQL query and return results
-   * @param sql SQL query string with optional parameter placeholders
-   * @param params Optional array of parameter values
-   * @returns Promise resolving to query results
    */
   query: <T = unknown>(sql: string, params?: unknown[]) => Promise<QueryResult<T>>;
 
   /**
    * Execute a SQL statement without returning rows (INSERT, UPDATE, DELETE, etc.)
-   * @param sql SQL statement string with optional parameter placeholders
-   * @param params Optional array of parameter values
-   * @returns Promise resolving to execution result
    */
   exec?: (sql: string, params?: unknown[]) => Promise<unknown>;
 
   /**
    * Execute multiple statements within a transaction
-   * @param fn Transaction function that receives a transaction context
-   * @returns Promise resolving to the transaction result
    */
   transaction?: <T>(fn: (tx: ElectronDatabaseAPI) => Promise<T>) => Promise<T>;
 
   /**
    * Close database connection
-   * @returns Promise resolving when connection is closed
    */
   close?: () => Promise<void>;
 
   /**
    * Get database file path (if applicable)
-   * @returns Promise resolving to database file path or null
    */
   getPath?: () => Promise<string | null>;
+
+  /**
+   * Clear all stored data (desktop only)
+   */
+  clearAll?: (confirmationToken?: string) => Promise<{
+    success: boolean;
+    message?: string;
+    deletedFiles?: number;
+    deletedChunks?: number;
+  }>;
+
+  /**
+   * Reset the local database (desktop only)
+   */
+  resetLocal?: () => Promise<{ success: boolean; message?: string }>;
+}
+
+/**
+ * Live query IPC helpers
+ */
+export interface ElectronLiveQueryAPI {
+  start: (options: {
+    query: string;
+    params?: readonly unknown[];
+    key?: string;
+    mode?: 'query' | 'incremental';
+    offset?: number;
+    limit?: number;
+  }) => Promise<{ id: number; initialResults: { rows: unknown[]; totalCount?: number } }>;
+  stop: (id: number) => Promise<{ success: boolean } | undefined>;
+  refresh: (payload: { id: number; offset?: number; limit?: number }) => Promise<{
+    success: boolean;
+    message?: string;
+  }>;
+  onUpdate: (callback: (payload: { id: number; results: unknown }) => void) => () => void;
 }
 
 /**
@@ -76,7 +122,39 @@ export interface ElectronDatabaseAPI {
  */
 export interface ElectronAPI {
   /**
+   * Key/value storage bridge
+   */
+  storage: ElectronStorageAPI;
+
+  /**
+   * File system bridge
+   */
+  fileSystem: ElectronFileSystemAPI;
+
+  /**
    * Database operations
+   */
+  db?: ElectronDatabaseAPI;
+
+  /**
+   * Live query helpers (desktop only)
+   */
+  dbLive?: ElectronLiveQueryAPI;
+
+  /**
+   * Panel layout persistence
+   */
+  saveLayout: (state: unknown) => Promise<void>;
+  loadLayout: () => Promise<unknown>;
+
+  /**
+   * Database path lookup (legacy)
+   */
+  getUserDataPath?: () => Promise<string>;
+
+  /**
+   * Legacy alias for database operations
+   * @deprecated Prefer using the `db` property exposed by the preload script.
    */
   database?: ElectronDatabaseAPI;
 

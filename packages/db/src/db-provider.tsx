@@ -151,19 +151,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
-      if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.database)) {
+      if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
         return false;
       }
 
       logger.info('Using Electron IPC database connection');
 
-      const electronDB = window.electronAPI.database;
+      const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
+      const electronExec = electronDB.exec;
+
+      if (!electronExec) {
+        throw new Error('Electron database exec operation is unavailable over IPC');
+      }
+
+      const exec: (sql: string) => Promise<void> = async (sql) => {
+        await electronExec(sql);
+      };
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository({
         query: electronDB.query,
-        exec: electronDB.exec,
+        exec,
       });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
@@ -181,7 +190,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       const chunkRepo = new ElectronFileChunkRepository({
         query: electronDB.query,
-        exec: electronDB.exec,
+        exec,
       });
 
       if (!cancelled.value) {

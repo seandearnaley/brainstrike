@@ -1,5 +1,5 @@
-import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { type EmbeddingStatus, SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { createLogger, createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -29,6 +29,7 @@ interface EmbeddingsPanelActions {
 type Store = EmbeddingsPanelData & EmbeddingsPanelActions;
 
 const STORE_NAME = 'embeddings-panel.v1' as const;
+const logger = createLogger('EmbeddingsPanelStore');
 
 // shared in-memory service instance (not persisted)
 let service: SimpleEmbeddingService | null = null;
@@ -104,7 +105,7 @@ export const useEmbeddingsPanelStore = create<Store>()(
         try {
           await service?.dispose();
         } catch (error) {
-          console.warn('[EmbeddingsPanel] Failed to dispose service:', error);
+          logger.warn('Failed to dispose embeddings service', { error });
         }
         service = null;
         set({
@@ -149,9 +150,8 @@ export function __resetEmbeddingsPanelStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch (error) {
-    // Intentionally silent in tests - if storage fails, state is still reset
-    // This prevents test failures when localStorage is unavailable
-    console.warn('[Test] Failed to clear storage in test reset:', error);
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+    // This prevents test failures when localStorage is unavailable.
   }
 }

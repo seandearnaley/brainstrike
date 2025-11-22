@@ -56,11 +56,14 @@ export const tokenPreferencesSelectors = {
 // Test-only helper to reset state between suites
 export function __resetTokenPreferencesStoreForTests() {
   try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem(STORE_NAME);
-    }
-  } catch (error) {
-    console.warn('[Test] Failed to remove storage in test reset:', error);
+    const persistApi = (
+      useTokenPreferencesStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - storage errors should not fail test resets.
   }
   useTokenPreferencesStore.setState({ accurateCounting: true });
 }

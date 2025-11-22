@@ -414,9 +414,8 @@ export function __resetAssistantPreferencesStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch (error) {
-    // Intentionally silent in tests - if storage fails, state is still reset
-    // This prevents test failures when localStorage is unavailable
-    console.warn('[Test] Failed to clear storage in test reset:', error);
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+    // This prevents test failures when localStorage is unavailable.
   }
 }

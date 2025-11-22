@@ -41,9 +41,14 @@ export const vectorStatusUISelectors = {
 
 export function __resetVectorStatusUIStoreForTests() {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
-  } catch (error) {
-    console.warn('[Test] Failed to remove storage in test reset:', error);
+    const persistApi = (
+      useVectorStatusUIStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - storage errors should not fail test resets.
   }
   useVectorStatusUIStore.setState({ activeEmbeddingSetId: null });
 }
