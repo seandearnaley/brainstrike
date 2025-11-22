@@ -33,6 +33,21 @@ import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
 let mainWindow: BrowserWindow | null = null;
+const isTestOrCI =
+  process.env['NODE_ENV'] === 'test' ||
+  process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
+  process.argv.includes('--test-mode') ||
+  process.env['CI'] === 'true';
+
+// Apply headless-friendly switches early to avoid GPU/display issues in CI/Xvfb
+if (typeof app.disableHardwareAcceleration === 'function') {
+  app.disableHardwareAcceleration();
+}
+const cmd = app.commandLine;
+cmd?.appendSwitch('disable-gpu');
+cmd?.appendSwitch('disable-features', 'VizDisplayCompositor');
+cmd?.appendSwitch('no-sandbox');
+cmd?.appendSwitch('disable-dev-shm-usage');
 
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
@@ -321,6 +336,12 @@ registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
 
 app.whenReady().then(async () => {
+  logger.info('[DesktopMain] Electron main starting', {
+    argv: process.argv,
+    ci: process.env['CI'],
+    display: process.env['DISPLAY'],
+    testMode: isTestOrCI,
+  });
   try {
     logger.info('App ready, starting initialization...');
 
@@ -440,6 +461,10 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
+  if (isTestOrCI) {
+    logger.warn('[DesktopMain] window-all-closed ignored in test/CI mode');
+    return;
+  }
   if (process.platform !== 'darwin') app.quit();
 });
 
