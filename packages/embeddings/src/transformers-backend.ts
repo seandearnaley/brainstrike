@@ -459,10 +459,40 @@ export class TransformersBackend {
     };
   }
 
+  /**
+   * Generate embeddings for multiple texts
+   */
+  async generateEmbeddings(texts: string[], modelId: string): Promise<EmbeddingResult[]> {
+    if (!this._isInitialized) {
+      throw new Error('Backend not initialized. Call initialize() first.');
+    }
+
+    const maybeQueueResult = await this.tryGenerateBatchWithQueue(texts, modelId);
+    if (maybeQueueResult) {
+      return maybeQueueResult;
+    }
+
+    // Fallback to serial execution if no queue (or queue failed)
+    // TODO: Implement batching for local pipeline if needed, but worker queue is preferred
+    const results: EmbeddingResult[] = [];
+    for (const text of texts) {
+      results.push(await this.generateEmbedding(text, modelId));
+    }
+    return results;
+  }
+
   private async tryGenerateWithQueue(
     text: string,
     modelId: string
   ): Promise<EmbeddingResult | null> {
+    const batch = await this.tryGenerateBatchWithQueue([text], modelId);
+    return batch ? (batch[0] ?? null) : null;
+  }
+
+  private async tryGenerateBatchWithQueue(
+    texts: string[],
+    modelId: string
+  ): Promise<EmbeddingResult[] | null> {
     if (!this._useWorkerQueue) {
       return null;
     }
@@ -473,29 +503,35 @@ export class TransformersBackend {
         kind: 'embed',
         id: this.createTaskId(),
         model: modelId,
-        texts: [text],
+        texts: texts,
         ...(this._targetDimensions ? { truncateDim: this._targetDimensions } : {}),
         targetDimension,
         deviceHint: this.resolveDeviceHint(),
         dtype: this.resolveQueueDType(),
-        maxBatchSize: 1,
+        maxBatchSize: Math.max(1, texts.length), // Allow full batch
       });
-      const vector = response.vectors[0];
-      if (!vector) {
+
+      if (!response.vectors || response.vectors.length === 0) {
+        // If input was empty, return empty
+        if (texts.length === 0) return [];
         throw new Error('Embedding worker returned no vectors');
       }
-      const embedding = Array.from(vector) as number[];
-      const dimensions = response.metadata.dimensions ?? embedding.length;
-      TransformersBackend._inferenceCount += 1;
-      return {
-        embedding,
-        dimensions,
-        model: modelId,
-      };
+
+      TransformersBackend._inferenceCount += texts.length;
+
+      return response.vectors.map((vector) => {
+        const embedding = Array.from(vector) as number[];
+        return {
+          embedding,
+          dimensions: response.metadata.dimensions ?? embedding.length,
+          model: modelId,
+        };
+      });
     } catch (error) {
       logger.warn('Falling back to inline embedding generation after queue failure', {
         modelId,
         error,
+        batchSize: texts.length,
       });
       this._useWorkerQueue = false;
       this._queue = null;

@@ -14,7 +14,6 @@ import type {
 
 class SlowEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
-  private dims = 768;
   initialize(
     _config?: Partial<EmbeddingConfig>,
     _onProgress?: (progress: EmbeddingProgress) => void
@@ -23,10 +22,21 @@ class SlowEmbeddingService implements EmbeddingService {
     return Promise.resolve();
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    // Delay a bit to allow heartbeat to fire
-    await new Promise((r) => setTimeout(r, 30));
-    const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 50);
-    return { embedding, dimensions: this.dims, model: 'slow-model' };
+    await new Promise((resolve) => setTimeout(resolve, 600)); // > 500ms heartbeat
+    return {
+      embedding: new Array(768).fill(0.1),
+      dimensions: 768,
+      model: 'slow-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    const results: EmbeddingResult[] = [];
+    for (const text of texts) {
+      results.push(await this.generateEmbedding(text));
+    }
+    return results;
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);

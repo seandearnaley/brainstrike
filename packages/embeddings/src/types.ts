@@ -89,6 +89,10 @@ export interface EmbeddingResult {
   dimensions: number;
   /** Model used for generation */
   model: string;
+  /** Token usage information */
+  usage?: {
+    totalTokens?: number;
+  };
 }
 
 /**
@@ -145,6 +149,9 @@ export interface EmbeddingService {
 
   /** Generate embedding for a single text */
   generateEmbedding(text: string): Promise<EmbeddingResult>;
+
+  /** Generate embeddings for multiple texts */
+  generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]>;
 
   /** Generate an embedding optimized for documents/passages (indexing) */
   generateDocEmbedding(text: string): Promise<EmbeddingResult>;
