@@ -225,12 +225,12 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
     };
 
     if (payload.usage) {
+      const inputTokens = payload.usage.prompt_tokens ?? 0;
+      const totalTokens = payload.usage.total_tokens ?? inputTokens;
       output.usage = {
-        inputTokens: payload.usage.prompt_tokens ?? 0,
+        inputTokens,
+        totalTokens,
       };
-      if (payload.usage.total_tokens !== undefined) {
-        output.usage.totalTokens = payload.usage.total_tokens;
-      }
     }
 
     return { ok: true, value: output };
