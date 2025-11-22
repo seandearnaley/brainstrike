@@ -159,7 +159,11 @@ export function LogViewer({ logSource, toast }: LogViewerProps) {
         accessorKey: 'level',
         header: 'Level',
         cell: ({ getValue }: CellContext<LogRecordRow, unknown>) => {
-          const level = getValue() as LogLevel;
+          const rawLevel = getValue();
+          const level =
+            typeof rawLevel === 'string' && LOG_LEVEL_OPTIONS.includes(rawLevel as LogLevel)
+              ? (rawLevel as LogLevel)
+              : LogLevel.INFO;
           return (
             <Badge
               variant={getLevelBadgeVariant(level)}
