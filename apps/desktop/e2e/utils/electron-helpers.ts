@@ -138,10 +138,33 @@ async function getFirstWindowWithRecovery(
 ): Promise<{ app: ElectronApplication; window: Page }> {
   let app = initialApp;
   const maxRetries = 3;
+
+  async function waitForFirstWindow(appToCheck: ElectronApplication): Promise<Page> {
+    const existing = pickAvailableWindow(appToCheck);
+    if (existing) {
+      console.log('✅ Found pre-existing window');
+      return existing;
+    }
+
+    // Wait for a new window with a longer timeout to handle slow boots in CI
+    try {
+      const window = await appToCheck.waitForEvent('window', { timeout: 60000 });
+      console.log('✅ Received window event');
+      return window;
+    } catch (waitError) {
+      const fallback = pickAvailableWindow(appToCheck);
+      if (fallback) {
+        console.log('✅ Window appeared during wait retry');
+        return fallback;
+      }
+      throw waitError;
+    }
+  }
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       await delayForAttempt(attempt, maxRetries);
-      const window = await app.firstWindow();
+      const window = await waitForFirstWindow(app);
       console.log('✅ Successfully got first window');
       return { app, window };
     } catch (error) {
