@@ -27,6 +27,16 @@ test.describe('Embedding Worker in Renderer', () => {
     }
   }
 
+  async function skipIfDatabaseError(page: Page, reason: string): Promise<boolean> {
+    if (!(await isDatabaseError(page))) {
+      return false;
+    }
+
+    console.log(`⚠️ ${reason}`);
+    await expect(page.locator(ERROR_LOCATOR).first()).toBeVisible();
+    return true;
+  }
+
   /**
    * Capture console messages from the renderer process
    */
@@ -164,23 +174,37 @@ test.describe('Embedding Worker in Renderer', () => {
     // Start with a fresh window to capture worker startup from the beginning
     const context = await electron.restart();
     const window = context.window;
-
-    // Set up console listener before the app fully loads
-    const consoleLogs = captureConsoleLogs(window);
-    consoleLogs.addListener();
+    let consoleLogs: ReturnType<typeof captureConsoleLogs> | null = null;
 
     try {
-      // Wait for app to be ready
-      await window.waitForTimeout(5000);
-
-      if (await isDatabaseError(window)) {
-        console.log('⚠️ Database error (pgvector missing) – skipping worker startup test');
-        await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+      if (
+        await skipIfDatabaseError(
+          window,
+          'Database error (pgvector missing) – skipping worker startup test'
+        )
+      ) {
         return;
       }
 
+      // Wait for app to be ready
+      await window.waitForTimeout(5000);
+
       // Navigate to database panel to ensure we're in the right context
       await showDatabaseDemoPanel(window);
+
+      // Re-check error state after navigation so we skip gracefully when pgvector is unavailable
+      if (
+        await skipIfDatabaseError(
+          window,
+          'Database error (pgvector missing) – skipping worker startup test'
+        )
+      ) {
+        return;
+      }
+
+      // Set up console listener once we know we're proceeding
+      consoleLogs = captureConsoleLogs(window);
+      consoleLogs.addListener();
 
       // Wait a bit more for worker logs to appear
       await window.waitForTimeout(3000);
@@ -207,7 +231,8 @@ test.describe('Embedding Worker in Renderer', () => {
         `✅ Found ${startupLogs.length} embedding worker logs, including startup messages`
       );
     } finally {
-      consoleLogs.removeListener();
+      // Ensure we always detach the listener
+      consoleLogs?.removeListener();
     }
   });
 
@@ -215,22 +240,24 @@ test.describe('Embedding Worker in Renderer', () => {
     // Start fresh to capture logs from the beginning
     const context = await electron.restart();
     const window = context.window;
-
-    if (await isDatabaseError(window)) {
-      console.log('⚠️ Database error – skipping console log test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
-    const consoleLogs = captureConsoleLogs(window);
-    consoleLogs.addListener();
+    let consoleLogs: ReturnType<typeof captureConsoleLogs> | null = null;
 
     try {
+      if (await skipIfDatabaseError(window, 'Database error – skipping console log test')) {
+        return;
+      }
+
+      consoleLogs = captureConsoleLogs(window);
+      consoleLogs.addListener();
+
       // Wait for app to initialize and worker to start
       await window.waitForTimeout(5000);
 
       // Navigate to database panel to trigger any additional worker activity
       await showDatabaseDemoPanel(window);
+      if (await skipIfDatabaseError(window, 'Database error – skipping console log test')) {
+        return;
+      }
       await window.waitForTimeout(2000);
 
       // Verify logs contain embedding worker messages
@@ -244,23 +271,22 @@ test.describe('Embedding Worker in Renderer', () => {
 
       console.log(`✅ Found ${rendererLogs.length} embedding worker logs in renderer console`);
     } finally {
-      consoleLogs.removeListener();
+      consoleLogs?.removeListener();
     }
   });
 
   test('should create backfill jobs in job_queue table', async ({ window }) => {
-    if (await isDatabaseError(window)) {
-      console.log('⚠️ Database error – skipping job creation test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+    const activeWindow = await showDatabaseDemoPanel(window);
+    if (await skipIfDatabaseError(activeWindow, 'Database error – skipping job creation test')) {
       return;
     }
 
     // Create a test backfill job
-    const { jobId, chunkId } = await createTestBackfillJob(window);
+    const { jobId, chunkId } = await createTestBackfillJob(activeWindow);
     console.log(`✅ Created test job: ${jobId} for chunk: ${chunkId}`);
 
     // Verify the job was created in the database
-    const status = await getJobStatus(window, jobId);
+    const status = await getJobStatus(activeWindow, jobId);
     expect(status).toBe('queued');
 
     console.log('✅ Job successfully created in queue with pending status');
@@ -271,24 +297,23 @@ test.describe('Embedding Worker in Renderer', () => {
   });
 
   test('should handle app responsiveness during embedding operations', async ({ window }) => {
-    if (await isDatabaseError(window)) {
-      console.log('⚠️ Database error – skipping responsiveness test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
+    const activeWindow = await showDatabaseDemoPanel(window);
+    if (
+      await skipIfDatabaseError(activeWindow, '⚠️ Database error – skipping responsiveness test')
+    ) {
       return;
     }
 
     // Create multiple test jobs
     const jobs = await Promise.all([
-      createTestBackfillJob(window),
-      createTestBackfillJob(window),
-      createTestBackfillJob(window),
+      createTestBackfillJob(activeWindow),
+      createTestBackfillJob(activeWindow),
+      createTestBackfillJob(activeWindow),
     ]);
 
     console.log(`✅ Created ${jobs.length} test jobs`);
 
     // Verify UI remains responsive while jobs are queued
-    const activeWindow = await showDatabaseDemoPanel(window);
-
     // Try to interact with UI elements - should not freeze
     const refreshButton = activeWindow.locator('button:has-text("Refresh")');
     await expect(refreshButton).toBeVisible({ timeout: 5000 });
@@ -307,24 +332,25 @@ test.describe('Embedding Worker in Renderer', () => {
     // Start fresh to capture initialization
     const context = await electron.restart();
     const window = context.window;
-
-    if (await isDatabaseError(window)) {
-      console.log('⚠️ Database error – skipping env variable test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
+    let consoleLogs: ReturnType<typeof captureConsoleLogs> | null = null;
     // The worker reads VITE_EMBED_CONCURRENCY, VITE_EMBED_LEASE_MS, and VITE_EMBED_MODEL_KEY
     // We verify the worker started successfully, which means it read and applied the env vars
-    const consoleLogs = captureConsoleLogs(window);
-    consoleLogs.addListener();
-
     try {
+      if (await skipIfDatabaseError(window, 'Database error – skipping env variable test')) {
+        return;
+      }
+
+      consoleLogs = captureConsoleLogs(window);
+      consoleLogs.addListener();
+
       // Wait for app to initialize
       await window.waitForTimeout(5000);
 
       // Navigate to database panel
       await showDatabaseDemoPanel(window);
+      if (await skipIfDatabaseError(window, 'Database error – skipping env variable test')) {
+        return;
+      }
       await window.waitForTimeout(2000);
 
       // Verify worker logs are present (which means it initialized with env vars)
@@ -339,7 +365,7 @@ test.describe('Embedding Worker in Renderer', () => {
 
       console.log('✅ Worker initialized with environment variables');
     } finally {
-      consoleLogs.removeListener();
+      consoleLogs?.removeListener();
     }
   });
 
@@ -401,9 +427,9 @@ test.describe('Embedding Worker in Renderer', () => {
     // Navigate to database panel first
     const activeWindow = await showDatabaseDemoPanel(window);
 
-    if (await isDatabaseError(activeWindow)) {
-      console.log('⚠️ Database error – skipping process verification test');
-      await expect(activeWindow.locator(ERROR_LOCATOR).first()).toBeVisible();
+    if (
+      await skipIfDatabaseError(activeWindow, 'Database error – skipping process verification test')
+    ) {
       return;
     }
 
@@ -432,14 +458,11 @@ test.describe('Embedding Worker in Renderer', () => {
   });
 
   test('should persist worker across navigation', async ({ window }) => {
-    if (await isDatabaseError(window)) {
-      console.log('⚠️ Database error – skipping navigation test');
-      await expect(window.locator(ERROR_LOCATOR).first()).toBeVisible();
-      return;
-    }
-
     // Navigate to database panel
     const activeWindow = await showDatabaseDemoPanel(window);
+    if (await skipIfDatabaseError(activeWindow, 'Database error – skipping navigation test')) {
+      return;
+    }
 
     // Create a test job before navigation
     const { jobId: beforeJobId } = await createTestBackfillJob(activeWindow);

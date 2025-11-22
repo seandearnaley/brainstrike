@@ -59,6 +59,10 @@ function createLaunchOptions(
   mainPath: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
+  // Ensure we never inherit Electron's Node-only mode from the environment, which breaks Playwright.
+  // Some developer environments set ELECTRON_RUN_AS_NODE=1 globally; force it off for tests.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { ELECTRON_RUN_AS_NODE: _ignoredRunAsNode, ...baseEnv } = process.env;
   const baseArgs = [
     mainPath,
     '--test-mode',
@@ -69,7 +73,7 @@ function createLaunchOptions(
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     env: {
-      ...process.env,
+      ...baseEnv,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
