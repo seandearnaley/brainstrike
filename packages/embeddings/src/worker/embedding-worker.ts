@@ -176,7 +176,7 @@ function resolveWorkerModel(fromOptions?: string): {
     return {
       provider: parsed.provider,
       modelId: parsed.modelId,
-      compositeKey: candidate,
+      compositeKey: formatProviderModelKey(parsed.provider, parsed.modelId),
     };
   }
 
@@ -332,12 +332,18 @@ async function initializeEmbeddingService(
 
   // Only initialize if we created the default service
   if (!options.service) {
-    // Initialize with the requested model key
-    const simpleService = service as SimpleEmbeddingService;
-    if (typeof simpleService.initializeWithModel === 'function') {
-      await simpleService.initializeWithModel(modelKey, undefined, options.device);
-    } else {
-      await service.initialize?.({}, undefined);
+    // Check if it's a hosted model - if so, we don't need to initialize the local service
+    const parsed = parseProviderModelKey(modelKey);
+    const isHosted = parsed && isHostedProvider(parsed.provider);
+
+    if (!isHosted) {
+      // Initialize with the requested model key
+      const simpleService = service as SimpleEmbeddingService;
+      if (typeof simpleService.initializeWithModel === 'function') {
+        await simpleService.initializeWithModel(modelKey, undefined, options.device);
+      } else {
+        await service.initialize?.({}, undefined);
+      }
     }
   }
 
@@ -429,7 +435,7 @@ export async function startEmbeddingWorker(
   let activeCompositeKey = modelResolution.compositeKey;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
-  let { service, modelConfig } = await initializeEmbeddingService(options, activeModelId);
+  let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
 
   // REMOVED: Worker no longer auto-creates embedding sets on startup
