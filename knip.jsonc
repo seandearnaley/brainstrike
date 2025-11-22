@@ -145,6 +145,13 @@
         "config": "tsconfig.json"
       }
     },
+    "packages/preferences": {
+      "project": ["src/**/*.{ts,tsx}"],
+      "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],
+      "typescript": {
+        "config": "tsconfig.json"
+      }
+    },
     "packages/server-config": {
       "project": ["src/**/*.{ts,tsx}"],
       "ignore": ["**/__tests__/**", "**/*.test.{ts,tsx}"],

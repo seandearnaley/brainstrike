@@ -560,6 +560,18 @@ export async function startEmbeddingWorker(
   // biome-ignore lint/style/useNamingConvention: DB field name
   type ClaimedJob = Job & { lease_token: string };
 
+  class JobProcessingError extends Error {
+    remainingJobs: ClaimedJob[];
+    readonly originalError?: unknown;
+
+    constructor(message: string, remainingJobs: ClaimedJob[], cause?: unknown) {
+      super(message);
+      this.name = 'JobProcessingError';
+      this.remainingJobs = remainingJobs;
+      this.originalError = cause;
+    }
+  }
+
   async function generateLocalEmbeddings(
     chunks: Array<NonNullable<Awaited<ReturnType<typeof loadChunk>>>>,
     expectedDimension: number
@@ -871,28 +883,33 @@ export async function startEmbeddingWorker(
     toProcess: LoadedChunkItem[],
     embeddings: number[][],
     jobModel: ReturnType<typeof resolveJobModel>
-  ) {
-    await Promise.all(
-      toProcess.map(async (item, index) => {
-        const embedding = embeddings[index];
-        if (!embedding) {
-          throw new Error(`Missing embedding for item ${index} in batch.`);
-        }
-        const targetSetId = resolveTargetSetId(item.payload, item.chunk);
-        const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+  ): Promise<Set<string>> {
+    const completedJobIds = new Set<string>();
+    for (let index = 0; index < toProcess.length; index += 1) {
+      const item = toProcess[index];
+      if (!item) {
+        throw new Error(`Missing batch item at index ${index}.`);
+      }
+      const embedding = embeddings[index];
+      if (!embedding) {
+        throw new Error(`Missing embedding for item ${index} in batch.`);
+      }
+      const targetSetId = resolveTargetSetId(item.payload, item.chunk);
+      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
 
-        await updateChunkEmbedding(
-          options.db,
-          item.chunk.id,
-          embedding,
-          targetSetId,
-          expectedHash,
-          vectorEnabledForWrites
-        );
+      await updateChunkEmbedding(
+        options.db,
+        item.chunk.id,
+        embedding,
+        targetSetId,
+        expectedHash,
+        vectorEnabledForWrites
+      );
 
-        await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
-      })
-    );
+      await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
+      completedJobIds.add(item.job.id);
+    }
+    return completedJobIds;
   }
 
   function resolveJobModel(payload: EmbedChunkPayload): {
@@ -962,39 +979,60 @@ export async function startEmbeddingWorker(
     checkLease: () => boolean
   ) {
     const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
+    const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
 
-    if (checkLease()) throw new Error('Lease lost during processing');
+    try {
+      if (checkLease()) throw new Error('Lease lost during processing');
 
-    if (completed.length > 0) {
-      await Promise.all(
-        completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
-      );
-      metrics.jobsProcessed += completed.length;
-      processedSinceInit += completed.length;
+      await markAlreadyCompleted(completed, completedJobIds);
+
+      if (toProcess.length === 0) return;
+
+      const expectedDimension = await validateBatchDimensions(toProcess);
+
+      if (checkLease()) throw new Error('Lease lost during processing');
+
+      const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+
+      if (checkLease()) throw new Error('Lease lost during processing');
+
+      const newlyCompleted = await completeBatch(toProcess, embeddings, jobModel);
+      for (const id of newlyCompleted) {
+        completedJobIds.add(id);
+      }
+
+      metrics.jobsProcessed += toProcess.length;
+      processedSinceInit += toProcess.length;
+      consecutiveFailures = 0;
+
+      await maybeReinitialize();
+    } catch (err) {
+      const remainingJobs = jobs.filter((job) => !completedJobIds.has(job.id));
+      throw new JobProcessingError('Failed processing job group', remainingJobs, err);
     }
+  }
 
-    if (toProcess.length === 0) return;
-
-    const expectedDimension = await validateBatchDimensions(toProcess);
-
-    if (checkLease()) throw new Error('Lease lost during processing');
-
-    const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
-
-    if (checkLease()) throw new Error('Lease lost during processing');
-
-    await completeBatch(toProcess, embeddings, jobModel);
-
-    metrics.jobsProcessed += toProcess.length;
-    processedSinceInit += toProcess.length;
-    consecutiveFailures = 0;
-
-    if (processedSinceInit >= reinitEveryN) {
-      workerLogger.info(
-        `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
-      );
-      await resetService(false);
+  async function markAlreadyCompleted(
+    completed: Array<{ job: ClaimedJob }>,
+    completedJobIds: Set<string>
+  ) {
+    if (completed.length === 0) return;
+    await Promise.all(
+      completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
+    );
+    for (const item of completed) {
+      completedJobIds.add(item.job.id);
     }
+    metrics.jobsProcessed += completed.length;
+    processedSinceInit += completed.length;
+  }
+
+  async function maybeReinitialize() {
+    if (processedSinceInit < reinitEveryN) return;
+    workerLogger.info(
+      `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
+    );
+    await resetService(false);
   }
 
   async function resolveJobModelOrFail(
@@ -1011,6 +1049,42 @@ export async function startEmbeddingWorker(
     }
   }
 
+  function createLeaseTracker(
+    jobs: ClaimedJob[],
+    checkLeaseOverride?: () => boolean
+  ): { checkLease: () => boolean; dispose: () => void } {
+    let leaseLost = false;
+    const checkLease = checkLeaseOverride ?? (() => leaseLost);
+    const hb =
+      checkLeaseOverride === undefined
+        ? startHeartbeat(jobs, () => {
+            leaseLost = true;
+          })
+        : undefined;
+    return {
+      checkLease,
+      dispose: () => {
+        if (hb) clearInterval(hb);
+      },
+    };
+  }
+
+  async function handleGroupError(
+    error: unknown,
+    jobs: ClaimedJob[],
+    checkLease: () => boolean
+  ): Promise<void> {
+    if (checkLease()) {
+      workerLogger.warn('Aborting batch processing due to lost lease');
+      return;
+    }
+    if (error instanceof JobProcessingError) {
+      await handleBatchFailure(error.remainingJobs, error.originalError ?? error);
+      return;
+    }
+    await handleBatchFailure(jobs, error);
+  }
+
   async function processGroup(
     jobs: ClaimedJob[],
     checkLeaseOverride?: () => boolean
@@ -1020,25 +1094,14 @@ export async function startEmbeddingWorker(
     const jobModel = await resolveJobModelOrFail(jobs);
     if (!jobModel) return;
 
-    let leaseLost = false;
-    const checkLease = checkLeaseOverride ?? (() => leaseLost);
-    const hb =
-      checkLeaseOverride === undefined
-        ? startHeartbeat(jobs, (_job) => {
-            leaseLost = true;
-          })
-        : undefined;
+    const lease = createLeaseTracker(jobs, checkLeaseOverride);
 
     try {
-      await processJobGroup(jobs, jobModel, checkLease);
+      await processJobGroup(jobs, jobModel, lease.checkLease);
     } catch (error) {
-      if (checkLease()) {
-        workerLogger.warn('Aborting batch processing due to lost lease');
-        return; // Do not fail/retry jobs, as we don't own them anymore
-      }
-      await handleBatchFailure(jobs, error);
+      await handleGroupError(error, jobs, lease.checkLease);
     } finally {
-      if (hb) clearInterval(hb);
+      lease.dispose();
     }
   }
 
