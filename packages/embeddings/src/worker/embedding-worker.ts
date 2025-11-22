@@ -330,6 +330,12 @@ async function initializeEmbeddingService(
 ): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
   const service = options.service ?? new SimpleEmbeddingService();
 
+  const parsedForRegistry = parseProviderModelKey(modelKey);
+  const registryModelKey =
+    parsedForRegistry && parsedForRegistry.provider === 'local'
+      ? parsedForRegistry.modelId
+      : modelKey;
+
   // Only initialize if we created the default service
   if (!options.service) {
     // Check if it's a hosted model - if so, we don't need to initialize the local service
@@ -340,7 +346,7 @@ async function initializeEmbeddingService(
       // Initialize with the requested model key
       const simpleService = service as SimpleEmbeddingService;
       if (typeof simpleService.initializeWithModel === 'function') {
-        await simpleService.initializeWithModel(modelKey, undefined, options.device);
+        await simpleService.initializeWithModel(registryModelKey, undefined, options.device);
       } else {
         await service.initialize?.({}, undefined);
       }
@@ -348,7 +354,7 @@ async function initializeEmbeddingService(
   }
 
   // Get model config - if using custom service, determine dimensions first
-  let modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+  let modelConfig = SimpleEmbeddingService.getModelConfig(registryModelKey);
   if (!modelConfig && options.service) {
     // For custom services, generate a test embedding to get dimensions
     const serviceConfig = service.getConfig();
@@ -714,20 +720,53 @@ export async function startEmbeddingWorker(
     return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
   }
 
-  async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+  function parseStatusCode(message: string): number | undefined {
+    const statusMatch = /status (\d{3})/i.exec(message);
+    return statusMatch ? Number(statusMatch[1]) : undefined;
+  }
+
+  function parseHostedStatusCode(message: string): number | undefined {
+    const hostedStatusMatch = /API error \((\d{3})\)/i.exec(message);
+    return hostedStatusMatch ? Number(hostedStatusMatch[1]) : undefined;
+  }
+
+  function classifyFailure(error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     const truncated = message.slice(0, 4000);
 
-    let backoffMs: number | undefined;
-    if (error instanceof WorkerRateLimitError && error.retryAfterMs) {
-      backoffMs = error.retryAfterMs;
-    }
+    const backoffMs =
+      error instanceof WorkerRateLimitError && error.retryAfterMs ? error.retryAfterMs : undefined;
 
-    // Detect terminal errors that should not be retried
+    const hostedStatusCode = parseHostedStatusCode(message);
+    const isHostedTerminal =
+      hostedStatusCode !== undefined &&
+      hostedStatusCode >= 400 &&
+      hostedStatusCode < 500 &&
+      hostedStatusCode !== 429;
+
+    const statusCode = parseStatusCode(message);
+    const isExplicitTerminalStatus =
+      statusCode !== undefined && [400, 401, 403, 422].includes(statusCode);
+
+    const looksLikeModelExecError =
+      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
+
     const isTerminal =
-      /status (400|401|403|422)/.test(message) ||
+      isExplicitTerminalStatus ||
+      isHostedTerminal ||
       /context length exceeded/i.test(message) ||
       /invalid input/i.test(message);
+
+    return {
+      backoffMs,
+      isTerminal,
+      looksLikeModelExecError,
+      truncated,
+    };
+  }
+
+  async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+    const { backoffMs, isTerminal, looksLikeModelExecError, truncated } = classifyFailure(error);
 
     // Fail all jobs in the batch with the same error
     await Promise.all(
@@ -744,9 +783,6 @@ export async function startEmbeddingWorker(
 
     metrics.jobsFailed += jobs.length;
     consecutiveFailures += 1;
-
-    const looksLikeModelExecError =
-      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
 
     if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
       workerLogger.warn(
@@ -899,12 +935,12 @@ export async function startEmbeddingWorker(
     };
   }
 
-  function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: () => void) {
-    let leaseLost = false;
+  function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
+    const lostJobs = new Set<string>();
     return setInterval(() => {
-      if (leaseLost) return;
       Promise.all(
         jobs.map(async (job) => {
+          if (lostJobs.has(job.id)) return;
           const res = await jq.heartbeat({
             id: job.id,
             leaseToken: job.lease_token,
@@ -912,8 +948,8 @@ export async function startEmbeddingWorker(
           });
           if (!res) {
             workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
-            leaseLost = true;
-            onLeaseLost();
+            lostJobs.add(job.id);
+            onLeaseLost(job);
           }
         })
       ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
@@ -961,38 +997,48 @@ export async function startEmbeddingWorker(
     }
   }
 
-  async function processGroup(jobs: ClaimedJob[]): Promise<void> {
-    if (jobs.length === 0) return;
-
+  async function resolveJobModelOrFail(
+    jobs: ClaimedJob[]
+  ): Promise<ReturnType<typeof resolveJobModel> | null> {
     const firstJob = jobs[0];
-    if (!firstJob) return;
-
-    let payload: EmbedChunkPayload;
-    let jobModel: ReturnType<typeof resolveJobModel>;
-
+    if (!firstJob) return null;
     try {
-      payload = assertEmbedChunkJob(firstJob);
-      jobModel = resolveJobModel(payload);
+      const payload = assertEmbedChunkJob(firstJob);
+      return resolveJobModel(payload);
     } catch (err) {
       await handleBatchFailure(jobs, err);
-      return;
+      return null;
     }
+  }
+
+  async function processGroup(
+    jobs: ClaimedJob[],
+    checkLeaseOverride?: () => boolean
+  ): Promise<void> {
+    if (jobs.length === 0) return;
+
+    const jobModel = await resolveJobModelOrFail(jobs);
+    if (!jobModel) return;
 
     let leaseLost = false;
-    const hb = startHeartbeat(jobs, () => {
-      leaseLost = true;
-    });
+    const checkLease = checkLeaseOverride ?? (() => leaseLost);
+    const hb =
+      checkLeaseOverride === undefined
+        ? startHeartbeat(jobs, (_job) => {
+            leaseLost = true;
+          })
+        : undefined;
 
     try {
-      await processJobGroup(jobs, jobModel, () => leaseLost);
+      await processJobGroup(jobs, jobModel, checkLease);
     } catch (error) {
-      if (leaseLost) {
+      if (checkLease()) {
         workerLogger.warn('Aborting batch processing due to lost lease');
         return; // Do not fail/retry jobs, as we don't own them anymore
       }
       await handleBatchFailure(jobs, error);
     } finally {
-      clearInterval(hb);
+      if (hb) clearInterval(hb);
     }
   }
 
@@ -1018,6 +1064,29 @@ export async function startEmbeddingWorker(
     return groups;
   }
 
+  async function processClaimedJobs(jobs: ClaimedJob[]) {
+    const leaseLost = new Set<string>();
+    const batchHeartbeat = startHeartbeat(jobs, (job) => {
+      leaseLost.add(job.id);
+    });
+
+    try {
+      const groups = groupJobs(jobs);
+      for (const group of groups.values()) {
+        const checkLease = () => group.some((job) => leaseLost.has(job.id));
+        if (checkLease()) {
+          workerLogger.warn('Skipping group due to lost lease before processing', {
+            jobIds: group.map((job) => job.id),
+          });
+          continue;
+        }
+        await processGroup(group, checkLease);
+      }
+    } finally {
+      clearInterval(batchHeartbeat);
+    }
+  }
+
   async function processBatch(): Promise<void> {
     try {
       // Claim a batch of jobs
@@ -1033,13 +1102,7 @@ export async function startEmbeddingWorker(
         return;
       }
 
-      // Group by model key AND provider to ensure we process same-model jobs together
-      const groups = groupJobs(jobs);
-
-      // Process each group
-      for (const group of groups.values()) {
-        await processGroup(group);
-      }
+      await processClaimedJobs(jobs);
 
       // Small yield
       await sleep(5);
