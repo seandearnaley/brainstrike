@@ -100,6 +100,22 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     app.on('close', () => {
       console.log('⚠️ Electron app closed unexpectedly');
     });
+    const proc = app.process();
+    if (proc?.stdout) {
+      proc.stdout.on('data', (data: Buffer | string) =>
+        console.log(`[electron stdout]: ${data.toString()}`)
+      );
+    }
+    if (proc?.stderr) {
+      proc.stderr.on('data', (data: Buffer | string) =>
+        console.error(`[electron stderr]: ${data.toString()}`)
+      );
+    }
+    proc?.once('exit', (code, signal) => {
+      console.error(
+        `⚠️ Electron process exited (code=${code ?? 'unknown'}, signal=${signal ?? 'unknown'})`
+      );
+    });
     return app;
   } catch (error) {
     console.error('❌ Failed to launch Electron app:', error);
@@ -137,7 +153,7 @@ async function getFirstWindowWithRecovery(
   launchOptions: Parameters<typeof electron.launch>[0]
 ): Promise<{ app: ElectronApplication; window: Page }> {
   let app = initialApp;
-  const maxRetries = 3;
+  const maxRetries = 5;
 
   async function waitForFirstWindow(appToCheck: ElectronApplication): Promise<Page> {
     const existing = pickAvailableWindow(appToCheck);
@@ -147,10 +163,28 @@ async function getFirstWindowWithRecovery(
     }
 
     // Wait for a new window with a longer timeout to handle slow boots in CI
+    const windowPromise = appToCheck.waitForEvent('window', { timeout: 60000 });
+    const exitPromise = new Promise<never>((_, reject) => {
+      const proc = appToCheck.process();
+      if (!proc) return;
+      proc.once('exit', (code, signal) => {
+        reject(
+          new Error(
+            `Electron app exited before window appeared (code=${code ?? 'unknown'}, signal=${
+              signal ?? 'unknown'
+            })`
+          )
+        );
+      });
+      proc.once('error', (procError) => {
+        reject(new Error(`Electron app process error before window appeared: ${procError}`));
+      });
+    });
+
     try {
-      const window = await appToCheck.waitForEvent('window', { timeout: 60000 });
+      const window = await Promise.race([windowPromise, exitPromise]);
       console.log('✅ Received window event');
-      return window;
+      return window as Page;
     } catch (waitError) {
       const fallback = pickAvailableWindow(appToCheck);
       if (fallback) {
