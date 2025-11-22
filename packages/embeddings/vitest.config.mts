@@ -12,12 +12,7 @@ export default defineConfig({
     environment: 'node',
     // Exclude integration tests by default (they require model downloads)
     // Also exclude CLI tests from unit runs; they are exercised separately.
-    exclude: [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/*.integration.test.*',
-      '**/src/__tests__/cli.*.test.*',
-    ],
+    exclude: ['**/node_modules/**', '**/dist/**', '**/src/__tests__/cli.*.test.*'],
     // Set a reasonable timeout for unit tests
     testTimeout: 10000,
     // Allow running integration tests with --run integration
