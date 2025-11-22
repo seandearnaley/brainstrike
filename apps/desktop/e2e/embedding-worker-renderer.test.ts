@@ -170,6 +170,36 @@ test.describe('Embedding Worker in Renderer', () => {
     await electron.ensureWindow();
   });
 
+  /**
+   * Wait for a log message matching a pattern
+   */
+  async function waitForLogMessage(
+    page: Page,
+    pattern: string | RegExp,
+    timeout = 10000
+  ): Promise<boolean> {
+    return new Promise((resolve) => {
+      const handler = (msg: ConsoleMessage) => {
+        const text = msg.text();
+        if (typeof pattern === 'string' ? text.includes(pattern) : pattern.test(text)) {
+          page.off('console', handler);
+          resolve(true);
+        }
+      };
+
+      page.on('console', handler);
+
+      // Check existing logs first (if we have a way to access them, but here we just start listening)
+      // In a real scenario we might want to check a buffer, but for now we assume we call this early enough
+      // or we rely on the fact that we just started listening.
+
+      setTimeout(() => {
+        page.off('console', handler);
+        resolve(false);
+      }, timeout);
+    });
+  }
+
   test('should start embedding worker automatically when app launches', async ({ electron }) => {
     // Start with a fresh window to capture worker startup from the beginning
     const context = await electron.restart();
@@ -186,8 +216,41 @@ test.describe('Embedding Worker in Renderer', () => {
         return;
       }
 
+      // Set up console listener immediately
+      consoleLogs = captureConsoleLogs(window);
+      consoleLogs.addListener();
+
+      // Wait for the startup message specifically
+      const startupPattern = /Starting embedding worker|started successfully|embedding worker/i;
+
+      // We race the log wait against a general timeout/app ready check
+      // But since we want to verify the log *appears*, we should wait for it.
+      // However, if it already happened before we attached, we might miss it.
+      // Given electron.restart() waits for the window, there's a small gap.
+      // But the worker usually starts after some initialization.
+
+      // Let's try to wait for it, but also check the logs we already captured if any
+      const found = await waitForLogMessage(window, startupPattern, 15000);
+
+      if (!found) {
+        // Double check if it's in the logs captured by consoleLogs (in case of race where it came fast)
+        const existing = findLogMessages(consoleLogs.logs, startupPattern);
+        if (existing.length > 0) {
+          console.log('✅ Found startup logs in captured buffer');
+        } else {
+          // If still not found, fail but log what we have
+          console.log(
+            '❌ Startup logs not found. Captured logs:',
+            consoleLogs.logs.map((l) => l.text())
+          );
+          throw new Error('Worker startup logs not found');
+        }
+      }
+
+      console.log('✅ Worker startup verified');
+
       // Wait for app to be ready
-      await window.waitForTimeout(5000);
+      await window.waitForTimeout(2000);
 
       // Navigate to database panel to ensure we're in the right context
       await showDatabaseDemoPanel(window);
@@ -201,35 +264,6 @@ test.describe('Embedding Worker in Renderer', () => {
       ) {
         return;
       }
-
-      // Set up console listener once we know we're proceeding
-      consoleLogs = captureConsoleLogs(window);
-      consoleLogs.addListener();
-
-      // Wait a bit more for worker logs to appear
-      await window.waitForTimeout(3000);
-
-      // Verify the worker startup logs are present
-      const startupLogs = findLogMessages(consoleLogs.logs, /embedding.*worker/i);
-
-      // Worker should have logged something about starting
-      expect(startupLogs.length).toBeGreaterThan(0);
-
-      // Check for specific startup messages
-      const hasStartupLog = consoleLogs.logs.some((log) => {
-        const text = log.text();
-        return (
-          text.includes('Starting embedding worker') ||
-          text.includes('started successfully') ||
-          text.includes('embedding worker')
-        );
-      });
-
-      expect(hasStartupLog).toBe(true);
-
-      console.log(
-        `✅ Found ${startupLogs.length} embedding worker logs, including startup messages`
-      );
     } finally {
       // Ensure we always detach the listener
       consoleLogs?.removeListener();
