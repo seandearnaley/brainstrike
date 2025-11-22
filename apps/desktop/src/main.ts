@@ -32,6 +32,8 @@ import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
+let mainWindow: BrowserWindow | null = null;
+
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
 
@@ -417,11 +419,19 @@ app.whenReady().then(async () => {
     ipcMain.handle('assistant:get-url', () => assistantUrl);
 
     logger.info('Creating main window...');
-    await createWindow();
+    mainWindow = await createWindow();
+    mainWindow.on('closed', () => {
+      mainWindow = null;
+    });
     logger.info('Main window created successfully');
 
     app.on('activate', async () => {
-      if (BrowserWindow.getAllWindows().length === 0) await createWindow();
+      if (!mainWindow) {
+        mainWindow = await createWindow();
+        mainWindow.on('closed', () => {
+          mainWindow = null;
+        });
+      }
     });
   } catch (error) {
     logger.error('Failed to initialize application:', error);
