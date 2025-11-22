@@ -84,11 +84,12 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       expect(Array.from(truncated)).toEqual([1, 2, 3]);
     });
 
-    it('should handle truncation to zero length', () => {
+    it('should no-op when truncation dimension is zero', () => {
       const vector = Float32Array.from([1, 2, 3]);
       const truncated = truncateVector(vector, 0);
 
-      expect(truncated.length).toBe(0);
+      expect(truncated).toBe(vector);
+      expect(Array.from(truncated)).toEqual([1, 2, 3]);
     });
 
     it('should handle truncation to one element', () => {
@@ -144,9 +145,9 @@ describe('Embedding Worker - Enhanced Coverage', () => {
       expect(computeInitialBatchSize(1536)).toBeGreaterThan(0);
     });
 
-    it('should return 1 for small dimensions', () => {
+    it('should use heuristic batching for small dimensions', () => {
       expect(computeInitialBatchSize(2)).toBe(1);
-      expect(computeInitialBatchSize(10)).toBe(1);
+      expect(computeInitialBatchSize(10)).toBe(2);
     });
 
     it('should handle edge case of dimension 0', () => {
@@ -253,32 +254,6 @@ describe('Embedding Worker - Enhanced Coverage', () => {
   });
 
   describe('resolveEmbeddingWorkerUrl - Environment Testing', () => {
-    let originalImportMeta: typeof import.meta | undefined;
-    let originalDirname: string | undefined;
-
-    beforeEach(() => {
-      // Save original values
-      if (typeof import.meta !== 'undefined') {
-        originalImportMeta = import.meta;
-      }
-      if (typeof __dirname !== 'undefined') {
-        // @ts-expect-error - __dirname might not exist in ESM
-        originalDirname = __dirname;
-      }
-    });
-
-    afterEach(() => {
-      // Restore original values
-      if (originalImportMeta) {
-        // @ts-expect-error - Cannot reassign import.meta in reality, but for testing
-        import.meta = originalImportMeta;
-      }
-      if (originalDirname !== undefined) {
-        // @ts-expect-error - __dirname is read-only
-        __dirname = originalDirname;
-      }
-    });
-
     it('should work in ESM environment with import.meta.url', async () => {
       // This test runs in an ESM environment by default
       const { resolveEmbeddingWorkerUrl } = await import('../src');

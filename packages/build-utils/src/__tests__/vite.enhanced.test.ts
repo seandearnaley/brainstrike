@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { findPGliteWasm, fullReloadOnCompilerHotspots } = await import('../vite');
 
+function createWorkspacePaths(prefix: string) {
+  const root = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const appDir = path.join(root, 'apps', 'web');
+  const pnpmDir = path.join(root, 'node_modules/.pnpm');
+  mkdirSync(appDir, { recursive: true });
+  return { appDir, pnpmDir };
+}
+
 describe('findPGliteWasm - Enhanced Coverage', () => {
   let originalEnv: NodeJS.ProcessEnv;
 
@@ -19,9 +27,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
 
   describe('pnpm directory scanning', () => {
     it('should find wasm in pnpm directory structure', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-pnpm-'));
-      const appDir = path.join(tmp, 'app');
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-pnpm-');
       const pgliteVersion = '@electric-sql+pglite@0.1.5';
       const wasmDir = path.join(pnpmDir, pgliteVersion, 'node_modules/@electric-sql/pglite/dist');
 
@@ -34,9 +40,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should handle multiple pglite versions in pnpm directory', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-multi-'));
-      const appDir = path.join(tmp, 'app');
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-multi-');
 
       // Create multiple versions
       const version1 = '@electric-sql+pglite@0.1.4';
@@ -61,9 +65,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should skip non-pglite directories in pnpm', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-other-'));
-      const appDir = path.join(tmp, 'app');
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-other-');
 
       // Create directories that don't match @electric-sql+pglite@
       const otherDir1 = path.join(pnpmDir, 'some-other-package@1.0.0');
@@ -77,9 +79,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should handle pnpm directory without valid pglite versions', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-no-wasm-'));
-      const appDir = path.join(tmp, 'app');
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-no-wasm-');
       const pgliteDir = path.join(pnpmDir, '@electric-sql+pglite@0.1.5');
 
       // Create directory but no wasm file
@@ -90,8 +90,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should handle pnpm directory scan errors gracefully', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-no-pnpm-'));
-      const appDir = path.join(tmp, 'app');
+      const { appDir } = createWorkspacePaths('pglite-no-pnpm-');
 
       // No pnpm directory exists, should not throw
       expect(() => findPGliteWasm(appDir)).not.toThrow();
@@ -101,9 +100,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should skip files in pnpm directory (not directories)', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-files-'));
-      const appDir = path.join(tmp, 'app');
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-files-');
 
       mkdirSync(pnpmDir, { recursive: true });
 
@@ -124,8 +121,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       // Need to re-import the module to pick up the new env
       vi.resetModules();
 
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-dev-'));
-      const appDir = path.join(tmp, 'app');
+      const { appDir } = createWorkspacePaths('pglite-dev-');
       const wasmDir = path.join(appDir, 'node_modules/@electric-sql/pglite/dist');
       mkdirSync(wasmDir, { recursive: true });
       const wasmFile = path.join(wasmDir, 'pglite.wasm');
@@ -137,8 +133,7 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
     });
 
     it('should check both standard paths before pnpm', () => {
-      const tmp = mkdtempSync(path.join(os.tmpdir(), 'pglite-paths-'));
-      const appDir = path.join(tmp, 'app');
+      const { appDir, pnpmDir } = createWorkspacePaths('pglite-paths-');
 
       // Create wasm in standard path (not pnpm)
       const standardWasmDir = path.join(appDir, 'node_modules/@electric-sql/pglite/dist');
@@ -147,7 +142,6 @@ describe('findPGliteWasm - Enhanced Coverage', () => {
       writeFileSync(standardWasm, '');
 
       // Also create pnpm structure
-      const pnpmDir = path.join(appDir, '../node_modules/.pnpm');
       const pgliteVersion = '@electric-sql+pglite@0.1.5';
       const pnpmWasmDir = path.join(
         pnpmDir,
