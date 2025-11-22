@@ -14,7 +14,7 @@ import type {
 
 class FakeEmbeddingService implements EmbeddingService {
   private status: EmbeddingStatus = 'ready';
-  private dims = 768;
+
   initialize(
     _config?: Partial<EmbeddingConfig>,
     _onProgress?: (progress: EmbeddingProgress) => void
@@ -23,9 +23,16 @@ class FakeEmbeddingService implements EmbeddingService {
     return Promise.resolve();
   }
   async generateEmbedding(_text: string): Promise<EmbeddingResult> {
-    // Deterministic small vector of specified dims
-    const embedding = Array.from({ length: this.dims }, (_, i) => ((i % 7) - 3) / 10);
-    return { embedding, dimensions: this.dims, model: 'fake-model' };
+    return {
+      embedding: new Array(768).fill(0.1),
+      dimensions: 768,
+      model: 'fake-model',
+      usage: { totalTokens: 10 },
+    };
+  }
+
+  async generateEmbeddings(texts: string[]): Promise<EmbeddingResult[]> {
+    return Promise.all(texts.map((t) => this.generateEmbedding(t)));
   }
   async generateDocEmbedding(text: string): Promise<EmbeddingResult> {
     return this.generateEmbedding(text);

@@ -12,7 +12,7 @@ Always treat this file as authoritative and current.
 
 ---
 
-## 1. TOOLING WORKFLOW (MCP / CODE NAVIGATION)
+## TOOLING WORKFLOW (MCP / CODE NAVIGATION)
 
 Use tools before speculating. Follow this order unless explicitly told otherwise.
 
@@ -39,7 +39,7 @@ Do not start dev servers or heavy processes unless explicitly requested.
 
 ---
 
-## 2. REPO OVERVIEW
+## REPO OVERVIEW
 
 - Monorepo with Turborepo + pnpm.
 - Apps:
@@ -54,7 +54,7 @@ Always confirm locations with semantic search before editing.
 
 ---
 
-## 3. BUILD, TEST, AND DEV COMMANDS
+## BUILD, TEST, AND DEV COMMANDS
 
 Use these unless instructions differ in the repo:
 
@@ -88,7 +88,9 @@ to leverage caching; avoid full-repo runs unless necessary.
 
 ---
 
-## 4. ELECTRON E2E (PLAYWRIGHT) / HEADLESS LINUX
+NOTE: On this team, the bar is that your final code has a clean build, lint, type check, and unit tests all passing together. That means after you make a change, you’re responsible for running the full suite again and iterating until **everything** is green in the same run. CI is there to double-check, not to tell you what you broke.
+
+## ELECTRON E2E (PLAYWRIGHT) / HEADLESS LINUX
 
 Electron needs a display; in CI/headless use Xvfb.
 
@@ -149,7 +151,7 @@ Do not move or reintroduce workers in main.
 
 ---
 
-## 6. AI ASSISTANT INTEGRATION
+## AI ASSISTANT INTEGRATION
 
 - Supports: OpenAI, Anthropic, Google, OpenRouter.
 - API keys:
@@ -175,7 +177,7 @@ When changing this flow, update this doc.
 
 ---
 
-## 7. CODING STYLE AND NAMING
+## CODING STYLE AND NAMING
 
 - TypeScript strict; noImplicitAny: true.
 - Never use any. Prefer unknown + narrowing.
@@ -199,7 +201,7 @@ Reuse shared packages; avoid copy-paste divergence.
 
 ---
 
-## 8. TESTING EXPECTATIONS
+## TESTING EXPECTATIONS
 
 - Frameworks:
   - Vitest for unit/integration.
@@ -216,7 +218,7 @@ CI parity:
 
 ---
 
-## 9. LOGGING (PINO V10)
+## LOGGING (PINO V10)
 
 Centralized logging: packages/utils/src/logger.ts
 
@@ -315,7 +317,7 @@ Add tests when changing reset behavior.
 
 ---
 
-## 12. MERMAID DIAGRAMS
+## MERMAID DIAGRAMS
 
 Edits are high-risk. Always validate.
 
@@ -366,7 +368,7 @@ No implicit fallbacks unless clearly required and documented.
 
 ---
 
-## 14. LIVING DOCUMENT
+## LIVING DOCUMENT
 
 This file must be kept accurate:
 - Update when commands, tools, architecture, or security constraints change.

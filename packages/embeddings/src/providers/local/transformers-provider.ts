@@ -77,20 +77,38 @@ export class TransformersEmbeddingProvider implements ILocalEmbeddingProvider {
       }
 
       // Generate embedding using the service
-      const result = await this.service.generateDocEmbedding(input.text);
+      let embeddings: number[][];
+      let dimensions: number;
+
+      if (Array.isArray(input.text)) {
+        const results = await this.service.generateEmbeddings(input.text);
+        embeddings = results.map((r) => r.embedding);
+        dimensions = results[0]?.dimensions || 0;
+      } else {
+        const result = await this.service.generateDocEmbedding(input.text);
+        embeddings = [result.embedding];
+        dimensions = result.dimensions;
+      }
+
+      if (embeddings.length === 0) {
+        throw new Error('No embeddings generated');
+      }
 
       // Validate dimensions against model's expected dimensions
       if (this.expectedDimensions !== null) {
-        const validation = this.validateDimensions(result.embedding, this.expectedDimensions);
-        if (!validation.ok) {
-          return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+        for (const emb of embeddings) {
+          const validation = this.validateDimensions(emb, this.expectedDimensions);
+          if (!validation.ok) {
+            return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+          }
         }
       }
 
       // Map to new output format
       const output: EmbeddingOutput = {
-        embedding: result.embedding,
-        dimensions: result.dimensions,
+        embedding: embeddings[0] ?? [],
+        embeddings: embeddings,
+        dimensions: dimensions,
         modelId: input.modelId,
         provider: 'local',
       };
