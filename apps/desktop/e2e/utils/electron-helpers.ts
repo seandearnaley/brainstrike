@@ -12,13 +12,19 @@ export interface ElectronAppContext {
   window: Page;
 }
 
-export async function launchElectronApp(debugPort?: number): Promise<ElectronAppContext> {
+export async function launchElectronApp(
+  debugPort?: number,
+  userDataDir?: string
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
   if (debugPort) {
     console.log(`🔌 Using manual debug port: ${debugPort}`);
+  }
+  if (userDataDir) {
+    console.log(`📂 Using custom user data dir: ${userDataDir}`);
   }
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
@@ -32,7 +38,7 @@ export async function launchElectronApp(debugPort?: number): Promise<ElectronApp
     console.log('ℹ️ Skipping global process cleanup (sharded execution detected)');
   }
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort);
+  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
@@ -68,7 +74,8 @@ async function killLingeringElectronProcesses(): Promise<void> {
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
-  debugPort?: number
+  debugPort?: number,
+  userDataDir?: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -79,6 +86,8 @@ function createLaunchOptions(
     // However, in sharded CI environments, this can cause collisions if isolation fails.
     // If a debugPort is provided, we explicitly set it to avoid collisions.
     ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
+    // Explicitly set user data dir to avoid collisions in shared environments
+    ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
     // Disable GPU to prevent crashes in CI
     '--disable-gpu',
     '--disable-software-rasterizer',

@@ -17,11 +17,14 @@ interface ElectronHarnessOptions {
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
 
-  constructor(private readonly debugPort?: number) {}
+  constructor(
+    private readonly debugPort?: number,
+    private readonly userDataDir?: string
+  ) {}
 
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
-      this.context = await launchElectronApp(this.debugPort);
+      this.context = await launchElectronApp(this.debugPort, this.userDataDir);
       return this.context;
     }
 
@@ -55,7 +58,7 @@ class ElectronHarness {
       }
     }
 
-    this.context = await launchElectronApp(this.debugPort);
+    this.context = await launchElectronApp(this.debugPort, this.userDataDir);
     return this.context;
   }
 
@@ -109,7 +112,12 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
       // when running shards in parallel on the same host (e.g. in act or CI)
       const shard = workerInfo.config.shard;
       const debugPort = shard ? 9222 + shard.current : undefined;
-      const harness = new ElectronHarness(debugPort);
+      // Also isolate user data directory
+      const userDataDir = shard
+        ? `/tmp/brainstrike-test-user-data-shard-${shard.current}`
+        : undefined;
+
+      const harness = new ElectronHarness(debugPort, userDataDir);
       try {
         await use(harness);
       } finally {
