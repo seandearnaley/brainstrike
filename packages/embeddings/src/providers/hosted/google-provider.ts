@@ -114,7 +114,8 @@ export class GoogleEmbeddingProvider implements IHostedEmbeddingProvider {
     }
 
     try {
-      const response = await this.fetchImpl(this.endpoint, {
+      const fetchImpl = this.fetchImpl.bind(globalThis);
+      const response = await fetchImpl(this.endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

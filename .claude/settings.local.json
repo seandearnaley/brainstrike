@@ -130,7 +130,8 @@
       "Bash(git log:*)",
       "Bash(gh repo set-default:*)",
       "Bash(xargs git log:*)",
-      "Bash(gh run rerun:*)"
+      "Bash(gh run rerun:*)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []

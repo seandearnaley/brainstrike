@@ -192,7 +192,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isNodejsMainProcess(): boolean {
-  // Check if we're in a Node.js environment (not browser)
   try {
     return (
       typeof process !== 'undefined' &&
@@ -207,19 +206,55 @@ function isNodejsMainProcess(): boolean {
   }
 }
 
+function isElectronMainProcess(): boolean {
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      Boolean((process as { type?: string } | undefined)?.type === 'browser')
+    );
+  } catch (error) {
+    workerLogger.debug('Failed to detect Electron main process while checking embedding context', {
+      error,
+    });
+    return false;
+  }
+}
+
+function readBooleanEnv(key: string): boolean | undefined {
+  try {
+    const raw = (process as { env?: Record<string, string | undefined> } | undefined)?.env?.[key];
+    if (raw === undefined) return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return undefined;
+  } catch (error) {
+    workerLogger.debug('Failed to read boolean env flag', { key, error });
+    return undefined;
+  }
+}
+
 function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  // CRITICAL FIX: Local transformers models require Web Workers to avoid blocking execution.
-  // In Electron main process (Node.js), Web Workers don't exist, causing TransformersBackend
-  // to fall back to synchronous execution which blocks the entire app.
-  if (
-    modelResolution.provider === 'local' &&
-    isNodejsMainProcess() &&
-    process.env['NODE_ENV'] !== 'test'
-  ) {
+  if (modelResolution.provider !== 'local') return;
+
+  const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
+
+  // Local transformers require Web Workers. In Electron main process, that would block the UI,
+  // so we still forbid it unless explicitly overridden.
+  if (isElectronMainProcess() && process.env['NODE_ENV'] !== 'test' && !allowMainRuntime) {
     throw new Error(
-      'Cannot use local embedding models in Node.js/Electron main process. ' +
+      'Cannot use local embedding models in Electron main process. ' +
         'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
         'Use a hosted provider (openai, google) or process embeddings in the renderer.'
+    );
+  }
+
+  // Pure Node.js workers are allowed but warned because they can still block when Web Workers
+  // are unavailable. Operators can silence by setting EMBED_ALLOW_LOCAL_IN_MAIN=true.
+  if (isNodejsMainProcess() && !allowMainRuntime) {
+    workerLogger.warn(
+      'Running local embeddings in a Node.js main process. This may block event loop if Web Workers are unavailable. ' +
+        'Set EMBED_ALLOW_LOCAL_IN_MAIN=true to acknowledge this risk.'
     );
   }
 }
@@ -232,6 +267,15 @@ function shouldStartWorker(
   if (options.enable === false) {
     log('Embedding worker disabled via options.enable=false');
     return false;
+  }
+
+  const envEnabled = readBooleanEnv('EMBED_WORKER_ENABLED');
+  if (envEnabled === false) {
+    log('Embedding worker disabled via EMBED_WORKER_ENABLED=false');
+    return false;
+  }
+  if (envEnabled === true) {
+    return true;
   }
 
   return true;
@@ -306,6 +350,8 @@ function formatHostedEmbedError(
       return `Hosted provider "${provider}" rate limit exceeded.`;
     case 'missing_api_key':
       return `Hosted provider "${provider}" missing API key.`;
+    case 'network_error':
+      return `Hosted provider "${provider}" network error: ${error.originalError.message}`;
     default:
       return `Hosted provider "${provider}" error: ${error.type}.`;
   }
@@ -476,13 +522,14 @@ export async function startEmbeddingWorker(
   // Stability controls
   let processedSinceInit = 0;
   let consecutiveFailures = 0;
-  const reinitEveryN = Number(
+  const reinitEveryN =
     options.reinitEveryN ??
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
-        'EMBED_REINIT_EVERY'
-      ] ??
-      100
-  );
+    (() => {
+      const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+        ?.process?.env?.['EMBED_REINIT_EVERY'];
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
+    })();
   const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
 
   async function ensureLocalModel(
@@ -506,10 +553,11 @@ export async function startEmbeddingWorker(
       return;
     }
 
+    const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
     // CRITICAL FIX: In Electron main process, TransformersBackend tries to create Web Workers
     // which don't exist in Node.js. This causes it to fall back to synchronous execution,
-    // blocking the entire app. Reject model switching for local providers.
-    if (targetModelId !== activeModelId) {
+    // blocking the entire app. Reject model switching for local providers unless explicitly allowed.
+    if (targetModelId !== activeModelId && isElectronMainProcess() && !allowMainRuntime) {
       throw new Error(
         `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
           'Web Workers are not available in Node.js/Electron main process. ' +
@@ -744,7 +792,7 @@ export async function startEmbeddingWorker(
 
   function classifyFailure(error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
-    const truncated = message.slice(0, 4000);
+    const truncated = summarizeErrorMessage(message);
 
     const backoffMs =
       error instanceof WorkerRateLimitError && error.retryAfterMs ? error.retryAfterMs : undefined;
@@ -775,6 +823,17 @@ export async function startEmbeddingWorker(
       looksLikeModelExecError,
       truncated,
     };
+  }
+
+  function summarizeErrorMessage(message: string, limit = 4000): string {
+    if (message.length <= limit) return message;
+    const separator = ' ...[truncated]... ';
+    const available = limit - separator.length;
+    if (available <= 0) return message.slice(0, limit);
+
+    const head = Math.floor(available / 2);
+    const tail = available - head;
+    return `${message.slice(0, head)}${separator}${message.slice(message.length - tail)}`;
   }
 
   async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {

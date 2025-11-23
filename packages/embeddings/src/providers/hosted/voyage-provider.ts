@@ -136,7 +136,8 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
       requestBody['input_type'] = this.inputType;
     }
 
-    return this.fetchImpl(this.endpoint, {
+    const fetchImpl = this.fetchImpl.bind(globalThis);
+    return fetchImpl(this.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

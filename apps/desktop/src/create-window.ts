@@ -57,9 +57,22 @@ async function loadRenderer(win: BrowserWindow) {
   const rendererPath = path.join(__dirname, 'renderer/index.html');
   const hasBuiltRenderer = fs.existsSync(rendererPath);
 
+  // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
+  console.log(
+    '[createWindow] Loading renderer...\n' +
+      `[createWindow] __dirname: ${__dirname}\n` +
+      `[createWindow] Expected renderer path: ${rendererPath}\n` +
+      `[createWindow] Has built renderer: ${hasBuiltRenderer}\n` +
+      `[createWindow] Is packaged: ${app.isPackaged}`
+  );
+
   if (app.isPackaged || hasBuiltRenderer) {
+    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
+    console.log('[createWindow] Loading production renderer file');
     loadProductionRenderer(win, rendererPath);
   } else {
+    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
+    console.log('[createWindow] Falling back to dev server');
     await connectToDevServer(win);
     win.webContents.openDevTools();
   }

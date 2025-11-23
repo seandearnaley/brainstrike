@@ -7,11 +7,22 @@ import type {
   FileRecordRepository,
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db';
-import { SimpleEmbeddingService } from '@brainstrike/embeddings';
+import type { EmbeddingProviderConfig } from '@brainstrike/embeddings';
+import {
+  EmbeddingProviderFactory,
+  isHostedProvider,
+  parseProviderModelKey,
+  SimpleEmbeddingService,
+} from '@brainstrike/embeddings';
 import type { useToast } from '@brainstrike/ui';
 import { useCallback, useRef, useState } from 'react';
 import type { ChunkSearchResult, SearchFunctionality } from '../types';
 import { getActiveEmbeddingSetId } from '../vector-preferences';
+
+type SearchEmbedder = {
+  embedQuery: (text: string) => Promise<{ embedding: number[] }>;
+  dispose?: () => Promise<void> | void;
+};
 
 export function useSearchFunctionality(
   chunkRepository: FileChunkRepository | ElectronFileChunkRepository | null,
@@ -25,28 +36,105 @@ export function useSearchFunctionality(
   const [hasSearched, setHasSearched] = useState(false);
   const db = usePGliteDatabase();
 
-  // Maintain an internal service for queries when none is provided (decouples from import toggle)
-  const serviceRef = useRef<SimpleEmbeddingService | null>(null);
+  // Maintain an internal service wrapper
+  const embedderRef = useRef<SearchEmbedder | null>(null);
+  const currentModelKeyRef = useRef<string | null>(null);
 
-  async function ensureServiceReady(modelKey: string): Promise<SimpleEmbeddingService> {
-    let svc = serviceRef.current;
-    if (!svc) {
-      svc = new SimpleEmbeddingService();
-      serviceRef.current = svc;
+  async function ensureEmbedderReady(
+    modelKey: string,
+    dimensions: number
+  ): Promise<SearchEmbedder> {
+    // If we already have an embedder for this model, return it
+    if (embedderRef.current && currentModelKeyRef.current === modelKey) {
+      return embedderRef.current;
     }
-    const status = svc.getStatus();
-    const currentKey =
-      typeof svc.getCurrentModelKey === 'function' ? svc.getCurrentModelKey() : null;
-    // Initialize when not ready, or reinitialize when using a different model
-    if (status !== 'ready') {
-      await svc.initializeWithModel(modelKey);
-      return svc;
+
+    // Dispose previous if exists
+    if (embedderRef.current?.dispose) {
+      await embedderRef.current.dispose();
     }
-    if (currentKey && currentKey !== modelKey) {
-      await svc.dispose();
-      await svc.initializeWithModel(modelKey);
+
+    const parsed = parseProviderModelKey(modelKey);
+    const isHosted = parsed && isHostedProvider(parsed.provider);
+
+    if (isHosted) {
+      // Hosted provider path
+      const providerConfig = createHostedConfig(parsed.provider, parsed.modelId, dimensions);
+      const providerResult = await EmbeddingProviderFactory.createProvider(providerConfig);
+
+      if (!providerResult.ok) {
+        throw new Error(
+          `Failed to initialize hosted provider: ${
+            'message' in providerResult.error
+              ? providerResult.error.message
+              : providerResult.error.type
+          }`
+        );
+      }
+
+      const provider = providerResult.value;
+      const embedder: SearchEmbedder = {
+        embedQuery: async (text: string) => {
+          const result = await provider.embed({ text, modelId: parsed.modelId });
+          if (!result.ok) {
+            // Extract error message safely
+            const error = result.error;
+            const msg =
+              'message' in error
+                ? error.message
+                : 'originalError' in error
+                  ? error.originalError.message
+                  : error.type;
+            throw new Error(`Embedding failed: ${msg}`);
+          }
+          return { embedding: result.value.embedding };
+        },
+        // Providers don't necessarily need explicit disposal, but good practice if added later
+      };
+
+      embedderRef.current = embedder;
+      currentModelKeyRef.current = modelKey;
+      return embedder;
     }
-    return svc;
+
+    // Local provider path (legacy SimpleEmbeddingService)
+    // We rely on SimpleEmbeddingService because it handles retrieval prompts for models like BGE-M3
+    const svc = new SimpleEmbeddingService();
+    await svc.initializeWithModel(modelKey);
+
+    const embedder: SearchEmbedder = {
+      embedQuery: async (text: string) => {
+        const result = await svc.generateQueryEmbedding(text);
+        return { embedding: Array.from(result.embedding) };
+      },
+      dispose: () => svc.dispose(),
+    };
+
+    embedderRef.current = embedder;
+    currentModelKeyRef.current = modelKey;
+    return embedder;
+  }
+
+  // Helper to build config for factory
+  function createHostedConfig(
+    provider: string,
+    modelId: string,
+    dimensions: number
+  ): EmbeddingProviderConfig {
+    // Type assertion or manual construction because TypeScript might not infer the discriminated union perfectly here
+    if (provider === 'openai') {
+      return { runtime: 'hosted', provider: 'openai', modelId, dimensions };
+    }
+    if (provider === 'google') {
+      return { runtime: 'hosted', provider: 'google', modelId, outputDimensionality: dimensions };
+    }
+    if (provider === 'cohere') {
+      return { runtime: 'hosted', provider: 'cohere', modelId, inputType: 'search_query' };
+    }
+    if (provider === 'voyage') {
+      return { runtime: 'hosted', provider: 'voyage', modelId, inputType: 'query' };
+    }
+    throw new Error(`Unsupported hosted provider: ${provider}`);
   }
 
   function buildSearchOptions(threshold: number) {
@@ -60,23 +148,31 @@ export function useSearchFunctionality(
     };
   }
 
-  async function getEffectiveModelKey(): Promise<string> {
+  async function getEffectiveModelInfo(): Promise<{ modelKey: string; dimensions: number }> {
     const activeSetId = getActiveEmbeddingSetId();
+    const defaultKey = SimpleEmbeddingService.getDefaultModelKey();
+    // Default dimension for fallback (local BGE-M3)
+    const defaultDim = 1024;
+
     if (db && activeSetId) {
       try {
-        const res = await db.query<{ modelKey: string }>(
-          'SELECT model_key AS "modelKey" FROM embedding_sets WHERE id = $1 LIMIT 1',
+        const res = await db.query<{ modelKey: string; dimensions: number }>(
+          'SELECT model_key AS "modelKey", dimensions FROM embedding_sets WHERE id = $1 LIMIT 1',
           [activeSetId]
         );
-        const resolved = res.rows[0]?.modelKey;
-        if (resolved) {
-          return resolved;
+        const row = res.rows[0];
+        if (row?.modelKey) {
+          return {
+            modelKey: row.modelKey,
+            // Use row dimensions if available, otherwise fallback
+            dimensions: Number(row.dimensions) || defaultDim,
+          };
         }
       } catch {
         // keep fallback
       }
     }
-    return SimpleEmbeddingService.getDefaultModelKey();
+    return { modelKey: defaultKey, dimensions: defaultDim };
   }
 
   async function performRepositorySearch(
@@ -137,9 +233,9 @@ export function useSearchFunctionality(
     setHasSearched(true);
     try {
       // Prefer active embedding set's model when available to avoid dimension mismatch
-      const modelKey = await getEffectiveModelKey();
-      const svc = await ensureServiceReady(modelKey);
-      const queryEmbedding = await svc.generateQueryEmbedding(searchQuery);
+      const { modelKey, dimensions } = await getEffectiveModelInfo();
+      const embedder = await ensureEmbedderReady(modelKey, dimensions);
+      const queryEmbedding = await embedder.embedQuery(searchQuery);
       const chunkResults = await performRepositorySearch(queryEmbedding.embedding);
 
       // Lightweight re-ranker for ordering only (preserve displayed similarity)
