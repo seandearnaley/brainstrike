@@ -1,6 +1,6 @@
 import { type FileTabState, useTabManagerStore } from '../stores/tab-manager-store';
 
-export interface FileTab extends FileTabState {}
+export type FileTab = FileTabState;
 
 export interface UseTabManagerReturn {
   tabs: FileTab[];
