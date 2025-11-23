@@ -10,6 +10,12 @@ export default defineConfig({
     exclude: ['dist', 'node_modules'],
     restoreMocks: true,
     clearMocks: true,
+    coverage: {
+      enabled: true,
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
+    },
   },
   resolve: {
     alias: {

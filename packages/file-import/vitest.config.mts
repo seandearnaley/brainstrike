@@ -20,5 +20,11 @@ export default defineConfig({
       },
     },
     // Coverage consolidated at root vitest.config.ts
+    coverage: {
+      enabled: true,
+      provider: 'v8',
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['**/*.d.ts', '**/*.config.*', '**/dist/**'],
+    },
   },
 });
