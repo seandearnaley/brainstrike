@@ -11,18 +11,21 @@ export interface ElectronAppContext {
   window: Page;
 }
 
-export async function launchElectronApp(): Promise<ElectronAppContext> {
+export async function launchElectronApp(debugPort?: number): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
+  if (debugPort) {
+    console.log(`🔌 Using manual debug port: ${debugPort}`);
+  }
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
   // Kill any lingering processes to free up ports
   await killLingeringElectronProcesses();
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath);
+  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort);
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
@@ -57,7 +60,8 @@ async function killLingeringElectronProcesses(): Promise<void> {
 
 function createLaunchOptions(
   _electronPath: string,
-  mainPath: string
+  mainPath: string,
+  debugPort?: number
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -65,7 +69,9 @@ function createLaunchOptions(
     '--test-mode',
     '--disable-dialogs',
     // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
-    // We don't need to specify it explicitly to avoid conflicts
+    // However, in sharded CI environments, this can cause collisions if isolation fails.
+    // If a debugPort is provided, we explicitly set it to avoid collisions.
+    ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
     // Disable GPU to prevent crashes in CI
     '--disable-gpu',
     '--disable-software-rasterizer',
