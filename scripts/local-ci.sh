@@ -103,6 +103,13 @@ ACT_OPTS=("--rm")
 # Default to Medium image to avoid interactive prompt and permissions issues on Large image
 ACT_OPTS+=("-P" "ubuntu-latest=catthehacker/ubuntu:act-latest")
 
+# Boost container resources for local runs
+# Note: User must ensure Docker Desktop has allocated sufficient resources (Settings -> Resources)
+ACT_OPTS+=("--container-options" "--memory=32g --cpus=8")
+
+# Configure artifact server path to prevent upload failures
+ACT_OPTS+=("--artifact-server-path" "/tmp/artifacts")
+
 # Check for Apple Silicon and force linux/amd64 to avoid arm64 permission issues
 if [[ "$(uname -s)" == "Darwin" && "$(uname -m)" == "arm64" ]]; then
     # Only add if not already specified by user
@@ -231,3 +238,4 @@ else
     echo -e "${GREEN}Running act with arguments: ${PASSTHROUGH_ARGS[*]}${NC}"
     act "${PASSTHROUGH_ARGS[@]}" "${ACT_OPTS[@]}"
 fi
+
