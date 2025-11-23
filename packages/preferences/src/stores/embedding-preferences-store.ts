@@ -1,4 +1,5 @@
 import type { EmbeddingProviderType } from '@brainstrike/embeddings';
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -82,28 +83,9 @@ const DEFAULT_ENABLED_MODELS: EnabledModelsMap = Object.freeze({
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
  */
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 /**
  * Ensure enabled models array exists for a provider
@@ -324,5 +306,8 @@ export function __resetEmbeddingPreferencesStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch {}
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+    // This prevents test failures when localStorage is unavailable.
+  }
 }

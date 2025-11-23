@@ -1,4 +1,5 @@
 import { type EmbeddingStatus, SimpleEmbeddingService } from '@brainstrike/embeddings';
+import { createLogger, createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -28,31 +29,16 @@ interface EmbeddingsPanelActions {
 type Store = EmbeddingsPanelData & EmbeddingsPanelActions;
 
 const STORE_NAME = 'embeddings-panel.v1' as const;
+const logger = createLogger('EmbeddingsPanelStore');
 
 // shared in-memory service instance (not persisted)
 let service: SimpleEmbeddingService | null = null;
 
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 export const useEmbeddingsPanelStore = create<Store>()(
   persist(
@@ -118,7 +104,9 @@ export const useEmbeddingsPanelStore = create<Store>()(
       dispose: async () => {
         try {
           await service?.dispose();
-        } catch {}
+        } catch (error) {
+          logger.warn('Failed to dispose embeddings service', { error });
+        }
         service = null;
         set({
           status: 'idle',
@@ -162,5 +150,8 @@ export function __resetEmbeddingsPanelStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch {}
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+    // This prevents test failures when localStorage is unavailable.
+  }
 }

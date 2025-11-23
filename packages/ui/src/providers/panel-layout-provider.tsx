@@ -5,7 +5,7 @@ import type { PanelPersistenceAdapter } from '../hooks/panel-persistence-adapter
 import { usePanelPersistence } from '../hooks/use-panel-persistence';
 import type { PanelPersistenceState } from '../types/panel';
 
-export interface PanelLayoutState extends PanelPersistenceState {}
+export type PanelLayoutState = PanelPersistenceState;
 
 export interface PanelLayoutProviderProps {
   children: ReactNode;

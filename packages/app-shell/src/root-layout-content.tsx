@@ -49,9 +49,6 @@ export function RootLayoutContent({
     [setState]
   );
 
-  const sidebarContent = useMemo(() => <FileExplorerLeftPanel />, []);
-  const tabbedEditorContent = useMemo(() => <TabbedFileEditorPanel className="h-full" />, []);
-
   // CRITICAL: Pass embeddingQueue to RightPanel
   // The queue flows: RootLayoutContent → RightPanel → DatabaseTab → VectorStatusWithDialog
   const rightPanelContent = useMemo(
@@ -91,9 +88,9 @@ export function RootLayoutContent({
             }}
           >
             <IdeLayout
-              leftPanelContent={sidebarContent}
+              leftPanelContent={<FileExplorerLeftPanel />}
               rightPanelContent={rightPanelContent}
-              consoleContent={tabbedEditorContent}
+              consoleContent={<TabbedFileEditorPanel className="h-full" />}
             >
               {homePageContent}
             </IdeLayout>

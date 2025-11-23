@@ -59,6 +59,9 @@ export function createQueueTelemetryAggregator(windowMs = 60_000, maxEvents = 5_
   const events: QueueTelemetryEvent[] = [];
 
   const prune = (now: number) => {
+    if (windowMs === 0) {
+      return; // Zero window means no time-based pruning
+    }
     const threshold = now - windowMs;
     while (events.length > 0) {
       const [oldest] = events;
