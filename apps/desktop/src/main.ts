@@ -171,6 +171,7 @@ const loggingOptions: InitializeLoggingOptions = {
 };
 
 const logger = createLogger('DesktopMain');
+logger.info('Main process started');
 const mainLogBuffer = new LogBuffer({ size: 1000 });
 const removeLogBufferListener = addLogListener((record) => {
   mainLogBuffer.push(record);

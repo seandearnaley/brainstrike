@@ -1,3 +1,4 @@
+import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
@@ -15,28 +16,11 @@ export type RightPanelStore = RightPanelData & RightPanelActions;
 
 const STORE_NAME = 'right-panel.v1' as const;
 
-// Safe storage for SSR/tests
-const memory = new Map<string, string>();
-const storage = createJSONStorage(() => ({
-  getItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.getItem(k);
-    } catch {}
-    return memory.get(k) ?? null;
-  },
-  setItem: (k: string, v: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.setItem(k, v);
-    } catch {}
-    memory.set(k, v);
-  },
-  removeItem: (k: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') return localStorage.removeItem(k);
-    } catch {}
-    memory.delete(k);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 export const useRightPanelStore = create<RightPanelStore>()(
   persist(
@@ -60,7 +44,14 @@ export const rightPanelSelectors = {
 // Test-only helper to reset store and storage
 export function __resetRightPanelStoreForTests() {
   try {
-    if (typeof localStorage !== 'undefined') localStorage.removeItem(STORE_NAME);
-  } catch {}
+    const persistApi = (
+      useRightPanelStore as unknown as {
+        persist?: { clearStorage?: () => void };
+      }
+    ).persist;
+    persistApi?.clearStorage?.();
+  } catch {
+    // Intentionally silent in tests - storage errors should not fail test resets.
+  }
   useRightPanelStore.setState({ activeTab: 'assistant' });
 }

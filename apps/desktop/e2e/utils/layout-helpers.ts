@@ -101,9 +101,18 @@ export async function waitForDatabaseReady(page: Page): Promise<Page> {
 
   if (!hasSuccessPanel) {
     // Wait for the database demo panel to be visible if it's not already
-    await activePage.locator('[data-testid="database-demo-panel"]').waitFor({
-      state: 'visible',
-      timeout: 15000, // Increased timeout for slower startup
+    // We race against the error panel to avoid waiting for timeout if error occurs
+    await Promise.race([
+      activePage.locator('[data-testid="database-demo-panel"]').waitFor({
+        state: 'visible',
+        timeout: 15000,
+      }),
+      activePage.locator('[data-testid="db-init-error"]').waitFor({
+        state: 'visible',
+        timeout: 15000,
+      }),
+    ]).catch(() => {
+      // Ignore timeout errors here, we'll check visibility next
     });
   }
 
