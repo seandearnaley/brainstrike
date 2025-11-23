@@ -522,13 +522,14 @@ export async function startEmbeddingWorker(
   // Stability controls
   let processedSinceInit = 0;
   let consecutiveFailures = 0;
-  const reinitEveryN = Number(
+  const reinitEveryN =
     options.reinitEveryN ??
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
-        'EMBED_REINIT_EVERY'
-      ] ??
-      100
-  );
+    (() => {
+      const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+        ?.process?.env?.['EMBED_REINIT_EVERY'];
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
+    })();
   const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
 
   async function ensureLocalModel(
