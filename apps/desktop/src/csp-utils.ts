@@ -60,6 +60,10 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           'https://huggingface.co',
           'https://*.hf.co',
           'https://cdn.jsdelivr.net',
+          'https://api.openai.com',
+          'https://generativelanguage.googleapis.com',
+          'https://api.cohere.com',
+          'https://api.voyageai.com',
         ]
       : [
           "'self'",
@@ -68,6 +72,10 @@ function getCSPDirectives(env: Environment): CSPDirectives {
           'https://huggingface.co',
           'https://*.hf.co',
           'https://cdn.jsdelivr.net',
+          'https://api.openai.com',
+          'https://generativelanguage.googleapis.com',
+          'https://api.cohere.com',
+          'https://api.voyageai.com',
         ],
 
     'object-src': ["'none'"],

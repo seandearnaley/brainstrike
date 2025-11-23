@@ -208,7 +208,10 @@ function isNodejsMainProcess(): boolean {
 
 function isElectronMainProcess(): boolean {
   try {
-    return Boolean((process as { type?: string } | undefined)?.type === 'browser');
+    return (
+      typeof process !== 'undefined' &&
+      Boolean((process as { type?: string } | undefined)?.type === 'browser')
+    );
   } catch (error) {
     workerLogger.debug('Failed to detect Electron main process while checking embedding context', {
       error,
@@ -347,6 +350,8 @@ function formatHostedEmbedError(
       return `Hosted provider "${provider}" rate limit exceeded.`;
     case 'missing_api_key':
       return `Hosted provider "${provider}" missing API key.`;
+    case 'network_error':
+      return `Hosted provider "${provider}" network error: ${error.originalError.message}`;
     default:
       return `Hosted provider "${provider}" error: ${error.type}.`;
   }

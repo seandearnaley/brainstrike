@@ -118,7 +118,8 @@ export class OpenAIEmbeddingProvider implements IHostedEmbeddingProvider {
   }
 
   private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
-    return this.fetchImpl(this.endpoint, {
+    const fetchImpl = this.fetchImpl.bind(globalThis);
+    return fetchImpl(this.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
