@@ -59,10 +59,6 @@ function createLaunchOptions(
   mainPath: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
-  // Ensure we never inherit Electron's Node-only mode from the environment, which breaks Playwright.
-  // Some developer environments set ELECTRON_RUN_AS_NODE=1 globally; force it off for tests.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { ELECTRON_RUN_AS_NODE: _ignoredRunAsNode, ...baseEnv } = process.env;
   const baseArgs = [
     mainPath,
     '--test-mode',
@@ -73,7 +69,7 @@ function createLaunchOptions(
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     env: {
-      ...baseEnv,
+      ...process.env,
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
@@ -103,22 +99,6 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     const app = await electron.launch(launchOptions);
     app.on('close', () => {
       console.log('⚠️ Electron app closed unexpectedly');
-    });
-    const proc = app.process();
-    if (proc?.stdout) {
-      proc.stdout.on('data', (data: Buffer | string) =>
-        console.log(`[electron stdout]: ${data.toString()}`)
-      );
-    }
-    if (proc?.stderr) {
-      proc.stderr.on('data', (data: Buffer | string) =>
-        console.error(`[electron stderr]: ${data.toString()}`)
-      );
-    }
-    proc?.once('exit', (code, signal) => {
-      console.error(
-        `⚠️ Electron process exited (code=${code ?? 'unknown'}, signal=${signal ?? 'unknown'})`
-      );
     });
     return app;
   } catch (error) {
@@ -157,7 +137,7 @@ async function getFirstWindowWithRecovery(
   launchOptions: Parameters<typeof electron.launch>[0]
 ): Promise<{ app: ElectronApplication; window: Page }> {
   let app = initialApp;
-  const maxRetries = 5;
+  const maxRetries = 3;
 
   async function waitForFirstWindow(appToCheck: ElectronApplication): Promise<Page> {
     const existing = pickAvailableWindow(appToCheck);
@@ -167,28 +147,10 @@ async function getFirstWindowWithRecovery(
     }
 
     // Wait for a new window with a longer timeout to handle slow boots in CI
-    const windowPromise = appToCheck.waitForEvent('window', { timeout: 60000 });
-    const exitPromise = new Promise<never>((_, reject) => {
-      const proc = appToCheck.process();
-      if (!proc) return;
-      proc.once('exit', (code, signal) => {
-        reject(
-          new Error(
-            `Electron app exited before window appeared (code=${code ?? 'unknown'}, signal=${
-              signal ?? 'unknown'
-            })`
-          )
-        );
-      });
-      proc.once('error', (procError) => {
-        reject(new Error(`Electron app process error before window appeared: ${procError}`));
-      });
-    });
-
     try {
-      const window = await Promise.race([windowPromise, exitPromise]);
+      const window = await appToCheck.waitForEvent('window', { timeout: 60000 });
       console.log('✅ Received window event');
-      return window as Page;
+      return window;
     } catch (waitError) {
       const fallback = pickAvailableWindow(appToCheck);
       if (fallback) {
