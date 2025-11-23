@@ -1,5 +1,6 @@
 import {
   createDefaultLoggingPreferences,
+  createSafeStorageAdapter,
   type LoggingPreferences,
   LogLevel,
 } from '@brainstrike/utils';
@@ -50,49 +51,11 @@ function mergeLoggingPreferences(
   return next;
 }
 
-const memory = new Map<string, string>();
-const MAX_MEMORY_ENTRIES = 32;
-
-const storage = createJSONStorage(() => ({
-  getItem: (key: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        return localStorage.getItem(key);
-      }
-    } catch {}
-    if (!memory.has(key)) {
-      return null;
-    }
-    const value = memory.get(key) as string;
-    memory.delete(key);
-    memory.set(key, value);
-    return value;
-  },
-  setItem: (key: string, value: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(key, value);
-        return;
-      }
-    } catch {}
-    if (!memory.has(key) && memory.size >= MAX_MEMORY_ENTRIES) {
-      const oldestEntryKey = memory.keys().next().value as string | undefined;
-      if (oldestEntryKey !== undefined) {
-        memory.delete(oldestEntryKey);
-      }
-    }
-    memory.set(key, value);
-  },
-  removeItem: (key: string) => {
-    try {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.removeItem(key);
-        return;
-      }
-    } catch {}
-    memory.delete(key);
-  },
-}));
+/**
+ * Storage adapter with fallback to in-memory for SSR/tests
+ * Uses safe storage utility with proper error logging
+ */
+const storage = createJSONStorage(() => createSafeStorageAdapter());
 
 export const useLoggingPreferencesStore = create<LoggingPreferencesState>()(
   persist(
@@ -146,5 +109,8 @@ export function __resetLoggingPreferencesStoreForTests() {
       }
     ).persist;
     persistApi?.clearStorage?.();
-  } catch {}
+  } catch {
+    // Intentionally silent in tests - if storage fails, state is still reset.
+    // This prevents test failures when localStorage is unavailable.
+  }
 }
