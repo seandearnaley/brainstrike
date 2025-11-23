@@ -386,7 +386,11 @@ jobs:
       - name: Run Desktop E2E tests (shard)
         run: |
           cd apps/desktop
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          # Manually assign Xvfb server number based on shard index to prevent TCP port collisions
+          # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
+          # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
+          SERVER_NUM=$((99 + ${{ matrix.shardIndex }}))
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"
