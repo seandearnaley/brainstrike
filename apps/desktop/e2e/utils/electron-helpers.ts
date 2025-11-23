@@ -24,7 +24,13 @@ export async function launchElectronApp(debugPort?: number): Promise<ElectronApp
   console.log('Main path:', mainPath);
 
   // Kill any lingering processes to free up ports
-  await killLingeringElectronProcesses();
+  // Only perform global cleanup if we are NOT running with a specific debug port (sharded)
+  // otherwise we might kill the electron instances of concurrent shards on the same host.
+  if (!debugPort) {
+    await killLingeringElectronProcesses();
+  } else {
+    console.log('ℹ️ Skipping global process cleanup (sharded execution detected)');
+  }
 
   const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort);
   const app = await startElectron(launchOptions);
