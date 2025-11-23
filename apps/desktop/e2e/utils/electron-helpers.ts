@@ -24,12 +24,13 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
 
   const launchOptions = createLaunchOptions(electronPath, mainPath);
   const app = await startElectron(launchOptions);
-  // Original working behavior: use firstWindow directly with a short backoff handled in recovery
-  const { app: stableApp, window } = await getFirstWindowWithRecovery(app, launchOptions);
+
+  console.log('⏳ Waiting for first window...');
+  const window = await app.firstWindow({ timeout: 30000 });
   await window.waitForLoadState('domcontentloaded');
-  await setupDialogMocking(stableApp);
+  await setupDialogMocking(app);
   console.log('✅ Electron app launched successfully');
-  return { app: stableApp, window };
+  return { app, window };
 }
 
 // a Helper to kill lingering Electron processes that might be holding ports
@@ -97,6 +98,22 @@ function createLaunchOptions(
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
   try {
     const app = await electron.launch(launchOptions);
+
+    // Pipe stdout and stderr for debugging CI crashes
+    const process = app.process();
+    console.log('🔧 Attaching process listeners for stdout/stderr');
+
+    process.stdout?.on('data', (data) => {
+      console.log(`[Electron Stdout]: ${data.toString()}`);
+    });
+    process.stderr?.on('data', (data) => {
+      console.error(`[Electron Stderr]: ${data.toString()}`);
+    });
+
+    process.on('exit', (code, signal) => {
+      console.log(`[Electron Process Exit] Code: ${code}, Signal: ${signal}`);
+    });
+
     app.on('close', () => {
       console.log('⚠️ Electron app closed unexpectedly');
     });
@@ -105,84 +122,6 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     console.error('❌ Failed to launch Electron app:', error);
     throw new Error(`Failed to launch Electron app: ${error}`);
   }
-}
-
-function isCrashError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes('Target page, context or browser has been closed') ||
-    message.includes('Browser closed') ||
-    message.includes('Connection closed')
-  );
-}
-
-async function relaunchApp(
-  current: ElectronApplication,
-  launchOptions: Parameters<typeof electron.launch>[0]
-) {
-  try {
-    await current.close();
-    console.log('✅ Closed crashed app');
-  } catch (closeError) {
-    console.error('❌ Failed to close crashed app:', closeError);
-  }
-  await new Promise((r) => setTimeout(r, 3000));
-  const relaunched = await startElectron(launchOptions);
-  console.log('✅ Relaunched app after crash');
-  return relaunched;
-}
-
-async function getFirstWindowWithRecovery(
-  initialApp: ElectronApplication,
-  launchOptions: Parameters<typeof electron.launch>[0]
-): Promise<{ app: ElectronApplication; window: Page }> {
-  let app = initialApp;
-  const maxRetries = 3;
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await delayForAttempt(attempt, maxRetries);
-      const window = await app.firstWindow();
-      console.log('✅ Successfully got first window');
-      return { app, window };
-    } catch (error) {
-      console.error(`❌ Failed to get first window (attempt ${attempt + 1}):`, error);
-      const relaunched = await relaunchIfCrash(app, error, attempt, maxRetries, launchOptions);
-      if (relaunched) {
-        app = relaunched;
-        continue;
-      }
-      const fallback = pickAvailableWindow(app);
-      if (fallback) return { app, window: fallback };
-      if (attempt === maxRetries - 1)
-        throw new Error('Failed to get first window after multiple attempts');
-    }
-  }
-  throw new Error('No window found after launching Electron app');
-}
-
-function pickAvailableWindow(app: ElectronApplication): Page | undefined {
-  const windows = app.windows();
-  console.log(`🔍 Available windows: ${windows.length}`);
-  return windows[0];
-}
-
-async function delayForAttempt(attempt: number, maxRetries: number): Promise<void> {
-  if (attempt === 0) return;
-  const waitMs = Math.min(2000 + attempt * 2000, 8000);
-  console.log(`🔄 Retry ${attempt}/${maxRetries} - waiting ${waitMs}ms for app init...`);
-  await new Promise((r) => setTimeout(r, waitMs));
-}
-
-async function relaunchIfCrash(
-  app: ElectronApplication,
-  error: unknown,
-  attempt: number,
-  maxRetries: number,
-  launchOptions: Parameters<typeof electron.launch>[0]
-): Promise<ElectronApplication | null> {
-  if (!isCrashError(error) || attempt >= maxRetries - 1) return null;
-  return await relaunchApp(app, launchOptions);
 }
 
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
