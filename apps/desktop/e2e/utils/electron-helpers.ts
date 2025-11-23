@@ -240,9 +240,26 @@ export async function waitForAppReady(page: Page): Promise<void> {
 }
 
 export async function resetAppState(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
+
+    // Clear persistent backend storage (electron-store/adapter)
+    // This ensures no "last folder" state persists between tests
+    const electronAPI = (
+      window as unknown as {
+        electronAPI?: { storage?: { clear?: () => Promise<void> } };
+      }
+    ).electronAPI;
+
+    if (electronAPI?.storage?.clear) {
+      try {
+        await electronAPI.storage.clear();
+        console.log('🔸 Backend storage cleared');
+      } catch (error) {
+        console.warn('🔸 Failed to clear backend storage:', error);
+      }
+    }
   });
 }
 
@@ -317,7 +334,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
         console.log('🔸 Mocked requestDirectoryAccess called');
-        return '/mock/test/directory';
+        return {
+          id: 'mock-directory-handle',
+          name: 'mock-test-directory',
+          path: '/mock/test/directory',
+          type: 'directory',
+          kind: 'directory',
+          platform: 'electron',
+        };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.exists = async (p: string) => {
@@ -326,8 +350,58 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
+        const rootPath = '/mock/test/directory';
         console.log('🔸 Mocked readDirectory called with path:', _p);
-        return ['mock-file1.txt', 'mock-file2.txt', 'mock-folder/'];
+        return [
+          {
+            name: 'mock-file1.txt',
+            path: `${rootPath}/mock-file1.txt`,
+            type: 'file',
+            size: 100,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-file-1',
+              kind: 'file',
+              name: 'mock-file1.txt',
+              path: `${rootPath}/mock-file1.txt`,
+              platform: 'electron',
+            },
+          },
+          {
+            name: 'mock-file2.ts',
+            path: `${rootPath}/mock-file2.ts`,
+            type: 'file',
+            size: 250,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-file-2',
+              kind: 'file',
+              name: 'mock-file2.ts',
+              path: `${rootPath}/mock-file2.ts`,
+              platform: 'electron',
+            },
+          },
+          {
+            name: 'mock-subfolder',
+            path: `${rootPath}/mock-subfolder`,
+            type: 'directory',
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-subfolder',
+              kind: 'directory',
+              name: 'mock-subfolder',
+              path: `${rootPath}/mock-subfolder`,
+              platform: 'electron',
+            },
+            children: [],
+          },
+        ];
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {

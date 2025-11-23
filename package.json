@@ -16,6 +16,7 @@
     "check:full": "node scripts/check.mjs --full",
     "check:headless": "pnpm -s run setup:headless && pnpm -s run check",
     "check": "node scripts/check.mjs",
+    "ci:local": "./scripts/local-ci.sh",
     "clean": "turbo run clean --summarize --log-order=grouped --cache-dir=.turbo",
     "coverage:enforce": "node scripts/enforce-coverage.mjs",
     "coverage:merge": "node scripts/merge-coverage.js",

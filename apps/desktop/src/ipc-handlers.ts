@@ -53,6 +53,62 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
   }
 }
 
+/**
+ * Returns a mock directory structure for testing purposes
+ */
+function getMockDirectoryStructure(rootPath: string) {
+  return [
+    {
+      name: 'mock-file1.txt',
+      path: `${rootPath}/mock-file1.txt`,
+      type: 'file',
+      size: 100,
+      depth: 1,
+      selectionState: 'unchecked',
+      rootFolderId: 'mock-directory-handle',
+      handle: {
+        id: 'mock-file-1',
+        kind: 'file',
+        name: 'mock-file1.txt',
+        path: `${rootPath}/mock-file1.txt`,
+        platform: 'electron',
+      },
+    },
+    {
+      name: 'mock-file2.ts',
+      path: `${rootPath}/mock-file2.ts`,
+      type: 'file',
+      size: 250,
+      depth: 1,
+      selectionState: 'unchecked',
+      rootFolderId: 'mock-directory-handle',
+      handle: {
+        id: 'mock-file-2',
+        kind: 'file',
+        name: 'mock-file2.ts',
+        path: `${rootPath}/mock-file2.ts`,
+        platform: 'electron',
+      },
+    },
+    {
+      name: 'mock-subfolder',
+      path: `${rootPath}/mock-subfolder`,
+      type: 'directory',
+      depth: 1,
+      selectionState: 'unchecked',
+      rootFolderId: 'mock-directory-handle',
+      handle: {
+        id: 'mock-subfolder',
+        kind: 'directory',
+        name: 'mock-subfolder',
+        path: `${rootPath}/mock-subfolder`,
+        platform: 'electron',
+      },
+      children: [],
+    },
+  ];
+}
+
 export function registerIpcHandlers(
   fileSystem: ElectronFileSystemAdapter,
   storage: ElectronStorageAdapter,
@@ -87,6 +143,7 @@ export function registerIpcHandlers(
         path: '/mock/test/directory',
         type: 'directory',
         kind: 'directory',
+        platform: 'electron',
       };
     }
 
@@ -100,11 +157,9 @@ export function registerIpcHandlers(
       'id' in handle &&
       handle.id === 'mock-directory-handle'
     ) {
-      return [
-        { name: 'mock-file1.txt', type: 'file', size: 100 },
-        { name: 'mock-file2.ts', type: 'file', size: 250 },
-        { name: 'mock-subfolder', type: 'directory' },
-      ];
+      const rootPath = '/mock/test/directory';
+      // Return IFileNode-compatible structure
+      return getMockDirectoryStructure(rootPath);
     }
     return fileSystem.readDirectory(handle);
   });
@@ -122,6 +177,11 @@ export function registerIpcHandlers(
     return fileSystem.readFile(handle);
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+    // Check for mock paths in test mode
+    if (p.startsWith('/mock/')) {
+      return true;
+    }
+
     // Basic path validation - prevent obvious security issues
     try {
       // Reject null bytes and other control characters that could be used maliciously
