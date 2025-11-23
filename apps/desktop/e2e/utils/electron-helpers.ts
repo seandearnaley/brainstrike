@@ -66,6 +66,11 @@ function createLaunchOptions(
     '--disable-dialogs',
     // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
     // We don't need to specify it explicitly to avoid conflicts
+    // Disable GPU to prevent crashes in CI
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
