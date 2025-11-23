@@ -1,12 +1,12 @@
 import type { LayoutElectronAPI } from '../types/electron';
 
-type WindowWithElectronAPI = {
+interface WindowWithElectronAPI {
   electronAPI?: LayoutElectronAPI;
-};
+}
 
 export const getElectronAPI = (): LayoutElectronAPI | undefined => {
   if (typeof window === 'undefined') return undefined;
-  return (window as unknown as WindowWithElectronAPI).electronAPI;
+  return (window as WindowWithElectronAPI).electronAPI;
 };
 
 export const hasElectronAPI = (): boolean => {

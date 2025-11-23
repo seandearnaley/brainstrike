@@ -32,13 +32,6 @@ import { createSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 
-let mainWindow: BrowserWindow | null = null;
-const isTestOrCI =
-  process.env['NODE_ENV'] === 'test' ||
-  process.env['ELECTRON_IS_E2E_TEST'] === 'true' ||
-  process.argv.includes('--test-mode') ||
-  process.env['CI'] === 'true';
-
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
 const logFilePath = disableFileLogs ? undefined : path.join(app.getPath('logs'), 'brainstrike.log');
 
@@ -326,12 +319,6 @@ registerMcpIpcHandlers();
 logger.info('IPC handlers registered successfully');
 
 app.whenReady().then(async () => {
-  logger.info('[DesktopMain] Electron main starting', {
-    argv: process.argv,
-    ci: process.env['CI'],
-    display: process.env['DISPLAY'],
-    testMode: isTestOrCI,
-  });
   try {
     logger.info('App ready, starting initialization...');
 
@@ -430,19 +417,11 @@ app.whenReady().then(async () => {
     ipcMain.handle('assistant:get-url', () => assistantUrl);
 
     logger.info('Creating main window...');
-    mainWindow = await createWindow();
-    mainWindow.on('closed', () => {
-      mainWindow = null;
-    });
+    await createWindow();
     logger.info('Main window created successfully');
 
     app.on('activate', async () => {
-      if (!mainWindow) {
-        mainWindow = await createWindow();
-        mainWindow.on('closed', () => {
-          mainWindow = null;
-        });
-      }
+      if (BrowserWindow.getAllWindows().length === 0) await createWindow();
     });
   } catch (error) {
     logger.error('Failed to initialize application:', error);
@@ -451,10 +430,6 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (isTestOrCI) {
-    logger.warn('[DesktopMain] window-all-closed ignored in test/CI mode');
-    return;
-  }
   if (process.platform !== 'darwin') app.quit();
 });
 
