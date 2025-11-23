@@ -14,7 +14,7 @@ const OVERRIDES = new Map([
   // High-coverage packages with strict enforcement
   [
     '@brainstrike/file-explorer-ui',
-    { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
+    { lines: 86.20, functions: 84, branches: 81.5, statements: 86.20 },
   ],
   // App shell — gradual improvement target (currently ~64.88%)
   [

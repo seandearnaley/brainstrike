@@ -11,18 +11,21 @@ export interface ElectronAppContext {
   window: Page;
 }
 
-export async function launchElectronApp(): Promise<ElectronAppContext> {
+export async function launchElectronApp(debugPort?: number): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
+  if (debugPort) {
+    console.log(`🔌 Using manual debug port: ${debugPort}`);
+  }
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
   // Kill any lingering processes to free up ports
   await killLingeringElectronProcesses();
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath);
+  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort);
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
@@ -57,7 +60,8 @@ async function killLingeringElectronProcesses(): Promise<void> {
 
 function createLaunchOptions(
   _electronPath: string,
-  mainPath: string
+  mainPath: string,
+  debugPort?: number
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -65,7 +69,9 @@ function createLaunchOptions(
     '--test-mode',
     '--disable-dialogs',
     // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
-    // We don't need to specify it explicitly to avoid conflicts
+    // However, in sharded CI environments, this can cause collisions if isolation fails.
+    // If a debugPort is provided, we explicitly set it to avoid collisions.
+    ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
     // Disable GPU to prevent crashes in CI
     '--disable-gpu',
     '--disable-software-rasterizer',
@@ -240,9 +246,26 @@ export async function waitForAppReady(page: Page): Promise<void> {
 }
 
 export async function resetAppState(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
+
+    // Clear persistent backend storage (electron-store/adapter)
+    // This ensures no "last folder" state persists between tests
+    const electronAPI = (
+      window as unknown as {
+        electronAPI?: { storage?: { clear?: () => Promise<void> } };
+      }
+    ).electronAPI;
+
+    if (electronAPI?.storage?.clear) {
+      try {
+        await electronAPI.storage.clear();
+        console.log('🔸 Backend storage cleared');
+      } catch (error) {
+        console.warn('🔸 Failed to clear backend storage:', error);
+      }
+    }
   });
 }
 
@@ -317,7 +340,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
         console.log('🔸 Mocked requestDirectoryAccess called');
-        return '/mock/test/directory';
+        return {
+          id: 'mock-directory-handle',
+          name: 'mock-test-directory',
+          path: '/mock/test/directory',
+          type: 'directory',
+          kind: 'directory',
+          platform: 'electron',
+        };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.exists = async (p: string) => {
@@ -326,8 +356,58 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
+        const rootPath = '/mock/test/directory';
         console.log('🔸 Mocked readDirectory called with path:', _p);
-        return ['mock-file1.txt', 'mock-file2.txt', 'mock-folder/'];
+        return [
+          {
+            name: 'mock-file1.txt',
+            path: `${rootPath}/mock-file1.txt`,
+            type: 'file',
+            size: 100,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-file-1',
+              kind: 'file',
+              name: 'mock-file1.txt',
+              path: `${rootPath}/mock-file1.txt`,
+              platform: 'electron',
+            },
+          },
+          {
+            name: 'mock-file2.ts',
+            path: `${rootPath}/mock-file2.ts`,
+            type: 'file',
+            size: 250,
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-file-2',
+              kind: 'file',
+              name: 'mock-file2.ts',
+              path: `${rootPath}/mock-file2.ts`,
+              platform: 'electron',
+            },
+          },
+          {
+            name: 'mock-subfolder',
+            path: `${rootPath}/mock-subfolder`,
+            type: 'directory',
+            depth: 1,
+            selectionState: 'unchecked',
+            rootFolderId: 'mock-directory-handle',
+            handle: {
+              id: 'mock-subfolder',
+              kind: 'directory',
+              name: 'mock-subfolder',
+              path: `${rootPath}/mock-subfolder`,
+              platform: 'electron',
+            },
+            children: [],
+          },
+        ];
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {

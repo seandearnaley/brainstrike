@@ -17,9 +17,11 @@ interface ElectronHarnessOptions {
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
 
+  constructor(private readonly debugPort?: number) {}
+
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
-      this.context = await launchElectronApp();
+      this.context = await launchElectronApp(this.debugPort);
       return this.context;
     }
 
@@ -53,7 +55,7 @@ class ElectronHarness {
       }
     }
 
-    this.context = await launchElectronApp();
+    this.context = await launchElectronApp(this.debugPort);
     return this.context;
   }
 
@@ -102,8 +104,12 @@ type ElectronWorkerFixtures = {
 
 export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [
-    async ({}, use) => {
-      const harness = new ElectronHarness();
+    async ({}, use, workerInfo) => {
+      // Assign a unique debug port based on the shard index to prevent collisions
+      // when running shards in parallel on the same host (e.g. in act or CI)
+      const shard = workerInfo.config.shard;
+      const debugPort = shard ? 9222 + shard.current : undefined;
+      const harness = new ElectronHarness(debugPort);
       try {
         await use(harness);
       } finally {

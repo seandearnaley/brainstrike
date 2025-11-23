@@ -37,13 +37,10 @@ async function globalSetup(_config: FullConfig) {
 
   try {
     await fs.access(rendererPath);
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
     console.log('✅ Renderer entry point found at:', rendererPath);
   } catch (_error) {
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
     console.error('❌ Renderer entry point not found at:', rendererPath);
     // Don't throw yet, let the test fail naturally but log it clearly
-    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
     console.warn('⚠️ WARNING: Renderer file missing. Tests may fail or hang.');
   }
 
