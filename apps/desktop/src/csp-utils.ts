@@ -19,7 +19,16 @@ interface CSPDirectives {
 type Environment = 'development' | 'production';
 
 /**
- * Get CSP directives based on environment
+ * Get CSP directives based on environment.
+ *
+ * Configures security policies for:
+ * - Local development (allows localhost, HMR websockets)
+ * - Production (strict defaults, no unsafe-inline)
+ * - Embedding providers (whitelists external APIs like OpenAI, Google)
+ * - Worker isolation (allows blob workers)
+ *
+ * @param env - 'development' or 'production'
+ * @returns Object mapping CSP directives to allowed sources
  */
 function getCSPDirectives(env: Environment): CSPDirectives {
   const isDev = env === 'development';
@@ -86,7 +95,11 @@ function getCSPDirectives(env: Environment): CSPDirectives {
 }
 
 /**
- * Convert CSP directives object to CSP string
+ * Convert CSP directives object to CSP string.
+ * Joins values with spaces and directives with semicolons.
+ *
+ * @param directives - Map of directive names to array of allowed sources
+ * @returns Formatted Content-Security-Policy header string
  */
 function directivesToString(directives: CSPDirectives): string {
   return Object.entries(directives)
@@ -95,7 +108,11 @@ function directivesToString(directives: CSPDirectives): string {
 }
 
 /**
- * Get CSP string for the given environment
+ * Get Content Security Policy string for the given environment.
+ * Primary entry point for configuring Electron session and Vite dev server.
+ *
+ * @param env - Target environment ('development' | 'production')
+ * @returns Full CSP header string
  */
 export function getCSP(env: Environment): string {
   const directives = getCSPDirectives(env);
@@ -103,7 +120,10 @@ export function getCSP(env: Environment): string {
 }
 
 /**
- * Get development CSP string
+ * Get development-mode Content Security Policy.
+ * Helper for Vite config where environment is implicitly development.
+ *
+ * @returns Development CSP string
  */
 export function getDevCSP(): string {
   return getCSP('development');
