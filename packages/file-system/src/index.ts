@@ -7,6 +7,8 @@ export * from './dev-fixture-adapter';
 export * from './dev-fixture-types';
 export * from './errors';
 export * from './factory';
+// Testing utilities
+export * from './testing/mock-data';
 export * from './types';
 // Note: utils.ts is NOT exported from index because it imports node:fs/promises
 // which breaks renderer processes. Import from './utils' directly if needed in main process.

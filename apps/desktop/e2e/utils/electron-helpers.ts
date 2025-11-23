@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
@@ -358,56 +359,7 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
         const rootPath = '/mock/test/directory';
         console.log('🔸 Mocked readDirectory called with path:', _p);
-        return [
-          {
-            name: 'mock-file1.txt',
-            path: `${rootPath}/mock-file1.txt`,
-            type: 'file',
-            size: 100,
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-file-1',
-              kind: 'file',
-              name: 'mock-file1.txt',
-              path: `${rootPath}/mock-file1.txt`,
-              platform: 'electron',
-            },
-          },
-          {
-            name: 'mock-file2.ts',
-            path: `${rootPath}/mock-file2.ts`,
-            type: 'file',
-            size: 250,
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-file-2',
-              kind: 'file',
-              name: 'mock-file2.ts',
-              path: `${rootPath}/mock-file2.ts`,
-              platform: 'electron',
-            },
-          },
-          {
-            name: 'mock-subfolder',
-            path: `${rootPath}/mock-subfolder`,
-            type: 'directory',
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-subfolder',
-              kind: 'directory',
-              name: 'mock-subfolder',
-              path: `${rootPath}/mock-subfolder`,
-              platform: 'electron',
-            },
-            children: [],
-          },
-        ];
+        return getTestDirectoryStructure(rootPath);
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {

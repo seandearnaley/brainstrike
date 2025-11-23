@@ -7,7 +7,7 @@ import path from 'node:path';
 
 // Default thresholds applied to all packages unless overridden below.
 // Keep these aligned with root vitest.config.ts global thresholds.
-const DEFAULT_THRESHOLDS = { lines: 70, functions: 60, branches: 60, statements: 70 };
+const DEFAULT_THRESHOLDS = { lines: 75, functions: 60, branches: 60, statements: 70 };
 
 // Optional strict overrides for key packages.
 const OVERRIDES = new Map([
