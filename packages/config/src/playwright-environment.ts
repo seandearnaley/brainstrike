@@ -78,7 +78,7 @@ export const getCILaunchArgs = (env?: ReturnType<typeof detectEnvironment>): str
     '--no-sandbox',
     '--disable-dev-shm-usage', // /dev/shm is tiny in CI
     '--disable-setuid-sandbox',
-    '--disable-gpu',
+    // '--disable-gpu', // Removed to test if this causes instability in CI
     '--disable-features=VizDisplayCompositor', // Helps with headless environments
   ];
 

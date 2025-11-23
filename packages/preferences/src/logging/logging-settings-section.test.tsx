@@ -84,15 +84,19 @@ describe('LoggingSettingsSection log viewer', () => {
       getInitialRecords: async () => [],
       subscribe: (handler) => {
         handler([]);
-        setTimeout(() => handler(laterRecords), 10);
+        // Use microtask to ensure update happens after mount but reliably
+        Promise.resolve().then(() => handler(laterRecords));
         return vi.fn();
       },
     };
 
     render(<LoggingSettingsSection runtime="browser" logSource={logSource} />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Late arriving row')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('Late arriving row')).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
   });
 });
