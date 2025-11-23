@@ -71,7 +71,7 @@ describe('initializeQueueTelemetrySink', () => {
     );
   });
 
-  it('should initialize sink in test environment when enableInTest is true', () => {
+  it('should initialize sink in test environment when enableInTest is true', async () => {
     vi.stubGlobal('process', {
       env: { NODE_ENV: 'test' },
     });
@@ -84,6 +84,9 @@ describe('initializeQueueTelemetrySink', () => {
     expect(sink).not.toBeNull();
     expect(sink?.flush).toBeInstanceOf(Function);
     expect(sink?.dispose).toBeInstanceOf(Function);
+
+    // Dispose the sink to prevent cross-test leakage
+    await sink?.dispose();
   });
 
   it('should return null when fetch is not available and beacon is disabled', () => {
