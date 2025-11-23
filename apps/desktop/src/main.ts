@@ -426,6 +426,8 @@ app.whenReady().then(async () => {
     });
   } catch (error) {
     logger.error('Failed to initialize application:', error);
+    // biome-ignore lint/suspicious/noConsole: Debugging CI flakiness
+    console.error('❌ FATAL: Failed to initialize application:', error);
     app.quit();
   }
 });
