@@ -264,7 +264,16 @@ function normalizeApiKey(value: string | undefined): string | null {
     return null;
   }
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+  if (trimmed.length === 0) {
+    return null;
+  }
+  // Basic validation: OpenAI keys typically start with "sk-" or "sess-"
+  // However, we should be lenient to allow for project-scoped keys or future formats
+  // Just ensuring it's not a placeholder and has reasonable length is a good start
+  if (trimmed.length < 10) {
+    return null; // Too short to be a valid key
+  }
+  return trimmed;
 }
 
 function parseRetryAfter(headerValue: string | null): number | undefined {
