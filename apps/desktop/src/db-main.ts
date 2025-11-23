@@ -144,94 +144,51 @@ function getDatabasePath(): string {
  * Initialize the database with NodeFS
  * Creates the directory if it doesn't exist and runs migrations
  */
-// Promise to track initialization state and prevent race conditions
-// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-let initializationPromise: Promise<any> | null = null;
-
-async function createAndVerifyDatabase(
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite types are dynamic
-  PGlite: any,
-  dataDir: string,
-  vector: unknown,
-  live: unknown
-) {
-  // biome-ignore lint/suspicious/noExplicitAny: PGlite instance is dynamic
-  let instance: any;
-  try {
-    instance = await createVectorDatabase(PGlite, dataDir, vector, live);
-    logger.info('Database initialized with pgvector extension at:', dataDir);
-    return instance;
-  } catch (err) {
-    try {
-      // Safely close if allocated
-      if (instance && typeof instance.close === 'function') {
-        await instance.close();
-      }
-    } catch {
-      // ignore
-    }
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Failed to initialize database with pgvector:', msg);
-    throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
-  }
-}
-
-// biome-ignore lint/suspicious/noExplicitAny: Dynamic migration function
-async function runMigrations(migrate: any, database: any) {
-  try {
-    await migrate(database);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Database migrations failed:', msg);
-    throw new Error(`Database migrations failed with pgvector: ${msg}`);
-  }
-}
-
-/**
- * Initialize the database with NodeFS
- * Creates the directory if it doesn't exist and runs migrations
- */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 export async function initializeMainDatabase(): Promise<any> {
   if (db) {
     return db;
   }
 
-  // If initialization is already in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
+  const dataDir = getDatabasePath();
+  if (!existsSync(dataDir)) {
+    mkdirSync(dataDir, { recursive: true });
+    logger.info(`Created database directory: ${dataDir}`);
+  }
+  // Get ESM modules
+  const { PGlite, migrate, vector, live } = await getPGlite();
+
+  // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
+  try {
+    db = await createVectorDatabase(PGlite, dataDir, vector, live);
+    logger.info('Database initialized with pgvector extension at:', dataDir);
+  } catch (err) {
+    try {
+      // Safely close if allocated
+      if (db && typeof db.close === 'function') {
+        await db.close();
+      }
+    } catch {
+      // ignore
+    } finally {
+      db = null;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('Failed to initialize database with pgvector:', msg);
+    throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
   }
 
-  // Start initialization and store the promise
-  initializationPromise = (async () => {
-    try {
-      const dataDir = getDatabasePath();
-      if (!existsSync(dataDir)) {
-        mkdirSync(dataDir, { recursive: true });
-        logger.info(`Created database directory: ${dataDir}`);
-      }
-      // Get ESM modules
-      const { PGlite, migrate, vector, live } = await getPGlite();
+  // Run migrations
+  try {
+    await migrate(db);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('Database migrations failed:', msg);
+    throw new Error(`Database migrations failed with pgvector: ${msg}`);
+  }
 
-      // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
-      const newDb = await createAndVerifyDatabase(PGlite, dataDir, vector, live);
-
-      // Run migrations
-      await runMigrations(migrate, newDb);
-
-      // Set global db instance
-      db = newDb;
-
-      logger.info(`Database initialized successfully at: ${dataDir}`);
-      return db;
-    } finally {
-      // Clear the promise so subsequent calls can retry if needed (though we throw above)
-      // or just return the established db
-      initializationPromise = null;
-    }
-  })();
-
-  return initializationPromise;
+  logger.info(`Database initialized successfully at: ${dataDir}`);
+  return db;
 }
 
 /**
@@ -241,12 +198,8 @@ export async function initializeMainDatabase(): Promise<any> {
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
 export async function getDatabase(): Promise<any> {
   if (!db) {
-    // Check if initialization is already in progress
-    if (initializationPromise) {
-      return initializationPromise;
-    }
     logger.info('🚀 Lazy-loading database (triggered by IPC usage)');
-    return initializeMainDatabase();
+    await initializeMainDatabase();
   }
   return db;
 }
