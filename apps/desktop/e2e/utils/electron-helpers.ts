@@ -32,7 +32,7 @@ export async function launchElectronApp(): Promise<ElectronAppContext> {
   return { app: stableApp, window };
 }
 
-// Helper to kill lingering Electron processes that might be holding ports
+// a Helper to kill lingering Electron processes that might be holding ports
 async function killLingeringElectronProcesses(): Promise<void> {
   try {
     if (process.platform === 'darwin') {
