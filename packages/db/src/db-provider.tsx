@@ -1,3 +1,4 @@
+import type { ElectronDatabaseAPI } from '@brainstrike/types';
 import { createLogger, isDevEnv } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
 import type React from 'react';
@@ -134,8 +135,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
   const initializingRef = useRef<boolean>(false);
   const initializingPromiseRef = useRef<Promise<void> | null>(null);
 
-  // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-  const testElectronConnection = useCallback(async (electronDB: any) => {
+  const testElectronConnection = useCallback(async (electronDB: ElectronDatabaseAPI) => {
     if (!electronDB.test) return;
 
     try {
@@ -151,22 +151,28 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
 
   const initializeElectronIPC = useCallback(
     async (cancelled: { value: boolean }) => {
-      // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-      if (!(useElectronIPC && typeof window !== 'undefined' && (window as any).electronAPI?.db)) {
+      if (!(useElectronIPC && typeof window !== 'undefined' && window.electronAPI?.db)) {
         return false;
       }
 
       logger.info('Using Electron IPC database connection');
 
-      // TypeScript doesn't narrow the type properly, so we assert it exists
-      // biome-ignore lint/suspicious/noExplicitAny: Electron API type varies by environment
-      const electronDB = (window as any).electronAPI.db;
+      const electronDB = window.electronAPI.db;
       await testElectronConnection(electronDB);
+      const electronExec = electronDB.exec;
+
+      if (!electronExec) {
+        throw new Error('Electron database exec operation is unavailable over IPC');
+      }
+
+      const exec: (sql: string) => Promise<void> = async (sql) => {
+        await electronExec(sql);
+      };
 
       // The repository doesn't need the test method, so we can pass just the db interface
       const repository = new ElectronFileRecordRepository({
         query: electronDB.query,
-        exec: electronDB.exec,
+        exec,
       });
       // Detect pgvector extension availability over IPC
       let hasVector = false;
@@ -184,7 +190,7 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       }
       const chunkRepo = new ElectronFileChunkRepository({
         query: electronDB.query,
-        exec: electronDB.exec,
+        exec,
       });
 
       if (!cancelled.value) {
@@ -358,10 +364,16 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       // Also clear embedding sets and queue to avoid stale state
       try {
         await tx.query('DELETE FROM embedding_sets');
-      } catch {}
+      } catch (error) {
+        // Tables may not exist in older schema versions - log but don't fail
+        logger.warn('[DbProvider] Failed to clear embedding_sets (table may not exist):', error);
+      }
       try {
         await tx.query('DELETE FROM job_queue');
-      } catch {}
+      } catch (error) {
+        // Tables may not exist in older schema versions - log but don't fail
+        logger.warn('[DbProvider] Failed to clear job_queue (table may not exist):', error);
+      }
 
       return { deletedFiles: Number(deletedFiles), deletedChunks: Number(deletedChunks) };
     });
@@ -447,7 +459,9 @@ export function DbProvider({ children, dbPath, useElectronIPC }: DbProviderProps
       await dbRef.current.transaction(async (tx) => {
         await purgeTablesTx(tx);
       });
-    } catch {}
+    } catch (error) {
+      logger.error('[DbProvider] Failed to purge tables during factory reset:', error);
+    }
     try {
       await dbRef.current.exec('VACUUM');
     } catch (err) {
