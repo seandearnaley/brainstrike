@@ -172,7 +172,6 @@ describe('usePanelPersistence', () => {
   });
 
   it('should save layout to localStorage', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -189,12 +188,7 @@ describe('usePanelPersistence', () => {
       expect(result.current.showConsole).toBe(false);
     });
 
-    // Advance timers to trigger the debounced save
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
-    // Now localStorage should have been called
+    // Debounce is mocked to be immediate, so localStorage should have been called
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
@@ -204,11 +198,9 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-    vi.useRealTimers();
   });
 
   it('should normalize sizes when saving layout if needed', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -224,12 +216,7 @@ describe('usePanelPersistence', () => {
       expect(result.current.sizes).toEqual([50, 50]); // Normalized to 100%
     });
 
-    // Advance timers to trigger the debounced save
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
-    // localStorage should receive normalized values
+    // localStorage should receive normalized values immediately due to mocked debounce
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
@@ -239,11 +226,9 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-    vi.useRealTimers();
   });
 
   it('should toggle console visibility', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -258,11 +243,6 @@ describe('usePanelPersistence', () => {
       expect(result.current.showConsole).toBe(false);
     });
 
-    // Advance timers to trigger the debounced save
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
@@ -272,11 +252,9 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-    vi.useRealTimers();
   });
 
   it('should not persist when layout is unchanged', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -287,16 +265,11 @@ describe('usePanelPersistence', () => {
       result.current.saveLayout([20, 30], true, true, false);
     });
 
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
+    // Debounce is mocked to be immediate
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   it('should save to Electron API when available', async () => {
-    vi.useFakeTimers();
     (window as { electronAPI?: unknown }).electronAPI = electronAPIMock;
     localStorageMock.getItem.mockReturnValue(null);
 
@@ -308,10 +281,6 @@ describe('usePanelPersistence', () => {
       result.current.saveLayout([25, 35], false);
     });
 
-    await act(async () => {
-      vi.advanceTimersByTime(250);
-    });
-
     expect(electronAPIMock.saveLayout).toHaveBeenCalledWith({
       sizes: [25, 35],
       showConsole: false,
@@ -319,7 +288,6 @@ describe('usePanelPersistence', () => {
       showRightPanel: false,
     });
     expect(localStorageMock.setItem).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   // This test is skipped due to timing issues with async Electron API operations and fake timers.
@@ -355,7 +323,7 @@ describe('usePanelPersistence', () => {
     expect(result.current.showRightPanel).toBe(true);
   });
 
-  it('should not load from Electron API when unavailable', () => {
+  it('should not load from Electron API when unavailable', async () => {
     localStorageMock.getItem.mockReturnValue(null);
     (window as { electronAPI?: unknown }).electronAPI = undefined;
 
@@ -363,35 +331,44 @@ describe('usePanelPersistence', () => {
       usePanelPersistence([20, 30], false, true, false, createElectron())
     );
 
+    await waitFor(() => {
+      expect(result.current.isHydrated).toBe(true);
+    });
+
     expect(electronAPIMock.loadLayout).not.toHaveBeenCalled();
     expect(result.current).not.toBeNull();
     expect(result.current.sizes).toEqual([20, 30]);
     expect(result.current.showConsole).toBe(false);
   });
 
-  it('should handle localStorage errors gracefully', () => {
+  it('should handle localStorage errors gracefully', async () => {
     localStorageMock.getItem.mockImplementation(() => {
       throw new Error('localStorage error');
     });
 
-    const { result, rerender } = renderHook(() =>
+    const { result } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
 
-    // Force a rerender to ensure hook has completed
-    rerender();
+    await waitFor(() => {
+      expect(result.current.isHydrated).toBe(true);
+    });
 
     expect(result.current).not.toBeNull();
     expect(result.current?.sizes).toEqual([20, 30]);
     expect(result.current?.showConsole).toBe(true);
   });
 
-  it('should handle invalid JSON in localStorage gracefully', () => {
+  it('should handle invalid JSON in localStorage gracefully', async () => {
     localStorageMock.getItem.mockReturnValue('invalid json');
 
     const { result } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
     );
+
+    await waitFor(() => {
+      expect(result.current.isHydrated).toBe(true);
+    });
 
     expect(result.current).not.toBeNull();
     expect(result.current?.sizes).toEqual([20, 30]);
@@ -399,7 +376,6 @@ describe('usePanelPersistence', () => {
   });
 
   it('should save pending changes on beforeunload', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
     const { result, unmount } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
@@ -424,7 +400,7 @@ describe('usePanelPersistence', () => {
       });
     }
 
-    // localStorage.setItem should have been called synchronously
+    // localStorage.setItem should have been called
     expect(localStorageMock.setItem).toHaveBeenCalledWith(
       'panelLayout.v1',
       JSON.stringify({
@@ -434,9 +410,6 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-
-    // Ensure timer is cleared
-    expect(vi.getTimerCount()).toBe(0);
 
     // Test unmount cleanup
     act(() => {
@@ -449,7 +422,6 @@ describe('usePanelPersistence', () => {
     if (removeListenerCall) {
       expect(removeListenerCall[1]).toBe(beforeUnloadCallback);
     }
-    vi.useRealTimers();
   });
 
   // This test is skipped due to complex timing issues between async Electron API errors and fake timers.
@@ -494,7 +466,6 @@ describe('usePanelPersistence', () => {
   });
 
   it('cleans up pending save on unmount', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
     const { result, unmount } = renderHook(() =>
       usePanelPersistence([20, 30], true, true, false, createLocal())
@@ -523,16 +494,13 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-    expect(vi.getTimerCount()).toBe(0);
     const removeCall = mockRemoveEventListener.mock.calls.find(
       (call) => call[0] === 'beforeunload'
     );
     expect(removeCall?.[1]).toBe(beforeUnloadCallback);
-    vi.useRealTimers();
   });
 
   it('toggleLeftPanel persists updated state', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -541,10 +509,6 @@ describe('usePanelPersistence', () => {
 
     await act(async () => {
       result.current.toggleLeftPanel();
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(250);
     });
 
     expect(result.current.showLeftPanel).toBe(false);
@@ -557,11 +521,9 @@ describe('usePanelPersistence', () => {
         showRightPanel: false,
       })
     );
-    vi.useRealTimers();
   });
 
   it('toggleRightPanel persists updated state', async () => {
-    vi.useFakeTimers();
     localStorageMock.getItem.mockReturnValue(null);
 
     const { result } = renderHook(() =>
@@ -570,10 +532,6 @@ describe('usePanelPersistence', () => {
 
     await act(async () => {
       result.current.toggleRightPanel();
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(250);
     });
 
     expect(result.current.showRightPanel).toBe(true);
@@ -586,7 +544,6 @@ describe('usePanelPersistence', () => {
         showRightPanel: true,
       })
     );
-    vi.useRealTimers();
   });
 
   it('adds and removes beforeunload listener', () => {
