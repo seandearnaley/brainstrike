@@ -110,8 +110,9 @@ export function createSafeStorage(errorHandler?: StorageErrorHandler): Storage {
         if (typeof localStorage !== 'undefined') {
           return localStorage.length;
         }
-      } catch {
-        // Intentionally silent for length check - not critical
+      } catch (error) {
+        // Intentionally minimal logging for length check - not critical
+        logger.debug('localStorage.length failed, using in-memory fallback:', error);
       }
       return memory.size;
     },
