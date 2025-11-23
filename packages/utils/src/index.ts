@@ -23,6 +23,7 @@ export * from './path-filter';
 export * from './path-utils';
 export * from './quick-filter-utils';
 export * from './report-generator';
+export * from './safe-storage';
 export * from './selection-utils';
 export * from './token-utils';
 export * from './tree-generator';
