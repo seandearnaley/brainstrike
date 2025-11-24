@@ -386,11 +386,26 @@ jobs:
       - name: Run Desktop E2E tests (shard)
         run: |
           cd apps/desktop
+          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
+          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
+          SHARD=${{ matrix.shardIndex }}
+          RUN_SLOT=$((RUN_SALT % 50))
+          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
+
+          # Clear stale X locks for this display only; avoid cross-run clashes
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE"
+          fi
+
+          # Remove only this run's temp user data directories (keeps other runs intact)
+          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
+
           # Manually assign Xvfb server number based on shard index to prevent TCP port collisions
           # in shared-network environments (like act with network="host") where filesystem locks in /tmp are isolated.
           # Standard GitHub Runners are isolated VMs so this is safe there too (just explicit).
-          SERVER_NUM=$((99 + ${{ matrix.shardIndex }}))
-          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
+            RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ matrix.shardIndex }}/${{ matrix.shardTotal }}
         env:
           NODE_ENV: "test"
           CI: "true"

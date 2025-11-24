@@ -53,8 +53,21 @@ jobs:
       - name: Run Desktop E2E tests (shard)
         run: |
           cd apps/desktop
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x960x24" -- pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
+          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
+          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
+          SHARD=${{ inputs.shardIndex || 2 }}
+          RUN_SLOT=$((RUN_SALT % 50))
+          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
+
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE"
+          fi
+
+          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
+
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
+            RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
         env:
           NODE_ENV: "test"
           CI: "true"
-
