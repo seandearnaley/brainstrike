@@ -135,6 +135,13 @@ async function createVectorDatabase(
  * Uses a different directory for development vs production
  */
 function getDatabasePath(): string {
+  // In test mode, store the database within the isolated User Data directory.
+  // This ensures that parallel test shards (which have unique User Data dirs)
+  // do not conflict over the same database lock file in the shared Documents folder.
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+
   const isProduction = process.env['NODE_ENV'] === 'production';
   const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
   return path.join(app.getPath('documents'), dbDirName, 'pgdata');

@@ -38,17 +38,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -57,6 +55,9 @@ jobs:
           key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Get Playwright version
         id: playwright-version
@@ -103,5 +104,4 @@ jobs:
           name: perf-blob-report
           path: apps/web/blob-report
           retention-days: 7
-
 

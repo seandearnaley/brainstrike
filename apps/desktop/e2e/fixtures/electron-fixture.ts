@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
@@ -17,11 +19,14 @@ interface ElectronHarnessOptions {
 class ElectronHarness {
   private context: ElectronAppContext | null = null;
 
-  constructor(private readonly debugPort?: number) {}
+  constructor(
+    private readonly debugPort?: number,
+    private readonly userDataDir?: string
+  ) {}
 
   async ensureContext(): Promise<ElectronAppContext> {
     if (!this.context) {
-      this.context = await launchElectronApp(this.debugPort);
+      this.context = await launchElectronApp(this.debugPort, this.userDataDir);
       return this.context;
     }
 
@@ -55,7 +60,7 @@ class ElectronHarness {
       }
     }
 
-    this.context = await launchElectronApp(this.debugPort);
+    this.context = await launchElectronApp(this.debugPort, this.userDataDir);
     return this.context;
   }
 
@@ -105,11 +110,16 @@ type ElectronWorkerFixtures = {
 export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
   electron: [
     async ({}, use, workerInfo) => {
+      const shardIndex = workerInfo.config.shard?.current ?? 0;
+      const runSalt = getRunSalt();
+
       // Assign a unique debug port based on the shard index to prevent collisions
       // when running shards in parallel on the same host (e.g. in act or CI)
-      const shard = workerInfo.config.shard;
-      const debugPort = shard ? 9222 + shard.current : undefined;
-      const harness = new ElectronHarness(debugPort);
+      const debugPort = deriveDebugPort(runSalt, shardIndex);
+      // Also isolate user data directory
+      const userDataDir = deriveUserDataDir(runSalt, shardIndex);
+
+      const harness = new ElectronHarness(debugPort, userDataDir);
       try {
         await use(harness);
       } finally {
@@ -140,3 +150,34 @@ export const test = base.extend<ElectronTestFixtures, ElectronWorkerFixtures>({
 });
 
 export const expect = baseExpect;
+
+function getRunSalt(): number {
+  const candidates = [
+    process.env['RUN_SALT'],
+    process.env['GITHUB_RUN_ID'],
+    process.env['GITHUB_RUN_NUMBER'],
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  // Fallback for local runs: wall-clock salt with modest bound to keep ports reasonable
+  return Date.now() % 1_000_000;
+}
+
+function deriveDebugPort(runSalt: number, shardIndex: number): number | undefined {
+  // Spread shards across an isolated slice of the port space that also varies per CI run
+  const slot = runSalt % 1000; // keeps us under the 5xxxx range
+  const basePort = 42000 + slot * 10;
+  return basePort + shardIndex;
+}
+
+function deriveUserDataDir(runSalt: number, shardIndex: number): string | undefined {
+  const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
+  return path.join(os.tmpdir(), `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}`);
+}

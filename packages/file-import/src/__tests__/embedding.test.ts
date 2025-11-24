@@ -7,6 +7,7 @@ type MockEmbeddingService = {
   getStatus: ReturnType<typeof vi.fn>;
   initializeWithModel: ReturnType<typeof vi.fn>;
   generateEmbedding: ReturnType<typeof vi.fn>;
+  generateDocEmbedding?: ReturnType<typeof vi.fn>;
 };
 
 type MockChunkRepository = {
@@ -117,6 +118,27 @@ describe('processChunkEmbedding', () => {
     expect(mockChunkRepository.update).toHaveBeenCalledWith({
       id: 'chunk-1',
       embedding: new Float32Array([0.1, 0.2, 0.3]),
+      updatedAt: expect.any(String),
+    });
+  });
+
+  it('uses generateDocEmbedding if available', async () => {
+    mockEmbeddingService.generateDocEmbedding = vi.fn().mockResolvedValue({
+      embedding: new Float32Array([0.4, 0.5, 0.6]),
+    });
+
+    const result = await processChunkEmbedding(
+      mockChunk,
+      mockChunkRepository as never,
+      mockEmbeddingService as never
+    );
+
+    expect(result).toBe(true);
+    expect(mockEmbeddingService.generateDocEmbedding).toHaveBeenCalledWith('Test content');
+    expect(mockEmbeddingService.generateEmbedding).not.toHaveBeenCalled();
+    expect(mockChunkRepository.update).toHaveBeenCalledWith({
+      id: 'chunk-1',
+      embedding: new Float32Array([0.4, 0.5, 0.6]),
       updatedAt: expect.any(String),
     });
   });
@@ -292,6 +314,35 @@ describe('processEmbeddings', () => {
     expect(mockResult.chunksWithEmbeddings).toBe(2);
     expect(mockChunkRepository.update).toHaveBeenCalledTimes(2);
     expect(mockUpdateProgress).toHaveBeenCalled();
+  });
+
+  it('updates embeddingSetId when provided', async () => {
+    mockEmbeddingService.getStatus = vi.fn().mockReturnValueOnce('idle').mockReturnValue('ready');
+
+    await processEmbeddings(
+      mockChunks,
+      mockResult,
+      mockChunkRepository as never,
+      mockEmbeddingService as never,
+      'model',
+      mockUpdateProgress,
+      'test-set-id'
+    );
+
+    expect(mockResult.chunksWithEmbeddings).toBe(2);
+    // Should be called 4 times: 2 for embedding update, 2 for set ID update
+    // Wait, let's check implementation.
+    // processChunkWithSetId calls processChunkEmbedding (1 update) then calls chunkRepository.update again (2nd update).
+    // So for 2 chunks, it should be 4 updates.
+    expect(mockChunkRepository.update).toHaveBeenCalledTimes(4);
+
+    // Check specific calls
+    expect(mockChunkRepository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'chunk-1',
+        embeddingSetId: 'test-set-id',
+      })
+    );
   });
 
   it('updates progress correctly during processing', async () => {

@@ -51,12 +51,16 @@ describe('initializeMainDatabase', () => {
 
   it('creates directory, migrates, and returns singleton instance', async () => {
     existsSyncMock.mockReturnValue(false);
+    // Mock getPath to return different paths for documents vs userData
+    appGetPathMock.mockImplementation(((name: string) => `/mock/${name}`) as () => string);
 
     const { initializeMainDatabase } = await import('../../db-main');
     const db1 = await initializeMainDatabase();
-    const expectedPath = path.join('/mock/documents', 'BrainStrike-dev', 'pgdata');
 
-    expect(appGetPathMock).toHaveBeenCalledWith('documents');
+    // In NODE_ENV=test, we expect it to use 'userData' path for isolation
+    const expectedPath = path.join('/mock/userData', 'pgdata');
+
+    expect(appGetPathMock).toHaveBeenCalledWith('userData');
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
     expect(PGliteMock).toHaveBeenCalledTimes(1);
     // Verify PGlite was called with dataDir and vector extension in strict mode

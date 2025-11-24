@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
@@ -11,21 +12,34 @@ export interface ElectronAppContext {
   window: Page;
 }
 
-export async function launchElectronApp(debugPort?: number): Promise<ElectronAppContext> {
+export async function launchElectronApp(
+  debugPort?: number,
+  userDataDir?: string
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
   if (debugPort) {
-    console.log(`🔌 Using manual debug port: ${debugPort}`);
+    console.log(`🔌 Requesting manual debug port: ${debugPort}`);
+  }
+  if (userDataDir) {
+    console.log(`📂 Using custom user data dir: ${userDataDir}`);
   }
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
   // Kill any lingering processes to free up ports
-  await killLingeringElectronProcesses();
+  // Only perform global cleanup if we are NOT running with a specific debug port (sharded)
+  // otherwise we might kill the electron instances of concurrent shards on the same host.
+  if (!debugPort) {
+    await killLingeringElectronProcesses();
+  } else {
+    console.log(`ℹ️ Cleaning up any processes bound to port ${debugPort}...`);
+    await killSpecificElectronProcess(debugPort);
+  }
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort);
+  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
   const app = await startElectron(launchOptions);
 
   console.log('⏳ Waiting for first window...');
@@ -58,10 +72,25 @@ async function killLingeringElectronProcesses(): Promise<void> {
   }
 }
 
+async function killSpecificElectronProcess(debugPort: number): Promise<void> {
+  try {
+    const pattern = `remote-debugging-port=${debugPort}`;
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      execSync(`pkill -9 -f '${pattern}' || true`, { stdio: 'ignore' });
+    }
+    // Give OS time to release resources
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log(`✅ Cleaned up processes on port ${debugPort}`);
+  } catch (_error) {
+    console.log(`⚠️ No processes found on port ${debugPort} to clean up`);
+  }
+}
+
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
-  debugPort?: number
+  debugPort?: number,
+  userDataDir?: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -72,6 +101,8 @@ function createLaunchOptions(
     // However, in sharded CI environments, this can cause collisions if isolation fails.
     // If a debugPort is provided, we explicitly set it to avoid collisions.
     ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
+    // Explicitly set user data dir to avoid collisions in shared environments
+    ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
     // Disable GPU to prevent crashes in CI
     '--disable-gpu',
     '--disable-software-rasterizer',
@@ -86,6 +117,9 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      // Force console logging and disable file logging to avoid contention/permissions issues
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
@@ -358,56 +392,7 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
         const rootPath = '/mock/test/directory';
         console.log('🔸 Mocked readDirectory called with path:', _p);
-        return [
-          {
-            name: 'mock-file1.txt',
-            path: `${rootPath}/mock-file1.txt`,
-            type: 'file',
-            size: 100,
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-file-1',
-              kind: 'file',
-              name: 'mock-file1.txt',
-              path: `${rootPath}/mock-file1.txt`,
-              platform: 'electron',
-            },
-          },
-          {
-            name: 'mock-file2.ts',
-            path: `${rootPath}/mock-file2.ts`,
-            type: 'file',
-            size: 250,
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-file-2',
-              kind: 'file',
-              name: 'mock-file2.ts',
-              path: `${rootPath}/mock-file2.ts`,
-              platform: 'electron',
-            },
-          },
-          {
-            name: 'mock-subfolder',
-            path: `${rootPath}/mock-subfolder`,
-            type: 'directory',
-            depth: 1,
-            selectionState: 'unchecked',
-            rootFolderId: 'mock-directory-handle',
-            handle: {
-              id: 'mock-subfolder',
-              kind: 'directory',
-              name: 'mock-subfolder',
-              path: `${rootPath}/mock-subfolder`,
-              platform: 'electron',
-            },
-            children: [],
-          },
-        ];
+        return getTestDirectoryStructure(rootPath);
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {

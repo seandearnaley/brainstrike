@@ -26,7 +26,7 @@ vi.mock('electron', async () => {
 });
 
 // Import mocked Electron parts for use in assertions
-import { app, ipcMain, ipcRenderer } from 'electron';
+import { ipcMain, ipcRenderer } from 'electron';
 
 vi.mock('@brainstrike/file-system', () => ({
   ElectronFileSystemAdapter: vi.fn(() => ({})),
@@ -50,7 +50,10 @@ describe('db:getUserDataPath IPC handler', () => {
   });
 
   it('returns the user database path', async () => {
-    const expected = path.join(app.getPath('documents'), 'BrainStrike-dev', 'pgdata');
+    // In test environment (NODE_ENV=test), we expect the isolated path structure
+    // defined in db-main.ts: path.join(app.getPath('userData'), 'pgdata')
+    // The default app mock returns '/mock/path' for 'userData'
+    const expected = path.join('/mock/path', 'pgdata');
     const result = await ipcRenderer.invoke('db:getUserDataPath');
     expect(result).toBe(expected);
   });
