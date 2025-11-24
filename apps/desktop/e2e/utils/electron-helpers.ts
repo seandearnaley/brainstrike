@@ -35,7 +35,8 @@ export async function launchElectronApp(
   if (!debugPort) {
     await killLingeringElectronProcesses();
   } else {
-    console.log('ℹ️ Skipping global process cleanup (sharded execution detected)');
+    console.log(`ℹ️ Cleaning up any processes bound to port ${debugPort}...`);
+    await killSpecificElectronProcess(debugPort);
   }
 
   const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
@@ -71,6 +72,20 @@ async function killLingeringElectronProcesses(): Promise<void> {
   }
 }
 
+async function killSpecificElectronProcess(debugPort: number): Promise<void> {
+  try {
+    const pattern = `remote-debugging-port=${debugPort}`;
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      execSync(`pkill -9 -f '${pattern}' || true`, { stdio: 'ignore' });
+    }
+    // Give OS time to release resources
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log(`✅ Cleaned up processes on port ${debugPort}`);
+  } catch (_error) {
+    console.log(`⚠️ No processes found on port ${debugPort} to clean up`);
+  }
+}
+
 function createLaunchOptions(
   _electronPath: string,
   mainPath: string,
@@ -102,6 +117,9 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      // Force console logging and disable file logging to avoid contention/permissions issues
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
