@@ -21,7 +21,7 @@ export async function launchElectronApp(
 
   console.log('🚀 Launching Electron app...');
   if (debugPort) {
-    console.log(`🔌 Using manual debug port: ${debugPort}`);
+    console.log(`🔌 Requesting manual debug port: ${debugPort}`);
   }
   if (userDataDir) {
     console.log(`📂 Using custom user data dir: ${userDataDir}`);
