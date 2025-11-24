@@ -4,6 +4,7 @@ import type {
   ElectronFileSystemAdapter,
   FileHandle,
 } from '@brainstrike/file-system';
+import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -87,6 +88,7 @@ export function registerIpcHandlers(
         path: '/mock/test/directory',
         type: 'directory',
         kind: 'directory',
+        platform: 'electron',
       };
     }
 
@@ -100,11 +102,9 @@ export function registerIpcHandlers(
       'id' in handle &&
       handle.id === 'mock-directory-handle'
     ) {
-      return [
-        { name: 'mock-file1.txt', type: 'file', size: 100 },
-        { name: 'mock-file2.ts', type: 'file', size: 250 },
-        { name: 'mock-subfolder', type: 'directory' },
-      ];
+      const rootPath = '/mock/test/directory';
+      // Return IFileNode-compatible structure
+      return getTestDirectoryStructure(rootPath);
     }
     return fileSystem.readDirectory(handle);
   });
@@ -122,6 +122,11 @@ export function registerIpcHandlers(
     return fileSystem.readFile(handle);
   });
   ipcMain.handle('fs:exists', async (_e: IpcMainInvokeEvent, p: string) => {
+    // Check for mock paths in test mode
+    if (p.startsWith('/mock/')) {
+      return true;
+    }
+
     // Basic path validation - prevent obvious security issues
     try {
       // Reject null bytes and other control characters that could be used maliciously
@@ -210,21 +215,17 @@ export function registerIpcHandlers(
 
   // Layout persistence IPC handlers
   ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
-    // TypeScript has issues with electron-store method resolution during build
-    // Using type assertion to access inherited Conf methods
-    (
-      store as ElectronStore<DesktopSettingsStoreSchema> & {
-        set: (key: string, value: unknown) => void;
-      }
-    ).set('panelLayout', { v1: state });
+    // Using proper type access for electron-store
+    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+    // @ts-ignore
+    store.set('panelLayout', { v1: state });
   });
 
   ipcMain.handle('layout:load', async () => {
-    // TypeScript has issues with electron-store method resolution during build
-    // Using type assertion to access inherited Conf methods
-    const layout = (
-      store as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
-    ).get('panelLayout') as DesktopSettingsStoreSchema['panelLayout'] | undefined;
+    // Using proper type access for electron-store
+    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+    // @ts-ignore
+    const layout = store.get('panelLayout');
     return layout?.v1;
   });
 
@@ -468,6 +469,9 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
+    if (process.env['NODE_ENV'] === 'test') {
+      return path.join(app.getPath('userData'), 'pgdata');
+    }
     const isProduction = process.env['NODE_ENV'] === 'production';
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');

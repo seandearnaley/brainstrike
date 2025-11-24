@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { getCILaunchArgs } from '@brainstrike/config/playwright-environment';
+import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
 
@@ -11,28 +12,45 @@ export interface ElectronAppContext {
   window: Page;
 }
 
-export async function launchElectronApp(): Promise<ElectronAppContext> {
+export async function launchElectronApp(
+  debugPort?: number,
+  userDataDir?: string
+): Promise<ElectronAppContext> {
   const electronPath = require('electron');
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
 
   console.log('🚀 Launching Electron app...');
+  if (debugPort) {
+    console.log(`🔌 Requesting manual debug port: ${debugPort}`);
+  }
+  if (userDataDir) {
+    console.log(`📂 Using custom user data dir: ${userDataDir}`);
+  }
   console.log('Electron path:', electronPath);
   console.log('Main path:', mainPath);
 
   // Kill any lingering processes to free up ports
-  await killLingeringElectronProcesses();
+  // Only perform global cleanup if we are NOT running with a specific debug port (sharded)
+  // otherwise we might kill the electron instances of concurrent shards on the same host.
+  if (!debugPort) {
+    await killLingeringElectronProcesses();
+  } else {
+    console.log(`ℹ️ Cleaning up any processes bound to port ${debugPort}...`);
+    await killSpecificElectronProcess(debugPort);
+  }
 
-  const launchOptions = createLaunchOptions(electronPath, mainPath);
+  const launchOptions = createLaunchOptions(electronPath, mainPath, debugPort, userDataDir);
   const app = await startElectron(launchOptions);
-  // Original working behavior: use firstWindow directly with a short backoff handled in recovery
-  const { app: stableApp, window } = await getFirstWindowWithRecovery(app, launchOptions);
+
+  console.log('⏳ Waiting for first window...');
+  const window = await app.firstWindow({ timeout: 30000 });
   await window.waitForLoadState('domcontentloaded');
-  await setupDialogMocking(stableApp);
+  await setupDialogMocking(app);
   console.log('✅ Electron app launched successfully');
-  return { app: stableApp, window };
+  return { app, window };
 }
 
-// Helper to kill lingering Electron processes that might be holding ports
+// a Helper to kill lingering Electron processes that might be holding ports
 async function killLingeringElectronProcesses(): Promise<void> {
   try {
     if (process.platform === 'darwin') {
@@ -54,9 +72,25 @@ async function killLingeringElectronProcesses(): Promise<void> {
   }
 }
 
+async function killSpecificElectronProcess(debugPort: number): Promise<void> {
+  try {
+    const pattern = `remote-debugging-port=${debugPort}`;
+    if (process.platform === 'darwin' || process.platform === 'linux') {
+      execSync(`pkill -9 -f '${pattern}' || true`, { stdio: 'ignore' });
+    }
+    // Give OS time to release resources
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    console.log(`✅ Cleaned up processes on port ${debugPort}`);
+  } catch (_error) {
+    console.log(`⚠️ No processes found on port ${debugPort} to clean up`);
+  }
+}
+
 function createLaunchOptions(
   _electronPath: string,
-  mainPath: string
+  mainPath: string,
+  debugPort?: number,
+  userDataDir?: string
 ): Parameters<typeof electron.launch>[0] {
   const ciArgs = getCILaunchArgs();
   const baseArgs = [
@@ -64,7 +98,16 @@ function createLaunchOptions(
     '--test-mode',
     '--disable-dialogs',
     // Note: Playwright automatically adds --remote-debugging-port=0 (dynamic port)
-    // We don't need to specify it explicitly to avoid conflicts
+    // However, in sharded CI environments, this can cause collisions if isolation fails.
+    // If a debugPort is provided, we explicitly set it to avoid collisions.
+    ...(debugPort ? [`--remote-debugging-port=${debugPort}`] : []),
+    // Explicitly set user data dir to avoid collisions in shared environments
+    ...(userDataDir ? [`--user-data-dir=${userDataDir}`] : []),
+    // Disable GPU to prevent crashes in CI
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
   ];
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
@@ -74,6 +117,9 @@ function createLaunchOptions(
       ELECTRON_DISABLE_SANDBOX: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       ELECTRON_ENABLE_LOGGING: 'true',
+      // Force console logging and disable file logging to avoid contention/permissions issues
+      // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
+      BRAINSTRIKE_DISABLE_FILE_LOGS: '1',
       // biome-ignore lint/style/useNamingConvention: Environment variable names must be uppercase
       BRAINSTRIKE_OPENAI_API_KEY: 'test-api-key-for-e2e-tests',
       // Ensure DISPLAY in Linux CI if not provided by runner; xvfb-maybe usually sets this
@@ -97,6 +143,22 @@ function createLaunchOptions(
 async function startElectron(launchOptions: Parameters<typeof electron.launch>[0]) {
   try {
     const app = await electron.launch(launchOptions);
+
+    // Pipe stdout and stderr for debugging CI crashes
+    const process = app.process();
+    console.log('🔧 Attaching process listeners for stdout/stderr');
+
+    process.stdout?.on('data', (data) => {
+      console.log(`[Electron Stdout]: ${data.toString()}`);
+    });
+    process.stderr?.on('data', (data) => {
+      console.error(`[Electron Stderr]: ${data.toString()}`);
+    });
+
+    process.on('exit', (code, signal) => {
+      console.log(`[Electron Process Exit] Code: ${code}, Signal: ${signal}`);
+    });
+
     app.on('close', () => {
       console.log('⚠️ Electron app closed unexpectedly');
     });
@@ -105,83 +167,6 @@ async function startElectron(launchOptions: Parameters<typeof electron.launch>[0
     console.error('❌ Failed to launch Electron app:', error);
     throw new Error(`Failed to launch Electron app: ${error}`);
   }
-}
-
-function isCrashError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes('Target page, context or browser has been closed') ||
-    message.includes('Browser closed') ||
-    message.includes('Connection closed')
-  );
-}
-
-async function relaunchApp(
-  current: ElectronApplication,
-  launchOptions: Parameters<typeof electron.launch>[0]
-) {
-  try {
-    await current.close();
-    console.log('✅ Closed crashed app');
-  } catch (closeError) {
-    console.error('❌ Failed to close crashed app:', closeError);
-  }
-  await new Promise((r) => setTimeout(r, 3000));
-  const relaunched = await startElectron(launchOptions);
-  console.log('✅ Relaunched app after crash');
-  return relaunched;
-}
-
-async function getFirstWindowWithRecovery(
-  initialApp: ElectronApplication,
-  launchOptions: Parameters<typeof electron.launch>[0]
-): Promise<{ app: ElectronApplication; window: Page }> {
-  let app = initialApp;
-  const maxRetries = 3;
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await delayForAttempt(attempt, maxRetries);
-      const window = await app.firstWindow();
-      console.log('✅ Successfully got first window');
-      return { app, window };
-    } catch (error) {
-      console.error(`❌ Failed to get first window (attempt ${attempt + 1}):`, error);
-      const relaunched = await relaunchIfCrash(app, error, attempt, maxRetries, launchOptions);
-      if (relaunched) {
-        app = relaunched;
-        continue;
-      }
-      const fallback = pickAvailableWindow(app);
-      if (fallback) return { app, window: fallback };
-      if (attempt === maxRetries - 1)
-        throw new Error('Failed to get first window after multiple attempts');
-    }
-  }
-  throw new Error('No window found after launching Electron app');
-}
-
-function pickAvailableWindow(app: ElectronApplication): Page | undefined {
-  const windows = app.windows();
-  console.log(`🔍 Available windows: ${windows.length}`);
-  return windows[0];
-}
-
-async function delayForAttempt(attempt: number, maxRetries: number): Promise<void> {
-  if (attempt === 0) return;
-  const waitMs = Math.min(2000 + attempt * 2000, 8000);
-  console.log(`🔄 Retry ${attempt}/${maxRetries} - waiting ${waitMs}ms for app init...`);
-  await new Promise((r) => setTimeout(r, waitMs));
-}
-
-async function relaunchIfCrash(
-  app: ElectronApplication,
-  error: unknown,
-  attempt: number,
-  maxRetries: number,
-  launchOptions: Parameters<typeof electron.launch>[0]
-): Promise<ElectronApplication | null> {
-  if (!isCrashError(error) || attempt >= maxRetries - 1) return null;
-  return await relaunchApp(app, launchOptions);
 }
 
 export async function closeElectronApp(appContext: ElectronAppContext): Promise<void> {
@@ -295,9 +280,26 @@ export async function waitForAppReady(page: Page): Promise<void> {
 }
 
 export async function resetAppState(window: Page): Promise<void> {
-  await window.evaluate(() => {
+  await window.evaluate(async () => {
     localStorage.clear();
     sessionStorage.clear();
+
+    // Clear persistent backend storage (electron-store/adapter)
+    // This ensures no "last folder" state persists between tests
+    const electronAPI = (
+      window as unknown as {
+        electronAPI?: { storage?: { clear?: () => Promise<void> } };
+      }
+    ).electronAPI;
+
+    if (electronAPI?.storage?.clear) {
+      try {
+        await electronAPI.storage.clear();
+        console.log('🔸 Backend storage cleared');
+      } catch (error) {
+        console.warn('🔸 Failed to clear backend storage:', error);
+      }
+    }
   });
 }
 
@@ -372,7 +374,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.requestDirectoryAccess = async () => {
         console.log('🔸 Mocked requestDirectoryAccess called');
-        return '/mock/test/directory';
+        return {
+          id: 'mock-directory-handle',
+          name: 'mock-test-directory',
+          path: '/mock/test/directory',
+          type: 'directory',
+          kind: 'directory',
+          platform: 'electron',
+        };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.exists = async (p: string) => {
@@ -381,8 +390,9 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
+        const rootPath = '/mock/test/directory';
         console.log('🔸 Mocked readDirectory called with path:', _p);
-        return ['mock-file1.txt', 'mock-file2.txt', 'mock-folder/'];
+        return getTestDirectoryStructure(rootPath);
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {

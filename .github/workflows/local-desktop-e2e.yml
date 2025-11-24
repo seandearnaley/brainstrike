@@ -1,0 +1,75 @@
+name: Local Desktop E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      shardIndex:
+        description: 'Shard index to run'
+        required: true
+        default: '2'
+      shardTotal:
+        description: 'Total shards'
+        required: true
+        default: '2'
+
+jobs:
+  desktop-e2e-local:
+    name: Desktop E2E (Shard ${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }})
+    runs-on: ubuntu-latest
+    env:
+      TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+      TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+      TURBO_CACHE_DIR: .turbo
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Skip Turborepo cache for local runs to avoid download overhead/conflicts
+      # unless specifically desired. Assuming fresh run is safer or reusing container.
+      
+      - name: Install system dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      - name: Install Playwright for Electron (no browsers needed)
+        run: pnpm exec playwright install-deps
+
+      - name: Build desktop application
+        run: pnpm run build --filter @brainstrike/desktop
+
+      - name: Run Desktop E2E tests (shard)
+        run: |
+          cd apps/desktop
+          RUN_SALT=${GITHUB_RUN_ID:-${GITHUB_RUN_NUMBER:-$(date +%s)}}
+          echo "Using RUN_SALT=${RUN_SALT} for shard isolation"
+          SHARD=${{ inputs.shardIndex || 2 }}
+          RUN_SLOT=$((RUN_SALT % 50))
+          SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
+          export RUN_SALT
+
+          LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
+          if [ -f "$LOCK_FILE" ]; then
+            rm -f "$LOCK_FILE"
+          fi
+
+          rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
+
+          xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
+            env RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
+        env:
+          NODE_ENV: "test"
+          CI: "true"

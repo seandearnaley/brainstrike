@@ -91,10 +91,58 @@ describe('ipc-handlers filesystem endpoints', () => {
     const handler = handlers.get('fs:readDirectory');
     const mockHandle = { id: 'mock-directory-handle' } as unknown as DirectoryHandle;
     const items = await handler?.({} as unknown as IpcMainInvokeEvent, mockHandle);
+
+    // Should match the structure returned by getMockDirectoryStructure
+    const rootPath = '/mock/test/directory';
     expect(items).toEqual([
-      { name: 'mock-file1.txt', type: 'file', size: 100 },
-      { name: 'mock-file2.ts', type: 'file', size: 250 },
-      { name: 'mock-subfolder', type: 'directory' },
+      {
+        name: 'mock-file1.txt',
+        path: `${rootPath}/mock-file1.txt`,
+        type: 'file',
+        size: 100,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'mock-directory-handle',
+        handle: {
+          id: 'mock-file-1',
+          kind: 'file',
+          name: 'mock-file1.txt',
+          path: `${rootPath}/mock-file1.txt`,
+          platform: 'electron',
+        },
+      },
+      {
+        name: 'mock-file2.ts',
+        path: `${rootPath}/mock-file2.ts`,
+        type: 'file',
+        size: 250,
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'mock-directory-handle',
+        handle: {
+          id: 'mock-file-2',
+          kind: 'file',
+          name: 'mock-file2.ts',
+          path: `${rootPath}/mock-file2.ts`,
+          platform: 'electron',
+        },
+      },
+      {
+        name: 'mock-subfolder',
+        path: `${rootPath}/mock-subfolder`,
+        type: 'directory',
+        depth: 1,
+        selectionState: 'unchecked',
+        rootFolderId: 'mock-directory-handle',
+        handle: {
+          id: 'mock-subfolder',
+          kind: 'directory',
+          name: 'mock-subfolder',
+          path: `${rootPath}/mock-subfolder`,
+          platform: 'electron',
+        },
+        children: [],
+      },
     ]);
   });
 

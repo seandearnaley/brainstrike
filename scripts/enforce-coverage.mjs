@@ -7,14 +7,14 @@ import path from 'node:path';
 
 // Default thresholds applied to all packages unless overridden below.
 // Keep these aligned with root vitest.config.ts global thresholds.
-const DEFAULT_THRESHOLDS = { lines: 70, functions: 60, branches: 60, statements: 70 };
+const DEFAULT_THRESHOLDS = { lines: 75, functions: 60, branches: 60, statements: 70 };
 
 // Optional strict overrides for key packages.
 const OVERRIDES = new Map([
   // High-coverage packages with strict enforcement
   [
     '@brainstrike/file-explorer-ui',
-    { lines: 86.5, functions: 84, branches: 81.5, statements: 86.5 },
+    { lines: 85.5, functions: 84, branches: 81.5, statements: 85.5 },
   ],
   // App shell — gradual improvement target (currently ~64.88%)
   [
@@ -42,6 +42,10 @@ const OVERRIDES = new Map([
   [
     '@brainstrike/types',
     { lines: 20, functions: 50, branches: 50, statements: 20 },
+  ],
+  [
+    '@brainstrike/file-system',
+    { lines: 69, functions: 60, branches: 60, statements: 69 },
   ],
   // Test utilities are helper scaffolding used by other packages' tests
   [

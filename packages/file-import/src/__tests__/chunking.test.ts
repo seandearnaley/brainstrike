@@ -16,6 +16,7 @@ type MockChunkRepository = {
 
 type MockChunkingService = {
   chunkContent: ReturnType<typeof vi.fn>;
+  chunkContentStream: ReturnType<typeof vi.fn>;
 };
 
 vi.mock('@brainstrike/db', async () => {
@@ -29,6 +30,7 @@ vi.mock('@brainstrike/db', async () => {
       embeddingInitializationDelay: 100,
       embeddingProcessingDelay: 10,
       chunkPreviewLength: 50,
+      veryLargeContentThreshold: 50,
     },
   };
 });
@@ -108,6 +110,34 @@ describe('processFileChunking', () => {
         totalTokens: 10,
         avgTokensPerChunk: 10,
         strategyUsed: 'sentence',
+      }),
+      chunkContentStream: vi.fn().mockImplementation(async function* () {
+        yield {
+          id: 'chunk-stream-1',
+          fileRecordId: 'file-1',
+          chunkIndex: 0,
+          content: 'Streamed chunk 1',
+          contentHash: 'hash-s1',
+          tokenCount: 10,
+          chunkType: 'sentence',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          embeddingSetId: undefined,
+        };
+        yield {
+          id: 'chunk-stream-2',
+          fileRecordId: 'file-1',
+          chunkIndex: 1,
+          content: 'Streamed chunk 2',
+          contentHash: 'hash-s2',
+          tokenCount: 10,
+          chunkType: 'sentence',
+          chunkSize: 100,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          embeddingSetId: undefined,
+        };
       }),
     };
 
@@ -378,6 +408,84 @@ describe('processFileChunking', () => {
     expect(finalProgress?.chunkingProgress?.chunksCreated).toBe(11);
     expect(finalProgress?.chunkingProgress?.strategyUsed).toBe('sentence');
   });
+
+  it('uses streaming for large files when enabled', async () => {
+    // Content length > 50 (mocked threshold)
+    const largeContent =
+      'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-large',
+      name: 'large.txt',
+      path: '/large.txt',
+      content: largeContent,
+    });
+
+    // Configure repository mock to return inserted chunks for counting
+    mockChunkRepository.insertMany.mockImplementation((chunks) => Promise.resolve([...chunks]));
+
+    const result = await processFileChunking(
+      { id: 'file-large', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        useStreamingForLargeFiles: true,
+        streamBatchSize: 2, // Small batch size to trigger flush during iteration
+      }
+    );
+
+    expect(result.enhancedResult.chunksCreated).toBe(2);
+    expect(mockChunkingService.chunkContentStream).toHaveBeenCalled();
+    expect(mockChunkRepository.insertMany).toHaveBeenCalled();
+
+    // Check that updateFileRecordWithChunkInfo was called with correct count
+    expect(mockRepository.update).toHaveBeenCalledWith(
+      'file-large',
+      expect.objectContaining({
+        chunksCount: 2,
+      })
+    );
+  });
+
+  it('sets embeddingSetId on streamed chunks when targetEmbeddingSetId is provided', async () => {
+    // Content length > 50 (mocked threshold)
+    const largeContent =
+      'This is a very large file content that should trigger streaming mode because it exceeds the threshold.';
+    mockRepository.findById.mockResolvedValue({
+      id: 'file-large-embed',
+      name: 'large-embed.txt',
+      path: '/large-embed.txt',
+      content: largeContent,
+    });
+
+    const capturedChunks: { embeddingSetId?: string }[] = [];
+    mockChunkRepository.insertMany.mockImplementation((chunks) => {
+      // biome-ignore lint/suspicious/noExplicitAny: casting for test capture
+      capturedChunks.push(...chunks.map((c: any) => ({ ...c }))); // Capture copy
+      return Promise.resolve([...chunks]);
+    });
+
+    await processFileChunking(
+      { id: 'file-large-embed', imported: true, existed: false },
+      0,
+      1,
+      0,
+      { repository: mockRepository as never, chunkRepository: mockChunkRepository as never },
+      {
+        updateProgress: mockUpdateProgress,
+        useStreamingForLargeFiles: true,
+        targetEmbeddingSetId: 'set-123',
+      }
+    );
+
+    expect(mockChunkingService.chunkContentStream).toHaveBeenCalled();
+
+    // Check captured chunks instead of mock.calls
+    expect(capturedChunks.length).toBeGreaterThan(0);
+    expect(capturedChunks[0]?.embeddingSetId).toBe('set-123');
+  });
 });
 
 describe('processChunking', () => {
@@ -422,6 +530,7 @@ describe('processChunking', () => {
         ],
         skipped: false,
       }),
+      chunkContentStream: vi.fn(), // Should not be called here by default
     };
 
     (ChunkingService as unknown as ReturnType<typeof vi.fn>).mockImplementation(

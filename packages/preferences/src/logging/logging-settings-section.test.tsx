@@ -4,6 +4,31 @@ import '@testing-library/jest-dom';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { LoggingSettingsSection, type LogSourceAdapter } from './logging-settings-section';
 
+// Mock virtualizer to render all items for testing
+vi.mock('@tanstack/react-virtual', async () => {
+  const actual = await vi.importActual('@tanstack/react-virtual');
+  return {
+    ...actual,
+    // biome-ignore lint/suspicious/noExplicitAny: Mocking external library
+    useVirtualizer: ({ count }: any) => {
+      return {
+        getVirtualItems: () =>
+          Array.from({ length: count }).map((_, i) => ({
+            index: i,
+            start: i * 30,
+            size: 30,
+            end: (i + 1) * 30,
+            key: i,
+            measureElement: () => {},
+          })),
+        getTotalSize: () => count * 30,
+        scrollToIndex: () => {},
+        measureElement: () => {},
+      };
+    },
+  };
+});
+
 beforeAll(() => {
   class ResizeObserver {
     observe() {}
@@ -59,15 +84,19 @@ describe('LoggingSettingsSection log viewer', () => {
       getInitialRecords: async () => [],
       subscribe: (handler) => {
         handler([]);
-        setTimeout(() => handler(laterRecords), 10);
+        // Use microtask to ensure update happens after mount but reliably
+        Promise.resolve().then(() => handler(laterRecords));
         return vi.fn();
       },
     };
 
     render(<LoggingSettingsSection runtime="browser" logSource={logSource} />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Late arriving row')).toBeInTheDocument();
-    });
+    await waitFor(
+      () => {
+        expect(screen.getByText('Late arriving row')).toBeInTheDocument();
+      },
+      { timeout: 2000 }
+    );
   });
 });

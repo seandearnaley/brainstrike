@@ -127,16 +127,17 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     return null;
   }
 
-  private async makeEmbeddingRequest(text: string): Promise<Response> {
+  private async makeEmbeddingRequest(text: string | string[]): Promise<Response> {
     const requestBody: Record<string, unknown> = {
-      input: [text],
+      input: Array.isArray(text) ? text : [text],
       model: this.modelId,
     };
     if (this.inputType) {
       requestBody['input_type'] = this.inputType;
     }
 
-    return this.fetchImpl(this.endpoint, {
+    const fetchImpl = this.fetchImpl.bind(globalThis);
+    return fetchImpl(this.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -178,37 +179,59 @@ export class VoyageEmbeddingProvider implements IHostedEmbeddingProvider {
     modelId: string
   ): Promise<Result<EmbeddingOutput, EmbeddingProviderError>> {
     const payload = (await response.json()) as VoyageEmbeddingResponse;
-    const embedding = payload.data?.[0]?.embedding;
 
-    if (!Array.isArray(embedding)) {
+    if (!payload.data || !Array.isArray(payload.data) || payload.data.length === 0) {
       return {
         ok: false,
         error: {
           type: 'api_error',
           provider: 'voyage',
           statusCode: response.status,
-          message: 'Voyage response did not include an embedding array.',
+          message: 'Voyage response did not include data array.',
+        },
+      };
+    }
+
+    const embeddings = payload.data
+      .map((d) => d.embedding)
+      .filter((e): e is number[] => Array.isArray(e));
+
+    if (embeddings.length === 0) {
+      return {
+        ok: false,
+        error: {
+          type: 'api_error',
+          provider: 'voyage',
+          statusCode: response.status,
+          message: 'Voyage response did not include valid embeddings.',
         },
       };
     }
 
     const modelInfo = this.getModelInfo(this.modelId);
-    const expectedDimensions = modelInfo?.dimensions ?? embedding.length;
-    const validation = this.validateDimensions(embedding, expectedDimensions);
-    if (!validation.ok) {
-      return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+    const expectedDimensions = modelInfo?.dimensions ?? embeddings[0]?.length ?? 0;
+
+    for (const embedding of embeddings) {
+      const validation = this.validateDimensions(embedding, expectedDimensions);
+      if (!validation.ok) {
+        return validation as Result<EmbeddingOutput, EmbeddingProviderError>;
+      }
     }
 
     const output: EmbeddingOutput = {
-      embedding,
-      dimensions: embedding.length,
+      embedding: embeddings[0] ?? [], // For backward compatibility
+      embeddings: embeddings,
+      dimensions: embeddings[0]?.length ?? 0,
       modelId,
       provider: 'voyage',
     };
 
     const usageTokens = payload.usage?.['total_tokens'];
     if (typeof usageTokens === 'number') {
-      output.usage = { inputTokens: usageTokens };
+      output.usage = {
+        inputTokens: usageTokens,
+        totalTokens: usageTokens,
+      };
     }
 
     return { ok: true, value: output };

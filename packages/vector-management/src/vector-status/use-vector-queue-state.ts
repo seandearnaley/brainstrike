@@ -133,6 +133,16 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
   const [recentErrorCount, setRecentErrorCount] = useState(0);
   const autoBackfillRef = useRef<string | null>(null);
   const lastEmbeddingSetIdRef = useRef<string | null>(null);
+  const backfillTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (backfillTimeoutRef.current) {
+        clearTimeout(backfillTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const queueCountsResult = usePGliteLiveQuery<QueueCountsRow>({
     query: QUEUE_COUNTS_QUERY,
@@ -289,7 +299,13 @@ export function useVectorQueueState(params: UseVectorQueueStateParams): UseVecto
       // swallow errors; live queries will reflect queue changes
     } finally {
       setBackfilling(false);
-      setTimeout(() => setBackfillProgress(null), 1000);
+      if (backfillTimeoutRef.current) {
+        clearTimeout(backfillTimeoutRef.current);
+      }
+      backfillTimeoutRef.current = setTimeout(() => {
+        setBackfillProgress(null);
+        backfillTimeoutRef.current = null;
+      }, 1000);
     }
   }, [service, activeEmbeddingSetId]);
 

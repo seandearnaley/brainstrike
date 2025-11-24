@@ -24,6 +24,7 @@ async function globalSetup(_config: FullConfig) {
 
   // Ensure the main process file exists
   const mainPath = path.join(process.cwd(), 'dist', 'main.js');
+  const rendererPath = path.join(process.cwd(), 'dist', 'renderer', 'index.html');
   const fs = await import('node:fs/promises');
 
   try {
@@ -32,6 +33,15 @@ async function globalSetup(_config: FullConfig) {
   } catch (_error) {
     console.error('❌ Main process file not found at:', mainPath);
     throw new Error(`Main process file not found. Expected at: ${mainPath}`);
+  }
+
+  try {
+    await fs.access(rendererPath);
+    console.log('✅ Renderer entry point found at:', rendererPath);
+  } catch (_error) {
+    console.error('❌ Renderer entry point not found at:', rendererPath);
+    // Don't throw yet, let the test fail naturally but log it clearly
+    console.warn('⚠️ WARNING: Renderer file missing. Tests may fail or hang.');
   }
 
   console.log('🚀 Electron E2E setup complete');

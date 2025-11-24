@@ -1,4 +1,4 @@
-import type { IDatabase } from '@brainstrike/db';
+import type { IDatabase, Job } from '@brainstrike/db';
 import { JobQueue } from '@brainstrike/db';
 import type { ProviderDimensionParameter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -14,6 +14,17 @@ import { formatProviderModelKey, isHostedProvider, parseProviderModelKey } from 
 import type { EmbeddingResult, EmbeddingService, ModelConfig } from '../types';
 
 const workerLogger = createLogger('EmbeddingWorker');
+
+class WorkerRateLimitError extends Error {
+  retryAfterMs?: number;
+  constructor(message: string, retryAfterMs?: number) {
+    super(message);
+    this.name = 'WorkerRateLimitError';
+    if (retryAfterMs !== undefined) {
+      this.retryAfterMs = retryAfterMs;
+    }
+  }
+}
 
 type Distance = 'cosine' | 'l2' | 'ip';
 
@@ -165,7 +176,7 @@ function resolveWorkerModel(fromOptions?: string): {
     return {
       provider: parsed.provider,
       modelId: parsed.modelId,
-      compositeKey: candidate,
+      compositeKey: formatProviderModelKey(parsed.provider, parsed.modelId),
     };
   }
 
@@ -181,7 +192,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isNodejsMainProcess(): boolean {
-  // Check if we're in a Node.js environment (not browser)
   try {
     return (
       typeof process !== 'undefined' &&
@@ -196,15 +206,55 @@ function isNodejsMainProcess(): boolean {
   }
 }
 
+function isElectronMainProcess(): boolean {
+  try {
+    return (
+      typeof process !== 'undefined' &&
+      Boolean((process as { type?: string } | undefined)?.type === 'browser')
+    );
+  } catch (error) {
+    workerLogger.debug('Failed to detect Electron main process while checking embedding context', {
+      error,
+    });
+    return false;
+  }
+}
+
+function readBooleanEnv(key: string): boolean | undefined {
+  try {
+    const raw = (process as { env?: Record<string, string | undefined> } | undefined)?.env?.[key];
+    if (raw === undefined) return undefined;
+    const normalized = raw.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return undefined;
+  } catch (error) {
+    workerLogger.debug('Failed to read boolean env flag', { key, error });
+    return undefined;
+  }
+}
+
 function ensureLocalRuntime(modelResolution: { provider: EmbeddingProviderType }): void {
-  // CRITICAL FIX: Local transformers models require Web Workers to avoid blocking execution.
-  // In Electron main process (Node.js), Web Workers don't exist, causing TransformersBackend
-  // to fall back to synchronous execution which blocks the entire app.
-  if (modelResolution.provider === 'local' && isNodejsMainProcess()) {
+  if (modelResolution.provider !== 'local') return;
+
+  const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
+
+  // Local transformers require Web Workers. In Electron main process, that would block the UI,
+  // so we still forbid it unless explicitly overridden.
+  if (isElectronMainProcess() && process.env['NODE_ENV'] !== 'test' && !allowMainRuntime) {
     throw new Error(
-      'Cannot use local embedding models in Node.js/Electron main process. ' +
+      'Cannot use local embedding models in Electron main process. ' +
         'TransformersBackend requires Web Workers which are only available in browser contexts. ' +
         'Use a hosted provider (openai, google) or process embeddings in the renderer.'
+    );
+  }
+
+  // Pure Node.js workers are allowed but warned because they can still block when Web Workers
+  // are unavailable. Operators can silence by setting EMBED_ALLOW_LOCAL_IN_MAIN=true.
+  if (isNodejsMainProcess() && !allowMainRuntime) {
+    workerLogger.warn(
+      'Running local embeddings in a Node.js main process. This may block event loop if Web Workers are unavailable. ' +
+        'Set EMBED_ALLOW_LOCAL_IN_MAIN=true to acknowledge this risk.'
     );
   }
 }
@@ -217,6 +267,15 @@ function shouldStartWorker(
   if (options.enable === false) {
     log('Embedding worker disabled via options.enable=false');
     return false;
+  }
+
+  const envEnabled = readBooleanEnv('EMBED_WORKER_ENABLED');
+  if (envEnabled === false) {
+    log('Embedding worker disabled via EMBED_WORKER_ENABLED=false');
+    return false;
+  }
+  if (envEnabled === true) {
+    return true;
   }
 
   return true;
@@ -291,6 +350,8 @@ function formatHostedEmbedError(
       return `Hosted provider "${provider}" rate limit exceeded.`;
     case 'missing_api_key':
       return `Hosted provider "${provider}" missing API key.`;
+    case 'network_error':
+      return `Hosted provider "${provider}" network error: ${error.originalError.message}`;
     default:
       return `Hosted provider "${provider}" error: ${error.type}.`;
   }
@@ -315,19 +376,31 @@ async function initializeEmbeddingService(
 ): Promise<{ service: EmbeddingService; modelConfig: ModelConfig }> {
   const service = options.service ?? new SimpleEmbeddingService();
 
+  const parsedForRegistry = parseProviderModelKey(modelKey);
+  const registryModelKey =
+    parsedForRegistry && parsedForRegistry.provider === 'local'
+      ? parsedForRegistry.modelId
+      : modelKey;
+
   // Only initialize if we created the default service
   if (!options.service) {
-    // Initialize with the requested model key
-    const simpleService = service as SimpleEmbeddingService;
-    if (typeof simpleService.initializeWithModel === 'function') {
-      await simpleService.initializeWithModel(modelKey, undefined, options.device);
-    } else {
-      await service.initialize?.({}, undefined);
+    // Check if it's a hosted model - if so, we don't need to initialize the local service
+    const parsed = parseProviderModelKey(modelKey);
+    const isHosted = parsed && isHostedProvider(parsed.provider);
+
+    if (!isHosted) {
+      // Initialize with the requested model key
+      const simpleService = service as SimpleEmbeddingService;
+      if (typeof simpleService.initializeWithModel === 'function') {
+        await simpleService.initializeWithModel(registryModelKey, undefined, options.device);
+      } else {
+        await service.initialize?.({}, undefined);
+      }
     }
   }
 
   // Get model config - if using custom service, determine dimensions first
-  let modelConfig = SimpleEmbeddingService.getModelConfig(modelKey);
+  let modelConfig = SimpleEmbeddingService.getModelConfig(registryModelKey);
   if (!modelConfig && options.service) {
     // For custom services, generate a test embedding to get dimensions
     const serviceConfig = service.getConfig();
@@ -414,7 +487,7 @@ export async function startEmbeddingWorker(
   let activeCompositeKey = modelResolution.compositeKey;
   const workerId = options.workerId ?? `embed-worker-${generateUUID().slice(0, 8)}`;
 
-  let { service, modelConfig } = await initializeEmbeddingService(options, activeModelId);
+  let { service, modelConfig } = await initializeEmbeddingService(options, activeCompositeKey);
   let activeModelDimension = ensureModelDimension(modelConfig, activeCompositeKey, log);
 
   // REMOVED: Worker no longer auto-creates embedding sets on startup
@@ -449,13 +522,14 @@ export async function startEmbeddingWorker(
   // Stability controls
   let processedSinceInit = 0;
   let consecutiveFailures = 0;
-  const reinitEveryN = Number(
+  const reinitEveryN =
     options.reinitEveryN ??
-      (globalThis as { process?: { env?: Record<string, string | undefined> } })?.process?.env?.[
-        'EMBED_REINIT_EVERY'
-      ] ??
-      100
-  );
+    (() => {
+      const raw = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+        ?.process?.env?.['EMBED_REINIT_EVERY'];
+      const parsed = Number(raw);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : 100;
+    })();
   const forceCpuAfterFailures = Math.max(1, options.forceCpuAfterFailures ?? 3);
 
   async function ensureLocalModel(
@@ -479,10 +553,11 @@ export async function startEmbeddingWorker(
       return;
     }
 
+    const allowMainRuntime = readBooleanEnv('EMBED_ALLOW_LOCAL_IN_MAIN') === true;
     // CRITICAL FIX: In Electron main process, TransformersBackend tries to create Web Workers
     // which don't exist in Node.js. This causes it to fall back to synchronous execution,
-    // blocking the entire app. Reject model switching for local providers.
-    if (targetModelId !== activeModelId) {
+    // blocking the entire app. Reject model switching for local providers unless explicitly allowed.
+    if (targetModelId !== activeModelId && isElectronMainProcess() && !allowMainRuntime) {
       throw new Error(
         `Cannot switch local embedding models in main process (from ${activeModelId} to ${targetModelId}). ` +
           'Web Workers are not available in Node.js/Electron main process. ' +
@@ -530,101 +605,111 @@ export async function startEmbeddingWorker(
     });
   }
 
-  type ClaimedJob = NonNullable<Awaited<ReturnType<typeof jq.claim>>>;
+  // biome-ignore lint/style/useNamingConvention: DB field name
+  type ClaimedJob = Job & { lease_token: string };
 
-  async function generateLocalEmbedding(
-    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>,
+  class JobProcessingError extends Error {
+    remainingJobs: ClaimedJob[];
+    readonly originalError?: unknown;
+
+    constructor(message: string, remainingJobs: ClaimedJob[], cause?: unknown) {
+      super(message);
+      this.name = 'JobProcessingError';
+      this.remainingJobs = remainingJobs;
+      this.originalError = cause;
+    }
+  }
+
+  async function generateLocalEmbeddings(
+    chunks: Array<NonNullable<Awaited<ReturnType<typeof loadChunk>>>>,
     expectedDimension: number
-  ): Promise<EmbeddingResult> {
+  ): Promise<EmbeddingResult[]> {
     if (!Number.isFinite(expectedDimension) || expectedDimension <= 0) {
       throw new Error(`Invalid expected embedding dimension (${expectedDimension}).`);
     }
 
-    workerLogger.debug('Calling service.generateEmbedding (may block main thread)', {
-      contentLength: chunk.content.length,
+    workerLogger.debug('Calling service.generateEmbeddings (may block main thread)', {
+      count: chunks.length,
       expectedDimension,
     });
 
+    const texts = chunks.map((c) => c.content);
     const svcAny = service as unknown as {
-      generateDocEmbedding?: (t: string) => Promise<EmbeddingResult>;
+      generateEmbeddings?: (t: string[]) => Promise<EmbeddingResult[]>;
       generateEmbedding: (t: string) => Promise<EmbeddingResult>;
     };
-    const result = svcAny.generateDocEmbedding
-      ? await svcAny.generateDocEmbedding(chunk.content)
-      : await service.generateEmbedding(chunk.content);
 
-    workerLogger.debug('service.generateEmbedding completed');
-
-    if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
-      throw new Error(
-        `Embedding dimension mismatch for model '${activeCompositeKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
-          'Verify provider configuration (dimension/size parameter) and retry.'
-      );
+    let results: EmbeddingResult[];
+    if (svcAny.generateEmbeddings) {
+      results = await svcAny.generateEmbeddings(texts);
+    } else {
+      // Fallback for services that don't support batching
+      results = [];
+      for (const text of texts) {
+        results.push(await service.generateEmbedding(text));
+      }
     }
 
-    return result;
-  }
+    workerLogger.debug('service.generateEmbeddings completed');
 
-  function resolveJobModel(payload: EmbedChunkPayload): {
-    compositeKey: string;
-    provider: EmbeddingProviderType;
-    modelId: string;
-  } {
-    const rawModelKey = payload.modelKey ?? undefined;
-    const providerHint = payload.provider ?? undefined;
-
-    const candidateComposite = (() => {
-      if (!rawModelKey) {
-        return undefined;
+    for (const result of results) {
+      if (!Array.isArray(result.embedding) || result.embedding.length !== expectedDimension) {
+        throw new Error(
+          `Embedding dimension mismatch for model '${activeCompositeKey}': received ${result.embedding.length}, expected ${expectedDimension}. ` +
+            'Verify provider configuration (dimension/size parameter) and retry.'
+        );
       }
-      const parsed = parseProviderModelKey(rawModelKey);
-      if (parsed) {
-        return rawModelKey;
-      }
-      if (providerHint && isHostedProvider(providerHint)) {
-        return formatProviderModelKey(providerHint, rawModelKey);
-      }
-      return rawModelKey;
-    })();
-
-    const compositeKey = candidateComposite ?? activeCompositeKey;
-    const parsed = parseProviderModelKey(compositeKey);
-
-    if (parsed) {
-      return {
-        compositeKey,
-        provider: parsed.provider,
-        modelId: parsed.modelId,
-      };
     }
 
-    return {
-      compositeKey,
-      provider: 'local',
-      modelId: compositeKey,
-    };
+    return results;
   }
 
-  async function generateHostedEmbedding(
+  function handleHostedError(provider: SupportedHostedProvider, error: EmbeddingProviderError) {
+    if (error.type === 'rate_limit_exceeded') {
+      const retryAfter = error.retryAfter;
+      const ms = retryAfter ? retryAfter * 1000 : undefined;
+      throw new WorkerRateLimitError(formatHostedEmbedError(provider, error), ms);
+    }
+    throw new Error(formatHostedEmbedError(provider, error));
+  }
+
+  async function generateHostedEmbeddings(
     provider: Exclude<EmbeddingProviderType, 'local'>,
     modelId: string,
     expectedDimension: number,
-    text: string
-  ): Promise<number[]> {
+    texts: string[]
+  ): Promise<number[][]> {
     const supportedProvider = toSupportedHostedProvider(provider);
     const config = buildHostedProviderConfig(supportedProvider, modelId, expectedDimension);
     const providerInstance = await createHostedProviderInstance(supportedProvider, config);
-    const embedResult = await providerInstance.embed({ text, modelId });
+
+    // Casting to allow array input which we added support for
+    const embedResult = await providerInstance.embed({
+      text: texts,
+      modelId,
+    });
+
     if (!embedResult.ok) {
-      throw new Error(formatHostedEmbedError(supportedProvider, embedResult.error));
+      handleHostedError(supportedProvider, embedResult.error);
+      throw new Error('Unreachable'); // handleHostedError always throws
     }
 
-    const embedding = embedResult.value.embedding;
-    validateHostedEmbeddingDimensions(supportedProvider, modelId, embedding, expectedDimension);
+    const embeddings =
+      embedResult.value.embeddings ||
+      (embedResult.value.embedding ? [embedResult.value.embedding] : []);
 
-    return embedding;
+    if (embeddings.length !== texts.length) {
+      throw new Error(
+        `Hosted provider returned ${embeddings.length} embeddings for ${texts.length} inputs.`
+      );
+    }
+
+    for (const embedding of embeddings) {
+      validateHostedEmbeddingDimensions(supportedProvider, modelId, embedding, expectedDimension);
+    }
+
+    return embeddings;
   }
-
   function assertEmbedChunkJob(claimed: ClaimedJob): EmbedChunkPayload {
     if (claimed.jobType !== 'embed_chunk') {
       throw new Error(`Unsupported job type: ${claimed.jobType}`);
@@ -695,129 +780,453 @@ export async function startEmbeddingWorker(
     return Boolean(chunk.embeddingHash && chunk.embeddingHash === expectedHash);
   }
 
-  async function executeJobPayload(claimed: ClaimedJob, leaseToken: string): Promise<void> {
-    workerLogger.debug('Job start', {
-      jobId: claimed.id,
-      activeModelId,
-      activeCompositeKey,
-    });
+  function parseStatusCode(message: string): number | undefined {
+    const statusMatch = /status (\d{3})/i.exec(message);
+    return statusMatch ? Number(statusMatch[1]) : undefined;
+  }
 
-    const payload = assertEmbedChunkJob(claimed);
-    workerLogger.debug('Job payload', {
-      chunkId: payload.chunkId,
-      payloadModelKey: payload.modelKey,
-      payloadProvider: payload.provider,
-    });
+  function parseHostedStatusCode(message: string): number | undefined {
+    const hostedStatusMatch = /API error \((\d{3})\)/i.exec(message);
+    return hostedStatusMatch ? Number(hostedStatusMatch[1]) : undefined;
+  }
 
-    const chunk = await loadChunkOrThrow(payload.chunkId);
-    const targetSetId = resolveTargetSetId(payload, chunk);
-    const expectedDimension = await determineExpectedDimension(targetSetId, payload);
-    const jobModel = resolveJobModel(payload);
+  function classifyFailure(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    const truncated = summarizeErrorMessage(message);
 
-    workerLogger.debug('Resolved job model', {
-      jobModelId: jobModel.modelId,
-      jobCompositeKey: jobModel.compositeKey,
-      jobProvider: jobModel.provider,
-      willReinitialize: jobModel.modelId !== activeModelId,
-    });
+    const backoffMs =
+      error instanceof WorkerRateLimitError && error.retryAfterMs ? error.retryAfterMs : undefined;
 
-    const expectedHash = await sha256Hex(`${chunk.contentHash}:${jobModel.compositeKey}`);
+    const hostedStatusCode = parseHostedStatusCode(message);
+    const isHostedTerminal =
+      hostedStatusCode !== undefined &&
+      hostedStatusCode >= 400 &&
+      hostedStatusCode < 500 &&
+      hostedStatusCode !== 429;
 
-    if (isEmbeddingUpToDate(chunk, expectedHash)) {
-      await jq.complete({ id: claimed.id, leaseToken });
+    const statusCode = parseStatusCode(message);
+    const isExplicitTerminalStatus =
+      statusCode !== undefined && [400, 401, 403, 422].includes(statusCode);
+
+    const looksLikeModelExecError =
+      /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
+
+    const isTerminal =
+      isExplicitTerminalStatus ||
+      isHostedTerminal ||
+      /context length exceeded/i.test(message) ||
+      /invalid input/i.test(message);
+
+    return {
+      backoffMs,
+      isTerminal,
+      looksLikeModelExecError,
+      truncated,
+    };
+  }
+
+  function summarizeErrorMessage(message: string, limit = 4000): string {
+    if (message.length <= limit) return message;
+    const separator = ' ...[truncated]... ';
+    const available = limit - separator.length;
+    if (available <= 0) return message.slice(0, limit);
+
+    const head = Math.floor(available / 2);
+    const tail = available - head;
+    return `${message.slice(0, head)}${separator}${message.slice(message.length - tail)}`;
+  }
+
+  async function handleBatchFailure(jobs: ClaimedJob[], error: unknown) {
+    const { backoffMs, isTerminal, looksLikeModelExecError, truncated } = classifyFailure(error);
+
+    // Fail all jobs in the batch with the same error
+    await Promise.all(
+      jobs.map((job) =>
+        jq.fail({
+          id: job.id,
+          leaseToken: job.lease_token,
+          error: truncated,
+          ...(backoffMs !== undefined ? { backoffMs } : {}),
+          terminal: isTerminal,
+        })
+      )
+    );
+
+    metrics.jobsFailed += jobs.length;
+    consecutiveFailures += 1;
+
+    if (looksLikeModelExecError && consecutiveFailures >= forceCpuAfterFailures) {
+      workerLogger.warn(
+        `Consecutive model execution failures (${consecutiveFailures}); forcing CPU reset.`
+      );
+      await resetService(true);
+      consecutiveFailures = 0;
+    } else if (consecutiveFailures >= reinitEveryN) {
+      workerLogger.warn(
+        `Consecutive failures (${consecutiveFailures}); forcing service reinitialization.`
+      );
+      await resetService(false);
+      consecutiveFailures = 0;
+    }
+  }
+
+  async function loadAndFilterChunks(
+    jobs: ClaimedJob[],
+    jobModel: ReturnType<typeof resolveJobModel>
+  ) {
+    // 1. Load all chunks
+    const chunks = await Promise.all(
+      jobs.map(async (job) => {
+        const p = assertEmbedChunkJob(job);
+        return { job, chunk: await loadChunkOrThrow(p.chunkId), payload: p };
+      })
+    );
+
+    // 2. Filter out up-to-date chunks
+    const toProcess: typeof chunks = [];
+    const completed: typeof chunks = [];
+
+    for (const item of chunks) {
+      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+      if (isEmbeddingUpToDate(item.chunk, expectedHash)) {
+        completed.push(item);
+      } else {
+        toProcess.push(item);
+      }
+    }
+    return { toProcess, completed };
+  }
+
+  type LoadedChunkItem = {
+    job: ClaimedJob;
+    chunk: NonNullable<Awaited<ReturnType<typeof loadChunk>>>;
+    payload: EmbedChunkPayload;
+  };
+
+  async function generateEmbeddingsForGroup(
+    jobModel: ReturnType<typeof resolveJobModel>,
+    toProcess: LoadedChunkItem[],
+    expectedDimension: number
+  ) {
+    const texts = toProcess.map((item) => item.chunk.content);
+    if (jobModel.provider === 'local') {
+      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
+      const results = await generateLocalEmbeddings(
+        toProcess.map((item) => item.chunk),
+        expectedDimension
+      );
+      return results.map((r) => r.embedding);
+    }
+    return generateHostedEmbeddings(jobModel.provider, jobModel.modelId, expectedDimension, texts);
+  }
+
+  async function validateBatchDimensions(toProcess: LoadedChunkItem[]) {
+    const dimensions = await Promise.all(
+      toProcess.map((item) =>
+        determineExpectedDimension(resolveTargetSetId(item.payload, item.chunk), item.payload)
+      )
+    );
+
+    const expectedDimension = dimensions[0];
+    if (!expectedDimension) {
+      throw new Error('Could not determine expected dimension for batch.');
+    }
+
+    if (dimensions.some((d) => d !== expectedDimension)) {
+      throw new Error('Batch contains jobs with conflicting expected dimensions.');
+    }
+    return expectedDimension;
+  }
+
+  async function completeBatch(
+    toProcess: LoadedChunkItem[],
+    embeddings: number[][],
+    jobModel: ReturnType<typeof resolveJobModel>
+  ): Promise<Set<string>> {
+    const completedJobIds = new Set<string>();
+    for (let index = 0; index < toProcess.length; index += 1) {
+      const item = toProcess[index];
+      if (!item) {
+        throw new Error(`Missing batch item at index ${index}.`);
+      }
+      const embedding = embeddings[index];
+      if (!embedding) {
+        throw new Error(`Missing embedding for item ${index} in batch.`);
+      }
+      const targetSetId = resolveTargetSetId(item.payload, item.chunk);
+      const expectedHash = await sha256Hex(`${item.chunk.contentHash}:${jobModel.compositeKey}`);
+
+      await updateChunkEmbedding(
+        options.db,
+        item.chunk.id,
+        embedding,
+        targetSetId,
+        expectedHash,
+        vectorEnabledForWrites
+      );
+
+      await jq.complete({ id: item.job.id, leaseToken: item.job.lease_token });
+      completedJobIds.add(item.job.id);
+    }
+    return completedJobIds;
+  }
+
+  function resolveJobModel(payload: EmbedChunkPayload): {
+    compositeKey: string;
+    provider: EmbeddingProviderType;
+    modelId: string;
+  } {
+    const rawModelKey = payload.modelKey ?? undefined;
+    const providerHint = payload.provider ?? undefined;
+
+    const candidateComposite = (() => {
+      if (!rawModelKey) {
+        return undefined;
+      }
+      const parsed = parseProviderModelKey(rawModelKey);
+      if (parsed) {
+        return rawModelKey;
+      }
+      if (providerHint && isHostedProvider(providerHint)) {
+        return formatProviderModelKey(providerHint, rawModelKey);
+      }
+      return rawModelKey;
+    })();
+
+    const compositeKey = candidateComposite ?? activeCompositeKey;
+    const parsed = parseProviderModelKey(compositeKey);
+
+    if (parsed) {
+      return {
+        compositeKey,
+        provider: parsed.provider,
+        modelId: parsed.modelId,
+      };
+    }
+
+    return {
+      compositeKey,
+      provider: 'local',
+      modelId: compositeKey,
+    };
+  }
+
+  function startHeartbeat(jobs: ClaimedJob[], onLeaseLost: (job: ClaimedJob) => void) {
+    const lostJobs = new Set<string>();
+    return setInterval(() => {
+      Promise.all(
+        jobs.map(async (job) => {
+          if (lostJobs.has(job.id)) return;
+          const res = await jq.heartbeat({
+            id: job.id,
+            leaseToken: job.lease_token,
+            extendMs: leaseMs,
+          });
+          if (!res) {
+            workerLogger.error('Heartbeat failed: lease lost', { jobId: job.id });
+            lostJobs.add(job.id);
+            onLeaseLost(job);
+          }
+        })
+      ).catch((err) => log('worker_heartbeat_error', { count: jobs.length, error: String(err) }));
+    }, heartbeatMs);
+  }
+
+  async function processJobGroup(
+    jobs: ClaimedJob[],
+    jobModel: ReturnType<typeof resolveJobModel>,
+    checkLease: () => boolean
+  ) {
+    const { toProcess, completed } = await loadAndFilterChunks(jobs, jobModel);
+    const completedJobIds = new Set<string>(completed.map((item) => item.job.id));
+
+    try {
+      if (checkLease()) throw new Error('Lease lost during processing');
+
+      await markAlreadyCompleted(completed, completedJobIds);
+
+      if (toProcess.length === 0) return;
+
+      const expectedDimension = await validateBatchDimensions(toProcess);
+
+      if (checkLease()) throw new Error('Lease lost during processing');
+
+      const embeddings = await generateEmbeddingsForGroup(jobModel, toProcess, expectedDimension);
+
+      if (checkLease()) throw new Error('Lease lost during processing');
+
+      const newlyCompleted = await completeBatch(toProcess, embeddings, jobModel);
+      for (const id of newlyCompleted) {
+        completedJobIds.add(id);
+      }
+
+      metrics.jobsProcessed += toProcess.length;
+      processedSinceInit += toProcess.length;
+      consecutiveFailures = 0;
+
+      await maybeReinitialize();
+    } catch (err) {
+      const remainingJobs = jobs.filter((job) => !completedJobIds.has(job.id));
+      throw new JobProcessingError('Failed processing job group', remainingJobs, err);
+    }
+  }
+
+  async function markAlreadyCompleted(
+    completed: Array<{ job: ClaimedJob }>,
+    completedJobIds: Set<string>
+  ) {
+    if (completed.length === 0) return;
+    await Promise.all(
+      completed.map((item) => jq.complete({ id: item.job.id, leaseToken: item.job.lease_token }))
+    );
+    for (const item of completed) {
+      completedJobIds.add(item.job.id);
+    }
+    metrics.jobsProcessed += completed.length;
+    processedSinceInit += completed.length;
+  }
+
+  async function maybeReinitialize() {
+    if (processedSinceInit < reinitEveryN) return;
+    workerLogger.info(
+      `Processed ${processedSinceInit} jobs; performing scheduled reinitialization.`
+    );
+    await resetService(false);
+  }
+
+  async function resolveJobModelOrFail(
+    jobs: ClaimedJob[]
+  ): Promise<ReturnType<typeof resolveJobModel> | null> {
+    const firstJob = jobs[0];
+    if (!firstJob) return null;
+    try {
+      const payload = assertEmbedChunkJob(firstJob);
+      return resolveJobModel(payload);
+    } catch (err) {
+      await handleBatchFailure(jobs, err);
+      return null;
+    }
+  }
+
+  function createLeaseTracker(
+    jobs: ClaimedJob[],
+    checkLeaseOverride?: () => boolean
+  ): { checkLease: () => boolean; dispose: () => void } {
+    let leaseLost = false;
+    const checkLease = checkLeaseOverride ?? (() => leaseLost);
+    const hb =
+      checkLeaseOverride === undefined
+        ? startHeartbeat(jobs, () => {
+            leaseLost = true;
+          })
+        : undefined;
+    return {
+      checkLease,
+      dispose: () => {
+        if (hb) clearInterval(hb);
+      },
+    };
+  }
+
+  async function handleGroupError(
+    error: unknown,
+    jobs: ClaimedJob[],
+    checkLease: () => boolean
+  ): Promise<void> {
+    if (checkLease()) {
+      workerLogger.warn('Aborting batch processing due to lost lease');
       return;
     }
-
-    let embedding: number[];
-    if (jobModel.provider === 'local') {
-      workerLogger.debug('Processing local embedding job');
-      await ensureLocalModel(jobModel.modelId, jobModel.compositeKey);
-      workerLogger.debug('About to call generateLocalEmbedding');
-      const result = await generateLocalEmbedding(chunk, expectedDimension);
-      workerLogger.debug('generateLocalEmbedding returned', {
-        dimensions: result.dimensions,
-      });
-      embedding = result.embedding;
-    } else {
-      embedding = await generateHostedEmbedding(
-        jobModel.provider,
-        jobModel.modelId,
-        expectedDimension,
-        chunk.content
-      );
+    if (error instanceof JobProcessingError) {
+      await handleBatchFailure(error.remainingJobs, error.originalError ?? error);
+      return;
     }
-
-    await updateChunkEmbedding(
-      options.db,
-      chunk.id,
-      embedding,
-      targetSetId,
-      expectedHash,
-      vectorEnabledForWrites
-    );
-    await jq.complete({ id: claimed.id, leaseToken });
+    await handleBatchFailure(jobs, error);
   }
 
-  async function handleClaimedJob(claimed: ClaimedJob): Promise<void> {
-    // Our Job shape retains DB column name `lease_token`; use it directly
-    const leaseToken = claimed.lease_token as string;
-    const jobId = claimed.id;
+  async function processGroup(
+    jobs: ClaimedJob[],
+    checkLeaseOverride?: () => boolean
+  ): Promise<void> {
+    if (jobs.length === 0) return;
 
-    const hb = setInterval(() => {
-      // Fire-and-forget heartbeat; log errors for observability
-      jq.heartbeat({ id: jobId, leaseToken, extendMs: leaseMs }).catch((err) =>
-        log('worker_heartbeat_error', { jobId, error: String(err) })
-      );
-    }, heartbeatMs);
+    const jobModel = await resolveJobModelOrFail(jobs);
+    if (!jobModel) return;
 
-    const jobStart = Date.now();
+    const lease = createLeaseTracker(jobs, checkLeaseOverride);
+
     try {
-      await executeJobPayload(claimed, leaseToken);
-      const dur = Date.now() - jobStart;
-      metrics.jobsProcessed += 1;
-      metrics.totalDurationMs += dur;
-      processedSinceInit += 1;
-      consecutiveFailures = 0;
-      if (reinitEveryN > 0 && processedSinceInit >= reinitEveryN) {
-        // Periodic re-init to release native resources (WebGPU/WASM)
-        await resetService(false);
-      }
-      log('worker_job_complete', {
-        jobId,
-        attempts: claimed.attempts,
-        durationMs: dur,
-        queue: claimed.queue,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Truncate to ~4k to fit error column expectations
-      const truncated = message.slice(0, 4000);
-      await jq.fail({ id: jobId, leaseToken, error: truncated });
-      metrics.jobsFailed += 1;
-      consecutiveFailures += 1;
-      // If repeated model execution errors occur, force CPU re-init
-      const looksLikeModelExecError =
-        /model execution/i.test(truncated) || /\b\d{6,}\b/.test(truncated);
-      if (consecutiveFailures >= forceCpuAfterFailures && looksLikeModelExecError) {
-        log('worker_reset_service', { reason: 'consecutive_failures', consecutiveFailures });
-        await resetService(true);
-      }
-      log('worker_job_fail', { jobId, attempts: claimed.attempts, error: truncated });
+      await processJobGroup(jobs, jobModel, lease.checkLease);
+    } catch (error) {
+      await handleGroupError(error, jobs, lease.checkLease);
     } finally {
-      clearInterval(hb);
+      lease.dispose();
     }
   }
 
-  async function processOne(): Promise<void> {
+  function groupJobs(jobs: ClaimedJob[]): Map<string, ClaimedJob[]> {
+    const groups = new Map<string, ClaimedJob[]>();
+    for (const job of jobs) {
+      try {
+        const payload = assertEmbedChunkJob(job);
+        const model = resolveJobModel(payload);
+        const key = `${model.provider}:${model.compositeKey}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)?.push(job);
+      } catch (err) {
+        // If we can't parse job/model, fail it immediately
+        jq.fail({
+          id: job.id,
+          leaseToken: job.lease_token,
+          error: err instanceof Error ? err.message : String(err),
+        }).catch((e) => workerLogger.error('Failed to fail job', { error: e }));
+        metrics.jobsFailed += 1;
+      }
+    }
+    return groups;
+  }
+
+  async function processClaimedJobs(jobs: ClaimedJob[]) {
+    const leaseLost = new Set<string>();
+    const batchHeartbeat = startHeartbeat(jobs, (job) => {
+      leaseLost.add(job.id);
+    });
+
     try {
-      const claimed = await jq.claim({ queue: queueName, leaseMs, workerId });
-      if (!claimed) {
+      const groups = groupJobs(jobs);
+      for (const group of groups.values()) {
+        const checkLease = () => group.some((job) => leaseLost.has(job.id));
+        if (checkLease()) {
+          workerLogger.warn('Skipping group due to lost lease before processing', {
+            jobIds: group.map((job) => job.id),
+          });
+          continue;
+        }
+        await processGroup(group, checkLease);
+      }
+    } finally {
+      clearInterval(batchHeartbeat);
+    }
+  }
+
+  async function processBatch(): Promise<void> {
+    try {
+      // Claim a batch of jobs
+      const jobs = (await jq.claimMany({
+        queue: queueName,
+        leaseMs,
+        workerId,
+        limit: 50, // Configurable batch size
+      })) as ClaimedJob[];
+
+      if (jobs.length === 0) {
         await sleep(400); // idle backoff
         return;
       }
 
-      await handleClaimedJob(claimed);
-      // Small yield to let GC/native resources settle
+      await processClaimedJobs(jobs);
+
+      // Small yield
       await sleep(5);
     } catch (err) {
       // If database is closed/closing, gracefully stop the worker
@@ -826,8 +1235,8 @@ export async function startEmbeddingWorker(
         running = false; // Stop the worker loop
         return;
       }
-      // Re-throw other errors
-      throw err;
+      workerLogger.error('Critical worker error in processBatch', { error: err });
+      await sleep(1000);
     }
   }
 
@@ -836,7 +1245,7 @@ export async function startEmbeddingWorker(
     loops.push(
       (async () => {
         while (running) {
-          await processOne();
+          await processBatch();
         }
       })()
     );
