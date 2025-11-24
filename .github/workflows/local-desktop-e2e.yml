@@ -24,17 +24,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       # Skip Turborepo cache for local runs to avoid download overhead/conflicts
       # unless specifically desired. Assuming fresh run is safer or reusing container.

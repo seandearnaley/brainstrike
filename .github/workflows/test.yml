@@ -35,17 +35,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -54,6 +52,9 @@ jobs:
           key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
         run: pnpm run lint
@@ -236,17 +237,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -255,6 +254,9 @@ jobs:
           key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Get Playwright version
         id: playwright-version
@@ -352,17 +354,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -371,6 +371,9 @@ jobs:
           key: ${{ runner.os }}-node22-turbo-v3-${{ hashFiles('**/pnpm-lock.yaml', 'turbo.jsonc', '**/tsconfig*.json') }}
           restore-keys: |
             ${{ runner.os }}-turbo-v3-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Install system dependencies for Electron
         run: |
@@ -443,17 +446,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build packages (required for Playwright config)
         run: pnpm run build
@@ -602,17 +606,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
-          run_install: |
-            - args: [--frozen-lockfile]
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: '10.17.0'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Build packages (required for Knip)
         run: pnpm run build
