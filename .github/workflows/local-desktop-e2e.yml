@@ -58,6 +58,7 @@ jobs:
           SHARD=${{ inputs.shardIndex || 2 }}
           RUN_SLOT=$((RUN_SALT % 50))
           SERVER_NUM=$((99 + SHARD + RUN_SLOT * 10))
+          export RUN_SALT
 
           LOCK_FILE="/tmp/.X${SERVER_NUM}-lock"
           if [ -f "$LOCK_FILE" ]; then
@@ -67,7 +68,7 @@ jobs:
           rm -rf "/tmp/brainstrike-test-user-data-${RUN_SALT}-shard-*" 2>/dev/null || true
 
           xvfb-run --server-num=$SERVER_NUM --server-args="-screen 0 1280x960x24" -- \
-            RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
+            env RUN_SALT="$RUN_SALT" pnpm exec playwright test --shard=${{ inputs.shardIndex || 2 }}/${{ inputs.shardTotal || 2 }}
         env:
           NODE_ENV: "test"
           CI: "true"
