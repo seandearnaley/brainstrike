@@ -469,6 +469,9 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
+    if (process.env['NODE_ENV'] === 'test') {
+      return path.join(app.getPath('userData'), 'pgdata');
+    }
     const isProduction = process.env['NODE_ENV'] === 'production';
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');
