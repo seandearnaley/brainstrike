@@ -22,7 +22,8 @@ const playwrightConfig: PlaywrightTestConfig = {
   globalTimeout: config.globalTimeout,
 
   // Per-test timeout - Electron apps can be slower to start
-  timeout: 60_000,
+  // Increased to 2 minutes to handle parallel shard load in CI/Act
+  timeout: 120_000,
 
   // Don't run tests in parallel - Electron can be resource intensive
   fullyParallel: false,

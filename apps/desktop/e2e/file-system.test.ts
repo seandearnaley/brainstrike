@@ -30,7 +30,11 @@ test.describe('File System Integration', () => {
   test('should handle directory operations', async ({ window }) => {
     test.setTimeout(30000); // Increase timeout to 30s
     const fileExplorerPanel = window.getByTestId('file-explorer-panel');
-    await fileExplorerPanel.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    try {
+      await fileExplorerPanel.waitFor({ state: 'visible', timeout: 10000 });
+    } catch (e) {
+      console.warn('File explorer panel did not appear within timeout:', e);
+    }
 
     if (await fileExplorerPanel.isVisible().catch(() => false)) {
       const directoryTree = window.getByRole('tree');
@@ -38,11 +42,6 @@ test.describe('File System Integration', () => {
 
       const hasTree = await directoryTree.isVisible().catch(() => false);
       const hasList = await fileList.isVisible().catch(() => false);
-
-      // Log for debugging if needed
-      if (!hasTree && !hasList) {
-        console.log('DEBUG: Neither tree nor list visible in file explorer panel');
-      }
 
       expect(hasTree || hasList).toBe(true);
     }
@@ -119,8 +118,9 @@ test.describe('File System Integration', () => {
   test('should handle file system errors gracefully', async ({ window, homePage }) => {
     const buttons = window.getByRole('button');
     const buttonCount = await buttons.count();
+    const MAX_BUTTONS_TO_TEST = 3;
 
-    for (let i = 0; i < Math.min(buttonCount, 3); i++) {
+    for (let i = 0; i < Math.min(buttonCount, MAX_BUTTONS_TO_TEST); i++) {
       const button = buttons.nth(i);
       const buttonText = await button.textContent();
 

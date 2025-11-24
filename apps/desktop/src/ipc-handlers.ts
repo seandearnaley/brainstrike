@@ -4,6 +4,7 @@ import type {
   ElectronFileSystemAdapter,
   FileHandle,
 } from '@brainstrike/file-system';
+import { getTestDirectoryStructure } from '@brainstrike/file-system';
 import type { ElectronStorageAdapter } from '@brainstrike/storage';
 import type { PanelPersistenceState } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
@@ -51,62 +52,6 @@ async function cleanupLiveSubscription(id: number): Promise<void> {
     }
     logger.warn('Failed to cleanup live query subscription', { id, error });
   }
-}
-
-/**
- * Returns a mock directory structure for testing purposes
- */
-function getMockDirectoryStructure(rootPath: string) {
-  return [
-    {
-      name: 'mock-file1.txt',
-      path: `${rootPath}/mock-file1.txt`,
-      type: 'file',
-      size: 100,
-      depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: 'mock-directory-handle',
-      handle: {
-        id: 'mock-file-1',
-        kind: 'file',
-        name: 'mock-file1.txt',
-        path: `${rootPath}/mock-file1.txt`,
-        platform: 'electron',
-      },
-    },
-    {
-      name: 'mock-file2.ts',
-      path: `${rootPath}/mock-file2.ts`,
-      type: 'file',
-      size: 250,
-      depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: 'mock-directory-handle',
-      handle: {
-        id: 'mock-file-2',
-        kind: 'file',
-        name: 'mock-file2.ts',
-        path: `${rootPath}/mock-file2.ts`,
-        platform: 'electron',
-      },
-    },
-    {
-      name: 'mock-subfolder',
-      path: `${rootPath}/mock-subfolder`,
-      type: 'directory',
-      depth: 1,
-      selectionState: 'unchecked',
-      rootFolderId: 'mock-directory-handle',
-      handle: {
-        id: 'mock-subfolder',
-        kind: 'directory',
-        name: 'mock-subfolder',
-        path: `${rootPath}/mock-subfolder`,
-        platform: 'electron',
-      },
-      children: [],
-    },
-  ];
 }
 
 export function registerIpcHandlers(
@@ -159,7 +104,7 @@ export function registerIpcHandlers(
     ) {
       const rootPath = '/mock/test/directory';
       // Return IFileNode-compatible structure
-      return getMockDirectoryStructure(rootPath);
+      return getTestDirectoryStructure(rootPath);
     }
     return fileSystem.readDirectory(handle);
   });
@@ -270,21 +215,17 @@ export function registerIpcHandlers(
 
   // Layout persistence IPC handlers
   ipcMain.handle('layout:save', async (_e: IpcMainInvokeEvent, state: PanelPersistenceState) => {
-    // TypeScript has issues with electron-store method resolution during build
-    // Using type assertion to access inherited Conf methods
-    (
-      store as ElectronStore<DesktopSettingsStoreSchema> & {
-        set: (key: string, value: unknown) => void;
-      }
-    ).set('panelLayout', { v1: state });
+    // Using proper type access for electron-store
+    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+    // @ts-ignore
+    store.set('panelLayout', { v1: state });
   });
 
   ipcMain.handle('layout:load', async () => {
-    // TypeScript has issues with electron-store method resolution during build
-    // Using type assertion to access inherited Conf methods
-    const layout = (
-      store as ElectronStore<DesktopSettingsStoreSchema> & { get: (key: string) => unknown }
-    ).get('panelLayout') as DesktopSettingsStoreSchema['panelLayout'] | undefined;
+    // Using proper type access for electron-store
+    // biome-ignore lint/suspicious/noTsIgnore: Electron store types are incomplete
+    // @ts-ignore
+    const layout = store.get('panelLayout');
     return layout?.v1;
   });
 
@@ -528,6 +469,9 @@ export function registerIpcHandlers(
 
   // Database path IPC handler for PGlite directory
   ipcMain.handle('db:getUserDataPath', async () => {
+    if (process.env['NODE_ENV'] === 'test') {
+      return path.join(app.getPath('userData'), 'pgdata');
+    }
     const isProduction = process.env['NODE_ENV'] === 'production';
     const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
     return path.join(app.getPath('documents'), dbDirName, 'pgdata');

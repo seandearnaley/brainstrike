@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system';
 import { ElectronStorageAdapter } from '@brainstrike/storage';
+
+// Raw debug log to verify main process startup
+// biome-ignore lint/suspicious/noConsole: Critical startup debugging
+console.log('--- RAW CONSOLE LOG: MAIN PROCESS EXECUTING ---');
+
 import {
   addLogListener,
   applyLoggingPreferences,
@@ -438,6 +443,8 @@ app.on('window-all-closed', () => {
 
 // Clean shutdown
 app.on('before-quit', async () => {
+  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
+  console.log('--- RAW CONSOLE LOG: BEFORE-QUIT TRIGGERED ---');
   try {
     if (stopAssistantServer) {
       await stopAssistantServer();
@@ -450,6 +457,8 @@ app.on('before-quit', async () => {
 });
 
 app.on('will-quit', () => {
+  // biome-ignore lint/suspicious/noConsole: Critical shutdown debugging
+  console.log('--- RAW CONSOLE LOG: WILL-QUIT TRIGGERED ---');
   removeLogBufferListener();
 });
 
