@@ -161,11 +161,18 @@ function getAppDataPath(): string {
 }
 
 /**
- * Known PostgreSQL error codes that indicate index/data corruption requiring full reset
+ * Known PostgreSQL error codes that indicate index/data corruption requiring full reset.
+ *
+ * NOTE: We intentionally exclude XX000 (internal_error) as it's too broad and used for
+ * many non-corruption failures (e.g., internal bugs, unsupported features). Including it
+ * would cause false positives that wipe user data unnecessarily.
+ *
+ * We rely on specific error codes and message pattern matching to identify true corruption.
  */
 const CORRUPTION_ERROR_CODES = [
   'XX002', // Index corruption (e.g., "right sibling's left-link doesn't match")
-  'XX000', // Internal error
+  // XX000 deliberately excluded - too generic, causes false positives
+  // XX001 (data_corrupted) is rare but specific enough to include
   'XX001', // Data corruption
 ] as const;
 
