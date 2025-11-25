@@ -6,16 +6,20 @@ import FileExplorerErrorBoundary from '../file-explorer-error-boundary';
 
 const mockToast = vi.fn();
 
-// Mock icons
-vi.mock('lucide-react', () => ({
-  AlertTriangle: () => <div data-testid="icon-alert">AlertTriangle</div>,
-  ArrowLeft: () => <div data-testid="icon-arrow-left">ArrowLeft</div>,
-  Bug: () => <div data-testid="icon-bug">Bug</div>,
-  FileWarning: () => <div data-testid="icon-file-warning">FileWarning</div>,
-  RefreshCw: () => <div data-testid="icon-refresh">RefreshCw</div>,
-  Server: () => <div data-testid="icon-server">Server</div>,
-  X: () => <div data-testid="icon-x">X</div>,
-}));
+// Mock icons - use importOriginal to include all icons transitively imported by @brainstrike/ui
+vi.mock('lucide-react', async (importOriginal) => {
+  const original = await importOriginal<typeof import('lucide-react')>();
+  return {
+    ...original,
+    AlertTriangle: () => <div data-testid="icon-alert">AlertTriangle</div>,
+    ArrowLeft: () => <div data-testid="icon-arrow-left">ArrowLeft</div>,
+    Bug: () => <div data-testid="icon-bug">Bug</div>,
+    FileWarning: () => <div data-testid="icon-file-warning">FileWarning</div>,
+    RefreshCw: () => <div data-testid="icon-refresh">RefreshCw</div>,
+    Server: () => <div data-testid="icon-server">Server</div>,
+    X: () => <div data-testid="icon-x">X</div>,
+  };
+});
 
 // Mock Button component and useToast from @brainstrike/ui
 vi.mock('@brainstrike/ui', async (importOriginal) => {

@@ -65,3 +65,4 @@ function createLaunchOptions(..., debugPort?: number) {
 - **Shard Info Location:** `WorkerInfo` does not have a `shard` property directly. Shard info is located in `workerInfo.config.shard`.
 - **Port Isolation:** When debugging parallel process crashes, always suspect resource collisions (ports, user data dirs) first. Explicitly assigning resources based on worker/shard index is a robust fix.
 
+

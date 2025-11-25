@@ -7,8 +7,8 @@ export interface ChunkSearchResult {
 }
 
 export interface ViewSelectorProps {
-  selectedView: 'files' | 'chunks' | 'search';
-  setSelectedView: (view: 'files' | 'chunks' | 'search') => void;
+  selectedView: 'files' | 'chunks' | 'search' | 'browser';
+  setSelectedView: (view: 'files' | 'chunks' | 'search' | 'browser') => void;
   recordsCount: number;
   chunksCount: number;
 }

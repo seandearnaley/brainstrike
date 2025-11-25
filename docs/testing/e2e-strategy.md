@@ -71,3 +71,4 @@ A local CI simulation script (`scripts/local-ci.sh`) allows developers to run th
 *   **App fails to start:** Check `dist/main.js` exists (run `pnpm build`). Verify dependencies are installed.
 *   **Selectors failing:** The UI might not be fully rendered. Ensure `waitForAppReady` helper is used.
 
+

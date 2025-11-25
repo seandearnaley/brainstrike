@@ -5,6 +5,7 @@ import {
   useDbProviderError,
   useFileRecordRepository,
   usePGliteDatabase,
+  usePGliteLiveQuery,
 } from '@brainstrike/db';
 import {
   type EmbeddingProviderType,
@@ -37,6 +38,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChunksViewTable,
   ClearDatabaseDialog,
+  CollectionBrowserView,
   DbInfoDisplay,
   ExportDropdown,
   FilesViewTable,
@@ -223,6 +225,45 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     () => (dbContext ? new EmbeddingSetsRepository(dbContext as never) : null),
     [dbContext]
   );
+
+  // Live query for embedding sets (for CollectionBrowserView)
+  // Using Record type to represent SQL row with snake_case column names from database schema
+  type EmbeddingSetRow = Record<string, unknown> & {
+    id: string;
+    // biome-ignore lint/style/useNamingConvention: SQL column name
+    model_key: string;
+    // biome-ignore lint/style/useNamingConvention: SQL column name
+    model_id: string;
+    dimensions: number;
+    distance: string;
+    // biome-ignore lint/style/useNamingConvention: SQL column name
+    created_at: string;
+    name: string | null;
+    description: string | null;
+  };
+
+  const { rows: embeddingSetRows, loading: embeddingSetsLoading } =
+    usePGliteLiveQuery<EmbeddingSetRow>({
+      query:
+        'SELECT id, model_key, model_id, dimensions, distance, created_at, name, description FROM embedding_sets ORDER BY created_at DESC',
+      enabled: Boolean(dbContext),
+    });
+
+  const embeddingSets = useMemo<EmbeddingSet[]>(() => {
+    return embeddingSetRows.map((row) => {
+      const set: EmbeddingSet = {
+        id: row.id,
+        modelKey: row.model_key,
+        modelId: row.model_id,
+        dimensions: row.dimensions,
+        distance: row.distance as 'cosine' | 'l2' | 'ip',
+        createdAt: row.created_at,
+      };
+      if (row.name) set.name = row.name;
+      if (row.description) set.description = row.description;
+      return set;
+    });
+  }, [embeddingSetRows]);
 
   // Get enabled models from preferences for Create dialog
   const { enabledModelsByProvider } = useEmbeddingPreferencesStore();
@@ -597,6 +638,21 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           />
         )}
       </div>
+
+      {/* Content Area - Collection Browser (hierarchical tree view) */}
+      {selectedView === 'browser' && (
+        <div className="flex-1 overflow-hidden">
+          <CollectionBrowserView
+            embeddingSets={embeddingSets}
+            records={records}
+            chunks={chunks}
+            pendingChunkIds={pendingChunkIds}
+            activeCollectionId={activeCollectionId}
+            isLoading={embeddingSetsLoading || refreshing}
+            height="100%"
+          />
+        </div>
+      )}
 
       {/* Content Area - virtualized tables */}
       {(selectedView === 'files' || selectedView === 'chunks' || selectedView === 'search') && (

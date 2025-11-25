@@ -1,4 +1,5 @@
 import { Button } from '@brainstrike/ui';
+import { FolderTree } from 'lucide-react';
 import type { ViewSelectorProps } from '../types';
 
 export function ViewSelector({
@@ -9,6 +10,15 @@ export function ViewSelector({
 }: ViewSelectorProps) {
   return (
     <div className="flex gap-2 pt-2 mb-3">
+      <Button
+        size="sm"
+        variant={selectedView === 'browser' ? 'default' : 'outline'}
+        onClick={() => setSelectedView('browser')}
+        className="gap-1"
+      >
+        <FolderTree className="h-3.5 w-3.5" />
+        Browser
+      </Button>
       <Button
         size="sm"
         variant={selectedView === 'files' ? 'default' : 'outline'}

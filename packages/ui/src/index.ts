@@ -13,6 +13,7 @@ export * from './badge';
 export * from './button';
 export * from './card';
 export * from './checkbox';
+export * from './collection-browser';
 export * from './data-table';
 export * from './dialog';
 export * from './dropdown-menu';
@@ -57,6 +58,7 @@ export * from './theme-toggle';
 export * from './toast';
 export * from './toaster';
 export * from './tooltip';
+export * from './tree-table';
 // Export types
 export * from './types';
 export * from './unsupported-feature';
