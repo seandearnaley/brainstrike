@@ -10,7 +10,7 @@ import * as React from 'react';
 import { Badge } from '../badge';
 import { cn } from '../lib/utils';
 import { TreeTable } from '../tree-table/tree-table';
-import type { TreeNode, TreeTableColumn } from '../tree-table/types';
+import type { SortDirection, SortState, TreeNode, TreeTableColumn } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
 import { BulkActionBar } from './bulk-action-bar';
 import { FilterBar } from './filter-bar';
@@ -24,8 +24,32 @@ import type {
   FileData,
 } from './types';
 import { DEFAULT_FILTERS, EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
-import type { CollectionTreeInput } from './use-collection-tree';
+import type {
+  CollectionSortKey,
+  CollectionSortState,
+  CollectionTreeInput,
+} from './use-collection-tree';
 import { useCollectionTree } from './use-collection-tree';
+
+/**
+ * Mapping from TreeTable column IDs to hierarchical sort keys
+ */
+const COLUMN_TO_SORT_KEY: Record<string, CollectionSortKey> = {
+  name: 'name',
+  status: 'status',
+  size: 'size',
+  meta: 'count', // 'meta' column shows counts, so map to 'count' sort key
+};
+
+/**
+ * Mapping from hierarchical sort keys to TreeTable column IDs
+ */
+const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
+  name: 'name',
+  status: 'status',
+  size: 'size',
+  count: 'meta',
+};
 
 /**
  * Props for the CollectionBrowser component
@@ -64,6 +88,18 @@ export interface CollectionBrowserProps {
   bulkActions?: BulkAction[];
   /** Whether to show the bulk action bar when items are selected */
   showBulkActionBar?: boolean;
+  /** Hierarchical sort state (sorts within each level of the tree) */
+  sortState?: CollectionSortState;
+  /** Called when sort changes */
+  onSortChange?: (sortState: CollectionSortState | null) => void;
+  /** Expanded node IDs (controlled mode) */
+  expandedIds?: Set<string>;
+  /** Called when expansion state changes (controlled mode) */
+  onExpandedIdsChange?: (ids: Set<string>) => void;
+  /** Selected node ID (controlled mode) */
+  selectedId?: string | null;
+  /** Called when selection changes (controlled mode) */
+  onSelectedIdChange?: (id: string | null) => void;
 }
 
 /**
@@ -168,6 +204,12 @@ export function CollectionBrowser({
   emptyMessage = 'No collections found. Import files to get started.',
   bulkActions = [],
   showBulkActionBar = true,
+  sortState,
+  onSortChange,
+  expandedIds: controlledExpandedIds,
+  onExpandedIdsChange,
+  selectedId: controlledSelectedId,
+  onSelectedIdChange,
 }: CollectionBrowserProps) {
   // Filter state
   const [filters, setFilters] = React.useState<CollectionBrowserFilters>(() => ({
@@ -176,14 +218,19 @@ export function CollectionBrowser({
     ...initialFilters,
   }));
 
-  // Selection state
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  // Selection state - support controlled and uncontrolled modes
+  const [internalSelectedId, setInternalSelectedId] = React.useState<string | null>(null);
+  const selectedId = controlledSelectedId !== undefined ? controlledSelectedId : internalSelectedId;
+  const setSelectedId = onSelectedIdChange ?? setInternalSelectedId;
+
   const [multiSelectedIds, setMultiSelectedIds] = React.useState<Set<string>>(new Set());
 
-  // Expansion state
-  const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set());
+  // Expansion state - support controlled and uncontrolled modes
+  const [internalExpandedIds, setInternalExpandedIds] = React.useState<Set<string>>(new Set());
+  const isControlledExpansion = controlledExpandedIds !== undefined;
+  const expandedIds = isControlledExpansion ? controlledExpandedIds : internalExpandedIds;
 
-  // Build tree structure
+  // Build tree structure with hierarchical sorting
   const {
     nodes,
     rootNodes,
@@ -196,41 +243,60 @@ export function CollectionBrowser({
     data,
     filters,
     expandedIds,
+    ...(sortState ? { sortState } : {}),
   });
 
   // Track previous search query to detect changes
   const prevSearchQuery = React.useRef(filters.searchQuery);
 
+  // Callback to expand nodes for search results
+  const expandForSearch = React.useCallback(
+    (idsToExpand: Set<string>) => {
+      const currentExpanded = isControlledExpansion ? controlledExpandedIds : internalExpandedIds;
+      const next = new Set(currentExpanded);
+      for (const id of idsToExpand) {
+        next.add(id);
+      }
+      if (isControlledExpansion && onExpandedIdsChange) {
+        onExpandedIdsChange(next);
+      } else {
+        setInternalExpandedIds(next);
+      }
+    },
+    [isControlledExpansion, controlledExpandedIds, internalExpandedIds, onExpandedIdsChange]
+  );
+
   // Auto-expand nodes when search query changes to reveal matches
   React.useEffect(() => {
-    if (filters.searchQuery !== prevSearchQuery.current) {
-      prevSearchQuery.current = filters.searchQuery;
+    const queryChanged = filters.searchQuery !== prevSearchQuery.current;
+    if (!queryChanged) return;
 
-      // If there's a search query, expand all nodes that contain matches
-      if (filters.searchQuery && searchExpandIds.size > 0) {
-        setExpandedIds((prev) => {
-          const next = new Set(prev);
-          for (const id of searchExpandIds) {
-            next.add(id);
-          }
-          return next;
-        });
-      }
+    prevSearchQuery.current = filters.searchQuery;
+    const shouldExpand = filters.searchQuery && searchExpandIds.size > 0;
+    if (shouldExpand) {
+      expandForSearch(searchExpandIds);
     }
-  }, [filters.searchQuery, searchExpandIds]);
+  }, [filters.searchQuery, searchExpandIds, expandForSearch]);
 
   // Handle toggle expand
-  const handleToggleExpand = React.useCallback((nodeId: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
+  const handleToggleExpand = React.useCallback(
+    (nodeId: string) => {
+      const currentExpanded = isControlledExpansion ? controlledExpandedIds : internalExpandedIds;
+      const next = new Set(currentExpanded);
       if (next.has(nodeId)) {
         next.delete(nodeId);
       } else {
         next.add(nodeId);
       }
-      return next;
-    });
-  }, []);
+
+      if (isControlledExpansion && onExpandedIdsChange) {
+        onExpandedIdsChange(next);
+      } else {
+        setInternalExpandedIds(next);
+      }
+    },
+    [isControlledExpansion, controlledExpandedIds, internalExpandedIds, onExpandedIdsChange]
+  );
 
   // Handle expand all
   const handleExpandAll = React.useCallback(() => {
@@ -247,13 +313,21 @@ export function CollectionBrowser({
     for (const root of rootNodes) {
       addExpandable(root.id);
     }
-    setExpandedIds(allExpandableIds);
-  }, [rootNodes, getChildren]);
+    if (isControlledExpansion && onExpandedIdsChange) {
+      onExpandedIdsChange(allExpandableIds);
+    } else {
+      setInternalExpandedIds(allExpandableIds);
+    }
+  }, [rootNodes, getChildren, isControlledExpansion, onExpandedIdsChange]);
 
   // Handle collapse all
   const handleCollapseAll = React.useCallback(() => {
-    setExpandedIds(new Set());
-  }, []);
+    if (isControlledExpansion && onExpandedIdsChange) {
+      onExpandedIdsChange(new Set());
+    } else {
+      setInternalExpandedIds(new Set());
+    }
+  }, [isControlledExpansion, onExpandedIdsChange]);
 
   // Handle selection
   const handleSelect = React.useCallback(
@@ -313,13 +387,39 @@ export function CollectionBrowser({
     [onContextMenu]
   );
 
-  // Define columns
+  // Convert hierarchical sort state to TreeTable's column-based format
+  const treeTableSortState: SortState | undefined = React.useMemo(() => {
+    if (!sortState) return undefined;
+    const columnId = SORT_KEY_TO_COLUMN[sortState.key];
+    return { columnId, direction: sortState.direction };
+  }, [sortState]);
+
+  // Handle sort changes from TreeTable and convert to CollectionSortState
+  const handleTreeTableSortChange = React.useCallback(
+    (columnId: string, direction: SortDirection) => {
+      if (!onSortChange) return;
+
+      if (direction === null) {
+        onSortChange(null);
+      } else {
+        const sortKey = COLUMN_TO_SORT_KEY[columnId];
+        if (sortKey) {
+          onSortChange({ key: sortKey, direction });
+        }
+      }
+    },
+    [onSortChange]
+  );
+
+  // Define columns with sorting support
   const columns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(
     () => [
       {
         id: 'name',
         header: 'Name',
         width: '40%',
+        sortable: true,
+        accessorFn: (node) => getNodeDisplayInfo(node.type, node.data).displayName.toLowerCase(),
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           const { displayName, subtitle } = getNodeDisplayInfo(type, nodeData);
@@ -341,6 +441,13 @@ export function CollectionBrowser({
         id: 'status',
         header: 'Status',
         width: '15%',
+        sortable: true,
+        accessorFn: (node) => {
+          const { data: nodeData, type } = node;
+          if (type === 'file') return (nodeData as FileData).embeddingStatus;
+          if (type === 'chunk') return (nodeData as ChunkData).embeddingStatus;
+          return '';
+        },
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
@@ -356,6 +463,15 @@ export function CollectionBrowser({
         id: 'size',
         header: 'Size',
         width: '15%',
+        sortable: true,
+        accessorFn: (node) => {
+          const { data: nodeData, type } = node;
+          if (type === 'file') return (nodeData as FileData).size;
+          if (type === 'chunk') return (nodeData as ChunkData).tokenCount;
+          if (type === 'embedding') return (nodeData as EmbeddingData).dimensions;
+          if (type === 'collection') return (nodeData as CollectionData).embeddingCount;
+          return 0;
+        },
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'file') {
@@ -393,6 +509,7 @@ export function CollectionBrowser({
         id: 'meta',
         header: 'Info',
         width: '30%',
+        sortable: false,
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'collection') {
@@ -467,6 +584,8 @@ export function CollectionBrowser({
           emptyState={<div className="text-sm text-muted-foreground p-4">{emptyMessage}</div>}
           ariaLabel="Collection browser"
           rowHeight={48}
+          {...(treeTableSortState ? { sortState: treeTableSortState } : {})}
+          {...(onSortChange ? { onSortChange: handleTreeTableSortChange } : {})}
         />
       </div>
 

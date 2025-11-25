@@ -11,6 +11,14 @@ export { EmbeddingsPanel } from './embeddings-panel';
 // Hooks
 export * from './hooks';
 // Stores
+export {
+  type CollectionBrowserStore,
+  type CollectionSortDirection,
+  type CollectionSortKey,
+  type CollectionSortState,
+  collectionBrowserSelectors,
+  useCollectionBrowserStore,
+} from './stores/collection-browser-store';
 export { useDatabaseDemoStore } from './stores/database-demo-store';
 export { useEmbeddingsPanelStore } from './stores/embeddings-panel-store';
 // Types

@@ -5,6 +5,9 @@
  * a tree-based view of collections, files, chunks, and embeddings.
  */
 
+// Re-export tree-table types for convenience
+export type { SortDirection, SortState } from '../tree-table/types';
+
 // Sub-components
 export type { BulkAction, BulkActionBarProps } from './bulk-action-bar';
 export { BulkActionBar, DEFAULT_BULK_ACTIONS } from './bulk-action-bar';
@@ -33,6 +36,9 @@ export type {
 } from './types';
 export { DEFAULT_FILTERS, EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 export type {
+  CollectionSortDirection,
+  CollectionSortKey,
+  CollectionSortState,
   CollectionTreeInput,
   UseCollectionTreeOptions,
   UseCollectionTreeResult,

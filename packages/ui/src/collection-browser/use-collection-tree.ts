@@ -55,6 +55,31 @@ export interface CollectionTreeInput {
 }
 
 /**
+ * Sort key for hierarchical sorting.
+ * Each key applies contextually to different node types:
+ * - 'name': collections/files by name, chunks by index
+ * - 'size': files by file size, chunks by token count
+ * - 'status': by embedding completion status
+ * - 'count': collections by file count, files by chunk count
+ */
+export type CollectionSortKey = 'name' | 'size' | 'status' | 'count';
+
+/**
+ * Sort direction
+ */
+export type CollectionSortDirection = 'asc' | 'desc';
+
+/**
+ * Sort state for the collection tree
+ */
+export interface CollectionSortState {
+  /** Sort key */
+  key: CollectionSortKey;
+  /** Sort direction */
+  direction: CollectionSortDirection;
+}
+
+/**
  * Options for the useCollectionTree hook
  */
 export interface UseCollectionTreeOptions {
@@ -64,6 +89,8 @@ export interface UseCollectionTreeOptions {
   filters: CollectionBrowserFilters;
   /** Currently expanded node IDs */
   expandedIds: Set<string>;
+  /** Sort state (optional) */
+  sortState?: CollectionSortState;
 }
 
 /**
@@ -128,6 +155,135 @@ function getSearchableFields(data: BrowserNodeData): string[] {
   if ('path' in data && typeof data.path === 'string') fields.push(data.path);
   if ('content' in data && typeof data.content === 'string') fields.push(data.content);
   return fields;
+}
+
+/**
+ * Status priority for sorting (lower = better)
+ */
+const STATUS_PRIORITY: Record<EmbeddingStatus, number> = {
+  complete: 0,
+  processing: 1,
+  pending: 2,
+  failed: 3,
+  none: 4,
+};
+
+/**
+ * Get sort value for a collection node
+ */
+function getCollectionSortValue(data: CollectionData, sortKey: CollectionSortKey): string | number {
+  switch (sortKey) {
+    case 'name':
+      return data.name.toLowerCase();
+    case 'size':
+      return data.embeddingCount;
+    case 'status':
+      // Collections don't have status, sort by completion ratio
+      return data.chunkCount > 0 ? data.embeddingCount / data.chunkCount : 0;
+    case 'count':
+      return data.fileCount;
+  }
+}
+
+/**
+ * Get sort value for a file node
+ */
+function getFileSortValue(data: FileData, sortKey: CollectionSortKey): string | number {
+  switch (sortKey) {
+    case 'name':
+      return data.name.toLowerCase();
+    case 'size':
+      return data.size;
+    case 'status':
+      return STATUS_PRIORITY[data.embeddingStatus];
+    case 'count':
+      return data.chunkCount;
+  }
+}
+
+/**
+ * Get sort value for a chunk node
+ */
+function getChunkSortValue(data: ChunkData, sortKey: CollectionSortKey): string | number {
+  switch (sortKey) {
+    case 'name':
+      return data.index; // Chunks sort by index for "name"
+    case 'size':
+      return data.tokenCount;
+    case 'status':
+      return STATUS_PRIORITY[data.embeddingStatus];
+    case 'count':
+      return data.tokenCount; // No count for chunks, use token count
+  }
+}
+
+/**
+ * Get sort value for an embedding node
+ */
+function getEmbeddingSortValue(data: EmbeddingData, sortKey: CollectionSortKey): string | number {
+  switch (sortKey) {
+    case 'name':
+      return data.vectorId;
+    case 'size':
+      return data.dimensions;
+    case 'status':
+      return 0; // Embeddings are always "complete"
+    case 'count':
+      return data.dimensions;
+  }
+}
+
+/**
+ * Get sort value for any node based on its type
+ */
+function getNodeSortValue(
+  node: TreeNode<BrowserNodeData>,
+  sortKey: CollectionSortKey
+): string | number {
+  switch (node.type) {
+    case 'collection':
+      return getCollectionSortValue(node.data as CollectionData, sortKey);
+    case 'file':
+      return getFileSortValue(node.data as FileData, sortKey);
+    case 'chunk':
+      return getChunkSortValue(node.data as ChunkData, sortKey);
+    case 'embedding':
+      return getEmbeddingSortValue(node.data as EmbeddingData, sortKey);
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Compare two nodes for sorting
+ */
+function compareNodes(
+  a: TreeNode<BrowserNodeData>,
+  b: TreeNode<BrowserNodeData>,
+  sortState: CollectionSortState
+): number {
+  const aVal = getNodeSortValue(a, sortState.key);
+  const bVal = getNodeSortValue(b, sortState.key);
+
+  let result: number;
+  if (typeof aVal === 'string' && typeof bVal === 'string') {
+    result = aVal.localeCompare(bVal);
+  } else {
+    result = (aVal as number) - (bVal as number);
+  }
+
+  return sortState.direction === 'desc' ? -result : result;
+}
+
+/**
+ * Sort an array of nodes in place
+ */
+function sortNodes(
+  nodes: TreeNode<BrowserNodeData>[],
+  sortState: CollectionSortState | undefined
+): TreeNode<BrowserNodeData>[] {
+  if (!sortState) return nodes;
+  return [...nodes].sort((a, b) => compareNodes(a, b, sortState));
 }
 
 /**
@@ -400,6 +556,7 @@ export function useCollectionTree({
   data,
   filters,
   expandedIds,
+  sortState,
 }: UseCollectionTreeOptions): UseCollectionTreeResult {
   // Build the tree structure using helper functions
   const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
@@ -413,18 +570,34 @@ export function useCollectionTree({
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);
 
-  // Apply filters
+  // Apply sorting to children at each level
+  const sortedChildrenMap = React.useMemo(() => {
+    if (!sortState) return childrenMap;
+
+    const sorted = new Map<string, TreeNode<BrowserNodeData>[]>();
+    for (const [parentId, children] of childrenMap) {
+      sorted.set(parentId, sortNodes(children, sortState));
+    }
+    return sorted;
+  }, [childrenMap, sortState]);
+
+  // Sort root nodes as well
+  const sortedRootNodes = React.useMemo(() => {
+    return sortNodes(rootNodes, sortState);
+  }, [rootNodes, sortState]);
+
+  // Apply filters (use sorted versions)
   const { filteredRoots, filteredCount } = React.useMemo(() => {
-    // If no filters active, return all roots
+    // If no filters active, return all roots (sorted)
     if (!filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all') {
-      return { filteredRoots: rootNodes, filteredCount: allNodes.length };
+      return { filteredRoots: sortedRootNodes, filteredCount: allNodes.length };
     }
 
-    // Create filter context
-    const ctx: FilterContext = { filters, childrenMap };
+    // Create filter context (use sorted children map)
+    const ctx: FilterContext = { filters, childrenMap: sortedChildrenMap };
     const filterFn = (node: TreeNode<BrowserNodeData>) => filterTreeNode(node, ctx);
 
-    const filtered = rootNodes.map(filterFn).filter(Boolean) as TreeNode<BrowserNodeData>[];
+    const filtered = sortedRootNodes.map(filterFn).filter(Boolean) as TreeNode<BrowserNodeData>[];
 
     // Count filtered nodes recursively
     let count = 0;
@@ -432,7 +605,7 @@ export function useCollectionTree({
       for (const node of nodes) {
         if (filterFn(node)) {
           count++;
-          const nodeChildren = childrenMap.get(node.id) ?? [];
+          const nodeChildren = sortedChildrenMap.get(node.id) ?? [];
           countNodes(nodeChildren);
         }
       }
@@ -440,9 +613,9 @@ export function useCollectionTree({
     countNodes(filtered);
 
     return { filteredRoots: filtered, filteredCount: count };
-  }, [rootNodes, allNodes, childrenMap, filters]);
+  }, [sortedRootNodes, allNodes, sortedChildrenMap, filters]);
 
-  // Flatten visible nodes based on expansion state
+  // Flatten visible nodes based on expansion state (use sorted children)
   const visibleNodes = React.useMemo(() => {
     const result: TreeNode<BrowserNodeData>[] = [];
 
@@ -450,7 +623,7 @@ export function useCollectionTree({
       result.push(node);
 
       if (expandedIds.has(node.id) && node.hasChildren) {
-        const nodeChildren = childrenMap.get(node.id) ?? [];
+        const nodeChildren = sortedChildrenMap.get(node.id) ?? [];
         for (const child of nodeChildren) {
           addNode(child);
         }
@@ -462,14 +635,14 @@ export function useCollectionTree({
     }
 
     return result;
-  }, [filteredRoots, expandedIds, childrenMap]);
+  }, [filteredRoots, expandedIds, sortedChildrenMap]);
 
-  // Get children callback
+  // Get children callback (returns sorted children)
   const getChildren = React.useCallback(
     (parentId: string): TreeNode<BrowserNodeData>[] => {
-      return childrenMap.get(parentId) ?? [];
+      return sortedChildrenMap.get(parentId) ?? [];
     },
-    [childrenMap]
+    [sortedChildrenMap]
   );
 
   // Compute search match IDs and nodes to auto-expand
