@@ -108,7 +108,7 @@ test.describe('Embedding Worker in Renderer', () => {
         [
           jobId,
           'embeddings',
-          'embed-chunk',
+          'embed_chunk',
           JSON.stringify({ chunkId, fileRecordId }),
           'queued',
           new Date().toISOString(),
@@ -380,7 +380,7 @@ test.describe('Embedding Worker in Renderer', () => {
         [
           jobId,
           'embeddings',
-          'embed-chunk',
+          'embed_chunk',
           JSON.stringify({ chunkId: 'nonexistent-chunk' }),
           'queued',
           new Date().toISOString(),
