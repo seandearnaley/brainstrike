@@ -87,4 +87,67 @@ describe('db-main lifecycle', () => {
     expect(mkdirSyncMock).not.toHaveBeenCalledWith(expect.not.stringContaining('BrainStrike-dev'));
     expect(mkdirSyncMock).toHaveBeenCalledWith(expectedPath, { recursive: true });
   });
+
+  it('auto-recovers from database corruption during initialization', async () => {
+    const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
+      code: string;
+    };
+    corruptionError.code = 'XX002';
+
+    // First call throws corruption error, second succeeds
+    PGliteMock.mockImplementationOnce(() => {
+      throw corruptionError;
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    const db = await initializeMainDatabase();
+
+    // Should have attempted reset (rmSync called) and succeeded on retry
+    expect(rmSyncMock).toHaveBeenCalled();
+    expect(db).toBeDefined();
+  });
+
+  it('auto-recovers from database corruption during migration', async () => {
+    const corruptionError = new Error('could not locate a valid checkpoint record') as Error & {
+      code: string;
+    };
+    corruptionError.code = 'XX002';
+
+    // First migration throws corruption, second succeeds
+    migrateMock.mockRejectedValueOnce(corruptionError);
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    const db = await initializeMainDatabase();
+
+    // Should have attempted reset and succeeded on retry
+    expect(rmSyncMock).toHaveBeenCalled();
+    expect(db).toBeDefined();
+  });
+
+  it('throws if auto-recovery fails', async () => {
+    const corruptionError = new Error("right sibling's left-link doesn't match") as Error & {
+      code: string;
+    };
+    corruptionError.code = 'XX002';
+
+    // Both attempts fail with corruption
+    PGliteMock.mockImplementation(() => {
+      throw corruptionError;
+    });
+
+    const { initializeMainDatabase } = await import('../../db-main');
+    await expect(initializeMainDatabase()).rejects.toThrow(/auto-recovery failed/i);
+  });
+
+  it('resetLocalDatabase deletes parent app data directory', async () => {
+    process.env['NODE_ENV'] = 'development';
+    vi.resetModules();
+
+    const { resetLocalDatabase } = await import('../../db-main');
+    await resetLocalDatabase();
+
+    // Should delete the parent BrainStrike-dev folder, not just pgdata
+    const expectedAppDataPath = path.join('/mock/documents', 'BrainStrike-dev');
+    expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { recursive: true, force: true });
+  });
 });

@@ -20,22 +20,22 @@ describe('provider registry metadata', () => {
     }
   });
 
-  it.each<SupportedProvider>(['openai', 'google'])(
-    '%s embedding models support the standard dimension',
-    (provider) => {
-      expect(supportsStandardEmbeddingDimension(provider)).toBe(true);
+  it.each<SupportedProvider>([
+    'openai',
+    'google',
+  ])('%s embedding models support the standard dimension', (provider) => {
+    expect(supportsStandardEmbeddingDimension(provider)).toBe(true);
 
-      const embeddingModels = listEmbeddingModels(provider);
-      expect(embeddingModels.length).toBeGreaterThan(0);
-      const matching = embeddingModels.filter((model) => model.supportsStandardDimension);
-      expect(matching.length).toBeGreaterThan(0);
-      for (const model of matching) {
-        if (!model.supportsCustomDimensions) {
-          expect(model.availableDimensions?.includes(STANDARD_EMBEDDING_DIMENSION)).toBe(true);
-        }
+    const embeddingModels = listEmbeddingModels(provider);
+    expect(embeddingModels.length).toBeGreaterThan(0);
+    const matching = embeddingModels.filter((model) => model.supportsStandardDimension);
+    expect(matching.length).toBeGreaterThan(0);
+    for (const model of matching) {
+      if (!model.supportsCustomDimensions) {
+        expect(model.availableDimensions?.includes(STANDARD_EMBEDDING_DIMENSION)).toBe(true);
       }
     }
-  );
+  });
 
   it('openrouter is flagged as not supporting embeddings', () => {
     const definition = getProviderDefinition('openrouter');

@@ -29,7 +29,11 @@ vi.mock('electron', async () => {
   };
 });
 
-vi.mock('../../db-main', () => ({ getDatabase: getDatabaseMock }));
+vi.mock('../../db-main', () => ({
+  getDatabase: getDatabaseMock,
+  isCorruptionError: vi.fn(() => false),
+  handleRuntimeCorruption: vi.fn(),
+}));
 
 vi.mock('@brainstrike/file-system', () => ({
   ElectronFileSystemAdapter: vi.fn(() => ({})),

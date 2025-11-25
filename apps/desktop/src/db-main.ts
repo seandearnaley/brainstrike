@@ -148,11 +148,117 @@ function getDatabasePath(): string {
 }
 
 /**
+ * Get the parent application data directory (contains pgdata and potentially other app files)
+ */
+function getAppDataPath(): string {
+  if (process.env['NODE_ENV'] === 'test') {
+    return path.join(app.getPath('userData'), 'pgdata');
+  }
+
+  const isProduction = process.env['NODE_ENV'] === 'production';
+  const dbDirName = isProduction ? 'BrainStrike' : 'BrainStrike-dev';
+  return path.join(app.getPath('documents'), dbDirName);
+}
+
+/**
+ * Known PostgreSQL error codes that indicate index/data corruption requiring full reset
+ */
+const CORRUPTION_ERROR_CODES = [
+  'XX002', // Index corruption (e.g., "right sibling's left-link doesn't match")
+  'XX000', // Internal error
+  'XX001', // Data corruption
+] as const;
+
+/**
+ * Error messages that indicate corruption even without error codes
+ */
+const CORRUPTION_ERROR_PATTERNS = [
+  "right sibling's left-link doesn't match",
+  'could not locate a valid checkpoint record',
+  'invalid resource manager ID',
+  'database system was interrupted',
+  'invalid page in block',
+  'page verification failed',
+] as const;
+
+/**
+ * Check if an error indicates database corruption that requires a full reset
+ */
+export function isCorruptionError(error: unknown): boolean {
+  if (!error) return false;
+
+  const errorObj = error as { code?: string; message?: string };
+  const code = errorObj.code;
+  const message = errorObj.message ?? String(error);
+
+  if (code && CORRUPTION_ERROR_CODES.includes(code as (typeof CORRUPTION_ERROR_CODES)[number])) {
+    return true;
+  }
+
+  const lowerMessage = message.toLowerCase();
+  return CORRUPTION_ERROR_PATTERNS.some((pattern) => lowerMessage.includes(pattern.toLowerCase()));
+}
+
+/**
+ * Safely close the database connection, ignoring errors
+ */
+async function safeCloseDatabase(): Promise<void> {
+  try {
+    if (db && typeof db.close === 'function') {
+      await db.close();
+    }
+  } catch {
+    // ignore close errors
+  } finally {
+    db = null;
+  }
+}
+
+/**
+ * Attempt corruption recovery by resetting and reinitializing the database.
+ * Throws if recovery fails.
+ */
+async function attemptCorruptionRecovery(context: string): Promise<void> {
+  logger.warn(`Database corruption detected during ${context}. Attempting auto-recovery...`);
+  await safeCloseDatabase();
+  await resetLocalDatabase();
+  logger.info('Database reset complete. Retrying initialization...');
+}
+
+/**
+ * Handle corruption error with optional auto-recovery.
+ * Returns reinitalized db if recovery succeeds, otherwise throws.
+ */
+async function handleCorruptionError(
+  err: unknown,
+  context: string,
+  retryAfterCorruption: boolean
+  // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
+): Promise<any> {
+  await safeCloseDatabase();
+
+  if (!retryAfterCorruption || !isCorruptionError(err)) {
+    return null; // Signal that we didn't handle it
+  }
+
+  try {
+    await attemptCorruptionRecovery(context);
+    return await initializeMainDatabase(false);
+  } catch (resetErr) {
+    logger.error('Auto-recovery failed:', resetErr);
+    throw new Error(
+      `Database corruption detected during ${context} and auto-recovery failed. Please manually delete the BrainStrike data folder and restart the app.`
+    );
+  }
+}
+
+/**
  * Initialize the database with NodeFS
- * Creates the directory if it doesn't exist and runs migrations
+ * Creates the directory if it doesn't exist and runs migrations.
+ * If corruption is detected, automatically resets and retries once.
  */
 // biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time due to dynamic import
-export async function initializeMainDatabase(): Promise<any> {
+export async function initializeMainDatabase(retryAfterCorruption = true): Promise<any> {
   if (db) {
     return db;
   }
@@ -162,7 +268,7 @@ export async function initializeMainDatabase(): Promise<any> {
     mkdirSync(dataDir, { recursive: true });
     logger.info(`Created database directory: ${dataDir}`);
   }
-  // Get ESM modules
+
   const { PGlite, migrate, vector, live } = await getPGlite();
 
   // Initialize PGlite with filesystem path (Node.js mode) and required pgvector extension
@@ -170,16 +276,9 @@ export async function initializeMainDatabase(): Promise<any> {
     db = await createVectorDatabase(PGlite, dataDir, vector, live);
     logger.info('Database initialized with pgvector extension at:', dataDir);
   } catch (err) {
-    try {
-      // Safely close if allocated
-      if (db && typeof db.close === 'function') {
-        await db.close();
-      }
-    } catch {
-      // ignore
-    } finally {
-      db = null;
-    }
+    const recovered = await handleCorruptionError(err, 'initialization', retryAfterCorruption);
+    if (recovered) return recovered;
+
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Failed to initialize database with pgvector:', msg);
     throw new Error(`pgvector extension is required and failed to initialize via PGlite: ${msg}.`);
@@ -189,6 +288,9 @@ export async function initializeMainDatabase(): Promise<any> {
   try {
     await migrate(db);
   } catch (err) {
+    const recovered = await handleCorruptionError(err, 'migration', retryAfterCorruption);
+    if (recovered) return recovered;
+
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Database migrations failed:', msg);
     throw new Error(`Database migrations failed with pgvector: ${msg}`);
@@ -229,7 +331,23 @@ export async function reinitializeDatabase(): Promise<any> {
 }
 
 /**
- * Reset local database by removing the on-disk cluster and closing any open connection.
+ * Handle runtime corruption detected during query execution.
+ * Resets the database and reinitializes, returning the new database instance.
+ * This is meant to be called from IPC handlers when they catch corruption errors.
+ */
+// biome-ignore lint/suspicious/noExplicitAny: PGlite type is not available at compile time
+export async function handleRuntimeCorruption(context: string): Promise<any> {
+  logger.warn(`Runtime corruption detected during ${context}. Resetting database...`);
+  await safeCloseDatabase();
+  await resetLocalDatabase();
+  logger.info('Database reset complete after runtime corruption. Reinitializing...');
+  return await initializeMainDatabase(false);
+}
+
+/**
+ * Reset local database by removing the entire app data directory and closing any open connection.
+ * This deletes both the pgdata folder AND the parent BrainStrike/BrainStrike-dev folder
+ * to ensure a complete clean slate, including any lock files or corrupted state.
  * Next access will lazily recreate and migrate from scratch.
  */
 export async function resetLocalDatabase(): Promise<void> {
@@ -240,16 +358,19 @@ export async function resetLocalDatabase(): Promise<void> {
     // ignore
   }
 
+  const appDataDir = getAppDataPath();
   const dataDir = getDatabasePath();
+
+  // Delete the entire app data directory (parent folder) for a complete reset
   try {
-    rmSync(dataDir, { recursive: true, force: true });
-    logger.info(`Removed database directory: ${dataDir}`);
+    rmSync(appDataDir, { recursive: true, force: true });
+    logger.info(`Removed app data directory: ${appDataDir}`);
   } catch (err) {
-    logger.error('Failed to remove database directory:', err);
+    logger.error('Failed to remove app data directory:', err);
     throw err;
   }
 
-  // Recreate empty dir to avoid first-run permission flakiness
+  // Recreate empty pgdata dir to avoid first-run permission flakiness
   try {
     mkdirSync(dataDir, { recursive: true });
     logger.info(`Recreated database directory: ${dataDir}`);

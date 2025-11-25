@@ -55,16 +55,28 @@ export async function showDatabaseDemoPanel(page: Page): Promise<Page> {
   console.log('⏳ Waiting for database panel or error to be visible...');
 
   // Wait for either the success state or error state
-  await Promise.race([
-    activePage.locator('[data-testid="database-demo-panel"]').waitFor({
-      state: 'visible',
-      timeout: 15000,
-    }),
-    activePage.locator('[data-testid="db-init-error"]').waitFor({
-      state: 'visible',
-      timeout: 15000,
-    }),
-  ]);
+  // Increased timeout for fresh Electron restarts where database may take longer to initialize
+  try {
+    await Promise.race([
+      activePage.locator('[data-testid="database-demo-panel"]').waitFor({
+        state: 'visible',
+        timeout: 30000,
+      }),
+      activePage.locator('[data-testid="db-init-error"]').waitFor({
+        state: 'visible',
+        timeout: 30000,
+      }),
+    ]);
+  } catch (waitError) {
+    console.warn('⚠️ Database panel did not appear within timeout, checking current state...');
+    // Take a screenshot or log current page state for debugging
+    const bodyText = await activePage
+      .locator('body')
+      .textContent()
+      .catch(() => 'Could not get body text');
+    console.log('Current page content snippet:', bodyText?.slice(0, 500));
+    throw waitError;
+  }
 
   // Check which state we're in
   const hasSuccessPanel = await activePage
