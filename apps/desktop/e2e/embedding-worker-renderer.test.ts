@@ -263,10 +263,11 @@ test.describe('Embedding Worker in Renderer', () => {
     console.log(`✅ Created test job: ${jobId} for chunk: ${chunkId}`);
 
     // Verify the job was created in the database
+    // Note: The worker may pick up the job immediately, so it could be "queued" or "running"
     const status = await getJobStatus(window, jobId);
-    expect(status).toBe('queued');
+    expect(['queued', 'running']).toContain(status);
 
-    console.log('✅ Job successfully created in queue with pending status');
+    console.log(`✅ Job successfully created with status: ${status}`);
 
     // Note: We don't verify job processing here because embedding models
     // may not be available in the test environment. The worker will pick
@@ -391,9 +392,9 @@ test.describe('Embedding Worker in Renderer', () => {
 
     console.log(`✅ Created invalid job: ${invalidJobId}`);
 
-    // Verify the job was created
+    // Verify the job was created (could be queued or running if picked up quickly)
     const status = await getJobStatus(activeWindow, invalidJobId);
-    expect(status).toBe('queued');
+    expect(['queued', 'running']).toContain(status);
 
     // Verify the app remains responsive (worker doesn't crash from invalid payload)
     const refreshButton = activeWindow.locator('button:has-text("Refresh")');
@@ -451,9 +452,9 @@ test.describe('Embedding Worker in Renderer', () => {
     const { jobId: beforeJobId } = await createTestBackfillJob(activeWindow);
     console.log(`✅ Created job before navigation: ${beforeJobId}`);
 
-    // Verify job was created
+    // Verify job was created (could be queued or running if picked up quickly)
     const beforeStatus = await getJobStatus(activeWindow, beforeJobId);
-    expect(beforeStatus).toBe('queued');
+    expect(['queued', 'running']).toContain(beforeStatus);
 
     // Navigate to a different tab (e.g., Explorer)
     const explorerTab = activeWindow
@@ -474,9 +475,9 @@ test.describe('Embedding Worker in Renderer', () => {
     const { jobId: afterJobId } = await createTestBackfillJob(activeWindow);
     console.log(`✅ Created job after navigation: ${afterJobId}`);
 
-    // Verify second job was also created
+    // Verify second job was also created (could be queued or running if picked up quickly)
     const afterStatus = await getJobStatus(activeWindow, afterJobId);
-    expect(afterStatus).toBe('queued');
+    expect(['queued', 'running']).toContain(afterStatus);
 
     // Verify the app is still responsive
     const refreshButton = activeWindow.locator('button:has-text("Refresh")');

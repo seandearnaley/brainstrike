@@ -38,6 +38,101 @@ const liveSubscriptions = new Map<number, LiveSubscriptionRecord>();
 let nextLiveSubscriptionId = 1;
 const logger = createLogger('DesktopIpcHandlers');
 
+/**
+ * Wrap a database operation with corruption detection and auto-recovery.
+ * If the operation fails with a corruption error (XX002, etc.), it will
+ * reset the database and retry the operation once.
+ */
+async function withCorruptionRecovery<T>(operation: () => Promise<T>, context: string): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const { isCorruptionError, handleRuntimeCorruption } = await import('./db-main');
+    if (isCorruptionError(error)) {
+      logger.warn(`Corruption detected in ${context}, attempting auto-recovery...`);
+      await handleRuntimeCorruption(context);
+      // Retry the operation with fresh database
+      return await operation();
+    }
+    throw error;
+  }
+}
+
+/**
+ * Build refresh arguments from payload, filtering undefined values
+ */
+function buildRefreshArgs(
+  payload: { offset?: number; limit?: number } | undefined
+): { offset?: number; limit?: number } | undefined {
+  if (!payload) return undefined;
+  const args: { offset?: number; limit?: number } = {};
+  if (payload.offset !== undefined) args.offset = payload.offset;
+  if (payload.limit !== undefined) args.limit = payload.limit;
+  return Object.keys(args).length > 0 ? args : undefined;
+}
+
+/**
+ * Handle errors from live query refresh, including corruption detection
+ */
+async function handleLiveQueryRefreshError(
+  error: unknown,
+  queryId: number | undefined
+): Promise<{ success: boolean; message: string; corrupted?: boolean }> {
+  const { isCorruptionError, handleRuntimeCorruption } = await import('./db-main');
+  if (isCorruptionError(error)) {
+    logger.warn('Corruption detected in db:live-query:refresh, resetting database...');
+    await handleRuntimeCorruption('db:live-query:refresh');
+    return {
+      success: false,
+      message: 'Database was corrupted and has been reset. Please reload the application.',
+      corrupted: true,
+    };
+  }
+  logger.warn('Failed to refresh live query', { id: queryId, error });
+  return {
+    success: false,
+    message: error instanceof Error ? error.message : String(error),
+  };
+}
+
+type LiveQueryPayload = {
+  query: string;
+  params?: readonly unknown[];
+  key?: string;
+  mode?: 'query' | 'incremental';
+  offset?: number;
+  limit?: number;
+};
+
+/**
+ * Create a live query handle based on the payload mode
+ */
+async function createLiveQueryHandle(
+  // biome-ignore lint/suspicious/noExplicitAny: PGlite db type not available at compile time
+  db: any,
+  payload: LiveQueryPayload
+): Promise<LiveQuery<unknown>> {
+  const isIncremental = payload.mode === 'incremental';
+  if (isIncremental) {
+    if (!payload.key) {
+      throw new Error('Live incremental queries require a key column');
+    }
+    return await db.live.incrementalQuery({
+      query: payload.query,
+      params: payload.params ?? null,
+      key: payload.key,
+      offset: payload.offset,
+      limit: payload.limit,
+    });
+  }
+  return await db.live.query({
+    query: payload.query,
+    params: payload.params ?? null,
+    offset: payload.offset,
+    limit: payload.limit,
+  });
+}
+
 async function cleanupLiveSubscription(id: number): Promise<void> {
   const record = liveSubscriptions.get(id);
   if (!record) return;
@@ -243,88 +338,53 @@ export function registerIpcHandlers(
     }
   });
 
-  // Database IPC handlers
+  // Database IPC handlers (wrapped with corruption recovery)
   ipcMain.handle('db:query', async (_evt: IpcMainInvokeEvent, sql: string, params?: unknown[]) => {
-    const { getDatabase } = await import('./db-main');
-    const db = await getDatabase();
-    return await db.query(sql, params);
+    return withCorruptionRecovery(async () => {
+      const { getDatabase } = await import('./db-main');
+      const db = await getDatabase();
+      return await db.query(sql, params);
+    }, 'db:query');
   });
 
   ipcMain.handle('db:exec', async (_evt: IpcMainInvokeEvent, sql: string) => {
-    const { getDatabase } = await import('./db-main');
-    const db = await getDatabase();
-    return await db.exec(sql);
+    return withCorruptionRecovery(async () => {
+      const { getDatabase } = await import('./db-main');
+      const db = await getDatabase();
+      return await db.exec(sql);
+    }, 'db:exec');
   });
 
   ipcMain.handle(
     'db:live-query:start',
-    async (
-      event: IpcMainInvokeEvent,
-      payload: {
-        query: string;
-        params?: readonly unknown[];
-        key?: string;
-        mode?: 'query' | 'incremental';
-        offset?: number;
-        limit?: number;
-      }
-    ) => {
-      const { getDatabase } = await import('./db-main');
-      const db = await getDatabase();
-      if (!db.live) {
-        throw new Error('Live query extension is not available');
-      }
-
-      const mode: 'query' | 'incremental' =
-        payload?.mode === 'incremental' ? 'incremental' : 'query';
-
-      let handle: LiveQuery<unknown>;
-      if (mode === 'incremental') {
-        if (!payload.key) {
-          throw new Error('Live incremental queries require a key column');
+    async (event: IpcMainInvokeEvent, payload: LiveQueryPayload) => {
+      return withCorruptionRecovery(async () => {
+        const { getDatabase } = await import('./db-main');
+        const db = await getDatabase();
+        if (!db.live) {
+          throw new Error('Live query extension is not available');
         }
-        handle = await db.live.incrementalQuery({
-          query: payload.query,
-          params: payload.params ?? null,
-          key: payload.key,
-          offset: payload.offset,
-          limit: payload.limit,
-        });
-      } else {
-        handle = await db.live.query({
-          query: payload.query,
-          params: payload.params ?? null,
-          offset: payload.offset,
-          limit: payload.limit,
-        });
-      }
 
-      const id = nextLiveSubscriptionId++;
-      const sender = event.sender;
-      const listener = (results: LiveQueryResults<unknown>) => {
-        if (sender.isDestroyed()) {
-          void cleanupLiveSubscription(id);
-          return;
-        }
-        sender.send('db:live-query:update', { id, results });
-      };
+        const handle = await createLiveQueryHandle(db, payload);
+        const mode: 'query' | 'incremental' =
+          payload?.mode === 'incremental' ? 'incremental' : 'query';
 
-      handle.subscribe(listener);
-      liveSubscriptions.set(id, {
-        id,
-        mode,
-        handle,
-        listener,
-        webContentsId: sender.id,
-      });
-      sender.once('destroyed', () => {
-        void cleanupLiveSubscription(id);
-      });
+        const id = nextLiveSubscriptionId++;
+        const sender = event.sender;
+        const listener = (results: LiveQueryResults<unknown>) => {
+          if (sender.isDestroyed()) {
+            void cleanupLiveSubscription(id);
+            return;
+          }
+          sender.send('db:live-query:update', { id, results });
+        };
 
-      return {
-        id,
-        initialResults: handle.initialResults,
-      };
+        handle.subscribe(listener);
+        liveSubscriptions.set(id, { id, mode, handle, listener, webContentsId: sender.id });
+        sender.once('destroyed', () => void cleanupLiveSubscription(id));
+
+        return { id, initialResults: handle.initialResults };
+      }, 'db:live-query:start');
     }
   );
 
@@ -344,25 +404,11 @@ export function registerIpcHandlers(
         return { success: false, message: 'Subscription not found' };
       }
       try {
-        const refreshOptions: { offset?: number; limit?: number } = {};
-        if (payload?.offset !== undefined) {
-          refreshOptions.offset = payload.offset;
-        }
-        if (payload?.limit !== undefined) {
-          refreshOptions.limit = payload.limit;
-        }
-        const refreshArgs =
-          refreshOptions.offset !== undefined || refreshOptions.limit !== undefined
-            ? refreshOptions
-            : undefined;
+        const refreshArgs = buildRefreshArgs(payload);
         await record.handle.refresh(refreshArgs);
         return { success: true };
       } catch (error) {
-        logger.warn('Failed to refresh live query', { id: payload?.id, error });
-        return {
-          success: false,
-          message: error instanceof Error ? error.message : String(error),
-        };
+        return await handleLiveQueryRefreshError(error, payload?.id);
       }
     }
   );
@@ -375,15 +421,17 @@ export function registerIpcHandlers(
 
   // Database test handler for full connection validation
   ipcMain.handle('db:test', async () => {
-    const { getDatabase } = await import('./db-main');
     try {
-      const db = await getDatabase();
-      await db.query('SELECT 1');
-      return {
-        success: true,
-        message: 'Database connection successful',
-        dbLocation: 'Main Process',
-      };
+      return await withCorruptionRecovery(async () => {
+        const { getDatabase } = await import('./db-main');
+        const db = await getDatabase();
+        await db.query('SELECT 1');
+        return {
+          success: true,
+          message: 'Database connection successful',
+          dbLocation: 'Main Process',
+        };
+      }, 'db:test');
     } catch (error) {
       return {
         success: false,
@@ -443,6 +491,19 @@ export function registerIpcHandlers(
         }
       );
     } catch (error) {
+      // Check for corruption and attempt recovery
+      const { isCorruptionError, handleRuntimeCorruption } = await import('./db-main');
+      if (isCorruptionError(error)) {
+        logger.warn('Corruption detected in db:clearAll, resetting database...');
+        await handleRuntimeCorruption('db:clearAll');
+        return {
+          success: true,
+          message: 'Database was corrupted and has been fully reset.',
+          deletedFiles: 0,
+          deletedChunks: 0,
+          corrupted: true,
+        };
+      }
       return {
         success: false,
         message: `Database clear failed: ${error instanceof Error ? error.message : String(error)}`,
