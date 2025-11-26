@@ -3,6 +3,7 @@ import {
   EmbeddingSetsRepository,
   useClearAllData,
   useDbProviderError,
+  useFileChunkRepository,
   useFileRecordRepository,
   usePGliteDatabase,
   usePGliteLiveQuery,
@@ -49,6 +50,7 @@ import {
   SettingsPanel,
   ViewSelector,
 } from './components';
+import { SemanticSearchProvider } from './contexts/semantic-search-context';
 import {
   createImportCompletionHandler,
   useDatabaseErrorBoundary,
@@ -56,6 +58,7 @@ import {
   useExportHandlers,
   useImportSettings,
   useSearchFunctionality,
+  useSemanticSearchExecutor,
 } from './hooks';
 import { useFileCollectionStatus } from './hooks/use-file-collection-status';
 import { useDatabaseDemoStore } from './stores/database-demo-store';
@@ -182,6 +185,7 @@ function seedSearchStateFromPersistence(
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This is a large React component that coordinates multiple sub-systems (import flow, search, vector management, factory reset). Complexity has been reduced by extracting helper functions for model building, factory reset logic, and search state initialization. Further reduction would require splitting into smaller components which would harm readability given the tight coupling of state.
 export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelProps = {}) {
   const repository = useFileRecordRepository();
+  const dbChunkRepository = useFileChunkRepository();
   const dbInitError = useDbProviderError();
   const clearAllData = useClearAllData();
   const dbContext = usePGliteDatabase();
@@ -317,6 +321,14 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
   const exportHandlers = useExportHandlers(filteredRecords, filteredChunks, toast);
 
   const searchFunctionality = useSearchFunctionality(chunkRepository, repository, toast);
+
+  // Create semantic search executor for the collection browser
+  // Use dbChunkRepository (from hook) which is always available when DB is ready,
+  // rather than chunkRepository (from import flow) which requires import to be triggered
+  const semanticSearchExecutor = useSemanticSearchExecutor({
+    chunkRepository: dbChunkRepository,
+    fileRepository: repository,
+  });
 
   // Get file collection status hook
   const { getFileStatus } = useFileCollectionStatus(activeCollectionId);
@@ -642,15 +654,19 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
       {/* Content Area - Collection Browser (hierarchical tree view) */}
       {selectedView === 'browser' && (
         <div className="flex-1 overflow-hidden">
-          <CollectionBrowserView
-            embeddingSets={embeddingSets}
-            records={records}
-            chunks={chunks}
-            pendingChunkIds={pendingChunkIds}
-            activeCollectionId={activeCollectionId}
-            isLoading={embeddingSetsLoading || refreshing}
-            height="100%"
-          />
+          <SemanticSearchProvider
+            {...(semanticSearchExecutor ? { searchExecutor: semanticSearchExecutor } : {})}
+          >
+            <CollectionBrowserView
+              embeddingSets={embeddingSets}
+              records={records}
+              chunks={chunks}
+              pendingChunkIds={pendingChunkIds}
+              activeCollectionId={activeCollectionId}
+              isLoading={embeddingSetsLoading || refreshing}
+              height="100%"
+            />
+          </SemanticSearchProvider>
         </div>
       )}
 

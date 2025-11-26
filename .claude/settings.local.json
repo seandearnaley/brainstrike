@@ -131,7 +131,8 @@
       "Bash(gh repo set-default:*)",
       "Bash(xargs git log:*)",
       "Bash(gh run rerun:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

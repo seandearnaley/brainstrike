@@ -4,6 +4,8 @@
 export { useVectorStatusUIStore } from '@brainstrike/preferences';
 // Components
 export * from './components';
+// Contexts
+export * from './contexts';
 // Utils
 export * from './csv-export-utils';
 export * from './database-demo-panel';
@@ -17,6 +19,7 @@ export {
   type CollectionSortKey,
   type CollectionSortState,
   collectionBrowserSelectors,
+  type SearchMode,
   useCollectionBrowserStore,
 } from './stores/collection-browser-store';
 export { useDatabaseDemoStore } from './stores/database-demo-store';

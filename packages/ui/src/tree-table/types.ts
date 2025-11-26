@@ -221,6 +221,8 @@ export interface TreeTableRowProps<T> {
   isFocused?: boolean;
   /** Ref callback for measuring element */
   measureRef?: (node: HTMLTableRowElement | null) => void;
+  /** Virtual index for @tanstack/react-virtual measureElement */
+  virtualIndex?: number;
 }
 
 /**

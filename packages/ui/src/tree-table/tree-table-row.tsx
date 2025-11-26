@@ -36,6 +36,7 @@ function TreeTableRowInner<T>(
     style,
     isFocused = false,
     measureRef,
+    virtualIndex,
   }: TreeTableRowProps<T>,
   ref: React.Ref<HTMLTableRowElement>
 ) {
@@ -102,6 +103,7 @@ function TreeTableRowInner<T>(
         !matchesFilter && 'opacity-50',
         className
       )}
+      data-index={virtualIndex}
       data-node-id={node.id}
       data-node-type={node.type}
       data-depth={node.depth}

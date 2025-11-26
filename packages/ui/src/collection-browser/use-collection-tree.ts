@@ -16,6 +16,7 @@ import type {
   EmbeddingData,
   EmbeddingStatus,
   FileData,
+  SemanticSearchResult,
 } from './types';
 
 /**
@@ -62,7 +63,7 @@ export interface CollectionTreeInput {
  * - 'status': by embedding completion status
  * - 'count': collections by file count, files by chunk count
  */
-export type CollectionSortKey = 'name' | 'size' | 'status' | 'count';
+export type CollectionSortKey = 'name' | 'size' | 'status' | 'count' | 'score';
 
 /**
  * Sort direction
@@ -91,6 +92,10 @@ export interface UseCollectionTreeOptions {
   expandedIds: Set<string>;
   /** Sort state (optional) */
   sortState?: CollectionSortState;
+  /** Semantic search results to overlay on tree (optional) */
+  semanticResults?: SemanticSearchResult[];
+  /** Whether to filter tree to only show semantic results (default: true when results present) */
+  filterToSemanticResults?: boolean;
 }
 
 /**
@@ -111,6 +116,10 @@ export interface UseCollectionTreeResult {
   searchMatchIds: Set<string>;
   /** Node IDs that should be auto-expanded to reveal search matches */
   searchExpandIds: Set<string>;
+  /** Map of node ID to similarity score (for score column in semantic search mode) */
+  similarityScores: Map<string, number>;
+  /** Node IDs that match semantic search (subset of nodes) */
+  semanticMatchIds: Set<string>;
 }
 
 /**
@@ -182,6 +191,9 @@ function getCollectionSortValue(data: CollectionData, sortKey: CollectionSortKey
       return data.chunkCount > 0 ? data.embeddingCount / data.chunkCount : 0;
     case 'count':
       return data.fileCount;
+    case 'score':
+      // Score sorting is handled specially in sortNodes using similarityScores map
+      return 0;
   }
 }
 
@@ -198,6 +210,9 @@ function getFileSortValue(data: FileData, sortKey: CollectionSortKey): string | 
       return STATUS_PRIORITY[data.embeddingStatus];
     case 'count':
       return data.chunkCount;
+    case 'score':
+      // Score sorting is handled specially in sortNodes using similarityScores map
+      return 0;
   }
 }
 
@@ -214,6 +229,9 @@ function getChunkSortValue(data: ChunkData, sortKey: CollectionSortKey): string 
       return STATUS_PRIORITY[data.embeddingStatus];
     case 'count':
       return data.tokenCount; // No count for chunks, use token count
+    case 'score':
+      // Score sorting is handled specially in sortNodes using similarityScores map
+      return 0;
   }
 }
 
@@ -230,6 +248,9 @@ function getEmbeddingSortValue(data: EmbeddingData, sortKey: CollectionSortKey):
       return 0; // Embeddings are always "complete"
     case 'count':
       return data.dimensions;
+    case 'score':
+      // Score sorting is handled specially in sortNodes using similarityScores map
+      return 0;
   }
 }
 
@@ -280,9 +301,21 @@ function compareNodes(
  */
 function sortNodes(
   nodes: TreeNode<BrowserNodeData>[],
-  sortState: CollectionSortState | undefined
+  sortState: CollectionSortState | undefined,
+  similarityScores?: Map<string, number>
 ): TreeNode<BrowserNodeData>[] {
   if (!sortState) return nodes;
+
+  // Handle score sorting specially - requires similarityScores map
+  if (sortState.key === 'score' && similarityScores) {
+    return [...nodes].sort((a, b) => {
+      const scoreA = similarityScores.get(a.id) ?? 0;
+      const scoreB = similarityScores.get(b.id) ?? 0;
+      const result = scoreA - scoreB;
+      return sortState.direction === 'desc' ? -result : result;
+    });
+  }
+
   return [...nodes].sort((a, b) => compareNodes(a, b, sortState));
 }
 
@@ -550,6 +583,119 @@ function filterTreeNode(
 }
 
 /**
+ * Get the maximum score from a node's children
+ */
+function getMaxChildScore(
+  nodeId: string,
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  scores: Map<string, number>
+): number {
+  const children = childrenMap.get(nodeId) ?? [];
+  let maxScore = 0;
+  for (const child of children) {
+    const childScore = scores.get(child.id);
+    if (childScore !== undefined && childScore > maxScore) {
+      maxScore = childScore;
+    }
+  }
+  return maxScore;
+}
+
+/**
+ * Aggregate scores for nodes of a specific type from their children
+ */
+function aggregateScoresForType(
+  nodeType: string,
+  allNodes: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  scores: Map<string, number>
+): void {
+  for (const node of allNodes) {
+    if (node.type === nodeType) {
+      const maxScore = getMaxChildScore(node.id, childrenMap, scores);
+      if (maxScore > 0) {
+        scores.set(node.id, maxScore);
+      }
+    }
+  }
+}
+
+/**
+ * Check if a node passes filtering for visibility when flattening
+ */
+function nodePassesFilter(
+  node: TreeNode<BrowserNodeData>,
+  hasSemanticFilter: boolean,
+  visibleNodeIds: Set<string>,
+  filterCtx: FilterContext
+): boolean {
+  if (hasSemanticFilter) {
+    return visibleNodeIds.has(node.id);
+  }
+  return filterTreeNode(node, filterCtx) !== null;
+}
+
+/**
+ * Flatten visible nodes based on expansion state
+ * Extracted to reduce cognitive complexity of the main useMemo
+ */
+function flattenVisibleNodes(
+  filteredRoots: TreeNode<BrowserNodeData>[],
+  expandedIds: Set<string>,
+  sortedChildrenMap: Map<string, TreeNode<BrowserNodeData>[]>,
+  hasSemanticFilter: boolean,
+  visibleNodeIds: Set<string>,
+  filterCtx: FilterContext
+): TreeNode<BrowserNodeData>[] {
+  const result: TreeNode<BrowserNodeData>[] = [];
+
+  function addNode(node: TreeNode<BrowserNodeData>): void {
+    result.push(node);
+
+    if (expandedIds.has(node.id)) {
+      const children = sortedChildrenMap.get(node.id) ?? [];
+      for (const child of children) {
+        // Only add children that pass the filter
+        if (nodePassesFilter(child, hasSemanticFilter, visibleNodeIds, filterCtx)) {
+          addNode(child);
+        }
+      }
+    }
+  }
+
+  for (const root of filteredRoots) {
+    addNode(root);
+  }
+
+  return result;
+}
+
+/**
+ * Compute similarity scores with aggregation for parent nodes
+ * - Chunks: Direct similarity from search results
+ * - Files: Max score of child chunks
+ * - Collections: Max score of child files
+ */
+function computeAggregatedScores(
+  semanticResults: SemanticSearchResult[],
+  allNodes: TreeNode<BrowserNodeData>[],
+  childrenMap: Map<string, TreeNode<BrowserNodeData>[]>
+): Map<string, number> {
+  const scores = new Map<string, number>();
+
+  // Set chunk scores directly from results
+  for (const result of semanticResults) {
+    scores.set(result.nodeId, result.similarity);
+  }
+
+  // Aggregate file scores from chunks, then collection scores from files
+  aggregateScoresForType('file', allNodes, childrenMap, scores);
+  aggregateScoresForType('collection', allNodes, childrenMap, scores);
+
+  return scores;
+}
+
+/**
  * Hook to transform flat data into a hierarchical tree structure
  */
 export function useCollectionTree({
@@ -557,6 +703,8 @@ export function useCollectionTree({
   filters,
   expandedIds,
   sortState,
+  semanticResults,
+  filterToSemanticResults = true,
 }: UseCollectionTreeOptions): UseCollectionTreeResult {
   // Build the tree structure using helper functions
   const { rootNodes, allNodes, childrenMap } = React.useMemo(() => {
@@ -570,25 +718,109 @@ export function useCollectionTree({
     return { rootNodes: roots, allNodes: ctx.all, childrenMap: ctx.children };
   }, [data]);
 
+  // Compute semantic search match IDs and scores
+  const { semanticMatchIds, similarityScores, semanticExpandIds } = React.useMemo(() => {
+    const matchIds = new Set<string>();
+    const expandIds = new Set<string>();
+
+    if (!semanticResults || semanticResults.length === 0) {
+      return {
+        semanticMatchIds: matchIds,
+        similarityScores: new Map<string, number>(),
+        semanticExpandIds: expandIds,
+      };
+    }
+
+    // Build node ID to parent ID map for traversal
+    const nodeParentMap = new Map<string, string | null>();
+    for (const node of allNodes) {
+      nodeParentMap.set(node.id, node.parentId);
+    }
+
+    // Mark matching chunks and compute ancestors to expand
+    for (const result of semanticResults) {
+      matchIds.add(result.nodeId);
+
+      // Walk up the tree and mark ancestors for expansion
+      let currentParentId = nodeParentMap.get(result.nodeId) ?? null;
+      while (currentParentId) {
+        expandIds.add(currentParentId);
+        currentParentId = nodeParentMap.get(currentParentId) ?? null;
+      }
+    }
+
+    // Compute aggregated scores (includes parent nodes)
+    const scores = computeAggregatedScores(semanticResults, allNodes, childrenMap);
+
+    return { semanticMatchIds: matchIds, similarityScores: scores, semanticExpandIds: expandIds };
+  }, [semanticResults, allNodes, childrenMap]);
+
   // Apply sorting to children at each level
+  // When semantic results are present, sort by score descending by default
   const sortedChildrenMap = React.useMemo(() => {
-    if (!sortState) return childrenMap;
+    const hasSemanticSort = semanticResults && semanticResults.length > 0 && !sortState;
+
+    if (!sortState && !hasSemanticSort) return childrenMap;
 
     const sorted = new Map<string, TreeNode<BrowserNodeData>[]>();
     for (const [parentId, children] of childrenMap) {
-      sorted.set(parentId, sortNodes(children, sortState));
+      if (hasSemanticSort) {
+        // Sort by similarity score descending
+        const sortedChildren = [...children].sort((a, b) => {
+          const scoreA = similarityScores.get(a.id) ?? 0;
+          const scoreB = similarityScores.get(b.id) ?? 0;
+          return scoreB - scoreA; // Descending
+        });
+        sorted.set(parentId, sortedChildren);
+      } else if (sortState) {
+        sorted.set(parentId, sortNodes(children, sortState, similarityScores));
+      }
     }
     return sorted;
-  }, [childrenMap, sortState]);
+  }, [childrenMap, sortState, semanticResults, similarityScores]);
 
   // Sort root nodes as well
   const sortedRootNodes = React.useMemo(() => {
-    return sortNodes(rootNodes, sortState);
-  }, [rootNodes, sortState]);
+    const hasSemanticSort = semanticResults && semanticResults.length > 0 && !sortState;
+
+    if (hasSemanticSort) {
+      return [...rootNodes].sort((a, b) => {
+        const scoreA = similarityScores.get(a.id) ?? 0;
+        const scoreB = similarityScores.get(b.id) ?? 0;
+        return scoreB - scoreA;
+      });
+    }
+
+    return sortNodes(rootNodes, sortState, similarityScores);
+  }, [rootNodes, sortState, semanticResults, similarityScores]);
 
   // Apply filters (use sorted versions)
+  // When filterToSemanticResults is true, filter to only show matching chunks and their ancestors
+  // This applies even when semanticResults is empty (shows empty state)
   const { filteredRoots, filteredCount } = React.useMemo(() => {
-    // If no filters active, return all roots (sorted)
+    // If semantic filter is active, filter to matching nodes and ancestors
+    // This includes the case where semanticResults is an empty array (0 results)
+    if (filterToSemanticResults && semanticResults) {
+      // Build set of all nodes to show (matching chunks + their ancestors)
+      const visibleNodeIds = new Set<string>();
+
+      // Add all matching chunks
+      for (const result of semanticResults) {
+        visibleNodeIds.add(result.nodeId);
+      }
+
+      // Add all ancestors
+      for (const id of semanticExpandIds) {
+        visibleNodeIds.add(id);
+      }
+
+      // Filter root nodes (will be empty if no results)
+      const filtered = sortedRootNodes.filter((root) => visibleNodeIds.has(root.id));
+
+      return { filteredRoots: filtered, filteredCount: semanticResults.length };
+    }
+
+    // Standard text filter logic
     if (!filters.searchQuery && filters.nodeTypes.size === 4 && filters.embeddingStatus === 'all') {
       return { filteredRoots: sortedRootNodes, filteredCount: allNodes.length };
     }
@@ -613,39 +845,82 @@ export function useCollectionTree({
     countNodes(filtered);
 
     return { filteredRoots: filtered, filteredCount: count };
-  }, [sortedRootNodes, allNodes, sortedChildrenMap, filters]);
+  }, [
+    sortedRootNodes,
+    allNodes,
+    sortedChildrenMap,
+    filters,
+    semanticResults,
+    filterToSemanticResults,
+    semanticExpandIds,
+  ]);
 
   // Flatten visible nodes based on expansion state (use sorted children)
+  // When semantic results are present, only show nodes that are in the match set or ancestors
   const visibleNodes = React.useMemo(() => {
-    const result: TreeNode<BrowserNodeData>[] = [];
+    const hasSemanticFilter: boolean = !!(
+      semanticResults &&
+      semanticResults.length > 0 &&
+      filterToSemanticResults
+    );
 
-    function addNode(node: TreeNode<BrowserNodeData>): void {
-      result.push(node);
-
-      if (expandedIds.has(node.id) && node.hasChildren) {
-        const nodeChildren = sortedChildrenMap.get(node.id) ?? [];
-        for (const child of nodeChildren) {
-          addNode(child);
-        }
+    // Build set of visible node IDs for semantic filtering
+    const visibleNodeIds = new Set<string>();
+    if (hasSemanticFilter && semanticResults) {
+      for (const res of semanticResults) {
+        visibleNodeIds.add(res.nodeId);
+      }
+      for (const id of semanticExpandIds) {
+        visibleNodeIds.add(id);
       }
     }
 
-    for (const root of filteredRoots) {
-      addNode(root);
-    }
+    // Create filter context for checking nodes
+    const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
 
-    return result;
-  }, [filteredRoots, expandedIds, sortedChildrenMap]);
+    return flattenVisibleNodes(
+      filteredRoots,
+      expandedIds,
+      sortedChildrenMap,
+      hasSemanticFilter,
+      visibleNodeIds,
+      filterCtx
+    );
+  }, [
+    filteredRoots,
+    expandedIds,
+    sortedChildrenMap,
+    semanticResults,
+    filterToSemanticResults,
+    semanticExpandIds,
+    filters,
+  ]);
 
-  // Get children callback (returns sorted children)
+  // Get children callback (returns sorted children, filtered appropriately)
   const getChildren = React.useCallback(
     (parentId: string): TreeNode<BrowserNodeData>[] => {
-      return sortedChildrenMap.get(parentId) ?? [];
+      const children = sortedChildrenMap.get(parentId) ?? [];
+
+      // If semantic filter active, only return children that are visible
+      if (semanticResults && semanticResults.length > 0 && filterToSemanticResults) {
+        const visibleNodeIds = new Set<string>();
+        for (const res of semanticResults) {
+          visibleNodeIds.add(res.nodeId);
+        }
+        for (const id of semanticExpandIds) {
+          visibleNodeIds.add(id);
+        }
+        return children.filter((c) => visibleNodeIds.has(c.id));
+      }
+
+      // Apply type/status/search filters to children
+      const filterCtx: FilterContext = { filters, childrenMap: sortedChildrenMap };
+      return children.filter((c) => filterTreeNode(c, filterCtx) !== null);
     },
-    [sortedChildrenMap]
+    [sortedChildrenMap, semanticResults, filterToSemanticResults, semanticExpandIds, filters]
   );
 
-  // Compute search match IDs and nodes to auto-expand
+  // Compute search match IDs and nodes to auto-expand (text search)
   const { searchMatchIds, searchExpandIds } = React.useMemo(() => {
     const matchIds = new Set<string>();
     const expandIds = new Set<string>();
@@ -686,5 +961,7 @@ export function useCollectionTree({
     getChildren,
     searchMatchIds,
     searchExpandIds,
+    similarityScores,
+    semanticMatchIds,
   };
 }

@@ -18,6 +18,9 @@ export { FilterBar } from './filter-bar';
 export { FilterChip } from './filter-chip';
 export type { NodeInspectorProps } from './node-inspector';
 export { NodeInspector } from './node-inspector';
+// Semantic search components
+export { SearchConfigPanel } from './search-config-panel';
+export { SearchModeBar } from './search-mode-bar';
 // Types
 export type {
   BrowserNodeData,
@@ -26,6 +29,7 @@ export type {
   CollectionData,
   CollectionNodeType,
   CollectionTreeNode,
+  DistanceMetric,
   EmbeddingData,
   EmbeddingStatus,
   EmbeddingStatusConfig,
@@ -33,8 +37,18 @@ export type {
   FilterBarProps,
   FilterChipProps,
   NodeTypeConfig,
+  SearchConfig,
+  SearchConfigPanelProps,
+  SearchMode,
+  SearchModeBarProps,
+  SemanticSearchResult,
 } from './types';
-export { DEFAULT_FILTERS, EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
+export {
+  DEFAULT_FILTERS,
+  DEFAULT_SEARCH_CONFIG,
+  EMBEDDING_STATUS_CONFIG,
+  NODE_TYPE_CONFIG,
+} from './types';
 export type {
   CollectionSortDirection,
   CollectionSortKey,

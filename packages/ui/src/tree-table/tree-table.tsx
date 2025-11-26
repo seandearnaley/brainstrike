@@ -407,6 +407,7 @@ export function TreeTable<T>({
                 className={getRowClassName(row.node)}
                 isFocused={keyboard.state.focusedId === row.node.id}
                 measureRef={measureRow}
+                virtualIndex={virtualRow.index}
               />
             );
           })}

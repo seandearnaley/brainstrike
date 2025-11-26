@@ -195,6 +195,119 @@ export interface EmbeddingStatusConfig {
   color: string;
 }
 
+// ============================================================================
+// SEMANTIC SEARCH TYPES
+// ============================================================================
+
+/**
+ * Search mode for the collection browser
+ */
+export type SearchMode = 'quick' | 'semantic';
+
+/**
+ * Distance metric for vector similarity search
+ */
+export type DistanceMetric = 'cosine' | 'l2' | 'ip';
+
+/**
+ * Configuration for semantic search
+ */
+export interface SearchConfig {
+  /** Similarity threshold (0.0-1.0, default 0.5) */
+  threshold: number;
+  /** Maximum number of results (default 20) */
+  resultLimit: number;
+  /** Distance metric for similarity calculation */
+  distanceMetric: DistanceMetric;
+}
+
+/**
+ * Default search configuration
+ */
+export const DEFAULT_SEARCH_CONFIG: SearchConfig = {
+  threshold: 0.5,
+  resultLimit: 20,
+  distanceMetric: 'cosine',
+};
+
+/**
+ * Result from a semantic search operation
+ */
+export interface SemanticSearchResult {
+  /** Tree node ID (e.g., "chunk-abc123") */
+  nodeId: string;
+  /** Original chunk ID in the database */
+  chunkId: string;
+  /** File record ID this chunk belongs to */
+  fileRecordId: string;
+  /** Similarity score (0.0-1.0) */
+  similarity: number;
+  /** Chunk content for preview */
+  content: string;
+  /** File name for context */
+  fileName: string;
+  /** File path for context */
+  filePath: string;
+  /** Embedding set ID this chunk belongs to */
+  embeddingSetId?: string;
+}
+
+/**
+ * Props for the SearchModeBar component
+ */
+export interface SearchModeBarProps {
+  /** Current search mode */
+  mode: SearchMode;
+  /** Callback when mode changes */
+  onModeChange: (mode: SearchMode) => void;
+  /** Semantic search query */
+  semanticQuery: string;
+  /** Callback when semantic query changes */
+  onSemanticQueryChange: (query: string) => void;
+  /** Callback to execute semantic search */
+  onSemanticSearch: () => void;
+  /** Whether semantic search is in progress */
+  isSearching: boolean;
+  /** Search configuration */
+  searchConfig: SearchConfig;
+  /** Callback when search config changes */
+  onSearchConfigChange: (config: SearchConfig) => void;
+  /** Whether config panel is expanded */
+  isConfigExpanded: boolean;
+  /** Callback when config expansion changes */
+  onConfigExpandedChange: (expanded: boolean) => void;
+  /** Number of visible results */
+  resultCount?: number;
+  /** Total number of nodes */
+  totalCount?: number;
+  /** Callback to expand all nodes */
+  onExpandAll?: () => void;
+  /** Callback to collapse all nodes */
+  onCollapseAll?: () => void;
+  /** Whether semantic search has been executed */
+  hasSearched?: boolean;
+  /** Custom class name */
+  className?: string;
+}
+
+/**
+ * Props for the SearchConfigPanel component
+ */
+export interface SearchConfigPanelProps {
+  /** Current search configuration */
+  config: SearchConfig;
+  /** Callback when configuration changes */
+  onConfigChange: (config: SearchConfig) => void;
+  /** Whether the panel is expanded */
+  isExpanded: boolean;
+  /** Callback when expansion state changes */
+  onExpandedChange: (expanded: boolean) => void;
+  /** Default distance metric from the active collection (hint) */
+  collectionDistanceMetric?: DistanceMetric;
+  /** Custom class name */
+  className?: string;
+}
+
 /**
  * Configuration for embedding status display
  */

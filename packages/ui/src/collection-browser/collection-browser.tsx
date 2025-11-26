@@ -9,6 +9,7 @@ import { File, FileText, FolderOpen, Sparkles } from 'lucide-react';
 import * as React from 'react';
 import { Badge } from '../badge';
 import { cn } from '../lib/utils';
+import { Progress } from '../progress';
 import { TreeTable } from '../tree-table/tree-table';
 import type { SortDirection, SortState, TreeNode, TreeTableColumn } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
@@ -22,6 +23,8 @@ import type {
   CollectionNodeType,
   EmbeddingData,
   FileData,
+  SearchMode,
+  SemanticSearchResult,
 } from './types';
 import { DEFAULT_FILTERS, EMBEDDING_STATUS_CONFIG, NODE_TYPE_CONFIG } from './types';
 import type {
@@ -39,6 +42,7 @@ const COLUMN_TO_SORT_KEY: Record<string, CollectionSortKey> = {
   status: 'status',
   size: 'size',
   meta: 'count', // 'meta' column shows counts, so map to 'count' sort key
+  score: 'score', // semantic search score column
 };
 
 /**
@@ -49,6 +53,7 @@ const SORT_KEY_TO_COLUMN: Record<CollectionSortKey, string> = {
   status: 'status',
   size: 'size',
   count: 'meta',
+  score: 'score',
 };
 
 /**
@@ -100,6 +105,14 @@ export interface CollectionBrowserProps {
   selectedId?: string | null;
   /** Called when selection changes (controlled mode) */
   onSelectedIdChange?: (id: string | null) => void;
+  /** Current search mode (quick filter or semantic search) */
+  searchMode?: SearchMode;
+  /** Semantic search results to overlay on tree */
+  semanticResults?: SemanticSearchResult[];
+  /** Whether semantic search is currently loading */
+  isSearching?: boolean;
+  /** Whether a semantic search has been executed at least once */
+  hasSearched?: boolean;
 }
 
 /**
@@ -187,8 +200,29 @@ function getNodeDisplayInfo(
 }
 
 /**
+ * Get the appropriate empty state message based on current search state
+ */
+function getEmptyStateMessage(
+  isSearching: boolean,
+  isSemanticMode: boolean,
+  hasSearched: boolean,
+  nodesLength: number,
+  defaultMessage: string
+): string {
+  if (isSearching) {
+    return 'Searching...';
+  }
+  // Show "no results" message when in semantic mode, search was performed, and there are no nodes
+  if (isSemanticMode && hasSearched && nodesLength === 0) {
+    return 'No matching results found. Try adjusting your search query or threshold.';
+  }
+  return defaultMessage;
+}
+
+/**
  * CollectionBrowser - Unified hierarchical browser
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: This component handles multiple search modes, tree state, and semantic search with aggregated scores
 export function CollectionBrowser({
   data,
   onSelect,
@@ -210,6 +244,10 @@ export function CollectionBrowser({
   onExpandedIdsChange,
   selectedId: controlledSelectedId,
   onSelectedIdChange,
+  searchMode = 'quick',
+  semanticResults,
+  isSearching = false,
+  hasSearched = false,
 }: CollectionBrowserProps) {
   // Filter state
   const [filters, setFilters] = React.useState<CollectionBrowserFilters>(() => ({
@@ -230,6 +268,14 @@ export function CollectionBrowser({
   const isControlledExpansion = controlledExpandedIds !== undefined;
   const expandedIds = isControlledExpansion ? controlledExpandedIds : internalExpandedIds;
 
+  // Determine if semantic results should filter the tree
+  const hasSemanticResults = semanticResults && semanticResults.length > 0;
+  const isSemanticMode = searchMode === 'semantic';
+  // Show score column whenever in semantic mode (not just when results exist)
+  const showScoreColumn = isSemanticMode;
+  // Filter to semantic results when: in semantic mode AND (has results OR search was performed)
+  const shouldFilterToSemanticResults = isSemanticMode && (hasSemanticResults || hasSearched);
+
   // Build tree structure with hierarchical sorting
   const {
     nodes,
@@ -239,11 +285,16 @@ export function CollectionBrowser({
     getChildren,
     searchMatchIds,
     searchExpandIds,
+    similarityScores,
+    semanticMatchIds,
   } = useCollectionTree({
     data,
     filters,
     expandedIds,
     ...(sortState ? { sortState } : {}),
+    ...(shouldFilterToSemanticResults
+      ? { semanticResults: semanticResults ?? [], filterToSemanticResults: true }
+      : {}),
   });
 
   // Track previous search query to detect changes
@@ -411,13 +462,15 @@ export function CollectionBrowser({
     [onSortChange]
   );
 
-  // Define columns with sorting support
-  const columns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(
+  // Define base columns - adjust widths based on whether score column is shown
+  const baseColumns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(
     () => [
       {
         id: 'name',
         header: 'Name',
-        width: '40%',
+        // Narrower in semantic mode to make room for score column
+        width: showScoreColumn ? '30%' : '40%',
+        minWidth: 150,
         sortable: true,
         accessorFn: (node) => getNodeDisplayInfo(node.type, node.data).displayName.toLowerCase(),
         cell: ({ node }) => {
@@ -425,12 +478,16 @@ export function CollectionBrowser({
           const { displayName, subtitle } = getNodeDisplayInfo(type, nodeData);
 
           return (
-            <div className="flex items-center gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
               <NodeIcon type={type} />
-              <div className="min-w-0 flex-1">
-                <div className="font-medium truncate">{displayName}</div>
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <div className="font-medium truncate" title={displayName}>
+                  {displayName}
+                </div>
                 {subtitle && (
-                  <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
+                  <div className="text-xs text-muted-foreground truncate" title={subtitle}>
+                    {subtitle}
+                  </div>
                 )}
               </div>
             </div>
@@ -440,7 +497,7 @@ export function CollectionBrowser({
       {
         id: 'status',
         header: 'Status',
-        width: '15%',
+        width: showScoreColumn ? '10%' : '15%',
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
@@ -462,7 +519,7 @@ export function CollectionBrowser({
       {
         id: 'size',
         header: 'Size',
-        width: '15%',
+        width: showScoreColumn ? '10%' : '15%',
         sortable: true,
         accessorFn: (node) => {
           const { data: nodeData, type } = node;
@@ -508,26 +565,31 @@ export function CollectionBrowser({
       {
         id: 'meta',
         header: 'Info',
-        width: '30%',
+        // Hide completely in semantic mode to maximize space for score
+        width: showScoreColumn ? '15%' : '30%',
         sortable: false,
         cell: ({ node }) => {
           const { data: nodeData, type } = node;
           if (type === 'collection') {
             const collData = nodeData as CollectionData;
             return (
-              <div className="text-xs text-muted-foreground">
+              <div
+                className="text-xs text-muted-foreground truncate"
+                title={`${collData.modelId} • ${collData.dimensions}d`}
+              >
                 {collData.modelId} • {collData.dimensions}d
               </div>
             );
           }
           if (type === 'file') {
             const fileData = nodeData as FileData;
+            const text =
+              fileData.embeddingProgress !== undefined && fileData.embeddingProgress < 100
+                ? `${fileData.chunkCount} chunks (${fileData.embeddingProgress}%)`
+                : `${fileData.chunkCount} chunks`;
             return (
-              <div className="text-xs text-muted-foreground">
-                {fileData.chunkCount} chunks
-                {fileData.embeddingProgress !== undefined && fileData.embeddingProgress < 100 && (
-                  <span className="ml-2">({fileData.embeddingProgress}% embedded)</span>
-                )}
+              <div className="text-xs text-muted-foreground truncate" title={text}>
+                {text}
               </div>
             );
           }
@@ -535,7 +597,72 @@ export function CollectionBrowser({
         },
       },
     ],
-    []
+    [showScoreColumn]
+  );
+
+  // Score column for semantic search mode - always present when in semantic mode
+  const scoreColumn: TreeTableColumn<BrowserNodeData> = React.useMemo(
+    () => ({
+      id: 'score',
+      header: 'Score',
+      width: '20%',
+      minWidth: 100,
+      sortable: true,
+      accessorFn: (node) => similarityScores.get(node.id) ?? 0,
+      cell: ({ node }) => {
+        const score = similarityScores.get(node.id);
+
+        // Show placeholder when no score (before search or no results)
+        if (score === undefined) {
+          return <span className="text-xs text-muted-foreground/50">—</span>;
+        }
+
+        const percentage = Math.round(score * 100);
+        const isDirectMatch = semanticMatchIds.has(node.id);
+
+        return (
+          <div className="flex items-center gap-2">
+            <Progress
+              value={percentage}
+              className={cn('h-2 w-12 flex-shrink-0', isDirectMatch ? 'bg-primary/20' : 'bg-muted')}
+            />
+            <span
+              className={cn(
+                'text-xs font-mono tabular-nums whitespace-nowrap',
+                isDirectMatch ? 'text-primary font-medium' : 'text-muted-foreground'
+              )}
+            >
+              {percentage}%
+            </span>
+          </div>
+        );
+      },
+    }),
+    [similarityScores, semanticMatchIds]
+  );
+
+  // Combine columns based on search mode
+  // Score column is always shown in semantic mode (not just when results exist)
+  const columns: TreeTableColumn<BrowserNodeData>[] = React.useMemo(() => {
+    if (showScoreColumn) {
+      // Insert score column after name column (index 1)
+      return [...baseColumns.slice(0, 1), scoreColumn, ...baseColumns.slice(1)].filter(
+        (col): col is TreeTableColumn<BrowserNodeData> => col !== undefined
+      );
+    }
+    return baseColumns;
+  }, [baseColumns, scoreColumn, showScoreColumn]);
+
+  // Determine which IDs to highlight based on mode
+  const highlightedIds = isSemanticMode && hasSemanticResults ? semanticMatchIds : searchMatchIds;
+
+  // Compute empty state message
+  const displayEmptyMessage = getEmptyStateMessage(
+    isSearching,
+    isSemanticMode,
+    hasSearched,
+    nodes.length,
+    emptyMessage
   );
 
   // Loading state
@@ -563,7 +690,14 @@ export function CollectionBrowser({
         />
       )}
 
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden relative">
+        {/* Search loading overlay */}
+        {isSearching && (
+          <div className="absolute inset-0 bg-background/50 flex items-center justify-center z-10">
+            <div className="text-sm text-muted-foreground">Searching...</div>
+          </div>
+        )}
+
         <TreeTable
           nodes={nodes}
           columns={columns}
@@ -578,10 +712,12 @@ export function CollectionBrowser({
                 onMultiSelectChange: handleMultiSelectChange,
               }
             : {})}
-          highlightedIds={searchMatchIds}
+          highlightedIds={highlightedIds}
           onRowDoubleClick={handleDoubleClick}
           onRowContextMenu={handleContextMenu}
-          emptyState={<div className="text-sm text-muted-foreground p-4">{emptyMessage}</div>}
+          emptyState={
+            <div className="text-sm text-muted-foreground p-4">{displayEmptyMessage}</div>
+          }
           ariaLabel="Collection browser"
           rowHeight={48}
           {...(treeTableSortState ? { sortState: treeTableSortState } : {})}

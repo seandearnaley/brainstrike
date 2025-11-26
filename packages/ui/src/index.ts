@@ -21,6 +21,8 @@ export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
 // Export ErrorBoundary
 export { default as ErrorBoundary } from './error-boundary';
 export * from './error-fallback';
+export type { ExpandableTextareaProps } from './expandable-textarea';
+export { ExpandableTextarea } from './expandable-textarea';
 export * from './hooks';
 export type { PanelPersistenceAdapter } from './hooks/panel-persistence-adapters';
 export {

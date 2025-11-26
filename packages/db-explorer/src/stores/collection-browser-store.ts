@@ -2,13 +2,15 @@ import type {
   CollectionSortDirection,
   CollectionSortKey,
   CollectionSortState,
+  DistanceMetric,
+  SearchMode,
 } from '@brainstrike/ui';
 import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
 // Re-export types for convenience
-export type { CollectionSortDirection, CollectionSortKey, CollectionSortState };
+export type { CollectionSortDirection, CollectionSortKey, CollectionSortState, SearchMode };
 
 /**
  * Persisted data for the CollectionBrowserView
@@ -22,12 +24,25 @@ interface CollectionBrowserData {
   sortState: CollectionSortState | null;
   /** Whether the inspector panel is collapsed */
   isInspectorCollapsed: boolean;
-  /** Filter state - search query */
+  /** Filter state - search query (quick filter mode) */
   searchQuery: string;
   /** Filter state - enabled node types */
   nodeTypes: string[];
   /** Filter state - embedding status filter */
   embeddingStatus: string;
+  // Semantic search state (persisted)
+  /** Current search mode (quick filter or semantic search) */
+  searchMode: SearchMode;
+  /** Semantic search query text */
+  semanticQuery: string;
+  /** Semantic search similarity threshold */
+  searchConfigThreshold: number;
+  /** Semantic search result limit */
+  searchConfigLimit: number;
+  /** Semantic search distance metric */
+  searchConfigDistanceMetric: DistanceMetric;
+  /** Whether the search config panel is expanded */
+  searchConfigExpanded: boolean;
 }
 
 /**
@@ -50,7 +65,7 @@ interface CollectionBrowserActions {
   toggleSort: (key: CollectionSortKey) => void;
   /** Set inspector collapsed state */
   setInspectorCollapsed: (collapsed: boolean) => void;
-  /** Set search query */
+  /** Set search query (quick filter mode) */
   setSearchQuery: (query: string) => void;
   /** Set enabled node types */
   setNodeTypes: (types: string[]) => void;
@@ -58,6 +73,19 @@ interface CollectionBrowserActions {
   toggleNodeType: (type: string) => void;
   /** Set embedding status filter */
   setEmbeddingStatus: (status: string) => void;
+  // Semantic search actions
+  /** Set the search mode (quick or semantic) */
+  setSearchMode: (mode: SearchMode) => void;
+  /** Set the semantic search query */
+  setSemanticQuery: (query: string) => void;
+  /** Set semantic search threshold */
+  setSearchConfigThreshold: (threshold: number) => void;
+  /** Set semantic search result limit */
+  setSearchConfigLimit: (limit: number) => void;
+  /** Set semantic search distance metric */
+  setSearchConfigDistanceMetric: (metric: DistanceMetric) => void;
+  /** Set search config panel expanded state */
+  setSearchConfigExpanded: (expanded: boolean) => void;
   /** Reset all state to defaults */
   reset: () => void;
 }
@@ -77,6 +105,13 @@ const DEFAULT_STATE: CollectionBrowserData = {
   searchQuery: '',
   nodeTypes: ['collection', 'file', 'chunk', 'embedding'],
   embeddingStatus: 'all',
+  // Semantic search defaults
+  searchMode: 'quick',
+  semanticQuery: '',
+  searchConfigThreshold: 0.5,
+  searchConfigLimit: 20,
+  searchConfigDistanceMetric: 'cosine',
+  searchConfigExpanded: false,
 };
 
 /**
@@ -162,6 +197,19 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
 
       setEmbeddingStatus: (status) => set({ embeddingStatus: status }),
 
+      // Semantic search actions
+      setSearchMode: (mode) => set({ searchMode: mode }),
+
+      setSemanticQuery: (query) => set({ semanticQuery: query }),
+
+      setSearchConfigThreshold: (threshold) => set({ searchConfigThreshold: threshold }),
+
+      setSearchConfigLimit: (limit) => set({ searchConfigLimit: limit }),
+
+      setSearchConfigDistanceMetric: (metric) => set({ searchConfigDistanceMetric: metric }),
+
+      setSearchConfigExpanded: (expanded) => set({ searchConfigExpanded: expanded }),
+
       // Reset action
       reset: () => set(DEFAULT_STATE),
     }),
@@ -177,6 +225,13 @@ export const useCollectionBrowserStore = create<CollectionBrowserStore>()(
         searchQuery: s.searchQuery,
         nodeTypes: s.nodeTypes,
         embeddingStatus: s.embeddingStatus,
+        // Semantic search state
+        searchMode: s.searchMode,
+        semanticQuery: s.semanticQuery,
+        searchConfigThreshold: s.searchConfigThreshold,
+        searchConfigLimit: s.searchConfigLimit,
+        searchConfigDistanceMetric: s.searchConfigDistanceMetric,
+        searchConfigExpanded: s.searchConfigExpanded,
       }),
     }
   )
@@ -198,6 +253,15 @@ export const collectionBrowserSelectors = {
     nodeTypes: s.nodeTypes,
     embeddingStatus: s.embeddingStatus,
   }),
+  // Semantic search selectors
+  searchMode: (s: CollectionBrowserStore) => s.searchMode,
+  semanticQuery: (s: CollectionBrowserStore) => s.semanticQuery,
+  searchConfig: (s: CollectionBrowserStore) => ({
+    threshold: s.searchConfigThreshold,
+    resultLimit: s.searchConfigLimit,
+    distanceMetric: s.searchConfigDistanceMetric,
+  }),
+  searchConfigExpanded: (s: CollectionBrowserStore) => s.searchConfigExpanded,
 };
 
 /**
