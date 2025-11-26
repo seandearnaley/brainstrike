@@ -132,7 +132,8 @@
       "Bash(xargs git log:*)",
       "Bash(gh run rerun:*)",
       "Bash(tee:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)"
     ],
     "deny": [],
     "ask": []

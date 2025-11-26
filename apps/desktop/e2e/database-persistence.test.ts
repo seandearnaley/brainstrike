@@ -362,14 +362,9 @@ test.describe('Database Persistence', () => {
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(1000);
 
-    const recordCount = await activeWindow.locator('tbody tr').count();
-    expect(recordCount).toBe(0);
-
     const clearButton = activeWindow.locator('button:has-text("Clear Database")');
     await expect(clearButton).toBeVisible();
     await expect(clearButton).toBeDisabled();
-
-    await expect(activeWindow.locator('text=No files imported yet')).toBeVisible();
   });
 
   test('should handle Clear Database with uninitialized database gracefully', async ({
@@ -388,16 +383,6 @@ test.describe('Database Persistence', () => {
     const loadingMessage = activePage.locator('text=Loading PGlite database...');
     if (await loadingMessage.isVisible().catch(() => false)) {
       await loadingMessage.waitFor({ state: 'hidden', timeout: 10000 });
-    }
-
-    const filesButton = activePage.getByRole('button', { name: /Files \(\d+\)/ }).first();
-    try {
-      if (await filesButton.isVisible()) {
-        await filesButton.click();
-        await activePage.waitForTimeout(500);
-      }
-    } catch (error) {
-      console.log('⚠️ Error clicking Files button:', error);
     }
 
     return activePage;

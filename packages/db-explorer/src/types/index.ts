@@ -6,13 +6,6 @@ export interface ChunkSearchResult {
   fileRecord: FileRecord;
 }
 
-export interface ViewSelectorProps {
-  selectedView: 'files' | 'chunks' | 'search' | 'browser';
-  setSelectedView: (view: 'files' | 'chunks' | 'search' | 'browser') => void;
-  recordsCount: number;
-  chunksCount: number;
-}
-
 export interface DbInfoDisplayProps {
   dbInfo: {
     location: string;
@@ -76,12 +69,6 @@ export interface ExportButtonsProps {
   records: FileRecord[];
   chunks: FileChunk[];
   exportHandlers: ExportHandlers;
-}
-
-export interface SearchInterfaceProps {
-  searchFunctionality: SearchFunctionality;
-  activeCollection?: { id: string; name: string } | null | undefined;
-  documentCount?: number | undefined;
 }
 
 export interface ImportSettings {
