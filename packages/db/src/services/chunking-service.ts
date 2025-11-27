@@ -1,9 +1,5 @@
 import { countTokensAccurate, createLogger } from '@brainstrike/utils';
-import {
-  CharacterTextSplitter,
-  RecursiveCharacterTextSplitter,
-  TokenTextSplitter,
-} from '@langchain/textsplitters';
+import { CharacterTextSplitter, RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { CHUNKING_CONFIG } from '../config/chunking-config.js';
 import type { FileChunkInsert } from '../models/file-chunk';
 
@@ -324,6 +320,70 @@ export class ChunkingService {
   }
 
   /**
+   * Re-split an oversized chunk into smaller pieces using RecursiveCharacterTextSplitter.
+   * This is a fallback for when character-based splitters produce chunks that exceed token limits.
+   * Note: We use character-based splitting (not TokenTextSplitter) because tiktoken requires
+   * fetching external resources which is blocked by Electron's Content Security Policy.
+   */
+  private async reSplitOversizedChunk(
+    content: string,
+    maxTokens: number,
+    overlap: number
+  ): Promise<string[]> {
+    // Convert token limits to character limits using averageCharsPerToken ratio
+    const charsPerToken = CHUNKING_CONFIG.averageCharsPerToken;
+    const maxChars = Math.floor(maxTokens * charsPerToken);
+    const overlapChars = Math.min(Math.floor(overlap * charsPerToken), Math.floor(maxChars / 10));
+
+    const recursiveChunker = new RecursiveCharacterTextSplitter({
+      chunkSize: maxChars,
+      chunkOverlap: overlapChars,
+      separators: ['\n\n', '\n', '. ', ' ', ''],
+    });
+    return recursiveChunker.splitText(content);
+  }
+
+  /**
+   * Generate sub-chunks from an oversized piece of text.
+   * Extracted to reduce cognitive complexity of the main emit function.
+   */
+  private async generateSubChunks(
+    subPieces: string[],
+    fileRecordId: string,
+    startSeq: number,
+    maxTokens: number,
+    nowIso: () => string,
+    tokenCounter?: (text: string) => Promise<number>
+  ): Promise<{ chunks: FileChunkInsert[]; count: number }> {
+    const chunks: FileChunkInsert[] = [];
+    let seq = startSeq;
+
+    for (const subTxt of subPieces) {
+      const subC = subTxt?.trim();
+      if (!subC) continue;
+      const subTokenCount = tokenCounter ? await tokenCounter(subC) : this.estimateTokenCount(subC);
+      const subContentHash = await this.generateContentHash(subC);
+      const now = nowIso();
+      const id = `${fileRecordId}_chunk_${seq}`;
+      chunks.push({
+        id,
+        fileRecordId,
+        chunkIndex: seq,
+        content: subC,
+        contentHash: subContentHash,
+        tokenCount: subTokenCount,
+        chunkType: 'text' as const,
+        chunkSize: maxTokens,
+        createdAt: now,
+        updatedAt: now,
+      });
+      seq++;
+    }
+
+    return { chunks, count: chunks.length };
+  }
+
+  /**
    * Streaming chunk production to reduce peak memory.
    * Yields FileChunkInsert items without materializing a large array.
    */
@@ -336,11 +396,25 @@ export class ChunkingService {
       throw new Error('Content and fileRecordId are required for chunking');
     }
 
+    // Check skip patterns BEFORE processing (fix: streaming path was bypassing this)
+    const skipResult = this.shouldSkipChunking(content, options);
+    if (skipResult.skip) {
+      logger.info('Skipping chunking for file (streaming path)', {
+        fileRecordId,
+        fileName: options.fileName,
+        reason: skipResult.reason,
+      });
+      return; // Yield nothing - file should be skipped
+    }
+
     const adjusted = this.adjustChunkingForFileType(content, options);
     const maxTokensCap = resolveMaxTokensCap(options.maxTokensCap);
     const effectiveMaxTokens = Math.min(adjusted.maxTokens, maxTokensCap);
     const effectiveOverlap = Math.min(adjusted.overlap, CHUNKING_CONFIG.overlapSafetyCap);
     const nowIso = () => new Date().toISOString();
+
+    // Maximum safe token limit for embedding models (OpenAI's limit is 8192, use conservative value)
+    const maxSafeTokens = Math.min(effectiveMaxTokens * 4, CHUNKING_CONFIG.maxTokensSafetyCap);
 
     let seq = 0;
     const emit = async function* (
@@ -355,6 +429,37 @@ export class ChunkingService {
         const tokenCount = options.tokenCounter
           ? await options.tokenCounter(c)
           : this.estimateTokenCount(c);
+
+        // If chunk exceeds safe token limit, re-split it using RecursiveCharacterTextSplitter
+        if (tokenCount > maxSafeTokens) {
+          logger.warn('Chunk exceeds safe token limit, re-splitting', {
+            fileRecordId,
+            originalTokens: tokenCount,
+            maxSafeTokens,
+            charCount: c.length,
+          });
+
+          // Re-split using helper method to enforce token limits
+          const subPieces = await this.reSplitOversizedChunk(
+            c,
+            Math.min(maxTokens, maxSafeTokens),
+            effectiveOverlap
+          );
+          const { chunks: subChunks, count } = await this.generateSubChunks(
+            subPieces,
+            fileRecordId,
+            seq,
+            maxTokens,
+            nowIso,
+            options.tokenCounter
+          );
+          for (const chunk of subChunks) {
+            yield chunk;
+          }
+          seq += count;
+          continue; // Skip the original oversized chunk
+        }
+
         const contentHash = await this.generateContentHash(c);
         const now = nowIso();
         const id = `${fileRecordId}_chunk_${seq}`;
@@ -387,13 +492,18 @@ export class ChunkingService {
     const name = (options.fileName || options.filePath || '').toLowerCase();
     const isMarkdown = /\.(md|mdx|markdown)$/.test(name);
     const isCode = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|rs|go|py|java|kt|cs|rb|php)$/.test(name);
+    // Detect structured data files that need special splitting (JSON, XML, YAML, etc.)
+    const isStructuredData = /\.(json|xml|yaml|yml|csv|tsv)$/.test(name);
 
     type ChunkGroup = { pieces: string[]; type: FileChunkInsert['chunkType'] };
 
     const chunkTokens = async (): Promise<ChunkGroup[]> => {
-      const tokenChunker = new TokenTextSplitter({
-        chunkSize: effectiveMaxTokens,
-        chunkOverlap: effectiveOverlap,
+      // Note: We use RecursiveCharacterTextSplitter instead of TokenTextSplitter because
+      // tiktoken requires fetching external resources which is blocked by Electron's CSP.
+      const tokenChunker = new RecursiveCharacterTextSplitter({
+        chunkSize: maxChars,
+        chunkOverlap: overlapChars,
+        separators: ['\n\n', '\n', '. ', ' ', ''],
       });
       return [{ pieces: await tokenChunker.splitText(content), type: 'text' }];
     };
@@ -439,6 +549,29 @@ export class ChunkingService {
       return [{ pieces: await sentenceChunker.splitText(content), type: 'sentence' }];
     };
 
+    // Use RecursiveCharacterTextSplitter for structured data (JSON, XML, etc.)
+    // These files have no sentence boundaries, so we split on structural elements
+    const chunkStructuredData = async (): Promise<ChunkGroup[]> => {
+      const structuredSeparators = [
+        '\n\n', // Double newlines (between blocks)
+        '\n', // Single newlines
+        '},', // JSON object boundaries
+        '],', // JSON array boundaries
+        '",', // JSON key-value boundaries
+        ',', // General separators
+        '}', // Closing braces
+        ']', // Closing brackets
+        ' ', // Spaces as last resort
+        '', // Character-by-character fallback
+      ];
+      const structuredChunker = new RecursiveCharacterTextSplitter({
+        chunkSize: maxChars,
+        chunkOverlap: overlapChars,
+        separators: structuredSeparators,
+      });
+      return [{ pieces: await structuredChunker.splitText(content), type: 'recursive' }];
+    };
+
     let groups: ChunkGroup[] = [];
     let effectiveStrategy: ChunkingStrategy = options.strategy;
     let strategyNotified = false;
@@ -460,6 +593,10 @@ export class ChunkingService {
       groups = await chunkTokens();
     } else if (effectiveStrategy === 'recursive') {
       groups = await chunkCode();
+    } else if (isStructuredData) {
+      // Use structured data splitter for JSON/XML/etc. instead of sentence splitter
+      groups = await chunkStructuredData();
+      effectiveStrategy = 'recursive'; // Update strategy to reflect actual method used
     } else {
       groups = isMarkdown ? await chunkMarkdown() : await chunkText();
     }
