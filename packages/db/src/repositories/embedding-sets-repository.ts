@@ -1,5 +1,6 @@
 import { createLogger, generateUUID } from '@brainstrike/utils';
 import type { PGlite } from '@electric-sql/pglite';
+import { ensureDimensionIndexExists } from '../migrations/dimension-index-helpers.js';
 import type { EmbeddingDistance, EmbeddingSet } from '../models/embedding-set';
 
 export class EmbeddingSetsRepository {
@@ -41,6 +42,18 @@ export class EmbeddingSetsRepository {
 
     if (insertResult.rows.length === 0) {
       throw new Error(`Failed to create embedding set for ${modelKey}/${dimensions}/${distance}`);
+    }
+
+    // Ensure HNSW index exists for this dimension (idempotent, best-effort)
+    // This allows new embedding dimensions to automatically get indexes
+    try {
+      await ensureDimensionIndexExists(this.db, dimensions);
+    } catch (error) {
+      // Non-fatal: queries will still work via sequential scan fallback
+      this.logger.warn('Failed to ensure dimension index exists', {
+        dimensions,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
 
     this.logger.info('Created new embedding set', {
