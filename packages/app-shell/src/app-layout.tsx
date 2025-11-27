@@ -1,5 +1,6 @@
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { FileExplorerProvider } from '@brainstrike/file-explorer-ui';
+import { useDatabaseStatusSync } from '@brainstrike/preferences';
 import {
   NavigationSidebar,
   StatusBar,
@@ -12,6 +13,7 @@ import { DatabaseStatusItem } from './status-items';
 import type { AppLayoutProps } from './types';
 
 export function AppLayout({ children, config, currentPath, onNavigationClick }: AppLayoutProps) {
+  useDatabaseStatusSync();
   const { storageAdapter } = useAdapters();
 
   return (

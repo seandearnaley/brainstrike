@@ -4,6 +4,7 @@ export * from './embedding/embedding-settings-section';
 export * from './factory-reset/factory-reset-helpers';
 export * from './factory-reset/factory-reset-panel';
 export * from './factory-reset/factory-reset-settings-section';
+export * from './hooks/use-database-status-sync';
 // Settings UI Components
 export * from './logging/logging-settings-section';
 export * from './settings-page-content';

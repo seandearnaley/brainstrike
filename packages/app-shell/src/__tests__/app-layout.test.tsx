@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
+vi.mock('@brainstrike/preferences', () => ({
+  useDatabaseStatusSync: () => {},
+}));
+
 // Mock the file-explorer-ui package to avoid worker issues
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
