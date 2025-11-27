@@ -303,10 +303,22 @@ export class FileChunkRepository {
       );
     }
 
+    // Resolve distance config and get dimension for index matching
+    const { similarityExpr, orderExpr, dimension } = await this.resolveDistanceConfig(
+      embeddingSetId,
+      queryEmbedding
+    );
+
     const vectorParam = `[${queryEmbedding.join(',')}]`;
     const params: unknown[] = [vectorParam];
     let paramIndex = 2;
-    const whereParts = ['embedding IS NOT NULL'];
+
+    // Build WHERE clause - include vector_dims() to enable partial HNSW index usage
+    // The query planner requires this clause to match the partial index predicate
+    const whereParts = [
+      'embedding IS NOT NULL',
+      `vector_dims(embedding) = ${dimension}`, // Enables HNSW index usage
+    ];
 
     paramIndex = this.appendFilterClause(
       whereParts,
@@ -319,11 +331,6 @@ export class FileChunkRepository {
     whereParts.push(`embedding_set_id = $${paramIndex}`);
     params.push(embeddingSetId);
     paramIndex += 1;
-
-    const { similarityExpr, orderExpr } = await this.resolveDistanceConfig(
-      embeddingSetId,
-      queryEmbedding
-    );
 
     // Try to tune ANN search parameters (no-op if unsupported)
     try {
@@ -489,7 +496,7 @@ export class FileChunkRepository {
   private async resolveDistanceConfig(
     embeddingSetId: string,
     queryEmbedding: number[]
-  ): Promise<{ similarityExpr: string; orderExpr: string }> {
+  ): Promise<{ similarityExpr: string; orderExpr: string; dimension: number }> {
     const setRes = await this.db.query<{ distance: string; dimensions?: number }>(
       'SELECT distance, dimensions FROM embedding_sets WHERE id = $1',
       [embeddingSetId]
@@ -509,28 +516,42 @@ export class FileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    return this.buildDistanceExpressions(distance);
+    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
+    return { ...expressions, dimension: expectedDimension };
   }
 
-  private buildDistanceExpressions(distance: 'cosine' | 'l2' | 'ip'): {
+  /**
+   * Build distance expressions for similarity search.
+   * CRITICAL: The embedding column is cast to vector(dimension) to match the
+   * partial HNSW index expression `(embedding::vector(N))`. Without this cast,
+   * the query planner cannot use the dimension-specific indexes.
+   */
+  private buildDistanceExpressions(
+    distance: 'cosine' | 'l2' | 'ip',
+    dimension: number
+  ): {
     similarityExpr: string;
     orderExpr: string;
   } {
+    // Cast embedding to fixed-dimension vector to enable HNSW index usage
+    const embeddingCast = `(embedding::vector(${dimension}))`;
+    const paramCast = `$1::vector(${dimension})`;
+
     if (distance === 'l2') {
       return {
-        similarityExpr: '(1.0 / (1.0 + (embedding <-> $1::vector)))',
-        orderExpr: 'embedding <-> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
+        orderExpr: `${embeddingCast} <-> ${paramCast}`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))',
-        orderExpr: 'embedding <#> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
+        orderExpr: `${embeddingCast} <#> ${paramCast}`,
       };
     }
     return {
-      similarityExpr: '(1 - ((embedding <=> $1::vector) / 2.0))',
-      orderExpr: 'embedding <=> $1::vector',
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
+      orderExpr: `${embeddingCast} <=> ${paramCast}`,
     };
   }
 
