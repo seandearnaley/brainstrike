@@ -224,4 +224,30 @@ describe('Dimension HNSW Index Query Plan', () => {
     // All embeddings are identical, so similarity should be very high (close to 1)
     expect(Number(result.rows[0].similarity)).toBeGreaterThan(0.99);
   });
+
+  it('should use HNSW index when ORDER BY includes cast expression', async () => {
+    // This test verifies that the query uses (embedding::vector(N)) cast
+    // which matches the indexed expression in the HNSW partial index.
+    // With the cast, the query planner CAN use the HNSW index.
+    const queryVector = `[${new Array(768).fill(0.2).join(',')}]`;
+
+    const explainResult = await db.query<{ 'QUERY PLAN': string }>(
+      `EXPLAIN (FORMAT TEXT)
+       SELECT id, (1 - (((embedding::vector(768)) <=> $1::vector(768)) / 2.0)) as similarity
+       FROM file_chunks
+       WHERE embedding IS NOT NULL
+         AND vector_dims(embedding) = 768
+       ORDER BY (embedding::vector(768)) <=> $1::vector(768)
+       LIMIT 10`,
+      [queryVector]
+    );
+
+    const plan = explainResult.rows.map((r) => r['QUERY PLAN']).join('\n');
+
+    // Verify the query plan uses the HNSW index
+    // When the cast expression matches the indexed expression, the planner uses the index
+    expect(plan).toContain('Index Scan using idx_file_chunks_emb_hnsw_768');
+    // Verify the ORDER BY uses the casted expression
+    expect(plan).toContain('::vector(768)');
+  });
 });

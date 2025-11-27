@@ -516,29 +516,42 @@ export class FileChunkRepository {
     }
 
     const distance = (setRow.distance || 'cosine') as 'cosine' | 'l2' | 'ip';
-    const expressions = this.buildDistanceExpressions(distance);
+    const expressions = this.buildDistanceExpressions(distance, expectedDimension);
     return { ...expressions, dimension: expectedDimension };
   }
 
-  private buildDistanceExpressions(distance: 'cosine' | 'l2' | 'ip'): {
+  /**
+   * Build distance expressions for similarity search.
+   * CRITICAL: The embedding column is cast to vector(dimension) to match the
+   * partial HNSW index expression `(embedding::vector(N))`. Without this cast,
+   * the query planner cannot use the dimension-specific indexes.
+   */
+  private buildDistanceExpressions(
+    distance: 'cosine' | 'l2' | 'ip',
+    dimension: number
+  ): {
     similarityExpr: string;
     orderExpr: string;
   } {
+    // Cast embedding to fixed-dimension vector to enable HNSW index usage
+    const embeddingCast = `(embedding::vector(${dimension}))`;
+    const paramCast = `$1::vector(${dimension})`;
+
     if (distance === 'l2') {
       return {
-        similarityExpr: '(1.0 / (1.0 + (embedding <-> $1::vector)))',
-        orderExpr: 'embedding <-> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + (${embeddingCast} <-> ${paramCast})))`,
+        orderExpr: `${embeddingCast} <-> ${paramCast}`,
       };
     }
     if (distance === 'ip') {
       return {
-        similarityExpr: '(1.0 / (1.0 + exp(+(embedding <#> $1::vector))))',
-        orderExpr: 'embedding <#> $1::vector',
+        similarityExpr: `(1.0 / (1.0 + exp(+(${embeddingCast} <#> ${paramCast}))))`,
+        orderExpr: `${embeddingCast} <#> ${paramCast}`,
       };
     }
     return {
-      similarityExpr: '(1 - ((embedding <=> $1::vector) / 2.0))',
-      orderExpr: 'embedding <=> $1::vector',
+      similarityExpr: `(1 - ((${embeddingCast} <=> ${paramCast}) / 2.0))`,
+      orderExpr: `${embeddingCast} <=> ${paramCast}`,
     };
   }
 
