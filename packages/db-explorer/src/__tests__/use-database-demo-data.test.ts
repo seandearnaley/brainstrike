@@ -371,13 +371,18 @@ describe('useDatabaseDemoData', () => {
       })
     );
 
-    await waitFor(() => {
-      expect(result.current.dbInfo).toBeDefined();
-    });
+    // Wait for connection test to complete - dbInfo.connected will be false after error
+    // The testDatabaseConnection callback catches the error and sets connected: false
+    await waitFor(
+      () => {
+        expect(result.current.dbInfo).toBeDefined();
+        expect(result.current.dbInfo?.testResult).toContain('Database connection failed');
+      },
+      { timeout: 5000 }
+    );
 
     // Should be disconnected due to error
     expect(result.current.dbInfo?.connected).toBe(false);
-    expect(result.current.dbInfo?.testResult).toContain('Database connection failed');
   });
 
   it('handles database query failure in fetchInfo effect', async () => {
