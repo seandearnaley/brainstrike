@@ -18,6 +18,12 @@ on:
         required: false
         default: ''
 
+# Cancel in-progress runs when new commits are pushed to the same PR
+# Uses head_ref for PRs (unique per PR) and ref for other triggers
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   pull-requests: write
@@ -25,6 +31,7 @@ permissions:
 jobs:
   web-perf:
     name: Web Performance Tests
+    timeout-minutes: 30
     if: >
       github.event_name == 'schedule' ||
       github.event_name == 'workflow_dispatch' ||
@@ -45,8 +52,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
