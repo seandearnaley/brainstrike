@@ -280,12 +280,18 @@ export class TransformersBackend {
     };
 
     const fallbackToCpu = async (lastError: unknown) => {
-      const fallbackDevice: 'cpu' | 'wasm' = 'cpu';
+      // In browser/Electron context, 'cpu' is not supported - use 'wasm' instead
+      const fallbackDevice: 'cpu' | 'wasm' = typeof window === 'undefined' ? 'cpu' : 'wasm';
       if (this._selectedDevice === fallbackDevice) {
         throw lastError;
       }
       this._selectedDevice = fallbackDevice;
-      onProgress?.({ stage: 'downloading', progress: 85, message: 'Falling back to CPU…' });
+      const fallbackLabel = fallbackDevice === 'wasm' ? 'WASM' : 'CPU';
+      onProgress?.({
+        stage: 'downloading',
+        progress: 85,
+        message: `Falling back to ${fallbackLabel}…`,
+      });
       pipelineConfig.device = fallbackDevice;
       const fallbackDType = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
       pipelineConfig.dtype = fallbackDType;
@@ -428,8 +434,9 @@ export class TransformersBackend {
         maxLength: maxLen,
       });
     } catch (err) {
-      // Runtime fallback: if not already on CPU, recreate pipeline and retry once
-      const fallbackDevice = 'cpu';
+      // Runtime fallback: if not already on fallback device, recreate pipeline and retry once
+      // In browser/Electron context, 'cpu' is not supported - use 'wasm' instead
+      const fallbackDevice: 'cpu' | 'wasm' = typeof window === 'undefined' ? 'cpu' : 'wasm';
       if (this._transformers && this._selectedDevice !== fallbackDevice) {
         this._selectedDevice = fallbackDevice;
         const dtype = this.resolveDTypeForDevice(fallbackDevice, this._quantized);
