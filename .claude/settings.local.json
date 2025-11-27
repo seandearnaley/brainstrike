@@ -134,7 +134,8 @@
       "Bash(tee:*)",
       "Bash(npx tsc:*)",
       "Bash(echo:*)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(gh auth status:*)"
     ],
     "deny": [],
     "ask": []
