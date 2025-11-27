@@ -339,13 +339,32 @@ function adjustStateOnError(state: EmbeddingState, context: EmbeddingContext): b
   return false;
 }
 
+function serializeErrorCause(error: unknown): string | undefined {
+  if (error === undefined || error === null) {
+    return undefined;
+  }
+  if (error instanceof Error) {
+    // Include stack trace if available for debugging
+    return error.stack ?? error.message;
+  }
+  // Handle raw numeric error codes (e.g., from ONNX runtime)
+  if (typeof error === 'number') {
+    return `Error code: ${error} (0x${error.toString(16)})`;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
     type: 'error',
     id,
     message,
-    cause: error,
+    cause: serializeErrorCause(error),
   };
   workerEmit(event);
 }

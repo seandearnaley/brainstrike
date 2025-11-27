@@ -47,7 +47,8 @@ export interface EmbedWorkerError {
   readonly type: 'error';
   readonly id: string;
   readonly message: string;
-  readonly cause?: unknown;
+  /** Serialized error cause for debugging (string instead of unknown for safe workerpool serialization) */
+  readonly cause?: string | undefined;
 }
 
 export function l2Normalize(vector: Float32Array): Float32Array {
