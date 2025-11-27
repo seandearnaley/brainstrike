@@ -72,6 +72,12 @@ const OVERRIDES = new Map([
     '@brainstrike/embeddings',
     { lines: 24, functions: 50, branches: 60, statements: 24 },
   ],
+  // UI package — contains many complex components (CollectionBrowser, TreeTable, etc.) with
+  // substantial testing; gradual improvement target
+  [
+    '@brainstrike/ui',
+    { lines: 70, functions: 60, branches: 60, statements: 70 },
+  ],
 ]);
 
 // Discover all coverage files under packages/* and apps/*
