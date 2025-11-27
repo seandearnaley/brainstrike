@@ -1,19 +1,41 @@
-import type {
-  ElectronFileChunkRepository,
-  ElectronFileRecordRepository,
-  FileChunk,
-  FileChunkRepository,
-  FileRecord,
-  FileRecordRepository,
-  usePGliteDatabase,
+import {
+  type ElectronFileChunkRepository,
+  type ElectronFileRecordRepository,
+  type FileChunk,
+  type FileChunkRepository,
+  type FileRecord,
+  type FileRecordRepository,
+  MigrationRunner,
+  migrations,
+  type usePGliteDatabase,
+  usePGliteLiveQuery,
 } from '@brainstrike/db';
-import { MigrationRunner, migrations, usePGliteLiveQuery } from '@brainstrike/db';
 import { useDatabaseStatusStore } from '@brainstrike/preferences';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const logger = createLogger('DatabaseDemoData');
+
+/**
+ * Resolve the storage location label based on the repository type.
+ * This must match the expected values in database-status-item.tsx for proper status bar display.
+ * - "Main Process" → displays as "IPC" in status bar
+ * - "PGlite WASM" → displays as "PGlite WASM" in status bar
+ */
+function resolveStorageLocation(
+  repository: FileRecordRepository | ElectronFileRecordRepository | null
+): string {
+  if (!repository) {
+    return 'Unknown';
+  }
+  // Check repository constructor name to determine if it's the Electron IPC repository
+  // This approach works even when ElectronFileRecordRepository is imported as a type
+  if (repository.constructor.name === 'ElectronFileRecordRepository') {
+    return 'Main Process';
+  }
+  return 'PGlite WASM';
+}
 
 export interface DatabaseInfo {
   location: string;
@@ -479,9 +501,10 @@ export function useDatabaseDemoData({
   }, [chunksError, toast]);
 
   const testDatabaseConnection = useCallback(async () => {
+    const location = resolveStorageLocation(repository);
     if (!repository) {
       setDbInfo({
-        location: 'Unknown',
+        location,
         testResult: 'Repository not available',
         connected: false,
       });
@@ -491,13 +514,13 @@ export function useDatabaseDemoData({
     try {
       const count = await repository.count();
       setDbInfo({
-        location: 'Database connected via DbProvider',
+        location,
         testResult: `Successfully connected - ${count} file records found`,
         connected: true,
       });
     } catch (error) {
       setDbInfo({
-        location: 'Unknown',
+        location,
         testResult: `Database connection failed: ${error}`,
         connected: false,
       });
