@@ -35,7 +35,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ClearDatabaseDialog,
   CollectionBrowserView,
-  DbInfoDisplay,
   ExportDropdown,
   ImportProgressDisplay,
   SearchCollectionSelector,
@@ -246,7 +245,7 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
     database: dbContext,
     activeCollectionId,
   });
-  const { records, chunks, refreshing, dbInfo, loadRecords, loadChunks } = data;
+  const { records, chunks, refreshing, loadRecords, loadChunks } = data;
 
   const filteredRecords = useMemo(() => {
     if (!activeCollectionId) return [];
@@ -440,8 +439,6 @@ export function DatabaseDemoPanel({ embeddingQueue = null }: DatabaseDemoPanelPr
           onManageCollections={handleManageCollections}
           onCreateCollection={handleCreateCollection}
         />
-
-        <DbInfoDisplay dbInfo={dbInfo} />
 
         {/* Settings Panel */}
         <div className="mb-3">

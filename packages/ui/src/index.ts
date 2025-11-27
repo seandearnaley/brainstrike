@@ -49,6 +49,7 @@ export { default as RouterProvider } from './router-provider';
 export * from './scroll-area';
 export * from './select';
 export * from './sortable-table-header';
+export * from './status-bar';
 export * from './switch';
 export * from './table';
 export * from './table-group-header';

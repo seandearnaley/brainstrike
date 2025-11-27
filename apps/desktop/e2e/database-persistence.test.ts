@@ -31,8 +31,9 @@ test.describe('Database Persistence', () => {
     }
 
     try {
+      // Database status is now in the global status bar at the bottom of the window
       await page
-        .locator('[data-testid="db-status-connected"]')
+        .locator('[data-testid="status-bar-db-connected"]')
         .first()
         .waitFor({ state: 'visible', timeout: 15000 });
     } catch (_error) {
@@ -112,7 +113,8 @@ test.describe('Database Persistence', () => {
     }
 
     if (hasSuccessPanel) {
-      await expect(activeWindow.locator('text=✓')).toBeVisible();
+      // Database status is now in the global status bar - check for connected state
+      await expect(activeWindow.locator('[data-testid="status-bar-db-connected"]')).toBeVisible();
       await activeWindow.click(REFRESH_BUTTON_SELECTOR);
       await expect(activeWindow.locator('text=Failed to')).not.toBeVisible();
       return;
@@ -138,32 +140,27 @@ test.describe('Database Persistence', () => {
     }
 
     if (hasSuccessPanel) {
-      // Wait for db-info element to be present
-      const dbInfoElement = activeWindow.locator('[data-testid="db-info"]').first();
-      await expect(dbInfoElement).toBeVisible();
+      // Database status is now in the global status bar at the bottom of the window
+      const statusBarElement = activeWindow.locator('[data-testid="status-bar"]');
+      await expect(statusBarElement).toBeVisible();
 
       // Wait for database connection to complete (may show "Connecting..." initially)
       // Increased timeout to account for embedding worker initialization in renderer
-      await expect(activeWindow.locator('[data-testid="db-status-connected"]').first()).toBeVisible(
-        {
-          timeout: 30000,
-        }
-      );
+      await expect(
+        activeWindow.locator('[data-testid="status-bar-db-connected"]').first()
+      ).toBeVisible({
+        timeout: 30000,
+      });
 
-      // Verify the connection details - check that storage location is populated
-      const storageText = await dbInfoElement.locator('.font-medium').first().textContent();
-      expect(storageText).toContain('Storage:');
-      expect(storageText).not.toContain('Connecting...'); // Ensure it's not in loading state
-
-      // Verify connection status is shown (✓ and success message)
-      // The db-status-connected test ID already confirms successful connection
+      // Verify the connection details - check that storage location is shown
       const statusText = await activeWindow
-        .locator('[data-testid="db-status-connected"]')
+        .locator('[data-testid="status-bar-db-connected"]')
         .first()
         .textContent();
-      expect(statusText).toContain('✓');
-      // Accept either IPC connection message or repository-based connection message
-      expect(statusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
+      expect(statusText).toContain('Storage:');
+      expect(statusText).not.toContain('Connecting...'); // Ensure it's not in loading state
+      // Accept either IPC connection or PGlite connection
+      expect(statusText).toMatch(/IPC|PGlite/i);
       return;
     }
 
@@ -496,18 +493,20 @@ test.describe('Database Persistence', () => {
     await activeWindow.click(REFRESH_BUTTON_SELECTOR);
     await activeWindow.waitForTimeout(500);
 
-    // Wait for database connection status
-    await expect(activeWindow.locator('[data-testid="db-status-connected"]').first()).toBeVisible({
+    // Wait for database connection status (now in global status bar)
+    await expect(
+      activeWindow.locator('[data-testid="status-bar-db-connected"]').first()
+    ).toBeVisible({
       timeout: 30000,
     });
     await expect(activeWindow.locator('tbody tr')).toHaveCount(0, { timeout: 5000 });
-    // Verify connection indicator (accepts both IPC and repository connection messages)
-    await expect(activeWindow.locator('text=✓')).toBeVisible();
+    // Verify connection indicator in status bar
     const statusText = await activeWindow
-      .locator('[data-testid="db-status-connected"]')
+      .locator('[data-testid="status-bar-db-connected"]')
       .first()
       .textContent();
-    expect(statusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
+    expect(statusText).toContain('Storage:');
+    expect(statusText).toMatch(/IPC|PGlite/i);
 
     const relaunched = await electron.restart();
     let relaunchedWindow = await ensureDatabasePanel(relaunched.window);
@@ -520,17 +519,17 @@ test.describe('Database Persistence', () => {
     await relaunchedWindow.click(REFRESH_BUTTON_SELECTOR);
     await relaunchedWindow.waitForTimeout(2000);
 
-    // Wait for database connection status after restart
+    // Wait for database connection status after restart (now in global status bar)
     await expect(
-      relaunchedWindow.locator('[data-testid="db-status-connected"]').first()
+      relaunchedWindow.locator('[data-testid="status-bar-db-connected"]').first()
     ).toBeVisible({ timeout: 30000 });
-    await expect(relaunchedWindow.locator('text=✓')).toBeVisible({ timeout: 15000 });
-    // Verify connection message (accepts both IPC and repository connection messages)
+    // Verify connection message in status bar
     const relaunchedStatusText = await relaunchedWindow
-      .locator('[data-testid="db-status-connected"]')
+      .locator('[data-testid="status-bar-db-connected"]')
       .first()
       .textContent();
-    expect(relaunchedStatusText).toMatch(/Connected \(IPC\)|Successfully connected/i);
+    expect(relaunchedStatusText).toContain('Storage:');
+    expect(relaunchedStatusText).toMatch(/IPC|PGlite/i);
     await expect(
       relaunchedWindow.locator('button:has-text("Import Selected Files")')
     ).toBeVisible();

@@ -6,14 +6,6 @@ export interface ChunkSearchResult {
   fileRecord: FileRecord;
 }
 
-export interface DbInfoDisplayProps {
-  dbInfo: {
-    location: string;
-    testResult: string;
-    connected: boolean;
-  } | null;
-}
-
 export interface EnhancedImportResult {
   id: string;
   imported: boolean;

@@ -223,14 +223,6 @@ describe('DatabaseDemoPanel', () => {
       });
     });
 
-    it('shows database connection status', async () => {
-      render(<DatabaseDemoPanel />);
-
-      await waitFor(() => {
-        expect(screen.getByText(/Successfully connected/)).toBeInTheDocument();
-      });
-    });
-
     it('renders the collection browser view', async () => {
       render(<DatabaseDemoPanel />);
 

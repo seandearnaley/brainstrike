@@ -1,0 +1,115 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StatusBarItem > Snapshots > renders connected status 1`] = `
+<span
+  class="flex items-center gap-1 text-green-600"
+  data-testid="db-status"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-database h-3 w-3"
+    fill="none"
+    height="24"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <ellipse
+      cx="12"
+      cy="5"
+      rx="9"
+      ry="3"
+    />
+    <path
+      d="M3 5V19A9 3 0 0 0 21 19V5"
+    />
+    <path
+      d="M3 12A9 3 0 0 0 21 12"
+    />
+  </svg>
+  <span>
+    Storage: IPC
+  </span>
+</span>
+`;
+
+exports[`StatusBarItem > Snapshots > renders disconnected status 1`] = `
+<span
+  class="flex items-center gap-1 text-red-600"
+  data-testid="db-status"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-database h-3 w-3"
+    fill="none"
+    height="24"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <ellipse
+      cx="12"
+      cy="5"
+      rx="9"
+      ry="3"
+    />
+    <path
+      d="M3 5V19A9 3 0 0 0 21 19V5"
+    />
+    <path
+      d="M3 12A9 3 0 0 0 21 12"
+    />
+  </svg>
+  <span>
+    Storage: Error
+  </span>
+</span>
+`;
+
+exports[`StatusBarItem > Snapshots > renders loading status 1`] = `
+<span
+  class="flex items-center gap-1 text-muted-foreground animate-pulse"
+  data-testid="db-status"
+>
+  <svg
+    aria-hidden="true"
+    class="lucide lucide-database h-3 w-3"
+    fill="none"
+    height="24"
+    stroke="currentColor"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2"
+    viewBox="0 0 24 24"
+    width="24"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <ellipse
+      cx="12"
+      cy="5"
+      rx="9"
+      ry="3"
+    />
+    <path
+      d="M3 5V19A9 3 0 0 0 21 19V5"
+    />
+    <path
+      d="M3 12A9 3 0 0 0 21 12"
+    />
+  </svg>
+  <span>
+    Storage:
+  </span>
+  <span>
+    Connecting...
+  </span>
+</span>
+`;

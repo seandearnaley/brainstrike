@@ -133,7 +133,8 @@
       "Bash(gh run rerun:*)",
       "Bash(tee:*)",
       "Bash(npx tsc:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(xargs ls:*)"
     ],
     "deny": [],
     "ask": []

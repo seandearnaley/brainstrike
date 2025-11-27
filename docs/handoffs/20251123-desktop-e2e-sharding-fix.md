@@ -66,3 +66,4 @@ function createLaunchOptions(..., debugPort?: number) {
 - **Port Isolation:** When debugging parallel process crashes, always suspect resource collisions (ports, user data dirs) first. Explicitly assigning resources based on worker/shard index is a robust fix.
 
 
+

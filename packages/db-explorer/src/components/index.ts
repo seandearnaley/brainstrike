@@ -1,7 +1,6 @@
 export { ClearDatabaseDialog } from './clear-database-dialog';
 export type { CollectionBrowserViewProps } from './collection-browser-view';
 export { CollectionBrowserView } from './collection-browser-view';
-export { DbInfoDisplay } from './db-info-display';
 export { ExportButtons } from './export-buttons';
 export { ExportDropdown } from './export-dropdown';
 export { FileActionButtons } from './file-action-buttons';

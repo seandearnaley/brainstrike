@@ -8,6 +8,7 @@ import type {
   usePGliteDatabase,
 } from '@brainstrike/db';
 import { MigrationRunner, migrations, usePGliteLiveQuery } from '@brainstrike/db';
+import { useDatabaseStatusStore } from '@brainstrike/preferences';
 import type { useToast } from '@brainstrike/ui';
 import { createLogger } from '@brainstrike/utils';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -609,6 +610,18 @@ export function useDatabaseDemoData({
   }, [database]);
 
   const refreshing = manualRefreshing || recordsLoading || chunksLoading;
+
+  // Sync local dbInfo state to global store for status bar
+  useEffect(() => {
+    const store = useDatabaseStatusStore.getState();
+    if (dbInfo === null) {
+      store.setLoading();
+    } else if (dbInfo.connected) {
+      store.setConnected(dbInfo.location, dbInfo.testResult);
+    } else {
+      store.setDisconnected(dbInfo.location, dbInfo.testResult);
+    }
+  }, [dbInfo]);
 
   return {
     records,
