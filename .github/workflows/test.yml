@@ -8,9 +8,11 @@ on:
     branches:
       - '**'
 
-# Cancel in-progress runs when new commits are pushed
+# Cancel in-progress runs when new commits are pushed to the same PR
+# Uses head repo + head_ref for PRs to avoid fork collisions (different forks can use the same branch name)
+# For pushes (e.g., main), uses the full ref to ensure proper isolation
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -25,6 +27,7 @@ jobs:
   checks:
     name: Lint, Type Check & Unit Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -42,8 +45,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -224,6 +225,7 @@ jobs:
     name: E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -244,8 +246,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -341,6 +341,7 @@ jobs:
     name: Desktop E2E Tests (Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }})
     needs: checks # Only run if checks pass
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
       TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
@@ -361,8 +362,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Cache Turborepo
         uses: actions/cache@v4
@@ -441,6 +440,7 @@ jobs:
     name: Merge Test Reports
     needs: [checks, e2e, desktop-e2e]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     if: always() && (needs.checks.result == 'success' || needs.e2e.result == 'success' || needs.desktop-e2e.result == 'success')
     steps:
       - name: Checkout
@@ -453,8 +453,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -597,6 +595,7 @@ jobs:
   code-quality:
     name: Code Quality Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     continue-on-error: true
     env:
       TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
@@ -613,8 +612,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: '10.17.0'
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
