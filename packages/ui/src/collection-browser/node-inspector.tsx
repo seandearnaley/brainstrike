@@ -95,9 +95,9 @@ function PropertyRow({
   return (
     <div className="flex items-start gap-2 py-1.5">
       {Icon && <Icon className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />}
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <div className="text-xs text-muted-foreground">{label}</div>
-        <div className="text-sm font-medium break-words">{value}</div>
+        <div className="text-sm font-medium break-all">{value}</div>
       </div>
     </div>
   );
@@ -170,7 +170,10 @@ function FileInspector({ data }: { data: FileData }) {
     <div className="space-y-4">
       <div className="space-y-1">
         <PropertyRow label="Name" value={data.name} icon={File} />
-        <PropertyRow label="Path" value={<span className="font-mono text-xs">{data.path}</span>} />
+        <PropertyRow
+          label="Path"
+          value={<span className="font-mono text-xs break-all">{data.path}</span>}
+        />
       </div>
 
       <div className="border-t pt-3 space-y-1">
@@ -204,7 +207,7 @@ function FileInspector({ data }: { data: FileData }) {
  */
 function ChunkInspector({ data }: { data: ChunkData }) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="space-y-1">
         <PropertyRow label="Chunk Index" value={`#${data.index}`} icon={Hash} />
         <PropertyRow label="Token Count" value={data.tokenCount.toLocaleString()} icon={Tag} />
@@ -215,20 +218,26 @@ function ChunkInspector({ data }: { data: ChunkData }) {
         <EmbeddingStatusBadge status={data.embeddingStatus} />
       </div>
 
-      <div className="border-t pt-3 space-y-1">
-        <div className="text-xs font-medium text-muted-foreground mb-2">Content Preview</div>
-        <div className="text-sm bg-muted/50 rounded p-2 max-h-48 overflow-auto">
-          <pre className="whitespace-pre-wrap font-mono text-xs">{data.content}</pre>
+      <div className="border-t pt-3">
+        <div className="text-xs font-medium text-muted-foreground mb-1">Content</div>
+        <div className="relative w-full">
+          <div className="h-24 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
+            <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+              {data.content}
+            </div>
+          </div>
         </div>
       </div>
 
       {data.metadata && Object.keys(data.metadata).length > 0 && (
-        <div className="border-t pt-3 space-y-1">
-          <div className="text-xs font-medium text-muted-foreground mb-2">Metadata</div>
-          <div className="text-sm bg-muted/50 rounded p-2">
-            <pre className="whitespace-pre-wrap font-mono text-xs">
-              {JSON.stringify(data.metadata, null, 2)}
-            </pre>
+        <div className="border-t pt-3">
+          <div className="text-xs font-medium text-muted-foreground mb-1">Metadata</div>
+          <div className="relative w-full">
+            <div className="max-h-20 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
+              <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+                {JSON.stringify(data.metadata, null, 2)}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -255,12 +264,14 @@ function EmbeddingInspector({ data }: { data: EmbeddingData }) {
       )}
 
       {data.metadata && Object.keys(data.metadata).length > 0 && (
-        <div className="border-t pt-3 space-y-1">
-          <div className="text-xs font-medium text-muted-foreground mb-2">Metadata</div>
-          <div className="text-sm bg-muted/50 rounded p-2">
-            <pre className="whitespace-pre-wrap font-mono text-xs">
-              {JSON.stringify(data.metadata, null, 2)}
-            </pre>
+        <div className="border-t pt-3">
+          <div className="text-xs font-medium text-muted-foreground mb-1">Metadata</div>
+          <div className="relative w-full">
+            <div className="max-h-20 overflow-y-auto overflow-x-hidden border rounded bg-muted/30 p-2">
+              <div className="text-xs font-mono text-foreground/80 whitespace-pre-wrap break-all leading-relaxed">
+                {JSON.stringify(data.metadata, null, 2)}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -449,8 +460,8 @@ export function NodeInspector({
         <CollapseToggleButton isCollapsed={false} onToggle={handleToggle} />
       </div>
 
-      <ScrollArea className="flex-1">
-        <div className="p-3">
+      <ScrollArea className="flex-1 [&>[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="p-3 overflow-hidden">
           <InspectorContent nodeType={nodeType} nodeData={nodeData} />
         </div>
       </ScrollArea>

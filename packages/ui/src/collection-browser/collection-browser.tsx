@@ -10,6 +10,7 @@ import * as React from 'react';
 import { Badge } from '../badge';
 import { cn } from '../lib/utils';
 import { Progress } from '../progress';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../tooltip';
 import { TreeTable } from '../tree-table/tree-table';
 import type { SortDirection, SortState, TreeNode, TreeTableColumn } from '../tree-table/types';
 import type { BulkAction } from './bulk-action-bar';
@@ -520,19 +521,36 @@ export function CollectionBrowser({
           const subtitleTooltip = type === 'file' ? (nodeData as FileData).path : subtitle;
 
           return (
-            <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
-              <NodeIcon type={type} />
-              <div className="min-w-0 flex-1 overflow-hidden">
-                <div className="font-medium truncate" title={displayName}>
-                  {displayName}
+            <TooltipProvider delayDuration={300}>
+              <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
+                <NodeIcon type={type} />
+                <div className="min-w-0 flex-1 overflow-hidden">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="font-medium truncate cursor-default">{displayName}</div>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-xs">
+                      {displayName}
+                    </TooltipContent>
+                  </Tooltip>
+                  {subtitle && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="text-xs text-muted-foreground truncate cursor-default">
+                          {subtitle}
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent
+                        side="bottom"
+                        className="max-w-md break-all font-mono text-xs"
+                      >
+                        {subtitleTooltip}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
-                {subtitle && (
-                  <div className="text-xs text-muted-foreground truncate" title={subtitleTooltip}>
-                    {subtitle}
-                  </div>
-                )}
               </div>
-            </div>
+            </TooltipProvider>
           );
         },
       },
