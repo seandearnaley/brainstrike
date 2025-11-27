@@ -1,0 +1,114 @@
+import { describe, expect, it } from 'vitest';
+import type { SelectionMode, SortState, TreeNode, TreeTableColumn } from '../tree-table/types';
+
+describe('tree-table types', () => {
+  describe('TreeNode', () => {
+    it('can create a basic tree node', () => {
+      const node: TreeNode<{ name: string }> = {
+        id: 'node-1',
+        type: 'file',
+        depth: 0,
+        data: { name: 'Test Node' },
+        parentId: null,
+        hasChildren: false,
+      };
+
+      expect(node.id).toBe('node-1');
+      expect(node.type).toBe('file');
+      expect(node.depth).toBe(0);
+      expect(node.data.name).toBe('Test Node');
+      expect(node.parentId).toBeNull();
+      expect(node.hasChildren).toBe(false);
+    });
+
+    it('can create a parent node with children', () => {
+      const parent: TreeNode<{ name: string }> = {
+        id: 'parent-1',
+        type: 'folder',
+        depth: 0,
+        data: { name: 'Parent' },
+        parentId: null,
+        hasChildren: true,
+      };
+
+      expect(parent.hasChildren).toBe(true);
+    });
+
+    it('can create a child node', () => {
+      const child: TreeNode<{ name: string }> = {
+        id: 'child-1',
+        type: 'file',
+        depth: 1,
+        data: { name: 'Child' },
+        parentId: 'parent-1',
+        hasChildren: false,
+      };
+
+      expect(child.parentId).toBe('parent-1');
+      expect(child.depth).toBe(1);
+    });
+  });
+
+  describe('TreeTableColumn', () => {
+    it('can create a basic column', () => {
+      const column: TreeTableColumn<{ name: string }> = {
+        id: 'name',
+        header: 'Name',
+        cell: ({ node }) => node.data.name,
+      };
+
+      expect(column.id).toBe('name');
+      expect(column.header).toBe('Name');
+      expect(typeof column.cell).toBe('function');
+    });
+
+    it('can create a column with custom width', () => {
+      const column: TreeTableColumn<{ value: number }> = {
+        id: 'value',
+        header: 'Value',
+        cell: ({ node }) => String(node.data.value),
+        width: 100,
+      };
+
+      expect(column.width).toBe(100);
+    });
+  });
+
+  describe('SortState', () => {
+    it('can create ascending sort state', () => {
+      const sort: SortState = {
+        columnId: 'name',
+        direction: 'asc',
+      };
+
+      expect(sort.columnId).toBe('name');
+      expect(sort.direction).toBe('asc');
+    });
+
+    it('can create descending sort state', () => {
+      const sort: SortState = {
+        columnId: 'date',
+        direction: 'desc',
+      };
+
+      expect(sort.direction).toBe('desc');
+    });
+  });
+
+  describe('SelectionMode', () => {
+    it('supports none mode', () => {
+      const mode: SelectionMode = 'none';
+      expect(mode).toBe('none');
+    });
+
+    it('supports single mode', () => {
+      const mode: SelectionMode = 'single';
+      expect(mode).toBe('single');
+    });
+
+    it('supports multi mode', () => {
+      const mode: SelectionMode = 'multi';
+      expect(mode).toBe('multi');
+    });
+  });
+});

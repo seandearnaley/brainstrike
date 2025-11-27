@@ -3,14 +3,18 @@ import type { ComponentPropsWithoutRef } from 'react';
 import { afterAll, beforeAll, describe, expect, vi } from 'vitest';
 import ErrorBoundary from '../error-boundary';
 
-// Mock Lucide icons
-vi.mock('lucide-react', () => ({
-  AlertTriangle: () => <div data-testid="icon-alert">AlertTriangle</div>,
-  ArrowLeft: () => <div data-testid="icon-arrow-left">ArrowLeft</div>,
-  Bug: () => <div data-testid="icon-bug">Bug</div>,
-  RefreshCw: () => <div data-testid="icon-refresh">RefreshCw</div>,
-  X: () => <div data-testid="icon-x">X</div>,
-}));
+// Mock Lucide icons - use importOriginal to include all icons from the library
+vi.mock('lucide-react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('lucide-react')>();
+  return {
+    ...actual,
+    AlertTriangle: () => <div data-testid="icon-alert">AlertTriangle</div>,
+    ArrowLeft: () => <div data-testid="icon-arrow-left">ArrowLeft</div>,
+    Bug: () => <div data-testid="icon-bug">Bug</div>,
+    RefreshCw: () => <div data-testid="icon-refresh">RefreshCw</div>,
+    X: () => <div data-testid="icon-x">X</div>,
+  };
+});
 
 // Mock UI components
 vi.mock('../button', () => ({

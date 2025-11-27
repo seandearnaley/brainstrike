@@ -25,8 +25,23 @@ type FeatureExtractor = FeatureExtractionPipeline &
     options?: {
       readonly pooling?: 'mean' | 'max' | 'cls';
       readonly normalize?: boolean;
+      readonly truncate?: boolean;
+      readonly maxLength?: number;
     }
   ) => Promise<unknown>);
+
+/**
+ * Get the maximum sequence length for a given model.
+ * Prevents ONNX/WASM crashes from text that exceeds model context window.
+ */
+function getMaxLengthForModel(modelId: string): number {
+  const id = modelId.toLowerCase();
+  if (id.includes('bge-m3')) return 8192;
+  if (id.includes('minilm')) return 512;
+  if (id.includes('jina')) return 8192;
+  // Safe default for most sentence transformer models
+  return 512;
+}
 
 const pipelines = new Map<string, Promise<FeatureExtractor>>();
 
@@ -234,7 +249,8 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     return result;
   } catch (error) {
     emitErrorEvent(context.id, error);
-    throw error;
+    // Always throw a proper Error object so workerpool can serialize it correctly
+    throw normalizeError(error);
   }
 }
 
@@ -266,12 +282,19 @@ async function runBatches(
   extractor: FeatureExtractor
 ): Promise<Float32Array[]> {
   const vectors: Float32Array[] = [];
-  const { texts, truncateDim, id, total } = context;
+  const { texts, truncateDim, id, total, model } = context;
+  const maxLength = getMaxLengthForModel(model);
 
   for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
     const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractor(slice, { pooling: 'mean', normalize: false });
+    // CRITICAL: truncate=true and maxLength prevent ONNX/WASM crashes from overlong input
+    const rawOutput = await extractor(slice, {
+      pooling: 'mean',
+      normalize: false,
+      truncate: true,
+      maxLength,
+    });
     const vectorsFromBatch =
       rawOutput instanceof Tensor
         ? convertTensorToVectors(rawOutput, truncateDim)
@@ -339,13 +362,57 @@ function adjustStateOnError(state: EmbeddingState, context: EmbeddingContext): b
   return false;
 }
 
+function serializeErrorCause(error: unknown): string | undefined {
+  if (error === undefined || error === null) {
+    return undefined;
+  }
+  if (error instanceof Error) {
+    // Include stack trace if available for debugging
+    return error.stack ?? error.message;
+  }
+  // Handle raw numeric error codes (e.g., from ONNX runtime)
+  if (typeof error === 'number') {
+    return `Error code: ${error} (0x${error.toString(16)})`;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+/**
+ * Normalize any error value to a proper Error object.
+ * This ensures workerpool can serialize and transmit errors correctly.
+ * Raw values (numbers, undefined) from ONNX/WASM are wrapped with context.
+ */
+function normalizeError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (error === undefined || error === null) {
+    return new Error('Embedding failed with unknown error (no details available)');
+  }
+  if (typeof error === 'number') {
+    return new Error(`Embedding failed with error code: ${error} (0x${error.toString(16)})`);
+  }
+  if (typeof error === 'string') {
+    return new Error(error);
+  }
+  try {
+    return new Error(`Embedding failed: ${JSON.stringify(error)}`);
+  } catch {
+    return new Error(`Embedding failed: ${String(error)}`);
+  }
+}
+
 function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
     type: 'error',
     id,
     message,
-    cause: error,
+    cause: serializeErrorCause(error),
   };
   workerEmit(event);
 }

@@ -13,6 +13,7 @@ export * from './badge';
 export * from './button';
 export * from './card';
 export * from './checkbox';
+export * from './collection-browser';
 export * from './data-table';
 export * from './dialog';
 export * from './dropdown-menu';
@@ -20,6 +21,8 @@ export type { ErrorBoundaryProps, ErrorBoundaryState } from './error-boundary';
 // Export ErrorBoundary
 export { default as ErrorBoundary } from './error-boundary';
 export * from './error-fallback';
+export type { ExpandableTextareaProps } from './expandable-textarea';
+export { ExpandableTextarea } from './expandable-textarea';
 export * from './hooks';
 export type { PanelPersistenceAdapter } from './hooks/panel-persistence-adapters';
 export {
@@ -46,6 +49,7 @@ export { default as RouterProvider } from './router-provider';
 export * from './scroll-area';
 export * from './select';
 export * from './sortable-table-header';
+export * from './status-bar';
 export * from './switch';
 export * from './table';
 export * from './table-group-header';
@@ -57,6 +61,7 @@ export * from './theme-toggle';
 export * from './toast';
 export * from './toaster';
 export * from './tooltip';
+export * from './tree-table';
 // Export types
 export * from './types';
 export * from './unsupported-feature';

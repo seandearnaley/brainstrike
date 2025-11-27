@@ -1,0 +1,51 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StatusBar > Snapshots > renders empty status bar 1`] = `
+<output
+  aria-live="polite"
+  class="h-6 flex items-center justify-between px-2 bg-muted/50 border-t border-border text-xs text-muted-foreground"
+  data-testid="status-bar"
+>
+  <div
+    class="flex items-center gap-2"
+    data-testid="status-bar-left"
+  />
+  <div
+    class="flex items-center gap-2"
+    data-testid="status-bar-right"
+  />
+</output>
+`;
+
+exports[`StatusBar > Snapshots > renders with all slots filled 1`] = `
+<output
+  aria-live="polite"
+  class="h-6 flex items-center justify-between px-2 bg-muted/50 border-t border-border text-xs text-muted-foreground"
+  data-testid="status-bar"
+>
+  <div
+    class="flex items-center gap-2"
+    data-testid="status-bar-left"
+  >
+    <span>
+      Left
+    </span>
+  </div>
+  <div
+    class="flex items-center gap-2"
+    data-testid="status-bar-center"
+  >
+    <span>
+      Center
+    </span>
+  </div>
+  <div
+    class="flex items-center gap-2"
+    data-testid="status-bar-right"
+  >
+    <span>
+      Right
+    </span>
+  </div>
+</output>
+`;

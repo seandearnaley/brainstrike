@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppLayout } from '../app-layout';
 import type { AppShellConfig, NavigationItem } from '../types';
 
+vi.mock('@brainstrike/preferences', () => ({
+  useDatabaseStatusSync: () => {},
+}));
+
 // Mock the file-explorer-ui package to avoid worker issues
 vi.mock('@brainstrike/file-explorer-ui', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => (
@@ -45,11 +49,19 @@ vi.mock('@brainstrike/ui', () => ({
     </div>
   ),
   ThemeToggle: () => <div data-testid="theme-toggle" />,
+  StatusBar: ({ leftContent }: { leftContent?: React.ReactNode }) => (
+    <div data-testid="status-bar">{leftContent}</div>
+  ),
   ErrorBoundary: class MockErrorBoundary extends React.Component<{ children: React.ReactNode }> {
     override render() {
       return <div data-testid="error-boundary">{this.props.children}</div>;
     }
   },
+}));
+
+// Mock the status items
+vi.mock('../status-items', () => ({
+  DatabaseStatusItem: () => <div data-testid="database-status-item">DB Status</div>,
 }));
 
 // Mock the file-explorer-hooks package
@@ -78,7 +90,18 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('tooltip-provider')).toBeInTheDocument();
     expect(screen.getByTestId('navigation-sidebar')).toBeInTheDocument();
     expect(screen.getByTestId('toaster')).toBeInTheDocument();
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
     expect(screen.getByText('Page Content')).toBeInTheDocument();
+  });
+
+  it('should render the status bar with database status', () => {
+    render(
+      <AppLayout config={mockConfig} currentPath="/">
+        <div>Page Content</div>
+      </AppLayout>
+    );
+    expect(screen.getByTestId('status-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('database-status-item')).toBeInTheDocument();
   });
 
   it('should pass correct props to NavigationSidebar', () => {

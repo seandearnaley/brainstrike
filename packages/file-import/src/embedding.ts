@@ -2,6 +2,7 @@ import type { FileChunk } from '@brainstrike/db';
 import { CHUNKING_CONFIG } from '@brainstrike/db';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings';
 import { createLogger } from '@brainstrike/utils';
+import { buildEmbeddingText, type ChunkContext } from './embedding-context';
 import type { EnhancedImportProgress, EnhancedImportResult } from './types';
 
 const logger = createLogger('FileImport:Embedding');
@@ -43,7 +44,8 @@ export async function initializeEmbeddingService(
 export async function processChunkEmbedding(
   chunk: FileChunk,
   chunkRepository: ReturnType<typeof import('@brainstrike/db').useFileChunkRepository> | null,
-  embeddingService: SimpleEmbeddingService | null
+  embeddingService: SimpleEmbeddingService | null,
+  context?: ChunkContext
 ): Promise<boolean> {
   if (!embeddingService || !chunkRepository) {
     logger.warn('Cannot process chunk embedding: service or repository not available', {
@@ -65,15 +67,19 @@ export async function processChunkEmbedding(
       generateDocEmbedding?: (t: string) => Promise<{ embedding: number[] }>;
       generateEmbedding: (t: string) => Promise<{ embedding: number[] }>;
     };
+
+    // Build embedding text with contextual metadata when available
+    const textToEmbed = context ? buildEmbeddingText(chunk.content, context) : chunk.content;
+
     const embeddingResult = svcAny.generateDocEmbedding
-      ? await svcAny.generateDocEmbedding(chunk.content)
-      : await embeddingService.generateEmbedding(chunk.content);
+      ? await svcAny.generateDocEmbedding(textToEmbed)
+      : await embeddingService.generateEmbedding(textToEmbed);
     await chunkRepository.update({
       id: chunk.id,
       embedding: embeddingResult.embedding,
       updatedAt: new Date().toISOString(),
     });
-    logger.debug('Successfully embedded chunk', { chunkId: chunk.id });
+    logger.debug('Successfully embedded chunk', { chunkId: chunk.id, hasContext: !!context });
     return true;
   } catch (error) {
     if (
@@ -140,7 +146,7 @@ async function processChunksLoop(
             ...prev,
             phase: 'embedding',
             embeddingProgress: {
-              chunksProcessed: i,
+              chunksProcessed: i + 1, // Report 1-indexed count (chunk being processed)
               totalChunks: chunks.length,
               currentChunk: `${chunk.content.substring(0, CHUNKING_CONFIG.chunkPreviewLength)}...`,
               modelName: embeddingModel,

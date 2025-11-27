@@ -131,7 +131,13 @@
       "Bash(gh repo set-default:*)",
       "Bash(xargs git log:*)",
       "Bash(gh run rerun:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "Bash(npx tsc:*)",
+      "Bash(echo:*)",
+      "Bash(xargs ls:*)",
+      "Bash(gh auth status:*)",
+      "WebFetch(domain:app.codecov.io)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": [],
     "ask": []

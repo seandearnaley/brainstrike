@@ -122,7 +122,53 @@ describe('SimpleEmbeddingService lifecycle', () => {
     await expect(svc.generateEmbedding('hello')).rejects.toThrow(/Service not initialized/);
   });
 
-  it('prefixes query embeddings with retrieval prompt hints', async () => {
+  it('prefixes query embeddings for non-M3 BGE models', async () => {
+    // BGE-base and other non-M3 BGE models require query/passage prefixes
+    // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
+    // https://huggingface.co/BAAI/bge-m3/discussions/35
+    const modelConfig = {
+      id: 'Xenova/bge-base-en-v1.5',
+      name: 'BGE Base',
+      dimensions: 768,
+      quantized: false,
+      description: 'test model',
+      tags: ['test'],
+      origin: 'hf',
+      size: 'small',
+    };
+
+    const defaultModelSpy = vi
+      .spyOn(ModelRegistryManager, 'getDefaultModel')
+      .mockReturnValue(modelConfig);
+    const defaultKeySpy = vi
+      .spyOn(ModelRegistryManager, 'getDefaultModelKey')
+      .mockReturnValue('bge-base');
+    const getModelSpy = vi.spyOn(ModelRegistryManager, 'getModel').mockReturnValue(modelConfig);
+    const shouldQuantizeSpy = vi
+      .spyOn(ModelRegistryManager, 'shouldQuantize')
+      .mockReturnValue(false);
+
+    const svcModule = await import('../bge-m3-service');
+    const svc = new svcModule.SimpleEmbeddingService();
+
+    await svc.initializeWithModel('bge-base');
+    const result = await svc.generateQueryEmbedding('where is the library?');
+
+    expect(generateEmbeddingMock).toHaveBeenCalled();
+    const [prompt, modelId] = generateEmbeddingMock.mock.calls.at(-1)!;
+    expect(prompt.startsWith('query: ')).toBe(true);
+    expect(modelId).toBeDefined();
+    expect(result.embedding).toHaveLength(2);
+
+    defaultModelSpy.mockRestore();
+    defaultKeySpy.mockRestore();
+    getModelSpy.mockRestore();
+    shouldQuantizeSpy.mockRestore();
+  });
+
+  it('does not prefix query embeddings for BGE-M3', async () => {
+    // BGE-M3 specifically does NOT need prefixes per official BAAI docs:
+    // https://huggingface.co/BAAI/bge-m3/discussions/35
     const modelConfig = {
       id: 'Xenova/bge-m3',
       name: 'BGE M3',
@@ -153,7 +199,9 @@ describe('SimpleEmbeddingService lifecycle', () => {
 
     expect(generateEmbeddingMock).toHaveBeenCalled();
     const [prompt, modelId] = generateEmbeddingMock.mock.calls.at(-1)!;
-    expect(prompt.startsWith('query: ')).toBe(true);
+    // BGE-M3 should NOT have the query: prefix
+    expect(prompt).toBe('where is the library?');
+    expect(prompt.startsWith('query: ')).toBe(false);
     expect(modelId).toBeDefined();
     expect(result.embedding).toHaveLength(2);
 

@@ -4,11 +4,13 @@ export * from './embedding/embedding-settings-section';
 export * from './factory-reset/factory-reset-helpers';
 export * from './factory-reset/factory-reset-panel';
 export * from './factory-reset/factory-reset-settings-section';
+export * from './hooks/use-database-status-sync';
 // Settings UI Components
 export * from './logging/logging-settings-section';
 export * from './settings-page-content';
 export * from './settings-page-content';
 export * from './stores/assistant-preferences-store';
+export * from './stores/database-status-store';
 export * from './stores/embedding-preferences-store';
 export * from './stores/import-settings-store';
 export * from './stores/logging-preferences-store';

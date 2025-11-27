@@ -15,6 +15,19 @@ export default defineConfig({
         maxThreads: 4,
       },
     },
-    // Coverage consolidated at root vitest.config.ts
+    coverage: {
+      // Only include actual source files (not type declarations or dist)
+      include: ['src/**/*.{ts,tsx}'],
+      // Exclude pure type-definition files and test infrastructure
+      // These contain only TypeScript types with no runtime code to test
+      exclude: [
+        '**/__tests__/**',
+        '**/*.d.ts',
+        '**/types.ts',
+        '**/types/**',
+        '**/dist/**',
+        '**/index.ts', // Re-export files have no logic to test
+      ],
+    },
   },
 });

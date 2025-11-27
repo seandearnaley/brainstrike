@@ -2,10 +2,7 @@ import { createSafeStorageAdapter } from '@brainstrike/utils';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { createWithEqualityFn as create } from 'zustand/traditional';
 
-export type DemoView = 'files' | 'chunks' | 'search';
-
 interface DatabaseDemoData {
-  selectedView: DemoView;
   showSettings: boolean;
   expandedFileIds: string[];
   searchQuery: string;
@@ -13,7 +10,6 @@ interface DatabaseDemoData {
 }
 
 interface DatabaseDemoActions {
-  setSelectedView: (v: DemoView) => void;
   setShowSettings: (v: boolean) => void;
   addExpanded: (id: string) => void;
   removeExpanded: (id: string) => void;
@@ -25,7 +21,7 @@ interface DatabaseDemoActions {
 
 export type DatabaseDemoStore = DatabaseDemoData & DatabaseDemoActions;
 
-const STORE_NAME = 'database-demo.v1' as const;
+const STORE_NAME = 'database-demo.v2' as const;
 
 /**
  * Storage adapter with fallback to in-memory for SSR/tests
@@ -36,13 +32,11 @@ const storage = createJSONStorage(() => createSafeStorageAdapter());
 export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
   persist(
     (set, get) => ({
-      selectedView: 'files',
       showSettings: false,
       expandedFileIds: [],
       searchQuery: '',
       searchThreshold: 0.5,
 
-      setSelectedView: (v) => set({ selectedView: v }),
       setShowSettings: (v) => set({ showSettings: v }),
       addExpanded: (id) =>
         set({ expandedFileIds: Array.from(new Set([...get().expandedFileIds, id])) }),
@@ -56,10 +50,9 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
     }),
     {
       name: STORE_NAME,
-      version: 1,
+      version: 2,
       storage,
       partialize: (s) => ({
-        selectedView: s.selectedView,
         showSettings: s.showSettings,
         expandedFileIds: s.expandedFileIds,
         searchQuery: s.searchQuery,
@@ -70,7 +63,7 @@ export const useDatabaseDemoStore = create<DatabaseDemoStore>()(
 );
 
 export const databaseDemoSelectors = {
-  viewAndSettings: (s: DatabaseDemoStore) => [s.selectedView, s.showSettings] as const,
+  settings: (s: DatabaseDemoStore) => s.showSettings,
   expanded: (s: DatabaseDemoStore) => s.expandedFileIds,
   search: (s: DatabaseDemoStore) => [s.searchQuery, s.searchThreshold] as const,
 };
@@ -79,7 +72,6 @@ export const databaseDemoSelectors = {
 export function __resetDatabaseDemoStoreForTests() {
   try {
     useDatabaseDemoStore.setState({
-      selectedView: 'files',
       showSettings: false,
       expandedFileIds: [],
       searchQuery: '',

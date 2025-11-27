@@ -10,6 +10,23 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDatabaseDemoData } from '../use-database-demo-data';
 
+// Mock the preferences store - required for dbInfo sync to global store
+vi.mock('@brainstrike/preferences', async () => {
+  const actual = await vi.importActual<typeof import('@brainstrike/preferences')>(
+    '@brainstrike/preferences'
+  );
+  return {
+    ...actual,
+    useDatabaseStatusStore: {
+      getState: vi.fn(() => ({
+        setLoading: vi.fn(),
+        setConnected: vi.fn(),
+        setDisconnected: vi.fn(),
+      })),
+    },
+  };
+});
+
 vi.mock('@brainstrike/db', async () => {
   const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
   class MockMigrationRunner {
@@ -276,5 +293,173 @@ describe('useDatabaseDemoData', () => {
     expect(result.current.records).toEqual([]);
     expect(result.current.chunks).toEqual([]);
     expect(result.current.dbInfo?.connected).toBe(false);
+  });
+
+  it('resolves storage location as PGlite WASM for standard repository', async () => {
+    const repository = createRepository([], 3);
+    const chunkRepository = createChunkRepository([]);
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    // Standard FileRecordRepository should resolve to 'PGlite WASM'
+    expect(result.current.dbInfo?.location).toBe('PGlite WASM');
+  });
+
+  it('resolves storage location as Main Process for Electron repository', async () => {
+    // Create a mock repository with constructor name matching ElectronFileRecordRepository
+    const electronRepository = {
+      findAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(5),
+      constructor: { name: 'ElectronFileRecordRepository' },
+    } as unknown as FileRecordRepository;
+
+    const chunkRepository = createChunkRepository([]);
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: electronRepository,
+        chunkRepository,
+        toast,
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    // ElectronFileRecordRepository should resolve to 'Main Process'
+    expect(result.current.dbInfo?.location).toBe('Main Process');
+  });
+
+  it('handles database connection failure gracefully', async () => {
+    const repository = {
+      findAll: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockRejectedValue(new Error('Connection refused')),
+    } as unknown as FileRecordRepository;
+
+    const chunkRepository = createChunkRepository([]);
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database: createMockDatabase(),
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+    });
+
+    // Should be disconnected due to error
+    expect(result.current.dbInfo?.connected).toBe(false);
+    expect(result.current.dbInfo?.testResult).toContain('Database connection failed');
+  });
+
+  it('handles database query failure in fetchInfo effect', async () => {
+    const repository = createRepository([], 2);
+    const chunkRepository = createChunkRepository([]);
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    // Create database that throws on query
+    const failingDatabase = {
+      query: vi.fn().mockRejectedValue(new Error('Query failed')),
+    } as never;
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database: failingDatabase,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    // Wait for connection test to complete (repository.count() succeeds)
+    await waitFor(() => {
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    // Should still be connected via repository test even if database query fails
+    expect(result.current.dbInfo?.connected).toBe(true);
+  });
+
+  it('returns Unknown location when repository is null', async () => {
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository: null,
+        chunkRepository: null,
+        toast,
+        activeCollectionId: null,
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo).toBeDefined();
+    });
+
+    expect(result.current.dbInfo?.location).toBe('Unknown');
+    // Initial state has 'Database connection not tested' before testDatabaseConnection runs
+    expect(result.current.dbInfo?.testResult).toBe('Database connection not tested');
+    expect(result.current.dbInfo?.connected).toBe(false);
+  });
+
+  it('handles setDbInfo correctly when already connected', async () => {
+    const repository = createRepository([], 10);
+    const chunkRepository = createChunkRepository([]);
+    const toast = vi.fn();
+    setupLiveQueries();
+
+    // Database that returns location but dbInfo is already set
+    const database = {
+      query: vi.fn().mockResolvedValue({ rows: [{ location: 'PGlite WASM' }] }),
+    } as never;
+
+    const { result } = renderHook(() =>
+      useDatabaseDemoData({
+        repository,
+        chunkRepository,
+        toast,
+        database,
+        activeCollectionId: 'set-1',
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.dbInfo?.connected).toBe(true);
+    });
+
+    // The dbInfo should be set correctly
+    expect(result.current.dbInfo?.location).toBe('PGlite WASM');
+    expect(result.current.dbInfo?.testResult).toContain('Successfully connected');
   });
 });

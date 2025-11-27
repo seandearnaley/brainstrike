@@ -1,0 +1,50 @@
+import type React from 'react';
+import { cn } from '../lib/utils';
+
+export type StatusBarItemStatus = 'connected' | 'disconnected' | 'loading' | 'warning';
+
+export interface StatusBarItemProps {
+  /** Icon component to display */
+  icon?: React.ComponentType<{ className?: string }>;
+  /** Label text */
+  label?: string;
+  /** Value text (displayed after label) */
+  value?: string;
+  /** Status determines the color styling */
+  status?: StatusBarItemStatus;
+  /** Additional CSS classes */
+  className?: string;
+  /** Test ID for testing */
+  testId?: string;
+}
+
+const statusClasses: Record<StatusBarItemStatus, string> = {
+  connected: 'text-green-600',
+  disconnected: 'text-red-600',
+  warning: 'text-yellow-600',
+  loading: 'text-muted-foreground animate-pulse',
+};
+
+/**
+ * Individual status item for the status bar.
+ * Displays an optional icon, label, and value with color based on status.
+ */
+export function StatusBarItem({
+  icon: Icon,
+  label,
+  value,
+  status = 'connected',
+  className,
+  testId,
+}: StatusBarItemProps): React.ReactElement {
+  return (
+    <span
+      className={cn('flex items-center gap-1', statusClasses[status], className)}
+      data-testid={testId}
+    >
+      {Icon && <Icon className="h-3 w-3" />}
+      {label && <span>{label}</span>}
+      {value && <span>{value}</span>}
+    </span>
+  );
+}

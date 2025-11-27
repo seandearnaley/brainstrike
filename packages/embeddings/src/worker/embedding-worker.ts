@@ -1210,6 +1210,7 @@ export async function startEmbeddingWorker(
   }
 
   async function processBatch(): Promise<void> {
+    const batchStart = performance.now();
     try {
       // Claim a batch of jobs
       const jobs = (await jq.claimMany({
@@ -1237,6 +1238,8 @@ export async function startEmbeddingWorker(
       }
       workerLogger.error('Critical worker error in processBatch', { error: err });
       await sleep(1000);
+    } finally {
+      metrics.totalDurationMs += performance.now() - batchStart;
     }
   }
 
