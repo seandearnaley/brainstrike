@@ -38,6 +38,23 @@ function calculateElapsed(startedAt: number): number {
   return Math.round(now() - startedAt);
 }
 
+function serializeErrorCause(error: unknown): string | undefined {
+  if (error === undefined || error === null) {
+    return undefined;
+  }
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+  if (typeof error === 'number') {
+    return `Error code: ${error} (0x${error.toString(16)})`;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
 export function createPQueueAdapter(options: PQueueAdapterOptions = {}): QueueAdapter {
   const concurrency = Math.max(1, Math.min(options.concurrency ?? 2, 4));
   const queue = new PQueue({ concurrency, autoStart: true });
@@ -167,7 +184,7 @@ async function embedOnMainThread(
       type: 'error',
       id: embedTask.id,
       message: error instanceof Error ? error.message : String(error),
-      cause: error,
+      cause: serializeErrorCause(error),
     });
     throw error;
   }
